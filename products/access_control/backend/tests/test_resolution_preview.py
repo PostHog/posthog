@@ -112,17 +112,19 @@ class TestBuildResolutionPreview(BaseUserAccessControlTest):
 
         playlist = SessionRecordingPlaylist.objects.create(team=self.team, created_by=self.user, name="Bug hunts")
         self._create_access_control(
-            resource="session_recording_playlist", resource_id=str(playlist.id), access_level="none"
+            resource="session_recording_playlist", resource_id=str(playlist.id), access_level="editor"
         )
         self._create_access_control(
-            resource="session_recording", access_level="editor", organization_member=self.other_membership
+            resource="session_recording", access_level="none", organization_member=self.other_membership
         )
 
         changes = self._changes()
 
         member_changes = [change for change in changes if change.subject.type == "member"]
         assert [(change.scope, change.object_id) for change in member_changes] == [("object", str(playlist.id))]
-        assert (member_changes[0].current.access_level, member_changes[0].proposed.access_level) == ("editor", "none")
+        # Legacy: the member's parent-resource rule blocks the object. Most-specific: the object's
+        # own default row decides first, so the member's parent rule no longer reaches it.
+        assert (member_changes[0].current.access_level, member_changes[0].proposed.access_level) == ("none", "editor")
 
     @parameterized.expand(
         [

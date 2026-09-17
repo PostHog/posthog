@@ -10,6 +10,7 @@ from django.views.decorators.csrf import csrf_exempt
 import structlog
 
 from posthog.models.integration import SlackIntegrationError
+from posthog.regions import is_primary_region
 
 from products.conversations.backend.models import ConversationInboundEventSource
 from products.conversations.backend.services.inbound_events import (
@@ -17,7 +18,7 @@ from products.conversations.backend.services.inbound_events import (
     slack_events_source_id,
     slack_retry_metadata,
 )
-from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
+from products.conversations.backend.services.region_routing import proxy_to_secondary_region
 from products.conversations.backend.support_slack import team_for_slack_workspace, validate_support_request
 from products.conversations.backend.tasks.slack import wake_inbound_event
 

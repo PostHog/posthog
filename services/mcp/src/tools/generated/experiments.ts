@@ -276,6 +276,9 @@ const experimentCreate = (): ToolBase<ReturnType<typeof ExperimentCreateSchema>,
             if (params.allow_unknown_events !== undefined) {
                 body['allow_unknown_events'] = params.allow_unknown_events
             }
+            if (params.tags !== undefined) {
+                body['tags'] = params.tags
+            }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/`,
@@ -297,6 +300,7 @@ const experimentCreate = (): ToolBase<ReturnType<typeof ExperimentCreateSchema>,
                 'metrics_secondary',
                 'conclusion',
                 'conclusion_comment',
+                'tags',
             ]) as typeof result
             return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
@@ -423,6 +427,7 @@ const ExperimentDuplicateSchema = () => {
                     update_feature_flag_params: true,
                     version: true,
                     original_experiment: true,
+                    tags: true,
                 }).shape
             )
             .extend({ id: z.preprocess(castStringToInt, ExperimentsDuplicateCreateParams.shape['id']) })
@@ -767,6 +772,7 @@ const experimentList = (): ToolBase<
                     archived: params.archived,
                     created_by_id: params.created_by_id,
                     event: params.event,
+                    excluded_tags: params.excluded_tags,
                     feature_flag_id: params.feature_flag_id,
                     limit: params.limit,
                     offset: params.offset,
@@ -774,6 +780,7 @@ const experimentList = (): ToolBase<
                     prompt_name: params.prompt_name,
                     search: params.search,
                     status: params.status,
+                    tags: params.tags,
                 },
             })
             const filtered = {
@@ -792,6 +799,7 @@ const experimentList = (): ToolBase<
                         'status',
                         'created_at',
                         'updated_at',
+                        'tags',
                     ])
                 ),
             } as typeof result
@@ -1435,6 +1443,9 @@ const experimentUpdate = (): ToolBase<ReturnType<typeof ExperimentUpdateSchema>,
             if (params.update_feature_flag_params !== undefined) {
                 body['update_feature_flag_params'] = params.update_feature_flag_params
             }
+            if (params.tags !== undefined) {
+                body['tags'] = params.tags
+            }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'PATCH',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/`,
@@ -1458,10 +1469,43 @@ const experimentUpdate = (): ToolBase<ReturnType<typeof ExperimentUpdateSchema>,
                 'saved_metrics',
                 'conclusion',
                 'conclusion_comment',
+                'tags',
             ]) as typeof result
             return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
+
+const ExperimentsBulkUpdateTagsCreateSchema = () => {
+    const ExperimentsBulkUpdateTagsCreateBody = orvalSchemas.ExperimentsBulkUpdateTagsCreateBody()
+    return ExperimentsBulkUpdateTagsCreateBody
+}
+
+const experimentsBulkUpdateTagsCreate = (): ToolBase<
+    ReturnType<typeof ExperimentsBulkUpdateTagsCreateSchema>,
+    Schemas.BulkUpdateTagsResponse
+> => ({
+    name: 'experiments-bulk-update-tags-create',
+    schema: ExperimentsBulkUpdateTagsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentsBulkUpdateTagsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.ids !== undefined) {
+            body['ids'] = params.ids
+        }
+        if (params.action !== undefined) {
+            body['action'] = params.action
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        const result = await context.api.request<Schemas.BulkUpdateTagsResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/bulk_update_tags/`,
+            body,
+        })
+        return result
+    },
+})
 
 const ExperimentsSessionEventDeltasCreateSchema = () => {
     const ExperimentsSessionEventDeltasCreateParams = orvalSchemas.ExperimentsSessionEventDeltasCreateParams()
@@ -1534,5 +1578,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-unarchive': experimentUnarchive,
     'experiment-unfreeze-exposure': experimentUnfreezeExposure,
     'experiment-update': experimentUpdate,
+    'experiments-bulk-update-tags-create': experimentsBulkUpdateTagsCreate,
     'experiments-session-event-deltas-create': experimentsSessionEventDeltasCreate,
 }

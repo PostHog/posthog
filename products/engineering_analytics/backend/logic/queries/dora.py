@@ -50,6 +50,7 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, DeploySources, opt_float
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    UNPAGED_SCAN_LIMIT,
     run_started_floor_constant,
     window_pair_predicates,
 )
@@ -802,11 +803,11 @@ def query_dora_overview(
 # Every deployed PR relevant to one window, one row each: deployed in the window (the distribution
 # population) or merged in it (the attribution-coverage population). The author page splits the
 # rows in Python, so the containment rule stays defined once, in the CTEs above.
-_DEPLOYED_PR_ROWS_SELECT = """
+_DEPLOYED_PR_ROWS_SELECT = f"""
     SELECT number, (__SCOPE__) AS in_scope, created_at, merged_at, deployed_at
     FROM deployed_prs
-    WHERE (deployed_at >= {date_from} __DATE_TO_DEPLOYED__) OR (merged_at >= {date_from} __DATE_TO_MERGED__)
-    LIMIT 100000
+    WHERE (deployed_at >= {{date_from}} __DATE_TO_DEPLOYED__) OR (merged_at >= {{date_from}} __DATE_TO_MERGED__)
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 

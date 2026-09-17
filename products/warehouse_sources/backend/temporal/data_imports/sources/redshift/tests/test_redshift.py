@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, call, patch
@@ -456,17 +457,52 @@ class TestGetTableMetadata:
 
         assert table.type == "view"
 
-    def test_populates_numeric_precision_and_scale_for_decimals(self, impl, cursor):
+    @pytest.mark.parametrize(
+        "catalog_precision,catalog_scale,expected",
+        [
+            (10, 2, (10, 2)),
+            # `numeric(18,0)` reports a scale of 0, which is a value, not a missing one: swapping it
+            # for the default made `decimal128(18,18)`, which cannot hold an integer.
+            (18, 0, (18, 0)),
+            (None, None, (38, 18)),
+        ],
+    )
+    def test_populates_numeric_precision_and_scale_for_decimals(
+        self, impl, cursor, catalog_precision, catalog_scale, expected
+    ):
         cursor.execute.return_value = cursor
         cursor.fetchone.return_value = (False,)
-        cursor.__iter__.return_value = iter(
-            [
-                ("amount", "decimal", "NO", 10, 2),
-            ]
-        )
+        cursor.__iter__.return_value = iter([("amount", "decimal", "NO", catalog_precision, catalog_scale)])
+
         table = impl.get_table_metadata(cursor, "public", "orders")
-        assert table.columns[0].numeric_precision == 10
-        assert table.columns[0].numeric_scale == 2
+
+        assert (table.columns[0].numeric_precision, table.columns[0].numeric_scale) == expected
+        assert str(table.columns[0].to_arrow_field().type) == f"decimal128({expected[0]}, {expected[1]})"
+
+    def test_reads_columns_from_pg_catalog_when_information_schema_hides_the_relation(self, impl, cursor):
+        # Without the fallback a materialized view the role can read but `information_schema`
+        # does not list synced with an empty Arrow schema.
+        cursor.execute.return_value = cursor
+        cursor.fetchone.return_value = (True,)
+        cursor.__iter__.return_value = iter([])
+        cursor.fetchall.return_value = [
+            ("public", "daily_totals", "day", "date", "NO"),
+            ("public", "daily_totals", "total", "numeric(18,2)", "YES"),
+            ("public", "daily_totals", "units", "numeric(18)", "YES"),
+        ]
+
+        table = impl.get_table_metadata(cursor, "public", "daily_totals")
+
+        assert table.type == "materialized_view"
+        assert [(c.name, c.data_type, c.nullable) for c in table.columns] == [
+            ("day", "date", False),
+            ("total", "numeric", True),
+            ("units", "numeric", True),
+        ]
+        assert [(c.numeric_precision, c.numeric_scale) for c in table.columns[1:]] == [(18, 2), (18, 0)]
+        catalog_sql, catalog_params = cursor.execute.call_args.args
+        assert "pg_catalog.pg_attribute" in catalog_sql
+        assert catalog_params == {"schema": "public", "table": "daily_totals", "internal_column": "padb_internal%"}
 
     def test_excludes_redshift_internal_columns_from_arrow_schema(self, impl, cursor):
         # Materialized views expose `padb_internal_*` bookkeeping columns in
@@ -900,13 +936,79 @@ class TestHasDuplicatePrimaryKeys:
         cursor.fetchone.return_value = None
         assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
 
-    def test_returns_false_on_exception(self, impl, cursor, logger):
+    def test_returns_inconclusive_on_exception(self, impl: Any, cursor: Any, logger: Any) -> None:
         cursor.execute.side_effect = RuntimeError("boom")
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
         ) as mock_capture:
-            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
+            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is None
         mock_capture.assert_called_once()
+
+    def test_window_limits_the_scan_to_the_rows_this_run_reads(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.fetchone.return_value = None
+
+        impl.has_duplicate_primary_keys(
+            cursor, "public", "t", ["id"], logger, incremental_window=("updated_at", ">", "2026-01-01")
+        )
+
+        executed = cursor.execute.call_args.args[0].as_string()
+        assert '"updated_at" > ' in executed
+
+    def test_window_counts_its_keys_across_the_whole_table(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.fetchone.return_value = None
+
+        impl.has_duplicate_primary_keys(
+            cursor, "public", "t", ["id"], logger, incremental_window=("updated_at", ">", "2026-01-01")
+        )
+
+        executed = cursor.execute.call_args.args[0].as_string()
+        assert "EXISTS (SELECT 1 FROM (SELECT DISTINCT" in executed
+        assert executed.index("GROUP BY") > executed.index("EXISTS (SELECT 1 FROM (SELECT DISTINCT")
+
+    def test_window_matches_a_null_key_as_well(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.fetchone.return_value = None
+        impl.has_duplicate_primary_keys(
+            cursor, "public", "t", ["id", "region"], logger, incremental_window=("updated_at", ">", "2026-01-01")
+        )
+        executed = cursor.execute.call_args.args[0].as_string()
+        assert '(t."id" = c."id" OR (t."id" IS NULL AND c."id" IS NULL))' in executed
+        assert '(t."region" = c."region" OR (t."region" IS NULL AND c."region" IS NULL))' in executed
+        assert " IN (" not in executed
+
+    def test_row_filters_bound_both_sides_of_the_check(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.fetchone.return_value = None
+
+        impl.has_duplicate_primary_keys(
+            cursor,
+            "public",
+            "t",
+            ["id"],
+            logger,
+            incremental_window=("updated_at", ">", "2026-01-01"),
+            row_filters=[
+                ValidatedRowFilter(column="tenant", operator="=", value="acme", category=ColumnTypeCategory.STRING)
+            ],
+        )
+
+        executed = cursor.execute.call_args.args[0].as_string()
+        assert executed.count('"tenant"') == 2
+
+    def test_an_aborted_check_is_inconclusive_not_clean(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.execute.side_effect = psycopg.errors.InternalError_("system requested abort")
+
+        assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is None
+
+    def test_no_window_scans_the_whole_table(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.fetchone.return_value = None
+
+        impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger)
+
+        assert "WHERE" not in cursor.execute.call_args.args[0].as_string()
+
+    def test_query_canceled_is_propagated(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.execute.side_effect = psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+        with pytest.raises(psycopg.errors.QueryCanceled):
+            impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger)
 
     def test_operational_error_is_propagated(self, impl, cursor, logger):
         # A connection-level failure (e.g. the SSL connection dropping mid-query) means the probe
@@ -922,7 +1024,7 @@ class TestHasDuplicatePrimaryKeys:
                 impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger)
         mock_capture.assert_not_called()
 
-    def test_system_requested_abort_is_not_reported(self, impl, cursor, logger):
+    def test_system_requested_abort_is_not_reported(self, impl: Any, cursor: Any, logger: Any) -> None:
         # Redshift WLM/QMR aborts (code 1020, "system requested abort") surface as `InternalError_`
         # and are expected, non-actionable noise — skip gracefully without reporting to error tracking.
         abort_message = (
@@ -933,7 +1035,7 @@ class TestHasDuplicatePrimaryKeys:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
         ) as mock_capture:
-            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
+            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is None
         mock_capture.assert_not_called()
 
 
@@ -942,17 +1044,24 @@ class TestHasDuplicatePrimaryKeys:
 # ---------------------------------------------------------------------------
 
 
+def _columns_conn(*fetches: list[tuple[Any, ...]]) -> tuple[MagicMock, MagicMock]:
+    conn = MagicMock()
+    cur = MagicMock()
+    cur.__enter__.return_value = cur
+    cur.fetchall.side_effect = [*fetches, [], [], []]
+    conn.cursor.return_value = cur
+    return conn, cur
+
+
 class TestGetColumns:
     def test_returns_columns_grouped_by_table(self, impl):
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
-        cur.fetchall.return_value = [
-            ("public", "users", "id", "integer", "NO"),
-            ("public", "users", "email", "varchar", "YES"),
-            ("public", "orders", "id", "bigint", "NO"),
-        ]
-        conn.cursor.return_value = cur
+        conn, cur = _columns_conn(
+            [
+                ("public", "users", "id", "integer", "NO"),
+                ("public", "users", "email", "varchar", "YES"),
+                ("public", "orders", "id", "bigint", "NO"),
+            ]
+        )
 
         result = impl.get_columns(conn, _make_config(), names=None)
 
@@ -961,43 +1070,33 @@ class TestGetColumns:
             "users": [("id", "integer", False), ("email", "varchar", True)],
             "orders": [("id", "bigint", False)],
         }
-        executed_sql = cur.execute.call_args.args[0]
+        executed_sql = cur.execute.call_args_list[0].args[0]
         assert "table_schema = %(schema)s" in executed_sql
 
     def test_returns_empty_when_no_rows(self, impl):
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
-        cur.fetchall.return_value = []
-        conn.cursor.return_value = cur
+        conn, _cur = _columns_conn([])
 
         assert impl.get_columns(conn, _make_config(), names=["foo"]) == {}
 
     def test_excludes_redshift_internal_columns(self, impl):
         # Discovery must drop the `padb_internal_*` columns Redshift stamps onto materialized
         # views — they never come back from `SELECT *`, so surfacing them desyncs the schema.
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
-        cur.fetchall.return_value = []
-        conn.cursor.return_value = cur
+        conn, cur = _columns_conn([])
 
         impl.get_columns(conn, _make_config(), names=None)
 
-        executed_sql, executed_params = cur.execute.call_args.args
+        executed_sql, executed_params = cur.execute.call_args_list[0].args
         assert "column_name NOT LIKE %(internal_column)s" in executed_sql
         assert executed_params["internal_column"] == "padb_internal%"
 
     def test_blank_schema_qualifies_and_excludes_system_schemas(self, impl):
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
         # Same table name in two schemas must stay distinct.
-        cur.fetchall.return_value = [
-            ("analytics", "users", "id", "integer", "NO"),
-            ("public", "users", "id", "bigint", "NO"),
-        ]
-        conn.cursor.return_value = cur
+        conn, cur = _columns_conn(
+            [
+                ("analytics", "users", "id", "integer", "NO"),
+                ("public", "users", "id", "bigint", "NO"),
+            ]
+        )
 
         result = impl.get_columns(conn, _make_config(schema=""), names=None)
 
@@ -1005,17 +1104,13 @@ class TestGetColumns:
             "analytics.users": [("id", "integer", False)],
             "public.users": [("id", "bigint", False)],
         }
-        executed_sql, executed_params = cur.execute.call_args.args
+        executed_sql, executed_params = cur.execute.call_args_list[0].args
         assert "table_schema NOT IN" in executed_sql
         assert "pg_temp_%" in executed_sql
         assert set(executed_params.values()) >= {"pg_catalog", "information_schema", "pg_internal", "pg_automv"}
 
     def test_blank_schema_with_qualified_names_filters_by_pair(self, impl):
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
-        cur.fetchall.return_value = [("analytics", "users", "id", "integer", "NO")]
-        conn.cursor.return_value = cur
+        conn, cur = _columns_conn([("analytics", "users", "id", "integer", "NO")])
 
         result = impl.get_columns(conn, _make_config(schema=""), names=["analytics.users"])
 
@@ -1024,6 +1119,72 @@ class TestGetColumns:
         assert "table_schema = %(sch_0)s AND table_name = %(tbl_0)s" in executed_sql
         assert executed_params["sch_0"] == "analytics"
         assert executed_params["tbl_0"] == "users"
+
+    def test_requested_relation_hidden_from_information_schema_is_read_from_pg_catalog(self, impl):
+        # A materialized view the role can read may still have no `information_schema.columns`
+        # rows, which made "edit sync method" report the relation as missing or unreadable.
+        conn, cur = _columns_conn(
+            [("public", "orders", "id", "bigint", "NO")],
+            [
+                ("public", "daily_totals", "day", "date", "NO"),
+                ("public", "daily_totals", "total", "numeric(18,2)", "YES"),
+                ("public", "daily_totals", "label", "character varying(256)", "YES"),
+                ("public", "daily_totals", "refreshed_at", "timestamp without time zone", "YES"),
+            ],
+        )
+
+        result = impl.get_columns(conn, _make_config(schema=""), names=["public.orders", "public.daily_totals"])
+
+        assert result == {
+            "public.orders": [("id", "bigint", False)],
+            "public.daily_totals": [
+                ("day", "date", False),
+                ("total", "numeric", True),
+                ("label", "character varying", True),
+                ("refreshed_at", "timestamp without time zone", True),
+            ],
+        }
+        catalog_sql, catalog_params = cur.execute.call_args.args
+        assert "pg_catalog.pg_attribute" in catalog_sql
+        assert "n.nspname = %(sch_0)s AND c.relname = %(tbl_0)s" in catalog_sql
+        assert catalog_params["tbl_0"] == "daily_totals"
+        assert "orders" not in catalog_params.values()
+
+    def test_full_listing_adds_materialized_views_missing_from_information_schema(self, impl):
+        # A schema refresh disables the sync of every table it no longer lists, so a hidden
+        # materialized view has to come back from `svv_mv_info` + `pg_catalog`. One that
+        # `information_schema` did list must not be read twice.
+        conn, cur = _columns_conn(
+            [
+                ("public", "orders", "id", "bigint", "NO"),
+                ("public", "listed_mv", "id", "bigint", "NO"),
+            ],
+            [("public", "listed_mv"), ("public", "hidden_mv")],
+            [("public", "hidden_mv", "id", "integer", "NO")],
+        )
+
+        result = impl.get_columns(conn, _make_config(), names=None)
+
+        assert result == {
+            "orders": [("id", "bigint", False)],
+            "listed_mv": [("id", "bigint", False)],
+            "hidden_mv": [("id", "integer", False)],
+        }
+        mv_sql = cur.execute.call_args_list[1].args[0]
+        assert "svv_mv_info" in mv_sql
+        catalog_params = cur.execute.call_args.args[1]
+        assert catalog_params["name_0"] == "hidden_mv"
+        assert "listed_mv" not in catalog_params.values()
+
+    def test_full_listing_keeps_information_schema_rows_when_mv_probe_fails(self, impl):
+        conn, cur = _columns_conn([("public", "orders", "id", "bigint", "NO")])
+        cur.execute.side_effect = [cur, Exception("permission denied for relation svv_mv_info")]
+        conn.info.transaction_status = TransactionStatus.INERROR
+
+        result = impl.get_columns(conn, _make_config(), names=None)
+
+        assert result == {"orders": [("id", "bigint", False)]}
+        conn.rollback.assert_called_once()
 
 
 class TestGetPrimaryKeys:

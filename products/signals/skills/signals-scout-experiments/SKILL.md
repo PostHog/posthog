@@ -1,5 +1,6 @@
 ---
 name: signals-scout-experiments
+scout-display-name: Experiments
 description: >
   Signals scout for PostHog A/B experiments. Watches running experiments for validity threats —
   sample ratio mismatch, contamination, exposure stalls, mid-run flag mutations — and lifecycle

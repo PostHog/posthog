@@ -22,6 +22,7 @@ import {
     DataWarehouseSavedQueryRunHistory,
 } from '~/types'
 
+import { endpointModelUrl, parseEndpointModelName } from 'products/data_modeling/frontend/endpointModelName'
 import { NodeSuspensionApi } from 'products/data_modeling/frontend/generated/api.schemas'
 import { statusBackgroundClass } from 'products/data_modeling/frontend/lineage/nodeStyles'
 import { SEARCH_SYNTAX_HELP } from 'products/data_modeling/frontend/lineage/SearchSyntaxHelp'
@@ -160,7 +161,8 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
 
     const viewLink = (view: DataWarehouseSavedQuery): { to: string; description?: string } => {
         if (view.origin === DataWarehouseSavedQueryOrigin.ENDPOINT) {
-            return { to: urls.endpoint(view.name), description: `Created by the ${view.name} endpoint` }
+            const endpointName = parseEndpointModelName(view.name)?.endpointName ?? view.name
+            return { to: endpointModelUrl(view.name), description: `Created by the ${endpointName} endpoint` }
         }
         if (view.managed_viewset_kind !== null) {
             return {
@@ -177,12 +179,21 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
             key: 'name',
             render: (_, view) => {
                 const { to, description } = viewLink(view)
+                const endpointModel =
+                    view.origin === DataWarehouseSavedQueryOrigin.ENDPOINT ? parseEndpointModelName(view.name) : null
                 return (
                     <LemonTableLink
                         to={to}
                         title={
                             <>
-                                {view.name}
+                                {endpointModel?.endpointName ?? view.name}
+                                {endpointModel && (
+                                    <Tooltip title={`Version ${endpointModel.version} of this endpoint`}>
+                                        <LemonTag type="muted" size="small">
+                                            v{endpointModel.version}
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
                                 <Tooltip
                                     title={
                                         view.is_materialized ? VIEW_TYPE_TOOLTIPS.materialized : VIEW_TYPE_TOOLTIPS.view

@@ -314,12 +314,18 @@ export const SignalsReportArtefactsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
- * Schedule a re-measurement of the report's claim. A `metric_threshold` check runs one bounded Trends query and compares the result, so it needs no agent run.
+ * Schedule a re-measurement of the report's claim. A `metric_threshold` check runs one bounded Trends query and compares the result, so it needs no agent run. An `agent` check runs a scout instead, for a claim no single number settles; it runs on the scout its config names, or on the fleet's follow-up scout when it names none.
  * @summary Create a check on a report
  */
 export const signalsReportChecksCreateBodyTitleMax = 200
 
 export const signalsReportChecksCreateBodyRationaleMax = 2000
+
+export const signalsReportChecksCreateBodyConfigOneTwoInstructionsMax = 2000
+
+export const signalsReportChecksCreateBodyConfigOneTwoSkillNameOneMax = 200
+
+export const signalsReportChecksCreateBodyConfigOneTwoProbeHintsMax = 5
 
 export const signalsReportChecksCreateBodyRunIntervalMinutesMin = 360
 export const signalsReportChecksCreateBodyRunIntervalMinutesMax = 129600
@@ -338,50 +344,81 @@ export const SignalsReportChecksCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe('Why the check is worth running.'),
         kind: zod
-            .enum(['metric_threshold'])
-            .describe('\* `metric_threshold` - Metric Threshold')
-            .describe('How the check is evaluated.\n\n\* `metric_threshold` - Metric Threshold'),
+            .enum(['metric_threshold', 'agent'])
+            .describe('\* `metric_threshold` - Metric Threshold\n\* `agent` - Agent')
+            .describe('How the check is evaluated.\n\n\* `metric_threshold` - Metric Threshold\n\* `agent` - Agent'),
         config: zod
-            .object({
-                metric_id: zod
-                    .union([zod.string(), zod.null()])
-                    .optional()
-                    .describe(
-                        "Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created."
-                    ),
-                query: zod
-                    .union([zod.record(zod.string(), zod.unknown()), zod.null()])
-                    .optional()
-                    .describe(
-                        'Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created.'
-                    ),
-                comparison: zod
+            .union([
+                zod
                     .object({
-                        operator: zod.enum(['lte', 'gte', 'between']).describe('`lte`, `gte`, or `between`.'),
-                        value: zod
+                        metric_id: zod
+                            .union([zod.string(), zod.null()])
+                            .optional()
+                            .describe(
+                                "Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created."
+                            ),
+                        query: zod
+                            .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                            .optional()
+                            .describe(
+                                'Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created.'
+                            ),
+                        comparison: zod
+                            .object({
+                                operator: zod.enum(['lte', 'gte', 'between']).describe('`lte`, `gte`, or `between`.'),
+                                value: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe('The bound for `lte` and `gte`; unused by `between`.'),
+                                bounds: zod
+                                    .union([
+                                        zod.object({
+                                            lower: zod.number(),
+                                            upper: zod.number(),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('The inclusive range for `between`; unused by `lte` and `gte`.'),
+                            })
+                            .describe('What the measured value must satisfy to pass.'),
+                        baseline_value: zod
                             .union([zod.number(), zod.null()])
                             .optional()
-                            .describe('The bound for `lte` and `gte`; unused by `between`.'),
-                        bounds: zod
+                            .describe(
+                                'The value observed when the check was written, recorded on each result for context.'
+                            ),
+                    })
+                    .describe(
+                        "A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.\n\nA caller names one source. When it names a metric, the create path copies that metric's query\ninto ``query`` before the row is stored, so the check keeps measuring what its author saw even if\nthe report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.\n\nUnknown keys are refused rather than ignored, so a misspelled field name is reported instead of\nbeing dropped in silence and stored as it arrived."
+                    ),
+                zod
+                    .object({
+                        instructions: zod
+                            .string()
+                            .max(signalsReportChecksCreateBodyConfigOneTwoInstructionsMax)
+                            .describe("What the run must establish, in the author's own words."),
+                        skill_name: zod
                             .union([
-                                zod.object({
-                                    lower: zod.number(),
-                                    upper: zod.number(),
-                                }),
+                                zod.string().max(signalsReportChecksCreateBodyConfigOneTwoSkillNameOneMax),
                                 zod.null(),
                             ])
                             .optional()
-                            .describe('The inclusive range for `between`; unused by `lte` and `gte`.'),
+                            .describe(
+                                "Scout skill that runs the check. Omit it to run on the fleet's follow-up scout, which is the right lane for a report no scout authored."
+                            ),
+                        probe_hints: zod
+                            .array(zod.string())
+                            .max(signalsReportChecksCreateBodyConfigOneTwoProbeHintsMax)
+                            .optional()
+                            .describe(
+                                'Concrete places to look, such as an issue id, a service name, or a query to repeat.'
+                            ),
                     })
-                    .describe('What the measured value must satisfy to pass.'),
-                baseline_value: zod
-                    .union([zod.number(), zod.null()])
-                    .optional()
-                    .describe('The value observed when the check was written, recorded on each result for context.'),
-            })
-            .describe(
-                "A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.\n\nA caller names one source. When it names a metric, the create path copies that metric's query\ninto ``query`` before the row is stored, so the check keeps measuring what its author saw even if\nthe report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.\n\nUnknown keys are refused rather than ignored, so a misspelled field name is reported instead of\nbeing dropped in silence and stored as it arrived."
-            )
+                    .describe(
+                        'A check a scout run answers: re-probe the report\'s claim and record one verdict.\n\nThe kind for a claim no single number settles. A resolved error-tracking report is the usual\ncase: \"did the exception stop?\" needs the issue looked up, its recent events read, and the\nstack compared against what the fix changed, which is a run rather than a comparison.\n\nEverything here is prompt material a scout reads, so it is untrusted by construction: it renders\nin the run block the agent is told to weigh, never in the instructions it is told to follow. The\nverdict still comes back through `scout-check-record-result`, so instructions cannot widen what\na check run may write.\n\n``skill_name`` names the lane. Most reports are pipeline-authored and have no scout behind them,\nso it is optional: a check that names none runs on the fleet\'s follow-up scout\n(see ``report_check_agent.FALLBACK_CHECK_SKILL_NAME``).'
+                    ),
+            ])
             .describe('What the check measures and what the result must satisfy; the shape depends on `kind`.'),
         next_run_at: zod.iso
             .datetime({ offset: true })
@@ -503,9 +540,11 @@ export const SignalsReportsRefreshMetricsCreateBody = /* @__PURE__ */ zod.object
 })
 
 /**
- * Create a scout skill and its runnable config atomically. Any valid skill name works — the config row is what makes the skill a scout. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, network access, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
+ * Create a scout skill and its runnable config atomically. Give it a `display_name` — the label people read, kept exactly as written — and the scout's permanent skill name is generated from it, with a numeric suffix when that name is taken, so two scouts may share a label without sharing an identity. Pass `name` instead to pick that identifier yourself; any valid skill name works, since the config row is what makes a skill a scout. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, network access, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing an explicit `name` for a different definition returns 409.
  * @summary Create a scout
  */
+export const signalsScoutCreateBodyDisplayNameMax = 200
+
 export const signalsScoutCreateBodyNameMax = 64
 
 export const signalsScoutCreateBodyDescriptionMax = 1024
@@ -546,11 +585,19 @@ export const signalsScoutCreateBodySuggestionIdMax = 64
 
 export const SignalsScoutCreateBody = /* @__PURE__ */ zod
     .object({
+        display_name: zod
+            .string()
+            .max(signalsScoutCreateBodyDisplayNameMax)
+            .optional()
+            .describe(
+                "Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead."
+            ),
         name: zod
             .string()
             .max(signalsScoutCreateBodyNameMax)
+            .optional()
             .describe(
-                'Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.'
+                'Optional skill name for the scout — its permanent identifier, containing only lowercase letters, numbers, and hyphens. Omit it and one is generated from `display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when that name is taken. Pass it to pick the identifier yourself, or to keep a client written before display names working unchanged. The `signals-scout-` prefix is optional.'
             ),
         description: zod
             .string()
@@ -798,6 +845,8 @@ export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersMax =
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault = true
 export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
 
+export const signalsScoutConfigCreateBodyDisplayNameMax = 200
+
 export const signalsScoutConfigCreateBodySkillNameMax = 200
 
 export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
@@ -938,6 +987,13 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
             ),
+        display_name: zod
+            .string()
+            .max(signalsScoutConfigCreateBodyDisplayNameMax)
+            .optional()
+            .describe(
+                "Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead."
+            ),
         skill_name: zod
             .string()
             .max(signalsScoutConfigCreateBodySkillNameMax)
@@ -987,7 +1043,9 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .string()
             .max(signalsScoutConfigUpdateBodyDisplayNameMax)
             .optional()
-            .describe('Name shown in the UI. Does not change the skill name. Leave blank to use the default name.'),
+            .describe(
+                "Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead."
+            ),
         enabled: zod
             .boolean()
             .optional()
@@ -1185,6 +1243,34 @@ export const SignalsScoutNotesCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Request body for `notes-create`.')
+
+/**
+ * Close the follow-up check this run was dispatched to answer. The run note carries the check id and what to establish; this call is the only thing that records the answer, so a run that investigates and says nothing leaves the check unanswered. The verdict lands on the report as a `check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it, so send the outcome you actually reached rather than the one that closes the loop. A run may only close a check dispatched to its own scout.
+ * @summary Record the verdict on a report check
+ */
+export const signalsScoutRecordCheckResultBodyExplanationMax = 1000
+
+export const SignalsScoutRecordCheckResultBody = /* @__PURE__ */ zod
+    .object({
+        check_id: zod.uuid().describe('The check this run was dispatched to answer, as given in the run note.'),
+        outcome: zod
+            .enum(['passed', 'failed', 'errored'])
+            .describe('\* `passed` - Passed\n\* `failed` - Failed\n\* `errored` - Errored')
+            .describe(
+                '`passed` when the expectation still holds, `failed` when it does not, and `errored` when you could not establish either. `failed` retires the check, so use it for a conclusion, not a suspicion.\n\n\* `passed` - Passed\n\* `failed` - Failed\n\* `errored` - Errored'
+            ),
+        explanation: zod
+            .string()
+            .max(signalsScoutRecordCheckResultBodyExplanationMax)
+            .describe(
+                'One or two sentences on what you looked at and what it showed. This is what a person reads on the report, so write it for them, with the numbers or entities you checked.'
+            ),
+        observed_value: zod
+            .number()
+            .nullish()
+            .describe('The number you measured, when the check came down to one. Leave it out otherwise.'),
+    })
+    .describe('Request body for `scout-check-record-result`: the verdict on one dispatched report check.')
 
 /**
  * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Title/summary edits are best-effort: the pipeline may later re-research them.
@@ -1888,6 +1974,32 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Request body for `emit-finding`. Run attribution is taken from the URL path.')
+
+/**
+ * Load one page in a real browser and return what makes it slow — most usefully the element the browser chose as the Largest Contentful Paint, and where the LCP time went. Field data says a route is slow; this says which element and why, so a finding can name it instead of guessing from source. Restricted to public PostHog pages: the browser signs in to nothing, so a page behind a login would report the login screen's numbers. One throttled cold load is not a p75 over real users — corroborate a field finding with it, never replace one. Capped at 5 audits per run.
+ * @summary Run a Lighthouse audit for a run
+ */
+export const signalsScoutLighthouseAuditBodyUrlMax = 2000
+
+export const signalsScoutLighthouseAuditBodyFormFactorDefault = `desktop`
+
+export const SignalsScoutLighthouseAuditBody = /* @__PURE__ */ zod
+    .object({
+        url: zod
+            .url()
+            .max(signalsScoutLighthouseAuditBodyUrlMax)
+            .describe(
+                "The page to audit. Must be an https url on an allowed host — public PostHog pages only. Pages behind a login cannot be audited: the browser signs in to nothing, so it would measure the login screen and report its numbers as the page's."
+            ),
+        form_factor: zod
+            .enum(['desktop', 'mobile'])
+            .describe('\* `desktop` - desktop\n\* `mobile` - mobile')
+            .default(signalsScoutLighthouseAuditBodyFormFactorDefault)
+            .describe(
+                'Which device profile to emulate. Desktop and mobile produce different numbers, so audit the one whose field data you are explaining.\n\n\* `desktop` - desktop\n\* `mobile` - mobile'
+            ),
+    })
+    .describe('Request body for `scout-lighthouse-audit`: one page, one device profile.')
 
 /**
  * The structured-output channel: record schema-validated records this run produced. Opt-in via the scout config's `structured_output_schema` (a JSON Schema describing one record) — without it the call fails closed, as it does for a dry-run scout (emit off). All-or-nothing: any invalid record fails the whole call with nothing written, so fix and resubmit the batch. Each accepted record lands in the project's event stream as a `$scout_structured_output` event — query them like any event (insights, SQL over `events`). Recording is idempotent: event ids are deterministic, so resubmitting an identical batch (e.g. retrying after a 503) cannot double-count.
