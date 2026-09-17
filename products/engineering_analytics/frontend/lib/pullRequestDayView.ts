@@ -1,6 +1,3 @@
-// The author page's day view: every pull request on a shared clock, grouped by what is most useful
-// to look at first. Pure functions, so the grouping and the axis fit are testable without a render.
-
 import { Dayjs, dayjs } from 'lib/dayjs'
 
 import { PRTimelineApi, PRTimelineSegmentKindEnumApi as Kind } from '../generated/api.schemas'

@@ -114,15 +114,13 @@ export function ReadyToMergeCard({
                                 key={`${index}:${row.label}`}
                                 label={row.label}
                                 labelTooltip={row.labelTooltip}
-                                value={compactAgeLabel(row.seconds)}
-                                fraction={(row.seconds ?? 0) / max}
+                                value={row.seconds}
+                                max={max}
+                                formatValue={compactAgeLabel}
                                 muted={row !== focus}
                                 marker={
                                     row.p90Seconds != null
-                                        ? {
-                                              fraction: row.p90Seconds / max,
-                                              tooltip: `90th percentile ${compactAgeLabel(row.p90Seconds)}`,
-                                          }
+                                        ? { value: row.p90Seconds, label: '90th percentile' }
                                         : null
                                 }
                             >

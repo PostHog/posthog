@@ -91,28 +91,11 @@ function deltaToChange(delta: TileDelta | undefined): MetricChange | null {
     return { value: rounded, label: `${display}${delta.unit ?? '%'}` }
 }
 
-export interface TileBenchmark {
-    /** The band name (e.g. 'Elite'), named in the label tooltip. */
-    label: string
-    band: 'elite' | 'high' | 'medium' | 'low'
-    /** The full benchmark ladder, shown in the label tooltip. */
-    tooltip: string
-}
-
-// Left accent per band: border-l-4 + a token class, the same accent recipe as WorkflowsHealthHeader.
-const BENCHMARK_EDGE_CLASS: Record<TileBenchmark['band'], string> = {
-    elite: 'border-l-success',
-    high: 'border-l-purple',
-    medium: 'border-l-warning',
-    low: 'border-l-danger',
-}
-
 export function MetricTile({
     label,
     tooltip,
     value,
     delta,
-    benchmark,
     sub,
     loading = false,
     className,
@@ -123,9 +106,6 @@ export function MetricTile({
     /** Pre-formatted headline value; '—' for no data. */
     value: string
     delta?: TileDelta
-    /** Where the value lands against a published benchmark ladder, shown as a coloured edge on the
-     *  card plus the ladder detail in the label tooltip. */
-    benchmark?: TileBenchmark | null
     /** Visible caption — only for an answer worth a glance (what's failing, why there's no value). */
     sub?: ReactNode
     /** Backend load in flight: skeleton the value so it doesn't flash a stale/zero number. Only for a
@@ -133,19 +113,8 @@ export function MetricTile({
     loading?: boolean
     className?: string
 }): JSX.Element {
-    const tooltipContent =
-        tooltip || benchmark ? (
-            <div className="flex flex-col gap-1">
-                {tooltip && <div>{tooltip}</div>}
-                {benchmark && (
-                    <div>
-                        DORA band: {benchmark.label.toLowerCase()}. {benchmark.tooltip}
-                    </div>
-                )}
-            </div>
-        ) : undefined
-    const labelNode = tooltipContent ? (
-        <Tooltip title={tooltipContent}>
+    const labelNode = tooltip ? (
+        <Tooltip title={tooltip}>
             <span className="cursor-default">{label}</span>
         </Tooltip>
     ) : (
@@ -154,11 +123,7 @@ export function MetricTile({
     return (
         <LemonCard
             hoverEffect={false}
-            className={cn(
-                'flex min-w-44 flex-1 flex-col justify-center px-5 py-4',
-                benchmark && `border-l-4 ${BENCHMARK_EDGE_CLASS[benchmark.band]}`,
-                className
-            )}
+            className={cn('flex min-w-44 flex-1 flex-col justify-center px-5 py-4', className)}
         >
             {/* MetricCard has no loading prop; skeleton the whole tile on a genuine reload so it never
                 flashes a stale/zero headline (the loading-states rule). */}

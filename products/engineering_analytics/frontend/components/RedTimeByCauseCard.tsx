@@ -1,6 +1,5 @@
-// Red check time on the listed merged pull requests, split by what turned the check green. No repo
-// figure: the cause comes from replaying each pull request's timeline, which is too heavy to run over
-// the whole repository per request.
+// No repo figure: the cause comes from replaying each pull request's timeline, which is too heavy to run
+// over the whole repository per request.
 
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 

@@ -70,15 +70,12 @@ describe('pullRequestDayView', () => {
     })
 
     it.each([
-        ['one outlier does not stretch the axis', 'days', [5, 6, 7, 8, 9, 10, 11, 12, 13, 1000], [1, 2]],
-        ['weeks round up to a whole week', 'weeks', [5, 20, 30], [7, 7]],
-        ['long waits cap at two weeks', 'days', [400, 500, 600], [14, 14]],
-    ] as const)('%s', (_name, alignment, lengths, [atLeast, atMost]) => {
+        ['one outlier does not stretch the axis', 'days', [5, 6, 7, 8, 9, 10, 11, 12, 13, 1000], 1],
+        ['weeks round up to a whole week', 'weeks', [5, 20, 30], 7],
+        ['long waits cap at two weeks', 'days', [400, 500, 600], 14],
+    ] as const)('%s', (_name, alignment, lengths, expectedDays) => {
         const items = lengths.map((length, index) => pr(index, [[Kind.CiRunning, 0, length]], { merged: true }))
-        const days = axisDays(items, alignment)
-        // The row origin follows the runner's time zone, so the fitted day count can shift by one.
-        expect(days).toBeGreaterThanOrEqual(atLeast)
-        expect(days).toBeLessThanOrEqual(atMost)
+        expect(axisDays(items, alignment)).toBe(expectedDays)
     })
 
     it('averages red time by cause over merged pull requests only', () => {
