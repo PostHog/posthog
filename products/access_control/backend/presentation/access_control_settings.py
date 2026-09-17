@@ -25,7 +25,6 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.documentation import OpenApiParameter, extend_schema
-from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -74,7 +73,7 @@ from .serializers import (
     AccessControlRolesResponseSerializer,
     AccessControlRuleWriteResponseSerializer,
 )
-from .views import PROPERTY_ACCESS_CONTROL_FEATURE_REQUIRED_MESSAGE
+from .views import check_can_write_property_rule
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -848,17 +847,11 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         membership: OrganizationMembership | None,
         role: Role | None,
     ) -> Response:
-        """The same checks as PropertyAccessControlViewSet, so a property rule set here cannot do
-        more than one set on the settings page."""
+        """Property rules live in their own model and go through the property facade, behind the
+        same gate as PropertyAccessControlViewSet."""
         if not property_definition_id:
             raise exceptions.ValidationError("resource_id is required for a property rule.")
-        if not team.organization.is_feature_available(AvailableFeature.PROPERTY_ACCESS_CONTROL):
-            raise exceptions.PermissionDenied(PROPERTY_ACCESS_CONTROL_FEATURE_REQUIRED_MESSAGE)
-        # The same gate AccessControlSerializer applies to role rules on every other scope
-        if role is not None and not team.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
-            raise exceptions.PermissionDenied("Role-based access controls require the Role-based access feature.")
-        if not user_access_control.check_can_modify_access_levels_for_object(team):
-            raise exceptions.PermissionDenied()
+        check_can_write_property_rule(team, user_access_control, role_id=role.id if role else None)
         levels = [level.value for level in PropertyAccessLevel]
         if access_level is not None and access_level not in levels:
             raise exceptions.ValidationError(f"Invalid access level. Must be one of: {', '.join(levels)}")
