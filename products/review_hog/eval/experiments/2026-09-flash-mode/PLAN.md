@@ -50,6 +50,121 @@ pins on one frozen PR; this one ships Flash as a run mode and measures it on ~10
    the Python gateway, where the patched `background_agents` allowlist takes over). Watch `AI_GATEWAY_TOKEN_MINTS`
    and the first unit's `$ai_model`.
 
+
+## WORK TO DO (kept current so a compacted session can resume; check off as done)
+
+Goal: find the cheapest + fastest Flash arm with good-enough quality. **A run without dollar figures has no value.**
+
+1. [x] **Cost capture must work before any run.** DONE 21:50 UTC: `capture-ai` added to the slim stack (Alex restarted), the proxy answers 200 on `/i/v0/ai/batch/`, and the `events_plugin_ingestion_ai` topic holds real gateway `$ai_generation` rows with `$ai_total_cost_usd` + tokens. Side note: Modal sandboxes of a terminated Temporal workflow keep running (and billing) until they finish on their own. Root cause found 2026-09-16 ~21:40 UTC: this slim dev stack runs no
+   `capture-ai` service, so the proxy (`localhost:8010`, Caddy in docker) answers 502 for every capture and the
+   gateway's `$ai_generation` events land nowhere. Fix in progress: add `capture-ai` (the docker image
+   `ghcr.io/posthog/posthog/capture:master`, host port 3309, feeds Kafka `events_plugin_ingestion_ai`, the topic
+   `kafka_ai_usage.py` reads) to Alex's slim hogli stack (`~/Documents/Code/posthog_configs/slim-stack/`), Alex
+   restarts `hogli start`. Keep `LLM_GATEWAY_POSTHOG_AI_LANE_CAPTURE=true` (now in `.env`, which the gateway launcher
+   sources). Then PROVE it: one tiny gateway call → the `_ai` topic count goes up (see `probe.json` / gateway-call
+   recipe in the session scratchpad; recreate if lost: POST `$ai_generation` to `http://localhost:8010/i/v0/ai/batch/`
+   with team 1's `api_token`, then one `/review_hog/v1/messages` call to `zai-org/glm-5.3-flash` with the local
+   personal API key, then count messages in `events_plugin_ingestion_ai`).
+2. [x] **Six clean-room runs, one driver:** (DONE 04:00 UTC 09-17; GLM run 1 = composite `glm-high-1bc`) `glm-high` ×2, `luna-low` (gpt-5.6-luna @ low, full-access) ×2,
+   `sol-low` (gpt-5.6-sol @ low, full-access) ×2; same model in both seats; harness = August clean room (pinned 4
+   chunks via `REVIEWHOG_EXPERIMENT_PINNED_CHUNKS=<2026-08-model-glm53-flash/pinned_chunks.json>` exported into
+   the worker, `fetch_pr_comments → []`, `MAX_CONCURRENT_SANDBOXES = 4`) + inline skills; `FLASH_ARM` swapped per
+   arm in `reviewer/constants.py`; report row for PR 75215 deleted before each run; own worker restarted per arm
+   (no hot reload; `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` unset in its shell); 150-min cap; per run: `runs/<run>.log`,
+   `.start/.end` epochs, `dump_result.py` md, `kafka_ai_usage.py` → `.ai_usage.json` + `.usage.md`,
+   `summarize_run.py` → `.summary.txt`. Driver + helpers live in the session scratchpad (`overnight_driver.sh`,
+   `set_arm.py`, `harness_apply.py`, `summarize_run.py`, `run_flash_local.py`); if lost, rebuild from this description.
+   First attempt (21:07 UTC) was stopped: no cost data (item 1). Its partial `runs/glm-high-1.*` files are void.
+   **Second attempt (21:44 UTC): `glm-high-1` FAILED at dedup** (`One-shot dedup LLM call failed: AuthenticationError
+   (status=401)`, 44 min, $1.12 of GLM review+blind-spot spend recorded). Root cause: the worker's direct gateway calls
+   (selection, dedup — `settings.LLM_GATEWAY_API_KEY` = the local dev key) use a key whose scopes are `['*']`, and the
+   gateway's `has_required_scope()` does not accept the wildcard by default (`allow_wildcard=False`), so every
+   personal-key call is 401 while sandbox OAuth calls pass. The launcher's `setup_local_api_key --add-scopes
+   llm_gateway:read` reported "already present" and added nothing. Fix applied 22:38 UTC: the dev key now carries
+   `['*', 'llm_gateway:read']`; the gateway's 15-min negative auth cache must expire (or the gateway restart) before
+   it takes effect. Consequence for the run that failed: selection had ALSO been failing open (dense 12 units, no
+   `perspective_selection` artefact), which is the same August "dense" shape. `glm-high-1` must be re-run; the driver
+   continued into `glm-high-2` (its wave started 22:29 UTC, before the fix) — its dedup runs after the cache expiry,
+   so it should pass; if it does not, re-run it too. Worth a `hogli devex:feedback -c bug` in the morning.
+   A chained re-run of the GLM arm (`glm-high-1b`, via `rerun_driver.sh` + `chain_rerun.sh` in the scratchpad) starts
+   automatically when the six-run driver logs `DRIVER DONE`, and logs `RERUN CHAIN DONE` when finished.
+   **Source of truth per run = the `dump_result.py` markdown (`runs/<run>.md`, funnel table + per-finding verdicts) and
+   `runs/<run>.usage.md` (gateway cost by stage).** The `.summary.txt` files from before 00:05 UTC undercount kept
+   verdicts (script bug, fixed 00:05); the dump's "Config snapshot" shows the REPORT's stored arm (Sol xhigh), not the
+   flash arm the units ran — read the true arm from `.usage.md`. Interim numbers: `glm-high-2` 71 min, raw 55 → dedup
+   35 → **14 kept**, ≈$2.41; `luna-low-1` 14 min, raw 9 → dedup 9 → **8 kept**, ≈$0.30; `luna-low-2` 16 min, raw 8 →
+   dedup 8 → **7 kept**, ≈$0.31 (Luna @ low finds little and keeps almost all of it — the judge decides if it is real).
+   `sol-low-1` 20 min, raw 11 → dedup 9 → **7 kept**, ≈$6.59 (review $3.31, blind-spot $1.47, validation $1.70) —
+   about 20× Luna's price for a similar funnel.
+3. [x] **Judge (multi-agent workflow approved by Alex):** (DONE ~07:30 UTC 09-17 → `FINAL_REPORT.md`: pick GPT 5.6 Luna @ low; drop GLM; Sol @ low = quality fallback; report fact-checked by workflow `wf_58170a2f-b64`: 242 numbers/claims checked, 6 small errors found and fixed, recommendation unchanged) per run, dump → `parse_dump.py` → match findings to the
+   76-cluster registry (`2026-08-validator-model-sol/known_clusters.json`) → refutation-first fresh verification of
+   unmatched claims → `findings/<SET>.{json,match.json,score.md}` like RA/RB → validator confusion + coverage (findings
+   with NO verdict) → cost per stage and per verdict → `FINAL_REPORT.md` ranking the three arms on cost, time, real
+   findings, validator recall/precision, and naming the best Flash arm. August references: RA/RB (GLM max),
+   K/P (Sol low/medium), L/M/N (validators) in the two 2026-08 experiment folders.
+   **State 00:50 UTC 09-17:** sets parsed: `GB` (glm-high-2), `UA`/`UB` (luna-low-1/2), `SA` (sol-low-1); `SB`
+   (sol-low-2) and `GA` (glm-high-1b) still running. Judge workflow `wf_f4f4f37d-e94` (script `flash-arm-judge`, Match
+   = 2 matchers + tiebreak, Verify = 3 refutation-first skeptics) is running on GB/UA/UB/SA — launched with the WRONG
+   `settled` list for GB (all 76 clusters), so GB findings matched to a non-unanimous cluster come back without a
+   verdict. Recovery recipe: save the workflow's returned JSON to `findings/judge_result_1.json`; run
+   `python3 scripts/assemble_truth.py findings/judge_result_1.json` → it writes `<SET>.match.json`/`.truth.json` and
+   PRINTS the PENDING (fid, cluster) pairs; feed those to the follow-up workflow `scratchpad/verify_pending.js` (args
+   `{worktree, items:[{letter, findings, id, cluster}]}`) → save to `findings/verify_result_1.json` → re-run
+   `assemble_truth.py findings/judge_result_1.json findings/verify_result_1.json`. Unanimous clusters (the only ones
+   whose registry verdict is trusted) = `findings/settled_clusters.json` = [3,4,9,13,31,35,59,61]. Then judge SB and GA
+   with the same `flash-arm-judge` script and that settled list. Scorecards: `python3 scripts/scorecard.py <SET> <run>`
+   → `findings/<SET>.score.md` (funnel, reviewer real rate, validator precision/recall, coverage, $ per stage/verdict).
+   Frozen worktree for verification: `/Users/woutut/.worktrees/posthog/frozen-75215` at `a7fb363bef69`.
+   01:00 UTC: `sol-low-2` done (21.5 min, raw 14 → dedup 10 → 7 kept, ≈$7.43) → parsed to `SB`; judge workflow
+   `wf_f7285e1c-657` launched on SB with the correct settled list (script copy: `scratchpad/flash_arm_judge.js`).
+   `glm-high-1b` re-run started 00:56 UTC (expect ~70 min) → parse to `GA`, judge the same way.
+   **01:30 UTC judge-consistency decision:** the fresh 3-skeptic panel is more lenient than August on some clusters
+   (58 "broker failure loses the initial review" was 1/6 real in August, now 4 of 6 fresh verdicts say real; 31 was
+   0/6 settled not-real, UB8 came back real 3/3; 57 was 2/11, SA7 real 2/3). Mixing registry verdicts (GB's 5
+   settled-cluster findings) with fresh verdicts (every other set) would judge the same claim two ways inside one
+   experiment. Rule from here: **every finding of every set gets the same fresh 3-skeptic verdict; the registry is
+   only a matching aid plus a calibration note in the report** (fresh vs August per cluster). Follow-ups launched:
+   `wf_0ae1b5bf-2c6` (17 GB non-unanimous), `wf_ebf7f32b-c79` (5 GB settled-cluster findings). SB's judge ran with
+   the settled list, so SB findings matched to [3,4,9,13,31,35,59,61] need the same follow-up; GA's judge runs with
+   `settled: []`. Sensitivity check for the report: cluster-pooled majority (all fresh votes on a cluster across sets).
+   **03:40 UTC:** `glm-high-1b` FAILED at validation (66 min, raw 46 → dedup 36, 0 verdicts, ≈$1.40 spent): all 4
+   validation sandboxes died with `SandboxProvisionError` ← Modal `ImageBuildError` "no Go files in /src" at the
+   Dockerfile's agent-shadow `go build` step. Cause: at 01:35:05 UTC something deleted README.md/main.go/main_test.go
+   (kept go.mod) from `products/desktop/packages/agent-shadow/` in EVERY local Modal build context under
+   `/var/folders/.../T/posthog-modal-build-default_base-*` (16 dirs, one or two per worker start); the 300-s TTL cache
+   on `get_template_base_image` re-hashed the mutilated context → new image id → real build → failed. Sweeper not
+   identified (not a judge agent: their transcripts only grep the source line). Trap for the record: any process that
+   touches those temp dirs breaks every later sandbox until the worker restarts. Reviewer-side data for the run is
+   fine → parsed to `GA` (36 findings, `is_valid` all False); judge `wf_9e329ec2-fbe` launched with `settled: []`.
+   Validator-side recovery: `scratchpad/rerun_validate.sh` (= rerun_driver.sh without the report-row delete) re-runs
+   the flash workflow on the SAME report so the model-stamped per-commit reviewer cache is reused and only dedup +
+   validation run (`glm-high-1c`); its verdict set is re-deduped, so map its findings to GA by (file, title) and verify
+   only the unmatched ones. Judge 2 (SB) + follow-ups saved as `findings/judge_result_2.json`, `verify_result_2.json`
+   (GB settled 5), `verify_result_3.json` (SB1, SB9); SB truth complete (10/10 fresh).
+   **06:30 UTC state — all six runs have data, all six sets fully judged (fresh 3 votes on every finding).**
+   `glm-high-1c` (validation-only re-run, 03:22–04:00 UTC) succeeded: 46 → 36 → 13 kept, dedup $0.12 + validation
+   $1.26; its 36 findings are identical (file, title) to 1b's, so run 1 of GLM = set `GC` = composite run
+   `glm-high-1bc` (`runs/glm-high-1bc.{md,usage.md}`: reviewer side from 1b, dedup + validation from 1c, $2.56,
+   83.5 min). Judge files: `judge_result_1.json` (GB/UA/UB/SA), `judge_result_2.json` (SB), `judge_result_3_partial.json`
+   (GA matching; most verifiers died when usage credits ran out) + `verify_result_1..4.json` (GB 17 + GB 5 + SB 2 +
+   GA 31 re-verifications). Scripts: `scorecard.py`, `compare.py` → `findings/COMPARE.md`, `sensitivity.py` →
+   `findings/SENSITIVITY.md`. **The ranking flips with the truth rule** (fresh: Sol best quality; August-anchored: Sol
+   drops to Luna's level; must/should only: GLM collapses), because clusters 58/39/31/57 (and 10 smaller ones) are
+   judged differently by August and by the fresh panels, and inconsistently inside this experiment (7/33 clusters).
+   Resolution in flight: dossiers `findings/adjudicate/cluster_<c>.json` (July/August verdicts + current findings +
+   votes) → workflow `wf_572601b5-0f8` (3 adjudicators per contested cluster: own-view / steelman-real /
+   steelman-not-real, per-finding majority, shared sub-claims must share a verdict) → save to
+   `findings/adjudication_result.json` → `python3 scripts/apply_adjudication.py findings/adjudication_result.json`
+   → `sensitivity.py` gains modes E/F → write `FINAL_REPORT.md` (primary truth = adjudicated E; show A/C/D as
+   sensitivity). Cleanup left: phrocs `temporal-worker` OFF, PR 75215 report row still in local DB, `.env`
+   `LLM_GATEWAY_POSTHOG_AI_LANE_CAPTURE=true`, temp build-context sweeper unidentified.
+   Judge 1 result saved: `findings/judge_result_1.json` (GB 35 matched / UA 9 / UB 8 / SA 9). Scorecards written for
+   UA, UB, SA (`findings/<S>.score.md`): Luna low ≈ $0.30, 14–16 min, 2/9 and 4/8 real, validator keeps almost
+   everything (precision 25% / 57%); Sol low ≈ $6.59, 20 min, 7/9 real, validator precision 100%.
+4. [ ] **Cleanup (partly done):** harness + arm reverted by the driver (git clean apart from the experiment folder), own worker stopped, phrocs `temporal-worker` toggled back ON (~07:30 UTC 09-17). Still open: revert the harness + arm edits (`git checkout -- constants.py activities.py github_meta.py` — the
+   committed flash mode `810ab275ccb` is safe), toggle the phrocs `temporal-worker` back on (or Alex restarts hogli),
+   stop the own worker, delete the PR 75215 report row, note the `.env` capture flag left `true`.
+
 ## Run log
 
 ### L1 — local DB-only flash run (2026-09-16, started 18:16:38 UTC)
@@ -99,8 +214,9 @@ array` — the claude adapter's follow-up turn puts a system-role message mid-ar
   whether the flash validator should run one session per issue instead of a warm session.
 - **Done 20:57:09 UTC, wall 5682 s (95 min), DB-only, no cost figures** (the local gateway had
   `LLM_GATEWAY_POSTHOG_AI_LANE_CAPTURE=false`, so no `$ai_generation` events landed anywhere). Funnel: raw 25
-  (wave 21 + blind-spot 4) → dedup 23 → **valid 0**; both validation chunks died once on the 400 above, retried, and
-  every finding got a verdict (23/23, no hole). Unit times on GLM @ high: wave 6.6–13.1 min, blind-spot 11.6–14.9,
+  (wave 21 + blind-spot 4) → dedup 23 → valid **unknown** (my ad-hoc summary script miscounted verdicts as 0 kept —
+  disproven by the dumps of later runs — and this report row was reset before a dump was taken); both validation
+  chunks died once on the 400 above, retried, and every finding got a verdict (23/23, no hole). Unit times on GLM @ high: wave 6.6–13.1 min, blind-spot 11.6–14.9,
   validation-c1 retry 8.5 min for its share, validation-c2 retry **51 min** (one warm session grinding through 14
   findings; the validator is the slow seat). Both seats ran blind (no skill), so this is a mechanics run, not a
   quality number.
