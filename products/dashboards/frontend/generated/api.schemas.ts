@@ -2007,7 +2007,7 @@ export interface QueryScanWarningApi {
 }
 
 export interface QueryScanAnalysisApi {
-    /** The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query. For an API key or MCP caller it covers every finding, fixable or not. */
+    /** The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query. */
     assistant_prompt?: string | null
     /** Empty when the analysis found nothing to fix. */
     findings: QueryScanWarningApi[]
