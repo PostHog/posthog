@@ -126,7 +126,56 @@ describe('incoming webhook template', () => {
         expect(response.execResult).toBeUndefined()
     })
 
-    it('should print the request body if debug is true', async () => {
+    it('should capture query parameters on a GET request', async () => {
+        const response = await tester.invoke(
+            {
+                event: '{request.query.event}',
+                distinct_id: '{request.query.distinct_id}',
+                method: 'GET',
+                properties: {
+                    query_params: '{request.query}',
+                },
+            },
+            {
+                request: {
+                    method: 'GET',
+                    body: {},
+                    stringBody: '',
+                    headers: {},
+                    ip: '127.0.0.1',
+                    query: {
+                        event: 'the event',
+                        distinct_id: 'user-1',
+                        utm_source: 'newsletter',
+                    },
+                },
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toEqual(true)
+
+        expect(response.capturedPostHogEvents).toMatchInlineSnapshot(`
+            [
+              {
+                "distinct_id": "user-1",
+                "event": "the event",
+                "properties": {
+                  "$hog_function_execution_count": 1,
+                  "query_params": {
+                    "distinct_id": "user-1",
+                    "event": "the event",
+                    "utm_source": "newsletter",
+                  },
+                },
+                "team_id": 1,
+                "timestamp": "2025-01-01T00:00:00.000Z",
+              },
+            ]
+        `)
+    })
+
+    it('should print the method, query, header names and body if debug is true', async () => {
         const response = await tester.invoke(
             {
                 event: '{request.body.eventName}',
@@ -140,14 +189,19 @@ describe('incoming webhook template', () => {
                         eventName: 'the event',
                     },
                     stringBody: '',
-                    headers: {},
-                    query: {},
+                    headers: {
+                        authorization: 'Bearer my-secret-token',
+                        'x-api-key': 'my-secret-key',
+                    },
+                    query: {
+                        utm_source: 'newsletter',
+                    },
                 },
             }
         )
 
         expect(response.logs.map((x) => x.message)).toEqual([
-            `Incoming request:, {"eventName":"the event"}`,
+            `Incoming request:, POST, query:, {"utm_source":"newsletter"}, header names:, ["authorization","x-api-key"], body:, {"eventName":"the event"}`,
             expect.stringContaining('Function completed'),
         ])
     })
