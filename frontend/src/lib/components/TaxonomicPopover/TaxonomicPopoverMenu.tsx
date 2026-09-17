@@ -93,6 +93,7 @@ export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValu
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
     maxContextOptions?: MaxContextTaxonomicFilterOption[]
     allowNonCapturedEvents?: boolean
+    allowNonCapturedPersonProperties?: boolean
     suggestedFiltersLabel?: string
     enableKeywordShortcuts?: boolean
     /** Trigger button styling, forwarded so the rebuilt menu's trigger
@@ -232,6 +233,7 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
     dataWarehousePopoverFields,
     maxContextOptions,
     allowNonCapturedEvents,
+    allowNonCapturedPersonProperties,
     suggestedFiltersLabel,
     enableKeywordShortcuts,
     triggerButtonProps,
@@ -315,6 +317,7 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
             showNumericalPropsOnly={showNumericalPropsOnly}
             maxContextOptions={maxContextOptions}
             allowNonCapturedEvents={allowNonCapturedEvents}
+            allowNonCapturedPersonProperties={allowNonCapturedPersonProperties}
             suggestedFiltersLabel={suggestedFiltersLabel}
             enableKeywordShortcuts={enableKeywordShortcuts}
             onChange={(group, changedValue, item) => {

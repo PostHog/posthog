@@ -26,6 +26,7 @@ import { useMemo, useState } from 'react'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import {
+    groupAllowsNonCapturedOption,
     isQuickFilterItem,
     ListStorage,
     QuickFilterItem,
@@ -72,6 +73,7 @@ export interface UseGroupListInput {
     limit?: number
     /** Allow selecting events that haven't been captured yet. */
     allowNonCapturedEvents?: boolean
+    allowNonCapturedPersonProperties?: boolean
     /** Surface keyword shortcuts as QuickFilterItems alongside real results. */
     enableKeywordShortcuts?: boolean
     /** When true, disable the auto-select of first item on results refresh. */
@@ -130,6 +132,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         minSearchQueryLength: minSearchOverride,
         limit = DEFAULT_LIMIT,
         allowNonCapturedEvents = false,
+        allowNonCapturedPersonProperties = false,
         enableKeywordShortcuts = false,
         autoSelectItem = true,
         selectFirstItem = true,
@@ -465,10 +468,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     const isFetching = remote.isFetching || (serverSearchEnabled && serverSearch.isFetching)
 
     const showNonCapturedEventOption = useMemo(() => {
-        if (!allowNonCapturedEvents) {
-            return false
-        }
-        if (group.type !== TaxonomicFilterGroupType.Events && group.type !== TaxonomicFilterGroupType.CustomEvents) {
+        if (!groupAllowsNonCapturedOption(group.type, { allowNonCapturedEvents, allowNonCapturedPersonProperties })) {
             return false
         }
         if (!trimmedSearch || isLoading) {
@@ -481,7 +481,15 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         }
         const realResults = items.filter((item) => !isQuickFilterItem(item))
         return realResults.length === 0
-    }, [allowNonCapturedEvents, group.type, group.excludedProperties, trimmedSearch, isLoading, items])
+    }, [
+        allowNonCapturedEvents,
+        allowNonCapturedPersonProperties,
+        group.type,
+        group.excludedProperties,
+        trimmedSearch,
+        isLoading,
+        items,
+    ])
 
     // Empty / loading state checks read array length, not the API-reported
     // total — a remote tab can have count > 0 while still loading its first

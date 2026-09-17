@@ -400,6 +400,46 @@ describe('TaxonomicFilter', () => {
         })
     })
 
+    // A person property only gets a definition once someone has it set, so a draft survey cannot
+    // target "has not answered survey X" unless the picker offers the name a person types.
+    describe('unseen person properties', () => {
+        const UNSEEN_PROPERTY = '$survey_responded/0192e-abc'
+
+        it('offers the typed name and commits it', async () => {
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.PersonProperties],
+                allowNonCapturedPersonProperties: true,
+            })
+
+            await withoutDebounceDelay((user) =>
+                user.type(screen.getByTestId('taxonomic-filter-searchfield'), UNSEEN_PROPERTY)
+            )
+
+            const offer = await screen.findByText('Select property:')
+            await userEvent.click(offer)
+
+            expect(onChangeMock).toHaveBeenCalledWith(
+                expect.objectContaining({ type: TaxonomicFilterGroupType.PersonProperties }),
+                UNSEEN_PROPERTY,
+                expect.objectContaining({ name: UNSEEN_PROPERTY, isNonCaptured: true })
+            )
+        })
+
+        it('does not offer the typed name without the opt-in', async () => {
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.PersonProperties],
+            })
+
+            await withoutDebounceDelay((user) =>
+                user.type(screen.getByTestId('taxonomic-filter-searchfield'), UNSEEN_PROPERTY)
+            )
+
+            await waitFor(() => {
+                expect(screen.queryByText('Select property:')).not.toBeInTheDocument()
+            })
+        })
+    })
+
     describe('no results - switch to all', () => {
         const inVisibleTab = (elements: HTMLElement[]): HTMLElement | undefined =>
             elements.find((el) => !el.closest('.hidden'))

@@ -511,6 +511,7 @@ export const InfiniteListRow = ({
     const isActive = itemValue ? !!selectedProperties[listGroupType]?.includes(itemValue) : false
 
     if (showNonCapturedEventOption && rowIndex === 0) {
+        const isPersonProperty = listGroupType === TaxonomicFilterGroupType.PersonProperties
         const selectNonCapturedEvent = (): void => {
             if (!itemGroup) {
                 return
@@ -543,7 +544,7 @@ export const InfiniteListRow = ({
                 data-attr="prop-filter-event-option-custom"
             >
                 <div className="flex items-center gap-2">
-                    <span className="text-muted">Select event:</span>
+                    <span className="text-muted">{isPersonProperty ? 'Select property:' : 'Select event:'}</span>
                     <span className="font-medium">{trimmedSearchQuery}</span>
                     <LemonTag type="caution" size="small">
                         Not seen yet

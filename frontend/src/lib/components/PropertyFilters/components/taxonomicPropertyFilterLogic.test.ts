@@ -148,6 +148,26 @@ describe('taxonomicPropertyFilterLogic', () => {
             })
         })
 
+        // The "not seen yet" row commits a bare name with no definition behind it, so the filter
+        // type has to come from the group the row belongs to.
+        it('creates a person property filter for a name the project has never seen', () => {
+            const group = logic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.PersonProperties
+            )!
+            logic.actions.selectItem(group, '$survey_responded/0192e-abc', undefined, {
+                name: '$survey_responded/0192e-abc',
+                isNonCaptured: true,
+            })
+            expect(setFilterSpy).toHaveBeenCalledWith(
+                0,
+                expect.objectContaining({
+                    key: '$survey_responded/0192e-abc',
+                    type: PropertyFilterType.Person,
+                    operator: PropertyOperator.Exact,
+                })
+            )
+        })
+
         it('creates cohort filter with parseInt value and cohort_name', () => {
             selectAndExpect(
                 TaxonomicFilterGroupType.Cohorts,

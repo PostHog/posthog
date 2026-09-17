@@ -36,6 +36,7 @@ import {
     QuickFilterItem,
     SelectingKeyOnly,
     SkeletonItem,
+    groupAllowsNonCapturedOption,
     isQuickFilterItem,
     isSkeletonItem,
     ListFuse,
@@ -273,6 +274,7 @@ export interface infiniteListLogicValues {
     pinnedFilterItems: TaxonomicDefinitionTypes[] // taxonomicFilterPinnedPropertiesLogic
     currentTeamId: number | null // teamLogic
     allowNonCapturedEvents: boolean
+    allowNonCapturedPersonProperties: boolean
     contextFilteredPinnedItems: TaxonomicDefinitionTypes[]
     contextFilteredRecentItems: TaxonomicDefinitionTypes[]
     dedupedTopMatches: (SkeletonItem | TaxonomicDefinitionTypes)[]
@@ -585,6 +587,7 @@ export interface infiniteListLogicMeta {
             taxonomicGroups: TaxonomicFilterGroup[]
         ) => boolean
         allowNonCapturedEvents: (arg: any) => boolean
+        allowNonCapturedPersonProperties: (arg: any) => boolean
         isLocalDataLoading: (arg: any) => boolean
         isLoading: (remoteItemsLoading: boolean) => boolean
         group: (
@@ -614,6 +617,7 @@ export interface infiniteListLogicMeta {
         ) => boolean
         showNonCapturedEventOption: (
             allowNonCapturedEvents: boolean,
+            allowNonCapturedPersonProperties: boolean,
             listGroupType: TaxonomicFilterGroupType,
             searchQuery: string,
             isLoading: boolean,
@@ -1232,6 +1236,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
         ],
+        allowNonCapturedPersonProperties: [
+            () => [(_, props) => props.allowNonCapturedPersonProperties],
+            (allowNonCapturedPersonProperties: boolean | undefined) => allowNonCapturedPersonProperties ?? false,
+        ],
         isLocalDataLoading: [
             (selectors) => [
                 (state, props: InfiniteListLogicProps) => {
@@ -1317,6 +1325,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         showNonCapturedEventOption: [
             (s) => [
                 s.allowNonCapturedEvents,
+                s.allowNonCapturedPersonProperties,
                 s.listGroupType,
                 s.searchQuery,
                 s.isLoading,
@@ -1325,18 +1334,18 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             ],
             (
                 allowNonCapturedEvents: boolean,
+                allowNonCapturedPersonProperties: boolean,
                 listGroupType: TaxonomicFilterGroupType,
                 searchQuery: string,
                 isLoading: boolean,
                 results: TaxonomicDefinitionTypes[],
                 excludedProperties: string[] | undefined
             ): boolean => {
-                if (!allowNonCapturedEvents) {
-                    return false
-                }
                 if (
-                    listGroupType !== TaxonomicFilterGroupType.CustomEvents &&
-                    listGroupType !== TaxonomicFilterGroupType.Events
+                    !groupAllowsNonCapturedOption(listGroupType, {
+                        allowNonCapturedEvents,
+                        allowNonCapturedPersonProperties,
+                    })
                 ) {
                     return false
                 }

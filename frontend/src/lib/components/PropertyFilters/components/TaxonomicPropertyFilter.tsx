@@ -76,6 +76,7 @@ export function TaxonomicPropertyFilter({
     excludedProperties,
     taxonomicFilterOptionsFromProp,
     allowRelativeDateOptions,
+    allowNonCapturedPersonProperties,
     excludedOperators,
     selectingKeyOnly,
     hideBehavioralCohorts,
@@ -193,6 +194,7 @@ export function TaxonomicPropertyFilter({
             selectingKeyOnly={selectingKeyOnly}
             enableKeywordShortcuts
             collapseUrlsToContainsRow
+            allowNonCapturedPersonProperties={allowNonCapturedPersonProperties}
         />
     )
 
@@ -350,6 +352,7 @@ export function TaxonomicPropertyFilter({
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
             enableKeywordShortcuts
+            allowNonCapturedPersonProperties={allowNonCapturedPersonProperties}
             triggerVariant={triggerVariant}
             triggerButtonProps={{
                 type: 'secondary',

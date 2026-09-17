@@ -1812,6 +1812,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                               filters
                                                                                           )
                                                                                       }}
+                                                                                      allowNonCapturedPersonProperties
                                                                                       showTrashIconWithOneCondition
                                                                                       removedLastConditionCallback={
                                                                                           removeTargetingFlagFilters
