@@ -70,7 +70,7 @@ describe('LogRowFAB', () => {
         render(<LogRowFAB log={log} pinned={false} isPrettified={false} onTogglePin={jest.fn()} />)
 
         const button = capturedMetricsButtonProps[capturedMetricsButtonProps.length - 1]
-        expect(button).toBeDefined()
+        expect(button).toBeTruthy()
         expect(button.serviceName).toBe('billing-worker')
         expect(button.dateFrom).toBe('2026-06-11T07:00:00.000Z')
         expect(button.dateTo).toBe('2026-06-11T09:00:00.000Z')
