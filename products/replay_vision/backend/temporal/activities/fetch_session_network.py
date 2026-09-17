@@ -41,6 +41,11 @@ _MAX_COMPRESSED_BYTES = 512 * 1024 * 1024
 # timeout, so checking only between batches would let the read run to 90 seconds.
 _READ_BUDGET_SECONDS = 60.0
 
+# Bytes allowed in flight at once. Concurrency alone does not bound memory, because a block can be large:
+# on 2026-09-17 the median recording averaged 368 KiB per block, the 95th percentile 2 MiB, and the worst
+# 37 MiB. Four of those decompressed together would threaten the worker's memory limit.
+_MAX_BATCH_COMPRESSED_BYTES = 16 * 1024 * 1024
+
 
 @activity.defn
 @track_activity()
@@ -114,6 +119,23 @@ def _build_recording(team_id: int, session_id: str) -> SessionRecording:
     return SessionRecording(session_id=session_id, team_id=team_id)
 
 
+def _next_batch(blocks: list[RecordingBlock], start: int) -> list[RecordingBlock]:
+    """The blocks to fetch together: at most `_BLOCK_CONCURRENCY`, and at most `_MAX_BATCH_COMPRESSED_BYTES`.
+
+    A single block larger than the byte budget goes on its own rather than being skipped, so a recording
+    with one huge block is still read.
+    """
+    batch: list[RecordingBlock] = []
+    total = 0
+    for block in blocks[start : start + _BLOCK_CONCURRENCY]:
+        size = max(0, block.end_byte - block.start_byte)
+        if batch and total + size > _MAX_BATCH_COMPRESSED_BYTES:
+            break
+        batch.append(block)
+        total += size
+    return batch
+
+
 def _log_budget_spent(session_id: str, team_id: int, blocks_read: int, block_count: int) -> None:
     logger.info(
         "replay_vision.fetch_network.read_budget_spent",
@@ -159,13 +181,15 @@ async def _collect(blocks: list[RecordingBlock], *, session_id: str, team_id: in
                 return None
             return content.decode("utf-8", errors="replace").splitlines()
 
-        for start in range(0, len(blocks), _BLOCK_CONCURRENCY):
+        index = 0
+        while index < len(blocks):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 partial = True
-                _log_budget_spent(session_id, team_id, start, len(blocks))
+                _log_budget_spent(session_id, team_id, index, len(blocks))
                 break
-            batch = blocks[start : start + _BLOCK_CONCURRENCY]
+            batch = _next_batch(blocks, index)
+            index += len(batch)
             tasks = [asyncio.create_task(fetch(block)) for block in batch]
             # `wait` rather than `wait_for`: a timeout must not discard the blocks of this batch that
             # already came back, which is the partial result the caller is promised.
@@ -187,7 +211,7 @@ async def _collect(blocks: list[RecordingBlock], *, session_id: str, team_id: in
                 # Out of time mid-batch. What was read still helps; `partial` stops the scan reading the
                 # rest of the session as "nothing failed here".
                 partial = True
-                _log_budget_spent(session_id, team_id, start, len(blocks))
+                _log_budget_spent(session_id, team_id, index - len(batch), len(blocks))
                 break
             if collector.full:
                 break

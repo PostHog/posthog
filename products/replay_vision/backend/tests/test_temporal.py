@@ -2434,6 +2434,23 @@ class TestFetchSessionNetworkActivity:
         assert payload.partial is True
         assert [r.url for r in payload.requests] == ["https://app.test/boom"], "the finished block was lost"
 
+    def test_a_batch_is_bounded_by_bytes_not_only_by_count(self) -> None:
+        # Concurrency alone does not bound memory: blocks reach tens of MiB, and four decompressed at
+        # once would threaten the worker's limit.
+        from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
+
+        def block(size: int) -> RecordingBlock:
+            return RecordingBlock(key="k", start_byte=0, end_byte=size, start_timestamp="", end_timestamp="")
+
+        small = [block(1024) for _ in range(8)]
+        assert len(mod._next_batch(small, 0)) == mod._BLOCK_CONCURRENCY
+
+        large = [block(mod._MAX_BATCH_COMPRESSED_BYTES) for _ in range(4)]
+        assert len(mod._next_batch(large, 0)) == 1, "one oversized block must not ride with three others"
+
+        # A block bigger than the whole budget still gets read, on its own.
+        assert len(mod._next_batch([block(mod._MAX_BATCH_COMPRESSED_BYTES * 4)], 0)) == 1
+
     @pytest.mark.asyncio
     async def test_a_listing_over_the_size_ceiling_is_refused(self) -> None:
         from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
