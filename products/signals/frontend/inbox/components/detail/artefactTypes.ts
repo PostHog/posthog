@@ -103,6 +103,38 @@ export interface SummaryChangeContent {
     new_summary: string
 }
 
+export interface ImplementationDecisionContent {
+    supersede?: boolean
+    reason?: string
+    targets?: { pr_url: string }[]
+}
+
+export interface ImplementationReplacementContent {
+    decision: ImplementationDecisionContent
+}
+
+export interface ImplementationHandoverContent {
+    status: 'processing' | 'completed' | 'failed' | 'cancelled' | 'needs_attention'
+    explanation?: string
+    replacement_pr_urls?: string[]
+    results?: Record<string, 'closed' | 'already_closed' | 'skipped'>
+}
+
+// ── Activity visibility ──────────────────────────────────────────────────────────────────────
+
+/**
+ * The activity rows worth showing a reader. A handover row lands once per attempt, so `processing`
+ * rows are internal retry bookkeeping rather than something that happened to the report. The
+ * activity count and the log itself both read this, so the two cannot disagree.
+ */
+export function selectVisibleReportActivity(artefacts: SignalReportArtefact[]): SignalReportArtefact[] {
+    return artefacts.filter(
+        (artefact) =>
+            artefact.type !== 'implementation_handover' ||
+            (artefact.content as ImplementationHandoverContent).status !== 'processing'
+    )
+}
+
 // ── Type labels ──────────────────────────────────────────────────────────────────────────────
 
 /** Human label for each artefact type as it reads in the activity log header. */
@@ -125,6 +157,9 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     related_to: 'Related report',
     code_review: 'Code review',
     check_result: 'Follow-up check',
+    implementation_decision: 'Open PR assessed',
+    implementation_replacement: 'Replacement started',
+    implementation_handover: 'Replacement outcome',
 }
 
 export function artefactTypeLabel(type: string): string {

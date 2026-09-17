@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from datetime import datetime
 from enum import Enum
 from typing import Any, Literal, cast
 from uuid import UUID
@@ -430,6 +431,10 @@ class TaskRunArtefact(BaseModel):
 
     task_id: str = Field(description="UUID of the `tasks.Task` this run belongs to.")
     run_id: str | None = Field(default=None, description="UUID of the specific `TaskRun`, if known.")
+    automation_branch: str | None = Field(
+        default=None,
+        description="Server-generated branch for this automatically started implementation run. Absent on manual runs.",
+    )
     product: str = Field(
         description="Product that ran the task — `signals` for the built-in pipeline, or a custom agent's "
         "product identifier."
@@ -579,6 +584,66 @@ class RelatedTo(BaseModel):
         return v
 
 
+class ImplementationTarget(BaseModel):
+    task_id: UUID
+    run_id: UUID
+    claim_id: UUID | None = None
+    pr_url: str
+    head_sha: str = Field(min_length=1)
+    automation_artefact_id: UUID
+
+
+class ImplementationAssessment(BaseModel):
+    obsolete_pr_urls: list[str] = Field(
+        description="Only URLs from the supplied PostHog candidates whose fixes must be replaced. Empty means keep them all."
+    )
+    reason: str = Field(min_length=1, description="What changed and why these specific fixes no longer fit.")
+
+
+class ImplementationDecision(BaseModel):
+    """Server-bound research recommendation, protected because it authorizes replacement work."""
+
+    supersede: bool = Field(
+        description=(
+            "True only when what you found changes what the fix should be — a different root cause, "
+            "a different file or layer, a materially wider or narrower scope. More evidence for the "
+            "same fix is not a reason to set this, because the open pull request already implements "
+            "that fix. A true decision can start an automated replacement; selected predecessors "
+            "close only after the replacement completes with verified open PRs."
+        )
+    )
+    reason: str = Field(
+        description="One or two sentences naming what changed and why the existing pull request no longer fits."
+    )
+    targets: list[ImplementationTarget] = Field(default_factory=list)
+    research_run_count: int | None = None
+    research_started_at: datetime | None = None
+
+    @field_validator("reason")
+    @classmethod
+    def reason_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+
+class ImplementationReplacement(BaseModel):
+    decision_id: UUID
+    decision: ImplementationDecision
+    run_id: UUID
+
+
+class ImplementationHandover(BaseModel):
+    replacement_id: UUID
+    status: Literal["processing", "completed", "failed", "cancelled", "needs_attention"]
+    results: dict[str, Literal["closed", "already_closed", "skipped"]] = Field(default_factory=dict)
+    replacement_pr_urls: list[str] = Field(default_factory=list)
+    explanation: str = ""
+    attempt: int = 0
+    worker_token: UUID | None = None
+    lease_until: datetime | None = None
+
+
 class CodeReviewCounts(BaseModel):
     """One review turn's valid findings by effective priority (threshold-independent)."""
 
@@ -678,6 +743,7 @@ StatusArtefactContent = (
     | RepoSelectionResult
     | SuggestedReviewers
     | ChannelAssignment
+    | ImplementationDecision
 )
 LogArtefactContent = (
     CodeReference
@@ -692,6 +758,8 @@ LogArtefactContent = (
     | WorkRelease
     | PullRequestLink
     | CheckResult
+    | ImplementationReplacement
+    | ImplementationHandover
 )
 ArtefactContent = StatusArtefactContent | LogArtefactContent | SignalFinding | Dismissal | VideoSegment
 
@@ -719,6 +787,9 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "work_release": WorkRelease,
     "pull_request": PullRequestLink,
     "check_result": CheckResult,
+    "implementation_decision": ImplementationDecision,
+    "implementation_replacement": ImplementationReplacement,
+    "implementation_handover": ImplementationHandover,
 }
 
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
@@ -735,6 +806,8 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # through the API would let a caller fabricate a verdict for a soak that never ran.
 # `code_review` is likewise system-generated — the ReviewHog workflow is its only writer; accepting
 # it through the API would let a caller fabricate review receipts for reviews that never ran.
+# Replacement decisions, reservations, and outcomes authorize GitHub closures. Only the server
+# may write them; API writes would let callers fabricate automation provenance or completion.
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
     {
         "task_run",
@@ -746,6 +819,9 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "work_release",
         "pull_request",
         "check_result",
+        "implementation_decision",
+        "implementation_replacement",
+        "implementation_handover",
     }
 )
 
