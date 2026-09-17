@@ -84,7 +84,7 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                         Copy to another project
                     </SceneMenuBarItem>
                 )}
-                {!isNewCohort && !cohort.is_static && (
+                {!isNewCohort && (
                     <SceneMenuBarItem
                         onClick={() => router.actions.push(urls.cohortCalculationHistory(cohort.id))}
                         data-attr={`${RESOURCE_TYPE}-menubar-calculation-history`}

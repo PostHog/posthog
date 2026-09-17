@@ -4,6 +4,7 @@ import type { eventWithTime } from 'posthog-js/rrweb-types'
 import type { RecordingSegment } from '@posthog/replay-shared'
 
 import type { HostBridge } from './host-bridge'
+import { PLAYER_FRAME_TIMELINE_KEY } from './protocol'
 
 /**
  * Controls playback lifecycle: starts the replayer, skips inactive
@@ -12,6 +13,7 @@ import type { HostBridge } from './host-bridge'
  */
 export class PlaybackController {
     private stopped = false
+    private frameSessionMs: number[] = []
 
     constructor(
         private replayer: Replayer,
@@ -38,10 +40,12 @@ export class PlaybackController {
     }
 
     start(startOffset: number): void {
-        if (this.options.skipInactivity) {
-            this.startInactivitySkipLoop()
-        }
+        this.startFrameLoop()
         this.replayer.play(startOffset)
+    }
+
+    getFrameSessionMs(): number[] {
+        return this.frameSessionMs
     }
 
     stop(): void {
@@ -49,28 +53,41 @@ export class PlaybackController {
             return
         }
         this.stopped = true
+        this.bridge.publishFrameTimeline(this.frameSessionMs)
         this.bridge.signalEnded()
     }
 
     /**
-     * Skip inactive segments by polling the current playback position
-     * each frame. Under puppeteer-capture's virtual time, rAF fires
-     * once per beginFrame call, so this is deterministic.
+     * Record where playback is on every captured frame, and skip inactive segments as they come up.
+     * Under puppeteer-capture's virtual time, rAF fires once per beginFrame call, so this is
+     * deterministic and each tick is exactly one frame of the rendered video.
+     *
+     * The sample is taken before the skip: a skip costs the frame it happens on, and recording the
+     * position after the jump would hide that frame from the timeline the same way computing video
+     * positions from segment durations alone does.
      */
-    private startInactivitySkipLoop(): void {
-        const checkAndSkip = (): void => {
+    private startFrameLoop(): void {
+        // Published by reference so the host can read it whenever capture ends. Trimmed and timed-out
+        // captures tear the page down without the replayer ever finishing, so waiting for stop() to
+        // push the timeline would leave exactly the long sessions this exists for without one.
+        ;(window as unknown as Record<string, number[]>)[PLAYER_FRAME_TIMELINE_KEY] = this.frameSessionMs
+        const onFrame = (): void => {
             if (this.stopped) {
                 return
             }
-            const ts = this.firstTimestamp + this.replayer.getCurrentTime()
-            const inactiveSeg = this.segments.find(
-                (seg: RecordingSegment) => !seg.isActive && ts >= seg.startTimestamp && ts <= seg.endTimestamp
-            )
-            if (inactiveSeg) {
-                this.replayer.play(inactiveSeg.endTimestamp - this.firstTimestamp)
+            const current = this.replayer.getCurrentTime()
+            this.frameSessionMs.push(Math.round(current))
+            if (this.options.skipInactivity) {
+                const ts = this.firstTimestamp + current
+                const inactiveSeg = this.segments.find(
+                    (seg: RecordingSegment) => !seg.isActive && ts >= seg.startTimestamp && ts <= seg.endTimestamp
+                )
+                if (inactiveSeg) {
+                    this.replayer.play(inactiveSeg.endTimestamp - this.firstTimestamp)
+                }
             }
-            requestAnimationFrame(checkAndSkip)
+            requestAnimationFrame(onFrame)
         }
-        requestAnimationFrame(checkAndSkip)
+        requestAnimationFrame(onFrame)
     }
 }

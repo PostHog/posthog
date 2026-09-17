@@ -84,8 +84,16 @@ orchestrates these activities:
 2. **get_sandbox_for_repository** — Creates an OAuth access token, provisions a
    Docker sandbox (reusing a snapshot if one exists), clones the repository, and
    stores the sandbox URL in `TaskRun.state`
-3. **start_agent_server** — Runs `npx agent-server` inside the sandbox and polls
-   `/health` until it responds
+3. **start_agent_server** — Prepares and starts the agent server inside the sandbox, then polls `/health` until it responds.
+   Modal uploads one preparation script to install the shell environment hook and GitHub CLI shim.
+   When network enforcement is enabled, that script also installs the agentsh configuration, policy, and environment wrapper, then starts the daemon and creates its session.
+   Files are staged with their required permissions before atomic replacement, and any preparation failure stops the launch.
+   Failed preparation terminates and reaps its agentsh daemon, and captured errors include a bounded daemon log tail when available.
+   The `Modal launch preparation finished` worker log records upload, installation, daemon/session, and total preparation times in milliseconds.
+   This preparation runs inside the `agent_server_invoke` latency metric; `agent_server_prepare` measures credentials and MCP configuration before the sandbox call.
+   The `tasks_modal_launch_preparation_latency` histogram measures the preparation upload and execution in milliseconds, excluding later launch work and failure diagnostics.
+   Labels identify runtime, boot path, origin product, snapshot use, and `COMPLETED` or `FAILED` status; healthy-server reuse emits no preparation sample.
+   Its `_count`, `_sum`, and `_bucket` series support attempt counts, mean duration, and percentiles, with finer buckets between 1 and 10 seconds.
 4. **wait_condition** — The workflow blocks with a 30-minute inactivity timeout,
    extended by `heartbeat` signals from the agent. Exits on a `complete_task`
    signal or when no heartbeat arrives within 30 minutes

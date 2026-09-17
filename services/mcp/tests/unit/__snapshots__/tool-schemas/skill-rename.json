@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "new_name": {
-            "description": "New name for the skill. Must be unique in the project, and must not start with 'signals-scout-' or 'review-hog-'.",
+            "description": "New name for the skill. Must be unique in the project, cannot be the name of a skill PostHog ships, and must not start with 'signals-scout-' or 'review-hog-'.",
             "maxLength": 64,
             "type": "string"
         },

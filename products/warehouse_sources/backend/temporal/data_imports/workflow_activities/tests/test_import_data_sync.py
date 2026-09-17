@@ -25,6 +25,10 @@ from posthog.temporal.common.errors import NonReportableError
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
+    NEW_TABLE_NOT_READY_MESSAGE,
+    _transient_error_message,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
@@ -33,6 +37,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
     RESTClientRetryableError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    UNKNOWN_RESOURCE_PREFIX,
+    UnknownResourceError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import (
     NonRetryableException,
@@ -287,6 +295,32 @@ async def test_source_classified_retryable_error_logged_as_warning_not_exception
             await module._handle_import_error(mock.MagicMock(), logger, error)
 
     assert exc_info.value.__cause__ is error
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unknown_resource_error_reraised_as_non_reportable():
+    # The web pods and the data-import workers deploy separately, so for about an hour after a new
+    # table ships the schema picker offers one the worker cannot resolve. Left unclassified the
+    # lookup failure disables nothing but reports as a bug and reaches the customer as raw Python;
+    # the next attempt lands on a rolled-out worker, so it must retry as a warning instead.
+    error = UnknownResourceError(f"{UNKNOWN_RESOURCE_PREFIX} ad_stats_by_link_url")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(NonReportableError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value.__cause__ is error
+    assert _transient_error_message(str(exc_info.value)) == NEW_TABLE_NOT_READY_MESSAGE
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
 

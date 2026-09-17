@@ -17,9 +17,8 @@ Configuration:
 
 import time
 from collections import defaultdict
-from collections.abc import Generator
 from itertools import groupby
-from typing import Any, Union, cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
@@ -54,6 +53,8 @@ from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, is_coh
 from products.cohorts.backend.models.util import get_nested_cohort_ids
 from products.experiments.backend.models.experiment import Experiment, live_experiment_exists
 from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
+from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.facade.references import flag_dependency_properties, referenced_cohort_ids
 from products.feature_flags.backend.flags_cache import (
     _compare_flag_fields,
     get_team_ids_with_recently_updated_flags,
@@ -65,7 +66,7 @@ from products.feature_flags.backend.models.team_feature_flags_config import (
     PropertyMatchingVersion,
     TeamFeatureFlagsConfig,
 )
-from products.feature_flags.backend.types import FlagFilters, FlagProperty, PropertyFilterType
+from products.feature_flags.backend.types import FlagProperty
 from products.surveys.backend.models import Survey
 
 logger = structlog.get_logger(__name__)
@@ -89,43 +90,6 @@ HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER = Counter(
     "Rebuilds skipped because the freshly built group_type_mapping was empty over populated data",
     labelnames=["namespace"],
 )
-
-
-def _get_properties_from_filters(
-    filters: Union[dict, FlagFilters], property_type: str | None = None
-) -> Generator[FlagProperty]:
-    """
-    Extract properties from filters by iterating through groups.
-
-    Args:
-        filters: The filters dictionary containing groups
-        property_type: Optional filter by property type (e.g., 'flag', 'cohort')
-
-    Yields:
-        Property dictionaries matching the criteria
-    """
-    for group in filters.get("groups", []):
-        for prop in group.get("properties", []):
-            if property_type is None or prop.get("type") == property_type:
-                yield prop
-
-
-def _extract_cohort_ids_from_filters(filters: Union[dict, FlagFilters]) -> set[int]:
-    """Extract cohort IDs directly referenced in flag filter properties."""
-    cohort_ids: set[int] = set()
-    for prop in _get_properties_from_filters(filters, "cohort"):
-        value = prop.get("value")
-        if value is not None:
-            try:
-                cohort_ids.add(int(value))
-            except (TypeError, ValueError):
-                continue
-    return cohort_ids
-
-
-def _get_flag_properties_from_filters(filters: Union[dict, FlagFilters]) -> Generator[FlagProperty]:
-    """Extract flag properties from filters."""
-    return _get_properties_from_filters(filters, PropertyFilterType.FLAG)
 
 
 def _resolve_flag_dependency_key(flag_prop: FlagProperty, flag_id_to_key: dict[str, str]) -> str:
@@ -191,7 +155,7 @@ class _DependencyChainBuilder:
             return False
 
         filters = flag_data.get("filters", {})
-        for flag_prop in _get_flag_properties_from_filters(filters):
+        for flag_prop in flag_dependency_properties(filters):
             dep_flag_key = flag_prop["key"]  # Already normalized to key
             if dep_flag_key == flag_key:
                 return True
@@ -245,7 +209,7 @@ class _DependencyChainBuilder:
             return False
 
         filters = current_flag.get("filters", {})
-        for flag_prop in _get_flag_properties_from_filters(filters):
+        for flag_prop in flag_dependency_properties(filters):
             dep_flag_key = flag_prop["key"]  # Already normalized to key
             if dep_flag_key != current_key:  # Avoid self-dependency
                 if not self._validate_dependency(dep_flag_key, current_key, visited, temp_visited, chain):
@@ -288,7 +252,7 @@ def _normalize_and_collect_dependency_target_keys(
 
     for flag_data in flags_data:
         filters = flag_data.get("filters", {})
-        for flag_prop in _get_flag_properties_from_filters(filters):
+        for flag_prop in flag_dependency_properties(filters):
             # Transform flag ID to flag key
             flag_key = _resolve_flag_dependency_key(flag_prop, flag_id_to_key)
             flag_prop["key"] = flag_key
@@ -320,7 +284,7 @@ def _build_all_dependency_chains(
     for flag_data in flags_data:
         filters = flag_data.get("filters", {})
 
-        for flag_prop in _get_flag_properties_from_filters(filters):
+        for flag_prop in flag_dependency_properties(filters):
             flag_key = flag_prop["key"]
 
             dependency_chain = builder.build_chain(flag_key)
@@ -648,17 +612,22 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
         .order_by("team_id", "key")
     )
 
-    referenced_cohort_ids: set[int] = set()
+    direct_cohort_ids: set[int] = set()
     for flag in all_flags:
         flag._evaluation_tag_names = flag.evaluation_tag_names_agg or []
         flag._has_experiment = flag.has_experiment_agg
-        referenced_cohort_ids.update(_extract_cohort_ids_from_filters(flag.filters or {}))
+        try:
+            direct_cohort_ids.update(referenced_cohort_ids(flag.filters))
+        except ConfigFormatError:
+            # The per-flag pass below drops this flag through its error handling; one
+            # unsupported document must not fail the whole batch here.
+            continue
 
     # Load only the referenced cohorts and resolve nested dependencies
     # iteratively. Each iteration loads newly discovered nested cohort IDs
     # until there are none left (typically 1-2 iterations).
     cohorts_by_project: dict[int, dict[int, Cohort]] = defaultdict(dict)
-    ids_to_load = referenced_cohort_ids.copy()
+    ids_to_load = direct_cohort_ids.copy()
     loaded_ids: set[int] = set()
 
     while ids_to_load:
@@ -712,7 +681,7 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
                 # Pre-populate cache with empty entries for any referenced cohort_id
                 # not already loaded, so get_cohort_ids doesn't make fallback DB queries
                 # for deleted or cross-team cohorts.
-                for cid in _extract_cohort_ids_from_filters(filters):
+                for cid in referenced_cohort_ids(filters):
                     if cid not in seen_cohorts_cache:
                         seen_cohorts_cache[cid] = ""
 

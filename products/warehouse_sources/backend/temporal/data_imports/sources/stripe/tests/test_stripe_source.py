@@ -80,7 +80,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import (
     InvoiceListWithAllLines,
     RateLimitCallback,
-    _RequestPacer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     ENDPOINTS,
@@ -336,6 +335,16 @@ class TestStripeSource:
 
         assert ok is False
         assert message == expected_message
+
+    def test_parse_config_reads_flat_oauth_auth_method(self):
+        # The source API accepts a flat payload, so an OAuth connection arrives as
+        # `auth_method: "oauth"` with the integration id as a sibling. Parsing must pick the
+        # OAuth branch; the api_key default would report a missing API key for an account the
+        # user connected with OAuth.
+        config = self.source.parse_config({"auth_method": "oauth", "stripe_integration_id": 123})
+
+        assert config.auth_method.selection == "oauth"
+        assert config.auth_method.stripe_integration_id == 123
 
     def test_validate_credentials_does_not_echo_rejected_key(self):
         # Stripe's 401 body echoes the submitted key verbatim; here the user pasted a password into
@@ -684,68 +693,6 @@ class _FakeInvoicePage:
 
     def next_page(self) -> "_FakeInvoicePage":
         return self._next if self._next is not None else _FakeInvoicePage([])
-
-
-class TestRequestPacer:
-    def _pacer(self, per_second: float = 10.0) -> tuple[_RequestPacer, dict[str, float], list[float]]:
-        clock = {"now": 0.0}
-        sleeps: list[float] = []
-        return _RequestPacer(per_second, clock=lambda: clock["now"], sleep=sleeps.append), clock, sleeps
-
-    def test_spaces_request_starts_at_the_base_rate(self):
-        pacer, _clock, sleeps = self._pacer()
-
-        for _ in range(3):
-            pacer.wait_turn()
-
-        assert sleeps == pytest.approx([0.1, 0.2])
-
-    def test_a_rate_limit_holds_for_retry_after_and_halves_the_rate(self):
-        pacer, _clock, sleeps = self._pacer()
-        pacer.wait_turn()
-
-        pacer.throttled(retry_after=5)
-        pacer.wait_turn()
-        pacer.wait_turn()
-
-        assert sleeps == pytest.approx([5.0, 5.2])
-
-    def test_a_rate_limit_holds_a_worker_that_already_reserved_its_slot(self):
-        clock = {"now": 0.0}
-        sleeps: list[float] = []
-
-        def sleep(seconds: float) -> None:
-            sleeps.append(seconds)
-            clock["now"] += seconds
-            if len(sleeps) == 1:
-                pacer.throttled(retry_after=5)
-
-        pacer = _RequestPacer(10.0, clock=lambda: clock["now"], sleep=sleep)
-        pacer.wait_turn()
-        pacer.wait_turn()
-
-        assert sleeps == pytest.approx([0.1, 5.0])
-
-    def test_rate_limits_reported_during_a_hold_do_not_compound(self):
-        pacer, clock, sleeps = self._pacer()
-        pacer.throttled(retry_after=5)
-        pacer.throttled(retry_after=5)
-
-        clock["now"] = 4.9
-        pacer.wait_turn()
-        pacer.wait_turn()
-
-        assert sleeps == pytest.approx([0.1, 0.3])
-
-    def test_the_rate_recovers_after_a_quiet_window(self):
-        pacer, clock, sleeps = self._pacer()
-        pacer.throttled(retry_after=None)
-
-        clock["now"] = 31.0
-        pacer.wait_turn()
-        pacer.wait_turn()
-
-        assert sleeps == pytest.approx([0.1])
 
 
 class TestInvoiceListWithAllLines:

@@ -19,6 +19,8 @@ _LAZY = {
     "promote_view_nodes_to_matview": "logic.saved_query_dag_sync",
     "sync_saved_query_to_dag": "logic.saved_query_dag_sync",
     "update_node_type": "logic.saved_query_dag_sync",
+    "link_endpoint_nodes": "logic.node_endpoint",
+    "endpoint_link": "logic.node_endpoint",
     "SavedQueryNotFoundError": "logic.node_materialization",
     "SavedQueryNotOnV2ScheduleError": "logic.node_materialization",
     "is_saved_query_on_v2_schedule": "logic.node_materialization",
