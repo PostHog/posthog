@@ -170,6 +170,7 @@ def test_json_schema_accepts_the_same_top_level_keys_as_the_parser() -> None:
         ("alias_files: [owners.yaml]\n", "is the ownership file, not an alias"),
         ("alias_files: [a, b, c, d, e, f, g, h, i]\n", "at most 8 names"),
         ("alias_files: [a.yaml, b.yaml, a.yaml]\n", "is listed twice"),
+        ("alias_files: [a, b, c, d, e, f, g, h, a]\n", "at most 8 names"),
         ("codeowners:\n  jest_dir: web\n", "codeowners: unknown field 'jest_dir'"),
     ],
 )

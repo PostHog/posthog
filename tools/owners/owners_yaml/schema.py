@@ -293,7 +293,10 @@ def _validate_settings(data: dict[object, object], errors: list[str]) -> RepoSet
         reserved_dirs.append(pattern)
 
     alias_files: list[str] = []
-    for name in _validate_string_list(data["alias_files"], "alias_files", errors) if "alias_files" in data else []:
+    declared_aliases = (
+        _validate_string_list(data["alias_files"], "alias_files", errors) if "alias_files" in data else []
+    )
+    for name in declared_aliases:
         # A separator or a dot entry would let a name reach outside the directory it is read in.
         if "/" in name or "\\" in name or name in {".", ".."}:
             errors.append(f"alias_files: '{name}' must be a bare file name, without a path separator")
@@ -305,7 +308,7 @@ def _validate_settings(data: dict[object, object], errors: list[str]) -> RepoSet
             errors.append(f"alias_files: '{name}' is listed twice")
             continue
         alias_files.append(name)
-    if len(alias_files) > MAX_ALIAS_FILES:
+    if len(declared_aliases) > MAX_ALIAS_FILES:
         errors.append(f"alias_files: at most {MAX_ALIAS_FILES} names are allowed")
         alias_files = []
 
