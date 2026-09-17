@@ -137,6 +137,11 @@ export class MlMirrorMetrics {
      * observing each one puts the size of the payload on the mirror's hot path.
      */
     private static urlBytesSeen = 0
+    private static readonly mlKeyScheme = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_key_scheme_total',
+        help: 'Stored ML keys resolved, by the scheme that sealed them. v2 wraps each key with KMS directly. v3 seals a session key under its team month key, so only the month key reaches KMS. Read v2 falling to zero as the signal that no key predating v3 is still in use, which is what the team block and the deletion sweep wait for',
+        labelNames: ['scheme'],
+    })
     private static readonly mlKeyRowCacheLookups = new Counter({
         name: 'recording_blob_ingestion_v2_ml_key_row_cache_lookups_total',
         help: 'Lookups of a stored ML key row in the per-process cache, by outcome. A hit skips the DynamoDB read, and skips the KMS decrypt as well while the plaintext cache still holds that key. A hit also does not see a tombstone written since the row was read. Note that dynamodb_read on ml_key_request_duration counts misses only, so read that rate against this one rather than as total key traffic',
@@ -180,6 +185,10 @@ export class MlMirrorMetrics {
 
     public static observeMlKeyRequest(request: MlKeyRequest, ms: number): void {
         this.mlKeyRequestDuration.labels(request).observe(ms)
+    }
+
+    public static incrementMlKeyScheme(scheme: 'v2' | 'v3'): void {
+        this.mlKeyScheme.labels(scheme).inc()
     }
 
     public static incrementMlKeyRowCacheLookup(outcome: 'hit' | 'miss'): void {

@@ -239,7 +239,7 @@ describe('ML session key batches', () => {
         const keys = await reader.read(identities.map((identity) => sessionKeyId(identity.teamId, identity.sessionId)))
         expect(keys.size).toBe(identities.length)
         expect(boundary.conditionalFailures).toBe(0)
-        // 120 distinct sessions across one team month. KMS made the month key; the sessions were sealed under it.
+        // 120 distinct sessions across one team month. KMS made the month key, and each session key was sealed under it.
         expect(generated).toBe(1)
     })
 
@@ -557,6 +557,15 @@ describe('ML session key batches', () => {
             expect(unusable).toHaveBeenCalledWith('wrapped_key_missing', reported)
         }
     )
+
+    it('counts a key by the scheme that sealed it, so v2 can be watched to zero', async () => {
+        const scheme = jest.spyOn(MlMirrorMetrics, 'incrementMlKeyScheme')
+        await (await store.prepare([session])).commit()
+        coldCache()
+        await store.prepare([session])
+        // The month key still reaches KMS, and the session key it sealed does not.
+        expect(scheme.mock.calls.map(([value]) => value).sort()).toEqual(['v2', 'v3'])
+    })
 
     it('adopts a competing writer key when the refusal omits the stored row', async () => {
         const send = boundary.send.bind(boundary)

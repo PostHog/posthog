@@ -1,3 +1,5 @@
+import { MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
+
 import { MlDataKey, MlKeyEncryption, openSessionKey } from './crypto'
 import { DynamoItem, MlKeyDynamoDB } from './dynamodb'
 import { MlKeyIdentity, TableKey, imageKeyId, storedSessionId, tableKeyString, teamBlockId } from './schema'
@@ -62,6 +64,7 @@ export class MlKeyReader {
                 }
                 const item = stored.get(id)!
                 if (item.sealed_key?.B && item.key_nonce?.B) {
+                    MlMirrorMetrics.incrementMlKeyScheme('v3')
                     const month = months.get(tableKeyString(imageKeyId(identity.teamId, String(item.session_month?.S))))
                     if (!month) {
                         return
@@ -74,6 +77,7 @@ export class MlKeyReader {
                     })
                     return
                 }
+                MlMirrorMetrics.incrementMlKeyScheme('v2')
                 result.set(id, await this.encryption.decrypt(identity, Buffer.from(item.wrapped_key!.B!)))
             })
         )

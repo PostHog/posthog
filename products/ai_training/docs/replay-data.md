@@ -34,6 +34,9 @@ There is no separate consent model, DynamoDB consent entry, consent timestamp, o
 ## Keys and batch processing
 
 The independent DynamoDB table stores session keys, team image keys, deletion markers, and monthly key indexes.
+A team image key is wrapped by KMS. A session key is sealed under the team image key of its month, so KMS holds one key per team per month rather than one per session.
+The key that seals session keys is derived from the stored team image key, which still seals image data itself.
+A key stored before this carries its own KMS blob and is read that way. The `ml_key_scheme_total` metric counts both, so v2 falling to zero says no earlier key is still in use.
 ML outputs omit distinct IDs, including their hashes and pseudonyms.
 The metadata consumer projects supported fields before storage, including for messages already in Kafka.
 A session has one data key.

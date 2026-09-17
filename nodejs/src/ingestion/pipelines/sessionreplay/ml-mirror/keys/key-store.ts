@@ -159,6 +159,7 @@ export class MlKeyBatch {
     /** Resolves a stored row to its key, whether KMS wrapped it or its team month key sealed it. */
     private async openStored(identity: MlKeyIdentity, item: DynamoItem): Promise<MlDataKey | undefined> {
         if (item.sealed_key?.B && item.key_nonce?.B) {
+            MlMirrorMetrics.incrementMlKeyScheme('v3')
             const monthKey = this.monthKeyFor(identity)
             if (!monthKey) {
                 return undefined
@@ -173,6 +174,7 @@ export class MlKeyBatch {
         if (!item.wrapped_key?.B) {
             return undefined
         }
+        MlMirrorMetrics.incrementMlKeyScheme('v2')
         // A key wrapped while the organization was part of the KMS context only unwraps under that organization, which the row still names.
         const organizationId = item.organization_id?.S
         const storedIdentity = { ...identity, ...(organizationId ? { organizationId } : {}) }
