@@ -78,9 +78,10 @@ export function lineageIssueMessage(issue: NonNullable<DataModelingNode['lineage
 }
 
 function LineageIssueMarker({ issue }: { issue: NonNullable<DataModelingNode['lineage_issue']> }): JSX.Element {
+    const message = lineageIssueMessage(issue)
     return (
-        <Tooltip title={lineageIssueMessage(issue)}>
-            <span className="flex items-center">
+        <Tooltip title={message}>
+            <span className="flex items-center" role="img" aria-label={message}>
                 <IconWarning className="text-warning text-sm" />
             </span>
         </Tooltip>
