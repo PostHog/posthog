@@ -75,6 +75,7 @@ import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMe
 import { LogsRetentionSection } from 'products/logs/frontend/components/LogsRetention/LogsRetentionSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
+import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapCaptureSettings'
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
@@ -901,6 +902,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'allowlist',
                     'cookie',
                 ],
+            },
+            {
+                id: 'heatmaps-capture',
+                title: 'Heatmap capture URLs',
+                description: 'Choose which pages send heatmap data: every page, or only the URLs you list.',
+                docsUrl: 'https://posthog.com/docs/toolbar/heatmaps',
+                platformSupport: FEATURE_SUPPORT.heatmaps,
+                component: <HeatmapCaptureSettings />,
+                keywords: ['allow list', 'allowlist', 'url', 'capture', 'restrict'],
             },
         ],
     },
