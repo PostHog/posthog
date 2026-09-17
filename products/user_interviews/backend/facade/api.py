@@ -105,4 +105,8 @@ def accept_vapi_event(delivery: WebhookDelivery) -> None:
         payload=dict(delivery.payload),
         event_type=delivery.event_type,
         sharing_configuration_id=sharing_configuration_id,
+        # The lifecycle analytics events are timestamped with this, not with the moment the worker
+        # runs, so a delayed or retried task cannot report a call as started after it ended. Sent
+        # as a string because the broker carries JSON, which has no datetime.
+        received_at=delivery.received_at.isoformat(),
     )

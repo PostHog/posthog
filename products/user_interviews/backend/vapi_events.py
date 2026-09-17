@@ -8,7 +8,7 @@ to the topic creator, idempotent on ``call.id``.
 from collections.abc import Mapping
 from typing import Any
 
-from django.db import transaction
+from django.db import connection, transaction
 
 import structlog
 import posthoganalytics
@@ -127,11 +127,29 @@ def _collapse_abandoned_partials(*, team: Team, topic: UserInterviewTopic, respo
     )
 
 
+def _lock_call(sharing_config: SharingConfiguration, call_id: str) -> None:
+    """Hold the sole right to store this call's report until the transaction ends.
+
+    Nothing in the schema stops a second row for one call. Vapi resends a report whose receipt it
+    lost, the endpoint asks for a resend when the enqueue fails, and the task is acknowledged after
+    the run, so two runs for one call can be in flight together. Without this lock both pass the
+    existence check and both insert, which gives the topic two interviews for one call and emits
+    the embeddings twice. The run that loses waits here until the winner commits, and its next read
+    then sees the row.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(%s))",
+            [f"user_interviews_vapi_call:{sharing_config.team_id}:{call_id}"],
+        )
+
+
 def _capture_user_interview_event(
     event: str,
     *,
     sharing_config: SharingConfiguration,
     call_id: str | None,
+    received_at: str | None,
     session_id: str = "",
     extra_properties: dict[str, Any] | None = None,
 ) -> None:
@@ -142,6 +160,10 @@ def _capture_user_interview_event(
     transient drops or warm-transfer flows, and end-of-call-report can be retried by Vapi
     until we ack. Set `$insert_id` to `<event>:<call_id>` so PostHog dedupes the second
     delivery at ingest — funnels see one start and one end per call.
+
+    The event carries the moment the endpoint received the delivery, not the moment this ran. The
+    worker runs after the request, and later again on a retry, so the run time would put
+    "conversation started" after "conversation ended" for the same call.
 
     When a shared-link respondent supplied a valid session_id, it's attached as `$session_id` so
     the event (and thus the interview) associates with that session recording — this is how the
@@ -170,6 +192,7 @@ def _capture_user_interview_event(
             distinct_id=f"user_interview:{interviewee_context.id}",
             event=event,
             properties=properties,
+            timestamp=received_at,
             groups=groups(organization=sharing_config.team.organization, team=sharing_config.team),
         )
     except Exception:
@@ -181,7 +204,13 @@ def _capture_user_interview_event(
         )
 
 
-def handle_vapi_webhook_delivery(payload: Mapping[str, Any], event_type: str, *, sharing_configuration_id: int) -> None:
+def handle_vapi_webhook_delivery(
+    payload: Mapping[str, Any],
+    event_type: str,
+    *,
+    sharing_configuration_id: int,
+    received_at: str | None,
+) -> None:
     """Act on one verified Vapi delivery: the lifecycle event, and the end-of-call report.
 
     The share comes in by id because ``accept_vapi_event`` resolved the token in the request,
@@ -191,7 +220,8 @@ def handle_vapi_webhook_delivery(payload: Mapping[str, Any], event_type: str, *,
     Idempotent on ``call.id`` (stored in ``call_metadata.id``). Vapi repeats that id across the
     status update and the end-of-call report, so ingress cannot dedup on it and this does
     instead: a repeat delivery of a report already stored creates nothing. The idempotency also
-    covers the Celery retry that persistence rides on.
+    covers the Celery retry that persistence rides on, and an advisory lock holds it when two of
+    those runs overlap.
     """
     message: dict[str, Any] = payload.get("message") or {}
     call: dict[str, Any] = message.get("call") or {}
@@ -230,6 +260,7 @@ def handle_vapi_webhook_delivery(payload: Mapping[str, Any], event_type: str, *,
                 "user_interview_conversation_started",
                 sharing_config=sharing_config,
                 call_id=call_id,
+                received_at=received_at,
                 session_id=valid_session_id(merged_metadata.get("session_id")),
             )
         logger.info(
@@ -249,17 +280,6 @@ def handle_vapi_webhook_delivery(payload: Mapping[str, Any], event_type: str, *,
             call_id=call_id,
         )
         return
-
-    if call_id:
-        existing = UserInterview.objects.filter(team=sharing_config.team, call_metadata__id=call_id).first()
-        if existing is not None:
-            logger.info(
-                "user_interviews_vapi_webhook_duplicate",
-                team_id=sharing_config.team_id,
-                interview_id=str(existing.id),
-                call_id=call_id,
-            )
-            return
 
     recording_url = (message.get("recording") or {}).get("url", "") or message.get("recordingUrl", "") or ""
     transcript = message.get("transcript", "") or ""
@@ -287,6 +307,17 @@ def handle_vapi_webhook_delivery(payload: Mapping[str, Any], event_type: str, *,
         session_id = ""
 
     with transaction.atomic():
+        if call_id:
+            _lock_call(sharing_config, call_id)
+            existing = UserInterview.objects.filter(team=sharing_config.team, call_metadata__id=call_id).first()
+            if existing is not None:
+                logger.info(
+                    "user_interviews_vapi_webhook_duplicate",
+                    team_id=sharing_config.team_id,
+                    interview_id=str(existing.id),
+                    call_id=call_id,
+                )
+                return
         interview = UserInterview.objects.create(
             team=sharing_config.team,
             topic=topic,
@@ -318,6 +349,7 @@ def handle_vapi_webhook_delivery(payload: Mapping[str, Any], event_type: str, *,
         "user_interview_conversation_ended",
         sharing_config=sharing_config,
         call_id=call_id,
+        received_at=received_at,
         session_id=session_id,
         extra_properties={
             "interview_id": str(interview.id),

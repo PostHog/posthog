@@ -12,9 +12,10 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
-from django.db import InterfaceError, OperationalError
+from django.db import InterfaceError, OperationalError, connection
 from django.template.loader import get_template
 from django.test import SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import kombu.exceptions
@@ -734,6 +735,7 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(interview.recording_url, "https://vapi.example/recording.mp3")
         self.assertEqual(interview.transcript, "Hi! ...")
 
+    @time_machine.travel("2026-05-14 12:00:00", tick=False)
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
     @patch("products.user_interviews.backend.tasks.tasks.handle_vapi_webhook.delay")
     def test_webhook_hands_the_report_to_a_task(self, mock_delay):
@@ -743,9 +745,55 @@ class TestVapiWebhook(APIBaseTest):
         response = self._signed_post("topsecret", payload)
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
         mock_delay.assert_called_once_with(
-            payload=payload, event_type="end-of-call-report", sharing_configuration_id=share.pk
+            payload=payload,
+            event_type="end-of-call-report",
+            sharing_configuration_id=share.pk,
+            received_at=timezone.now().isoformat(),
         )
         self.assertEqual(UserInterview.objects.count(), 0)
+
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    def test_webhook_serializes_persistence_per_call_id(self):
+        # No unique constraint keeps a call to one row, so two runs that overlap have to queue
+        # behind an advisory lock on the call id instead of both passing the existence check.
+        share = self._create_share()
+        self.client.logout()
+        with CaptureQueriesContext(connection) as queries:
+            response = self._signed_post("topsecret", self._end_of_call_payload(share.access_token, call_id="call_xyz"))
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
+
+        statements = [query["sql"] for query in queries.captured_queries]
+        locks = [index for index, sql in enumerate(statements) if "pg_advisory_xact_lock" in sql]
+        inserts = [index for index, sql in enumerate(statements) if "INSERT INTO" in sql and "userinterview" in sql]
+        self.assertEqual(len(locks), 1)
+        self.assertIn(f"user_interviews_vapi_call:{self.team.id}:call_xyz", statements[locks[0]])
+        self.assertTrue(inserts)
+        self.assertLess(locks[0], inserts[0])
+
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    @patch("products.user_interviews.backend.vapi_events.posthoganalytics.capture")
+    @patch("products.user_interviews.backend.tasks.tasks.handle_vapi_webhook.delay")
+    def test_lifecycle_event_carries_the_delivery_time_not_the_run_time(self, mock_delay, mock_capture):
+        share = self._create_share()
+        self.client.logout()
+        received_at = datetime.datetime(2026, 5, 14, 12, 0, tzinfo=datetime.UTC)
+        with time_machine.travel(received_at, tick=False) as clock:
+            accepted = self._signed_post(
+                "topsecret",
+                {
+                    "message": {
+                        "type": "status-update",
+                        "status": "in-progress",
+                        "call": {"id": "call_xyz", "metadata": {"sharing_access_token": share.access_token}},
+                    }
+                },
+            )
+            self.assertEqual(accepted.status_code, status.HTTP_202_ACCEPTED, accepted.content)
+            clock.move_to(received_at + datetime.timedelta(minutes=10))
+            handle_vapi_webhook(**mock_delay.call_args.kwargs)
+
+        mock_capture.assert_called_once()
+        self.assertEqual(mock_capture.call_args.kwargs["timestamp"], received_at.isoformat())
 
     @parameterized.expand(
         [
