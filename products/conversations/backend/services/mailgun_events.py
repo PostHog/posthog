@@ -125,6 +125,9 @@ class MailgunRequest:
     routes moved onto ingress. The fields are the same fields, so they keep those two names and
     the readers keep their bodies. The attachments arrive under the provider's reserved `_files`
     key, which is also where the provider applies the file cap.
+
+    This exists only so the readers that predate ingress did not have to be rewritten. New code
+    reads `delivery.payload` directly, which is the contract ingress actually defines.
     """
 
     def __init__(self, delivery: WebhookDelivery) -> None:
