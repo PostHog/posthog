@@ -154,6 +154,15 @@ class TestAnalyze(SimpleTestCase):
                 {"event_filter": _USABLE_EVENT_FILTER, "team_granules": 500},
                 ["no_start_date"],
             ),
+            (
+                "the largest unbounded read is the one sized, not the first",
+                join_plan(
+                    events_read_node("true", [], selected_granules=10),
+                    events_read_node("true", [], selected_granules=5000),
+                ),
+                {"event_filter": _USABLE_EVENT_FILTER, "team_granules": 10_000},
+                ["no_start_date"],
+            ),
             # The event filter is judged on the larger read: a small read without one stays quiet, and
             # a large read without one is flagged whatever the small read did.
             (

@@ -171,7 +171,11 @@ def _findings_for_plan(
     # says the person chose no start date; it applies to the outer query, not its subqueries. It is
     # one click to change, so it is reported at any size.
     chose_all_time = run.all_time and subquery_index is None
-    unbounded = next((read for read in plan.events_reads() if read.timestamp_bounds().lower is None), None)
+    unbounded = max(
+        (read for read in plan.events_reads() if read.timestamp_bounds().lower is None),
+        key=lambda read: read.selected_granules() or 0,
+        default=None,
+    )
     if tree is not None and tree.start_date_hidden_from_plan:
         unbounded = None
     reads_all_history = chose_all_time or (
