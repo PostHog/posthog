@@ -1488,8 +1488,8 @@ describe('Hog Executor', () => {
 
             let result = await executor.executeFetch(invocation)
 
-            // 5s from the provider rather than the 1s first backoff step, plus jitter
-            expect(result.invocation.queueScheduledAt?.toISO()).toMatchInlineSnapshot(`"2025-01-01T00:00:05.500Z"`)
+            // 5s from the provider rather than the 1s first backoff step, plus jitter scaled to it
+            expect(result.invocation.queueScheduledAt?.toISO()).toMatchInlineSnapshot(`"2025-01-01T00:00:07.500Z"`)
 
             const maxRetries = executor['config'].fetchRateLimitRetries
             expect(maxRetries).toBeGreaterThan(executor['config'].fetchRetries)

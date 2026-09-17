@@ -203,14 +203,17 @@ export const parseRetryAfterMs = (response: FetchResponse | null): number | unde
 
 // A provider's own interval wins over the backoff, which is shorter than most rate-limit windows.
 // Jitter rides on top of it so a burst of jobs held by the same limit does not all come back at once.
+// It scales with the interval because a provider reports the time until one shared window rolls
+// over: every held job then has the same wake instant, and a fixed spread returns the whole burst
+// inside the same second.
 export const getNextRetryTime = (
     backoffBaseMs: number,
     backoffMaxMs: number,
     tries: number,
     retryAfterMs?: number
 ): DateTime => {
-    const jitterMs = Math.floor(Math.random() * backoffBaseMs)
-    const backoffMs = Math.min(backoffBaseMs * tries + jitterMs, backoffMaxMs)
-    const waitMs = Math.max(backoffMs, retryAfterMs ? retryAfterMs + jitterMs : 0)
+    const backoffMs = Math.min(backoffBaseMs * tries + Math.floor(Math.random() * backoffBaseMs), backoffMaxMs)
+    const retryAfterJitterMs = retryAfterMs ? Math.floor(Math.random() * Math.min(retryAfterMs, backoffMaxMs)) : 0
+    const waitMs = Math.max(backoffMs, retryAfterMs ? retryAfterMs + retryAfterJitterMs : 0)
     return DateTime.utc().plus({ milliseconds: waitMs })
 }
