@@ -201,11 +201,11 @@ async def _run_activity_with_output(
         lambda team_id: 1,
     )
     monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.report._team_report_charts_enabled",
+        "products.signals.backend.temporal.agentic.report.team_report_charts_enabled",
         lambda team_id: charts_enabled,
     )
     monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.report._team_report_metrics_enabled",
+        "products.signals.backend.temporal.agentic.report.team_report_metrics_enabled",
         lambda team_id: metrics_enabled,
     )
 

@@ -1,0 +1,38 @@
+{
+  "version": 2,
+  "return_type": "boolean",
+  "default_value": false,
+  "rules": [
+    {
+      "id": "44444444-4444-4444-8444-444444444444",
+      "rule_type": "experiment",
+      "targeting": {
+        "properties": []
+      },
+      "experiment_id": 42,
+      "paused": false,
+      "rollout_percentage": 100,
+      "on_rollout_miss": "continue",
+      "assignment_algorithm": "sha1_60_v1",
+      "seed": "experiment-preview",
+      "assign_by": "person",
+      "variants": [
+        {
+          "key": "invalid key",
+          "weight": 50,
+          "value": true
+        },
+        {
+          "key": "test",
+          "weight": 50,
+          "value": true
+        }
+      ],
+      "holdout": {
+        "id": 7,
+        "seed": "holdout-",
+        "exclusion_percentage": 5
+      }
+    }
+  ]
+}
