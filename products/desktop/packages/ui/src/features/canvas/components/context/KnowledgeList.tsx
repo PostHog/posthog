@@ -19,7 +19,10 @@ import {
   fileDisplayName,
   isSpaceFile,
 } from "@posthog/core/canvas/contextFiles";
-import { parseContextSourceInput } from "@posthog/core/canvas/contextSources";
+import {
+  type ContextSource,
+  parseContextSourceInput,
+} from "@posthog/core/canvas/contextSources";
 import {
   Button,
   cn,
@@ -250,15 +253,7 @@ function LinkRow({
     parsed && parsed.item.label !== link.title ? parsed.item.label : null;
   return (
     <KnowledgeRow
-      icon={
-        parsed ? (
-          <SourceLogo source={parsed.source} size={15} />
-        ) : external ? (
-          <LinkIcon size={15} />
-        ) : (
-          <FileTextIcon size={15} />
-        )
-      }
+      icon={linkIcon(parsed?.source ?? null, external)}
       title={link.title}
       meta={
         unconnected ? (
@@ -290,6 +285,12 @@ function LinkRow({
       disabled={disabled}
     />
   );
+}
+
+function linkIcon(source: ContextSource | null, external: boolean): ReactNode {
+  if (source) return <SourceLogo source={source} size={15} />;
+  if (external) return <LinkIcon size={15} />;
+  return <FileTextIcon size={15} />;
 }
 
 const TONE_DOT: Record<string, string> = {
@@ -403,7 +404,8 @@ function KnowledgeRow({
               disabled={disabled}
             />
           </span>
-        ) : meta ? (
+        ) : null}
+        {!onNoteChange && meta ? (
           <span className="truncate text-muted-foreground text-xs">{meta}</span>
         ) : null}
       </span>

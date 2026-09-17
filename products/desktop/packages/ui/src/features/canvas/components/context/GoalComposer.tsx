@@ -42,7 +42,7 @@ interface GoalComposerProps {
   /** The goal being edited, or null for a new one. */
   initial: ContextGoal | null;
   onSave: (goal: ContextGoal) => Promise<void>;
-  /** Hand the goal to an agent task that writes its measure. */
+  /** Save the goal and hand it to an agent task that writes its measure. */
   onAskAgent: (goal: ContextGoal) => Promise<void>;
   onDelete?: () => Promise<void>;
   onClose: () => void;
@@ -63,10 +63,10 @@ function growToFit(el: HTMLTextAreaElement): void {
 }
 
 /**
- * One line in, a goal out. A sentence saves the goal at once and hands the
- * measure to an agent that reads the project's events and writes the query.
- * Pasted HogQL skips the agent: the person sees the query and its current
- * value, adjusts the target, and saves.
+ * One line in, then a form. The sentence only fills the name and the target;
+ * the person sees what was read and fixes it before anything is saved. A goal
+ * saved without a query is handed to an agent that writes one. Pasted HogQL
+ * shows the query and its current value instead.
  */
 export function GoalComposer({
   initial,
@@ -95,22 +95,16 @@ export function GoalComposer({
   );
   const [dueDate, setDueDate] = useState(initial?.target?.dueDate ?? "");
   const [askedAgent, setAskedAgent] = useState(false);
-  const primary = initial?.primary ?? false;
   const askRef = useRef<HTMLTextAreaElement>(null);
 
   const isHogQL = looksLikeHogQL(sentence);
-  const candidateName = (
-    step === "ask"
-      ? sentence.trim()
-        ? parseGoalSentence(sentence.trim()).name
-        : ""
-      : name
-  )
-    .trim()
-    .toLowerCase();
+  const candidateName = name.trim().toLowerCase();
   const duplicate =
     candidateName.length > 0 &&
     takenNames.some((taken) => taken.trim().toLowerCase() === candidateName);
+  const measureEmpty =
+    measure === null || (measure.kind === "hogql" && !measure.sql.trim());
+  const needsAgent = !initial && measureEmpty;
 
   const run = useMutation({
     mutationFn: async (sql: string) => {
@@ -147,39 +141,38 @@ export function GoalComposer({
       ? { direction, value: parsedTarget, dueDate: dueDate || null }
       : null;
 
-  const buildGoal = (withMeasure: GoalMeasure | null): ContextGoal => ({
-    name: sentenceCase(name.trim()) || "Untitled goal",
-    why: initial?.why ?? "",
-    measure: withMeasure,
-    primary,
-    target,
-  });
-
-  const save = async () => {
-    if (targetInvalid || isSaving || duplicate) return;
-    await onSave(buildGoal(measure));
-  };
-
-  const askAgent = async () => {
-    setAskedAgent(true);
-    const parsed = parseGoalSentence(sentence.trim());
-    await onAskAgent({
-      ...buildGoal(null),
-      name: sentenceCase(name.trim() || parsed.name),
-      target: parsed.target ?? target,
-    });
-  };
-
-  const proceed = async () => {
+  const proceed = () => {
     const text = sentence.trim();
-    if (!text || askedAgent || duplicate) return;
+    if (!text) return;
     if (isHogQL) {
       setMeasure({ kind: "hogql", sql: text });
-      if (!name.trim()) setName("Untitled goal");
-      setStep("review");
-      return;
+    } else {
+      const parsed = parseGoalSentence(text);
+      setName(sentenceCase(parsed.name));
+      if (parsed.target) {
+        setDirection(parsed.target.direction);
+        setTargetValue(String(parsed.target.value));
+        setDueDate(parsed.target.dueDate ?? "");
+      }
     }
-    await askAgent();
+    setStep("review");
+  };
+
+  const submit = async () => {
+    if (targetInvalid || isSaving || askedAgent || duplicate) return;
+    const goal: ContextGoal = {
+      name: sentenceCase(name.trim()) || "Untitled goal",
+      why: initial?.why ?? "",
+      measure: measureEmpty ? null : measure,
+      primary: initial?.primary ?? false,
+      target,
+    };
+    if (needsAgent) {
+      setAskedAgent(true);
+      await onAskAgent(goal);
+    } else {
+      await onSave(goal);
+    }
   };
 
   const onAskKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -187,14 +180,16 @@ export function GoalComposer({
       onClose();
       return;
     }
-    const submit =
+    const next =
       (event.key === "Enter" && (event.metaKey || event.ctrlKey)) ||
       (event.key === "Enter" && !event.shiftKey && !isHogQL);
-    if (submit) {
+    if (next) {
       event.preventDefault();
-      void proceed();
+      proceed();
     }
   };
+
+  const note = reviewNote({ duplicate, targetInvalid, needsAgent });
 
   return (
     <>
@@ -209,7 +204,6 @@ export function GoalComposer({
                 growToFit(e.target);
               }}
               onKeyDown={onAskKeyDown}
-              disabled={askedAgent}
               spellCheck={!isHogQL}
               placeholder="Weekly completed checkouts above 1,200 by end of December"
               className={cn(
@@ -219,16 +213,10 @@ export function GoalComposer({
                   : "text-base leading-snug",
               )}
             />
-            <Text
-              size="xs"
-              variant={duplicate ? undefined : "muted"}
-              className={duplicate ? "text-warning-foreground" : undefined}
-            >
-              {duplicate
-                ? "A goal with this name already exists."
-                : isHogQL
-                  ? "HogQL. The first cell of the first row is the value."
-                  : "An agent finds the events and writes the query."}
+            <Text size="xs" variant="muted">
+              {isHogQL
+                ? "HogQL. The first cell of the first row is the value."
+                : "The name, the target and the date are read from the sentence. You check them next."}
             </Text>
           </div>
         ) : (
@@ -275,11 +263,13 @@ export function GoalComposer({
                   )
                 }
                 onRun={(sql) => runMutate(sql)}
-                value={run.data?.value ?? null}
-                rows={run.data?.rows ?? null}
+                result={{
+                  running: run.isPending,
+                  error: run.error?.message ?? null,
+                  rows: run.data?.rows ?? null,
+                  value: run.data?.value ?? null,
+                }}
                 unit={goalValueSuffix(name)}
-                running={run.isPending}
-                error={run.error?.message ?? null}
               />
             )}
 
@@ -324,11 +314,17 @@ export function GoalComposer({
                 className="w-40"
               />
             </div>
-            {targetInvalid || duplicate ? (
-              <Text size="xs" className="text-warning-foreground">
-                {duplicate
-                  ? "A goal with this name already exists."
-                  : "The target must be a number."}
+            {note ? (
+              <Text
+                size="xs"
+                variant={note.tone === "muted" ? "muted" : undefined}
+                className={
+                  note.tone === "warning"
+                    ? "text-warning-foreground"
+                    : undefined
+                }
+              >
+                {note.text}
               </Text>
             ) : null}
           </div>
@@ -355,20 +351,25 @@ export function GoalComposer({
             <Button
               variant="primary"
               size="sm"
-              disabled={!sentence.trim() || askedAgent || duplicate}
-              loading={askedAgent}
-              onClick={() => void proceed()}
+              disabled={!sentence.trim()}
+              onClick={proceed}
             >
-              {isHogQL ? "Next" : "Add goal"}
-              {!askedAgent ? <Kbd className="ml-1">↵</Kbd> : null}
+              Next
+              <Kbd className="ml-1">↵</Kbd>
             </Button>
           ) : (
             <Button
               variant="primary"
               size="sm"
-              disabled={targetInvalid || isSaving || !name.trim() || duplicate}
-              loading={isSaving}
-              onClick={() => void save()}
+              disabled={
+                targetInvalid ||
+                isSaving ||
+                askedAgent ||
+                !name.trim() ||
+                duplicate
+              }
+              loading={isSaving || askedAgent}
+              onClick={() => void submit()}
             >
               {initial ? "Save" : "Add goal"}
             </Button>
@@ -435,24 +436,80 @@ function sentenceCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+interface ReviewNote {
+  text: string;
+  tone: "warning" | "muted";
+}
+
+function reviewNote(state: {
+  duplicate: boolean;
+  targetInvalid: boolean;
+  needsAgent: boolean;
+}): ReviewNote | null {
+  if (state.duplicate) {
+    return { text: "A goal with this name already exists.", tone: "warning" };
+  }
+  if (state.targetInvalid) {
+    return { text: "The target must be a number.", tone: "warning" };
+  }
+  if (state.needsAgent) {
+    return {
+      text: "No query yet. An agent finds the events and writes one after you add the goal.",
+      tone: "muted",
+    };
+  }
+  return null;
+}
+
+interface RunResult {
+  running: boolean;
+  error: string | null;
+  rows: number | null;
+  value: number | null;
+}
+
+function resultLabel(sql: string, result: RunResult): string {
+  if (result.error) return result.error;
+  if (result.running) return "Running";
+  if (!sql.trim()) return "No query yet";
+  if (result.rows === 0) {
+    return "No rows came back. Check the event name, for example $pageview.";
+  }
+  if (result.rows !== null && result.value === null) {
+    return "No number in the first row. Return one row with one numeric cell.";
+  }
+  if (result.rows !== null && result.rows > 1) {
+    return `First cell of the first row. The query returned ${result.rows} rows.`;
+  }
+  return "Current value";
+}
+
+function ResultValue({ result, unit }: { result: RunResult; unit: string }) {
+  if (result.running) return <Spinner size="xs" aria-hidden="true" />;
+  if (result.error) {
+    return <WarningCircleIcon size={14} className="text-warning-foreground" />;
+  }
+  if (result.value === null) return "–";
+  return (
+    <>
+      {formatNumber(result.value)}
+      {unit}
+    </>
+  );
+}
+
 function MeasureReview({
   measure,
   onChange,
   onRun,
-  value,
-  rows,
+  result,
   unit,
-  running,
-  error,
 }: {
   measure: GoalMeasure | null;
   onChange: (sql: string) => void;
   onRun: (sql: string) => void;
-  value: number | null;
-  rows: number | null;
+  result: RunResult;
   unit: string;
-  running: boolean;
-  error: string | null;
 }) {
   const editorRef = useRef<SqlEditorHandle>(null);
 
@@ -467,17 +524,6 @@ function MeasureReview({
     );
   }
   const sql = measure?.kind === "hogql" ? measure.sql : "";
-  const label = error
-    ? error
-    : running
-      ? "Running"
-      : rows === 0
-        ? "No rows came back. Check the event name, for example $pageview."
-        : value === null && rows !== null
-          ? "No number in the first row. Return one row with one numeric cell."
-          : rows !== null && rows > 1
-            ? `First cell of the first row. The query returned ${rows} rows.`
-            : "Current value";
   return (
     <div className="flex flex-col overflow-hidden rounded-md border border-border bg-background">
       <SqlEditor
@@ -490,7 +536,7 @@ function MeasureReview({
         <Button
           variant="link-muted"
           size="xs"
-          disabled={running || !sql.trim()}
+          disabled={result.running || !sql.trim()}
           onClick={() => {
             editorRef.current?.format();
             onRun(sql);
@@ -505,24 +551,13 @@ function MeasureReview({
             variant="muted"
             className={cn(
               "min-w-0 truncate",
-              error && "text-warning-foreground",
+              result.error && "text-warning-foreground",
             )}
           >
-            {label}
+            {resultLabel(sql, result)}
           </Text>
           <span className="shrink-0 font-semibold text-foreground text-sm tabular-nums">
-            {running ? (
-              <Spinner size="xs" aria-hidden="true" />
-            ) : error ? (
-              <WarningCircleIcon
-                size={14}
-                className="text-warning-foreground"
-              />
-            ) : value === null ? (
-              "–"
-            ) : (
-              `${formatNumber(value)}${unit}`
-            )}
+            <ResultValue result={result} unit={unit} />
           </span>
         </span>
       </div>

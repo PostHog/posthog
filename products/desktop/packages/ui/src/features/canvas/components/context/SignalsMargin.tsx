@@ -20,9 +20,6 @@ interface SignalsMarginProps {
  * and lives in the space's Reports tab.
  */
 export function SignalsMargin({ objects }: SignalsMarginProps) {
-  const { data, isLoading, isError } = useSpaceSignals(objects);
-  const signals = data ?? [];
-
   return (
     <section className="flex flex-col gap-2">
       <SectionHeader
@@ -33,31 +30,43 @@ export function SignalsMargin({ objects }: SignalsMarginProps) {
           </Text>
         }
       />
-      {objects.length === 0 ? (
-        <SignalsNote>
-          Link what this space owns and the signals about it show here.
-        </SignalsNote>
-      ) : isLoading ? (
-        <SignalsNote leading={<Spinner size="xs" aria-hidden="true" />}>
-          Reading signals
-        </SignalsNote>
-      ) : isError ? (
-        <SignalsNote>Signals could not be read.</SignalsNote>
-      ) : signals.length === 0 ? (
-        <SignalsNote>
-          Nothing about these objects in the last 7 days.
-        </SignalsNote>
-      ) : (
-        <ul className="flex flex-col divide-y divide-border border-border border-y">
-          {signals.map((signal, index) => (
-            <SignalRow
-              key={`${signal.sourceId}-${signal.timestamp}-${index}`}
-              signal={signal}
-            />
-          ))}
-        </ul>
-      )}
+      <SignalsBody objects={objects} />
     </section>
+  );
+}
+
+function SignalsBody({ objects }: SignalsMarginProps) {
+  const { data, isLoading, isError } = useSpaceSignals(objects);
+  if (objects.length === 0) {
+    return (
+      <SignalsNote>
+        Link what this space owns and the signals about it show here.
+      </SignalsNote>
+    );
+  }
+  if (isLoading) {
+    return (
+      <SignalsNote leading={<Spinner size="xs" aria-hidden="true" />}>
+        Reading signals
+      </SignalsNote>
+    );
+  }
+  if (isError) return <SignalsNote>Signals could not be read.</SignalsNote>;
+  const signals = data ?? [];
+  if (signals.length === 0) {
+    return (
+      <SignalsNote>Nothing about these objects in the last 7 days.</SignalsNote>
+    );
+  }
+  return (
+    <ul className="flex flex-col divide-y divide-border border-border border-y">
+      {signals.map((signal, index) => (
+        <SignalRow
+          key={`${signal.sourceId}-${signal.timestamp}-${index}`}
+          signal={signal}
+        />
+      ))}
+    </ul>
   );
 }
 

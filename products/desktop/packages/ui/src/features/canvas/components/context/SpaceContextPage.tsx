@@ -44,6 +44,14 @@ import { SignalsMargin } from "./SignalsMargin";
 
 const COLUMN = "mx-auto w-full max-w-[1100px] px-8";
 
+const EMPTY_DOCUMENT: ContextDocument = {
+  frontmatter: "",
+  knowledge: "",
+  links: [],
+  objects: [],
+  goals: [],
+};
+
 interface SpaceContextPageProps {
   channelId: string;
   channelName: string;
@@ -82,10 +90,19 @@ export function SpaceContextPage({
     useChannelFeed(channelId);
   const contextLayerEnabled = useContextLayerFlag();
   const { generate } = useGenerateContext();
-  const doc = useMemo(
-    () => parseContextDocument(store.content),
-    [store.content],
-  );
+  const parsed = useMemo(() => {
+    try {
+      return { doc: parseContextDocument(store.content), error: null };
+    } catch (cause) {
+      return {
+        doc: EMPTY_DOCUMENT,
+        error: cause instanceof Error ? cause.message : String(cause),
+      };
+    }
+  }, [store.content]);
+  const doc = parsed.doc;
+  const problem = store.isLoading ? null : documentProblem(store, parsed.error);
+  const ready = !store.isLoading && problem === null;
   const isBlank =
     !doc.knowledge.trim() &&
     doc.goals.length === 0 &&
@@ -171,9 +188,10 @@ export function SpaceContextPage({
               </PageHeaderActions>
             </PageHeaderTitleRow>
             <PageHeaderDescription>
-              {isBlank ? (
-                "Every agent working in this space reads this first."
-              ) : store.updatedAt ? (
+              {isBlank
+                ? "Every agent working in this space reads this first."
+                : null}
+              {!isBlank && store.updatedAt ? (
                 <>
                   Updated <RelativeTimestamp timestamp={store.updatedAt} />
                 </>
@@ -183,18 +201,18 @@ export function SpaceContextPage({
         </div>
       </PageHeader>
 
-      {store.isLoading ? (
-        <LoadingState className="flex-1" />
-      ) : store.error ? (
+      {store.isLoading ? <LoadingState className="flex-1" /> : null}
+      {problem ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6">
-          <Text size="xs" variant="muted">
-            Could not load this space's context: {store.error.message}
+          <Text size="xs" variant="muted" className="whitespace-pre-wrap">
+            {problem.text}
           </Text>
           <Button variant="outline" size="sm" onClick={store.refetch}>
-            Try again
+            {problem.action}
           </Button>
         </div>
-      ) : (
+      ) : null}
+      {ready ? (
         <div className="@container min-h-0 flex-1 overflow-y-auto">
           <div className={cn(COLUMN, "flex flex-col gap-6 pt-10 pb-24")}>
             {store.saveError ? (
@@ -258,7 +276,7 @@ export function SpaceContextPage({
             )}
           </div>
         </div>
-      )}
+      ) : null}
 
       <CreateChannelModal
         open={agentOpen}
@@ -277,6 +295,25 @@ export function SpaceContextPage({
       ) : null}
     </div>
   );
+}
+
+function documentProblem(
+  store: ContextDocumentStore,
+  parseError: string | null,
+): { text: string; action: string } | null {
+  if (store.error) {
+    return {
+      text: `Could not load this space's context: ${store.error.message}`,
+      action: "Try again",
+    };
+  }
+  if (parseError) {
+    return {
+      text: `The goals, reading and watching lists in this document could not be read. Fix the frontmatter in the wiki, then reload.\n\n${parseError}`,
+      action: "Reload",
+    };
+  }
+  return null;
 }
 
 function taskStateFor(

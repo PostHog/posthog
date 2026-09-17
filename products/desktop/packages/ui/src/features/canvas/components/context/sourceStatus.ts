@@ -1,4 +1,10 @@
+import type { ContextSourceStatus } from "@posthog/core/canvas/contextSources";
 import type { ContextSourceState } from "@posthog/ui/features/canvas/hooks/useContextSources";
+
+const CONNECT_VERB: Partial<Record<ContextSourceStatus, string>> = {
+  needs_reauth: "Reconnect",
+  pending_oauth: "Finish authorizing",
+};
 
 export function connectLabel(
   state: ContextSourceState,
@@ -6,12 +12,7 @@ export function connectLabel(
 ): string {
   if (state.connecting) return "Waiting";
   if (state.needsCredentials) return "Open MCP servers";
-  const verb =
-    state.status === "needs_reauth"
-      ? "Reconnect"
-      : state.status === "pending_oauth"
-        ? "Finish authorizing"
-        : "Connect";
+  const verb = CONNECT_VERB[state.status] ?? "Connect";
   return withName ? `${verb} ${state.source.name}` : verb;
 }
 

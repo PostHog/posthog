@@ -33,7 +33,7 @@ import {
   useGoalTrend,
 } from "@posthog/ui/features/canvas/hooks/useGoalMeasure";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { GoalComposer } from "./GoalComposer";
 import { GoalTrendChart } from "./GoalTrendChart";
 import { SectionHeader } from "./SectionHeader";
@@ -73,11 +73,8 @@ export function GoalsList({
     const primary = goal.primary || (adding && goals.length === 0);
     const next = { ...goal, primary };
     const rest = primary ? goals.map((g) => ({ ...g, primary: false })) : goals;
-    await onChange(
-      adding
-        ? [...rest, next]
-        : rest.map((g, i) => (i === editingIndex ? next : g)),
-    );
+    const replaced = rest.map((g, i) => (i === editingIndex ? next : g));
+    await onChange(adding ? [...rest, next] : replaced);
     setEditing(null);
   };
   const makePrimary = (index: number) =>
@@ -238,17 +235,8 @@ function GoalCard({
 }) {
   const measure = useGoalMeasure(goal.measure);
   const trend = useGoalTrend(goal.name, goal.measure);
-  const palette = useGoalPalette();
-  const current = measure.data ?? null;
-  const status = goalStatus(current, goal.target);
-  const measured = current !== null;
-  const detail = goal.target
-    ? `${STATUS_LABEL[status]} · ${describeTarget(goal.target)}`
-    : STATUS_LABEL[status];
-  const agentRunning =
-    goal.measure === null && measureTask?.state === "running";
-  const agentEnded = goal.measure === null && measureTask?.state === "ended";
-  const points = trend.data?.points ?? [];
+  const agentState: AgentState | null =
+    goal.measure === null ? (measureTask?.state ?? "waiting") : null;
 
   return (
     <div
@@ -305,83 +293,169 @@ function GoalCard({
         </span>
         <span className="flex items-end justify-between gap-3">
           <span className="font-semibold text-2xl text-foreground tabular-nums leading-none">
-            {measured ? (
-              <>
-                {formatNumber(current)}
-                {goalValueSuffix(goal.name)}
-              </>
-            ) : measure.isLoading ? (
-              <Spinner size="xs" aria-hidden="true" />
-            ) : (
-              <span className="text-muted-foreground">–</span>
-            )}
+            <CurrentValue
+              value={measure.data ?? null}
+              loading={measure.isLoading}
+              unit={goalValueSuffix(goal.name)}
+            />
           </span>
-          {goal.measure === null ? (
-            <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
-              {agentRunning ? (
-                <Spinner size="xs" aria-hidden="true" />
-              ) : agentEnded ? (
-                <WarningCircleIcon
-                  size={13}
-                  className="shrink-0 text-warning-foreground"
-                />
-              ) : (
-                <SparkleIcon size={13} className="shrink-0" />
-              )}
-              {agentRunning
-                ? "Agent writing the measure"
-                : agentEnded
-                  ? "No measure came back"
-                  : "Waiting for a measure"}
-            </span>
-          ) : measure.error ? (
-            <span className="flex items-center gap-1.5 text-warning-foreground text-xs">
-              <WarningCircleIcon size={13} className="shrink-0" />
-              Query failed
-            </span>
-          ) : (
-            <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
-              <span
-                className="size-1.5 shrink-0 rounded-full"
-                style={{ backgroundColor: statusColor(status, palette) }}
-              />
-              {detail}
-            </span>
-          )}
+          <MeasureStatus
+            goal={goal}
+            current={measure.data ?? null}
+            failed={measure.error !== null}
+            agentState={agentState}
+          />
         </span>
       </button>
       <div className="mt-auto flex h-16 items-center justify-center">
-        {points.length > 1 ? (
-          <div className="h-full w-full">
-            <GoalTrendChart
-              points={points}
-              period={trend.data?.period ?? "day"}
-              target={goal.target}
-              unit={goalValueSuffix(goal.name)}
-            />
-          </div>
-        ) : trend.isLoading ? (
-          <Spinner size="xs" aria-hidden="true" />
-        ) : agentEnded && measureTask ? (
-          <span className="flex items-center gap-1">
-            <Button
-              variant="link-muted"
-              size="xs"
-              onClick={() => onOpenTask(measureTask.taskId)}
-            >
-              Open task
-            </Button>
-            <Button
-              variant="link-muted"
-              size="xs"
-              disabled={disabled}
-              onClick={() => void onRetry()}
-            >
-              Try again
-            </Button>
-          </span>
-        ) : null}
+        <CardFooter
+          goal={goal}
+          trend={trend}
+          endedTask={agentState === "ended" ? measureTask : null}
+          disabled={disabled}
+          onOpenTask={onOpenTask}
+          onRetry={onRetry}
+        />
       </div>
     </div>
+  );
+}
+
+type AgentState = GoalMeasureTask["state"] | "waiting";
+
+function CurrentValue({
+  value,
+  loading,
+  unit,
+}: {
+  value: number | null;
+  loading: boolean;
+  unit: string;
+}) {
+  if (value !== null) {
+    return (
+      <>
+        {formatNumber(value)}
+        {unit}
+      </>
+    );
+  }
+  if (loading) return <Spinner size="xs" aria-hidden="true" />;
+  return <span className="text-muted-foreground">–</span>;
+}
+
+const AGENT_STATUS: Record<AgentState, { icon: ReactNode; text: string }> = {
+  waiting: {
+    icon: <SparkleIcon size={13} className="shrink-0" />,
+    text: "Waiting for a measure",
+  },
+  running: {
+    icon: <Spinner size="xs" aria-hidden="true" />,
+    text: "Agent writing the measure",
+  },
+  ended: {
+    icon: (
+      <WarningCircleIcon
+        size={13}
+        className="shrink-0 text-warning-foreground"
+      />
+    ),
+    text: "No measure came back",
+  },
+};
+
+function MeasureStatus({
+  goal,
+  current,
+  failed,
+  agentState,
+}: {
+  goal: ContextGoal;
+  current: number | null;
+  failed: boolean;
+  agentState: AgentState | null;
+}) {
+  const palette = useGoalPalette();
+  if (agentState) {
+    const { icon, text } = AGENT_STATUS[agentState];
+    return (
+      <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
+        {icon}
+        {text}
+      </span>
+    );
+  }
+  if (failed) {
+    return (
+      <span className="flex items-center gap-1.5 text-warning-foreground text-xs">
+        <WarningCircleIcon size={13} className="shrink-0" />
+        Query failed
+      </span>
+    );
+  }
+  const status = goalStatus(current, goal.target);
+  const detail = goal.target
+    ? `${STATUS_LABEL[status]} · ${describeTarget(goal.target)}`
+    : STATUS_LABEL[status];
+  return (
+    <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
+      <span
+        className="size-1.5 shrink-0 rounded-full"
+        style={{ backgroundColor: statusColor(status, palette) }}
+      />
+      {detail}
+    </span>
+  );
+}
+
+function CardFooter({
+  goal,
+  trend,
+  endedTask,
+  disabled,
+  onOpenTask,
+  onRetry,
+}: {
+  goal: ContextGoal;
+  trend: ReturnType<typeof useGoalTrend>;
+  /** The agent task that ended without writing a measure, if any. */
+  endedTask: GoalMeasureTask | null;
+  disabled: boolean;
+  onOpenTask: (taskId: string) => void;
+  onRetry: () => Promise<void>;
+}) {
+  const points = trend.data?.points ?? [];
+  if (points.length > 1) {
+    return (
+      <div className="h-full w-full">
+        <GoalTrendChart
+          points={points}
+          period={trend.data?.period ?? "day"}
+          target={goal.target}
+          unit={goalValueSuffix(goal.name)}
+        />
+      </div>
+    );
+  }
+  if (trend.isLoading) return <Spinner size="xs" aria-hidden="true" />;
+  if (!endedTask) return null;
+  return (
+    <span className="flex items-center gap-1">
+      <Button
+        variant="link-muted"
+        size="xs"
+        onClick={() => onOpenTask(endedTask.taskId)}
+      >
+        Open task
+      </Button>
+      <Button
+        variant="link-muted"
+        size="xs"
+        disabled={disabled}
+        onClick={() => void onRetry()}
+      >
+        Try again
+      </Button>
+    </span>
   );
 }

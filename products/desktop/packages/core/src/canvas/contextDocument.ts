@@ -1,29 +1,33 @@
-// A space's CONTEXT.md is one markdown document, but the Context page edits it
-// as four parts: free-form knowledge, what agents read (files and links), what
-// they watch (dashboards, flags, experiments), and goals. The parts live in
-// three managed `##` sections with a fixed shape so they round-trip through
-// this module; everything else is the knowledge body and is carried verbatim.
-// Agents read the whole document as before.
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { z } from "zod";
 
-export type ContextObjectKind =
-  | "insight"
-  | "dashboard"
-  | "flag"
-  | "experiment"
-  | "survey"
-  | "error"
-  | "replay"
-  | "notebook"
-  | "cohort"
-  | "action"
-  | "person"
-  | "event"
-  | "link";
+// A space's CONTEXT.md keeps its structured parts in the YAML frontmatter:
+// `goals`, `reading` (files and links), and `watching` (PostHog objects). The
+// body under the frontmatter is prose and is stored as it was written. Other
+// frontmatter keys belong to the wiki and travel through untouched.
+
+const OBJECT_KINDS = [
+  "insight",
+  "dashboard",
+  "flag",
+  "experiment",
+  "survey",
+  "error",
+  "replay",
+  "notebook",
+  "cohort",
+  "action",
+  "person",
+  "event",
+  "link",
+] as const;
+
+export type ContextObjectKind = (typeof OBJECT_KINDS)[number];
 
 export interface ContextLink {
   /** Display name. For a bare path, the path itself. */
   title: string;
-  /** A URL, or a repository path when the entry is a file. */
+  /** A URL, or a wiki path when the entry is a file. */
   target: string;
   note: string;
 }
@@ -65,6 +69,8 @@ export interface ContextGoal {
 }
 
 export interface ContextDocument {
+  /** The wiki's own frontmatter lines (summary, status, ids), kept as written. */
+  frontmatter: string;
   knowledge: string;
   links: ContextLink[];
   objects: ContextObject[];
@@ -87,238 +93,192 @@ export const CONTEXT_OBJECT_KIND_LABELS: Record<ContextObjectKind, string> = {
   link: "Link",
 };
 
-const SECTION_LINKS = "Reading";
-const SECTION_OBJECTS = "Watching";
-const SECTION_GOALS = "Goals";
+const linkSchema = z.object({
+  title: z.string(),
+  target: z.string(),
+  note: z.string().default(""),
+});
 
-type ManagedSection = "links" | "objects" | "goals";
+const objectSchema = z.object({
+  kind: z.enum(OBJECT_KINDS),
+  title: z.string(),
+  url: z.string(),
+});
 
-const SECTION_BY_HEADING: Record<string, ManagedSection> = {
-  reading: "links",
-  "files and links": "links",
-  links: "links",
-  files: "links",
-  watching: "objects",
-  "posthog objects": "objects",
-  objects: "objects",
-  goals: "goals",
-  "goals and measures": "goals",
-};
+const targetSchema = z
+  .object({
+    direction: z.enum(["at_least", "at_most"]),
+    value: z.coerce.number(),
+    due_date: z.string().nullable().default(null),
+  })
+  .transform(
+    (target): GoalTarget => ({
+      direction: target.direction,
+      value: target.value,
+      dueDate: target.due_date,
+    }),
+  );
 
-function managedSectionFor(line: string): ManagedSection | null {
-  const match = /^##\s+(.+?)\s*$/.exec(line);
-  if (!match) return null;
-  return SECTION_BY_HEADING[match[1].toLowerCase()] ?? null;
+const measureSchema = z
+  .discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("hogql"),
+      sql: z.string(),
+      trend_sql: z.string().optional(),
+    }),
+    z.object({
+      kind: z.literal("insight"),
+      short_id: z.string(),
+      url: z.string(),
+      name: z.string(),
+    }),
+  ])
+  .transform(
+    (measure): GoalMeasure =>
+      measure.kind === "hogql"
+        ? { kind: "hogql", sql: measure.sql, trendSql: measure.trend_sql }
+        : {
+            kind: "insight",
+            shortId: measure.short_id,
+            url: measure.url,
+            name: measure.name,
+          },
+  );
+
+const goalSchema = z.object({
+  name: z.string(),
+  why: z.string().default(""),
+  primary: z.boolean().default(false),
+  target: targetSchema.nullable().default(null),
+  measure: measureSchema.nullable().default(null),
+});
+
+const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
+const KEY_LINE = /^([A-Za-z_][\w-]*):/;
+const OWN_KEYS = ["goals", "reading", "watching"] as const;
+type OwnKey = (typeof OWN_KEYS)[number];
+
+// The wiki reads its frontmatter line by line, so a `summary:` may hold a
+// colon that strict YAML rejects. Only the three list blocks are YAML.
+function splitFrontmatter(markdown: string): {
+  own: Partial<Record<OwnKey, string>>;
+  rest: string;
+  body: string;
+} {
+  const match = FRONTMATTER.exec(markdown);
+  if (!match) return { own: {}, rest: "", body: markdown };
+  const blocks: Partial<Record<OwnKey, string[]>> = {};
+  const rest: string[] = [];
+  let current = rest;
+  for (const line of match[1].split(/\r?\n/)) {
+    const key = KEY_LINE.exec(line)?.[1];
+    if (key) {
+      const own = OWN_KEYS.find((candidate) => candidate === key);
+      current = own ? [] : rest;
+      if (own) blocks[own] = current;
+    }
+    current.push(line);
+  }
+  const own: Partial<Record<OwnKey, string>> = {};
+  for (const key of OWN_KEYS) {
+    const lines = blocks[key];
+    if (lines) own[key] = lines.join("\n");
+  }
+  return {
+    own,
+    rest: rest.join("\n").trim(),
+    body: markdown.slice(match[0].length),
+  };
 }
 
-// `- [Title](target) — note`, `- kind: [Title](url)`, or `- path — note`.
-const BULLET_RE = /^\s*[-*]\s+(.*)$/;
-const LINKED_RE =
-  /^(?:([\w][\w ]*?):\s+)?\[([^\]]*)\]\(([^)\s]+)\)\s*(?:[—–-]\s*(.*))?$/;
-const BARE_RE = /^(\S+)\s*(?:[—–-]\s*(.*))?$/;
+function readList<T>(
+  key: OwnKey,
+  block: string | undefined,
+  schema: z.ZodType<T>,
+): T[] {
+  if (block === undefined) return [];
+  const data: unknown = parseYaml(block);
+  const value =
+    data && typeof data === "object" ? Reflect.get(data, key) : undefined;
+  if (value === undefined || value === null) return [];
+  const result = z.array(schema).safeParse(value);
+  if (!result.success) {
+    throw new Error(
+      `The frontmatter key \`${key}\` is not in the expected shape.\n${z.prettifyError(result.error)}`,
+    );
+  }
+  return result.data;
+}
 
-function parseLinkBullet(body: string): ContextLink | null {
-  const linked = LINKED_RE.exec(body);
-  if (linked) {
+/** Throws when a list block is not YAML or has the wrong shape. */
+export function parseContextDocument(markdown: string): ContextDocument {
+  const { own, rest, body } = splitFrontmatter(markdown);
+  return {
+    frontmatter: rest,
+    knowledge: body.trim(),
+    goals: readList("goals", own.goals, goalSchema),
+    links: readList("reading", own.reading, linkSchema),
+    objects: readList("watching", own.watching, objectSchema),
+  };
+}
+
+function writeMeasure(measure: GoalMeasure): Record<string, unknown> {
+  if (measure.kind === "insight") {
     return {
-      title: linked[2].trim() || linked[3],
-      target: linked[3],
-      note: (linked[4] ?? "").trim(),
+      kind: "insight",
+      short_id: measure.shortId,
+      url: measure.url,
+      name: measure.name,
     };
   }
-  const bare = BARE_RE.exec(body);
-  if (bare) {
-    return { title: bare[1], target: bare[1], note: (bare[2] ?? "").trim() };
-  }
-  return null;
-}
-
-function parseObjectBullet(body: string): ContextObject | null {
-  const linked = LINKED_RE.exec(body);
-  if (!linked) return null;
-  const url = linked[3];
-  const declared = kindFromLabel(linked[1]);
-  const kind = declared ?? parsePostHogObjectUrl(url)?.kind ?? "link";
-  return { kind, title: linked[2].trim() || url, url };
-}
-
-function kindFromLabel(label: string | undefined): ContextObjectKind | null {
-  if (!label) return null;
-  const wanted = label.trim().toLowerCase();
-  for (const [kind, text] of Object.entries(CONTEXT_OBJECT_KIND_LABELS)) {
-    if (kind === wanted || text.toLowerCase() === wanted) {
-      return kind as ContextObjectKind;
-    }
-  }
-  if (wanted === "feature flag" || wanted === "feature_flag") return "flag";
-  return null;
-}
-
-const TARGET_RE =
-  /^(?:[-*]\s+)?target:\s*(at least|at most|≥|≤|>=|<=|min|max)?\s*(-?[\d][\d,]*(?:\.\d+)?)\s*%?\s*(?:by\s+(\d{4}-\d{2}-\d{2}))?\s*$/i;
-
-function parseTargetLine(line: string): GoalTarget | null {
-  const match = TARGET_RE.exec(line.trim());
-  if (!match) return null;
-  const word = (match[1] ?? "at least").toLowerCase();
-  const direction: GoalDirection =
-    word === "at most" || word === "≤" || word === "<=" || word === "max"
-      ? "at_most"
-      : "at_least";
-  const value = Number(match[2].replace(/,/g, ""));
-  if (!Number.isFinite(value)) return null;
-  return { direction, value, dueDate: match[3] ?? null };
-}
-
-// `- Measure: [Name](https://…/insights/abc)` links a goal to a saved insight.
-const MEASURE_RE = /^(?:[-*]\s+)?measure:\s*\[([^\]]*)\]\(([^)\s]+)\)\s*$/i;
-
-function parseMeasureLine(line: string): GoalMeasure | null {
-  const match = MEASURE_RE.exec(line.trim());
-  if (!match) return null;
-  const url = match[2];
-  const parsed = parsePostHogObjectUrl(url);
-  if (parsed?.kind !== "insight") return null;
-  return { kind: "insight", shortId: parsed.id, url, name: match[1].trim() };
-}
-
-function parseGoals(lines: string[]): ContextGoal[] {
-  const goals: ContextGoal[] = [];
-  let current: ContextGoal | null = null;
-  let fence: "measure" | "trend" | null = null;
-  const sqlLines: string[] = [];
-  const trendLines: string[] = [];
-  const whyLines: string[] = [];
-
-  const flush = () => {
-    if (!current) return;
-    current.why = whyLines.join("\n").trim();
-    const sql = sqlLines.join("\n").trim();
-    const trendSql = trendLines.join("\n").trim();
-    if (!current.measure && sql) {
-      current.measure = trendSql
-        ? { kind: "hogql", sql, trendSql }
-        : { kind: "hogql", sql };
-    }
-    goals.push(current);
-    current = null;
-    sqlLines.length = 0;
-    trendLines.length = 0;
-    whyLines.length = 0;
+  return {
+    kind: "hogql",
+    sql: measure.sql.trim(),
+    trend_sql: measure.trendSql?.trim() || undefined,
   };
-
-  for (const line of lines) {
-    if (fence) {
-      if (/^\s*```/.test(line)) {
-        fence = null;
-        continue;
-      }
-      (fence === "trend" ? trendLines : sqlLines).push(line);
-      continue;
-    }
-    const heading = /^###\s+(.+?)\s*$/.exec(line);
-    if (heading) {
-      flush();
-      current = {
-        name: heading[1],
-        why: "",
-        measure: null,
-        target: null,
-        primary: false,
-      };
-      continue;
-    }
-    if (!current) continue;
-    if (/^\s*```(sql|hogql)\s+trend\s*$/i.test(line)) {
-      fence = "trend";
-      continue;
-    }
-    if (/^\s*```(sql|hogql)?\s*$/i.test(line)) {
-      fence = "measure";
-      continue;
-    }
-    if (/^\s*-\s*Primary( goal)?\s*$/i.test(line)) {
-      current.primary = true;
-      continue;
-    }
-    const target = parseTargetLine(line);
-    if (target) {
-      current.target = target;
-      continue;
-    }
-    const measure = parseMeasureLine(line);
-    if (measure) {
-      current.measure = measure;
-      continue;
-    }
-    whyLines.push(line);
-  }
-  flush();
-  return goals;
 }
 
-export function parseContextDocument(markdown: string): ContextDocument {
-  const doc: ContextDocument = {
-    knowledge: "",
-    links: [],
-    objects: [],
-    goals: [],
+function writeGoal(goal: ContextGoal): Record<string, unknown> {
+  return {
+    name: goal.name,
+    why: goal.why.trim() || undefined,
+    primary: goal.primary || undefined,
+    target: goal.target
+      ? {
+          direction: goal.target.direction,
+          value: goal.target.value,
+          due_date: goal.target.dueDate ?? undefined,
+        }
+      : undefined,
+    measure: goal.measure ? writeMeasure(goal.measure) : undefined,
   };
-  const knowledge: string[] = [];
-  const buckets: Record<ManagedSection, string[]> = {
-    links: [],
-    objects: [],
-    goals: [],
-  };
-  let section: ManagedSection | null = null;
-  let inFence = false;
-
-  for (const line of markdown.split(/\r?\n/)) {
-    // A fenced block never ends a section, so a ```sql block inside a goal
-    // that happens to contain `## ` stays with the goal.
-    if (/^\s*```/.test(line)) inFence = !inFence;
-    if (!inFence && /^#{1,2}\s/.test(line)) {
-      section = managedSectionFor(line);
-      if (section) continue;
-    }
-    if (section) {
-      buckets[section].push(line);
-    } else {
-      knowledge.push(line);
-    }
-  }
-
-  doc.knowledge = knowledge.join("\n").trim();
-  const stray: string[] = [];
-
-  for (const line of buckets.links) {
-    const bullet = BULLET_RE.exec(line);
-    const link = bullet ? parseLinkBullet(bullet[1].trim()) : null;
-    if (link) doc.links.push(link);
-    else if (line.trim()) stray.push(line);
-  }
-  for (const line of buckets.objects) {
-    const bullet = BULLET_RE.exec(line);
-    const object = bullet ? parseObjectBullet(bullet[1].trim()) : null;
-    if (object) doc.objects.push(object);
-    else if (line.trim()) stray.push(line);
-  }
-  doc.goals = parseGoals(buckets.goals);
-
-  // Prose that sat inside a managed section but is not an entry is kept with
-  // the knowledge body rather than lost on the next structured save.
-  if (stray.length > 0) {
-    doc.knowledge = [doc.knowledge, stray.join("\n").trim()]
-      .filter(Boolean)
-      .join("\n\n");
-  }
-  return doc;
 }
 
-function formatTarget(target: GoalTarget): string {
-  const word = target.direction === "at_most" ? "at most" : "at least";
-  const due = target.dueDate ? ` by ${target.dueDate}` : "";
-  return `- Target: ${word} ${formatNumber(target.value)}${due}`;
+export function serializeContextDocument(doc: ContextDocument): string {
+  const own: Partial<Record<OwnKey, unknown>> = {};
+  if (doc.goals.length > 0) own.goals = doc.goals.map(writeGoal);
+  if (doc.links.length > 0) {
+    own.reading = doc.links.map((link) => ({
+      title: link.title,
+      target: link.target,
+      note: link.note.trim() || undefined,
+    }));
+  }
+  if (doc.objects.length > 0) {
+    own.watching = doc.objects.map((object) => ({
+      kind: object.kind,
+      title: object.title,
+      url: object.url,
+    }));
+  }
+  const ownYaml =
+    Object.keys(own).length > 0
+      ? stringifyYaml(own, { lineWidth: 0 }).trimEnd()
+      : "";
+  const front = [doc.frontmatter.trim(), ownYaml].filter(Boolean).join("\n");
+  const body = doc.knowledge.trim();
+  if (!front) return body ? `${body}\n` : "";
+  return body ? `---\n${front}\n---\n\n${body}\n` : `---\n${front}\n---\n`;
 }
 
 export function formatNumber(value: number): string {
@@ -328,53 +288,6 @@ export function formatNumber(value: number): string {
 
 export function goalValueSuffix(goalName: string): string {
   return /%|percent|conversion/i.test(goalName) ? "%" : "";
-}
-
-export function serializeContextDocument(doc: ContextDocument): string {
-  const parts: string[] = [];
-  if (doc.knowledge.trim()) parts.push(doc.knowledge.trim());
-
-  if (doc.links.length > 0) {
-    const lines = doc.links.map((link) => {
-      const note = link.note.trim() ? ` — ${link.note.trim()}` : "";
-      const isUrl = /^[a-z][a-z0-9+.-]*:\/\//i.test(link.target);
-      return isUrl || link.title !== link.target
-        ? `- [${link.title}](${link.target})${note}`
-        : `- ${link.target}${note}`;
-    });
-    parts.push(`## ${SECTION_LINKS}\n\n${lines.join("\n")}`);
-  }
-
-  if (doc.objects.length > 0) {
-    const lines = doc.objects.map(
-      (object) => `- ${object.kind}: [${object.title}](${object.url})`,
-    );
-    parts.push(`## ${SECTION_OBJECTS}\n\n${lines.join("\n")}`);
-  }
-
-  if (doc.goals.length > 0) {
-    const blocks = doc.goals.map((goal) => {
-      const lines = [`### ${goal.name}`];
-      if (goal.why.trim()) lines.push("", goal.why.trim());
-      if (goal.target) lines.push("", formatTarget(goal.target));
-      if (goal.primary) lines.push("", "- Primary goal");
-      if (goal.measure?.kind === "insight") {
-        lines.push(
-          "",
-          `- Measure: [${goal.measure.name}](${goal.measure.url})`,
-        );
-      } else if (goal.measure?.kind === "hogql" && goal.measure.sql.trim()) {
-        lines.push("", "```sql", goal.measure.sql.trim(), "```");
-        if (goal.measure.trendSql?.trim()) {
-          lines.push("", "```sql trend", goal.measure.trendSql.trim(), "```");
-        }
-      }
-      return lines.join("\n");
-    });
-    parts.push(`## ${SECTION_GOALS}\n\n${blocks.join("\n\n")}`);
-  }
-
-  return parts.length > 0 ? `${parts.join("\n\n")}\n` : "";
 }
 
 const OBJECT_PATH_RULES: { kind: ContextObjectKind; re: RegExp }[] = [

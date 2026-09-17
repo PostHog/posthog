@@ -200,7 +200,8 @@ export function AddContextDialog({
                 </Field>
               ) : null}
             </form>
-          ) : mode === "markdown" ? (
+          ) : null}
+          {mode === "markdown" ? (
             <form
               className="flex flex-col gap-3"
               onSubmit={(event) => {
@@ -219,14 +220,11 @@ export function AddContextDialog({
                 />
               </Field>
               <Text size="xxs" variant="muted">
-                {fileExists
-                  ? "There is already a file with this name. Pick another one."
-                  : filePath
-                    ? `Saved as ${fileDisplayName(filePath)} beside CONTEXT.md. You write it next.`
-                    : "Saved beside CONTEXT.md. You write it next."}
+                {fileNameHelp(filePath, fileExists)}
               </Text>
             </form>
-          ) : (
+          ) : null}
+          {mode === "upload" ? (
             <DropZone
               file={upload}
               exists={uploadExists}
@@ -240,7 +238,7 @@ export function AddContextDialog({
               }}
               onClear={() => setUpload(null)}
             />
-          )}
+          ) : null}
         </DialogBody>
         <DialogFooter className="items-center sm:justify-between">
           <div className="min-w-0 flex-1">
@@ -327,6 +325,15 @@ function detectLink(
     };
   }
   return { kind: "invalid" };
+}
+
+function fileNameHelp(filePath: string | null, exists: boolean): string {
+  if (exists)
+    return "There is already a file with this name. Pick another one.";
+  if (filePath) {
+    return `Saved as ${fileDisplayName(filePath)} beside CONTEXT.md. You write it next.`;
+  }
+  return "Saved beside CONTEXT.md. You write it next.";
 }
 
 function titleFromUrl(target: string): string {
@@ -424,6 +431,26 @@ function Detection({
   );
 }
 
+type DetectionStatus = "ok" | "warning" | "none";
+
+const STATUS_ICON: Record<DetectionStatus, ReactNode> = {
+  ok: (
+    <CheckCircleIcon
+      size={13}
+      weight="fill"
+      className="text-success-foreground"
+    />
+  ),
+  warning: (
+    <WarningCircleIcon
+      size={13}
+      weight="fill"
+      className="text-warning-foreground"
+    />
+  ),
+  none: null,
+};
+
 function DetectionCard({
   icon,
   title,
@@ -434,7 +461,7 @@ function DetectionCard({
   icon: ReactNode;
   title: string;
   meta: string;
-  status: "ok" | "warning" | "none";
+  status: DetectionStatus;
   action?: ReactNode;
 }) {
   return (
@@ -445,19 +472,7 @@ function DetectionCard({
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex items-center gap-1.5 truncate font-medium text-foreground text-xs">
           {title}
-          {status === "ok" ? (
-            <CheckCircleIcon
-              size={13}
-              weight="fill"
-              className="text-success-foreground"
-            />
-          ) : status === "warning" ? (
-            <WarningCircleIcon
-              size={13}
-              weight="fill"
-              className="text-warning-foreground"
-            />
-          ) : null}
+          {STATUS_ICON[status]}
         </span>
         <span
           className={cn(

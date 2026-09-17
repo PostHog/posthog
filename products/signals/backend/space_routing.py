@@ -1,10 +1,10 @@
 """Routes a report to the space whose CONTEXT.md names what the report is about.
 
-A space's CONTEXT.md carries a `## Watching` section listing the dashboards, insights, flags,
-experiments, error issues, and surveys the space owns, one bullet per object with its app URL, and
-a `## Goals` section with one `###` heading per goal. When a report surfaces, its evidence (the
-signals behind it, the charts it carries, its title and summary) is matched against every public
-space's watchlist. A match on an object id is strong; a match on a name is weak. The best space
+A space's CONTEXT.md carries a `watching` list in its YAML frontmatter with the dashboards,
+insights, flags, experiments, error issues, and surveys the space owns, each with its app URL, and
+a `goals` list with one entry per goal. When a report surfaces, its evidence (the signals behind
+it, the charts it carries, its title and summary) is matched against every public space's
+watchlist. A match on an object id is strong; a match on a name is weak. The best space
 takes the report through a `channel_assignment` artefact, which is how the space's Context page
 and Reports tab already read ownership. A report nobody's context names stays unassigned.
 
@@ -19,6 +19,7 @@ import json
 from dataclasses import dataclass, field
 from uuid import UUID
 
+import yaml
 import structlog
 
 from posthog.models.scoping import team_scope
@@ -42,14 +43,6 @@ ASSIGN_SCORE = ID_MATCH
 CLEAR_LEAD_SCORE = 2 * NAME_MATCH
 MIN_NAME_LENGTH = 5
 
-_SECTION_HEADINGS = {
-    "watching": "objects",
-    "posthog objects": "objects",
-    "objects": "objects",
-    "goals": "goals",
-    "goals and measures": "goals",
-}
-
 # Mirrors `OBJECT_PATH_RULES` in the desktop's `contextDocument.ts`.
 _OBJECT_PATHS: list[tuple[str, re.Pattern[str]]] = [
     ("insight", re.compile(r"/insights/([^/?#]+)")),
@@ -64,10 +57,8 @@ _OBJECT_PATHS: list[tuple[str, re.Pattern[str]]] = [
     ("action", re.compile(r"/data-management/actions/(\d+)")),
 ]
 
-_BULLET = re.compile(r"^\s*[-*]\s+(?:[\w][\w ]*?:\s+)?\[([^\]]*)\]\(([^)\s]+)\)")
-_GOAL_HEADING = re.compile(r"^###\s+(.+?)\s*$")
-_SECTION = re.compile(r"^##\s+(.+?)\s*$")
-_TOP_HEADING = re.compile(r"^#{1,2}\s")
+_FRONTMATTER = re.compile(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|\Z)", re.DOTALL)
+_KEY_LINE = re.compile(r"^([A-Za-z_][\w-]*):")
 
 
 @dataclass(frozen=True)
@@ -85,36 +76,47 @@ class SpaceWatchlist:
 
 
 def parse_watchlist(channel_id: UUID, markdown: str) -> SpaceWatchlist:
-    """The objects and goal names a CONTEXT.md asks agents to watch."""
+    """The objects and goal names a CONTEXT.md's frontmatter asks agents to watch."""
     objects: list[WatchedObject] = []
-    goal_names: list[str] = []
-    section: str | None = None
-    in_fence = False
-    for line in markdown.splitlines():
-        if line.lstrip().startswith("```"):
-            in_fence = not in_fence
-            continue
-        if in_fence:
-            continue
-        if _TOP_HEADING.match(line):
-            heading = _SECTION.match(line)
-            section = _SECTION_HEADINGS.get(heading.group(1).lower()) if heading else None
-            continue
-        if section == "objects":
-            bullet = _BULLET.match(line)
-            if not bullet:
-                continue
-            title, url = bullet.group(1).strip(), bullet.group(2)
-            for kind, pattern in _OBJECT_PATHS:
-                found = pattern.search(url)
-                if found:
-                    objects.append(WatchedObject(kind=kind, id=found.group(1), title=title))
-                    break
-        elif section == "goals":
-            heading = _GOAL_HEADING.match(line)
-            if heading:
-                goal_names.append(heading.group(1).strip())
+    for entry in _frontmatter_list(channel_id, markdown, "watching"):
+        url = str(entry.get("url", ""))
+        for kind, pattern in _OBJECT_PATHS:
+            found = pattern.search(url)
+            if found:
+                objects.append(WatchedObject(kind=kind, id=found.group(1), title=str(entry.get("title", "")).strip()))
+                break
+    goal_names = [
+        str(entry["name"]).strip() for entry in _frontmatter_list(channel_id, markdown, "goals") if entry.get("name")
+    ]
     return SpaceWatchlist(channel_id=channel_id, objects=objects, goal_names=goal_names)
+
+
+def _frontmatter_list(channel_id: UUID, markdown: str, key: str) -> list[dict[str, object]]:
+    """One top-level list block of the frontmatter, read as YAML.
+
+    The wiki reads its frontmatter line by line, so a `summary:` may hold a colon that strict
+    YAML rejects. Only the block under `key` is parsed.
+    """
+    match = _FRONTMATTER.match(markdown)
+    if not match:
+        return []
+    block: list[str] = []
+    inside = False
+    for line in match.group(1).splitlines():
+        key_line = _KEY_LINE.match(line)
+        if key_line:
+            inside = key_line.group(1) == key
+        if inside:
+            block.append(line)
+    if not block:
+        return []
+    try:
+        data = yaml.safe_load("\n".join(block))
+    except yaml.YAMLError:
+        logger.warning("space_routing_frontmatter_invalid", channel_id=str(channel_id), key=key)
+        return []
+    value = data.get(key) if isinstance(data, dict) else None
+    return [entry for entry in value if isinstance(entry, dict)] if isinstance(value, list) else []
 
 
 def _id_pattern(object_id: str) -> re.Pattern[str]:

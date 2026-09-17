@@ -92,6 +92,7 @@ function Editor({
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   const [reloading, setReloading] = useState(false);
   const dirty = draft !== saved;
+  const problem = storeProblem(store);
 
   const reload = () => {
     setReloading(true);
@@ -145,15 +146,9 @@ function Editor({
       </div>
       <DialogFooter className="items-center sm:justify-between">
         <div className="min-w-0 flex-1">
-          {store.saveError ? (
+          {problem ? (
             <Text size="xs" className="text-warning-foreground">
-              {store.isConflict
-                ? "Someone else saved a newer version while you were writing. Copy anything you want to keep, then reload and make the change again."
-                : `Could not save: ${store.saveError.message}`}
-            </Text>
-          ) : store.error ? (
-            <Text size="xs" className="text-warning-foreground">
-              Could not load the saved copy: {store.error.message}
+              {problem}
             </Text>
           ) : null}
         </div>
@@ -212,6 +207,16 @@ function Editor({
       </AlertDialog>
     </>
   );
+}
+
+function storeProblem(store: ContextDocumentStore): string | null {
+  if (store.isConflict) {
+    return "Someone else saved a newer version while you were writing. Copy anything you want to keep, then reload and make the change again.";
+  }
+  if (store.saveError) return `Could not save: ${store.saveError.message}`;
+  if (store.error)
+    return `Could not load the saved copy: ${store.error.message}`;
+  return null;
 }
 
 function FileHeader({

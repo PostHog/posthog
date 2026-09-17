@@ -148,9 +148,6 @@ export function parseGoalSentence(
       target = { direction, value, dueDate };
       text = text.slice(0, cut).trim();
     }
-  } else if (dueDate) {
-    // "by December" with no number still says when; keep it for the line.
-    target = null;
   }
 
   const name = text.replace(/[\s,.;:]+$/, "");
