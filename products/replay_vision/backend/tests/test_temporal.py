@@ -36,6 +36,7 @@ from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.session_recordings.queries.session_replay_events import SessionEventsPage, SessionReplayEvents
+from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
@@ -104,6 +105,7 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants impo
     REDIS_INDEX_KEY as _GEMINI_REDIS_INDEX_KEY,
     REDIS_KEY_PREFIX as _GEMINI_REDIS_KEY_PREFIX,
 )
+from products.replay_vision.backend.temporal.network_capture import SessionNetworkPayload
 from products.replay_vision.backend.temporal.scanners.base import ChipSegment, Segment, SignalFinding, TextSegment
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput, ClassifierScanner
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput, MonitorScanner
@@ -2327,6 +2329,45 @@ class TestFetchSessionNetworkActivity:
 
         assert exc_info.value.non_retryable is True
         assert "RECORDING_API_URL" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_a_long_block_listing_is_read_not_refused(self) -> None:
+        # A block count gate refused the median recording: real sessions run to hundreds of blocks. Only
+        # the compressed size refuses a session now, and the read itself is bounded by its own deadline.
+        from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
+
+        blocks = [
+            RecordingBlock(key=f"k{i}", start_byte=0, end_byte=1024, start_timestamp="", end_timestamp="")
+            for i in range(700)
+        ]
+        with (
+            patch.object(mod, "list_blocks_async", AsyncMock(return_value=blocks)),
+            patch.object(mod, "_collect", AsyncMock(return_value=SessionNetworkPayload(captured=True))) as collect,
+        ):
+            payload = await mod._load_payload(team_id=1, session_id="sess-1")
+
+        assert collect.await_count == 1, "a 700-block listing must still be read"
+        assert payload.captured is True
+
+    @pytest.mark.asyncio
+    async def test_a_listing_over_the_size_ceiling_is_refused(self) -> None:
+        from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
+
+        huge = [
+            RecordingBlock(
+                key="k", start_byte=0, end_byte=mod._MAX_COMPRESSED_BYTES + 1, start_timestamp="", end_timestamp=""
+            )
+        ]
+        with (
+            patch.object(mod, "list_blocks_async", AsyncMock(return_value=huge)),
+            patch.object(mod, "_collect", AsyncMock()) as collect,
+        ):
+            payload = await mod._load_payload(team_id=1, session_id="sess-1")
+
+        assert collect.await_count == 0
+        # Not "clean": a session never read cannot show that nothing failed.
+        assert payload.partial is True
+        assert payload.captured is False
 
 
 @pytest.mark.django_db(transaction=True)
