@@ -8,6 +8,8 @@ from rest_framework import serializers
 
 from posthog.dataclasses import frozen
 from posthog.llm_prompt import MAX_PROMPT_PAYLOAD_BYTES, normalize_prompt_to_string
+from posthog.models.team.team import Team
+from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptDependency, LLMPromptLabel
 
@@ -244,3 +246,75 @@ def record_prompt_references(prompt: LLMPrompt) -> list[LLMPromptDependency]:
             for reference in unique_references
         ]
     )
+
+
+@frozen
+class PromptReferenceResolutionError(Exception):
+    """A fetched prompt's reference cannot be spliced in.
+
+    `missing` distinguishes "the referenced prompt/version/label is gone"
+    (a 404 for the caller) from "the referenced content is in a state
+    validation normally prevents", e.g. nested references or an oversized
+    assembly reached through a raced label move (a 409).
+    """
+
+    reference_name: str
+    message: str
+    missing: bool
+
+
+def assemble_prompt_payload(team: Team, payload: dict[str, Any]) -> dict[str, Any]:
+    """Splice referenced prompts' content into a fetched payload.
+
+    Each referenced prompt resolves through the same cached read path as the
+    payload itself, so staleness stays inside the documented cache TTLs and a
+    warm fetch costs one cache read per referenced prompt. Depth is one level
+    by validation, so there is no recursion. Raises
+    PromptReferenceResolutionError instead of ever returning a payload with a
+    raw tag or a hole where referenced content should be.
+    """
+    content = payload.get("prompt")
+    if not isinstance(content, str) or not PROMPT_REFERENCE_REGEX.search(content):
+        return {**payload, "resolved_references": []}
+
+    resolved: list[dict[str, Any]] = []
+
+    def _splice(match: re.Match[str]) -> str:
+        name = match.group("name")
+        version = match.group("version")
+        label = match.group("label")
+        child = get_prompt_by_name_from_cache(team, name, int(version) if version is not None else None, label=label)
+        if child is None:
+            selector = f"version {version}" if version is not None else f"label '{label}'"
+            raise PromptReferenceResolutionError(
+                reference_name=name,
+                message=f"This prompt references '{name}' at {selector}, which no longer exists.",
+                missing=True,
+            )
+        child_content = child.get("prompt")
+        if not isinstance(child_content, str):
+            raise PromptReferenceResolutionError(
+                reference_name=name,
+                message=f"The referenced prompt '{name}' is not plain text and cannot be spliced in.",
+                missing=False,
+            )
+        if PROMPT_REFERENCE_REGEX.search(child_content):
+            raise PromptReferenceResolutionError(
+                reference_name=name,
+                message=f"The referenced prompt '{name}' contains references of its own and cannot be spliced in.",
+                missing=False,
+            )
+        resolved.append({"name": name, "version": child["version"], "label": label})
+        return child_content
+
+    assembled = PROMPT_REFERENCE_REGEX.sub(_splice, content)
+    if len(assembled.encode("utf-8")) > MAX_PROMPT_PAYLOAD_BYTES:
+        raise PromptReferenceResolutionError(
+            reference_name=payload["name"],
+            message=(
+                f"The prompt with all referenced content included exceeds {MAX_PROMPT_PAYLOAD_BYTES} bytes. "
+                "Shorten the prompt or its referenced prompts."
+            ),
+            missing=False,
+        )
+    return {**payload, "prompt": assembled, "resolved_references": resolved}

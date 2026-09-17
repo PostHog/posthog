@@ -2014,3 +2014,121 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
             self.client.delete(f"/api/environments/{self.team.id}/llm_prompts/name/base/labels/prod/").status_code
             == status.HTTP_204_NO_CONTENT
         )
+
+    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True)
+    def test_fetch_resolves_references_into_assembled_content(self, _flag):
+        self._make_prompt("guardrails", prompt="Never lie.", label="production")
+        self._make_prompt("tone", prompt="Be kind.", version=3)
+        self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={
+                "name": "agent",
+                "prompt": "Intro\n@@@prompt:name=guardrails|label=production@@@\n@@@prompt:name=tone|version=3@@@",
+            },
+            format="json",
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/agent/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["prompt"] == "Intro\nNever lie.\nBe kind."
+        assert response.json()["resolved_references"] == [
+            {"name": "guardrails", "version": 1, "label": "production"},
+            {"name": "tone", "version": 3, "label": None},
+        ]
+
+    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=False)
+    def test_fetch_passes_tags_through_when_flag_is_off(self, _flag):
+        self._make_prompt("guardrails", label="production")
+        self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "agent", "prompt": "@@@prompt:name=guardrails|label=production@@@"},
+            format="json",
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/agent/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["prompt"] == "@@@prompt:name=guardrails|label=production@@@"
+        assert "resolved_references" not in response.json()
+
+    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True)
+    def test_fetch_with_resolve_false_returns_raw_tags(self, _flag):
+        self._make_prompt("guardrails", label="production")
+        self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "agent", "prompt": "@@@prompt:name=guardrails|label=production@@@"},
+            format="json",
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/agent/?resolve=false")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["prompt"] == "@@@prompt:name=guardrails|label=production@@@"
+
+    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True)
+    def test_label_move_changes_the_assembled_fetch(self, _flag):
+        self._make_prompt("guardrails", prompt="Old rules.", label="prod")
+        self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "agent", "prompt": "@@@prompt:name=guardrails|label=prod@@@"},
+            format="json",
+        )
+        first = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/agent/")
+        assert first.json()["prompt"] == "Old rules."
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.patch(
+                f"/api/environments/{self.team.id}/llm_prompts/name/guardrails/",
+                data={"prompt": "New rules.", "base_version": 1},
+                format="json",
+            )
+            self.client.put(
+                f"/api/environments/{self.team.id}/llm_prompts/name/guardrails/labels/prod/",
+                data={"version": 2},
+                format="json",
+            )
+
+        second = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/agent/")
+        assert second.json()["prompt"] == "New rules."
+        assert second.json()["resolved_references"] == [{"name": "guardrails", "version": 2, "label": "prod"}]
+
+    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True)
+    def test_fetch_404s_naming_a_missing_referenced_prompt(self, _flag):
+        self._make_prompt("guardrails")
+        self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "agent", "prompt": "@@@prompt:name=guardrails|version=1@@@"},
+            format="json",
+        )
+        LLMPrompt.objects.filter(team=self.team, name="guardrails").update(deleted=True)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/agent/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json()["reference_name"] == "guardrails"
+        assert "guardrails" in response.json()["detail"]
+
+    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True)
+    def test_fetch_409s_on_nested_references(self, _flag):
+        self._make_prompt("base")
+        self._make_prompt("mid", prompt="@@@prompt:name=base|version=1@@@")
+        # Bypasses publish validation the way a raced write would.
+        self._make_prompt("top", prompt="@@@prompt:name=mid|version=1@@@")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/top/")
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["reference_name"] == "mid"
+
+    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True)
+    def test_fetch_409s_when_assembly_exceeds_the_size_cap(self, _flag):
+        self._make_prompt("big", prompt="x" * 600_000)
+        # Two tags to the same 600k partial: each version is under the cap,
+        # the assembly is not. Bypasses publish validation like a raced label move.
+        self._make_prompt("agent", prompt="@@@prompt:name=big|version=1@@@@@@prompt:name=big|version=1@@@")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/agent/")
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["reference_name"] == "agent"
