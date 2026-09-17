@@ -4,7 +4,7 @@ import random
 import datetime as dt
 from collections.abc import Callable, Generator
 from dataclasses import field
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from posthog.schema import DateRange
 
@@ -44,17 +44,26 @@ class TimeSliceableRunner(Protocol):
     def run(self, execution_mode: ExecutionMode, **kwargs: Any) -> _HasResults: ...
 
 
+# Why the ladder stopped early. A truncated response is a normal 200, so without this label a
+# partial page is indistinguishable from an ordinary one and the cause cannot be measured.
+TruncationReason = Literal["budget_spent", "timeout", "capacity"]
+
+
 @frozen(frozen=False)
 class TimeSliceBudget:
     """The wall-clock time one request may spend across all of its slices.
 
-    `truncated` reports that the ladder stopped before it read the whole date range, so the caller
-    can tell the client there is more to page through.
+    `truncation_reason` reports why the ladder stopped before it read the whole date range, so the
+    caller can tell the client there is more to page through and can report what cut the page short.
     """
 
     seconds: float = DEFAULT_BUDGET_SECONDS
-    truncated: bool = False
+    truncation_reason: TruncationReason | None = None
     started_at: float = field(init=False, default=0.0)
+
+    @property
+    def truncated(self) -> bool:
+        return self.truncation_reason is not None
 
     def __post_init__(self) -> None:
         self.started_at = time.monotonic()
@@ -120,14 +129,14 @@ def time_sliced_results(
 
         return make_runner(slice_date_range), make_runner(remainder_date_range)
 
-    def give_up(error: Exception) -> None:
+    def give_up(error: Exception, reason: TruncationReason) -> None:
         """Rows already yielded beat the rest of the range, so keep them and let the cursor go on.
 
         With nothing yielded there is nothing to keep, and the caller must still see the error.
         """
         if not produced_any:
             raise error
-        budget.truncated = True
+        budget.truncation_reason = reason
 
     def run_slice(slice_runner: TimeSliceableRunner) -> _HasResults | None:
         """Runs one slice inside the shared budget, or returns None once the budget is spent."""
@@ -137,18 +146,18 @@ def time_sliced_results(
             # of starting a slice that has no time to finish in.
             slice_seconds = math.floor(budget.remaining())
             if slice_seconds <= 0:
-                give_up(ClickHouseQueryTimeOut())
+                give_up(ClickHouseQueryTimeOut(), "budget_spent")
                 return None
             slice_runner.set_execution_time_budget(slice_seconds)
             try:
                 return slice_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
             except ClickHouseQueryTimeOut as error:
                 # The slice spent the budget, so a retry has nothing left to run in.
-                give_up(error)
+                give_up(error, "timeout")
                 return None
             except ClickHouseAtCapacity as error:
                 if attempt == CAPACITY_RETRY_ATTEMPTS - 1:
-                    give_up(error)
+                    give_up(error, "capacity")
                     return None
                 delay = CAPACITY_RETRY_BASE_DELAY * 2**attempt * random.uniform(0.5, 1.5)
                 time.sleep(max(0.0, min(delay, budget.remaining())))

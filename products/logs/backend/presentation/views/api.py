@@ -1476,6 +1476,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 {
                     "results_count": len(results),
                     "has_more": has_more,
+                    # has_more alone cannot separate an ordinary next page from a page the ladder
+                    # cut short, and a cut-short page is still a 200.
+                    "truncated": budget.truncated,
+                    "truncation_reason": budget.truncation_reason,
                     "has_search_term": bool(query_data.get("searchTerm")),
                     "has_filter_group": bool(query_data.get("filterGroup")),
                     "severity_levels_count": len(query_data.get("severityLevels") or []),

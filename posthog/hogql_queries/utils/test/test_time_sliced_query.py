@@ -301,6 +301,7 @@ class TestTimeSlicedResults(TestCase):
 
         self.assertEqual(results, ["a", "b"])
         self.assertTrue(budget.truncated)
+        self.assertEqual(budget.truncation_reason, "budget_spent")
 
     def test_transient_capacity_rejection_is_retried(self):
         now = dt.datetime(2024, 1, 1, 12, 0, tzinfo=ZoneInfo("UTC"))
@@ -334,11 +335,11 @@ class TestTimeSlicedResults(TestCase):
 
     @parameterized.expand(
         [
-            ("capacity", [ClickHouseAtCapacity() for _ in range(CAPACITY_RETRY_ATTEMPTS)]),
-            ("timeout", [ClickHouseQueryTimeOut()]),
+            ("capacity", [ClickHouseAtCapacity() for _ in range(CAPACITY_RETRY_ATTEMPTS)], "capacity"),
+            ("timeout", [ClickHouseQueryTimeOut()], "timeout"),
         ]
     )
-    def test_failure_after_rows_keeps_them_and_marks_the_budget_truncated(self, _name, errors):
+    def test_failure_after_rows_keeps_them_and_marks_the_budget_truncated(self, _name, errors, expected_reason):
         now = dt.datetime(2024, 1, 1, 12, 0, tzinfo=ZoneInfo("UTC"))
         runner = FakeRunner(date_from=now - dt.timedelta(hours=1), date_to=now, results=[])
         budget = TimeSliceBudget(seconds=40)
@@ -349,3 +350,4 @@ class TestTimeSlicedResults(TestCase):
 
         self.assertEqual(results, ["a"])
         self.assertTrue(budget.truncated)
+        self.assertEqual(budget.truncation_reason, expected_reason)

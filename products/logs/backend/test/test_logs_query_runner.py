@@ -704,12 +704,16 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with (
             patch.object(LogsQueryRunner, "run", refuse_after_the_first_slice),
             patch("posthog.hogql_queries.utils.time_sliced_query.time.sleep"),
+            patch("products.logs.backend.presentation.views.api.report_user_action") as report,
         ):
             response = self._make_logs_api_request(query_params)
 
         self.assertGreater(len(response["results"]), 0)
         self.assertTrue(response["hasMore"])
         self.assertIsNotNone(response["nextCursor"])
+        event_properties = report.call_args.args[2]
+        self.assertTrue(event_properties["truncated"])
+        self.assertEqual(event_properties["truncation_reason"], "capacity")
 
     @parameterized.expand(
         [
