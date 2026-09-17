@@ -27,6 +27,7 @@ from products.signals.backend.ranking.features import (
     NO_EXTRAS,
     REPORT_EMBEDDINGS_FEATURE_SET,
     TABULAR_FEATURE_SET,
+    TITLE_EMBEDDINGS_FEATURE_SET,
     Extras,
     FeatureSet,
     feature_set_by_name,
@@ -57,6 +58,7 @@ CHAMPION_ROLE = "champion"
 # it was fit on. Both are in the identity, so two families trained on one day stay apart.
 TABULAR_MODEL_NAME = "tabular_xgb"
 REPORT_EMBEDDINGS_MODEL_NAME = "report_embeddings"
+TITLE_EMBEDDINGS_MODEL_NAME = "title_embeddings"
 
 # A shuffle plus one AUC rather than a refit, so this sits far above the trainer's NULL_PERMUTATIONS.
 NULL_PERMUTATIONS = 25
@@ -112,7 +114,7 @@ class UnseenModel:
 @frozen
 class ModelFamily:
     """One family the training job fits and the unseen read grades: its name, and the feature set
-    its trainer fits. Both families are per-head XGBoost, so the learner is not a field yet; a
+    its trainer fits. Every family is per-head XGBoost, so the learner is not a field yet; a
     family with its own predict (the MMoE) adds one at the `UnseenModel` boundary."""
 
     name: str
@@ -122,9 +124,14 @@ class ModelFamily:
 # The families the training job trains and the unseen read grades, in the order they are trained. A
 # family with no metadata for the day is skipped, so an entry can be added here before its trainer
 # writes its first candidate, and a family that fails costs its own series rather than every one.
+# The two embedding families read one `ReportEmbeddingsFeatureSet` instance each and fit with the
+# same module-level `XGB_PARAMS`, so their width, grain, row budget, sampling, split and booster
+# settings match by construction. Keep it that way: the pair is a measurement of the text choice,
+# and a recipe that differed between them would answer a question nobody asked.
 MODEL_FAMILIES: tuple[ModelFamily, ...] = (
     ModelFamily(name=TABULAR_MODEL_NAME, feature_set=TABULAR_FEATURE_SET),
     ModelFamily(name=REPORT_EMBEDDINGS_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET),
+    ModelFamily(name=TITLE_EMBEDDINGS_MODEL_NAME, feature_set=TITLE_EMBEDDINGS_FEATURE_SET),
 )
 
 
