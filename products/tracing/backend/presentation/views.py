@@ -342,7 +342,7 @@ class _TracingSessionErrorCountsRequestSerializer(serializers.Serializer):
 class _TracingSessionErrorCountSerializer(serializers.Serializer):
     session_id = serializers.CharField(help_text="The session the exceptions belong to.")
     exceptions = serializers.IntegerField(
-        help_text="Exception events in the window that Error Tracking linked to an issue."
+        help_text="Exception events in the window that error tracking linked to an issue."
     )
 
 

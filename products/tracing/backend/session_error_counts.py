@@ -30,11 +30,15 @@ def count_session_exceptions(
           AND timestamp <= {date_to}
           AND properties.$session_id IN {session_ids}
         GROUP BY session_id
+        LIMIT {limit}
         """,
         placeholders={
             "date_from": ast.Constant(value=date_from),
             "date_to": ast.Constant(value=date_to),
-            "session_ids": ast.Tuple(exprs=[ast.Constant(value=session_id) for session_id in session_ids]),
+            "session_ids": ast.Constant(value=session_ids),
+            # Explicit, because HogQL caps a select without a LIMIT at 100 rows, which is below the
+            # sessions one request may ask about. A row cut there would read as a clean session.
+            "limit": ast.Constant(value=MAX_SESSIONS_PER_LOOKUP),
         },
     )
     response = execute_hogql_query(query=query, team=team, query_type="TracingSessionErrorCountsQuery")

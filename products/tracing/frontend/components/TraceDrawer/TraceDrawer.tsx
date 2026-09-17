@@ -238,7 +238,7 @@ export function TraceDrawer({
                                                   <TraceErrorsTab
                                                       key={inspectedSpan.trace_id}
                                                       traceId={inspectedSpan.trace_id}
-                                                      timestamp={rootSpan?.timestamp ?? ts}
+                                                      timestamp={rootSpan?.timestamp ?? inspectedSpan.timestamp ?? ts}
                                                       sessionId={sessionId}
                                                       resolving={loading}
                                                   />

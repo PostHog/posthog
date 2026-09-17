@@ -48,6 +48,17 @@ class TestSessionErrorCounts(ClickhouseTestMixin, APIBaseTest):
         counts = {row["session_id"]: row["exceptions"] for row in json.loads(response.content)["results"]}
         assert counts == {"session-a": 2, "session-b": 1}
 
+    def test_answers_every_requested_session_past_the_default_row_limit(self) -> None:
+        session_ids = [f"session-{i}" for i in range(150)]
+        for session_id in session_ids:
+            self._create_exception(session_id, timestamp="2026-06-02T08:00:00Z")
+        flush_persons_and_events()
+
+        response = self._post(session_ids)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert len(json.loads(response.content)["results"]) == 150
+
     def test_rejects_more_sessions_than_one_lookup_allows(self) -> None:
         response = self._post([f"session-{i}" for i in range(201)])
 

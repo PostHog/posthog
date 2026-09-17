@@ -167,6 +167,22 @@ describe('tracingViewerLogic', () => {
         })
     })
 
+    // The drawer stays mounted from one row to the next, so a person reading the Logs tab row by
+    // row must not be bounced back to Attributes on every click.
+    it('keeps the inspector tab across traces while the drawer is open, and resets it on close', () => {
+        logic.actions.openTrace('trace-x')
+        logic.actions.selectInspectorTab('logs')
+
+        logic.actions.openTrace('trace-y')
+        expect(logic.values.inspectorTab).toBe('logs')
+
+        logic.actions.openTrace('trace-z', { tab: 'errors' })
+        expect(logic.values.inspectorTab).toBe('errors')
+
+        logic.actions.closeTrace()
+        expect(logic.values.inspectorTab).toBe('attributes')
+    })
+
     describe('closeTrace', () => {
         // The attribute buttons in the drawer queue their query for when the drawer closes.
         // Without this, closing the drawer would silently drop the filter the user just added.

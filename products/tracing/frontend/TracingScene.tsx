@@ -37,7 +37,7 @@ import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLo
 import { tracingSceneLogic } from './tracingSceneLogic'
 import { TracingSparkline } from './TracingSparkline'
 import { tracingViewerLogic } from './tracingViewerLogic'
-import type { Span } from './types'
+import type { Span, SpanInspectorTab } from './types'
 
 const TRACING_FEEDBACK_SURVEY_ID = '019e6a26-4943-0000-24a0-dc46310f6b7c'
 
@@ -141,14 +141,14 @@ function TracingSceneContents(): JSX.Element {
     // value there re-renders every visible row. This handler and `sessionErrors` below are both
     // passed that way, so both hold their identity.
     const onRowClick = useCallback(
-        (span: Span): void => {
+        (span: Span, tab?: SpanInspectorTab): void => {
             // Clicking a row leaves the scrollable <main tabIndex="0"> as the active element;
             // react-modal then scrolls it back into view when restoring focus on close. Blur so
             // the restore target is <body>, which doesn't scroll.
             ;(document.activeElement as HTMLElement | null)?.blur?.()
             // Anchor the waterfall on the clicked span. In Spans mode this is often a child span,
             // so without spanId the drawer would open unfocused at the root.
-            openTrace(span.trace_id, { spanId: span.span_id, ts: span.timestamp })
+            openTrace(span.trace_id, { spanId: span.span_id, ts: span.timestamp, tab })
         },
         [openTrace]
     )
@@ -157,13 +157,9 @@ function TracingSceneContents(): JSX.Element {
     const sessionErrors = useMemo(
         () =>
             sessionErrorBadgesEnabled
-                ? {
-                      counts: errorCountByRow,
-                      onShow: (span: Span) =>
-                          openTrace(span.trace_id, { spanId: span.span_id, ts: span.timestamp, tab: 'errors' }),
-                  }
+                ? { counts: errorCountByRow, onShow: (span: Span) => onRowClick(span, 'errors') }
                 : undefined,
-        [sessionErrorBadgesEnabled, errorCountByRow, openTrace]
+        [sessionErrorBadgesEnabled, errorCountByRow, onRowClick]
     )
 
     const onDocsLinkClick = (): void => {

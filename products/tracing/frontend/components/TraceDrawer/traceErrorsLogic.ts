@@ -73,8 +73,9 @@ export type traceErrorsLogicType = MakeLogicType<
 export const traceErrorsLogic = kea<traceErrorsLogicType>([
     props({} as TraceErrorsLogicProps),
     // The session is in the key, not just the trace: a trace that touches two sessions answers a
-    // different question for each, and walking to a span of the other session has to re-ask.
-    key((props) => `${props.traceId}:${props.sessionId}`),
+    // different question for each, and walking to a span of the other session has to re-ask. The
+    // timestamp is in it too, because the root span, which sets it, can arrive on a later page.
+    key((props) => `${props.traceId}:${props.sessionId}:${props.timestamp ?? ''}`),
     path((key) => ['products', 'tracing', 'frontend', 'components', 'TraceDrawer', 'traceErrorsLogic', key]),
 
     loaders(({ props }) => ({

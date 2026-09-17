@@ -11,6 +11,7 @@ import { tracingSpansSessionErrorCountsCreate } from 'products/tracing/frontend/
 
 import { makeSpan } from './__mocks__/span'
 import { spanSessionErrorsLogic } from './spanSessionErrorsLogic'
+import { tracingCorrelationConfigLogic } from './tracingCorrelationConfigLogic'
 import { tracingDataLogic } from './tracingDataLogic'
 import type { Span } from './types'
 
@@ -162,18 +163,43 @@ describe('spanSessionErrorsLogic', () => {
         expect(logic.values.sessionIdsInView).toEqual([])
     })
 
-    // The cap bounds one query's IN list, not how many sessions ever get a badge. It has to keep
-    // going on its own, because the page event that would otherwise continue it may never come.
-    it('caps one query but keeps asking until every session is answered', async () => {
+    // The cap bounds one request, not how many sessions a page can badge.
+    it('splits a page over the cap into several requests and answers every session', async () => {
         const firstPage = Array.from({ length: 250 }, (_, i) => spanWithSession(`span-${i}`, `session-${i}`))
         await loadFirstPage(firstPage)
 
-        expect(sessionsAsked()[0]).toHaveLength(200)
-        expect(sessionsAsked().flat()).toContain('session-249')
+        expect(sessionsAsked().map((chunk) => chunk.length)).toEqual([200, 50])
+        expect(Object.keys(logic.values.sessionErrorCounts)).toHaveLength(250)
 
         await loadNextPage([...firstPage, spanWithSession('span-new', 'session-new')])
 
-        expect(sessionsAsked().flat()).toContain('session-new')
+        expect(sessionsAsked()[2]).toEqual(['session-new'])
+    })
+
+    // A team that stores the session under its own key resolves nothing until the configured keys
+    // arrive, and that can happen after the first page has already been looked up.
+    it('asks again when the configured session keys arrive after the page', async () => {
+        await loadFirstPage([makeSpan({ uuid: 'span-1', span_id: 'span-1', attributes: { customSession: 'x' } })])
+        expect(sessionsAsked()).toEqual([])
+
+        tracingCorrelationConfigLogic.actions.loadTracingConfigSuccess({
+            tracing_distinct_id_attribute_keys: ['posthogDistinctId'],
+            tracing_session_id_attribute_keys: ['customSession'],
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(sessionsAsked()).toEqual([['x']])
+    })
+
+    // No usable timestamp means no window to ask over. The lookup has to stop there rather than
+    // keep retrying a page it can never answer.
+    it('asks nothing when no row in view has a usable timestamp', async () => {
+        await loadFirstPage([
+            makeSpan({ uuid: 'span-1', span_id: 'span-1', timestamp: 'not-a-date', attributes: { sessionId: 'a' } }),
+        ])
+
+        expect(sessionsAsked()).toEqual([])
+        expect(logic.values.sessionErrorCounts).toEqual({})
     })
 
     it('drops counts from the previous filters when a fresh query lands', async () => {

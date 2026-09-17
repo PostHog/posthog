@@ -85,6 +85,7 @@ interface SpanRowProps {
 function SpanHeaderCell({
     columnKey,
     label,
+    resizeLabel,
     widths,
     columns,
     sort,
@@ -92,13 +93,18 @@ function SpanHeaderCell({
     columnKey: string
     /** Omit for a column with no heading, e.g. row actions. */
     label?: string
+    /** Names the column to assistive tech on the resize handle when it has no visible heading. */
+    resizeLabel?: string
     widths: Record<string, number>
     columns: ResizableColumns
     sort?: { column: TracingOrderBy } & SortProps
 }): JSX.Element {
     const active = sort ? sort.orderBy === sort.column : false
     return (
-        <TableHeaderCell width={widths[columnKey]} resize={columns.resizeHandleProps(columnKey, label ?? columnKey)}>
+        <TableHeaderCell
+            width={widths[columnKey]}
+            resize={columns.resizeHandleProps(columnKey, label ?? resizeLabel ?? columnKey)}
+        >
             {sort ? (
                 <button
                     type="button"
@@ -155,7 +161,7 @@ function SpanRowHeader({
             />
             <SpanHeaderCell {...shared} columnKey="status" label="Status" />
             {/* The session error badge needs no heading; its tooltip says what the count means. */}
-            {showSessionErrors && <SpanHeaderCell {...shared} columnKey="sessionErrors" />}
+            {showSessionErrors && <SpanHeaderCell {...shared} columnKey="sessionErrors" resizeLabel="Session errors" />}
             <SpanHeaderCell {...shared} columnKey="traceId" label="Trace ID" />
             {/* Row actions need no heading. */}
             <SpanHeaderCell {...shared} columnKey="actions" />
@@ -183,8 +189,10 @@ function SpanRow({
             // eslint-disable-next-line react/forbid-dom-props
             style={{ height: ROW_HEIGHT }}
             onClick={onClick}
+            // Only a key press on the row itself opens it. A press on a button inside the row
+            // bubbles here too, and taking it would cancel that button's own click.
             onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
+                if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
                     e.preventDefault()
                     onClick()
                 }
