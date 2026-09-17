@@ -1,8 +1,8 @@
 # Reviewer-quality run — `sol-low-2`
 
 - **Dumped:** 2026-09-17T00:56:00+00:00
-- **Report id:** `01a0acc9-5143-7ac1-8aef-2b644cd63e34`  ·  **PR:** https://github.com/PostHog/posthog/pull/75215
-- **Head:** `a7fb363bef6947e4e7fc30a0fe8a0a4cc4deaa82`  ·  **run_count:** 1  ·  **status:** idle
+- **Report id:** `01a0acc9-5143-7ac1-8aef-2b644cd63e34` · **PR:** https://github.com/PostHog/posthog/pull/75215
+- **Head:** `a7fb363bef6947e4e7fc30a0fe8a0a4cc4deaa82` · **run_count:** 1 · **status:** idle
 - **Wall-clock:** 1291s (21.5 min)
 
 ## Config snapshot
@@ -14,22 +14,22 @@
 
 | chunks | review units | raw issues | after dedup | passed validator |
 | ------ | ------------ | ---------- | ----------- | ---------------- |
-| 4 | 13 | 14 | 10 | 7 |
+| 4      | 13           | 14         | 10          | 7                |
 
 - **review units** = every (perspective|blind-spot × chunk) sandbox review that ran = the model-held-constant cost proxy.
 - cache-aware spend: no `$ai_generation` events in the window (likely emitted to a cloud project, or not yet ingested).
 
 ## Stage timing (wall-clock)
 
-| stage | duration |
-| ----- | -------- |
-| fetch + snapshot | 0s |
-| chunking | 0s |
-| perspective selection | 17s |
-| review wave (perspectives) | 10m 30s |
-| blind-spot sweep | 3m 30s |
-| dedup (incl. combine/clean) | 1m 00s |
-| validation | 5m 50s |
+| stage                       | duration |
+| --------------------------- | -------- |
+| fetch + snapshot            | 0s       |
+| chunking                    | 0s       |
+| perspective selection       | 17s      |
+| review wave (perspectives)  | 10m 30s  |
+| blind-spot sweep            | 3m 30s   |
+| dedup (incl. combine/clean) | 1m 00s   |
+| validation                  | 5m 50s   |
 
 - **Review stage total (selection → last finder unit, wave + blind-spot):** 14m 01s — the reviewer-model speed comparison number.
 - Derived from artefact `created_at` (persisted on completion); only meaningful for fresh, non-resumed runs.
@@ -43,28 +43,28 @@
 
 ## Per-review-unit breakdown
 
-| pass | chunk | perspective | raw issues |
-| ---- | ----- | ----------- | ---------- |
-| 1 | 1 | review-hog-perspective-contracts-security | 1 |
-| 1 | 2 | review-hog-perspective-contracts-security | 2 |
-| 1 | 3 | review-hog-perspective-contracts-security | 1 |
-| 2 | 1 | review-hog-perspective-logic-correctness | 1 |
-| 2 | 2 | review-hog-perspective-logic-correctness | 2 |
-| 2 | 3 | ? | 0 |
-| 3 | 1 | review-hog-perspective-performance-reliability | 2 |
-| 3 | 2 | review-hog-perspective-performance-reliability | 2 |
-| 3 | 3 | ? | 0 |
-| 1000 | 1 | review-hog-blind-spots-general | 1 |
-| 1000 | 2 | review-hog-blind-spots-general | 1 |
-| 1000 | 3 | review-hog-blind-spots-general | 1 |
-| 1000 | 4 | ? | 0 |
+| pass | chunk | perspective                                    | raw issues |
+| ---- | ----- | ---------------------------------------------- | ---------- |
+| 1    | 1     | review-hog-perspective-contracts-security      | 1          |
+| 1    | 2     | review-hog-perspective-contracts-security      | 2          |
+| 1    | 3     | review-hog-perspective-contracts-security      | 1          |
+| 2    | 1     | review-hog-perspective-logic-correctness       | 1          |
+| 2    | 2     | review-hog-perspective-logic-correctness       | 2          |
+| 2    | 3     | ?                                              | 0          |
+| 3    | 1     | review-hog-perspective-performance-reliability | 2          |
+| 3    | 2     | review-hog-perspective-performance-reliability | 2          |
+| 3    | 3     | ?                                              | 0          |
+| 1000 | 1     | review-hog-blind-spots-general                 | 1          |
+| 1000 | 2     | review-hog-blind-spots-general                 | 1          |
+| 1000 | 3     | review-hog-blind-spots-general                 | 1          |
+| 1000 | 4     | ?                                              | 0          |
 
 ## Findings (post-dedup) with validator verdict
 
 ### [❌ dismissed] must_fix · security — tools/pr-approval-agent/review_local.py:321-321
 
 **Reject non-boolean self-driving flags**  
-_perspective: review-hog-perspective-contracts-security  ·  directly-related: True_
+_perspective: review-hog-perspective-contracts-security · directly-related: True_
 
 - **Problem:** The bool conversion enables the privileged carve-out for every non-empty value. For example, "false", "0", or an object becomes true. This bypasses the bot-author and draft gates if the context producer sends a malformed value.
 - **Suggestion:** Require the JSON value to be the boolean true. Use `context.get("self_driving_review") is True`. Reject other value types or keep the carve-out disabled.
@@ -76,7 +76,7 @@ _perspective: review-hog-perspective-contracts-security  ·  directly-related: T
 ### [❌ dismissed] should_fix — products/review_hog/backend/receivers.py:222-222
 
 **The deferred import can still fail the save request**  
-_perspective: review-hog-perspective-performance-reliability  ·  directly-related: True_
+_perspective: review-hog-perspective-performance-reliability · directly-related: True_
 
 - **Problem:** The deferred import runs before the try block. An import error escapes the on-commit callback. This can return an error after the TaskRun transaction already committed.
 - **Suggestion:** Move the import into the try block. Also register the callback with robust error handling so no dispatch failure escapes the save path.
@@ -88,7 +88,7 @@ _perspective: review-hog-perspective-performance-reliability  ·  directly-relat
 ### [✅ VALID] should_fix · bug — products/stamphog/backend/facade/api.py:149-156
 
 **Broker failures can permanently lose the initial review**  
-_perspective: review-hog-perspective-performance-reliability  ·  directly-related: True_
+_perspective: review-hog-perspective-performance-reliability · directly-related: True_
 
 - **Problem:** This dispatch is the only path for the initial draft review. The caller catches broker errors and only writes a log. A broker outage can therefore lose the review permanently. GitHub does not redeliver this receiver event.
 - **Suggestion:** Persist a dispatch record in the same transaction as the TaskRun update. Send it through an outbox worker with retries. At minimum, add a scheduled recovery task that finds eligible PRs without a ReviewRun and queues them again.
@@ -102,7 +102,7 @@ _perspective: review-hog-perspective-performance-reliability  ·  directly-relat
 ### [✅ VALID] must_fix · security — tools/pr-approval-agent/review_pr.py:587-590
 
 **Limit the draft bypass to bot-authored PRs**  
-_perspective: review-hog-blind-spots-general  ·  directly-related: True_
+_perspective: review-hog-blind-spots-general · directly-related: True_
 
 - **Problem:** The self-driving flag bypasses the draft gate for every author. A linked context for a human-authored draft can therefore reach review and receive an approval. The initial Inbox review path does not verify that GitHub reports a bot author before it sets this flag.
 - **Suggestion:** Fail closed when `self_driving` is true but `pr.author_is_bot` is false. Also require the context producer to verify the bot author and repository-native head before it creates the review run.
@@ -115,7 +115,7 @@ _perspective: review-hog-blind-spots-general  ·  directly-related: True_
 ### [✅ VALID] must_fix · security — products/tasks/backend/facade/api.py:503-506
 
 **Team filtering happens after a global task-run lookup**  
-_perspective: review-hog-perspective-contracts-security  ·  directly-related: True_
+_perspective: review-hog-perspective-contracts-security · directly-related: True_
 
 - **Problem:** `find_task_run` searches all teams and returns one matching row. The facade checks `run.team_id` only after that global query selects a row. Another team can create a newer run with the same public PR URL or repository and branch. That row can hide the correct run and disable reviews for the owning team. This violates the facade's stated team-scoping contract and permits cross-tenant interference.
 - **Suggestion:** Apply `team_id` inside every `TaskRun` query before ordering and selecting a row. Add `team_id` to `find_task_run`, or implement a team-scoped lookup in this facade. Keep the final team assertion as a defense-in-depth check.
@@ -129,7 +129,7 @@ _perspective: review-hog-perspective-contracts-security  ·  directly-related: T
 ### [❌ dismissed] must_fix — products/review_hog/backend/receivers.py:111-126,150-156
 
 **Only one assigned reviewer can enable Stamphog**  
-_perspective: review-hog-perspective-logic-correctness  ·  directly-related: True_
+_perspective: review-hog-perspective-logic-correctness · directly-related: True_
 
 - **Problem:** The PR requires a review when at least one assigned user enables the toggle. This code selects one acting reviewer before it checks the toggle. It skips the review when that user opts out, even if another assigned reviewer opts in. The webhook resolver repeats the same behavior, so later commits also skip review.
 - **Suggestion:** Resolve all assigned reviewers and select an opted-in user. Preserve the current creator-first ordering among users who enabled `stamphog_review_inbox_prs`. Use the same selection for the initial receiver and the webhook resolver. Add a case where the first reviewer opts out and a second reviewer opts in.
@@ -143,7 +143,7 @@ _perspective: review-hog-perspective-logic-correctness  ·  directly-related: Tr
 ### [✅ VALID] must_fix · security — products/stamphog/backend/tasks/tasks.py:1143-1176
 
 **Initial review does not verify self-driving provenance**  
-_perspective: review-hog-perspective-logic-correctness  ·  directly-related: True_
+_perspective: review-hog-perspective-logic-correctness · directly-related: True_
 
 - **Problem:** The task trusts all provenance arguments from the earlier receiver. It only checks the repository config and the PR state. It does not verify `task_run_id`, `signal_report_id`, the task repository, the current reviewer toggle, bot authorship, or a repository-native head. It then marks the run as an inbox review. This mark bypasses the normal draft, bot, review-mode, and author-permission gates. A wrong or stale `TaskRun.output.pr_url` can therefore cause a real approval on a PR that is not a self-driving Inbox PR.
 - **Suggestion:** Load the exact task run through a team-scoped tasks facade before creating the review. Verify its signal report, repository, and recorded PR URL against the fetched PR. Also verify that the fetched PR is bot-authored and has a repository-native head. Resolve the acting reviewer and their current toggle again. Return without creating a run if any check fails.
@@ -159,7 +159,7 @@ _perspective: review-hog-perspective-logic-correctness  ·  directly-related: Tr
 ### [✅ VALID] should_fix · bug — products/review_hog/backend/receivers.py:225-235
 
 **Queue failures permanently lose the initial review**  
-_perspective: review-hog-perspective-performance-reliability  ·  directly-related: True_
+_perspective: review-hog-perspective-performance-reliability · directly-related: True_
 
 - **Problem:** The callback catches a broker publish failure and only writes a log. The TaskRun might not save again. The initial Stamphog review is then permanently lost.
 - **Suggestion:** Use a durable handoff that retries after broker failures. For example, persist an outbox record in the TaskRun transaction and let a retrying worker publish it.
@@ -172,7 +172,7 @@ _perspective: review-hog-perspective-performance-reliability  ·  directly-relat
 ### [✅ VALID] must_fix · bug — products/review_hog/backend/receivers.py:126-138
 
 **Recheck the opt-in before the queued review runs**  
-_perspective: review-hog-blind-spots-general  ·  directly-related: True_
+_perspective: review-hog-blind-spots-general · directly-related: True_
 
 - **Problem:** The receiver checks the toggle only before it queues the Celery task. The task can run much later. If the user turns the toggle off during that delay, Stamphog can still review and approve the pull request.
 - **Suggestion:** Reload the TaskRun in process_inbox_pr_review. Resolve the assigned reviewers and check their current stamphog_review_inbox_prs values before creating a ReviewRun. Stop the task when no assigned reviewer is still opted in.
@@ -186,7 +186,7 @@ _perspective: review-hog-blind-spots-general  ·  directly-related: True_
 ### [✅ VALID] must_fix · security — products/tasks/backend/facade/api.py:499-506
 
 **Branch fallback can identify an unrelated PR as self-driving**  
-_perspective: review-hog-blind-spots-general  ·  directly-related: True_
+_perspective: review-hog-blind-spots-general · directly-related: True_
 
 - **Problem:** The exact PR URL lookup can fail and then `find_task_run` uses the branch lookup. That lookup can return an old run or a run that already links to another PR. Branches can be reused, and one branch can target different base branches. The caller then treats the bot PR as self-driving and bypasses the normal review gates. Stamphog can post an approval for a PR that the signals run did not create.
 - **Suggestion:** Use a dedicated team-scoped query for this security decision. Match the exact PR URL first. Use the branch fallback only for an active run whose output has no PR URL. Also filter the signal-report and non-internal task shape in that query.
@@ -197,4 +197,3 @@ _perspective: review-hog-blind-spots-general  ·  directly-related: True_
 - **Found:** The facade checks only the selected run's team and task shape at `products/tasks/backend/facade/api.py:504-509`.
 - **Found:** Stamphog uses this result to grant the self-driving carve-out at `products/stamphog/backend/tasks/tasks.py:191-215`.
 - **Impact:** A reused branch can link a new PR to an old signals run. Stamphog can then bypass the normal gates and approve a PR that the run did not create.
-

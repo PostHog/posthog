@@ -1,4 +1,5 @@
 """Truth-sensitivity of the arm ranking. Writes findings/SENSITIVITY.md.
+
 A fresh     = per-finding 3-skeptic majority (as judged)
 B pooled    = registry-matched findings take the majority of ALL fresh votes cast on their cluster in this experiment
 C august    = clusters with >=2 August verdicts take August's majority (tie -> fresh); others fresh
@@ -6,55 +7,127 @@ D serious   = A, counting only must_fix / should_fix as real
 E adjudicated = A with the 14 contested clusters replaced by the 3-adjudicator panel (findings/<S>.truth.adjudicated.json)
 F adjudicated serious = E, counting only must_fix / should_fix as real
 """
-import json, re
+
+import re
+import json
 from collections import defaultdict
 from pathlib import Path
+
 EXP = Path(__file__).resolve().parent.parent
-SETS = [("GC", "glm-high-1bc"), ("GB", "glm-high-2"), ("UA", "luna-low-1"), ("UB", "luna-low-2"), ("SA", "sol-low-1"), ("SB", "sol-low-2")]
+SETS = [
+    ("GC", "glm-high-1bc"),
+    ("GB", "glm-high-2"),
+    ("UA", "luna-low-1"),
+    ("UB", "luna-low-2"),
+    ("SA", "sol-low-1"),
+    ("SB", "sol-low-2"),
+]
 ARM = {"glm-high": "GLM 5.3 Flash @ high", "luna-low": "GPT 5.6 Luna @ low", "sol-low": "GPT 5.6 Sol @ low"}
-reg = {c["cluster"]: c for c in json.load(open(EXP / "known_clusters.json"))}
-data = {}
-adj = {}
-pool = defaultdict(lambda: [0, 0])
-for S, run in SETS:
-    f = json.load(open(EXP / "findings" / f"{S}.json")); t = json.load(open(EXP / "findings" / f"{S}.truth.json")); m = json.load(open(EXP / "findings" / f"{S}.match.json"))
-    usage = (EXP / "runs" / f"{run}.usage.md").read_text()
-    cost = sum(float(x) for x in re.findall(r"\| (?:review|blind-spot|validation|dedup|perspective_selection) \| \S+ \| [\d,]+ \| [\d,]+ \| [\d,]+ \| [\d,]+ \| [\d,]+ \| \$([\d.]+) \| \S+ \|", usage))
-    ta = EXP / "findings" / f"{S}.truth.adjudicated.json"
-    data[S] = (run, f, t, m, cost)
-    adj[S] = json.load(open(ta)) if ta.exists() else None
-    for x in f:
-        c = m[x["id"]]["cluster"]; src = t[x["id"]]["source"]
-        if c is not None and src.startswith("verified"):
-            r, n = map(int, src.split(":")[1].split("/")); pool[c][0] += r; pool[c][1] += n
-def truth(mode, S, x):
-    run, f, t, m, cost = data[S]; tt = t[x["id"]]; c = m[x["id"]]["cluster"]
-    if mode == "A": return tt["is_real"]
-    if mode in "EF":
-        at = adj[S][x["id"]]
-        return at["is_real"] and (mode == "E" or at["severity"] in ("must_fix", "should_fix"))
-    if mode == "D": return tt["is_real"] and tt["severity"] in ("must_fix", "should_fix")
+SERIOUS = ("must_fix", "should_fix")
+COST_ROW = (
+    r"\|\s*(?:review|blind-spot|validation|dedup|perspective_selection)\s*\|\s*\S+\s*\|"
+    r"(?:\s*[\d,]+\s*\|){5}\s*\$([\d.]+)\s*\|\s*\S+\s*\|"
+)
+
+
+def pct(a: int, b: int) -> str:
+    return f"{a}/{b} ({a / b:.0%})" if b else "–"
+
+
+def load() -> tuple[dict, dict, dict]:
+    """Per set: (run, findings, fresh truth, matches, gateway cost), the adjudicated truth, and pooled cluster votes."""
+    data, adjudicated = {}, {}
+    pool: dict[int, list[int]] = defaultdict(lambda: [0, 0])
+    for name, run in SETS:
+        findings = json.load(open(EXP / "findings" / f"{name}.json"))
+        truth = json.load(open(EXP / "findings" / f"{name}.truth.json"))
+        match = json.load(open(EXP / "findings" / f"{name}.match.json"))
+        usage = (EXP / "runs" / f"{run}.usage.md").read_text()
+        cost = sum(float(x) for x in re.findall(COST_ROW, usage))
+        data[name] = (run, findings, truth, match, cost)
+        path = EXP / "findings" / f"{name}.truth.adjudicated.json"
+        adjudicated[name] = json.load(open(path)) if path.exists() else None
+        for f in findings:
+            cluster = match[f["id"]]["cluster"]
+            source = truth[f["id"]]["source"]
+            if cluster is None or not source.startswith("verified"):
+                continue
+            real, total = map(int, source.split(":")[1].split("/"))
+            pool[cluster][0] += real
+            pool[cluster][1] += total
+    return data, adjudicated, pool
+
+
+DATA, ADJUDICATED, POOL = load()
+REGISTRY = {c["cluster"]: c for c in json.load(open(EXP / "known_clusters.json"))}
+
+
+def is_real(mode: str, name: str, finding: dict) -> bool:
+    _, _, truth, match, _ = DATA[name]
+    t = truth[finding["id"]]
+    cluster = match[finding["id"]]["cluster"]
+    if mode == "A":
+        return t["is_real"]
+    if mode == "D":
+        return t["is_real"] and t["severity"] in SERIOUS
+    if mode in ("E", "F"):
+        a = ADJUDICATED[name][finding["id"]]
+        return a["is_real"] and (mode == "E" or a["severity"] in SERIOUS)
     if mode == "B":
-        if c is None: return tt["is_real"]
-        r, n = pool[c]; return r * 2 > n
-    if mode == "C":
-        k = reg.get(c) if c is not None else None
-        if k and k["n_verified"] >= 2 and k["n_real"] * 2 != k["n_verified"]: return k["n_real"] * 2 > k["n_verified"]
-        return tt["is_real"]
-out = ["# Truth sensitivity of the arm ranking", "", __doc__.strip().replace("\n", "  \n"), ""]
-for mode in ("ABCDEF" if all(adj.values()) else "ABCD"):
-    out += [f"## {mode}", "", "| arm | real per run | posted real per run | posted noise per run | validator precision | validator recall | $ per real (reviewer side) | $ per posted real |", "| --- | ---: | ---: | ---: | --- | --- | ---: | ---: |"]
-    arms = defaultdict(list)
-    for S, run in SETS: arms[run.rsplit("-", 1)[0]].append(S)
-    for arm, sets in arms.items():
-        real = kr = kn = dr = 0; cost = 0.0
-        for S in sets:
-            run, f, t, m, c = data[S]; cost += c
-            for x in f:
-                r = truth(mode, S, x); k = x["is_valid"]
-                real += r; kr += r and k; kn += (not r) and k; dr += r and not k
-        n = len(sets)
-        pct = lambda a, b: f"{a}/{b} ({a / b:.0%})" if b else "–"
-        out.append(f"| {ARM[arm]} | {real / n:.1f} | {kr / n:.1f} | {kn / n:.1f} | {pct(kr, kr + kn)} | {pct(kr, kr + dr)} | {('$%.2f' % (cost / real)) if real else '–'} | {('$%.2f' % (cost / kr)) if kr else '–'} |")
+        if cluster is None:
+            return t["is_real"]
+        real, total = POOL[cluster]
+        return real * 2 > total
+    # mode C: August's majority where it verified the cluster at least twice and did not tie.
+    k = REGISTRY.get(cluster) if cluster is not None else None
+    if k and k["n_verified"] >= 2 and k["n_real"] * 2 != k["n_verified"]:
+        return k["n_real"] * 2 > k["n_verified"]
+    return t["is_real"]
+
+
+def mode_table(mode: str) -> list[str]:
+    out = [
+        f"## {mode}",
+        "",
+        "| arm | real per run | posted real per run | posted noise per run | validator precision "
+        "| validator recall | $ per real (reviewer side) | $ per posted real |",
+        "| --- | ---: | ---: | ---: | --- | --- | ---: | ---: |",
+    ]
+    by_arm: dict[str, list[str]] = defaultdict(list)
+    for name, run in SETS:
+        by_arm[run.rsplit("-", 1)[0]].append(name)
+    for arm, names in by_arm.items():
+        real = kept_real = kept_not = dropped_real = 0
+        cost = 0.0
+        for name in names:
+            _, findings, _, _, set_cost = DATA[name]
+            cost += set_cost
+            for f in findings:
+                r, kept = is_real(mode, name, f), f["is_valid"]
+                real += r
+                kept_real += r and kept
+                kept_not += (not r) and kept
+                dropped_real += r and not kept
+        runs = len(names)
+        per_real = ("$%.2f" % (cost / real)) if real else "–"
+        per_posted = ("$%.2f" % (cost / kept_real)) if kept_real else "–"
+        out.append(
+            f"| {ARM[arm]} | {real / runs:.1f} | {kept_real / runs:.1f} | {kept_not / runs:.1f} "
+            f"| {pct(kept_real, kept_real + kept_not)} | {pct(kept_real, kept_real + dropped_real)} "
+            f"| {per_real} | {per_posted} |"
+        )
     out.append("")
-text = "\n".join(out); (EXP / "findings" / "SENSITIVITY.md").write_text(text + "\n"); print(text)
+    return out
+
+
+def main() -> None:
+    legend = "  \n".join(line for line in __doc__.strip().splitlines() if line.strip())
+    out = ["# Truth sensitivity of the arm ranking", "", legend, ""]
+    for mode in "ABCDEF" if all(ADJUDICATED.values()) else "ABCD":
+        out += mode_table(mode)
+    text = "\n".join(out)
+    (EXP / "findings" / "SENSITIVITY.md").write_text(text + "\n")
+    print(text)
+
+
+main()

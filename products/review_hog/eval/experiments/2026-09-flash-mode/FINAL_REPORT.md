@@ -33,22 +33,22 @@ Issue counts are distinct issues, so a run that posts the same issue three times
 
 ### Per model (mean of two runs)
 
-| Model | Cost | Minutes | Comments posted | Serious issues posted | Minor issues posted | Posted but not real | Share not real | Cost per serious issue posted |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| GLM 5.3 Flash @ high | $2.49 | ~77 | 13.5 | 2.5 | 4.5 | 6.5 | 48% | $0.99 |
-| GPT 5.6 Luna @ low | $0.30 | 15 | 7.5 | 1.5 | 0.5 | 4.5 | 60% | $0.20 |
-| GPT 5.6 Sol @ low | $7.01 | 21 | 7 | 3.5 | 1 | 2.5 | 36% | $2.00 |
+| Model                |  Cost | Minutes | Comments posted | Serious issues posted | Minor issues posted | Posted but not real | Share not real | Cost per serious issue posted |
+| -------------------- | ----: | ------: | --------------: | --------------------: | ------------------: | ------------------: | -------------: | ----------------------------: |
+| GLM 5.3 Flash @ high | $2.49 |     ~77 |            13.5 |                   2.5 |                 4.5 |                 6.5 |            48% |                         $0.99 |
+| GPT 5.6 Luna @ low   | $0.30 |      15 |             7.5 |                   1.5 |                 0.5 |                 4.5 |            60% |                         $0.20 |
+| GPT 5.6 Sol @ low    | $7.01 |      21 |               7 |                   3.5 |                   1 |                 2.5 |            36% |                         $2.00 |
 
 ### Per run
 
-| Run | Model | Minutes | Cost | Raw → deduped → posted | Serious posted | Minor posted | Duplicates posted | Not real posted | Validator kept real | Validator dropped not-real |
-| --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | --- | --- |
-| `glm-high-1bc` ¹ | GLM @ high | 83 | $2.56 | 46 → 36 → 13 | 1 | 4 | 0 | 8 | 5/9 | 18/27 ³ |
-| `glm-high-2` ² | GLM @ high | 71 | $2.41 | 55 → 35 → 14 | 4 | 5 | 0 | 5 | 9/10 | 20/25 |
-| `luna-low-1` | Luna @ low | 14 | $0.30 | 9 → 9 → 8 | 2 | 1 | 0 | 5 | 3/4 | 0/5 |
-| `luna-low-2` | Luna @ low | 16 | $0.31 | 8 → 8 → 7 | 1 | 0 | 2 | 4 | 3/3 | 1/5 |
-| `sol-low-1` | Sol @ low | 20 | $6.59 | 11 → 9 → 7 | 3 | 2 | 0 | 2 | 5/5 | 2/4 |
-| `sol-low-2` | Sol @ low | 22 | $7.43 | 14 → 10 → 7 | 4 | 0 | 0 | 3 | 4/5 | 2/5 |
+| Run              | Model      | Minutes |  Cost | Raw → deduped → posted | Serious posted | Minor posted | Duplicates posted | Not real posted | Validator kept real | Validator dropped not-real |
+| ---------------- | ---------- | ------: | ----: | ---------------------- | -------------: | -----------: | ----------------: | --------------: | ------------------- | -------------------------- |
+| `glm-high-1bc` ¹ | GLM @ high |      83 | $2.56 | 46 → 36 → 13           |              1 |            4 |                 0 |               8 | 5/9                 | 18/27 ³                    |
+| `glm-high-2` ²   | GLM @ high |      71 | $2.41 | 55 → 35 → 14           |              4 |            5 |                 0 |               5 | 9/10                | 20/25                      |
+| `luna-low-1`     | Luna @ low |      14 | $0.30 | 9 → 9 → 8              |              2 |            1 |                 0 |               5 | 3/4                 | 0/5                        |
+| `luna-low-2`     | Luna @ low |      16 | $0.31 | 8 → 8 → 7              |              1 |            0 |                 2 |               4 | 3/3                 | 1/5                        |
+| `sol-low-1`      | Sol @ low  |      20 | $6.59 | 11 → 9 → 7             |              3 |            2 |                 0 |               2 | 5/5                 | 2/4                        |
+| `sol-low-2`      | Sol @ low  |      22 | $7.43 | 14 → 10 → 7            |              4 |            0 |                 0 |               3 | 4/5                 | 2/5                        |
 
 ¹ Composite. The first attempt died at dedup (local gateway auth bug). The re-run's reviewer side finished, but its validation sandboxes failed to build (see [Incidents](#incidents)). A validation-only re-run on the same report reused the cached GLM reviews, produced the identical 36 deduped findings, and validated them. Minutes = re-run review stage + validation-only run.
 ² Includes about 14 minutes of dedup retries caused by the same local auth bug, so the clean time is nearer 57 minutes.
@@ -56,22 +56,22 @@ Issue counts are distinct issues, so a run that posts the same issue three times
 
 Validator totals across both runs:
 
-| Model | Real findings kept | Not-real findings dropped | Findings with no verdict |
-| --- | --- | --- | ---: |
-| GLM @ high | 14/19 (74%) | 38/52 (73%) | 1 |
-| Luna @ low | 6/7 (86%) | 1/10 (10%) | 0 |
-| Sol @ low | 9/10 (90%) | 4/9 (44%) | 0 |
+| Model      | Real findings kept | Not-real findings dropped | Findings with no verdict |
+| ---------- | ------------------ | ------------------------- | -----------------------: |
+| GLM @ high | 14/19 (74%)        | 38/52 (73%)               |                        1 |
+| Luna @ low | 6/7 (86%)          | 1/10 (10%)                |                        0 |
+| Sol @ low  | 9/10 (90%)         | 4/9 (44%)                 |                        0 |
 
 ### Where the money and time go
 
-| Run | Review | Blind-spot | Validation | Selection + dedup (Sonnet) | Review + blind-spot min | Validation min |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `glm-high-1bc` | $0.69 (223 calls) | $0.46 (130) | $1.26 (433) | $0.15 | 45.5 | 34.6 |
-| `glm-high-2` | $0.78 (289) | $0.34 (96) | $0.99 (459) | $0.30 | 36.9 | 18.9 |
-| `luna-low-1` | $0.14 (42) | $0.06 (18) | $0.06 (28) | $0.04 | 8.7 | 3.8 |
-| `luna-low-2` | $0.15 (43) | $0.06 (17) | $0.06 (23) | $0.04 | 10.7 | 3.7 |
-| `sol-low-1` | $3.31 (44) | $1.47 (19) | $1.70 (31) | $0.11 | 11.3 | 5.6 |
-| `sol-low-2` | $3.98 (57) | $1.68 (25) | $1.68 (33) | $0.09 | 13.7 | 5.5 |
+| Run            |            Review |  Blind-spot |  Validation | Selection + dedup (Sonnet) | Review + blind-spot min | Validation min |
+| -------------- | ----------------: | ----------: | ----------: | -------------------------: | ----------------------: | -------------: |
+| `glm-high-1bc` | $0.69 (223 calls) | $0.46 (130) | $1.26 (433) |                      $0.15 |                    45.5 |           34.6 |
+| `glm-high-2`   |       $0.78 (289) |  $0.34 (96) | $0.99 (459) |                      $0.30 |                    36.9 |           18.9 |
+| `luna-low-1`   |        $0.14 (42) |  $0.06 (18) |  $0.06 (28) |                      $0.04 |                     8.7 |            3.8 |
+| `luna-low-2`   |        $0.15 (43) |  $0.06 (17) |  $0.06 (23) |                      $0.04 |                    10.7 |            3.7 |
+| `sol-low-1`    |        $3.31 (44) |  $1.47 (19) |  $1.70 (31) |                      $0.11 |                    11.3 |            5.6 |
+| `sol-low-2`    |        $3.98 (57) |  $1.68 (25) |  $1.68 (33) |                      $0.09 |                    13.7 |            5.5 |
 
 GLM makes 4–7 times more review calls and 13–20 times more validation calls than the GPT models.
 The calls are cheap because almost all input is a cache read, but each one adds latency, so GLM is slow in both seats.
@@ -81,15 +81,15 @@ For Luna, the Sonnet one-shots are 13% of the bill.
 
 Every serious issue any arm found, plus how often it reached the posted review.
 
-| Issue | GLM @ high | Luna @ low | Sol @ low |
-| --- | --- | --- | --- |
-| Receiver leg stamps self-driving provenance with no PR-to-run, bot or fork check (cluster 2) | 2/2 posted | 2/2 posted | 2/2 posted |
-| Stamphog gate reads only one acting reviewer's toggle (cluster 57) | found 2/2, posted 1/2 | – | found 2/2, posted 1/2 |
-| `find_task_run` queries task runs unscoped and checks the team afterwards (cluster 39) | – | found 1/2, posted 1/2 | 2/2 posted |
-| Draft and bot gate relaxations keyed only on the self-driving flag (cluster 6) | – | found 1/2, posted 0/2 | 1/2 posted |
-| Branch fallback can bind an unrelated or stale run (cluster 73) | – | – | 2/2 posted (judged serious in 1) |
-| Carve-out retry path can block the stale-approval dismissal (cluster 29) | 1/2 posted | – | – |
-| Toggle looks healthy while Stamphog is disconnected (new) | 1/2 posted | – | – |
+| Issue                                                                                        | GLM @ high            | Luna @ low            | Sol @ low                        |
+| -------------------------------------------------------------------------------------------- | --------------------- | --------------------- | -------------------------------- |
+| Receiver leg stamps self-driving provenance with no PR-to-run, bot or fork check (cluster 2) | 2/2 posted            | 2/2 posted            | 2/2 posted                       |
+| Stamphog gate reads only one acting reviewer's toggle (cluster 57)                           | found 2/2, posted 1/2 | –                     | found 2/2, posted 1/2            |
+| `find_task_run` queries task runs unscoped and checks the team afterwards (cluster 39)       | –                     | found 1/2, posted 1/2 | 2/2 posted                       |
+| Draft and bot gate relaxations keyed only on the self-driving flag (cluster 6)               | –                     | found 1/2, posted 0/2 | 1/2 posted                       |
+| Branch fallback can bind an unrelated or stale run (cluster 73)                              | –                     | –                     | 2/2 posted (judged serious in 1) |
+| Carve-out retry path can block the stale-approval dismissal (cluster 29)                     | 1/2 posted            | –                     | –                                |
+| Toggle looks healthy while Stamphog is disconnected (new)                                    | 1/2 posted            | –                     | –                                |
 
 Distinct serious issues posted across both runs: GLM 4, Luna 2, Sol 5.
 GLM also posted 9 distinct minor issues (mostly doc and comment accuracy, 4 of them not in the August registry). Luna posted 1 (a retry-exhaustion variant of cluster 58). Sol posted 2 (another cluster 58 variant, and cluster 73 in the run where it was judged minor).
@@ -114,11 +114,11 @@ What the panel decided on the big ones:
 
 Posted real findings / posted not-real findings per run (per finding, duplicates counted):
 
-| Truth rule | GLM @ high | Luna @ low | Sol @ low |
-| --- | --- | --- | --- |
-| Fresh 3-skeptic verdicts only | 7.5 / 6.0 | 3.0 / 4.5 | 6.5 / 0.5 |
-| August registry verdicts where August had ≥2 | 6.5 / 7.0 | 2.0 / 5.5 | 2.0 / 5.0 |
-| **Adjudicated (used above)** | **7.0 / 6.5** | **3.0 / 4.5** | **4.5 / 2.5** |
+| Truth rule                                   | GLM @ high    | Luna @ low    | Sol @ low     |
+| -------------------------------------------- | ------------- | ------------- | ------------- |
+| Fresh 3-skeptic verdicts only                | 7.5 / 6.0     | 3.0 / 4.5     | 6.5 / 0.5     |
+| August registry verdicts where August had ≥2 | 6.5 / 7.0     | 2.0 / 5.5     | 2.0 / 5.0     |
+| **Adjudicated (used above)**                 | **7.0 / 6.5** | **3.0 / 4.5** | **4.5 / 2.5** |
 
 Cost and speed do not depend on the rule, and GLM is the slowest arm under every rule.
 Sol's quality lead does depend on it: large with fresh verdicts, moderate when adjudicated, and gone under August's verdicts.
@@ -129,12 +129,12 @@ All six rules are in `findings/SENSITIVITY.md`.
 
 The truth rules differ (August judged clusters 39 and 57 mostly not real), so read these side by side loosely.
 
-| | August | Now |
-| --- | --- | --- |
-| GLM 5.3 Flash as reviewer | @ max: 7–33% of findings real, none survived the Opus validator, $1.64–1.82 review | @ high: 25–29% real, $1.12–1.15 review + blind-spot. Same band. |
-| GLM 5.3 Flash as validator | @ max: 12 of 22 findings got no verdict in one run | @ high: 1 of 71 findings got no verdict. Its own validator drops 73% of its noise but also 26% of its real findings. |
-| Sol as reviewer | @ xhigh (prod pin): 19–23 findings, 50–65% real, ~$26 review. @ medium: 14–15 findings, 47–50% real, ~$10.50 | @ low: 9–10 findings, 50–56% real, $4.78–5.66 review + blind-spot |
-| Full prod review of this PR | Sol @ xhigh + Opus 5 @ xhigh ≈ $50 per run | Luna Flash ≈ $0.30 per run |
+|                             | August                                                                                                       | Now                                                                                                                  |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| GLM 5.3 Flash as reviewer   | @ max: 7–33% of findings real, none survived the Opus validator, $1.64–1.82 review                           | @ high: 25–29% real, $1.12–1.15 review + blind-spot. Same band.                                                      |
+| GLM 5.3 Flash as validator  | @ max: 12 of 22 findings got no verdict in one run                                                           | @ high: 1 of 71 findings got no verdict. Its own validator drops 73% of its noise but also 26% of its real findings. |
+| Sol as reviewer             | @ xhigh (prod pin): 19–23 findings, 50–65% real, ~$26 review. @ medium: 14–15 findings, 47–50% real, ~$10.50 | @ low: 9–10 findings, 50–56% real, $4.78–5.66 review + blind-spot                                                    |
+| Full prod review of this PR | Sol @ xhigh + Opus 5 @ xhigh ≈ $50 per run                                                                   | Luna Flash ≈ $0.30 per run                                                                                           |
 
 ## Incidents
 
