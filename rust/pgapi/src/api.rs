@@ -49,6 +49,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/me", get(me))
         .route("/servers", get(servers))
         .route("/servers/:server/overview", get(overview))
+        .route("/servers/:server/load", get(load))
         .route("/servers/:server/queries", get(top_queries))
         .route("/servers/:server/queries/:queryid", get(query_detail))
         .route("/servers/:server/tags", get(tags))
@@ -172,6 +173,10 @@ async fn query_detail(
         )
         .await?,
     ))
+}
+async fn load(State(s): S, Path(server): Path<String>, Query(p): Query<BucketQ>) -> R {
+    let (f, t) = p.range.resolve()?;
+    Ok(Json(q::db_load(&s.db, &server, f, t, &p.bucket).await?))
 }
 async fn waits(State(s): S, Path(server): Path<String>, Query(p): Query<BucketQ>) -> R {
     let (f, t) = p.range.resolve()?;
