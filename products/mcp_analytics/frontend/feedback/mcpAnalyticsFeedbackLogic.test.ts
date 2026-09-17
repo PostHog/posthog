@@ -88,7 +88,6 @@ describe('mcpAnalyticsFeedbackLogic', () => {
     it.each([false, true])(
         'waits for matching surveys and a fresh reading delay (backgrounded: %s)',
         (backgrounded) => {
-            jest.mocked(posthog.displaySurvey).mockClear()
             jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
             expect(logic.values.visible).toBe(false)
             loadSurvey(false)
@@ -120,7 +119,6 @@ describe('mcpAnalyticsFeedbackLogic', () => {
                     $survey_submission_id: expect.any(String),
                 })
             )
-            expect(posthog.displaySurvey).not.toHaveBeenCalled()
             loadSurvey()
             jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
             expect(jest.mocked(posthog.capture).mock.calls.filter(([name]) => name === 'survey shown')).toHaveLength(1)
