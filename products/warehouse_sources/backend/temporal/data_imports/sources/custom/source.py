@@ -821,7 +821,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 "as PostHog's built-in REST sources — see the docs for the field reference."
             ),
             iconPath="/static/posthog-icon.svg",
-            docsUrl=None,
+            docsUrl="https://posthog.com/docs/cdp/sources/custom",
             featureFlag="dwh_custom_source",
             fields=cast(
                 list[FieldType],

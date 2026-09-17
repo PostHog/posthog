@@ -422,6 +422,12 @@ class TestValidateManifestUrls(SimpleTestCase):
         assert ok, err
 
 
+class TestCustomSourceConfig(SimpleTestCase):
+    def test_docs_url_points_at_the_published_doc(self):
+        # The docs slug is derived from docsUrl; a mismatch 404s the public doc.
+        assert CustomSource().get_source_config.docsUrl == "https://posthog.com/docs/cdp/sources/custom"
+
+
 class TestCustomSourceAssembleManifest(SimpleTestCase):
     def test_rejects_invalid_json(self):
         source = CustomSource()
