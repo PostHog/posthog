@@ -4,6 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from posthog.models.team.team import Team
 from posthog.storage.cache_expiry_manager import RefreshPacing, refresh_expiring_caches
 from posthog.storage.test.test_hypercache_manager import create_test_config as build_config
@@ -91,26 +93,27 @@ class TestRefreshExpiringCaches(SimpleTestCase):
         update_fn.assert_not_called()
         assert (counts.successful, counts.failed, counts.enqueued) == (0, 3, 0)
 
-    def test_pacing_pauses_once_per_chunk_of_routed_teams(self):
-        self.mock_get_teams.return_value = build_teams(9)
+    @parameterized.expand(
+        [
+            # The ninth team completes a chunk but is last, so nothing waits behind it.
+            # A team count that is not a multiple of the chunk never reaches that branch.
+            ("all_routed", [True] * 9, 3, [5, 5]),
+            # A partial ramp is the run this will actually make, and it is the only one
+            # that separates "every third routed team" from "every third team": the
+            # built teams must not advance the chunk counter.
+            ("half_routed", [True, False, True, False, True, False], 2, [5]),
+            ("none_routed", [False] * 3, 1, []),
+        ]
+    )
+    def test_pacing_pauses_once_per_chunk_of_routed_teams(self, _name, routed, chunk_size, expected_delays):
+        self.mock_get_teams.return_value = build_teams(len(routed))
 
         refresh_expiring_caches(
-            build_config(route_refresh_fn=MagicMock(return_value=True)),
-            pacing=RefreshPacing(chunk_size=3, delay_seconds=5, window_seconds=600),
+            build_config(route_refresh_fn=MagicMock(side_effect=routed)),
+            pacing=RefreshPacing(chunk_size=chunk_size, delay_seconds=5, window_seconds=600),
         )
 
-        # After teams 3 and 6. The ninth completes a chunk but is last, so nothing waits
-        # behind it. A team count that is not a multiple of the chunk never reaches that
-        # branch, so it has to be one that does.
-        assert [call.args[0] for call in self.mock_sleep.call_args_list] == [5, 5]
-
-    def test_pacing_does_not_pause_a_run_that_routes_nothing(self):
-        refresh_expiring_caches(
-            build_config(route_refresh_fn=MagicMock(return_value=False)),
-            pacing=RefreshPacing(chunk_size=1, delay_seconds=5, window_seconds=600),
-        )
-
-        self.mock_sleep.assert_not_called()
+        assert [call.args[0] for call in self.mock_sleep.call_args_list] == expected_delays
 
     def test_pacing_stops_once_the_window_is_spent(self):
         self.mock_get_teams.return_value = build_teams(5)

@@ -475,6 +475,8 @@ class TestPushHypercacheTeamsProcessedMetrics(BaseTest):
                 cache_name="flags",
                 successful=900,
                 failed=100,
+                enqueued=25,
+                expiry_backlog=7000,
             )
 
         mock_registry_cm.assert_called_once_with("hypercache_teams_processed_feature_flags_flags")
@@ -486,6 +488,37 @@ class TestPushHypercacheTeamsProcessedMetrics(BaseTest):
         assert (
             registry.get_sample_value("posthog_hypercache_teams_processed_last_run", {**base, "result": "failure"})
             == 100
+        )
+        assert (
+            registry.get_sample_value("posthog_hypercache_teams_processed_last_run", {**base, "result": "enqueued"})
+            == 25
+        )
+        # Once the sweep only produces, this gauge is the only thing left that says
+        # whether the queue drains.
+        assert registry.get_sample_value("posthog_hypercache_expiry_backlog_last_run", base) == 7000
+
+    @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
+    def test_an_unavailable_backlog_emits_no_backlog_series(self, mock_registry_cm):
+        registry = CollectorRegistry()
+        mock_registry_cm.return_value.__enter__ = MagicMock(return_value=registry)
+        mock_registry_cm.return_value.__exit__ = MagicMock(return_value=False)
+
+        with self.settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway:9091"):
+            push_hypercache_teams_processed_metrics(
+                namespace="feature_flags",
+                cache_name="flags",
+                successful=900,
+                failed=100,
+                expiry_backlog=None,
+            )
+
+        base = {"namespace": "feature_flags", "cache_name": "flags"}
+        # Absent rather than zero: a zero here reads as a drained queue, which is the
+        # opposite of "Redis did not answer".
+        assert registry.get_sample_value("posthog_hypercache_expiry_backlog_last_run", base) is None
+        assert (
+            registry.get_sample_value("posthog_hypercache_teams_processed_last_run", {**base, "result": "success"})
+            == 900
         )
 
     @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
