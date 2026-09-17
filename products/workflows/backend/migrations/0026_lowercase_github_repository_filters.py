@@ -4,12 +4,21 @@ BATCH_SIZE = 1000
 
 GITHUB_EVENT_RECEIVED_EVENT = "$github_event_received"
 
+# Lowercasing only preserves meaning for an operator that compares the value as a literal string.
+# A pattern changes what it matches, or stops compiling, and a presence operator carries the
+# operator string rather than a repository name. A missing operator compiles as exact.
+LITERAL_REPOSITORY_OPERATORS = frozenset({"exact", "is_not"})
+
 
 def _lowercased_properties(properties: list, renamed: dict[str, str]) -> list:
     """The properties with every `repository` value lowercased, recording each rewrite in `renamed`."""
     result = []
     for prop in properties:
-        if isinstance(prop, dict) and prop.get("key") == "repository":
+        if (
+            isinstance(prop, dict)
+            and prop.get("key") == "repository"
+            and (prop.get("operator") or "exact") in LITERAL_REPOSITORY_OPERATORS
+        ):
             value = prop.get("value")
             values = value if isinstance(value, list) else [value]
             renamed.update({item: item.lower() for item in values if isinstance(item, str) and item != item.lower()})

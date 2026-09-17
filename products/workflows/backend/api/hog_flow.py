@@ -830,11 +830,21 @@ def _normalize_slack_channel_filters(filters: dict) -> None:
             prop["value"] = [item.split("|")[0] if isinstance(item, str) else item for item in value]
 
 
+# Lowercasing only preserves meaning for an operator that compares the value as a literal
+# string. `str.lower()` is not a case transform for a pattern - it turns "\D" into "\d", which
+# inverts what the pattern matches, and "(?P<name>" into "(?p<name>", which RE2 refuses - and a
+# presence operator carries the operator string rather than a repository name. The property
+# compiler treats a missing operator as exact, as `_has_exact_string_filter` does below.
+_LITERAL_REPOSITORY_OPERATORS = frozenset({"exact", "is_not"})
+
+
 def _lowercase_repository_properties(properties: object) -> None:
     if not isinstance(properties, list):
         return
     for prop in properties:
         if not isinstance(prop, dict) or prop.get("key") != "repository":
+            continue
+        if (prop.get("operator") or "exact") not in _LITERAL_REPOSITORY_OPERATORS:
             continue
         value = prop.get("value")
         if isinstance(value, str):

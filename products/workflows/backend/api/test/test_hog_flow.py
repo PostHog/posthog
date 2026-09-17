@@ -2657,6 +2657,14 @@ class TestHogFlowAPI(APIBaseTest):
                     "properties": [
                         {"key": "repository", "value": ["PostHog/PostHog"], "operator": "exact", "type": "event"},
                         {"key": "event_type", "value": ["issues"], "operator": "exact", "type": "event"},
+                        # A pattern is not a literal, so lowercasing it would change what it
+                        # matches, or stop it compiling at all.
+                        {
+                            "key": "repository",
+                            "value": "(?P<owner>.+)/PostHog",
+                            "operator": "regex",
+                            "type": "event",
+                        },
                     ],
                 },
             },
@@ -2669,6 +2677,7 @@ class TestHogFlowAPI(APIBaseTest):
         stored_filters = response.json()["trigger"]["filters"]
         assert stored_filters["properties"][0]["value"] == ["posthog/posthog"]
         assert stored_filters["events"][0]["properties"][0]["value"] == "posthog/posthog"
+        assert stored_filters["properties"][2]["value"] == "(?P<owner>.+)/PostHog"
 
     @staticmethod
     def _slack_trigger_action(properties: list[dict]) -> dict:
