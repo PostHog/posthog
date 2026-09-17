@@ -172,15 +172,32 @@ def project_arrow_columns(
     return Table(name=table.name, columns=projected, parents=table.parents, alias=table.alias, type=table.type)
 
 
+@frozen
+class PrunedColumns:
+    kept: list[str] | None
+    removed: list[str]
+
+
+def prune_enabled_columns(
+    enabled_columns: list[str] | None,
+    available_column_names: set[str],
+) -> PrunedColumns:
+    """Drop `enabled_columns` entries missing from the source."""
+    if enabled_columns is None:
+        return PrunedColumns(kept=None, removed=[])
+    kept: list[str] = []
+    removed: list[str] = []
+    for column in enabled_columns:
+        if column in available_column_names:
+            kept.append(column)
+        else:
+            removed.append(column)
+    return PrunedColumns(kept=kept, removed=removed)
+
+
 # Stable fragment of the exception below, for a source's `get_non_retryable_errors` map. The
 # exception carries the field and table names, which the map matches on as a substring.
 MISSING_INCREMENTAL_FIELD_MATCH = "no longer exists in the source table"
-
-MISSING_INCREMENTAL_FIELD_MESSAGE = (
-    "The incremental field this table syncs on no longer exists in your source table. It was "
-    "renamed or dropped at the source. Pick a different incremental field in the table's sync "
-    "settings, or switch the table to full table replication, then re-enable the sync."
-)
 
 
 class MissingIncrementalFieldError(Exception):
@@ -209,9 +226,8 @@ def resolve_table_projection(
     enabled_columns: list[str] | None,
     primary_keys: list[str] | None = None,
     incremental_field: str | None = None,
-    should_use_incremental_field: bool = False,
+    should_use_incremental_field: bool,
     available_columns: list[str] | None = None,
-    table_name: str = "",
 ) -> TableProjection[_ColumnT]:
     """Name the columns a read projects, and narrow `full_table` to them.
 
@@ -240,6 +256,7 @@ def resolve_table_projection(
     read. An empty catalog leaves the selection alone, because it says nothing about the table.
     """
     catalog = {column.name for column in full_table.columns}
+    table_name = full_table.fully_qualified_name
     # Checked ahead of the branch below: a sync that kept every column reaches the same dropped
     # field, and a generic undefined-column error names the wrong control to fix.
     if catalog and should_use_incremental_field and incremental_field and incremental_field not in catalog:
@@ -248,29 +265,16 @@ def resolve_table_projection(
         names = available_columns if available_columns is not None else [column.name for column in full_table.columns]
         enabled_columns = list(names) or None
     elif catalog:
-        enabled_columns = [column for column in enabled_columns if column in catalog]
+        pruned = prune_enabled_columns(enabled_columns, catalog)
+        if pruned.removed and pruned.kept:
+            logger.warning(
+                "resolve_table_projection.pruned_stale_selection",
+                table=table_name,
+                removed_columns=pruned.removed,
+            )
+            enabled_columns = pruned.kept
+        # A selection with nothing left says the catalog is wrong, not the selection. Keeping it
+        # fails the read loudly, where pruning to empty would widen the sync to `SELECT *` over
+        # columns the customer excluded, or shrink the table to its primary key.
     projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
     return TableProjection(enabled_columns=enabled_columns, table=project_arrow_columns(full_table, projected))
-
-
-@frozen
-class PrunedColumns:
-    kept: list[str] | None
-    removed: list[str]
-
-
-def prune_enabled_columns(
-    enabled_columns: list[str] | None,
-    available_column_names: set[str],
-) -> PrunedColumns:
-    """Drop `enabled_columns` entries missing from the source."""
-    if enabled_columns is None:
-        return PrunedColumns(kept=None, removed=[])
-    kept: list[str] = []
-    removed: list[str] = []
-    for column in enabled_columns:
-        if column in available_column_names:
-            kept.append(column)
-        else:
-            removed.append(column)
-    return PrunedColumns(kept=kept, removed=removed)

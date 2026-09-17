@@ -916,7 +916,6 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                 primary_keys=primary_keys,
                 incremental_field=incremental_field,
                 should_use_incremental_field=should_use_incremental_field,
-                table_name=f"{schema}.{table_name}",
             )
 
         with self.connect(config, team_id=inputs.team_id) as connection:

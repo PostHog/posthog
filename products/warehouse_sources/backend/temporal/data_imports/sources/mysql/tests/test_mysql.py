@@ -428,6 +428,48 @@ class TestBuildPipelineProjection:
 
         return rows_to_sync.call_args.args[1]
 
+    def _query_for_selection(self, impl, mocker, columns, enabled_columns):
+        mocker.patch.object(impl, "connect", return_value=MagicMock())
+        mocker.patch.object(impl, "get_primary_keys_for_table", return_value=["id"])
+        mocker.patch.object(
+            impl,
+            "get_table_metadata",
+            return_value=Table(name="messages", parents=("mydb",), columns=columns),
+        )
+        rows_to_sync = mocker.patch.object(impl, "get_rows_to_sync", return_value=0)
+        mocker.patch.object(impl, "get_chunk_size", return_value=1000)
+
+        impl.build_pipeline(_make_config(), _make_inputs(enabled_columns=enabled_columns))
+
+        return rows_to_sync.call_args.args[1]
+
+    def test_a_stale_selection_stops_naming_the_dropped_column(self, impl, mocker):
+        # The stored selection is only reconciled when a person reloads the source, so without
+        # this the dropped name stays in the SELECT and every run fails on it.
+        query = self._query_for_selection(
+            impl,
+            mocker,
+            [
+                MySQLColumn(name="id", data_type="int", column_type="int", nullable=False),
+                MySQLColumn(name="email", data_type="varchar", column_type="varchar(255)", nullable=True),
+            ],
+            ["id", "email", "ghost"],
+        )
+        assert "ghost" not in query
+        assert query.startswith("SELECT `id`, `email` FROM")
+
+    def test_a_selection_with_nothing_left_still_names_it(self, impl, mocker):
+        # Pruning to empty renders as `SELECT *`, which would sync every column the customer
+        # excluded, so the read keeps the selection and fails instead.
+        query = self._query_for_selection(
+            impl,
+            mocker,
+            [MySQLColumn(name="id", data_type="int", column_type="int", nullable=False)],
+            ["ghost"],
+        )
+        assert "`ghost`" in query
+        assert not query.startswith("SELECT * FROM")
+
     def test_sync_all_skips_invisible_columns(self, impl, mocker):
         query = self._sync_all_query(
             impl,

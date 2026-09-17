@@ -76,6 +76,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR,
     TEMPORARY_HOST_RESOLUTION_PREFIX,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
+    MISSING_INCREMENTAL_FIELD_MATCH,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -130,6 +133,11 @@ MISSING_INTEGRATION_MESSAGE = (
 
 Any_Source_Errors: dict[str, str | None] = {
     "Could not establish session to SSH gateway": None,
+    # Raised by `resolve_table_projection` before the first query when the table's incremental
+    # field is gone from the catalog. Every query puts that field in its WHERE and ORDER BY, so
+    # the sync cannot run until the customer picks another one. Kept as `None` so the raised
+    # message survives: it names the field and the table, which a generic one cannot.
+    MISSING_INCREMENTAL_FIELD_MATCH: None,
     # Raised by `_check_direct_host` when a direct (untunneled) database connection's host doesn't
     # resolve, or resolves to a private/internal address. Mirrors the `SSH tunnel host not allowed`
     # entry: a config problem only the customer can fix, so retrying just re-hits the same

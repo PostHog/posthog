@@ -42,7 +42,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
     MISSING_INCREMENTAL_FIELD_MATCH,
-    MISSING_INCREMENTAL_FIELD_MESSAGE,
     MissingIncrementalFieldError,
     TableProjection,
     compute_projected_columns,
@@ -79,7 +78,6 @@ __all__ = [
     "IncrementalFieldFilter",
     "InvalidIdentifierError",
     "MISSING_INCREMENTAL_FIELD_MATCH",
-    "MISSING_INCREMENTAL_FIELD_MESSAGE",
     "MissingIncrementalFieldError",
     "ParamStyle",
     "RowFilter",

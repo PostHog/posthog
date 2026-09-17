@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pyarrow as pa
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import projection as projection_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.identifiers import (
     AnsiIdentifierQuoter,
     BacktickIdentifierQuoter,
@@ -105,6 +106,7 @@ class TestResolveTableProjection:
             _table_with("id", "email", "secret"),
             enabled_columns=enabled_columns,
             primary_keys=["id"],
+            should_use_incremental_field=False,
             available_columns=available_columns,
         )
         assert projection.enabled_columns == expected_enabled
@@ -120,8 +122,7 @@ class TestResolveTableProjectionAgainstAStaleSelection:
             _table_with(*catalog),
             enabled_columns=enabled_columns,
             primary_keys=["id"],
-            table_name="public.users",
-            **kwargs,
+            **{"should_use_incremental_field": False, **kwargs},
         )
 
     @parameterized.expand(
@@ -130,6 +131,9 @@ class TestResolveTableProjectionAgainstAStaleSelection:
             ("keeps_a_selection_that_still_matches", ["id", "email"], ("id", "email"), ["id", "email"]),
             # Pruning against nothing would drop every column, so an empty read changes nothing.
             ("an_empty_catalog_changes_nothing", ["id", "ghost"], (), ["id", "ghost"]),
+            # Pruning to empty renders as `SELECT *`, which would sync the columns the customer
+            # excluded, so a selection with nothing left is kept and the read fails instead.
+            ("a_selection_with_nothing_left_is_kept", ["ghost"], ("id", "email"), ["ghost"]),
         ]
     )
     def test_prunes(self, _name, enabled_columns, catalog, expected) -> None:
@@ -149,6 +153,13 @@ class TestResolveTableProjectionAgainstAStaleSelection:
 
     def test_leaves_sync_all_deriving_from_the_catalog(self) -> None:
         assert self._resolve(None, ("id", "email")).enabled_columns == ["id", "email"]
+
+    def test_reports_the_dropped_names(self) -> None:
+        # The synced column set changes without the customer asking, so an operator needs to see
+        # which names went and why the column stopped arriving.
+        with patch.object(projection_module.logger, "warning") as warning:
+            self._resolve(["id", "ghost"], ("id", "email"))
+        assert warning.call_args.kwargs["removed_columns"] == ["ghost"]
 
 
 class TestFormatProjectedSelectClause:
