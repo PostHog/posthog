@@ -65,7 +65,9 @@ A delivery for a repository that is not enabled is dropped before any review wor
 It reaches no sandbox, spends no LLM budget, and posts nothing to GitHub.
 
 Selecting repositories on GitHub is still the smaller blast radius, and it keeps the toggle list short.
-A repository added to the organization later appears as a disabled row on its own, so nothing has to be re-synced by hand.
+A repository added to the installation later appears as a disabled row on its own, as long as a single project owns the installation.
+When several projects share one installation, the new repository is left out, because nothing says which project it belongs to.
+Select **Connect a repository** again to pick it up.
 
 ## Customize the review for your repository
 
