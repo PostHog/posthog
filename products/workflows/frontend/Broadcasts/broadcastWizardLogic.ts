@@ -471,8 +471,19 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             DEFAULT_BROADCAST_CONVERSION,
             {
                 setConversion: (_, { conversion }) => conversion,
-                hydrateFromBroadcast: (state, { broadcast }) =>
-                    broadcast.conversion ? { ...DEFAULT_BROADCAST_CONVERSION, ...broadcast.conversion } : state,
+                hydrateFromBroadcast: (state, { broadcast }) => {
+                    if (!broadcast.conversion) {
+                        return state
+                    }
+                    const merged = { ...DEFAULT_BROADCAST_CONVERSION, ...broadcast.conversion }
+                    // The API rejects a conversion carrying both window forms. A broadcast saved before
+                    // the duration form still stores window_minutes, so the default's window must not
+                    // ride along with it on the way back.
+                    if (broadcast.conversion.window_minutes != null && broadcast.conversion.window == null) {
+                        delete merged.window
+                    }
+                    return merged
+                },
             },
         ],
         emailRateLimit: [
