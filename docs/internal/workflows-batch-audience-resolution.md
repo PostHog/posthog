@@ -12,7 +12,10 @@ The page fetch runs a ClickHouse query, so it does not fit the generic 3s `EXTER
 
 - `CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS` (default `30000`) — client-side budget in milliseconds for each audience fetch (blast-radius count, persons page, account page).
 
-A fetch that exceeds the budget aborts, retries up to `MAX_RESOLVER_ATTEMPTS` times with backoff, and then the run is marked failed with `Batch resolver failed: Audience fetch failed permanently…` on the workflow's log stream. Keep the budget under the HogQL default `max_execution_time` (60s): above it, the client only waits longer for a query ClickHouse will kill anyway. Note the client abort does not cancel the ClickHouse query — a query slower than the budget keeps running server-side until the HogQL cap, so a too-small budget wastes a full query execution per attempt.
+A fetch that exceeds the budget aborts, retries up to `MAX_RESOLVER_ATTEMPTS` times with backoff, and then the run is marked failed on the workflow's log stream.
+A timeout gets its own terminal reason, `Batch resolver failed: Audience query timed out…`, which names the budget and the attempt count.
+Any other fetch failure keeps the generic `Batch resolver failed: Audience fetch failed permanently…`, so search for both texts when you triage a failed run.
+Keep the budget under the HogQL default `max_execution_time` (60s): above it, the client only waits longer for a query ClickHouse will kill anyway. Note the client abort does not cancel the ClickHouse query — a query slower than the budget keeps running server-side until the HogQL cap, so a too-small budget wastes a full query execution per attempt.
 
 ## Lock heartbeats and batch size
 
