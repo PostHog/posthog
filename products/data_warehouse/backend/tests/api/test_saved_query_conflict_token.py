@@ -5,7 +5,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from products.data_modeling.backend.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 # True defers the activity row to on_commit as production does; False is what every other test runs under.
 DEFERRED_AND_IMMEDIATE = [("deferred", True), ("immediate", False)]
