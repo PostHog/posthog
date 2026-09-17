@@ -130,11 +130,7 @@ export function CreateOrganizationModal({
                     autoFocus={!hasPendingInvites}
                     value={name}
                     onChange={(value) => setName(value)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                            handleSubmit()
-                        }
-                    }}
+                    onPressEnter={() => handleSubmit()}
                     data-attr="organization-name-input"
                 />
             </LemonField.Pure>
