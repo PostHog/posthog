@@ -59,7 +59,13 @@ def _to_measured_stats(row: Any) -> contracts.MeasuredStats:
     )
 
 
-def _summary(server: MCPRegistryServer) -> contracts.RegistryServerSummary:
+def _summary(server: MCPRegistryServer, *, rank_score: float | None = None) -> contracts.RegistryServerSummary:
+    """Summary fields shared by the list and detail responses.
+
+    `rank_score` is normally a queryset annotation, which only the ranked list has. The
+    detail path fetches one row by id and has to pass the score it already looked up, or
+    the field reads null next to a populated `scores` array.
+    """
     return contracts.RegistryServerSummary(
         id=server.id,
         registry_name=server.registry_name,
@@ -70,7 +76,7 @@ def _summary(server: MCPRegistryServer) -> contracts.RegistryServerSummary:
         auth_method=server.auth_method,
         listed_in_registry=server.listed_in_registry,
         is_measured=server.is_measured,
-        rank_score=getattr(server, "rank_score", None),
+        rank_score=rank_score if rank_score is not None else getattr(server, "rank_score", None),
     )
 
 
@@ -92,14 +98,16 @@ def get_server_detail(*, pk: str, team_id: int, caller_is_staff: bool) -> contra
         return None
 
     visibility = logic.measured_visibility(server, team_id, caller_is_staff)
-    can_see_measured = bool(visibility.rows)
     latest_scores: list[contracts.ScoreInfo] = []
+    detail_rank_score: float | None = None
     for version in known_ranking_versions():
         run = latest_completed_run(version)
         if run is None:
             continue
         score = logic.score_for_run(run, server)
         if score is not None:
+            if version == default_ranking_version():
+                detail_rank_score = score.score
             latest_scores.append(
                 contracts.ScoreInfo(
                     version=version,
@@ -110,13 +118,13 @@ def get_server_detail(*, pk: str, team_id: int, caller_is_staff: bool) -> contra
             )
 
     return contracts.RegistryServerDetail(
-        **_summary(server).__dict__,
+        **_summary(server, rank_score=detail_rank_score).__dict__,
         remotes=server.remotes,
         packages=server.packages,
         repository_url=server.repository_url,
         website_url=server.website_url,
         last_probed_at=server.last_probed_at,
-        tools=[_to_tool(tool) for tool in logic.visible_tools(server, can_see_measured)],
+        tools=[_to_tool(tool) for tool in logic.visible_tools(server, visibility.sees_every_row)],
         measured_stats=[_to_measured_stats(row) for row in visibility.rows],
         scores=latest_scores,
         connect_instructions=build_connect_instructions(server),
@@ -139,14 +147,13 @@ def discover_servers(
     for index, server in enumerate(servers):
         score = logic.score_for_run(run, server)
         visibility = logic.measured_visibility(server, team_id, caller_is_staff)
-        can_see_measured = bool(visibility.rows)
         matched_tools: list[dict[str, contracts.JSONScalar]] = [
             {
                 "name": tool.name,
                 "description": tool.description[:160],
                 "source": tool.source,
             }
-            for tool in logic.visible_tools(server, can_see_measured)
+            for tool in logic.visible_tools(server, visibility.sees_every_row)
             if any(token in tool.name.lower() for token in tokens)
         ]
         matched_tools = matched_tools[:_DISCOVER_TOOLS_PER_CANDIDATE]
@@ -158,6 +165,13 @@ def discover_servers(
                 title=server.display_name,
                 description=server.description,
                 score=getattr(server, "rank_score", None) or 0.0,
+                # The two values the ordering is actually made of. Without them a reader
+                # sees candidates sorted by a number the response never returned, so the
+                # list looks unsorted. Neither is customer data — relevance comes from the
+                # caller's own query against public registry text — so unlike `why` they
+                # are not redacted.
+                relevance=getattr(server, "relevance", None),
+                combined_score=getattr(server, "combined_score", None),
                 why=logic.visible_components(score.components, visibility.sees_every_row) if score else {},
                 liveness=server.liveness,
                 auth_method=server.auth_method,

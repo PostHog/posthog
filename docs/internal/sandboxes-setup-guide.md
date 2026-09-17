@@ -196,6 +196,12 @@ When a run lands on the Python gateway unexpectedly, check those two variables f
 Their absence means no token was minted, so the agent falls back to deriving the
 product from the task run it fetches at boot, which is the path that fails quietly.
 
+ReviewHog Flash uses `gpt-5.6-luna` at `medium` reasoning effort for review, blind-spot checks, and validation.
+The shared `FLASH_ARM` in `products/review_hog/backend/reviewer/constants.py` pins the Codex runtime and `full-access` permission mode.
+Flash uses the existing `review_hog` model allowance and inlines the pinned review skills into its prompts.
+Choose **Review in Flash mode** from the Code review page's review menu to run it for one turn without changing the PR's full-review configuration.
+Flash labels its GitHub messages with `FLASH MODE` and never starts comment resolution.
+
 ### Agent run telemetry (optional)
 
 To ship agent-server run metadata to PostHog Logs, set both of the first two; the third additionally produces one APM trace per run (root `task_run` span, a `turn` span per prompt, a `tool_call:<kind>` span per tool call) with trace/span ids stamped on the log records:

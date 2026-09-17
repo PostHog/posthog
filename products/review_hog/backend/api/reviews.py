@@ -247,7 +247,7 @@ class ReviewRecentReviewsPageSerializer(serializers.Serializer):
 
 # What the trigger runs. The default 'review' includes the resolution stage when the requesting
 # user's `resolve_comments` setting is on; the others are the split button's explicit variants.
-# 'flash' is the cheap review (GLM in both sandbox seats) and never resolves: flash must not write code.
+# Flash never resolves comments because it must not write code.
 RUN_MODE_REVIEW = "review"
 RUN_MODE_REVIEW_ONLY = "review_only"
 RUN_MODE_RESOLVE_ONLY = "resolve_only"

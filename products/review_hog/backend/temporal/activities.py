@@ -990,8 +990,7 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         team_id=input.team_id, report_id=input.report_id
     )
     arm = review_arm_for_mode(input.review_mode, persisted_arm)
-    # A flash turn's model cannot reach `skill-get` on the MCP surface, so it gets the pinned skill
-    # body in the prompt instead; full turns keep pulling it over MCP.
+    # Inline the pinned skill for Flash so its instructions do not depend on a tool lookup.
     skill_body = await _inline_skill_body(input.review_mode, input.team_id, input.skill_name, input.skill_version)
     prompt = await database_sync_to_async(_prepare_review_prompt, thread_sensitive=False)(
         input.team_id,

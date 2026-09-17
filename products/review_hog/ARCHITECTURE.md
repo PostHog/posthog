@@ -424,7 +424,7 @@ registry-supported combo — anything else falls back to the default (full-stren
 pins; the resolution stage runs the validator's model (`claude-opus-5` @ xhigh). One per-turn override sits on top
 of all of this: **Flash mode** (`review_mode` on the workflow input, `REVIEW_MODE_FLASH`; the UI trigger's
 `run_mode=flash`) runs both sandbox seats — the perspective wave with its blind-spot sweep, and the validator — on
-one cheap arm, `FLASH_ARM` (`zai-org/glm-5.3-flash` @ high), for that turn only. The report's tier and arm are
+one cheap arm, `FLASH_ARM` (`gpt-5.6-luna` @ medium, Codex with `full-access`), for that turn only. The report's tier and arm are
 untouched, so the PR's next normal trigger reviews normally; `review_arm_for_mode` / `validation_arm_for_mode`
 are the two helpers the activities and the analytics events both read, so a flash turn's events name the flash
 arm in both seats. A flash turn never chains the resolution stage, and its review and validation prompts carry
@@ -550,8 +550,8 @@ content". Most begin with `{{ CLAUDE_CODE_CONTEXT | safe }}` (the `@path#L…` r
 - `issues_review/prompt.jinja` — the core review prompt, run once per perspective per chunk; 10-step process
   with mandatory codebase investigation. The per-perspective focus is **no longer spliced in** — the
   `<your_review_perspective>` block instructs the agent to `skill-get(PERSPECTIVE_SKILL_NAME, version=N)` over
-  MCP and apply that perspective's focus (pull delivery). A **flash** turn is the one exception: its model cannot
-  bridge to the single-`exec` MCP surface, so the activity loads the same pinned body (`load_skill_body`) and the
+  MCP and apply that perspective's focus (pull delivery). A **flash** turn embeds the instructions without a tool lookup:
+  the activity loads the same pinned body (`load_skill_body`) and the
   template embeds it (`PERSPECTIVE_SKILL_BODY`); the validation prompt does the same (`VALIDATION_SKILL_BODY`).
   → `IssuesReview`. The perspective focuses themselves
   live as **DB-synced LLMA skills** at
@@ -590,7 +590,7 @@ Per-run state by kind:
 - **Working state** (the resume substrate, head_sha-scoped): `chunk_set`, `perspective_result`, and the
   `pr_snapshot` artefacts. A `perspective_result` is stamped with the reviewer model that wrote it and is only
   reused by a turn running that model: a flash turn and a full turn can share a commit, and a full turn must never
-  resume GLM's results in place of running Sol (rows from before the stamp are never reused). The
+  resume Luna's results in place of running Sol (rows from before the stamp are never reused). The
   raw/cleaned/combined issue sets are in-process values down the combine→clean→dedup chain.
 - **Outputs:** `issue_finding` + `validation_verdict` artefacts (the canonical findings/verdicts) and
   `ReviewReport.report_markdown` (the rendered review body) + the `head_sha` / `last_seen_comment_id`
@@ -639,10 +639,14 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   publishes the latest completed turn at its reviewed `head_sha` (DB-driven; no Temporal, no sandbox).
 - **Reset local state:** `DEBUG=1 python manage.py reset_review_hog [--dry-run] [--yes]` wipes all ReviewHog rows
   across every team (DEBUG-only; GitHub comments untouched).
-- **Enable inbox reviews for a whole team:** `python manage.py enable_inbox_reviews --team-id <id> [--dry-run]`
-  upserts every active org member's `ReviewUserSettings` with `review_inbox_prs` + `stamphog_review_inbox_prs` on.
-  A deliberate operator action because the per-user default stays off (the budget gate); members who join later
-  keep the default until a re-run.
+- **Turn a per-user toggle on or off in bulk:** `python manage.py {enable,disable}_inbox_reviews --team-id <id>
+[--user-ids <id> ...] [--dry-run]` sets `review_inbox_prs` on every active org member's `ReviewUserSettings`
+  (or only the listed users, each of whom must be an org member). `{enable,disable}_stamphog_inbox_reviews` is
+  the same pair for `stamphog_review_inbox_prs`, and `{enable,disable}_comment_resolution` for `resolve_comments`;
+  each command touches only its own toggle. A run creates rows only when the requested value differs from the
+  field's default (a missing row already reads as the default) and otherwise flips existing rows. A deliberate
+  operator action because the per-user defaults are the budget and posture gates; members who join later keep
+  the default until a re-run. Shared logic: `backend/settings_toggles.py`.
 - **Lint:** `ruff check products/review_hog/ --fix && ruff format products/review_hog/`
 - **Tests:** the product's `backend:test` script covers **both** `backend/tests` and `backend/reviewer/tests`
   (sandbox calls mocked, fixtures under `reviewer/tests/fixtures/`; persistence/model tests hit the test DB). Verify

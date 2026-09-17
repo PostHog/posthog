@@ -417,9 +417,8 @@ class SkillBodyNotFoundError(LookupError):
 def load_skill_body(team_id: int, skill_name: str, version: int) -> str:
     """The body of one pinned skill version, for a turn that carries the skill in its prompt.
 
-    Full turns pull the skill over MCP (`skill-get`); a flash turn's model cannot bridge to the
-    single-`exec` MCP surface, so its prompts embed the same pinned body instead. Same content,
-    same version pin, no tool round trip.
+    Full turns pull the skill over MCP (`skill-get`). Flash embeds the same pinned body so
+    the instructions do not depend on a tool lookup.
     """
     body = (
         LLMSkill.objects.filter(team_id=team_id, name=skill_name, version=version, deleted=False)

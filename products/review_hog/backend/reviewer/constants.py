@@ -65,12 +65,12 @@ DEFAULT_REVIEW_ARM = ReviewArm(
 REVIEW_MODE_FULL = "full"
 REVIEW_MODE_FLASH = "flash"
 
-# The one arm a flash turn runs both sandbox seats on (perspectives + blind-spot sweep, and the
-# validator). GLM only exposes `high` and `max`; the 2026-08 experiment ran `max`, this ships `high`.
+# Share the arm so Flash's reviewer and validator use the same cost and reasoning budget.
 FLASH_ARM = ReviewArm(
-    runtime_adapter=RuntimeAdapter.CLAUDE,
-    model="zai-org/glm-5.3-flash",
-    reasoning_effort=ReasoningEffort.HIGH,
+    runtime_adapter=RuntimeAdapter.CODEX,
+    model="gpt-5.6-luna",
+    reasoning_effort=ReasoningEffort.MEDIUM,
+    initial_permission_mode="full-access",
 )
 
 # Every GitHub message a flash turn writes (status comment, promo, review body, inline comments)

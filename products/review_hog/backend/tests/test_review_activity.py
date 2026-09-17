@@ -146,9 +146,6 @@ async def test_split_chunks_activity_routes_llm_chunking_by_oneshot_gate(additio
 
 @pytest.mark.asyncio
 async def test_review_chunk_activity_flash_turn_runs_on_the_flash_arm_and_stamps_the_cache() -> None:
-    # A flash turn overrides the report's persisted arm for the turn only, and its cached result
-    # must carry the flash model: a full turn at the same commit resumes only its own model's rows,
-    # so a missing or wrong stamp would hand Sol's turn GLM's findings and skip Sol entirely.
     mock_review = AsyncMock(return_value=IssuesReview(issues=[]))
     mock_persist = MagicMock()
     mock_prepare = MagicMock(return_value="review-prompt")
@@ -165,13 +162,17 @@ async def test_review_chunk_activity_flash_turn_runs_on_the_flash_arm_and_stamps
         assert await env.run(review_chunk_activity, _review_input(review_mode=REVIEW_MODE_FLASH)) is True
 
     kwargs = mock_review.call_args.kwargs
-    assert (kwargs["runtime_adapter"], kwargs["model"], kwargs["reasoning_effort"]) == (
+    assert (
+        kwargs["runtime_adapter"],
+        kwargs["model"],
+        kwargs["reasoning_effort"],
+        kwargs["initial_permission_mode"],
+    ) == (
         FLASH_ARM.runtime_adapter,
         FLASH_ARM.model,
         FLASH_ARM.reasoning_effort,
+        FLASH_ARM.initial_permission_mode,
     )
-    # The resume lookup and the write both key on the turn's model, and the prompt gets the pinned
-    # skill body inline: GLM cannot reach `skill-get`, so a flash prompt without it reviews blind.
     assert mock_prepare.call_args.args[-2:] == (FLASH_ARM.model, "INLINE SKILL BODY")
     mock_skill_body.assert_called_once_with(1, "s-logic", 1)
     assert mock_persist.call_args.kwargs["review_model"] == FLASH_ARM.model
