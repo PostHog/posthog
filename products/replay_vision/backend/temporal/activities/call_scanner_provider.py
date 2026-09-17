@@ -560,9 +560,10 @@ async def _run_mission(
         tools.append(network_tool())
 
     def dispatch(call: Any) -> dict[str, Any]:
-        name = getattr(call, "name", None)
+        raw_name = getattr(call, "name", None)
+        name = raw_name if isinstance(raw_name, str) else ""
         counters.get(name, record_unknown_tool_call)(scanner_type, snapshot.model)
-        handler = handlers.get(name) if isinstance(name, str) else None
+        handler = handlers.get(name)
         if handler is None:
             # An unoffered or hallucinated name must not fall through to a lookup that returns
             # plausible data for a question the model did not ask.
