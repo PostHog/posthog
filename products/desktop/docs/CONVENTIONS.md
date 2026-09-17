@@ -225,6 +225,14 @@ Main-process events use `trackAppEvent(eventName, properties)` from `apps/code/s
 
 Both clients set `team: "posthog-code"` as a super-property.
 
+### Task creation identity
+
+Every client `Task created` event includes `task_id` from the task creation result, including local, worktree, cloud, and setup tasks.
+Use this stable ID to count distinct tasks, not event IDs or run IDs.
+Keep the existing capture points: a retained task can still emit an event after workspace provisioning fails, while a failed creation does not emit a success event.
+Retries and resumed tasks must use the returned task ID, not generate a new analytics ID.
+Older clients do not send this property, so check coverage by client version and workspace mode before using it for distinct-task metrics.
+
 ### Network metrics
 
 The network duration metric uses backend URLs from the shared region configuration, including a configured custom cloud.
