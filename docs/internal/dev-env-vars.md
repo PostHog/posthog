@@ -27,6 +27,18 @@ grep -n FOO .env .env.local .env.development .env.services .env.example
 flox activate -- bash -c 'echo "$FOO"'
 ```
 
+## Claude Code waits for Flox setup
+
+Claude Code's startup hook loads the Flox environment when its cached environment no longer matches the manifest.
+If another Flox process is already starting the same environment, the hook shows its PID and continues without loading Flox.
+The warning includes a `ps` command to inspect the process and a `kill` command to stop it if it is stuck.
+Let an active setup finish; stop it only after checking that it is no longer making progress.
+Then restart Claude Code to load the environment.
+The hook never stops another process automatically.
+
+This check needs `jq` and a Flox version that provides `flox activation-state` with version 3 state data.
+When either is unavailable, the hook uses its normal activation path.
+
 ## Developing cloud-only features locally
 
 Cloud-gated code checks `is_cloud()`, which is true when `CLOUD_DEPLOYMENT` is one of `US`, `EU`, `DEV`, or `E2E`.

@@ -39,10 +39,31 @@ if [ -f "$CACHE_FILE" ] && [ -n "$MANIFEST_HASH" ]; then
   fi
 fi
 
-# Slow path: capture the flox activation environment
-FLOX_ENV_SNAPSHOT=$(flox activate --dir "$PROJECT_DIR" -- bash -c 'printenv' 2>/dev/null)
+# Flox waits for an existing starter even when that process has stopped making progress.
+# Return a systemMessage before activating so Claude can display the recovery steps.
+if command -v jq &>/dev/null &&
+  ACTIVATION_STATE_DIR=$(flox activation-state --dir "$PROJECT_DIR" 2>/dev/null) &&
+  [ -n "$ACTIVATION_STATE_DIR" ]; then
+  STARTING_PID=$(jq -er '
+    select(.version == 3) | .ready.Starting[0] |
+    select(type == "number") | select(. > 1 and . <= 2147483647 and . == floor)
+  ' "$ACTIVATION_STATE_DIR/state.json" 2>/dev/null)
+  if [ -n "$STARTING_PID" ]; then
+    STARTING_COMMAND=$(ps -p "$STARTING_PID" -o args= 2>/dev/null)
+    if [[ "$STARTING_COMMAND" =~ ^([^[:space:]]*/)?flox-activations[[:space:]]activate[[:space:]] ]]; then
+      jq -n --arg pid "$STARTING_PID" '{
+        systemMessage: ("Flox environment setup is already running (PID " + $pid + "). Claude is continuing without the Flox environment.\n" +
+          "Inspect the process: ps -p " + $pid + " -o pid,ppid,etime,command\n" +
+          "If it is stuck, stop that process: kill " + $pid + "\n" +
+          "Wait for setup to finish, or stop the stalled process, then restart Claude to load the Flox environment.")
+      }'
+      exit 0
+    fi
+  fi
+fi
 
-if [ $? -ne 0 ] || [ -z "$FLOX_ENV_SNAPSHOT" ]; then
+# Slow path: capture the flox activation environment
+if ! FLOX_ENV_SNAPSHOT=$(flox activate --dir "$PROJECT_DIR" -- bash -c 'printenv' 2>/dev/null) || [ -z "$FLOX_ENV_SNAPSHOT" ]; then
   echo "Warning: flox activate failed, skipping env setup" >&2
   exit 0
 fi
