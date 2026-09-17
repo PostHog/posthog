@@ -111,10 +111,17 @@ describe('teamLogic', () => {
             expect(logic.values.testAccountFilterFrequentMistakes).toEqual([])
         })
 
-        it('stays quiet about an is_not_set person property filter on an event-time mode', async () => {
-            logic = await mountWithModifiers({ modifiers: eventTimeMode }, [
+        it.each([
+            [
+                'an is_not_set filter',
                 { key: 'email', type: PropertyFilterType.Person, operator: PropertyOperator.IsNotSet },
-            ])
+            ],
+            [
+                'a distinct_id filter',
+                { key: 'distinct_id', type: PropertyFilterType.Person, operator: PropertyOperator.Exact },
+            ],
+        ] as const)('stays quiet about %s on an event-time mode', async (_, filter) => {
+            logic = await mountWithModifiers({ modifiers: eventTimeMode }, [filter])
             expect(logic.values.testAccountFilterFrequentMistakes).toEqual([])
         })
     })

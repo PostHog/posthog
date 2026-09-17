@@ -641,9 +641,13 @@ export const teamLogic = kea<teamLogicType>([
                             fix: 'it is more common to filter email by person properties, not event properties',
                         })
                     }
+                    // distinct_id reads the real events.distinct_id column, not stored person
+                    // properties, and is_not_set matches identically at any point in time, so
+                    // personsOnEventsMode never changes what either one matches.
                     if (
                         filter.type === 'person' &&
                         filter.key &&
+                        filter.key !== 'distinct_id' &&
                         filter.operator !== PropertyOperator.IsNotSet &&
                         readsPersonPropertiesFromEvents
                     ) {
