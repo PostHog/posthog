@@ -658,7 +658,12 @@ async def create_replay_count_metrics_schedule(client: Client):
 
 
 async def cleanup_legacy_session_summarization_schedules(client: Client):
-    """Delete legacy schedules. Any in-flight runs die on their own execution_timeout."""
+    """Delete legacy schedules and terminate their still-running executions.
+
+    The removed workflows were started from chat (via ``start_workflow``) without an
+    execution timeout, so deleting the schedules alone leaves those executions retrying
+    a workflow type no worker registers, forever.
+    """
     legacy_schedule_ids = [
         "video-segment-clustering-coordinator-schedule",
         "session-summarization-sweep-schedule",
@@ -679,6 +684,26 @@ async def cleanup_legacy_session_summarization_schedules(client: Client):
     except Exception:
         # Reaping is best effort: a listing failure must not stop the rest of schedule setup.
         logger.exception("temporal.cleanup_legacy_summarization_team_schedules_failed")
+
+    # Workflow types removed with the legacy summarization feature. Executions started
+    # before the removal have no execution timeout, so without an explicit terminate
+    # Temporal retries their workflow tasks indefinitely.
+    removed_workflow_types = [
+        "summarize-session",
+        "summarize-session-group",
+        "summarize-session-stream",
+        "summarize-team-sessions",
+        "reconcile-summarization-schedules",
+    ]
+    type_clauses = " OR ".join(f'WorkflowType = "{wt}"' for wt in removed_workflow_types)
+    query = f'ExecutionStatus = "Running" AND ({type_clauses})'
+    try:
+        async for workflow in client.list_workflows(query=query):
+            await client.get_workflow_handle(workflow.id).terminate(
+                reason="workflow type removed with the legacy session summarization feature"
+            )
+    except Exception:
+        logger.exception("temporal.cleanup_legacy_summarization_executions_failed")
 
 
 async def cleanup_cohort_calculation_schedules(client: Client):
