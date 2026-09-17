@@ -39,6 +39,7 @@ import { LegacySharedTrendsMetricForm } from 'products/experiments/frontend/lega
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
 import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
 import { openDeleteSharedMetricDialog } from './deleteSharedMetricDialog'
+import { SharedMetricLinkedExperiments } from './SharedMetricLinkedExperiments'
 import { SharedMetricLogicProps, sharedMetricLogic } from './sharedMetricLogic'
 
 export const scene: SceneExport<SharedMetricLogicProps> = {
@@ -233,6 +234,9 @@ export function SharedMetric(): JSX.Element {
                         tagsAvailable={allExistingTags}
                         dataAttrKey="shared-metric"
                     />
+                    {action === 'update' && (
+                        <SharedMetricLinkedExperiments experiments={sharedMetric.linked_experiments || []} />
+                    )}
                 </ScenePanelInfoSection>
                 <ScenePanelDivider />
                 <ScenePanelActionsSection>
