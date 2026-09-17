@@ -163,7 +163,9 @@ def _events_from_line(parsed: Any) -> list[Any]:
     decoder to whichever source a caller happened to fetch from.
     """
     if isinstance(parsed, list):
-        if len(parsed) == 2 and isinstance(parsed[1], dict):
+        # A pair is identified by its window id, not by its length: a bare list of two events has two
+        # dicts, and reading it as a pair would drop the first event and any failure it carries.
+        if len(parsed) == 2 and isinstance(parsed[0], str) and isinstance(parsed[1], dict):
             return [parsed[1]]
         return [event for event in parsed if isinstance(event, dict)]
     if isinstance(parsed, dict):
