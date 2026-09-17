@@ -47,8 +47,9 @@ class TestLogsAlertEvaluation(APIBaseTest):
                 per_alert=breaching, query_duration_ms=1
             )
             slot = (configurations[0].next_check_at or self.cutoff).replace(second=0, microsecond=0).isoformat()
-            with team_scope(self.team.id):
-                return evaluate_logs_batch(self.team.id, slot, self.cutoff), query
+            # Deliberately outside `team_scope`: the Temporal activity has no ambient scope, and
+            # these models are fail-closed, so a write here through a bare manager raises.
+            return evaluate_logs_batch(self.team.id, slot, self.cutoff), query
 
     def test_a_breaching_configuration_fires_and_records_its_own_state(self) -> None:
         configuration = self._configuration()

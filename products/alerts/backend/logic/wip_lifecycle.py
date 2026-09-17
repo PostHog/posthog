@@ -37,8 +37,10 @@ def _alerts_for_write(team_id: int, configurations: Sequence[WIPAlertConfigurati
     missing = [c for c in configurations if str(c.id) not in existing]
     if missing:
         # ignore_conflicts leans on the unique constraint, so a concurrent cycle creating the
-        # same row is not an error.
-        WIPAlert.objects.bulk_create(
+        # same row is not an error. `for_team` because these models are fail-closed and a
+        # Temporal activity has no ambient scope; the rows still carry `team_id` themselves,
+        # because a queryset filter does not propagate into row creation.
+        WIPAlert.objects.for_team(team_id).bulk_create(
             [WIPAlert(team_id=team_id, configuration=c, grouping_key="") for c in missing],
             ignore_conflicts=True,
         )
@@ -125,8 +127,10 @@ def record_outcomes(team_id: int, outcomes: Sequence[WIPAlertOutcome], now: date
         windows = parse_blocked_windows_tuples(configuration.schedule_restriction)
         configuration.next_check_at = scan_next_unblocked_utc(next_check_at, team_timezone, windows) or next_check_at
 
-    WIPAlert.objects.bulk_update(list(alerts.values()), ["state", "last_notified_at"])
-    WIPAlertConfiguration.objects.bulk_update(configurations, ["consecutive_failures", "next_check_at"])
+    WIPAlert.objects.for_team(team_id).bulk_update(list(alerts.values()), ["state", "last_notified_at"])
+    WIPAlertConfiguration.objects.for_team(team_id).bulk_update(
+        configurations, ["consecutive_failures", "next_check_at"]
+    )
 
 
 def upsert_configuration(upsert: WIPAlertUpsert) -> bool:
