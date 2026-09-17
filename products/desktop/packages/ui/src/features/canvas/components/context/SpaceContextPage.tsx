@@ -113,6 +113,20 @@ export function SpaceContextPage({
 
   const saveDoc = (next: ContextDocument) =>
     store.save(serializeContextDocument(next));
+  const knowledgeStore = useMemo<ContextDocumentStore>(
+    () => ({
+      ...store,
+      content: doc.knowledge,
+      save: (knowledge) =>
+        store.save(
+          serializeContextDocument({
+            ...parseContextDocument(store.content),
+            knowledge,
+          }),
+        ),
+    }),
+    [store, doc.knowledge],
+  );
 
   const askAgentForMeasure = async (goal: ContextGoal) => {
     const task = await generate({
@@ -258,8 +272,8 @@ export function SpaceContextPage({
       {editingContextFile ? (
         <MarkdownFileDialog
           fileName="CONTEXT.md"
-          description={`Every agent working in ${channelName} reads this first.`}
-          store={store}
+          description={`Every agent working in ${channelName} reads this first. Goals, links and files are managed on the Context page and stay out of this text.`}
+          store={knowledgeStore}
           template={`# ${channelName}\n\n`}
           onClose={() => setEditingContextFile(false)}
         />
