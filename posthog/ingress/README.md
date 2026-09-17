@@ -247,6 +247,8 @@ Only `DONE` counts as accepted, so a delivery that meets a run still in flight i
 A settled mark therefore lives for 24 hours, but an unsettled one is a lease and lives for the request's delivery budget plus a minute.
 The lease exists because a process that dies mid-run leaves its mark behind and nothing settles it afterwards: a mark that outlived its run would answer every redelivery `in_flight` until the provider gave up, and the delivery would be lost.
 Its cost is that a redelivery arriving after the lease ran out can run beside a first attempt that overran the budget, which is the exposure a provider without dedup has on every retry.
+Because two runs can overlap, the lease names the run that holds it, and a run only deletes its own claim: a late failure from the first run cannot drop the second run's claim, nor the done mark a finished run wrote.
+Settling to done is not fenced that way, because a consumer that ran the delivery and returned makes the mark true whoever wrote the value it replaces.
 Keying per consumer rather than per delivery matters: one delivery legitimately fans out to several consumers, and a delivery-wide key would starve every consumer but the first.
 A cache error fails **open** — dropping deliveries during a cache outage is worse than running a consumer twice, and consumers carry their own idempotency underneath this.
 

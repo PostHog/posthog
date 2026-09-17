@@ -202,23 +202,57 @@ class TestDeliveryDedup(SimpleTestCase):
     def test_the_mark_reports_the_state_its_holder_left_it_in(self) -> None:
         dedup = DeliveryDedup()
 
-        self.assertEqual(dedup.claim(**self.mark), DeliveryClaim.CLAIMED)
+        claim = dedup.claim(**self.mark)
+        self.assertEqual(claim.state, DeliveryClaim.CLAIMED)
         # A redelivery that arrives before the first run settles must not read this as done. That
         # run can still raise, and a receipt now stops the provider sending the delivery again.
-        self.assertEqual(dedup.claim(**self.mark), DeliveryClaim.IN_PROGRESS)
+        self.assertEqual(dedup.claim(**self.mark).state, DeliveryClaim.IN_PROGRESS)
+
+        dedup.release(**self.mark, token=claim.token)
+        self.assertEqual(dedup.claim(**self.mark).state, DeliveryClaim.CLAIMED)
 
         dedup.complete(**self.mark)
-        self.assertEqual(dedup.claim(**self.mark), DeliveryClaim.DONE)
+        self.assertEqual(dedup.claim(**self.mark).state, DeliveryClaim.DONE)
 
-        dedup.release(**self.mark)
-        self.assertEqual(dedup.claim(**self.mark), DeliveryClaim.CLAIMED)
+    @parameterized.expand(
+        [
+            ("a_flag_from_before_the_state_existed", True, DeliveryClaim.DONE),
+            ("a_lease_from_before_the_holder_token_existed", "in_progress", DeliveryClaim.IN_PROGRESS),
+            ("a_settled_mark", "done", DeliveryClaim.DONE),
+        ]
+    )
+    def test_a_mark_written_before_the_state_existed_still_dedupes(
+        self, _name: str, held: object, expected: DeliveryClaim
+    ) -> None:
+        cache.set(DeliveryDedup.key(**self.mark), held)
 
-    def test_a_mark_written_before_the_state_existed_still_dedupes(self) -> None:
-        cache.set(DeliveryDedup.key(**self.mark), True)
+        # Marks live for 24 hours, so a rollout meets the ones the previous version wrote. Reading
+        # a flag as in flight would cost a receipt for every delivery still holding it, and reading
+        # a lease that names no holder as done would receipt a run that never settled.
+        self.assertEqual(DeliveryDedup().claim(**self.mark).state, expected)
 
-        # Marks live for 24 hours, so a rollout meets the old ones. Reading one as in flight would
-        # cost a receipt for every delivery still holding it.
-        self.assertEqual(DeliveryDedup().claim(**self.mark), DeliveryClaim.DONE)
+    @parameterized.expand(
+        [
+            ("a_newer_run_holds_the_claim", False, DeliveryClaim.IN_PROGRESS),
+            ("a_newer_run_settled_the_mark", True, DeliveryClaim.DONE),
+        ]
+    )
+    def test_a_run_that_lost_its_lease_cannot_drop_the_mark_another_run_holds(
+        self, _name: str, settle: bool, expected: DeliveryClaim
+    ) -> None:
+        dedup = DeliveryDedup()
+        stale = dedup.claim(**self.mark)
+        # The lease runs out while the first run is still working, and a second run takes the key.
+        cache.delete(DeliveryDedup.key(**self.mark))
+        dedup.claim(**self.mark)
+        if settle:
+            dedup.complete(**self.mark)
+
+        dedup.release(**self.mark, token=stale.token)
+
+        # Dropping the newer claim would let a third run start beside the two already going, and
+        # dropping the done mark would hand finished work back to the provider to redeliver.
+        self.assertEqual(dedup.claim(**self.mark).state, expected)
 
     @parameterized.expand(
         [
@@ -240,7 +274,7 @@ class TestDeliveryDedup(SimpleTestCase):
         # that redelivers reads it as in flight and is answered a retry status, so a mark that
         # outlived its run would refuse every redelivery until the provider gave up.
         with patch("time.time", lambda: start + delivery_claim_lease_seconds() + 1):
-            self.assertEqual(DeliveryDedup().claim(**self.mark), expected)
+            self.assertEqual(DeliveryDedup().claim(**self.mark).state, expected)
 
 
 class TestDeliveryOwnership(SimpleTestCase):
