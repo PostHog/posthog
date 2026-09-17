@@ -1193,6 +1193,29 @@ describe('TaxonomicFilter', () => {
             }
         )
 
+        it('marks a promoted row active from the selection held under its source group', async () => {
+            // The rows on this tab are promoted from other groups, so reading the selection under
+            // the tab's own group finds nothing and every check disappears.
+            renderFilter({
+                eventNames: ['$autocapture'],
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.Elements,
+                ],
+                selectedProperties: { [TaxonomicFilterGroupType.Elements]: ['text'] },
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-suggested_filters-0')).toHaveTextContent('Text')
+            })
+            expectActiveTab('taxonomic-tab-suggested_filters')
+
+            expect(screen.getByTestId('prop-filter-suggested_filters-0')).toHaveClass('active')
+            expect(screen.getByTestId('prop-filter-suggested_filters-1')).toHaveTextContent('CSS selector')
+            expect(screen.getByTestId('prop-filter-suggested_filters-1')).not.toHaveClass('active')
+        })
+
         it.each([
             {
                 description: 'Elements tab is promoted when eventNames includes $autocapture',
