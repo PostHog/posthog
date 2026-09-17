@@ -108,6 +108,8 @@ from products.signals.backend.scout_harness.serializers import (
     ProjectProfileSerializer,
     RecentEmissionsQuerySerializer,
     RecentRunsPerScoutQuerySerializer,
+    RecordCheckResultRequestSerializer,
+    RecordCheckResultResponseSerializer,
     RecordStructuredOutputRequestSerializer,
     RecordStructuredOutputResponseSerializer,
     RememberRequestSerializer,
@@ -148,6 +150,7 @@ from products.signals.backend.scout_harness.skill_loader import (
 )
 from products.signals.backend.scout_harness.suggestions import find_suggestion, mark_suggestion_created
 from products.signals.backend.scout_harness.team_limits import resolve_team_metadata, withheld_skills_for_team
+from products.signals.backend.scout_harness.tools.checks import InvalidCheckResultError, record_check_result
 from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
 from products.signals.backend.scout_harness.tools.lighthouse import (
     MAX_AUDITS_PER_RUN,
@@ -1520,6 +1523,90 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """Budget left on a run, for a rejection that spent none of it. Told the remaining count
         on every path, a scout can tell "you asked for the wrong thing" from "you are out"."""
         return audits_remaining_for_run(run.metadata or {})
+
+    @validated_request(
+        request_serializer=RecordCheckResultRequestSerializer,
+        parameters=[_RUN_ID_PATH_PARAMETER],
+        responses={
+            200: OpenApiResponse(
+                response=RecordCheckResultResponseSerializer,
+                description="Verdict recorded on the report, and the check advanced or retired.",
+            ),
+            400: OpenApiResponse(
+                description=(
+                    "The check does not exist for this project, already finished, is measured by the "
+                    "coordinator rather than a run, runs on another scout, or is not waiting on a run."
+                )
+            ),
+            404: OpenApiResponse(description="Run not found for this project."),
+        },
+        summary="Record the verdict on a report check",
+        description=(
+            "Close the follow-up check this run was dispatched to answer. The run note carries the check id "
+            "and what to establish; this call is the only thing that records the answer, so a run that "
+            "investigates and says nothing leaves the check unanswered. The verdict lands on the report as a "
+            "`check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a "
+            "recurring one, and `errored` retries it, so send the outcome you actually reached rather than "
+            "the one that closes the loop. A run may only close a check dispatched to its own scout."
+        ),
+        operation_id="signals_scout_record_check_result",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="check-result",
+        required_scopes=["signal_scout_internal:write"],
+        pagination_class=None,
+    )
+    def check_result(self, request: Request, **kwargs) -> Response:
+        run_id = _parse_run_id_or_404(kwargs)
+
+        run = (
+            SignalScoutRun.objects.select_related("scout_config", "task_run", "team")
+            .filter(team_id=_canonical_team_id(self), id=run_id)
+            .first()
+        )
+        if run is None:
+            raise exceptions.NotFound()
+        # A sandbox token is minted for one run, and a verdict is a claim recorded on a report, so
+        # a run may only answer through its own row. Answered as 404 like another team's run, as
+        # the audit action does. A caller with no bound task is unaffected, the internal scope
+        # being server-mint-only.
+        bound_task_id = _sandbox_bound_task_id(request)
+        if bound_task_id is not None and bound_task_id != run.task_run.task_id:
+            raise exceptions.NotFound()
+        if run.task_run.status != tasks_facade.TaskRunStatus.IN_PROGRESS:
+            raise exceptions.ValidationError(
+                {
+                    "status": (
+                        f"A check result can only be recorded on an in-progress run (current: {run.task_run.status})."
+                    )
+                }
+            )
+        data = request.validated_data
+        try:
+            # `run.team` is the canonical team the run was resolved on, as in `emit_report`.
+            result = record_check_result(
+                team=run.team,
+                run=run,
+                check_id=str(data["check_id"]),
+                outcome=data["outcome"],
+                explanation=data["explanation"],
+                observed_value=data.get("observed_value"),
+            )
+        except InvalidCheckResultError as exc:
+            raise exceptions.ValidationError({"detail": str(exc)})
+        return Response(
+            RecordCheckResultResponseSerializer(
+                {
+                    "check_id": result.check_id,
+                    "outcome": result.outcome,
+                    "check_status": result.check_status,
+                    "runs_remaining": result.runs_remaining,
+                }
+            ).data,
+            status=status.HTTP_200_OK,
+        )
 
     # `EvidenceEntrySerializer` is referenced for OpenAPI nested-schema discovery; keep
     # the import live so drf-spectacular registers it even if the runtime never imports
