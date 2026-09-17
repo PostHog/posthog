@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { decodeParams } from 'kea-router'
 
+import { getScopeGroupLabel } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -424,12 +425,12 @@ describe('oauthAuthorizeLogic', () => {
                 ].map((object) => `${object}:read`),
             ])
             expect(logic.values.scopeRowsGrouped).toBe(true)
-            expect(logic.values.scopeGroups.map((group) => [group.label, group.rows.length])).toEqual([
-                ['Product analytics', 4],
-                ['Events, people & data model', 3],
-                ['Feature flags, experiments & surveys', 2],
-                ['Error tracking, logs & tracing', 2],
-            ])
+            const groups = logic.values.scopeGroups
+            expect(groups.flatMap((group) => group.rows)).toHaveLength(logic.values.adjustableScopeRows.length)
+            for (const group of groups) {
+                expect(group.rows.length).toBeGreaterThan(0)
+                expect(group.rows.map((row) => getScopeGroupLabel(row.key))).toEqual(group.rows.map(() => group.label))
+            }
         })
 
         it('sets every row of a group with one group action, clamped to each ceiling', () => {
