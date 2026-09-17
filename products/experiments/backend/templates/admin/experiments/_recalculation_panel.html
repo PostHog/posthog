@@ -61,6 +61,15 @@
                     gap: 8px;
                     align-items: center;
                     flex-wrap: wrap">
+            {% if can_start_recalculation %}
+                <button type="submit"
+                        formaction="{{ start_recalculation_url }}"
+                        formmethod="post"
+                        formnovalidate
+                        class="button"
+                        style="padding: 8px 14px;
+                               background: #417690">Start new recalculation</button>
+            {% endif %}
             {% if panel.has_failures %}
                 <button type="submit"
                         formaction="{{ panel.retry_url }}"
@@ -81,5 +90,15 @@
         </div>
     {% else %}
         <p style="color: #666; margin: 4px 0;">No recalculation has run for this experiment yet.</p>
+        {% if can_start_recalculation %}
+            <button type="submit"
+                    formaction="{{ start_recalculation_url }}"
+                    formmethod="post"
+                    formnovalidate
+                    class="button"
+                    style="margin-top: 8px;
+                           padding: 8px 14px;
+                           background: #417690">Start new recalculation</button>
+        {% endif %}
     {% endif %}
 </fieldset>
