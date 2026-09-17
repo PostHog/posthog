@@ -5,6 +5,7 @@ import {
     DynamoDBClient,
     PutItemCommand,
 } from '@aws-sdk/client-dynamodb'
+import { LRUCache } from 'lru-cache'
 import pLimit from 'p-limit'
 
 import { MlKeyRequest, MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
@@ -28,20 +29,41 @@ export function decodeKey(item: DynamoItem): TableKey {
 export class MlKeyDynamoDB {
     private readonly concurrency = pLimit(4)
     private readonly writeConcurrency = pLimit(32)
+    private readonly rows: LRUCache<string, DynamoItem>
 
     constructor(
         private readonly client: Pick<DynamoDBClient, 'send'>,
         readonly tableName: string,
         private readonly requestTimeoutMs = 5_000,
-        private readonly attempts = 10
-    ) {}
+        private readonly attempts = 10,
+        cacheMax = 100_000,
+        cacheLifetimeMs = 1_800_000
+    ) {
+        this.rows = new LRUCache({ max: cacheMax, ttl: cacheLifetimeMs })
+    }
+
+    // Only a usable key row is stable enough to cache, because putIfAbsent writes it once. A team block row decides
+    // whether a batch may mint new keys, so a stale absent one would write durable keys for a team that asked to be blocked.
+    private cacheable(key: TableKey): boolean {
+        return key.sk.startsWith('session:') || key.sk.startsWith('image:')
+    }
 
     public async read(keys: TableKey[], deadline?: AbortSignal): Promise<Map<string, DynamoItem>> {
         const unique = [...new Map(keys.map((key) => [tableKeyString(key), key])).values()]
         const result = new Map<string, DynamoItem>()
+        const missing: TableKey[] = []
+        for (const key of unique) {
+            const id = tableKeyString(key)
+            const cached = this.cacheable(key) ? this.rows.get(id) : undefined
+            if (cached) {
+                result.set(id, cached)
+            } else {
+                missing.push(key)
+            }
+        }
         const chunks: TableKey[][] = []
-        for (let offset = 0; offset < unique.length; offset += 100) {
-            chunks.push(unique.slice(offset, offset + 100))
+        for (let offset = 0; offset < missing.length; offset += 100) {
+            chunks.push(missing.slice(offset, offset + 100))
         }
         await Promise.all(
             chunks.map((chunk) =>
@@ -67,7 +89,17 @@ export class MlKeyDynamoDB {
                             continue
                         }
                         for (const item of response.Responses?.[this.tableName] ?? []) {
-                            result.set(tableKeyString(decodeKey(item)), item)
+                            const key = decodeKey(item)
+                            const id = tableKeyString(key)
+                            result.set(id, item)
+                            if (!this.cacheable(key)) {
+                                continue
+                            }
+                            if (item.wrapped_key?.B && item.deleted?.BOOL !== true) {
+                                this.rows.set(id, item)
+                            } else {
+                                this.rows.delete(id)
+                            }
                         }
                         pending = response.UnprocessedKeys?.[this.tableName]?.Keys ?? []
                         if (pending.length) {

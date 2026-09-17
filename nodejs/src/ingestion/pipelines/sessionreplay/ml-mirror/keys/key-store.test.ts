@@ -114,10 +114,14 @@ describe('ML session key batches', () => {
             8,
             1_000_000_000
         )
+        coldCache()
+    })
+
+    function coldCache(): void {
         const db = new MlKeyDynamoDB(boundary as unknown as DynamoDBClient, table)
         store = new MlSessionKeyStore(db, encryption)
         reader = new MlKeyReader(db, encryption)
-    })
+    }
 
     afterEach(() => {
         jest.useRealTimers()
@@ -412,6 +416,7 @@ describe('ML session key batches', () => {
             const location = tableKeyString(keyId())
             const { wrapped_key: _wrapped, ...stored } = boundary.items.get(location)!
             boundary.items.set(location, stored)
+            coldCache()
             const unusable = jest.spyOn(MlMirrorMetrics, 'incrementMlKeyIdentityMismatch')
             const next = await store.prepare([session])
             expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
@@ -437,18 +442,13 @@ describe('ML session key batches', () => {
         expect(second.get(session.teamId, session.sessionId)!.session.plaintext).not.toEqual(provisional)
     })
 
-    it('blocks an existing session deleted during a batch', async () => {
+    it('stops serving a deleted session key to a reader that has not cached it', async () => {
         const first = await store.prepare([session])
         await first.commit()
-        const next = await store.prepare([session])
         const blocked = sessionKeyId(session.teamId, session.sessionId)
         boundary.items.set(tableKeyString(blocked), { ...encodeKey(blocked), deleted: { BOOL: true } })
-        jest.useFakeTimers()
-        const committed = next.commit()
-        await jest.runAllTimersAsync()
-        await committed
-        expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
-        expect((await reader.read([sessionKeyId(session.teamId, session.sessionId)])).size).toBe(0)
+        coldCache()
+        expect((await reader.read([blocked])).size).toBe(0)
         expect((await reader.read([imageKeyId(session.teamId, '2025-09')])).size).toBe(1)
     })
 
@@ -456,13 +456,17 @@ describe('ML session key batches', () => {
         const first = await store.prepare([session])
         await first.commit()
         const original = first.get(session.teamId, session.sessionId)!
+        const readsBefore = boundary.readSizes.length
         const resumed = await store.prepare([session])
+        const keysRead = boundary.readSizes.slice(readsBefore).reduce((total, size) => total + size, 0)
         await resumed.commit()
         const keys = resumed.get(session.teamId, session.sessionId)!
         expect(keys.session.plaintext).toEqual(original.session.plaintext)
         expect(keys.image.plaintext).toEqual(original.image.plaintext)
         expect((await reader.read([sessionKeyId(session.teamId, session.sessionId)])).size).toBe(1)
         expect(generated).toBe(2)
+        // Only the team block row, because it decides whether the batch may mint new keys and is never cached.
+        expect(keysRead).toBe(1)
     })
 
     it('publishes only after key writes commit and hands delivery acks to the scheduler', async () => {
@@ -555,6 +559,7 @@ describe('ML session key batches', () => {
                 } as Message
             })
             boundary.items.delete(tableKeyString(sessionKeyId(deleted.teamId, deleted.sessionId)))
+            coldCache()
             const invalidRow = parseJSON(messages[0].value!.toString())
             invalidRow.session_id =
                 malformed === 'oversized-session'

@@ -36,7 +36,14 @@ export class MlKeyManager {
             maxAttempts: 3,
         })
         this.kms = new KMSClient({ region: config.AI_RESEARCH_REPLAY_AWS_REGION, maxAttempts: 3 })
-        const db = new MlKeyDynamoDB(this.dynamo, config.AI_RESEARCH_REPLAY_KEY_TABLE)
+        const db = new MlKeyDynamoDB(
+            this.dynamo,
+            config.AI_RESEARCH_REPLAY_KEY_TABLE,
+            undefined,
+            undefined,
+            config.AI_RESEARCH_REPLAY_KEY_CACHE_MAX,
+            config.AI_RESEARCH_REPLAY_KEY_CACHE_LIFETIME_MS
+        )
         this.encryption = new MlKeyEncryption(
             this.kms,
             config.AI_RESEARCH_REPLAY_KMS_KEY_ARN,
