@@ -45,7 +45,7 @@ from posthog.models.deletion_targets import (
     sweep_clusters,
 )
 from posthog.models.event.deletion import events_data_tables
-from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import (
     PERSON_DISTINCT_ID2_TABLE,
@@ -101,15 +101,25 @@ class DeleteConfig(dagster.Config):
         return datetime.fromisoformat(self.timestamp)
 
 
+# sharded_events_json is skipped until the events cluster is reliably reachable from the sweep.
+# A run that resolves it inconsistently is worse than one that never tries: it creates the
+# dictionary on a cluster it may not mutate, and reports an erasure that did not happen. Rows the
+# table holds stay readable meanwhile, which is the cost this accepts; see COVERAGE_DOC.
+# Remove it from the default to sweep the table again. `skip_targets: []` in run config does the
+# same for one run, without a deploy.
+_DEFAULT_SKIP_TARGETS = [EVENTS_JSON_DATA_TABLE]
+
+
 class SweepTargetsConfig(dagster.Config):
     skip_targets: list[str] = pydantic.Field(
-        default_factory=list,
+        default_factory=lambda: list(_DEFAULT_SKIP_TARGETS),
         description="Deletion targets to leave out of this run, named by either their storage or "
         'their read table, e.g. ["sharded_events_json"] or ["events_json"]. A skipped target gets '
         "no dictionary, no mutation and no survivor count, and a cluster only it lives on is not "
         "addressed at all. Its rows stay readable while the requests covering them are still "
         "marked verified, so only skip a target whose rows you accept leaving in place. An "
-        "unrecognised name fails the run rather than silently sweeping every target.",
+        "unrecognised name fails the run rather than silently sweeping every target. Defaults to "
+        '["sharded_events_json"]; pass [] to sweep every registered target.',
     )
 
 
