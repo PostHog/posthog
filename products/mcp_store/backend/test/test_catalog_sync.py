@@ -32,6 +32,7 @@ def _entry(
     docs_url: str = "",
     oauth_scope_allowlist: tuple[str, ...] | None = None,
     oauth_credentials_source: OAuthCredentialsSource | None = None,
+    dcr_required: bool = False,
     disabled: bool = False,
 ) -> CatalogEntry:
     return CatalogEntry(
@@ -44,6 +45,7 @@ def _entry(
         docs_url=docs_url,
         oauth_scope_allowlist=oauth_scope_allowlist,
         oauth_credentials_source=oauth_credentials_source,
+        dcr_required=dcr_required,
         disabled=disabled,
     )
 
@@ -80,6 +82,9 @@ class TestCatalogEntries(SimpleTestCase):
             if entry.oauth_credentials_source is not None:
                 assert entry.auth_type == "oauth", entry.url
                 assert entry.oauth_credentials_source in SUPPORTED_OAUTH_CREDENTIAL_SOURCES, entry.url
+            if entry.dcr_required:
+                assert entry.auth_type == "oauth", entry.url
+                assert entry.oauth_credentials_source is None, entry.url
 
 
 class TestSyncMCPCatalog(TestCase):
@@ -261,6 +266,38 @@ class TestSyncMCPCatalog(TestCase):
         assert template.auth_type == "oauth"
         assert template.is_active is False
         assert template.oauth_credentials == {"client_id": "shared-client", "client_secret": "shhh"}
+
+    @parameterized.expand(
+        [
+            ("probe_passes", _dcr_pass_probe(), False, True),
+            ("probe_fails", ProbeResult(reachable=False), True, False),
+        ]
+    )
+    def test_required_dcr_replaces_shared_client_after_probe(
+        self, _name, probe_result, initially_active, expect_active
+    ):
+        entry = _entry(dcr_required=True)
+        template = MCPServerTemplate.objects.create(
+            name=entry.name,
+            url=entry.url,
+            description=entry.description,
+            auth_type=entry.auth_type,
+            category=entry.category,
+            icon_domain=entry.icon_domain,
+            oauth_credentials={"client_id": "shared-client", "client_secret": "shared-secret"},
+            oauth_metadata={"authorization_endpoint": "https://old.example/authorize"},
+            is_active=initially_active,
+        )
+
+        with patch("products.mcp_store.backend.catalog_sync.probe_mcp_server", return_value=probe_result) as probe:
+            counts = sync_mcp_catalog(entries=[entry])
+
+        template.refresh_from_db()
+        assert counts.updated == 1
+        assert counts.activated == int(expect_active and not initially_active)
+        assert template.oauth_credentials == {}
+        assert template.is_active is expect_active
+        probe.assert_called_once_with(entry.url, scope_allowlist=None, shared_client_id=None)
 
     def test_identical_entry_is_a_noop_without_probing(self):
         entry = _entry()

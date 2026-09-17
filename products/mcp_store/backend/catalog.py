@@ -37,13 +37,20 @@ class CatalogEntry:
     docs_url: str = ""
     oauth_scope_allowlist: tuple[str, ...] | None = None
     oauth_credentials_source: OAuthCredentialsSource | None = None
+    dcr_required: bool = False
     disabled: bool = False
+
+    def __post_init__(self) -> None:
+        if self.dcr_required and self.auth_type != "oauth":
+            raise ValueError("DCR requires OAuth authentication")
+        if self.dcr_required and self.oauth_credentials_source is not None:
+            raise ValueError("DCR cannot use a shared OAuth credential source")
 
 
 MCP_SERVER_CATALOG: list[CatalogEntry] = [
     CatalogEntry(
         name="Atlassian",
-        url="https://mcp.atlassian.com/v2/mcp",
+        url="https://mcp.atlassian.com/v1/mcp",
         description="Integrate with Atlassian products like Jira and Confluence.",
         auth_type="oauth",
         category="productivity",
@@ -61,6 +68,7 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
             "write:confluence:agent-interface",
             "search:confluence:agent-interface",
         ),
+        dcr_required=True,
     ),
     CatalogEntry(
         name="Box",
