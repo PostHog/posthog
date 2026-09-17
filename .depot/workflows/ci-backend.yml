@@ -116,9 +116,9 @@
 #
 # Shards derive from .test_durations (Amdahl), restored from Depot Cache (else committed);
 # .depot/workflows/ci-backend-update-test-timing.yml keeps that cache fresh.
-name: '[optional, does not block merge] Backend CI'
-# OPTIONAL, non-blocking shadow of canonical Backend CI: its statuses must never gate
-# merging (hence the "[optional, does not block merge]" name prefix). Each event runs on
+name: Backend CI on Depot
+# Depot CI copy of canonical Backend CI. Branch protection requires only canonical's
+# `Django Tests Pass`, which relays this workflow's gate when the event ran here. Each event runs on
 # exactly one engine, and GitHub Actions picks it. The `wait-for-handoff` job waits for the
 # `Hand off backend tests to Depot CI` check from .github/workflows/ci-backend.yml and
 # `changes` (root of the needs graph) only runs when that check succeeded, so the whole
@@ -212,7 +212,7 @@ jobs:
             || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
-        name: '[optional, does not block merge] Wait for GitHub Actions to hand off backend tests'
+        name: Wait for GitHub Actions to hand off backend tests
         # Depot scopes the ambient token by this block, and the workflow-level block has no
         # `checks`, so without it the check-runs read below answers 403.
         permissions:
@@ -3075,7 +3075,7 @@ jobs:
                 detect-snapshot-mode,
                 repo-checks,
             ]
-        name: '[optional, does not block merge] Django Tests Pass'
+        name: Django Tests Pass on Depot
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 8
         # !cancelled() collates skipped/failed matrix jobs without reporting failure on a

@@ -54,7 +54,7 @@ env:
     # The Depot CI check run that `Django Tests Pass` relays when the tests ran there.
     # One place to update when the Depot workflow or its gate job is renamed.
     DEPOT_APP_ID: '219785'
-    DEPOT_GATE_CHECK: '[optional, does not block merge] Backend CI / [optional, does not block merge] Django Tests Pass'
+    DEPOT_GATE_CHECK: Backend CI on Depot / Django Tests Pass on Depot
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so it can't drift
     # between the merge-base (PR) and HEAD (push) key computations below.
