@@ -956,6 +956,20 @@ class TestUnavoidableFilesortFallback:
         )
         # ...and the incremental field has no index to force, so the sort can't be avoided.
         mocker.patch.object(MySQLImplementation, "find_index_for_cursor", return_value=None)
+        # The shared fixture's catalog is `id` alone, and a table cannot sync incrementally on a
+        # column it does not have, so give this one the field it orders on.
+        mocker.patch.object(
+            MySQLImplementation,
+            "get_table_metadata",
+            return_value=Table(
+                name="messages",
+                parents=("mydb",),
+                columns=[
+                    MySQLColumn(name="id", data_type="int", column_type="int", nullable=False),
+                    MySQLColumn(name="created_at", data_type="datetime", column_type="datetime", nullable=True),
+                ],
+            ),
+        )
 
         source = MySQLImplementation().build_pipeline(
             _make_config(),

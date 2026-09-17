@@ -240,12 +240,14 @@ def resolve_table_projection(
     read. An empty catalog leaves the selection alone, because it says nothing about the table.
     """
     catalog = {column.name for column in full_table.columns}
+    # Checked ahead of the branch below: a sync that kept every column reaches the same dropped
+    # field, and a generic undefined-column error names the wrong control to fix.
+    if catalog and should_use_incremental_field and incremental_field and incremental_field not in catalog:
+        raise MissingIncrementalFieldError(missing_incremental_field_message(incremental_field, table_name))
     if enabled_columns is None:
         names = available_columns if available_columns is not None else [column.name for column in full_table.columns]
         enabled_columns = list(names) or None
     elif catalog:
-        if should_use_incremental_field and incremental_field and incremental_field not in catalog:
-            raise MissingIncrementalFieldError(missing_incremental_field_message(incremental_field, table_name))
         enabled_columns = [column for column in enabled_columns if column in catalog]
     projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
     return TableProjection(enabled_columns=enabled_columns, table=project_arrow_columns(full_table, projected))

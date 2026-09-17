@@ -135,10 +135,12 @@ class TestResolveTableProjectionAgainstAStaleSelection:
     def test_prunes(self, _name, enabled_columns, catalog, expected) -> None:
         assert self._resolve(enabled_columns, catalog).enabled_columns == expected
 
-    def test_raises_when_the_incremental_field_left_the_source(self) -> None:
+    @parameterized.expand([("an_explicit_selection", ["id"]), ("sync_all", None)])
+    def test_raises_when_the_incremental_field_left_the_source(self, _name, enabled_columns) -> None:
         # It sits in the WHERE and ORDER BY of every query, so pruning it cannot rescue the run.
+        # Sync-all reaches the same dropped field, so the guard runs before the selection branch.
         with pytest.raises(MissingIncrementalFieldError, match="updated_at"):
-            self._resolve(["id"], ("id",), incremental_field="updated_at", should_use_incremental_field=True)
+            self._resolve(enabled_columns, ("id",), incremental_field="updated_at", should_use_incremental_field=True)
 
     def test_tolerates_a_missing_incremental_field_on_a_full_refresh(self) -> None:
         # A full refresh never puts the field in a WHERE or ORDER BY.
