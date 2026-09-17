@@ -8,7 +8,7 @@ import { NewDashboardModal as NewDashboardModalComponent } from 'scenes/dashboar
 
 import { mswDecorator } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
-import { BaseMathType, EntityTypes } from '~/types'
+import { BaseMathType, DashboardTemplateType, EntityTypes } from '~/types'
 
 const meta: Meta<typeof NewDashboardModalComponent> = {
     component: NewDashboardModalComponent,
@@ -43,59 +43,85 @@ export const NewDashboardModal: Story = {
     },
 }
 
+const templateWithVariables: DashboardTemplateType = {
+    id: '1',
+    template_name: 'Dashboard name',
+    dashboard_description: 'The dashboard description',
+    dashboard_filters: {},
+    tiles: [],
+    variables: [
+        {
+            id: 'SIGN_UP',
+            name: 'Sign up page viewed',
+            type: 'event',
+            default: {
+                id: '$pageview',
+                math: BaseMathType.UniqueUsers,
+                type: EntityTypes.EVENTS,
+            },
+            required: true,
+            description: 'Add the current_url filter that matches your sign up page',
+        },
+        {
+            id: 'ACTIVATED',
+            name: 'Very very long event name very very long. Very very long event name very very long',
+            type: 'event',
+            default: {
+                id: '$pageview',
+                math: BaseMathType.UniqueUsers,
+                type: EntityTypes.EVENTS,
+            },
+            required: true,
+            description:
+                'Very long description. Select the event which best represents when a user is activated. Select the event which best represents when a user is activated',
+        },
+        {
+            id: 'ACTIVATED_OPTIONAL',
+            name: 'Activated event',
+            type: 'event',
+            default: {
+                id: '$pageview',
+                math: BaseMathType.UniqueUsers,
+                type: EntityTypes.EVENTS,
+            },
+            required: false,
+            description: 'Select the event which best represents when a user is activated',
+        },
+    ],
+    tags: [],
+    image_url: undefined,
+}
+
 export const NewSelectVariables: Story = {
     render: () => {
         useAvailableFeatures([])
         useDelayedOnMountEffect(() => {
             newDashboardLogic.actions.showNewDashboardModal()
-            newDashboardLogic.actions.setActiveDashboardTemplate({
-                id: '1',
-                template_name: 'Dashboard name',
-                dashboard_description: 'The dashboard description',
-                dashboard_filters: {},
-                tiles: [],
-                variables: [
-                    {
-                        id: 'SIGN_UP',
-                        name: 'Sign up page viewed',
-                        type: 'event',
-                        default: {
-                            id: '$pageview',
-                            math: BaseMathType.UniqueUsers,
-                            type: EntityTypes.EVENTS,
-                        },
-                        required: true,
-                        description: 'Add the current_url filter that matches your sign up page',
-                    },
-                    {
-                        id: 'ACTIVATED',
-                        name: 'Very very long event name very very long. Very very long event name very very long',
-                        type: 'event',
-                        default: {
-                            id: '$pageview',
-                            math: BaseMathType.UniqueUsers,
-                            type: EntityTypes.EVENTS,
-                        },
-                        required: true,
-                        description:
-                            'Very long description. Select the event which best represents when a user is activated. Select the event which best represents when a user is activated',
-                    },
-                    {
-                        id: 'ACTIVATED_OPTIONAL',
-                        name: 'Activated event',
-                        type: 'event',
-                        default: {
-                            id: '$pageview',
-                            math: BaseMathType.UniqueUsers,
-                            type: EntityTypes.EVENTS,
-                        },
-                        required: false,
-                        description: 'Select the event which best represents when a user is activated',
-                    },
-                ],
-                tags: [],
-                image_url: undefined,
-            })
+            newDashboardLogic.actions.setActiveDashboardTemplate(templateWithVariables)
+        })
+
+        return <NewDashboardModalComponent />
+    },
+}
+
+/** The modal stays open with Create in its loading state until the request resolves. */
+export const NewSelectVariablesCreating: Story = {
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/dashboards/create_from_template_json': () => new Promise(() => {}),
+            },
+        }),
+    ],
+    render: () => {
+        useAvailableFeatures([])
+        useDelayedOnMountEffect(() => {
+            newDashboardLogic.actions.showNewDashboardModal()
+            newDashboardLogic.actions.setActiveDashboardTemplate(templateWithVariables)
+            newDashboardLogic.actions.createDashboardFromTemplate(
+                templateWithVariables,
+                templateWithVariables.variables ?? []
+            )
         })
 
         return <NewDashboardModalComponent />

@@ -2461,6 +2461,21 @@ export interface eventUsageLogicActions {
         template_scope: DashboardTemplateScope | null
         template_variable_count: number
     }
+    reportWebDashboardCreationFromTemplateFailed: (payload: {
+        template_id: string
+        template_name: string
+        template_scope: DashboardTemplateScope | null
+        template_variable_count: number
+        status: number | null
+        code: string | null
+    }) => {
+        template_id: string
+        template_name: string
+        template_scope: DashboardTemplateScope | null
+        template_variable_count: number
+        status: number | null
+        code: string | null
+    }
     reportWizardSyncSessionDetected: (props: {
         runPhase: string
         skillId: string
@@ -2808,6 +2823,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             template_name: string
             template_variable_count: number
             template_scope: DashboardTemplateScope | null
+        }) => payload,
+        /** A dashboard creation from a template that the API refused. Without this a failed create emits nothing. */
+        reportWebDashboardCreationFromTemplateFailed: (payload: {
+            template_id: string
+            template_name: string
+            template_variable_count: number
+            template_scope: DashboardTemplateScope | null
+            status: number | null
+            code: string | null
         }) => payload,
         reportSavedInsightToDashboard: (
             insight: Partial<QueryBasedInsightModel> | null,
@@ -3901,6 +3925,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportWebDashboardCreatedFromTemplate: async (payload) => {
             posthog.capture('dashboard created from template', {
+                ...payload,
+            })
+        },
+        reportWebDashboardCreationFromTemplateFailed: async (payload) => {
+            posthog.capture('dashboard creation from template failed', {
                 ...payload,
             })
         },

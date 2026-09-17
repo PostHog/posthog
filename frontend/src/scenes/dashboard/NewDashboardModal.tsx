@@ -19,7 +19,7 @@ export function NewDashboardModal(): JSX.Element {
     const builtLogic = useMountedLogic(newDashboardLogic)
     const { hideNewDashboardModal, clearActiveDashboardTemplate, createDashboardFromTemplate } =
         useActions(newDashboardLogic)
-    const { newDashboardModalVisible, activeDashboardTemplate, variableSelectModalVisible } =
+    const { newDashboardModalVisible, activeDashboardTemplate, variableSelectModalVisible, isLoading } =
         useValues(newDashboardLogic)
 
     const { variables } = useValues(dashboardTemplateVariablesLogic)
@@ -114,7 +114,7 @@ export function NewDashboardModal(): JSX.Element {
                     {variableSelectModalVisible ? (
                         <div />
                     ) : (
-                        <LemonButton onClick={clearActiveDashboardTemplate} type="secondary">
+                        <LemonButton onClick={clearActiveDashboardTemplate} type="secondary" disabled={isLoading}>
                             Back
                         </LemonButton>
                     )}
@@ -123,6 +123,7 @@ export function NewDashboardModal(): JSX.Element {
                             activeDashboardTemplate && createDashboardFromTemplate(activeDashboardTemplate, variables)
                         }}
                         type="primary"
+                        loading={isLoading}
                     >
                         Create
                     </LemonButton>
