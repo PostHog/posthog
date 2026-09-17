@@ -24,7 +24,9 @@ export function ObservationThumbnail({ observation, className, children }: Obser
 
     // Gated on the media the list response already carried, so a page of observations without one costs
     // no requests. The URL is the endpoint rather than the asset, so a re-render after a retry still resolves.
-    const hasThumbnail = observation.media.some((entry) => entry.kind === 'thumbnail')
+    // Optional at runtime, whatever the generated type says: fixtures and a response cached from before
+    // the field existed both reach here, and a poster must not take the scene down with it.
+    const hasThumbnail = (observation.media ?? []).some((entry) => entry.kind === 'thumbnail')
     const src =
         hasThumbnail && currentTeamId !== null && !failed
             ? getVisionObservationsThumbnailRetrieveUrl(String(currentTeamId), observation.id)

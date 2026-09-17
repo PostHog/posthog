@@ -27,24 +27,32 @@ interface RecordingPreviewProps {
  * empty player, when the recording wasn't captured or has expired.
  */
 export function RecordingPreview({ sessionId, seekTime, thumbnailSrc, alt }: RecordingPreviewProps): JSX.Element {
+    // A replay signal reaches the inbox before its frame finishes rendering, so the first fetch usually 404s.
+    // One delayed retry covers that; between the two the frame is unmounted, so nothing waits on a dead image.
     const [attempt, setAttempt] = useState(0)
+    const [waiting, setWaiting] = useState(false)
     const [gaveUp, setGaveUp] = useState(false)
 
-    // A replay signal reaches the inbox before its frame finishes rendering, so the first fetch often 404s.
-    // One delayed retry covers that without leaving a card polling a frame that will never exist.
     useEffect(() => {
         setAttempt(0)
+        setWaiting(false)
         setGaveUp(false)
     }, [thumbnailSrc])
-    const onError = (): void => {
-        if (attempt === 0) {
-            setTimeout(() => setAttempt(1), THUMBNAIL_RETRY_MS)
+
+    useEffect(() => {
+        if (!waiting) {
             return
         }
-        setGaveUp(true)
-    }
+        const timer = setTimeout(() => {
+            setAttempt(1)
+            setWaiting(false)
+        }, THUMBNAIL_RETRY_MS)
+        return () => clearTimeout(timer)
+    }, [waiting])
 
-    const src = gaveUp || !thumbnailSrc ? undefined : `${thumbnailSrc}?attempt=${attempt}`
+    const onError = (): void => (attempt === 0 ? setWaiting(true) : setGaveUp(true))
+
+    const src = thumbnailSrc && !waiting && !gaveUp ? `${thumbnailSrc}?attempt=${attempt}` : undefined
 
     const { checkRecordingInfo } = useActions(sessionRecordingInfoLogic)
     const { getRecordingExists, isRecordingExistsLoading } = useValues(sessionRecordingInfoLogic)
