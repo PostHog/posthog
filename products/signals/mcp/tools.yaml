@@ -415,6 +415,26 @@ tools:
             Replace an existing signal source config by ID (full update — `source_product` and `source_type` are
             required; `enabled` and `config` are optional and keep their current values if omitted). Prefer
             `inbox-source-configs-partial-update` when you only need to flip `enabled` or tweak `config`.
+    scout-check-record-result:
+        operation: signals_scout_record_check_result
+        enabled: true
+        scopes:
+            - signal_scout_internal:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Record the verdict on a report check
+        description: >
+            Close the follow-up check your run was dispatched to answer, and only that check. A report check says what
+            had to stay true after the report was acted on; your run note carries its `check_id` and what to establish.
+            Pass the `run_id`, the `check_id`, an `outcome` of `passed` (it still holds), `failed` (it does not), or
+            `errored` (you could not settle it either way), and an `explanation` a person reading the report will
+            understand. The verdict lands on the report as a `check_result` entry in the inbox. Record what you
+            established rather than what closes the loop: `failed` retires the check, `passed` re-arms a recurring one,
+            and `errored` retries it. Nothing else closes a check, so a run that investigates and never calls this
+            leaves the report with an unanswered follow-up. The call is refused for a check dispatched to another
+            scout, one no run is waiting on, and one the coordinator measures itself.
     scout-config-create:
         operation: signals_scout_config_create
         enabled: true

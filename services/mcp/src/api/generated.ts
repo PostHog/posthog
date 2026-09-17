@@ -9637,6 +9637,37 @@ export namespace Schemas {
       readonly window_days: number;
     }
 
+    /**
+     * A check a scout run answers: re-probe the report's claim and record one verdict.
+     *
+     * The kind for a claim no single number settles. A resolved error-tracking report is the usual
+     * case: "did the exception stop?" needs the issue looked up, its recent events read, and the
+     * stack compared against what the fix changed, which is a run rather than a comparison.
+     *
+     * Everything here is prompt material a scout reads, so it is untrusted by construction: it renders
+     * in the run block the agent is told to weigh, never in the instructions it is told to follow. The
+     * verdict still comes back through `scout-check-record-result`, so instructions cannot widen what
+     * a check run may write.
+     *
+     * ``skill_name`` names the lane. Most reports are pipeline-authored and have no scout behind them,
+     * so it is optional: a check that names none runs on the fleet's follow-up scout
+     * (see ``report_check_agent.FALLBACK_CHECK_SKILL_NAME``).
+     */
+    export interface AgentCheckConfig {
+      /**
+         * What the run must establish, in the author's own words.
+         * @maxLength 2000
+         */
+      instructions: string;
+      /** Scout skill that runs the check. Omit it to run on the fleet's follow-up scout, which is the right lane for a report no scout authored. */
+      skill_name?: string | null;
+      /**
+         * Concrete places to look, such as an issue id, a service name, or a query to repeat.
+         * @maxItems 5
+         */
+      probe_hints?: string[];
+    }
+
     export type AgentKeyEnum = typeof AgentKeyEnum[keyof typeof AgentKeyEnum];
 
 
@@ -60860,12 +60891,14 @@ export namespace Schemas {
 
     /**
      * * `metric_threshold` - Metric Threshold
+     * * `agent` - Agent
      */
     export type SignalReportCheckKindEnum = typeof SignalReportCheckKindEnum[keyof typeof SignalReportCheckKindEnum];
 
 
     export const SignalReportCheckKindEnum = {
       MetricThreshold: 'metric_threshold',
+      Agent: 'agent',
     } as const;
 
     /**
@@ -60888,7 +60921,7 @@ export namespace Schemas {
       Cancelled: 'cancelled',
     } as const;
 
-    export type SignalReportCheckConfig = MetricThresholdConfig;
+    export type SignalReportCheckConfig = MetricThresholdConfig | AgentCheckConfig;
 
     /**
      * * `passed` - Passed
@@ -60912,7 +60945,8 @@ export namespace Schemas {
       readonly rationale: string;
       /** How the check is evaluated.
        *
-       * * `metric_threshold` - Metric Threshold */
+       * * `metric_threshold` - Metric Threshold
+       * * `agent` - Agent */
       readonly kind: SignalReportCheckKindEnum;
       /** `active` while the check still runs; every other value is terminal.
        *
@@ -79397,6 +79431,44 @@ export namespace Schemas {
       ci_rerun_error?: string | null;
     }
 
+    /**
+     * Request body for `scout-check-record-result`: the verdict on one dispatched report check.
+     */
+    export interface RecordCheckResultRequest {
+      /** The check this run was dispatched to answer, as given in the run note. */
+      check_id: string;
+      /** `passed` when the expectation still holds, `failed` when it does not, and `errored` when you could not establish either. `failed` retires the check, so use it for a conclusion, not a suspicion.
+       *
+       * * `passed` - Passed
+       * * `failed` - Failed
+       * * `errored` - Errored */
+      outcome: SignalReportCheckOutcomeEnum;
+      /**
+         * One or two sentences on what you looked at and what it showed. This is what a person reads on the report, so write it for them, with the numbers or entities you checked.
+         * @maxLength 1000
+         */
+      explanation: string;
+      /**
+         * The number you measured, when the check came down to one. Leave it out otherwise.
+         * @nullable
+         */
+      observed_value?: number | null;
+    }
+
+    /**
+     * Outcome of an accepted `scout-check-record-result` call.
+     */
+    export interface RecordCheckResultResponse {
+      /** The check that was closed. */
+      check_id: string;
+      /** The verdict that was recorded. */
+      outcome: string;
+      /** The check's status after the verdict. `active` means a recurring check re-armed for its next run; anything else is terminal. */
+      check_status: string;
+      /** Evaluations the check still owes after this one. */
+      runs_remaining: number;
+    }
+
     export interface RecordInteractionRequest {
       /** Which interaction counter to increment: 'data' (slicing/filtering the dashboard) or 'recording' (opening a session recording).
        *
@@ -83350,7 +83422,8 @@ export namespace Schemas {
       rationale?: string;
       /** How the check is evaluated.
        *
-       * * `metric_threshold` - Metric Threshold */
+       * * `metric_threshold` - Metric Threshold
+       * * `agent` - Agent */
       kind: SignalReportCheckKindEnum;
       /** What the check measures and what the result must satisfy; the shape depends on `kind`. */
       config: SignalReportCheckConfig;
