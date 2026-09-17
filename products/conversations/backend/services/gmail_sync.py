@@ -14,7 +14,7 @@ from django.utils.html import strip_tags
 import requests
 
 from posthog.dataclasses import frozen
-from posthog.egress.google_workspace import google_workspace_request
+from posthog.egress.google_workspace import google_workspace_request, raise_if_transient_google_workspace_status
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
 from posthog.models.organization import OrganizationMembership
 
@@ -617,7 +617,8 @@ def _get_json_allowing_missing(
 
 def _response_json(response: requests.Response, operation: str) -> dict[str, Any]:
     if response.status_code != 200:
-        raise GmailSyncError(f"{operation} returned {response.status_code}: {response.text[:200]}")
+        raise_if_transient_google_workspace_status(response, operation)
+        raise GmailSyncError(f"{operation} returned {response.status_code}")
     try:
         payload = response.json()
     except ValueError as error:

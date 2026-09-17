@@ -1,5 +1,5 @@
 import base64
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest
@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
+from posthog.egress.google_workspace import GoogleWorkspaceTransientError
 from posthog.egress.google_workspace.transport import GoogleWorkspaceEgressBudgetExhausted
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
@@ -291,6 +292,20 @@ class TestGmailSync(BaseTest):
         assert gmail_sync.GMAIL_PENDING_MESSAGE_IDS_CONFIG_KEY not in self.integration.config
         message = EmailThreadMessage.objects.for_team(self.team.id).select_related("comment").get()
         assert message.comment.content == "Customer message body"
+
+    def test_transient_upstream_status_raises_a_retryable_transient_error(self) -> None:
+        transient = MagicMock(status_code=500, headers={"Retry-After": "45"})
+        with patch.object(gmail_sync, "google_workspace_request", side_effect=[transient]):
+            with self.assertRaises(GoogleWorkspaceTransientError) as ctx:
+                gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
+        assert ctx.exception.retry_after == timedelta(seconds=45)
+
+    def test_permanent_upstream_status_raises_without_the_response_body(self) -> None:
+        forbidden = MagicMock(status_code=403, headers={}, text='{"error": "rateLimitExceeded"}')
+        with patch.object(gmail_sync, "google_workspace_request", side_effect=[forbidden]):
+            with self.assertRaises(gmail_sync.GmailSyncError) as ctx:
+                gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
+        assert str(ctx.exception) == "Gmail API returned 403"
 
     def test_deleted_attachment_is_skipped(self) -> None:
         message = _gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.email)
