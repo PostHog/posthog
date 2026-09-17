@@ -61,7 +61,8 @@ Reads use strongly consistent `BatchGetItem` requests with bounded retries for u
 A retry stops when the caller's deadline expires.
 
 Ingestion holds a usable session key row and image key row in the process, and a KMS plaintext cache reduces repeated decrypt calls.
-A team block row and a row with no wrapped key are never held, so every read refuses a blocked team and sees a repaired row.
+A row with no wrapped key is never held, so a repaired row is seen at once.
+A team block row is held once a read finds one, because nothing clears a block. Only a row that exists is ever held, so the cache holds "blocked" and never "not blocked": a team with no block is read from DynamoDB on every batch, and a block takes effect on the next one.
 A tombstone is held, because a shred only ever sets one and a conditional put cannot overwrite a row that exists, so a deleted session stops costing a read and a refused write on every batch.
 A session key deleted out of band stays usable in a process that already read it, until that entry expires.
 `ROW_CACHE_LIFETIME_MS` therefore sets how soon ingestion observes a session deletion.

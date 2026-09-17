@@ -536,6 +536,10 @@ describe('ML session key batches', () => {
         // Only the team block row reached DynamoDB. The session row was served from the cache and did not hide the block.
         expect(boundary.readSizes.slice(readsBefore).reduce((total, size) => total + size, 0)).toBe(1)
         expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
+        // The block is held once seen, so a team that keeps sending stops costing a read per batch.
+        const afterBlockRead = boundary.readSizes.length
+        expect((await store.prepare([session])).get(session.teamId, session.sessionId)).toBeUndefined()
+        expect(boundary.readSizes.slice(afterBlockRead).reduce((total, size) => total + size, 0)).toBe(0)
     })
 
     it('holds a session tombstone so a deleted session stops costing a read and a doomed write', async () => {

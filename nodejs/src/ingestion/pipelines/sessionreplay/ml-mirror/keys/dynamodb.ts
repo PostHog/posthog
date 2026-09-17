@@ -10,7 +10,7 @@ import pLimit from 'p-limit'
 
 import { MlKeyRequest, MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 
-import { TableKey, holdsStoredKey, storedSessionId, tableKeyString } from './schema'
+import { TableKey, holdsCacheableRow, storedSessionId, tableKeyString } from './schema'
 import { isTransientError } from './transient'
 
 // A shredded key decrypts nothing, so these bounds stop a row being held forever rather than meet a deletion deadline.
@@ -85,7 +85,7 @@ export class MlKeyDynamoDB {
     // Only a usable key row is stable enough to cache, because putIfAbsent writes it once. A team block row decides
     // whether a batch may mint new keys, so a stale absent one would write durable keys for a team that asked to be blocked.
     private cacheable(key: TableKey): boolean {
-        return holdsStoredKey(key)
+        return holdsCacheableRow(key)
     }
 
     private hold(key: TableKey, item: DynamoItem): void {
