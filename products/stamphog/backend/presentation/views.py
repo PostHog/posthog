@@ -187,8 +187,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
     serializer_class = StamphogRepoConfigSerializer
 
     def _get_or_404(self, pk: str | None) -> contracts.RepoConfigDTO:
-        # A direct lookup, not a scan of the team's configs: an installation can surface hundreds of
-        # repositories, and every detail read and every enable toggle goes through here.
+        # A keyed lookup, not a scan: an installation can surface hundreds of repositories.
         config = facade_api.get_repo_config_by_id(self.canonical_team_id, str(pk))
         if config is None:
             raise NotFound()
