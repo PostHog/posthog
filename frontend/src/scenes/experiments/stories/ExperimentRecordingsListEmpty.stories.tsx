@@ -169,6 +169,32 @@ export const ExperimentRecordingsEmptyMetricFilterFailed: Story = {
     play: pickFiredNone,
 }
 
+// A results-row link for a metric the tab can't select. It carries no metric and no mode, so the
+// caption strip is the only thing that says the list is every recording of the variant, and why.
+const DROPPED_METRIC_URL = `${urls.experiment(EXPERIMENT_WITH_FUNNEL_METRIC.id)}?tab=recordings&variant=test-1&entry=results_button&metric_unavailable=server_side_events`
+const DROPPED_METRIC_CAPTION = '[data-attr="experiment-recordings-dropped-metric-caption"]'
+
+export const ExperimentRecordingsDroppedMetric: Story = {
+    parameters: {
+        pageUrl: DROPPED_METRIC_URL,
+        testOptions: { waitForSelector: DROPPED_METRIC_CAPTION },
+    },
+}
+
+/**
+ * The ~520px of scene a nav sidebar and an open side panel leave. The caption is a long sentence,
+ * so this is where it has to wrap rather than clip.
+ */
+export const ExperimentRecordingsDroppedMetricNarrow: Story = {
+    parameters: {
+        pageUrl: DROPPED_METRIC_URL,
+        testOptions: {
+            waitForSelector: DROPPED_METRIC_CAPTION,
+            viewport: { width: 767, height: 1200 },
+        },
+    },
+}
+
 /**
  * The same matched-nothing state, reached by a results-row link rather than by hand. This is the
  * one place the whole deep link runs end to end: the scene keeps the params through its first URL

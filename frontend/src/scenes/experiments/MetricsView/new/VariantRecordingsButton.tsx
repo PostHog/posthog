@@ -32,6 +32,9 @@ export interface VariantRecordingsButtonProps {
  * The recordings link on a variant row: one click opens the Recordings tab on the metric's default
  * population, and the caret offers the other populations plus every recording of the variant.
  *
+ * When the tab cannot select the metric there is no default population, so the one click opens
+ * every recording of the variant and carries the reason for the tab to explain.
+ *
  * The tab scopes its list per person through the experiment's exposure, so no link here needs an
  * exposure filter of its own.
  */
@@ -43,7 +46,7 @@ export function VariantRecordingsButton({
     surface,
     modes,
 }: VariantRecordingsButtonProps): JSX.Element {
-    const { metricSelectable, unselectableReason, defaultMode, menuItems } = modes
+    const { metricSelectable, unselectableReason, unselectableCode, defaultMode, menuItems } = modes
     // A metric the tab would drop must not reach the URL, or the list would answer without the
     // filter the label promised.
     const metricUuid = metricSelectable ? (metric.uuid ?? null) : null
@@ -57,6 +60,10 @@ export function VariantRecordingsButton({
             metricUuid: metricFilterMode === null ? null : metricUuid,
             metricFilterMode,
             entry,
+            // Only the one-click fallback needs it. A menu item named "All recordings of this
+            // variant" already says what it opens, so an explanation there would answer a question
+            // the reader did not ask.
+            metricUnavailable: entry === 'results_button' ? unselectableCode : null,
         })
 
     const trackClick = (
@@ -71,6 +78,9 @@ export function VariantRecordingsButton({
             trigger,
             surface,
             is_baseline: isBaseline,
+            // Null on an ordinary click. Non-null means the metric filter was dropped and the link
+            // opened the variant's whole list instead, which is the population this measures.
+            metric_unavailable_reason: unselectableCode,
         })
     }
 
@@ -80,10 +90,7 @@ export function VariantRecordingsButton({
             type="secondary"
             truncate
             icon={<IconRewindPlay />}
-            tooltip="Watch recordings of this variant on the Recordings tab."
-            // Without a default mode the one click would open the variant's whole list under a
-            // label that promises the metric's population. The caret still offers that list, named.
-            disabledReason={defaultMode === null ? unselectableReason : null}
+            tooltip={unselectableReason ?? 'Watch recordings of this variant on the Recordings tab.'}
             to={linkTo(defaultMode, 'results_button')}
             data-attr="experiment-metrics-view-recordings"
             onClick={() => trackClick(defaultMode, 'button')}
