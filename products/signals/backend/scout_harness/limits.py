@@ -149,6 +149,11 @@ AUTO_PAUSE_PROBE_INTERVAL_S = 24 * 60 * 60
 TRIGGERED_BY_SCHEDULE = "schedule"
 TRIGGERED_BY_MANUAL = "manual"
 TRIGGERED_BY_WORKFLOW = "workflow"
+# A report check the coordinator dispatched (`report_check_agent`). It is a fourth source rather
+# than a flavour of `schedule` because the check owns the clock: the scout's own cadence decides
+# nothing about it, so it must not stamp `last_run_at` and its failures must not size a breaker
+# threshold derived from that cadence.
+TRIGGERED_BY_CHECK = "check"
 
 # Minimum gap between two workflow-triggered runs of the same (team, skill), enforced scout-side.
 # The workflow layer has its own first line of defence (trigger masking), but that lives in

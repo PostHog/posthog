@@ -13,6 +13,7 @@ from django.db import OperationalError, close_old_connections
 import structlog
 
 from posthog.cloud_utils import is_cloud
+from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 from posthog.psycopg_helpers import (
     is_resolvable_hostname,
@@ -76,11 +77,12 @@ class TemporaryHostResolutionError(NonReportableError):
 class HostNotAllowedError(NonReportableError):
     """A direct database or SSH tunnel host resolved to an address PostHog won't connect to.
 
-    Raised at connect time by `_check_direct_host` and `_pinned_ssh_host`. A host can pass the
-    validation-layer check and still land here, because each check resolves the host again and a
-    short-TTL record can answer public for one lookup and private for the next. It is always the
-    customer's own DNS or network config, never a PostHog defect, and retrying re-hits the same
-    rejection, so it must fail the work without minting an error tracking issue.
+    Raised at connect time by `_check_direct_host`, `_pinned_ssh_host`, `pinned_connect_host` and
+    `pinned_host_kwargs`. A host can pass the validation-layer check and still land here, because
+    each check resolves the host again and a short-TTL record can answer public for one lookup and
+    private for the next. It is always the customer's own DNS or network config, never a PostHog
+    defect, and retrying re-hits the same rejection, so it must fail the work without minting an
+    error tracking issue.
 
     Two connect paths reach it, and each suppresses reporting its own way:
     - Import pipeline (Temporal): `NonReportableError` makes the activity interceptor fail the
@@ -269,6 +271,36 @@ def host_lookup_is_skipped() -> bool:
 
 def _normalize_host(host: str) -> str:
     return host.lower().strip().rstrip(".")
+
+
+def unbracket_host(host: str) -> str:
+    """Return an IPv6 literal without the brackets it carries inside a `host:port` string.
+
+    Both `_is_safe_public_ip` and the resolver want the bare address. Anything else, a hostname or
+    an IPv4 literal, comes back unchanged.
+    """
+    inner = host.strip()
+    if not (inner.startswith("[") and inner.endswith("]")):
+        return host
+    try:
+        ipaddress.ip_address(inner[1:-1])
+    except ValueError:
+        return host
+    return inner[1:-1]
+
+
+def bracket_host(host: str) -> str:
+    """Return an IPv6 address in the form a `host:port` string needs.
+
+    The inverse of `unbracket_host`: a client that joins host and port with a colon cannot tell an
+    IPv6 address from its own port. A hostname or an IPv4 address comes back unchanged.
+    """
+    stripped = host.strip()
+    try:
+        parsed = ipaddress.ip_address(stripped)
+    except ValueError:
+        return host
+    return f"[{stripped}]" if parsed.version == 6 else host
 
 
 _HOST_LABEL = re.compile(r"^(?!-)[a-z0-9_-]{1,63}(?<!-)\Z")
@@ -463,6 +495,14 @@ def _require_loopback(host: str) -> str:
     return host
 
 
+def _checked_connect_host(host: str, team_id: int | None, refusal_prefix: str) -> str:
+    """Return the address `resolve_safe_host` approves for `host`, or raise `HostNotAllowedError`."""
+    resolution = resolve_safe_host(host, team_id)
+    if resolution.connect_host is None:
+        raise HostNotAllowedError(f"{refusal_prefix}: {resolution.error or _INTERNAL_IP_ERROR}")
+    return resolution.connect_host
+
+
 def _pinned_ssh_host(ssh_config, team_id: int | None) -> str:
     """Resolve the SSH host and return the address to open the tunnel to.
 
@@ -472,10 +512,40 @@ def _pinned_ssh_host(ssh_config, team_id: int | None) -> str:
     public address at setup is never re-checked on any later scheduled run. The SSH hop is a
     raw socket that no egress proxy sees, which makes this check the only thing in its path.
     """
-    resolution = resolve_safe_host(ssh_config.host, team_id)
-    if resolution.connect_host is None:
-        raise HostNotAllowedError(f"{SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR}: {resolution.error}")
-    return resolution.connect_host
+    return _checked_connect_host(ssh_config.host, team_id, SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR)
+
+
+@frozen
+class DialTarget:
+    """Where `pinned_connect_host` sends a connection.
+
+    `host` is the address to dial, in brackets when it is IPv6, so it joins a port with a colon.
+    `tls_server_name` is the configured hostname, which the server certificate must match once
+    the dial goes to an address. It is None when the configured host is itself an address.
+    """
+
+    host: str
+    tls_server_name: str | None
+
+
+def pinned_connect_host(host: str, team_id: int | None) -> DialTarget:
+    """Resolve `host` and return the address to dial and the name to check TLS against.
+
+    For a source whose client dials the host itself, on a raw socket that no egress proxy sees.
+    A client that takes the hostname resolves it a second time, and a record with a short TTL can
+    answer public for the check and private for that second lookup. Dialling the address the check
+    approved closes that race, so the hostname goes to TLS separately.
+
+    `host` can be an IPv6 address in brackets, the form a `host:port` string needs. The brackets
+    come off here rather than in `resolve_safe_host`. The database drivers dial the host as written
+    and cannot dial the bracketed form, so their check must keep refusing it.
+    """
+    lookup_host = unbracket_host(host)
+    connect_host = _checked_connect_host(lookup_host, team_id, DATABASE_HOST_NOT_ALLOWED_ERROR)
+    return DialTarget(
+        host=bracket_host(connect_host),
+        tls_server_name=lookup_host if is_resolvable_hostname(lookup_host) else None,
+    )
 
 
 def _check_direct_host(config, team_id: int | None) -> None:
@@ -506,9 +576,7 @@ def _check_direct_host(config, team_id: int | None) -> None:
     activity until Temporal's `start_to_close_timeout` rather than failing fast and retryably.
     Bounding this one is the follow-up.
     """
-    resolution = resolve_safe_host(config.host, team_id)
-    if resolution.connect_host is None:
-        raise HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error or _INTERNAL_IP_ERROR}")
+    _checked_connect_host(config.host, team_id, DATABASE_HOST_NOT_ALLOWED_ERROR)
 
 
 @contextmanager

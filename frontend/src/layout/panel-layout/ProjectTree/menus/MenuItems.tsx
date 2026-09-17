@@ -54,6 +54,7 @@ interface MenuItemsProps {
     root?: string
     onlyTree?: boolean
     logicKey?: string
+    isActiveInPanel?: boolean
     showSelectMenuOption?: boolean
 }
 
@@ -65,6 +66,7 @@ export function MenuItems({
     root,
     onlyTree,
     logicKey,
+    isActiveInPanel,
     showSelectMenuOption = true,
 }: MenuItemsProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
@@ -74,7 +76,7 @@ export function MenuItems({
     const { deleteGroupType } = useActions(groupAnalyticsConfigLogic)
     const { enabledToolPaths: customProductsSelectedPaths } = useValues(customProductsLogic)
 
-    const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
+    const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root, isActiveInPanel }
     const { checkedItems, checkedItemCountNumeric, checkedItemsArray } = useValues(
         projectTreeLogic(projectTreeLogicProps)
     )

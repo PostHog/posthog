@@ -1,5 +1,8 @@
+import hmac
 import json
+import time
 import hashlib
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -7,21 +10,30 @@ from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.db import DatabaseError, OperationalError
 from django.http import HttpResponse
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework.test import APIClient
 from slack_sdk.errors import SlackApiError
 
+from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
+from posthog.ingress.dispatch.dedup import DeliveryDedup
 from posthog.models.integration import SlackIntegrationError
 from posthog.models.organization import OrganizationMembership
 
+from products.conversations.backend.facade.api import accept_slack_event, slack_delivery_ownership
 from products.conversations.backend.models import (
     ConversationInboundEvent,
     ConversationInboundEventSource,
     TeamConversationsSlackConfig,
 )
 from products.conversations.backend.models.inbound_event import INBOUND_PAYLOAD_MAX_BYTES
+
+SUPPORT_SLACK_SIGNING_SECRET = "slack-signing-secret"
+SLACK_EVENTS_MODULE = "products.conversations.backend.services.slack_events"
+WAKE_INBOUND_EVENT = f"{SLACK_EVENTS_MODULE}.wake_inbound_event"
 
 
 class TestSupportSlackEventsAPI(BaseTest):
@@ -38,14 +50,34 @@ class TestSupportSlackEventsAPI(BaseTest):
         )
         self.client = APIClient()
         cache.clear()
+        signing_secret = patch(
+            "products.conversations.backend.support_slack.get_support_slack_settings",
+            return_value={"SUPPORT_SLACK_SIGNING_SECRET": SUPPORT_SLACK_SIGNING_SECRET},
+        )
+        signing_secret.start()
+        self.addCleanup(signing_secret.stop)
 
-    def _post(self, payload: dict[str, Any], **kwargs):
+    def _signed_headers(self, body: bytes) -> dict[str, str]:
+        timestamp = str(int(time.time()))
+        signature = hmac.new(
+            SUPPORT_SLACK_SIGNING_SECRET.encode("utf-8"),
+            b"v0:" + timestamp.encode("utf-8") + b":" + body,
+            hashlib.sha256,
+        ).hexdigest()
+        return {"x-slack-request-timestamp": timestamp, "x-slack-signature": f"v0={signature}"}
+
+    def _post_raw(self, body: bytes, **kwargs: Any):
+        headers = {**self._signed_headers(body), **kwargs.pop("headers", {})}
         return self.client.post(
             "/api/conversations/v1/slack/events",
-            data=json.dumps(payload),
+            data=body,
             content_type="application/json",
+            headers=headers,
             **kwargs,
         )
+
+    def _post(self, payload: dict[str, Any], **kwargs: Any):
+        return self._post_raw(json.dumps(payload).encode("utf-8"), **kwargs)
 
     def _post_committed(self, payload: dict[str, Any], **kwargs: Any) -> HttpResponse:
         with self.captureOnCommitCallbacks(execute=True):
@@ -54,18 +86,17 @@ class TestSupportSlackEventsAPI(BaseTest):
     def _event_row(self) -> ConversationInboundEvent:
         return ConversationInboundEvent.objects.for_team(self.team.id).get()
 
-    @patch("products.conversations.backend.api.slack_events.validate_support_request")
-    def test_invalid_signature_returns_403(self, mock_validate: MagicMock):
-        mock_validate.side_effect = SlackIntegrationError("Invalid")
-
-        response = self._post({"type": "event_callback"})
+    def test_invalid_signature_returns_403(self):
+        response = self.client.post(
+            "/api/conversations/v1/slack/events",
+            data=json.dumps({"type": "event_callback"}),
+            content_type="application/json",
+        )
 
         assert response.status_code == 403
 
-    @patch("products.conversations.backend.api.slack_events.wake_inbound_event")
-    @patch("products.conversations.backend.api.slack_events.validate_support_request")
-    def test_slack_retry_is_recorded_and_processed(self, mock_validate: MagicMock, mock_wake: MagicMock):
-        mock_validate.return_value = None
+    @patch(WAKE_INBOUND_EVENT)
+    def test_slack_retry_is_recorded_and_processed(self, mock_wake: MagicMock):
         payload = {
             "type": "event_callback",
             "event_id": "Ev_retry",
@@ -85,31 +116,19 @@ class TestSupportSlackEventsAPI(BaseTest):
         assert row.provider_retry_reason == "http_timeout"
         assert row.status == ConversationInboundEvent.Status.PENDING
 
-    @patch("products.conversations.backend.api.slack_events.validate_support_request")
-    def test_invalid_json_returns_400(self, mock_validate: MagicMock):
-        mock_validate.return_value = None
-
-        response = self.client.post(
-            "/api/conversations/v1/slack/events",
-            data="{",
-            content_type="application/json",
-        )
+    def test_invalid_json_returns_400(self):
+        response = self._post_raw(b"{")
 
         assert response.status_code == 400
 
-    @patch("products.conversations.backend.api.slack_events.validate_support_request")
-    def test_url_verification_returns_challenge(self, mock_validate: MagicMock):
-        mock_validate.return_value = None
-
+    def test_url_verification_returns_challenge(self):
         response = self._post({"type": "url_verification", "challenge": "challenge123"})
 
         assert response.status_code == 200
         assert response.json() == {"challenge": "challenge123"}
 
-    @patch("products.conversations.backend.api.slack_events.wake_inbound_event")
-    @patch("products.conversations.backend.api.slack_events.validate_support_request")
-    def test_event_callback_enqueues_processing(self, mock_validate: MagicMock, mock_wake: MagicMock):
-        mock_validate.return_value = None
+    @patch(WAKE_INBOUND_EVENT)
+    def test_event_callback_enqueues_processing(self, mock_wake: MagicMock):
         payload = {
             "type": "event_callback",
             "event_id": "Ev_123",
@@ -122,30 +141,54 @@ class TestSupportSlackEventsAPI(BaseTest):
 
         assert first.status_code == 202
         assert second.status_code == 202
+        # The redelivery reaches the consumer now, and the unique receipt absorbs it into one row.
         assert ConversationInboundEvent.objects.for_team(self.team.id).count() == 1
         assert mock_wake.call_count == 2
 
-    @patch("products.conversations.backend.api.slack_events.wake_inbound_event")
-    @patch("products.conversations.backend.api.slack_events.validate_support_request")
-    def test_event_callback_routes_to_handler(self, mock_validate: MagicMock, mock_wake: MagicMock):
-        mock_validate.return_value = None
+    @patch(WAKE_INBOUND_EVENT)
+    def test_a_redelivery_reaches_the_handler_past_a_dedup_mark_a_dead_run_left(self, mock_wake: MagicMock):
+        # A run that exits between the dedup claim and the receipt commit leaves the mark behind.
+        payload = {
+            "type": "event_callback",
+            "event_id": "Ev_abandoned",
+            "team_id": "T123",
+            "event": {"type": "message", "channel": "C1"},
+        }
+        DeliveryDedup().claim(provider="slack", consumer="conversations_slack", delivery_id="Ev_abandoned")
 
+        response = self._post_committed(payload)
+
+        assert response.status_code == 202
+        mock_wake.assert_called_once()
+        assert self._event_row().source_id == "Ev_abandoned"
+
+    # Spelled out rather than read from the provider, so dropping a type there fails here.
+    @parameterized.expand(
+        [
+            ("app_mention",),
+            ("link_shared",),
+            ("message",),
+            ("reaction_added",),
+            ("member_joined_channel",),
+            ("member_left_channel",),
+        ]
+    )
+    @patch(WAKE_INBOUND_EVENT)
+    def test_every_subscribed_event_type_reaches_the_consumer(self, event_type: str, mock_wake: MagicMock):
         response = self._post_committed(
             {
                 "type": "event_callback",
-                "event_id": "Ev_456",
+                "event_id": f"Ev_{event_type}",
                 "team_id": "T123",
-                "event": {"type": "reaction_added"},
+                "event": {"type": event_type},
             }
         )
 
         assert response.status_code == 202
         mock_wake.assert_called_once()
 
-    @patch("products.conversations.backend.api.slack_events.wake_inbound_event")
-    @patch("products.conversations.backend.api.slack_events.validate_support_request")
-    def test_broker_failure_after_commit_still_acknowledges(self, mock_validate: MagicMock, mock_wake: MagicMock):
-        mock_validate.return_value = None
+    @patch(WAKE_INBOUND_EVENT)
+    def test_broker_failure_after_commit_still_acknowledges(self, mock_wake: MagicMock):
         mock_wake.side_effect = ConnectionError("broker down")
         payload = {
             "type": "event_callback",
@@ -161,10 +204,27 @@ class TestSupportSlackEventsAPI(BaseTest):
         assert row.status == ConversationInboundEvent.Status.PENDING
         assert row.source_id == "Ev_broker"
 
-    @patch("products.conversations.backend.api.slack_events.wake_inbound_event")
-    @patch("products.conversations.backend.api.slack_events.validate_support_request")
-    def test_oversized_payload_is_tombstoned_and_acknowledged(self, mock_validate: MagicMock, mock_wake: MagicMock):
-        mock_validate.return_value = None
+    @patch(WAKE_INBOUND_EVENT)
+    @patch(f"{SLACK_EVENTS_MODULE}.accept_inbound_event")
+    def test_a_receipt_write_that_raises_is_not_acknowledged(self, mock_accept: MagicMock, mock_wake: MagicMock):
+        # The receipt is the product's only durable record of the event, and no sweeper can
+        # recover one that was never written, so the request must not earn Slack's 202.
+        mock_accept.side_effect = DatabaseError("receipt write failed")
+        payload = {
+            "type": "event_callback",
+            "event_id": "Ev_unwritten",
+            "team_id": "T123",
+            "event": {"type": "message", "channel": "C1"},
+        }
+
+        response = self._post_committed(payload)
+
+        assert response.status_code == 502
+        mock_wake.assert_not_called()
+        assert not ConversationInboundEvent.objects.unscoped().filter(source_id="Ev_unwritten").exists()
+
+    @patch(WAKE_INBOUND_EVENT)
+    def test_oversized_payload_is_tombstoned_and_acknowledged(self, mock_wake: MagicMock):
         payload = {
             "type": "event_callback",
             "event_id": "Ev_poison",
@@ -181,73 +241,125 @@ class TestSupportSlackEventsAPI(BaseTest):
         assert row.status == ConversationInboundEvent.Status.FAILED
         assert row.last_error_code == "payload_too_large"
 
-    @patch("products.conversations.backend.api.slack_events.proxy_to_secondary_region")
-    @patch("products.conversations.backend.api.slack_events.wake_inbound_event")
-    @patch("products.conversations.backend.api.slack_events.validate_support_request")
-    def test_proxies_to_secondary_when_team_not_found_on_primary(
-        self, mock_validate: MagicMock, mock_wake: MagicMock, mock_proxy: MagicMock
+    @parameterized.expand(
+        [
+            ("the owning region accepts it", 202, 202),
+            # Slack redelivers on a non-2xx, so a forward that never landed must not be receipted.
+            ("the owning region is unreachable", 500, 502),
+        ]
+    )
+    def test_a_workspace_another_region_owns_is_forwarded_once_from_the_primary(
+        self, _name: str, secondary_status: int, expected_status: int
     ):
-        mock_validate.return_value = None
-        mock_proxy.return_value = True
+        payload = {
+            "type": "event_callback",
+            "event_id": "Ev_forward",
+            "team_id": "T_UNKNOWN",
+            "event": {"type": "message", "channel": "C1"},
+        }
 
-        with patch("products.conversations.backend.api.slack_events.is_primary_region", return_value=True):
-            response = self._post(
-                {
-                    "type": "event_callback",
-                    "event_id": "Ev_proxy",
-                    "team_id": "T_UNKNOWN",
-                    "event": {"type": "message", "channel": "C1"},
-                },
-            )
+        with (
+            patch(WAKE_INBOUND_EVENT) as mock_wake,
+            patch("posthog.regions.PRIMARY_REGION_DOMAIN", "testserver"),
+            patch("posthog.ingress.dispatch.forward.requests.request") as mock_forward,
+        ):
+            mock_forward.return_value = MagicMock(ok=200 <= secondary_status < 300, status_code=secondary_status)
+            response = self._post(payload)
 
-        assert response.status_code == 202
+        assert response.status_code == expected_status
+        mock_forward.assert_called_once()
         mock_wake.assert_not_called()
-        mock_proxy.assert_called_once()
-        assert not ConversationInboundEvent.objects.unscoped().filter(source_id="Ev_proxy").exists()
+        assert not ConversationInboundEvent.objects.unscoped().filter(source_id="Ev_forward").exists()
 
-    @patch("products.conversations.backend.api.slack_events.proxy_to_secondary_region")
-    @patch("products.conversations.backend.api.slack_events.wake_inbound_event")
-    @patch("products.conversations.backend.api.slack_events.validate_support_request")
-    def test_returns_502_when_event_proxy_to_secondary_fails(
-        self, mock_validate: MagicMock, mock_wake: MagicMock, mock_proxy: MagicMock
+    @patch(f"{SLACK_EVENTS_MODULE}.team_for_slack_workspace")
+    def test_a_workspace_lookup_that_hits_its_timeout_asks_slack_to_redeliver(self, mock_lookup: MagicMock):
+        # The delivery carries the workspace's support messages, so a lookup that never finished
+        # must not send them to the other region: it has not shown that region owns the workspace.
+        mock_lookup.side_effect = OperationalError("canceling statement due to statement timeout")
+        payload = {
+            "type": "event_callback",
+            "event_id": "Ev_timeout",
+            "team_id": "T123",
+            "event": {"type": "message", "channel": "C1"},
+        }
+
+        with (
+            patch(WAKE_INBOUND_EVENT) as mock_wake,
+            patch("posthog.regions.PRIMARY_REGION_DOMAIN", "testserver"),
+            patch("posthog.ingress.dispatch.forward.requests.request") as mock_forward,
+        ):
+            refused = self._post(payload)
+
+        assert refused.status_code == 502
+        mock_forward.assert_not_called()
+        mock_wake.assert_not_called()
+        assert not ConversationInboundEvent.objects.unscoped().filter(source_id="Ev_timeout").exists()
+
+        # Nothing claimed a dedup mark, so Slack's redelivery is the recovery rather than a drop.
+        mock_lookup.side_effect = None
+        mock_lookup.return_value = self.team
+        with patch(WAKE_INBOUND_EVENT) as mock_wake:
+            redelivered = self._post_committed(payload)
+
+        assert redelivered.status_code == 202
+        mock_wake.assert_called_once()
+        assert self._event_row().source_id == "Ev_timeout"
+
+
+class TestSupportSlackDeliveries(BaseTest):
+    def setUp(self):
+        super().setUp()
+        TeamConversationsSlackConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"slack_team_id": "T123", "slack_bot_token": "xoxb-test"},
+        )
+
+    def _delivery(self, context: dict[str, str]) -> WebhookDelivery:
+        return WebhookDelivery(
+            provider="slack",
+            app="supporthog",
+            delivery_id="Ev_own",
+            event_type="message",
+            payload={
+                "type": "event_callback",
+                "team_id": context.get("slack_team_id", ""),
+                "event": {"type": "message"},
+            },
+            received_at=timezone.now(),
+            context=context,
+        )
+
+    @parameterized.expand(
+        [
+            ("a workspace this region holds", {"slack_team_id": "T123"}, DeliveryOwnership.LOCAL),
+            ("a workspace it does not", {"slack_team_id": "T_UNKNOWN"}, DeliveryOwnership.ELSEWHERE),
+            ("a delivery naming no workspace", {}, DeliveryOwnership.UNDECIDED),
+        ]
+    )
+    def test_ownership(self, _name: str, context: dict[str, str], expected: DeliveryOwnership):
+        assert slack_delivery_ownership(self._delivery(context)) == expected
+
+    @parameterized.expand(
+        [
+            ("the ownership lookup", slack_delivery_ownership),
+            ("the consumer", accept_slack_event),
+        ]
+    )
+    @patch(WAKE_INBOUND_EVENT)
+    @patch(f"{SLACK_EVENTS_MODULE}.team_for_slack_workspace")
+    def test_a_workspace_lookup_that_hits_its_timeout_raises_out_of(
+        self, _name: str, entry_point: Callable[[WebhookDelivery], Any], mock_lookup: MagicMock, mock_wake: MagicMock
     ):
-        mock_validate.return_value = None
-        mock_proxy.return_value = False
+        # Answering through a timeout is what ingress cannot recover from: an `ELSEWHERE` guess
+        # forwards a workspace this region owns to the other one, and a quiet return receipts a
+        # delivery that was never written. Raising asks Slack to redeliver.
+        mock_lookup.side_effect = OperationalError("canceling statement due to statement timeout")
 
-        with patch("products.conversations.backend.api.slack_events.is_primary_region", return_value=True):
-            response = self._post(
-                {
-                    "type": "event_callback",
-                    "event_id": "Ev_proxy_fail",
-                    "team_id": "T_UNKNOWN",
-                    "event": {"type": "message", "channel": "C1"},
-                },
-            )
+        with self.assertRaises(OperationalError):
+            entry_point(self._delivery({"slack_team_id": "T123"}))
 
-        assert response.status_code == 502
         mock_wake.assert_not_called()
-
-    @patch("products.conversations.backend.api.slack_events.proxy_to_secondary_region")
-    @patch("products.conversations.backend.api.slack_events.wake_inbound_event")
-    @patch("products.conversations.backend.api.slack_events.validate_support_request")
-    def test_drops_event_when_team_not_found_on_secondary(
-        self, mock_validate: MagicMock, mock_wake: MagicMock, mock_proxy: MagicMock
-    ):
-        mock_validate.return_value = None
-
-        with patch("products.conversations.backend.api.slack_events.is_primary_region", return_value=False):
-            response = self._post(
-                {
-                    "type": "event_callback",
-                    "event_id": "Ev_drop",
-                    "team_id": "T_UNKNOWN",
-                    "event": {"type": "message", "channel": "C1"},
-                },
-            )
-
-        assert response.status_code == 202
-        mock_wake.assert_not_called()
-        mock_proxy.assert_not_called()
+        assert not ConversationInboundEvent.objects.unscoped().filter(source_id="Ev_own").exists()
 
 
 class TestSupportSlackInteractivityAPI(BaseTest):

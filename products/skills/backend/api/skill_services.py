@@ -1,15 +1,17 @@
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, TypeVar
 
 from django.db import IntegrityError, transaction
-from django.db.models import QuerySet
+from django.db.models import Max, QuerySet
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
-from ..marketplace.packaging import CODEX_METADATA_PATH, SPEC_DESCRIPTION_MAX_LENGTH
+from ..bundled_skills import bundled_skill_names
+from ..marketplace.packaging import CODEX_METADATA_PATH, SPEC_DESCRIPTION_MAX_LENGTH, compute_plugin_version
 from ..models.skills import (
     CATEGORY_BY_NAME_PREFIX,
     LLMSkill,
@@ -41,6 +43,24 @@ MAX_SKILL_NAME_LENGTH = 64
 # Bundled-file paths that would collide with generated artifacts in the exported skill
 # tree / plugin marketplace (the rendered SKILL.md). Compared case-insensitively.
 RESERVED_SKILL_FILE_PATHS = {"skill.md"}
+
+
+def bundled_skill_name_error(value: str) -> str | None:
+    """Why `value` cannot name a new store skill, or None when it can.
+
+    An agent host loads the skills PostHog bundles (products/*/skills, shipped as dist/skills.zip)
+    next to the team's store skills under one flat name space, so a store skill that repeats a
+    bundled name leaves two skills under one name and the host no way to tell which one an agent
+    asked for. The rule holds a name a team claims, not a name that points at a skill the project
+    already holds: the scout harness seeds the canonical `signals-scout-*` skills into every
+    project, so those bundled names are legitimately in use there.
+
+    Returns the message rather than raising it so the REST, MCP tool, community publish and
+    community sync paths can each raise their own error type from the one rule.
+    """
+    if value.lower() not in bundled_skill_names():
+        return None
+    return f"PostHog already ships a skill named '{value}'. Pick a different name."
 
 
 def skill_name_is_well_formed(value: str) -> bool:
@@ -338,6 +358,20 @@ def get_active_skill_queryset(team: Team) -> QuerySet[LLMSkill]:
 
 def get_latest_skills_queryset(team: Team) -> QuerySet[LLMSkill]:
     return get_active_skill_queryset(team).filter(is_latest=True)
+
+
+def team_skills_version(team: Team) -> str:
+    """Keep archived rows in the version so an archive does not expose an older timestamp.
+
+    This is a marketplace version, not a validator for the access-filtered list.
+    In-place writers must update updated_at because QuerySet.update() skips auto_now.
+    """
+    latest = LLMSkill.objects.filter(team=team).aggregate(latest=Max("updated_at"))["latest"]
+    if latest is None:
+        return "1.0.0"
+    elapsed = latest - datetime(1970, 1, 1, tzinfo=UTC)
+    epoch_microseconds = (elapsed.days * 86400 + elapsed.seconds) * 1_000_000 + elapsed.microseconds
+    return compute_plugin_version(epoch_microseconds)
 
 
 def get_skill_by_name_from_db(

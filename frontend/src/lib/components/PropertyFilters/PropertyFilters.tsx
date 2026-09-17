@@ -63,6 +63,8 @@ export interface PropertyFiltersProps {
     excludedOperators?: ExcludedOperators
     selectingKeyOnly?: SelectingKeyOnly
     hideBehavioralCohorts?: boolean
+    /** Mark each cohort row with what feature flags can do with it. See `TaxonomicFilterProps`. */
+    showCohortFlagTargeting?: boolean
     addFilterDocLink?: string
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
     hogQLGlobals?: Record<string, any>
@@ -120,6 +122,7 @@ export function PropertyFilters({
     excludedOperators,
     selectingKeyOnly,
     hideBehavioralCohorts,
+    showCohortFlagTargeting,
     addFilterDocLink,
     operatorAllowlist,
     hogQLGlobals,
@@ -232,6 +235,7 @@ export function PropertyFilters({
                                                 excludedOperators={excludedOperators}
                                                 selectingKeyOnly={selectingKeyOnly}
                                                 hideBehavioralCohorts={hideBehavioralCohorts}
+                                                showCohortFlagTargeting={showCohortFlagTargeting}
                                                 size={buttonSize}
                                                 addFilterDocLink={addFilterDocLink}
                                                 editable={editable}

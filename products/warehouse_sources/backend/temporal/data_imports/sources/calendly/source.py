@@ -1,14 +1,12 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.calendly import (
     CALENDLY_API_VERSION_V1,
     CALENDLY_API_VERSION_V2,
@@ -89,7 +87,7 @@ class CalendlySource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CALENDLY,
+            name=ExternalDataSourceType.CALENDLY,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Calendly",
             releaseStatus=ReleaseStatus.GA,
@@ -169,10 +167,26 @@ Paste the same signing key into the field below so PostHog can verify deliveries
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_calendly_credentials(config.personal_access_token):
+        is_valid, status = validate_calendly_credentials(config.personal_access_token)
+        if is_valid:
             return True, None
 
-        return False, "Invalid Calendly personal access token"
+        if status == 401:
+            return (
+                False,
+                "Calendly rejected your personal access token. Create a new token under "
+                "Integrations → API & Webhooks, then reconnect.",
+            )
+        # The probe reads `/users/me`, which every token may call, so a 403 is an account-wide
+        # restriction rather than a table the token was not scoped for.
+        if status == 403:
+            return (
+                False,
+                "Your Calendly personal access token does not have the required permissions. "
+                "Create a token with access to your Calendly organization, then reconnect.",
+            )
+
+        return False, "PostHog couldn't reach Calendly to check your token. Try connecting again in a few minutes."
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {

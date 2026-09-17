@@ -1,4 +1,3 @@
-import type { WorkspaceMode } from "@posthog/shared";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -18,24 +17,10 @@ vi.mock("../../../shell/logger", () => ({
   logger: { scope: () => ({ warn: vi.fn(), error: vi.fn() }) },
 }));
 
-import { useWarmTask } from "./useWarmTask";
+import { type UseWarmTaskOptions, useWarmTask } from "./useWarmTask";
 import { takeWarmTaskLease } from "./warmTaskLease";
 
-interface Props {
-  workspaceMode: WorkspaceMode;
-  claudeModelAccess?: string;
-  selectedRepository?: string | null;
-  repositories?: string[];
-  githubIntegrationId?: number;
-  allowNoRepo?: boolean;
-  branch?: string | null;
-  editorIsEmpty: boolean;
-  runtimeAdapter?: string | null;
-  model?: string | null;
-  reasoningEffort?: string | null;
-  sandboxEnvironmentId?: string | null;
-  customImageId?: string | null;
-}
+type Props = UseWarmTaskOptions;
 
 const cloudTyping: Props = {
   workspaceMode: "cloud",
@@ -73,9 +58,30 @@ describe("useWarmTask", () => {
     });
   }
 
-  it.each([false, true])(
-    "releases an unused warm run and permits another warm request (late: %s)",
-    async (late) => {
+  it.each<{ reason: string; invalidate: Partial<Props>; late: boolean }>([
+    {
+      reason: "the claude plan",
+      invalidate: { claudeModelAccess: "own-subscription" },
+      late: false,
+    },
+    {
+      reason: "the claude plan",
+      invalidate: { claudeModelAccess: "own-subscription" },
+      late: true,
+    },
+    {
+      reason: "a switch to Pi",
+      invalidate: { agentRuntime: "pi" },
+      late: false,
+    },
+    {
+      reason: "a switch to Pi",
+      invalidate: { agentRuntime: "pi" },
+      late: true,
+    },
+  ])(
+    "releases an unused warm run after $reason and permits another (late: $late)",
+    async ({ invalidate, late }) => {
       let finishWarm:
         | ((value: { task_id: string; run_id: string }) => void)
         | undefined;
@@ -90,7 +96,7 @@ describe("useWarmTask", () => {
         initialProps: cloudTyping,
       });
       await flushDebounce();
-      rerender({ ...cloudTyping, claudeModelAccess: "own-subscription" });
+      rerender({ ...cloudTyping, ...invalidate });
       if (finishWarm)
         await act(async () => {
           finishWarm?.({ task_id: "task-1", run_id: "run-1" });
@@ -135,6 +141,7 @@ describe("useWarmTask", () => {
       props: { githubIntegrationId: undefined },
     },
     { name: "the editor is empty", props: { editorIsEmpty: true } },
+    { name: "the composer sits on Pi", props: { agentRuntime: "pi" } },
   ])("does not fire when $name", async ({ props, flagEnabled }) => {
     if (flagEnabled === false) {
       flagState.enabled = false;

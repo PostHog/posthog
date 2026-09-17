@@ -516,6 +516,18 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = runner.calculate()
         self.assertEqual(len(response.results), 5)
 
+    def test_query_service_runs_do_not_share_a_flight_with_app_runs(self):
+        app_runner = self._create_runner(HogQLQuery(query="select event from events limit 1"))
+        service_runner = self._create_runner(HogQLQuery(query="select event from events limit 1"))
+        service_runner.is_query_service = True
+        with patch(
+            "posthog.hogql_queries.hogql_query_runner.app_settings.API_QUERIES_LEGACY_TEAM_LIST", {self.team.pk + 1}
+        ):
+            assert (service_runner.get_cache_key(), service_runner.single_flight_variant()) != (
+                app_runner.get_cache_key(),
+                app_runner.single_flight_variant(),
+            )
+
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_non_query_service_allows_offset(self, _mock_flag):
         # Product queries (Trends/Funnels/etc.) have is_query_service=False — must pass through

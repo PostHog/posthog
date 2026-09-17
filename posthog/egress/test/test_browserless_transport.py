@@ -5,6 +5,7 @@ from django.test import SimpleTestCase
 import requests
 from parameterized import parameterized
 
+from posthog.egress.browserless.observability import browserless_egress
 from posthog.egress.browserless.transport import BrowserlessEgressBudgetExhausted, browserless_request, fleet_scope
 from posthog.egress.limiter.policies import Priority
 
@@ -49,7 +50,7 @@ class TestBrowserlessTransport(SimpleTestCase):
         with (
             patch("posthog.egress.browserless.transport.consume_browserless_sync", return_value=True) as consume,
             patch("requests.request", return_value=_ok_response()) as request,
-            patch("posthog.egress.browserless.transport.record_browserless_response") as record,
+            patch.object(browserless_egress, "record_requests_response") as record,
         ):
             browserless_request(
                 "POST",
