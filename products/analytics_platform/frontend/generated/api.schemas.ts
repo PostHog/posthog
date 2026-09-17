@@ -19,6 +19,8 @@ export interface PrecomputeInvalidateRequestApi {
 export interface PrecomputeInvalidateResponseApi {
     /** Number of READY jobs marked stale. */
     updated_count: number
+    /** In-flight PENDING jobs left untouched. A job that started before a source resync can still finish READY with pre-resync data; invalidate again once these settle to catch it. */
+    pending_count: number
     /**
      * The hash that was invalidated, or null when all hashes were targeted.
      * @nullable

@@ -22,7 +22,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from django.conf import settings
-from django.db.models import Q
+from django.db.models import F, Max, Q
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -34,7 +34,6 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client import sync_execute
-from posthog.cloud_utils import is_cloud
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 
@@ -137,6 +136,12 @@ class PrecomputeInvalidateRequestSerializer(serializers.Serializer):
 
 class PrecomputeInvalidateResponseSerializer(serializers.Serializer):
     updated_count = serializers.IntegerField(help_text="Number of READY jobs marked stale.")
+    pending_count = serializers.IntegerField(
+        help_text=(
+            "In-flight PENDING jobs left untouched. A job that started before a source resync can still "
+            "finish READY with pre-resync data; invalidate again once these settle to catch it."
+        )
+    )
     query_hash = serializers.CharField(
         allow_null=True, help_text="The hash that was invalidated, or null when all hashes were targeted."
     )
@@ -202,7 +207,9 @@ class PrecomputeDebugViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
 
     def _check_debug_access(self, request: Request) -> Response | None:
-        if request.user.is_staff or settings.DEBUG or is_impersonated_session(request) or not is_cloud():
+        # Staff (or impersonating staff) everywhere, including self-hosted: the
+        # Django staff flag exists there too, so deployment mode grants nothing.
+        if request.user.is_staff or settings.DEBUG or is_impersonated_session(request):
             return None
         return Response({"detail": "Staff access required."}, status=status.HTTP_403_FORBIDDEN)
 
@@ -238,11 +245,23 @@ class PrecomputeDebugViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             limit = MAX_GROUPS_DEFAULT
 
         now = datetime.now(UTC)
+        live_window = Q(expires_at__gte=now) | Q(created_at__gte=now - timedelta(days=JOB_LOOKBACK_DAYS))
+
+        # Pick the top hashes in the database before materializing any job rows,
+        # so a project with many stored hashes never streams them all into Python.
+        top_hash_rows = (
+            PreaggregationJob.objects.filter(live_window, team_id=self.team.pk)
+            .values("query_hash")
+            .annotate(last_computed=Max("computed_at"))
+            .order_by(F("last_computed").desc(nulls_last=True))[:limit]
+        )
+        top_hashes = [row["query_hash"] for row in top_hash_rows]
+        total_hashes = (
+            PreaggregationJob.objects.filter(live_window, team_id=self.team.pk).values("query_hash").distinct().count()
+        )
+
         jobs = (
-            PreaggregationJob.objects.filter(
-                Q(expires_at__gte=now) | Q(created_at__gte=now - timedelta(days=JOB_LOOKBACK_DAYS)),
-                team_id=self.team.pk,
-            )
+            PreaggregationJob.objects.filter(live_window, team_id=self.team.pk, query_hash__in=top_hashes)
             .order_by("-time_range_end")
             .values("query_hash", "time_range_start", "time_range_end", "status", "computed_at", "expires_at")
         )
@@ -255,7 +274,7 @@ class PrecomputeDebugViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             computed = [j["computed_at"] for j in item[1] if j["computed_at"] is not None]
             return max(computed) if computed else datetime.min.replace(tzinfo=UTC)
 
-        ordered = sorted(grouped.items(), key=group_sort_key, reverse=True)[:limit]
+        ordered = sorted(grouped.items(), key=group_sort_key, reverse=True)
 
         groups: list[dict[str, Any]] = []
         job_ids_by_hash: dict[str, str] = {}
@@ -312,7 +331,7 @@ class PrecomputeDebugViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "generated_at": now,
             "job_lookback_days": JOB_LOOKBACK_DAYS,
             "query_log_lookback_days": QUERY_LOG_LOOKBACK_DAYS,
-            "total_hashes": len(grouped),
+            "total_hashes": total_hashes,
             "groups": groups,
         }
         return Response(PrecomputeDebugResponseSerializer(payload).data)
@@ -338,10 +357,16 @@ class PrecomputeDebugViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         request_serializer.is_valid(raise_exception=True)
         query_hash = request_serializer.validated_data["query_hash"]
 
-        jobs = PreaggregationJob.objects.filter(team_id=self.team.pk, status=PreaggregationJob.Status.READY)
+        scope = PreaggregationJob.objects.filter(team_id=self.team.pk)
         if query_hash:
-            jobs = jobs.filter(query_hash=query_hash)
-        updated_count = jobs.update(status=PreaggregationJob.Status.STALE)
+            scope = scope.filter(query_hash=query_hash)
+        updated_count = scope.filter(status=PreaggregationJob.Status.READY).update(
+            status=PreaggregationJob.Status.STALE
+        )
+        # In-flight jobs are not touched, and the executor will still save them
+        # READY when they finish; report them so the operator knows a second
+        # invalidation may be needed after they settle.
+        pending_count = scope.filter(status=PreaggregationJob.Status.PENDING).count()
 
-        payload = {"updated_count": updated_count, "query_hash": query_hash}
+        payload = {"updated_count": updated_count, "pending_count": pending_count, "query_hash": query_hash}
         return Response(PrecomputeInvalidateResponseSerializer(payload).data)

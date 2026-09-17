@@ -67,7 +67,7 @@ function BucketsTable({ group }: { group: PrecomputeDebugGroupApi }): JSX.Elemen
         },
         {
             title: 'Computed',
-            render: (_, bucket) => (bucket.computed_at ? <TZLabel time={bucket.computed_at} /> : '—'),
+            render: (_, bucket) => (bucket.computed_at ? <TZLabel time={bucket.computed_at} /> : 'Never'),
         },
         {
             title: 'TTL remaining',
@@ -139,7 +139,7 @@ export function PrecomputeDebugScene(): JSX.Element {
                         <LemonTag type="default">user read</LemonTag>
                     )
                 ) : (
-                    '—'
+                    'Unknown'
                 ),
         },
         {
@@ -164,7 +164,7 @@ export function PrecomputeDebugScene(): JSX.Element {
         },
         {
             title: 'Last computed',
-            render: (_, group) => (group.last_computed_at ? <TZLabel time={group.last_computed_at} /> : '—'),
+            render: (_, group) => (group.last_computed_at ? <TZLabel time={group.last_computed_at} /> : 'Never'),
         },
         {
             width: 0,

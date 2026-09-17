@@ -79,8 +79,16 @@ export const precomputeDebugLogic = kea<precomputeDebugLogicType>([
                 const result = await precomputeDebugInvalidate(String(getCurrentTeamId()), {
                     query_hash: queryHash,
                 })
+                const pendingNote =
+                    result.pending_count > 0
+                        ? ` (${result.pending_count} in-flight ${
+                              result.pending_count === 1 ? 'job' : 'jobs'
+                          } untouched, invalidate again once ${result.pending_count === 1 ? 'it' : 'they'} settle)`
+                        : ''
                 lemonToast.success(
-                    `Marked ${result.updated_count} precompute ${result.updated_count === 1 ? 'job' : 'jobs'} stale`
+                    `Marked ${result.updated_count} precompute ${
+                        result.updated_count === 1 ? 'job' : 'jobs'
+                    } stale${pendingNote}`
                 )
                 actions.loadDebugState()
             } catch {
