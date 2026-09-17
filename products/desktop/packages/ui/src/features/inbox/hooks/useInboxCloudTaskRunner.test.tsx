@@ -188,10 +188,9 @@ describe("useInboxCloudTaskRunner", () => {
     expect(result.current.isRunning).toBe(false);
     expect(onTaskStarted).not.toHaveBeenCalled();
     expect(mocks.createTask).not.toHaveBeenCalled();
-    expect(mocks.track).not.toHaveBeenCalledWith(
-      "Task created",
-      expect.anything(),
-    );
+    expect(
+      mocks.track.mock.calls.filter(([event]) => event === "Task created"),
+    ).toEqual([]);
     await act(async () => {
       expect(await result.current.run()).toBe(true);
     });

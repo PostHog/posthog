@@ -241,10 +241,9 @@ describe("useTaskCreation prompt records", () => {
       });
 
       expect(createTaskMock).toHaveBeenCalledTimes(createTaskCalls);
-      expect(trackMock).not.toHaveBeenCalledWith(
-        "Task created",
-        expect.anything(),
-      );
+      expect(
+        trackMock.mock.calls.filter(([event]) => event === "Task created"),
+      ).toEqual([]);
       expect(
         useTaskInputHistoryStore.getState().entries.map((e) => e.text),
       ).toEqual(["Check the build"]);
