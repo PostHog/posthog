@@ -66,7 +66,8 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
     const isManualWorkflow = ['manual', 'batch'].includes(workflow?.trigger?.type || '')
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
-    const selfOptimisingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
+    const selfOptimisingEnabled =
+        !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS] && workflow?.status === 'active'
     const [displayStatus, setDisplayStatus] = useState(workflow?.status)
     const [isTransitioning, setIsTransitioning] = useState(false)
     const prevStatusRef = useRef(workflow?.status)

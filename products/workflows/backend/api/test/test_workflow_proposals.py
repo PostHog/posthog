@@ -298,6 +298,27 @@ class TestWorkflowProposals(APIBaseTest):
         assert "step_id" in str(response.json())
         assert WorkflowProposal.objects.for_team(self.team.id).count() == 0
 
+    def test_a_workflow_that_is_not_live_cannot_be_opted_in_or_suggested_against(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        disabled = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "draft"})
+        assert disabled.status_code == 200, disabled.json()
+
+        suggested = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+            {"title": "x", "rationale": "y", "content": {"exit_condition": "exit_only_at_end"}, "base_version": 1},
+            format="json",
+        )
+        assert suggested.status_code == 409, suggested.json()
+        assert suggested.json()["code"] == "workflow_not_live"
+        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/?optimisation_enabled=true").json()
+        assert flow_id not in {item["id"] for item in listed["results"]}
+
+        turned_on = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimisation", {"enabled": True}, format="json"
+        )
+        assert turned_on.status_code == 409, turned_on.json()
+        assert turned_on.json()["code"] == "workflow_not_live"
+
     def test_a_workflow_nobody_opted_in_is_not_suggested_against(self, _mock_flag):
         flow_id = self._create_active_flow()
         self.client.post(

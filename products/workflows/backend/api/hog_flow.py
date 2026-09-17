@@ -4033,6 +4033,12 @@ class ProposalAlreadyResolvedError(exceptions.APIException):
     default_code = "proposal_already_resolved"
 
 
+class WorkflowNotLiveError(exceptions.APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Suggestions need a live workflow. Enable it first."
+    default_code = "workflow_not_live"
+
+
 class WorkflowNotOptimisedError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = (
@@ -4198,7 +4204,7 @@ class HogFlowFilterSet(FilterSet):
         # Off keeps its row, so "on" is a row still enabled. Archived workflows drop out: nothing runs there.
         if not value:
             return queryset.exclude(optimisation__enabled=True)
-        return queryset.filter(optimisation__enabled=True).exclude(status=HogFlow.State.ARCHIVED)
+        return queryset.filter(optimisation__enabled=True, status=HogFlow.State.ACTIVE)
 
 
 class HogFlowPagination(LimitOffsetPagination):
@@ -5490,7 +5496,11 @@ class HogFlowViewSet(
         if retry_of:
             return Response(WorkflowProposalSerializer(retry_of).data, status=status.HTTP_200_OK)
 
-        # Reading the queue stays open while the flag is on; the workflow's opt-in only gates producing a new one.
+        # Reading the queue stays open while the flag is on, so a workflow turned off keeps showing
+        # the suggestions someone already has to resolve. Producing a new one is what the workflow's
+        # own opt-in gates, and only a live workflow has sends to judge.
+        if instance.status != HogFlow.State.ACTIVE:
+            raise WorkflowNotLiveError()
         if not HogFlowOptimisation.objects.filter(hog_flow=instance, enabled=True).exists():
             raise WorkflowNotOptimisedError()
 
@@ -5819,6 +5829,8 @@ class HogFlowViewSet(
             param_serializer = HogFlowOptimisationSerializer(data=request.data)
             param_serializer.is_valid(raise_exception=True)
             enabled = param_serializer.validated_data["enabled"]
+            if enabled and instance.status != HogFlow.State.ACTIVE:
+                raise WorkflowNotLiveError()
             row = HogFlowOptimisation.objects.filter(hog_flow=instance).first()
             if row is None:
                 # Turning it off for a workflow nobody turned on is a no-op, not a row saying "no".
