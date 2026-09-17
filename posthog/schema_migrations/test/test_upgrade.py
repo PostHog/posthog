@@ -81,3 +81,20 @@ def test_nested_array_migration():
 def test_already_latest():
     query = {"kind": NodeKind.TRENDS_QUERY, "version": LATEST_VERSIONS[NodeKind.TRENDS_QUERY]}
     assert upgrade(query) == query
+
+
+@pytest.mark.parametrize("unhashable_kind", [[], {}])
+def test_non_string_kind_is_left_alone(unhashable_kind):
+    query = {
+        "kind": NodeKind.TRENDS_QUERY,
+        "version": 2,
+        "series": [{"kind": NodeKind.EVENTS_NODE, "version": 1, "event": "pageview"}],
+        "values": {"placeholder": {"kind": unhashable_kind}},
+    }
+    got = upgrade(query)
+    assert got == {
+        "kind": NodeKind.TRENDS_QUERY,
+        "version": 2,
+        "series": [{"kind": NodeKind.EVENTS_NODE, "version": 2, "name": "pageview"}],
+        "values": {"placeholder": {"kind": unhashable_kind}},
+    }

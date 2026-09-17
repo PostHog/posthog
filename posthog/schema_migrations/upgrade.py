@@ -17,7 +17,9 @@ def upgrade_node(node: Any) -> Any:
         return tuple(upgrade_node(item) for item in node)
 
     if isinstance(node, dict):
-        if "kind" in node and node["kind"] in LATEST_VERSIONS:
+        # The walker runs over unvalidated request bodies, so `kind` can hold any JSON value.
+        # An unhashable one, such as a list, raises TypeError in the LATEST_VERSIONS lookup.
+        if isinstance(node.get("kind"), str) and node["kind"] in LATEST_VERSIONS:
             while (version := (node.get("version") or 1)) < LATEST_VERSIONS[node["kind"]]:
                 if version not in MIGRATIONS[node["kind"]]:
                     raise ValueError(f"Missing migration handler for {node['kind']} version {version}")
