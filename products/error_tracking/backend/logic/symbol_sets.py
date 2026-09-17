@@ -269,7 +269,10 @@ def _needs_upload(
     )
 
 
-@posthoganalytics.scoped()
+# The DRF ValidationErrors on this path are the CLI upload contract, not server faults, so
+# error tracking must not see them. Real faults are still captured, by DRF's global reporting
+# hook (posthog.exceptions.exception_reporting), which reports every non-APIException.
+@posthoganalytics.scoped(capture_exceptions=False)
 def bulk_check_symbol_sets(
     new_symbol_sets: list[SymbolSetUpload],
     team: Team,
@@ -304,7 +307,7 @@ def bulk_check_symbol_sets(
     return chunk_ids_to_upload
 
 
-@posthoganalytics.scoped()
+@posthoganalytics.scoped(capture_exceptions=False)
 def bulk_create_symbol_sets(
     new_symbol_sets: list[SymbolSetUpload],
     team: Team,
