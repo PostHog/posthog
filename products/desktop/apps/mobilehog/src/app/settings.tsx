@@ -9,7 +9,7 @@ import {
 } from "react-native";
 import { GlassCircleButton } from "@/components/Glass";
 import { useAuth } from "@/lib/auth";
-import { usePrefs } from "@/lib/prefs";
+import { type AppearanceMode, usePrefs } from "@/lib/prefs";
 import { colors, fonts, radius } from "@/lib/theme";
 
 export default function SettingsSheet() {
@@ -17,6 +17,7 @@ export default function SettingsSheet() {
   const session = useAuth((s) => s.session);
   const logout = useAuth((s) => s.logout);
   const hedgehogMode = usePrefs((s) => s.hedgehogMode);
+  const appearance = usePrefs((s) => s.appearance);
   const setPrefs = usePrefs((s) => s.set);
   const initials = (session?.userName ?? "").slice(0, 2).toUpperCase();
 
@@ -51,7 +52,17 @@ export default function SettingsSheet() {
 
       <Text style={styles.section}>Appearance</Text>
       <View style={styles.card}>
-        <View style={styles.row}>
+        <View style={styles.modes}>
+          {MODES.map((mode) => (
+            <ModeOption
+              key={mode.value}
+              mode={mode}
+              selected={appearance === mode.value}
+              onPress={() => setPrefs({ appearance: mode.value })}
+            />
+          ))}
+        </View>
+        <View style={[styles.row, styles.rowDivided]}>
           <Text style={styles.rowLabel}>Hedgehog mode</Text>
           <Switch
             value={hedgehogMode}
@@ -74,7 +85,119 @@ export default function SettingsSheet() {
   );
 }
 
+const MODES: { value: AppearanceMode; label: string }[] = [
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+  { value: "system", label: "System" },
+];
+
+// A tiny phone-screen mockup for each scheme; System is split diagonally.
+function ModeOption({
+  mode,
+  selected,
+  onPress,
+}: {
+  mode: (typeof MODES)[number];
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const Half = ({ dark }: { dark: boolean }) => (
+    <View style={[styles.thumb, dark ? styles.thumbDark : styles.thumbLight]}>
+      <View style={[styles.thumbCard, dark && styles.thumbCardDark]}>
+        <View style={[styles.thumbLine, { width: 36 }]} />
+        <View style={[styles.thumbLine, { width: 26 }]} />
+        <View style={styles.thumbDot} />
+      </View>
+    </View>
+  );
+  return (
+    <Pressable onPress={onPress} style={styles.mode}>
+      <View style={[styles.thumbFrame, selected && styles.thumbSelected]}>
+        <Half dark={mode.value === "dark"} />
+        {mode.value === "system" ? (
+          <View style={styles.diagonal}>
+            <View style={styles.diagonalInner}>
+              <Half dark />
+            </View>
+          </View>
+        ) : null}
+      </View>
+      <Text style={[styles.modeLabel, selected && styles.modeLabelSelected]}>
+        {mode.label}
+      </Text>
+    </Pressable>
+  );
+}
+
+const THUMB_W = 96;
+const THUMB_H = 64;
+
 const styles = StyleSheet.create({
+  modes: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 14,
+    paddingHorizontal: 2,
+  },
+  mode: { alignItems: "center", gap: 8 },
+  thumbFrame: {
+    width: THUMB_W,
+    height: THUMB_H,
+    borderRadius: 14,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  thumbSelected: { borderColor: colors.accent },
+  thumb: {
+    width: THUMB_W - 4,
+    height: THUMB_H - 4,
+    padding: 6,
+    borderRadius: 12,
+  },
+  thumbLight: { backgroundColor: "#F4F4F0" },
+  thumbDark: { backgroundColor: "#0C0C0C" },
+  thumbCard: {
+    flex: 1,
+    borderRadius: 8,
+    backgroundColor: "#FFFFFF",
+    padding: 7,
+    gap: 4,
+  },
+  thumbCardDark: { backgroundColor: "#1C1C1C" },
+  thumbLine: { height: 4, borderRadius: 2, backgroundColor: "#8F918D" },
+  thumbDot: {
+    position: "absolute",
+    right: 8,
+    bottom: 7,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.accent,
+  },
+  // Dark half of the System thumb: an oversized clip rotated to the diagonal
+  // and pushed below it, with the content counter-transformed back into place.
+  diagonal: {
+    position: "absolute",
+    left: -THUMB_W / 2,
+    top: -THUMB_H / 2,
+    width: THUMB_W * 2,
+    height: THUMB_H * 2,
+    overflow: "hidden",
+    transform: [{ rotate: "-34deg" }, { translateY: THUMB_H }],
+  },
+  diagonalInner: {
+    position: "absolute",
+    left: THUMB_W / 2,
+    top: THUMB_H / 2,
+    transform: [{ translateY: -THUMB_H }, { rotate: "34deg" }],
+  },
+  modeLabel: { fontFamily: fonts.sans, fontSize: 15, color: colors.ink },
+  modeLabelSelected: { color: colors.accent },
+  rowDivided: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.line,
+  },
   root: { flex: 1, backgroundColor: colors.bg },
   content: { padding: 18, paddingTop: 22, gap: 14, paddingBottom: 40 },
   header: {
@@ -86,7 +209,7 @@ const styles = StyleSheet.create({
   close: { fontSize: 26, lineHeight: 28, color: colors.ink, marginTop: -2 },
   title: { fontFamily: fonts.sansSemi, fontSize: 17, color: colors.ink },
   card: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: radius.card,
     paddingHorizontal: 16,
     paddingVertical: 6,
@@ -133,7 +256,7 @@ const styles = StyleSheet.create({
   rowLabel: { fontFamily: fonts.sans, fontSize: 16, color: colors.ink },
   logout: {
     marginTop: 16,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: radius.card,
     paddingVertical: 16,
     alignItems: "center",

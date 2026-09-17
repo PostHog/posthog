@@ -1,7 +1,14 @@
 import type { Task, TaskChannel } from "@posthog/shared/domain-types";
 import { useRouter } from "expo-router";
 import { type ReactElement, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  type ColorValue,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DrawerEdgeShadow } from "@/components/DrawerEdgeShadow";
 import { FadeScrim } from "@/components/FadeScrim";
@@ -65,7 +72,7 @@ function groupSpaces(tasks: Task[], channels: TaskChannel[]): Space[] {
 }
 
 // Desktop's status dot: live states are solid, everything else a hollow ring.
-function statusDot(task: Task): { color: string; hollow: boolean } {
+function statusDot(task: Task): { color: ColorValue; hollow: boolean } {
   switch (task.latest_run?.status) {
     case "queued":
     case "not_started":

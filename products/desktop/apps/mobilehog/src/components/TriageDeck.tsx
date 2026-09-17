@@ -204,7 +204,7 @@ export function TriageDeck({
                 <View style={[styles.detailHeader, { top: insets.top + 6 }]}>
                   <GlassCircleButton
                     onPress={toggleExpanded}
-                    tint="rgba(255,255,255,0.75)"
+                    tint={colors.glassTint}
                   >
                     <Text style={styles.close}>×</Text>
                   </GlassCircleButton>
@@ -217,7 +217,7 @@ export function TriageDeck({
                 >
                   <Glass
                     style={styles.detailActionsGlass}
-                    tint="rgba(255,255,255,0.7)"
+                    tint={colors.glassTint}
                   >
                     <CardButton
                       label="Dismiss"

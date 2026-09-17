@@ -53,7 +53,7 @@ export const sheetStyles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   list: { padding: 18, paddingBottom: 40, gap: 14 },
   card: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: radius.card,
     paddingHorizontal: 16,
   },
@@ -114,6 +114,6 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
   },
 });

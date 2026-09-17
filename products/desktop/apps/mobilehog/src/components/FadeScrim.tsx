@@ -1,4 +1,10 @@
-import { type StyleProp, StyleSheet, View, type ViewStyle } from "react-native";
+import {
+  type ColorValue,
+  type StyleProp,
+  StyleSheet,
+  View,
+  type ViewStyle,
+} from "react-native";
 import { colors } from "@/lib/theme";
 
 const STRIPS = 28;
@@ -10,7 +16,7 @@ export function FadeScrim({
   color = colors.bg,
 }: {
   style?: StyleProp<ViewStyle>;
-  color?: string;
+  color?: ColorValue;
 }) {
   return (
     <View pointerEvents="none" style={[styles.root, style]}>

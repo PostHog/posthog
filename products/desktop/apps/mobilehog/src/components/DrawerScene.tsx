@@ -28,7 +28,7 @@ export function DrawerScene({ children }: { children: ReactNode }) {
       <Animated.View
         style={[StyleSheet.absoluteFill, styles.backing, backing]}
       />
-      <Glass style={styles.scene} tint="rgba(238,239,233,0.72)">
+      <Glass style={styles.scene} tint={colors.sceneTint}>
         {children}
       </Glass>
     </Animated.View>

@@ -10,17 +10,27 @@ import type {
   SignalReportPriority,
   SuggestedReviewersArtefact,
 } from "@posthog/shared/domain-types";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  type ColorValue,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { Markdown } from "@/components/Markdown";
 import { useReportArtefacts, useReportSignals } from "@/lib/reports";
 import { colors, fonts, radius } from "@/lib/theme";
 
-const PRIORITY: Record<SignalReportPriority, { bg: string; fg: string }> = {
+const PRIORITY: Record<
+  SignalReportPriority,
+  { bg: ColorValue; fg: ColorValue }
+> = {
   P0: { bg: "rgba(255,71,77,0.16)", fg: colors.danger },
   P1: { bg: "rgba(255,92,28,0.16)", fg: colors.accent },
   P2: { bg: "rgba(20,144,232,0.14)", fg: "#106FB2" },
-  P3: { bg: "rgba(21,21,21,0.06)", fg: colors.inkSoft },
-  P4: { bg: "rgba(21,21,21,0.06)", fg: colors.inkSoft },
+  P3: { bg: colors.fill, fg: colors.inkSoft },
+  P4: { bg: colors.fill, fg: colors.inkSoft },
 };
 
 function sourceLabel(products: string[] | undefined): string {
@@ -269,7 +279,7 @@ const styles = StyleSheet.create({
   sectionTitle: { fontFamily: fonts.sansSemi, fontSize: 17, color: colors.ink },
   muted: { fontFamily: fonts.sans, fontSize: 14, color: colors.inkMute },
   evidence: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 12,
     gap: 6,
@@ -291,7 +301,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 12,
     borderRadius: radius.pill,
-    backgroundColor: "rgba(21,21,21,0.06)",
+    backgroundColor: colors.fill,
   },
   buttonPrimary: { backgroundColor: colors.accent },
   buttonText: { fontFamily: fonts.sansSemi, fontSize: 15, color: colors.ink },

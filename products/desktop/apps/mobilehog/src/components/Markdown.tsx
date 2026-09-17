@@ -1,9 +1,9 @@
-import { Linking, StyleSheet, Text, View } from "react-native";
+import { type ColorValue, Linking, StyleSheet, Text, View } from "react-native";
 import { colors, fonts } from "@/lib/theme";
 
 interface MarkdownProps {
   text: string;
-  color?: string;
+  color?: ColorValue;
 }
 
 type Segment =
@@ -37,7 +37,7 @@ function parseInline(line: string): Segment[] {
   return segments;
 }
 
-function Inline({ line, color }: { line: string; color: string }) {
+function Inline({ line, color }: { line: string; color: ColorValue }) {
   return (
     <>
       {parseInline(line).map((segment, index) => {
