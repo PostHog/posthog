@@ -217,7 +217,7 @@ class GoogleCloudIntegration:
 
         key_info = self.integration.sensitive_config.get("key_info", self.integration.sensitive_config)
         try:
-            require_google_token_uri(key_info.get("token_uri"))
+            key_info["token_uri"] = require_google_token_uri(key_info.get("token_uri"))
         except ValidationError:
             refresh_tracking.record_refresh_failure(self.integration)
             self.integration.save(update_fields=["config"])
