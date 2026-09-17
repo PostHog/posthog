@@ -27,7 +27,7 @@ use tokio::signal;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::decompression::RequestDecompressionLayer;
 use tracing::level_filters::LevelFilter;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 use limiters::token_dropper::TokenDropper;
@@ -104,7 +104,7 @@ async fn start_series_label_gate(config: &Config) -> Arc<SeriesLabelGate> {
     let pull_timeout = Duration::from_millis(config.metrics_series_redis_pull_timeout_ms);
     let pull_interval = Duration::from_secs(config.metrics_series_redis_pull_interval_secs);
     let client: Arc<dyn Client> = match RedisClient::with_config(
-        redis_url,
+        redis_url.clone(),
         CompressionConfig::disabled(),
         RedisValueFormat::Utf8,
         Some(pull_timeout),
@@ -123,11 +123,29 @@ async fn start_series_label_gate(config: &Config) -> Arc<SeriesLabelGate> {
         }
     };
 
+    // A pull page is large and holds every command queued behind it on the
+    // same connection, so the writer gets its own.
+    let writer_client: Arc<dyn Client> = match RedisClient::with_config(
+        redis_url,
+        CompressionConfig::disabled(),
+        RedisValueFormat::Utf8,
+        Some(redis_timeout),
+        Some(redis_timeout),
+    )
+    .await
+    {
+        Ok(client) => Arc::new(client),
+        Err(e) => {
+            warn!("Could not open a second Redis connection, series label writer shares the pull connection: {e}");
+            Arc::clone(&client)
+        }
+    };
+
     let (gate, rx) = SeriesLabelGate::new(window, enabled, limits);
     gate.seed_from_redis(client.as_ref(), seed_budget).await;
-    gate.spawn_redis_puller(Arc::clone(&client), pull_interval, pull_timeout);
+    gate.spawn_redis_puller(client, pull_interval, pull_timeout);
     gate.spawn_pruner();
-    spawn_redis_writer(client, rx, redis_timeout, window);
+    spawn_redis_writer(writer_client, rx, redis_timeout, window);
     gate
 }
 

@@ -32,5 +32,8 @@ serde_json = { workspace = true }
 siphasher = { workspace = true }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+redis = { workspace = true }
+
 [lints]
 workspace = true
