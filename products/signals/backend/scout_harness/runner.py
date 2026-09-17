@@ -83,11 +83,6 @@ SIGNALS_SCOUT_SANDBOX_ENV_NAME = SIGNALS_REPORT_RESEARCH_ENV_NAME
 # flip the network policy for report research and every trusted-mode scout on the team.
 SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME = "SIGNALS_SCOUT_FULL_NETWORK"
 
-# Prefix of the env a `custom` scout runs in. The env name carries the config id because the
-# domain list is per scout and `upsert_internal_sandbox_env` reasserts policy on every call: two
-# custom scouts sharing one name would overwrite each other's allowlist on every run.
-SIGNALS_SCOUT_CUSTOM_NETWORK_ENV_PREFIX = "SIGNALS_SCOUT_CUSTOM_"
-
 
 @frozen
 class _ScoutSandboxEnv:
@@ -97,8 +92,9 @@ class _ScoutSandboxEnv:
     provenance. It normally equals the config's own value, and falls back to `trusted` for the
     degenerate custom-with-no-domains row so the stamp never claims reach the run did not have.
 
-    `allowed_domains` is set only for the `custom` posture. `None` means the level alone decides
-    what the run can reach, so the trusted defaults ride along exactly when a list is present.
+    `allowed_domains` is set only for the `custom` posture. It rides on the run, not on the env:
+    the env stays the shared trusted one, and Tasks unions the list onto it at provisioning, so no
+    per-scout env row exists and two custom scouts cannot overwrite each other's policy.
     """
 
     name: str
@@ -705,10 +701,10 @@ async def _resolve_github_posture(
 def _sandbox_env_for_network_access(config: SignalScoutConfig) -> _ScoutSandboxEnv:
     """Resolve the sandbox env a run gets from the scout's `network_access` posture.
 
-    The (name, level, domains) triple is the egress enforcement point. The name matters as much
-    as the level, because `upsert_internal_sandbox_env` reasserts policy on the per-team row it
-    names, so an env shared by two scouts with different postures would hand each run whichever
-    policy was written last.
+    The (name, level) pair is the env-side enforcement point. The name matters as much as the
+    level, because `upsert_internal_sandbox_env` reasserts policy on the per-team row it names,
+    so an env shared by two scouts with different levels would hand each run whichever policy
+    was written last. The per-scout list is the run-side half and never touches the env row.
     """
     if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
         return _ScoutSandboxEnv(
@@ -717,12 +713,11 @@ def _sandbox_env_for_network_access(config: SignalScoutConfig) -> _ScoutSandboxE
             network_access=SignalScoutConfig.NetworkAccess.FULL,
         )
     # An empty list on `custom` is only reachable through a direct database write, because the
-    # config API rejects it. A custom env with no domains provisions the trusted list anyway, so
-    # fall through to the shared trusted env rather than leave a per-scout row behind.
+    # config API rejects it. Custom with nothing to add is the trusted posture, so stamp it as such.
     if config.network_access == SignalScoutConfig.NetworkAccess.CUSTOM and config.allowed_domains:
         return _ScoutSandboxEnv(
-            name=f"{SIGNALS_SCOUT_CUSTOM_NETWORK_ENV_PREFIX}{config.id}",
-            level=tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
+            name=SIGNALS_SCOUT_SANDBOX_ENV_NAME,
+            level=tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
             network_access=SignalScoutConfig.NetworkAccess.CUSTOM,
             allowed_domains=list(config.allowed_domains),
         )
@@ -771,8 +766,6 @@ async def _spawn_and_run(
         team.id,
         sandbox_env.name,
         sandbox_env.level,
-        allowed_domains=sandbox_env.allowed_domains,
-        include_default_domains=sandbox_env.allowed_domains is not None,
     )
     report_channel = skill_uses_report_channel(skill.allowed_tools)
     # `write_scopes` adds the user-facing writes this ONE scout was granted from its settings, so a
@@ -806,6 +799,9 @@ async def _spawn_and_run(
         user_id=user_id,
         repositories=tuple(repositories),
         sandbox_environment_id=sandbox_env_id,
+        # A custom scout's extra hosts travel on the run, and Tasks unions them onto the env's
+        # trusted allowlist at provisioning.
+        allowed_domains=tuple(sandbox_env.allowed_domains or ()),
         # `signals_scout` is the harness's own scope posture: project reads +
         # INTERNAL_SCOPES + the scout's `signal_scout_internal:write`, plus a narrow
         # allowlist of user-facing writes (`SCOUT_USER_WRITE_SCOPES`, e.g.

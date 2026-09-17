@@ -2494,6 +2494,25 @@ def _canonical_team(view: TeamAndOrgViewSetMixin) -> Team:
     return view.team if view.team.id == team_id else Team.objects.get(id=team_id)
 
 
+def _stored_allowed_domains(team_id: int, request_data: object) -> list[str]:
+    """The domain list an upsert would keep, so validation judges `custom` against it.
+
+    Read before the serializer runs, because DRF validates the body before the view can load the
+    row, and a config that already holds domains must be able to switch to `custom` without
+    resending them.
+    """
+    skill_name = request_data.get("skill_name") if isinstance(request_data, Mapping) else None
+    if not isinstance(skill_name, str):
+        return []
+    stored = (
+        SignalScoutConfig.objects.unscoped()
+        .filter(team_id=team_id, skill_name=skill_name)
+        .values_list("allowed_domains", flat=True)
+        .first()
+    )
+    return list(stored or [])
+
+
 def _stored_write_scopes(raw: object) -> list[str]:
     """The stored grant as the gate should compare against: a list of strings, or nothing.
 
@@ -2876,7 +2895,11 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         self._assert_can_register_scout()
         serializer = SignalScoutConfigCreateSerializer(
             data=request.data,
-            context={**self.get_serializer_context(), "project_id": self.team.project_id},
+            context={
+                **self.get_serializer_context(),
+                "project_id": self.team.project_id,
+                "stored_allowed_domains": _stored_allowed_domains(team_id, request.data),
+            },
         )
         serializer.is_valid(raise_exception=True)
         skill_name = serializer.validated_data["skill_name"]
