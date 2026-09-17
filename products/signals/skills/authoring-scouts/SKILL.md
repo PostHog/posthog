@@ -103,10 +103,7 @@ Name it explicitly near the top of the body so every run anchors on it.
 (The one exception: a **measurement scout** on the structured-output channel holds no bar — it applies a **rubric** to every sampled item, and the rubric takes the discriminator's slot as the design surface to name, dogfood, and calibrate. See the recurring measurement / LLM-judge pattern in `references/scout-patterns.md`.)
 
 A second design consideration applies to a **metric-shaped scout** — one that scores, ranks, or reports a named, reusable measure, whether a business measure (MRR, churn risk, usage revenue, activation) or operational telemetry it computes every run to monitor or report (cost per run, failure or error rates, latency, throughput).
-A project that uses the data catalog may already hold an approved definition of that measure; `metric-list` shows what exists, and the run prompt mentions the catalog only on a project that has approved metrics.
-When you write a scout for a project that governs the measure, name the governed metric in the body or in any `references/queries.md` you ship and run it with `data-catalog-metric-run`, so the scout's number matches the one the team already reports. Keep a hand-written derivation as the fallback for a project that has no such metric.
-Freshness, availability, and schema checks never need the catalog.
-Neither does the measure a measurement scout invents: a subjective rubric has no governed definition to defer to.
+If the project has an approved metric for that measure (`metric-list` shows what exists), name it in the body and run it with `data-catalog-metric-run`, so the scout's number matches the one the team already reports.
 
 ## Run posture (config)
 
