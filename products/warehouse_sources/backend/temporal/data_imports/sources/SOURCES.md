@@ -1110,6 +1110,7 @@ doesn't conflict with concurrent PRs.
 - heap
 - hetzner
 - heygen
+- heyreach
 - hibob
 - high_level
 - hivebrite
@@ -1210,6 +1211,7 @@ doesn't conflict with concurrent PRs.
 - miro
 - missive
 - mode
+- moengage
 - moesif
 - moneybird
 - mono
