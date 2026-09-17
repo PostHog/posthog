@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { ConversationStatus, ConversationType } from '~/types'
 
+import { UNTITLED_CONVERSATION_TITLE } from './max-constants'
 import { maxLogic } from './maxLogic'
 import { formatConversationDate, getSlackThreadUrl } from './utils'
 
@@ -58,7 +59,9 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                             }}
                         >
                             <div className="flex items-center gap-2">
-                                <span className="flex-1 line-clamp-1">{conversation.title}</span>
+                                <span className="flex-1 line-clamp-1">
+                                    {conversation.title || UNTITLED_CONVERSATION_TITLE}
+                                </span>
                                 {conversation.is_internal && <LemonTag type="muted">Impersonated</LemonTag>}
                                 {conversation.type === ConversationType.DeepResearch && <LemonTag>Research</LemonTag>}
                             </div>

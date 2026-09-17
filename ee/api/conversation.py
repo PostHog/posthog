@@ -337,10 +337,9 @@ class ConversationViewSet(
                     & tasks_facade.visible_tasks_q(self.request.user.id, relation="task")
                 )
             )
-        # For listing or single retrieval, conversations must be from the assistant and have a title
+        # For listing or single retrieval, conversations must be from the assistant
         if self.action in ("list", "retrieve"):
             queryset = queryset.filter(
-                title__isnull=False,
                 type__in=[Conversation.Type.DEEP_RESEARCH, Conversation.Type.ASSISTANT, Conversation.Type.SLACK],
             )
             # Hide internal conversations from customers, but show them to support agents during impersonation
@@ -348,7 +347,13 @@ class ConversationViewSet(
                 queryset = queryset.filter(is_internal=False)
             queryset = queryset.order_by("-updated_at")
         if self.action == "list":
-            queryset = queryset.defer("approval_decisions", "messages_json", "sandbox_task_id", "sandbox_run_id")
+            # The title is written during the first turn, so an untitled row is a conversation
+            # that is still starting up. Those stay out of the history list. `retrieve` must
+            # still return them: the client polls the id it minted, so a hidden row makes a
+            # live conversation look missing.
+            queryset = queryset.filter(title__isnull=False).defer(
+                "approval_decisions", "messages_json", "sandbox_task_id", "sandbox_run_id"
+            )
         return queryset
 
     def get_throttles(self):

@@ -11,6 +11,7 @@ from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import Throttled
 from rest_framework.test import APIRequestFactory
@@ -556,10 +557,11 @@ class TestConversation(APIBaseTest):
             self.assertEqual(results[0]["id"], str(own_conversation.id))
             self.assertEqual(results[0]["title"], "My conversation")
 
-    def test_retrieve_own_conversation_succeeds(self):
+    @parameterized.expand([("titled", "My conversation"), ("untitled_while_first_turn_runs", None)])
+    def test_retrieve_own_conversation_succeeds(self, _name: str, title: str | None):
         """Test that user can retrieve their own conversation"""
         conversation = Conversation.objects.create(
-            user=self.user, team=self.team, title="My conversation", type=Conversation.Type.ASSISTANT
+            user=self.user, team=self.team, title=title, type=Conversation.Type.ASSISTANT
         )
 
         with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
