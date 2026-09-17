@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -8,15 +10,18 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 
 DEFAULT_PAGE_SIZE = 200
 
-# The metrics endpoints require an explicit `start-date`/`end-date` range. The floor is set
-# well before ChartMogul existed so no imported billing history is ever cut off, and the
-# window is closed at the sync date.
+# The metrics endpoints require an explicit `start-date`/`end-date` range, and ChartMogul
+# publishes no earliest supported date. This floor predates ChartMogul itself, so it covers
+# the imported billing history of any recurring-revenue business the product serves. An
+# account with history before it loses those intervals, which is the price of a bounded
+# request: the range is walked daily, so a much earlier floor only adds empty rows and
+# server-side work. Lower it if a real account needs it.
 METRICS_START_DATE = "2010-01-01"
 # Daily intervals: a warehouse query can roll days up to months, but not the reverse.
 METRICS_INTERVAL = "day"
 
 
-@dataclass
+@frozen
 class ChartMogulEndpointConfig:
     name: str
     path: str
@@ -120,6 +125,9 @@ CHARTMOGUL_ENDPOINTS: dict[str, ChartMogulEndpointConfig] = {
         # ChartMogul's own integer event id, not a uuid.
         primary_keys=["id"],
         partition_key="created_at",
+        # ChartMogul omits disabled events by default. They are part of the transition
+        # history and carry the `disabled` flag to filter on, so ask for them.
+        extra_params={"with_disabled": "true"},
         # The only date params here (`event_date`, `effective_date`) match an exact
         # timestamp rather than a range, so there is nothing to bind a cursor to.
     ),

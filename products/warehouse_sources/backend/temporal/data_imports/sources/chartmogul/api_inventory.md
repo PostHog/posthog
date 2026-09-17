@@ -18,19 +18,19 @@ only the activities endpoint documents a genuine server-side date filter on a fi
 
 ## Endpoints
 
-| Schema                 | Path                                          | Data key              | Primary key                 | Partition key | Incremental                  |
-| ---------------------- | --------------------------------------------- | --------------------- | --------------------------- | ------------- | ---------------------------- |
-| customers              | `/v1/customers`                               | `entries`             | `uuid`                      | —             | full refresh (no timestamp)  |
-| customer_subscriptions | `/v1/customers/{customer_uuid}/subscriptions` | `entries`             | `customer_uuid` + `uuid`    | —             | full refresh (no filter)     |
-| plans                  | `/v1/plans`                                   | `plans`               | `uuid`                      | —             | full refresh                 |
-| plan_groups            | `/v1/plan_groups`                             | `plan_groups`         | `uuid`                      | —             | full refresh                 |
-| invoices               | `/v1/invoices`                                | `invoices`            | `uuid`                      | `date`        | full refresh                 |
-| activities             | `/v1/activities`                              | `entries`             | `uuid`                      | `date`        | `start-date` server filter   |
-| subscription_events    | `/v1/subscription_events`                     | `subscription_events` | `id`                        | `created_at`  | full refresh (no range)      |
-| opportunities          | `/v1/opportunities`                           | `entries`             | `uuid`                      | `created_at`  | full refresh (no range)      |
-| metrics                | `/v1/metrics/all`                             | `entries`             | `date`                      | `date`        | full refresh (recalculated)  |
-| metrics_mrr            | `/v1/metrics/mrr`                             | `entries`             | `date`                      | `date`        | full refresh (recalculated)  |
-| data_sources           | `/v1/data_sources`                            | `data_sources`        | `uuid`                      | `created_at`  | full refresh (not paginated) |
+| Schema                 | Path                                          | Data key              | Primary key              | Partition key | Incremental                  |
+| ---------------------- | --------------------------------------------- | --------------------- | ------------------------ | ------------- | ---------------------------- |
+| customers              | `/v1/customers`                               | `entries`             | `uuid`                   | —             | full refresh (no timestamp)  |
+| customer_subscriptions | `/v1/customers/{customer_uuid}/subscriptions` | `entries`             | `customer_uuid` + `uuid` | —             | full refresh (no filter)     |
+| plans                  | `/v1/plans`                                   | `plans`               | `uuid`                   | —             | full refresh                 |
+| plan_groups            | `/v1/plan_groups`                             | `plan_groups`         | `uuid`                   | —             | full refresh                 |
+| invoices               | `/v1/invoices`                                | `invoices`            | `uuid`                   | `date`        | full refresh                 |
+| activities             | `/v1/activities`                              | `entries`             | `uuid`                   | `date`        | `start-date` server filter   |
+| subscription_events    | `/v1/subscription_events`                     | `subscription_events` | `id`                     | `created_at`  | full refresh (no range)      |
+| opportunities          | `/v1/opportunities`                           | `entries`             | `uuid`                   | `created_at`  | full refresh (no range)      |
+| metrics                | `/v1/metrics/all`                             | `entries`             | `date`                   | `date`        | full refresh (recalculated)  |
+| metrics_mrr            | `/v1/metrics/mrr`                             | `entries`             | `date`                   | `date`        | full refresh (recalculated)  |
+| data_sources           | `/v1/data_sources`                            | `data_sources`        | `uuid`                   | `created_at`  | full refresh (not paginated) |
 
 Notes:
 

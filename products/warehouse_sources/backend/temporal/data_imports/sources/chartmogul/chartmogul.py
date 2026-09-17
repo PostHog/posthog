@@ -1,10 +1,11 @@
-import dataclasses
 from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
 from requests import Request, Response
 from requests.auth import HTTPBasicAuth
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.chartmogul.settings import (
     CHARTMOGUL_ENDPOINTS,
@@ -29,9 +30,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 CHARTMOGUL_BASE_URL = "https://api.chartmogul.com"
+# (connect, read) seconds. Without it a stalled ChartMogul response holds an import worker
+# until Temporal cancels the activity, rather than raising a retryable request timeout.
+REQUEST_TIMEOUT_SECONDS: tuple[float, float] = (10.0, 60.0)
 
 
-@dataclasses.dataclass
+@frozen
 class ChartMogulResumeConfig:
     # Top-level endpoints resume from the opaque `cursor` of the last fully-yielded page. The
     # static query params (page size, incremental start-date) are deterministically rebuilt
@@ -124,6 +128,7 @@ def _client_config(api_key: str, paginated: bool) -> ClientConfig:
         "auth": {"type": "http_basic", "username": api_key, "password": ""},
         # Some endpoints (data_sources, metrics) return the full list without pagination.
         "paginator": ChartMogulPaginator() if paginated else SinglePagePaginator(),
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
     }
 
 
