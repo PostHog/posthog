@@ -773,6 +773,13 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(handle_vapi_webhook.autoretry_for, (OperationalError, InterfaceError))
         self.assertTrue(handle_vapi_webhook.acks_late)
         self.assertTrue(handle_vapi_webhook.reject_on_worker_lost)
+        # The default backoff spends every attempt within seconds, which is shorter than any
+        # database outage worth retrying through, and Vapi never resends the report.
+        window_seconds = sum(
+            min(handle_vapi_webhook.retry_backoff * 2**attempt, handle_vapi_webhook.retry_backoff_max)
+            for attempt in range(handle_vapi_webhook.max_retries)
+        )
+        self.assertGreater(window_seconds, 60 * 60)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
     @patch("products.user_interviews.backend.tasks.tasks.handle_vapi_webhook.delay")

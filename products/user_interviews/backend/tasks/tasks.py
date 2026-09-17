@@ -9,17 +9,33 @@ from typing import Any
 
 from django.db import InterfaceError, OperationalError
 
-from celery import shared_task
+import structlog
+from celery import Task, shared_task
+
+logger = structlog.get_logger(__name__)
+
+
+def _call_id(payload: dict[str, Any]) -> str | None:
+    call: dict[str, Any] = (payload.get("message") or {}).get("call") or {}
+    return call.get("id")
 
 
 @shared_task(
+    bind=True,
     name="products.user_interviews.backend.tasks.handle_vapi_webhook",
     ignore_result=True,
     # autoretry_for is load-bearing: bare max_retries without it is silently inert.
     autoretry_for=(OperationalError, InterfaceError),
-    retry_backoff=True,
+    # Sized for a database outage, which lasts minutes to hours, while the default backoff is
+    # spent in a few seconds. Vapi holds its receipt by the time the task runs and nothing else
+    # replays an interview, so every attempt this policy does not make is a report lost. Each
+    # attempt waits twice as long as the one before it, capped at ten minutes, which spans about
+    # two and a half hours over all the attempts. Jitter spreads the workers that failed at the
+    # same moment, and halves that span on average.
+    retry_backoff=10,
+    retry_backoff_max=600,
     retry_jitter=True,
-    max_retries=3,
+    max_retries=20,
     # The report is the only copy of the interview, and by the time the task runs Vapi already
     # holds its receipt. A worker that dies after reserving the message would drop the report with
     # the default early acknowledgement, so the message is acknowledged after the run instead and
@@ -28,9 +44,22 @@ from celery import shared_task
     acks_late=True,
     reject_on_worker_lost=True,
 )
-def handle_vapi_webhook(payload: dict[str, Any], event_type: str, sharing_configuration_id: int) -> None:
+def handle_vapi_webhook(self: Task, payload: dict[str, Any], event_type: str, sharing_configuration_id: int) -> None:
     from products.user_interviews.backend import (  # noqa: PLC0415 - keeps posthog.schema and the embedding worker off the task module's import path
         vapi_events,
     )
 
-    vapi_events.handle_vapi_webhook_delivery(payload, event_type, sharing_configuration_id=sharing_configuration_id)
+    try:
+        vapi_events.handle_vapi_webhook_delivery(payload, event_type, sharing_configuration_id=sharing_configuration_id)
+    except (OperationalError, InterfaceError):
+        # autoretry_for re-raises the original error once the retries run out, which reads like any
+        # other failed attempt. The last attempt says that the report is now lost, and names the
+        # call so the interview can be traced in Vapi.
+        if self.request.retries >= self.max_retries:
+            logger.exception(
+                "user_interviews_vapi_webhook_retries_exhausted",
+                event_type=event_type,
+                call_id=_call_id(payload),
+                sharing_configuration_id=sharing_configuration_id,
+            )
+        raise
