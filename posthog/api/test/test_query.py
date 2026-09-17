@@ -931,6 +931,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ("null_query", "query", "null"),
             ("list_query", "query", '[{"query": {"kind": "HogQLQuery"}}]'),
             ("double_encoded_upgrade", "query/upgrade", '"{\\"query\\": {\\"kind\\": \\"HogQLQuery\\"}}"'),
+            ("list_with_kind", "query/HogQLQuery", "[]"),
         ]
     )
     def test_non_object_body_is_rejected(self, _name: str, path: str, body: str):
