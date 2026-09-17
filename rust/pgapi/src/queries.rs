@@ -744,7 +744,7 @@ pub async fn system(db: &Db, server: &str, from: Ts, to: Ts) -> Result<Value> {
                    (sum(b.utime_jiffies + b.stime_jiffies) / nullif(c.covered_s, 0) / nullif(h.ncpu, 0))::float8 AS host_pct,
                    count(DISTINCT (b.pid, b.backend_start))::bigint AS backends
             FROM ts_backend_cpu b JOIN covered c ON c.instance = b.instance LEFT JOIN host h ON h.instance = b.instance
-                 LEFT JOIN cur_queries q ON q.server_id = $1 AND q.queryid = b.query_id AND q.datname = b.datname
+                 LEFT JOIN cur_queries q ON q.server_id = $1 AND q.instance = b.instance AND q.queryid = b.query_id AND q.datname = b.datname
             WHERE b.server_id = $1 AND b.collected_at >= $2 AND b.collected_at < $3 AND b.query_id IS NOT NULL
             GROUP BY 1, 2, 3, 4, 5, c.covered_s, h.ncpu ORDER BY 6 DESC LIMIT 15"), &[&server, &from, &to]).await?
     } else {

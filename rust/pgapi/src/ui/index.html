@@ -458,7 +458,7 @@
           { key: 'hottest_backend_cores', label: 'hottest backend', num: true, fmt: cores },
         ], { empty: 'no backend CPU rows in this range' }))),
       el('div', { style: 'margin-top:12px' }, panel('CPU by code path (query tags)', table(d.cpu_by_code_path, [
-          { key: 'tags', label: 'code path', render: r => el('a', { href: `#/${state.server}/queries?tags=${encodeURIComponent(tagEntries(r.tags).map(([k, v]) => `${k}=${v}`).join(','))}` }, tagPills(r.tags, 4)) },
+          { key: 'tags', label: 'code path', render: r => el('a', { href: `#/${state.server}/queries?tags=${encodeURIComponent(tagEntries(r.tags).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join(','))}` }, tagPills(r.tags, 4)) },
           ...cpuCols,
         ], { empty: 'no query tags seen on active backends in this range' }))),
       el('div', { style: 'margin-top:12px' }, panel('CPU by query (sampled from the active statement each minute)', table(d.cpu_by_query, [
