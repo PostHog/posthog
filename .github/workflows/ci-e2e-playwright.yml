@@ -1119,7 +1119,7 @@ jobs:
               with:
                   junit-paths: playwright/junit-results.xml
                   org-slug: posthog-inc
-                  cli-version: '0.13.7'
+                  cli-version: '0.15.4'
                   quarantine: true
                   previous-step-outcome: ${{ steps.playwright-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}

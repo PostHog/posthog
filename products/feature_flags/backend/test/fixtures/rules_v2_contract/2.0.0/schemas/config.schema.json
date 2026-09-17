@@ -1,0 +1,1005 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:posthog:feature-flag-rules-v2:config:1.0.0",
+  "title": "Feature Flag Rules v2 config",
+  "description": "Canonical stored configuration for Feature Flag Rules config version 2.",
+  "type": "object",
+  "required": [
+    "version",
+    "return_type",
+    "default_value",
+    "rules"
+  ],
+  "properties": {
+    "version": {
+      "const": 2
+    },
+    "return_type": {
+      "enum": [
+        "boolean",
+        "string",
+        "number",
+        "object"
+      ]
+    },
+    "default_value": {
+      "description": "Flag default for a normal result with no assigned value. Null delegates to the caller default. OpenFeature uses the caller default on abnormal execution regardless of this setting."
+    },
+    "rules": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "#/$defs/rule"
+      }
+    },
+    "aggregation_group_type_index": {
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "return_type": {
+            "const": "boolean"
+          }
+        },
+        "required": [
+          "return_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "default_value": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/$defs/booleanRuleValues"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "return_type": {
+            "const": "string"
+          }
+        },
+        "required": [
+          "return_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "default_value": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/stringValue"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/$defs/stringRuleValues"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "return_type": {
+            "const": "number"
+          }
+        },
+        "required": [
+          "return_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "default_value": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/safeNumber"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/$defs/numberRuleValues"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "return_type": {
+            "const": "object"
+          }
+        },
+        "required": [
+          "return_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "default_value": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/jsonObjectValue"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/$defs/objectRuleValues"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "aggregation_group_type_index"
+        ]
+      },
+      "then": {
+        "properties": {
+          "rules": {
+            "items": {
+              "not": {
+                "required": [
+                  "assign_by"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "percentage": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "seed": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 400
+    },
+    "stringValue": {
+      "type": "string",
+      "minLength": 1
+    },
+    "safeNumber": {
+      "type": "number",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    },
+    "jsonObjectValue": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/jsonValueDepth2"
+      },
+      "x-posthog-open-object": "application_json_value",
+      "description": "At most 20 object/array levels, counting this root object as level 1. Scalar leaves do not add a level. Numbered definitions bound validation recursion."
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true,
+      "x-posthog-open-object": "opaque_metadata"
+    },
+    "groupKeyNames": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "x-posthog-open-object": "display_group_key_names"
+        }
+      ]
+    },
+    "propertyFilter": {
+      "type": "object",
+      "required": [
+        "key",
+        "type"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {},
+        "type": {
+          "enum": [
+            "person",
+            "cohort",
+            "group",
+            "flag"
+          ]
+        },
+        "operator": {
+          "anyOf": [
+            {
+              "enum": [
+                "exact",
+                "is_not",
+                "icontains",
+                "not_icontains",
+                "icontains_multi",
+                "not_icontains_multi",
+                "starts_with",
+                "not_starts_with",
+                "ends_with",
+                "not_ends_with",
+                "regex",
+                "not_regex",
+                "gt",
+                "gte",
+                "lt",
+                "lte",
+                "semver_gt",
+                "semver_gte",
+                "semver_lt",
+                "semver_lte",
+                "semver_eq",
+                "semver_neq",
+                "semver_tilde",
+                "semver_caret",
+                "semver_wildcard",
+                "is_set",
+                "is_not_set",
+                "is_date_exact",
+                "is_date_after",
+                "is_date_before",
+                "in",
+                "not_in",
+                "flag_evaluates_to"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "group_type_index": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "negation": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "cohort_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "group_key_names": {
+          "$ref": "#/$defs/groupKeyNames"
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "targeting": {
+      "type": "object",
+      "required": [
+        "properties"
+      ],
+      "properties": {
+        "properties": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/propertyFilter"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "variant": {
+      "type": "object",
+      "required": [
+        "key",
+        "weight",
+        "value"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "weight": {
+          "description": "Percentage of subjects enrolled by the rule assigned to this variant. Variant weights sum to exactly 100; the rule's rollout_percentage separately controls enrollment.",
+          "$ref": "#/$defs/percentage"
+        },
+        "value": {}
+      },
+      "additionalProperties": false
+    },
+    "holdout": {
+      "type": "object",
+      "required": [
+        "id",
+        "seed",
+        "exclusion_percentage"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "seed": {
+          "$ref": "#/$defs/seed"
+        },
+        "exclusion_percentage": {
+          "$ref": "#/$defs/percentage"
+        }
+      },
+      "additionalProperties": false
+    },
+    "targetedReleaseRule": {
+      "type": "object",
+      "required": [
+        "id",
+        "rule_type",
+        "targeting",
+        "value"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "rule_type": {
+          "const": "targeted_release"
+        },
+        "targeting": {
+          "$ref": "#/$defs/targeting"
+        },
+        "description": {
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/metadata"
+        },
+        "value": {}
+      },
+      "additionalProperties": false
+    },
+    "percentageRolloutRule": {
+      "type": "object",
+      "required": [
+        "id",
+        "rule_type",
+        "targeting",
+        "value",
+        "rollout_percentage",
+        "on_rollout_miss",
+        "assignment_algorithm",
+        "seed"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "rule_type": {
+          "const": "percentage_rollout"
+        },
+        "targeting": {
+          "$ref": "#/$defs/targeting"
+        },
+        "description": {
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/metadata"
+        },
+        "value": {},
+        "rollout_percentage": {
+          "$ref": "#/$defs/percentage"
+        },
+        "on_rollout_miss": {
+          "enum": [
+            "continue",
+            "return_default"
+          ]
+        },
+        "assignment_algorithm": {
+          "const": "sha1_60_v1"
+        },
+        "seed": {
+          "$ref": "#/$defs/seed"
+        },
+        "assign_by": {
+          "const": "person"
+        }
+      },
+      "additionalProperties": false
+    },
+    "experimentRule": {
+      "type": "object",
+      "required": [
+        "id",
+        "rule_type",
+        "targeting",
+        "experiment_id",
+        "paused",
+        "rollout_percentage",
+        "on_rollout_miss",
+        "assignment_algorithm",
+        "seed",
+        "variants"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "rule_type": {
+          "const": "experiment"
+        },
+        "targeting": {
+          "$ref": "#/$defs/targeting"
+        },
+        "description": {
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/metadata"
+        },
+        "experiment_id": {
+          "type": "integer"
+        },
+        "paused": {
+          "type": "boolean"
+        },
+        "rollout_percentage": {
+          "$ref": "#/$defs/percentage"
+        },
+        "on_rollout_miss": {
+          "enum": [
+            "continue",
+            "return_default"
+          ]
+        },
+        "assignment_algorithm": {
+          "const": "sha1_60_v1"
+        },
+        "seed": {
+          "$ref": "#/$defs/seed"
+        },
+        "assign_by": {
+          "const": "person"
+        },
+        "variants": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/variant"
+          }
+        },
+        "holdout": {
+          "$ref": "#/$defs/holdout"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/targetedReleaseRule"
+        },
+        {
+          "$ref": "#/$defs/percentageRolloutRule"
+        },
+        {
+          "$ref": "#/$defs/experimentRule"
+        }
+      ]
+    },
+    "booleanRuleValues": {
+      "properties": {
+        "value": {
+          "type": "boolean"
+        },
+        "variants": {
+          "items": {
+            "properties": {
+              "value": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
+    "stringRuleValues": {
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/stringValue"
+        },
+        "variants": {
+          "items": {
+            "properties": {
+              "value": {
+                "$ref": "#/$defs/stringValue"
+              }
+            }
+          }
+        }
+      }
+    },
+    "numberRuleValues": {
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/safeNumber"
+        },
+        "variants": {
+          "items": {
+            "properties": {
+              "value": {
+                "$ref": "#/$defs/safeNumber"
+              }
+            }
+          }
+        }
+      }
+    },
+    "objectRuleValues": {
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/jsonObjectValue"
+        },
+        "variants": {
+          "items": {
+            "properties": {
+              "value": {
+                "$ref": "#/$defs/jsonObjectValue"
+              }
+            }
+          }
+        }
+      }
+    },
+    "jsonScalarValue": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "$ref": "#/$defs/safeNumber"
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "jsonValueDepth2": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/jsonScalarValue"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValueDepth3"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValueDepth3"
+          },
+          "x-posthog-open-object": "application_json_value"
+        }
+      ]
+    },
+    "jsonValueDepth3": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/jsonScalarValue"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValueDepth4"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValueDepth4"
+          },
+          "x-posthog-open-object": "application_json_value"
+        }
+      ]
+    },
+    "jsonValueDepth4": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/jsonScalarValue"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValueDepth5"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValueDepth5"
+          },
+          "x-posthog-open-object": "application_json_value"
+        }
+      ]
+    },
+    "jsonValueDepth5": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/jsonScalarValue"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValueDepth6"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValueDepth6"
+          },
+          "x-posthog-open-object": "application_json_value"
+        }
+      ]
+    },
+    "jsonValueDepth6": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/jsonScalarValue"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValueDepth7"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValueDepth7"
+          },
+          "x-posthog-open-object": "application_json_value"
+        }
+      ]
+    },
+    "jsonValueDepth7": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/jsonScalarValue"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValueDepth8"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValueDepth8"
+          },
+          "x-posthog-open-object": "application_json_value"
+        }
+      ]
+    },
+    "jsonValueDepth8": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/jsonScalarValue"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValueDepth9"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValueDepth9"
+          },
+          "x-posthog-open-object": "application_json_value"
+        }
+      ]
+    },
+    "jsonValueDepth9": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/jsonScalarValue"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValueDepth10"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValueDepth10"
+          },
+          "x-posthog-open-object": "application_json_value"
+        }
+      ]
+    },
+    "jsonValueDepth10": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/jsonScalarValue"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValueDepth11"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValueDepth11"
+          },
+          "x-posthog-open-object": "application_json_value"
+        }
+      ]
+    },
+    "jsonValueDepth11": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/jsonScalarValue"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValueDepth12"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValueDepth12"
+          },
+          "x-posthog-open-object": "application_json_value"
+        }
+      ]
+    },
+    "jsonValueDepth12": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/jsonScalarValue"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValueDepth13"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValueDepth13"
+          },
+          "x-posthog-open-object": "application_json_value"
+        }
+      ]
+    },
+    "jsonValueDepth13": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/jsonScalarValue"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValueDepth14"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValueDepth14"
+          },
+          "x-posthog-open-object": "application_json_value"
+        }
+      ]
+    },
+    "jsonValueDepth14": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/jsonScalarValue"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValueDepth15"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValueDepth15"
+          },
+          "x-posthog-open-object": "application_json_value"
+        }
+      ]
+    },
+    "jsonValueDepth15": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/jsonScalarValue"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValueDepth16"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValueDepth16"
+          },
+          "x-posthog-open-object": "application_json_value"
+        }
+      ]
+    },
+    "jsonValueDepth16": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/jsonScalarValue"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValueDepth17"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValueDepth17"
+          },
+          "x-posthog-open-object": "application_json_value"
+        }
+      ]
+    },
+    "jsonValueDepth17": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/jsonScalarValue"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValueDepth18"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValueDepth18"
+          },
+          "x-posthog-open-object": "application_json_value"
+        }
+      ]
+    },
+    "jsonValueDepth18": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/jsonScalarValue"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValueDepth19"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValueDepth19"
+          },
+          "x-posthog-open-object": "application_json_value"
+        }
+      ]
+    },
+    "jsonValueDepth19": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/jsonScalarValue"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValueDepth20"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValueDepth20"
+          },
+          "x-posthog-open-object": "application_json_value"
+        }
+      ]
+    },
+    "jsonValueDepth20": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/jsonScalarValue"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonScalarValue"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonScalarValue"
+          },
+          "x-posthog-open-object": "application_json_value"
+        }
+      ]
+    }
+  }
+}

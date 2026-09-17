@@ -8,6 +8,7 @@ from django.test import override_settings
 import httpx
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt
+from posthog.session_recordings.recordings.errors import RecordingApiConfigurationError
 from posthog.temporal.session_replay.delete_recordings.activities import (
     _parse_session_recording_list_response,
     delete_recordings,
@@ -17,7 +18,6 @@ from posthog.temporal.session_replay.delete_recordings.types import (
     DeleteRecordingsInput,
     LoadRecordingError,
     PurgeDeletedMetadataInput,
-    RecordingApiConfigurationError,
 )
 
 

@@ -201,6 +201,9 @@ patchedDependencies:
   html-to-image@1.11.13:
     hash: c51d4e8d9f649ee8a8e61577347ca1e4a9da029e91a073a91aae08ebf783d5d2
     path: patches/html-to-image@1.11.13.patch
+  jest-junit@16.0.0:
+    hash: b78c8d985264045675ad1405ea3773eb504f97e0725f24ed35bd348f66d41811
+    path: patches/jest-junit@16.0.0.patch
   kea@4.0.0-pre.6:
     hash: 139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5
     path: patches/kea@4.0.0-pre.6.patch
@@ -471,7 +474,7 @@ importers:
         version: 29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
       jest-junit:
         specifier: 'catalog:'
-        version: 16.0.0
+        version: 16.0.0(patch_hash=b78c8d985264045675ad1405ea3773eb504f97e0725f24ed35bd348f66d41811)
 
   common/storybook:
     dependencies:
@@ -1415,7 +1418,7 @@ importers:
         version: 6.4.0(jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3)))
       jest-junit:
         specifier: ^16.0.0
-        version: 16.0.0
+        version: 16.0.0(patch_hash=b78c8d985264045675ad1405ea3773eb504f97e0725f24ed35bd348f66d41811)
       kea-typegen:
         specifier: 3.8.3
         version: 3.8.3(typescript@6.0.3)
@@ -1870,7 +1873,7 @@ importers:
         version: 30.0.5
       jest-junit:
         specifier: ^16.0.0
-        version: 16.0.0
+        version: 16.0.0(patch_hash=b78c8d985264045675ad1405ea3773eb504f97e0725f24ed35bd348f66d41811)
       oxlint:
         specifier: 1.72.0
         version: 1.72.0(oxlint-tsgolint@7.0.2001)
@@ -2333,6 +2336,8 @@ importers:
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+
+  products/aeo: {}
 
   products/ai_gateway:
     dependencies:
@@ -32000,7 +32005,7 @@ snapshots:
       jest: 30.0.5(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
       jest-circus: 30.0.5
       jest-environment-node: 30.0.5
-      jest-junit: 16.0.0
+      jest-junit: 16.0.0(patch_hash=b78c8d985264045675ad1405ea3773eb504f97e0725f24ed35bd348f66d41811)
       jest-process-manager: 0.4.0
       jest-runner: 30.0.5
       jest-serializer-html: 7.1.0
@@ -39129,7 +39134,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  jest-junit@16.0.0:
+  jest-junit@16.0.0(patch_hash=b78c8d985264045675ad1405ea3773eb504f97e0725f24ed35bd348f66d41811):
     dependencies:
       mkdirp: 1.0.4
       strip-ansi: 6.0.1

@@ -5,8 +5,9 @@ import { router } from 'kea-router'
 import { useEffect, useId, useRef, useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
-import { LemonButton, LemonTabs, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
+import { ActivityClientTag } from 'lib/components/ActivityLog/ActivityClientTag'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -85,13 +86,7 @@ export const ActivityLogRow = ({
                 <div className="ActivityLogRow__details min-w-0 flex-1">
                     <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
                         {logItem.summary?.actor}
-                        {logItem.client && (
-                            <Tooltip title="Self-reported by the API client in the x-posthog-client request header">
-                                <LemonTag size="small" type="muted">
-                                    via {logItem.client === 'mcp' ? 'MCP' : logItem.client}
-                                </LemonTag>
-                            </Tooltip>
-                        )}
+                        {logItem.client && <ActivityClientTag client={logItem.client} />}
                         <span className="text-secondary text-xs @min-[35rem]:ml-auto">
                             <TZLabel time={logItem.created_at} />
                         </span>
