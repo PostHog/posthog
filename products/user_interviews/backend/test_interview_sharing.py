@@ -4,6 +4,7 @@ import hmac
 import json
 import hashlib
 import datetime
+from collections.abc import Callable
 from typing import Any
 
 import unittest
@@ -748,21 +749,27 @@ class TestVapiWebhook(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("share_disabled", {"enabled": False}),
-            ("token_past_its_grace_period", {"expires_at": timezone.now() - datetime.timedelta(minutes=1)}),
+            ("share_disabled", lambda: {"enabled": False}),
+            (
+                "token_past_its_grace_period",
+                lambda: {"expires_at": timezone.now() - datetime.timedelta(minutes=1)},
+            ),
         ]
     )
+    @time_machine.travel("2026-05-14 12:00:00", tick=False)
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
     @patch("products.user_interviews.backend.tasks.tasks.handle_vapi_webhook.delay")
     def test_report_is_stored_when_the_share_stops_answering_after_the_endpoint_accepted_it(
-        self, _name: str, revocation: dict[str, Any], mock_delay
+        self, _name: str, revocation_factory: Callable[[], dict[str, Any]], mock_delay
     ):
         share = self._create_share()
         self.client.logout()
         accepted = self._signed_post("topsecret", self._end_of_call_payload(share.access_token))
         self.assertEqual(accepted.status_code, status.HTTP_202_ACCEPTED, accepted.content)
 
-        SharingConfiguration.objects.filter(pk=share.pk).update(**revocation)
+        # revocation_factory is a callable so the expiry is computed here, under the frozen
+        # clock above, instead of at parameterized.expand's module-import time.
+        SharingConfiguration.objects.filter(pk=share.pk).update(**revocation_factory())
         handle_vapi_webhook(**mock_delay.call_args.kwargs)
 
         self.assertEqual(UserInterview.objects.filter(team=self.team).count(), 1)
