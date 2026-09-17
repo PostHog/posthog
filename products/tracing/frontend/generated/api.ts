@@ -29,11 +29,11 @@ import type {
     _TracingCountRequestApi,
     _TracingCountResponseApi,
     _TracingDurationHistogramRequestApi,
+    _TracingErrorCountsRequestApi,
+    _TracingErrorCountsResponseApi,
     _TracingLatencyHeatmapRequestApi,
     _TracingLatencyHeatmapResponseApi,
     _TracingQueryRequestApi,
-    _TracingSessionErrorCountsRequestApi,
-    _TracingSessionErrorCountsResponseApi,
     _TracingSparklineRequestApi,
     _TracingTraceRequestApi,
     _TracingTreeRequestApi,
@@ -199,6 +199,30 @@ export const tracingSpansDurationHistogramCreate = async (
     })
 }
 
+export const getTracingSpansErrorCountsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/error-counts/`
+}
+
+/**
+ * Count the exceptions the spans in view hit, by trace, by span and by session, for the
+ * span list's error badges.
+ *
+ * A caller asks about the id kinds it has. Each kind is a separate lookup, so an empty list
+ * costs nothing.
+ */
+export const tracingSpansErrorCountsCreate = async (
+    projectId: string,
+    _tracingErrorCountsRequestApi: _TracingErrorCountsRequestApi,
+    options?: RequestInit
+): Promise<_TracingErrorCountsResponseApi> => {
+    return apiMutator<_TracingErrorCountsResponseApi>(getTracingSpansErrorCountsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_tracingErrorCountsRequestApi),
+    })
+}
+
 export const getTracingSpansHasSpansRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tracing/spans/has_spans/`
 }
@@ -274,27 +298,6 @@ export const tracingSpansServiceNamesRetrieve = async (
     return apiMutator<void>(getTracingSpansServiceNamesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getTracingSpansSessionErrorCountsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/tracing/spans/session-error-counts/`
-}
-
-/**
- * Count the exceptions each session hit around the spans in view, for the span list's
- * error badges.
- */
-export const tracingSpansSessionErrorCountsCreate = async (
-    projectId: string,
-    _tracingSessionErrorCountsRequestApi: _TracingSessionErrorCountsRequestApi,
-    options?: RequestInit
-): Promise<_TracingSessionErrorCountsResponseApi> => {
-    return apiMutator<_TracingSessionErrorCountsResponseApi>(getTracingSpansSessionErrorCountsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(_tracingSessionErrorCountsRequestApi),
     })
 }
 

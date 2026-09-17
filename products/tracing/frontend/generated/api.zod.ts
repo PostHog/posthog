@@ -450,6 +450,45 @@ export const TracingSpansDurationHistogramCreateBody = /* @__PURE__ */ zod.objec
         .describe('The duration-histogram query to execute.'),
 })
 
+/**
+ * Count the exceptions the spans in view hit, by trace, by span and by session, for the
+ * span list's error badges.
+ *
+ * A caller asks about the id kinds it has. Each kind is a separate lookup, so an empty list
+ * costs nothing.
+ */
+export const tracingSpansErrorCountsCreateBodyTraceIdsMax = 200
+
+export const tracingSpansErrorCountsCreateBodySpanIdsMax = 200
+
+export const tracingSpansErrorCountsCreateBodySessionIdsMax = 200
+
+export const TracingSpansErrorCountsCreateBody = /* @__PURE__ */ zod.object({
+    traceIds: zod
+        .array(zod.string())
+        .max(tracingSpansErrorCountsCreateBodyTraceIdsMax)
+        .optional()
+        .describe(
+            "Hex trace IDs to count exceptions for, matched against the exception's `$trace_id` property. Case insensitive. At most 200 per request."
+        ),
+    spanIds: zod
+        .array(zod.string())
+        .max(tracingSpansErrorCountsCreateBodySpanIdsMax)
+        .optional()
+        .describe(
+            "Hex span IDs to count exceptions for, matched against the exception's `$span_id` property. Only counted within the requested traces, so `traceIds` is required alongside. At most 200 per request."
+        ),
+    sessionIds: zod
+        .array(zod.string())
+        .max(tracingSpansErrorCountsCreateBodySessionIdsMax)
+        .optional()
+        .describe(
+            'Session IDs to count exceptions for. The fallback for exceptions that carry no trace ID. At most 200 per request.'
+        ),
+    dateFrom: zod.iso.datetime({ offset: true }).describe('Start of the window the exceptions must fall in. ISO 8601.'),
+    dateTo: zod.iso.datetime({ offset: true }).describe('End of the window the exceptions must fall in. ISO 8601.'),
+})
+
 export const tracingSpansLatencyHeatmapCreateBodyQueryOneFilterGroupDefault = []
 export const tracingSpansLatencyHeatmapCreateBodyQueryOneRootSpansDefault = true
 
@@ -666,22 +705,6 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
                 ),
         })
         .describe('The tracing spans query to execute.'),
-})
-
-/**
- * Count the exceptions each session hit around the spans in view, for the span list's
- * error badges.
- */
-export const tracingSpansSessionErrorCountsCreateBodySessionIdsMax = 200
-
-export const TracingSpansSessionErrorCountsCreateBody = /* @__PURE__ */ zod.object({
-    sessionIds: zod
-        .array(zod.string())
-        .min(1)
-        .max(tracingSpansSessionErrorCountsCreateBodySessionIdsMax)
-        .describe('Session IDs to count exceptions for. At most 200 per request.'),
-    dateFrom: zod.iso.datetime({ offset: true }).describe('Start of the window the exceptions must fall in. ISO 8601.'),
-    dateTo: zod.iso.datetime({ offset: true }).describe('End of the window the exceptions must fall in. ISO 8601.'),
 })
 
 export const tracingSpansSparklineCreateBodyQueryOneFilterGroupDefault = []

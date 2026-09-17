@@ -43,8 +43,8 @@ export interface TraceDrawerProps {
     identity: TraceIdentity
     /** The trace's session for the Errors tab, or null when its spans resolve to no one session. */
     sessionId: string | null
-    /** Show the Errors tab, which lists the issues the trace's session hit. */
-    showSessionErrors: boolean
+    /** Show the Errors tab, which lists the issues connected to the trace. */
+    showErrorsTab: boolean
     /** Which inspector tab is open. Held in tracingViewerLogic so a caller can open one directly. */
     inspectorTab: SpanInspectorTab
     onSelectInspectorTab: (tab: SpanInspectorTab) => void
@@ -70,7 +70,7 @@ export function TraceDrawer({
     spans,
     identity,
     sessionId,
-    showSessionErrors,
+    showErrorsTab,
     inspectorTab,
     onSelectInspectorTab,
     loading,
@@ -127,7 +127,7 @@ export function TraceDrawer({
     const activeInspectorTab: SpanInspectorTab =
         (inspectorTab === 'query' && !queryText) ||
         (inspectorTab === 'metrics' && !showMetricsTab) ||
-        (inspectorTab === 'errors' && !showSessionErrors)
+        (inspectorTab === 'errors' && !showErrorsTab)
             ? 'attributes'
             : inspectorTab
 
@@ -230,14 +230,15 @@ export function TraceDrawer({
                                     // Conditional on its own flag. The tab is session-scoped, so it
                                     // stays available on a trace that resolved no session and
                                     // explains there what is missing.
-                                    showSessionErrors
+                                    showErrorsTab
                                         ? {
                                               key: 'errors',
                                               label: 'Errors',
                                               content: (
                                                   <TraceErrorsTab
-                                                      key={inspectedSpan.trace_id}
+                                                      key={inspectedSpan.span_id}
                                                       traceId={inspectedSpan.trace_id}
+                                                      spanId={inspectedSpan.span_id}
                                                       timestamp={rootSpan?.timestamp ?? inspectedSpan.timestamp ?? ts}
                                                       sessionId={sessionId}
                                                       resolving={loading}

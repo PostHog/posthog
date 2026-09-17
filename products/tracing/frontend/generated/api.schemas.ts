@@ -350,6 +350,58 @@ export interface _TracingDurationHistogramRequestApi {
     query: _TracingDurationHistogramQueryBodyApi
 }
 
+export interface _TracingErrorCountsRequestApi {
+    /**
+     * Hex trace IDs to count exceptions for, matched against the exception's `$trace_id` property. Case insensitive. At most 200 per request.
+     * @maxItems 200
+     */
+    traceIds?: string[]
+    /**
+     * Hex span IDs to count exceptions for, matched against the exception's `$span_id` property. Only counted within the requested traces, so `traceIds` is required alongside. At most 200 per request.
+     * @maxItems 200
+     */
+    spanIds?: string[]
+    /**
+     * Session IDs to count exceptions for. The fallback for exceptions that carry no trace ID. At most 200 per request.
+     * @maxItems 200
+     */
+    sessionIds?: string[]
+    /** Start of the window the exceptions must fall in. ISO 8601. */
+    dateFrom: string
+    /** End of the window the exceptions must fall in. ISO 8601. */
+    dateTo: string
+}
+
+export interface _TracingTraceErrorCountApi {
+    /** The trace the exceptions belong to, lowercase hex. */
+    trace_id: string
+    /** Exception events in the window that error tracking linked to an issue. */
+    exceptions: number
+}
+
+export interface _TracingSpanErrorCountApi {
+    /** The span the exceptions belong to, lowercase hex. */
+    span_id: string
+    /** Exception events in the window that error tracking linked to an issue. */
+    exceptions: number
+}
+
+export interface _TracingSessionErrorCountApi {
+    /** The session the exceptions belong to. */
+    session_id: string
+    /** Exception events in the window that error tracking linked to an issue. */
+    exceptions: number
+}
+
+export interface _TracingErrorCountsResponseApi {
+    /** One entry per requested trace that had exceptions. Traces with none are omitted. */
+    traceResults: _TracingTraceErrorCountApi[]
+    /** One entry per requested span that had exceptions. Spans with none are omitted. */
+    spanResults: _TracingSpanErrorCountApi[]
+    /** One entry per requested session that had exceptions. Sessions with none are omitted. */
+    sessionResults: _TracingSessionErrorCountApi[]
+}
+
 export interface _HasSpansResponseApi {
     /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
     hasSpans: boolean
@@ -440,31 +492,6 @@ export interface _TracingQueryBodyApi {
 export interface _TracingQueryRequestApi {
     /** The tracing spans query to execute. */
     query: _TracingQueryBodyApi
-}
-
-export interface _TracingSessionErrorCountsRequestApi {
-    /**
-     * Session IDs to count exceptions for. At most 200 per request.
-     * @minItems 1
-     * @maxItems 200
-     */
-    sessionIds: string[]
-    /** Start of the window the exceptions must fall in. ISO 8601. */
-    dateFrom: string
-    /** End of the window the exceptions must fall in. ISO 8601. */
-    dateTo: string
-}
-
-export interface _TracingSessionErrorCountApi {
-    /** The session the exceptions belong to. */
-    session_id: string
-    /** Exception events in the window that Error Tracking linked to an issue. */
-    exceptions: number
-}
-
-export interface _TracingSessionErrorCountsResponseApi {
-    /** One entry per requested session that had exceptions. Sessions with none are omitted. */
-    results: _TracingSessionErrorCountApi[]
 }
 
 export interface _TracingSparklineQueryBodyApi {

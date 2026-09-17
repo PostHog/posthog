@@ -84,7 +84,7 @@ function TracingSceneContents(): JSX.Element {
         traceIdentity,
         traceSessionId,
         sessionErrorBadgesEnabled,
-        errorCountByRow,
+        errorBadgeByRow,
         inspectorTab,
         isLoadingFullTrace,
         canLoadMoreTraceSpans,
@@ -138,7 +138,7 @@ function TracingSceneContents(): JSX.Element {
     const operationsWindowMs = sparklineWindowMs.endMs - sparklineWindowMs.startMs
 
     // react-window rebuilds its row memo from the shallow values of rowProps, so one unstable
-    // value there re-renders every visible row. This handler and `sessionErrors` below are both
+    // value there re-renders every visible row. This handler and `spanErrors` below are both
     // passed that way, so both hold their identity.
     const onRowClick = useCallback(
         (span: Span, tab?: SpanInspectorTab): void => {
@@ -154,12 +154,12 @@ function TracingSceneContents(): JSX.Element {
     )
 
     // Absent while the flag is off, which is how the list decides whether to keep a badge column.
-    const sessionErrors = useMemo(
+    const spanErrors = useMemo(
         () =>
             sessionErrorBadgesEnabled
-                ? { counts: errorCountByRow, onShow: (span: Span) => onRowClick(span, 'errors') }
+                ? { badges: errorBadgeByRow, onShow: (span: Span) => onRowClick(span, 'errors') }
                 : undefined,
-        [sessionErrorBadgesEnabled, errorCountByRow, onRowClick]
+        [sessionErrorBadgesEnabled, errorBadgeByRow, onRowClick]
     )
 
     const onDocsLinkClick = (): void => {
@@ -284,7 +284,7 @@ function TracingSceneContents(): JSX.Element {
                                 hasMoreToLoad={hasMoreToLoad}
                                 onLoadMore={fetchNextPage}
                                 onVisibleRowRangeChange={setVisibleRowRange}
-                                sessionErrors={sessionErrors}
+                                spanErrors={spanErrors}
                                 orderBy={filters.orderBy}
                                 orderDirection={filters.orderDirection}
                                 onSort={(column) =>
@@ -315,7 +315,7 @@ function TracingSceneContents(): JSX.Element {
                 spans={openTraceSpans}
                 identity={traceIdentity}
                 sessionId={traceSessionId}
-                showSessionErrors={sessionErrorBadgesEnabled}
+                showErrorsTab={sessionErrorBadgesEnabled}
                 inspectorTab={inspectorTab}
                 onSelectInspectorTab={selectInspectorTab}
                 loading={isLoadingFullTrace}

@@ -48,9 +48,11 @@ from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
 
 from ..facade.api import (
     FACET_COLUMNS,
-    MAX_SESSIONS_PER_LOOKUP,
+    MAX_IDS_PER_LOOKUP,
     annotate_self_time,
     count_session_exceptions,
+    count_span_exceptions,
+    count_trace_exceptions,
     run_attribute_breakdown_query,
     run_count_query,
     run_duration_histogram_query,
@@ -329,15 +331,58 @@ class _TracingServiceNamesQuerySerializer(serializers.Serializer):
     )
 
 
-class _TracingSessionErrorCountsRequestSerializer(serializers.Serializer):
+class _TracingErrorCountsRequestSerializer(serializers.Serializer):
+    traceIds = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        max_length=MAX_IDS_PER_LOOKUP,
+        help_text=(
+            f"Hex trace IDs to count exceptions for, matched against the exception's `$trace_id` "
+            f"property. Case insensitive. At most {MAX_IDS_PER_LOOKUP} per request."
+        ),
+    )
+    spanIds = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        max_length=MAX_IDS_PER_LOOKUP,
+        help_text=(
+            f"Hex span IDs to count exceptions for, matched against the exception's `$span_id` "
+            f"property. Only counted within the requested traces, so `traceIds` is required "
+            f"alongside. At most {MAX_IDS_PER_LOOKUP} per request."
+        ),
+    )
     sessionIds = serializers.ListField(
         child=serializers.CharField(),
-        min_length=1,
-        max_length=MAX_SESSIONS_PER_LOOKUP,
-        help_text=f"Session IDs to count exceptions for. At most {MAX_SESSIONS_PER_LOOKUP} per request.",
+        required=False,
+        max_length=MAX_IDS_PER_LOOKUP,
+        help_text=(
+            f"Session IDs to count exceptions for. The fallback for exceptions that carry no "
+            f"trace ID. At most {MAX_IDS_PER_LOOKUP} per request."
+        ),
     )
     dateFrom = serializers.DateTimeField(help_text="Start of the window the exceptions must fall in. ISO 8601.")
     dateTo = serializers.DateTimeField(help_text="End of the window the exceptions must fall in. ISO 8601.")
+
+    def validate(self, attrs: dict) -> dict:
+        if not any(attrs.get(key) for key in ("traceIds", "spanIds", "sessionIds")):
+            raise serializers.ValidationError("Pass at least one of traceIds, spanIds or sessionIds.")
+        if attrs.get("spanIds") and not attrs.get("traceIds"):
+            raise serializers.ValidationError("spanIds needs traceIds, because a span ID is only unique in its trace.")
+        return attrs
+
+
+class _TracingTraceErrorCountSerializer(serializers.Serializer):
+    trace_id = serializers.CharField(help_text="The trace the exceptions belong to, lowercase hex.")
+    exceptions = serializers.IntegerField(
+        help_text="Exception events in the window that error tracking linked to an issue."
+    )
+
+
+class _TracingSpanErrorCountSerializer(serializers.Serializer):
+    span_id = serializers.CharField(help_text="The span the exceptions belong to, lowercase hex.")
+    exceptions = serializers.IntegerField(
+        help_text="Exception events in the window that error tracking linked to an issue."
+    )
 
 
 class _TracingSessionErrorCountSerializer(serializers.Serializer):
@@ -347,8 +392,16 @@ class _TracingSessionErrorCountSerializer(serializers.Serializer):
     )
 
 
-class _TracingSessionErrorCountsResponseSerializer(serializers.Serializer):
-    results = _TracingSessionErrorCountSerializer(
+class _TracingErrorCountsResponseSerializer(serializers.Serializer):
+    traceResults = _TracingTraceErrorCountSerializer(
+        many=True,
+        help_text="One entry per requested trace that had exceptions. Traces with none are omitted.",
+    )
+    spanResults = _TracingSpanErrorCountSerializer(
+        many=True,
+        help_text="One entry per requested span that had exceptions. Spans with none are omitted.",
+    )
+    sessionResults = _TracingSessionErrorCountSerializer(
         many=True,
         help_text="One entry per requested session that had exceptions. Sessions with none are omitted.",
     )
@@ -815,33 +868,62 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         return self.get_model(compare_data, CompareFilter)
 
     @validated_request(
-        _TracingSessionErrorCountsRequestSerializer,
-        responses={200: OpenApiResponse(response=_TracingSessionErrorCountsResponseSerializer)},
+        _TracingErrorCountsRequestSerializer,
+        responses={200: OpenApiResponse(response=_TracingErrorCountsResponseSerializer)},
     )
     # Both scopes: the response is Error Tracking data, so a token scoped to tracing alone must
     # not reach it. Scopes gate the token; the access-control check below gates the user.
     @action(
         detail=False,
         methods=["POST"],
-        url_path="session-error-counts",
+        url_path="error-counts",
         required_scopes=["tracing:read", "error_tracking:read"],
     )
-    def session_error_counts(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        """Count the exceptions each session hit around the spans in view, for the span list's
-        error badges."""
+    def error_counts(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        """Count the exceptions the spans in view hit, by trace, by span and by session, for the
+        span list's error badges.
+
+        A caller asks about the id kinds it has. Each kind is a separate lookup, so an empty list
+        costs nothing.
+        """
         if not self.user_access_control.check_access_level_for_resource("error_tracking", "viewer"):
             raise PermissionDenied("You do not have access to error tracking.")
 
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         data = request.validated_data
-        counts = count_session_exceptions(
-            team=self.team,
-            session_ids=data["sessionIds"],
-            date_from=data["dateFrom"],
-            date_to=data["dateTo"],
+        trace_ids = data.get("traceIds") or []
+        span_ids = data.get("spanIds") or []
+        session_ids = data.get("sessionIds") or []
+        date_from = data["dateFrom"]
+        date_to = data["dateTo"]
+
+        trace_counts = (
+            count_trace_exceptions(team=self.team, trace_ids=trace_ids, date_from=date_from, date_to=date_to)
+            if trace_ids
+            else {}
+        )
+        span_counts = (
+            count_span_exceptions(
+                team=self.team, span_ids=span_ids, trace_ids=trace_ids, date_from=date_from, date_to=date_to
+            )
+            if span_ids
+            else {}
+        )
+        session_counts = (
+            count_session_exceptions(team=self.team, session_ids=session_ids, date_from=date_from, date_to=date_to)
+            if session_ids
+            else {}
         )
         return Response(
-            {"results": [{"session_id": session_id, "exceptions": count} for session_id, count in counts.items()]},
+            {
+                "traceResults": [
+                    {"trace_id": trace_id, "exceptions": count} for trace_id, count in trace_counts.items()
+                ],
+                "spanResults": [{"span_id": span_id, "exceptions": count} for span_id, count in span_counts.items()],
+                "sessionResults": [
+                    {"session_id": session_id, "exceptions": count} for session_id, count in session_counts.items()
+                ],
+            },
             status=status.HTTP_200_OK,
         )
 

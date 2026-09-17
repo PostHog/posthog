@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { pluralize } from 'lib/utils/strings'
@@ -9,40 +9,52 @@ import { MaxErrorTrackingIssuePreview } from '~/queries/schema/schema-assistant-
 
 import { ErrorTrackingIssueCard } from 'products/error_tracking/frontend/ErrorTrackingIssueCard'
 
-import { SESSION_ERRORS_WINDOW_HOURS } from '../../sessionErrors'
+import { SESSION_ERRORS_WINDOW_HOURS } from '../../errorCorrelation'
 import { TRACING_DOCS_URL } from '../../traceLinks'
-import { TraceErrorsLogicProps, traceErrorsLogic } from './traceErrorsLogic'
+import { TraceErrorsLogicProps, TraceErrorsScope, traceErrorsLogic } from './traceErrorsLogic'
+
+const SCOPE_LABELS: Record<TraceErrorsScope, string> = {
+    span: 'This span',
+    trace: 'This trace',
+    session: 'This session',
+}
+
+const SCOPE_EMPTY_STATES: Record<TraceErrorsScope, { title: string; description: string }> = {
+    span: {
+        title: 'No errors in this span',
+        description: 'No exceptions reported this span as the place they were thrown.',
+    },
+    trace: {
+        title: 'No errors in this trace',
+        description: 'No exceptions reported this trace as the request they happened in.',
+    },
+    session: {
+        title: 'No errors in this session',
+        description: `No exceptions were found in this session within ${SESSION_ERRORS_WINDOW_HOURS} hours of this trace.`,
+    },
+}
 
 export interface TraceErrorsTabProps {
     traceId: string
+    /** The inspected span, which the span scope matches on. */
+    spanId: string | null
     /** Trace start, which anchors the window the exceptions must fall in. */
     timestamp: string | null
     /** The trace's session, or null when the spans resolve to no single session. */
     sessionId: string | null
-    /** The spans the session is resolved from are still arriving, so null is not yet an answer. */
+    /** The spans the session is resolved from are still arriving, so a null session is not yet an answer. */
     resolving: boolean
 }
 
-export function TraceErrorsTab({ traceId, timestamp, sessionId, resolving }: TraceErrorsTabProps): JSX.Element {
-    if (resolving) {
+export function TraceErrorsTab({ traceId, spanId, timestamp, sessionId, resolving }: TraceErrorsTabProps): JSX.Element {
+    // Only the session scope waits. The trace and span scopes read ids the clicked row already
+    // carries, so holding the whole tab for a session resolve would delay the precise answer for
+    // the fuzzy one.
+    if (resolving && !traceId) {
         return <LoadingState />
     }
 
-    if (!sessionId) {
-        return (
-            <div className="flex justify-center w-full py-8">
-                <EmptyMessage
-                    title="No session for this trace"
-                    description="The spans carry no session ID, or they carry more than one. Add a session ID attribute to your spans to see errors from the same session."
-                    buttonText="Learn more"
-                    buttonTo={TRACING_DOCS_URL}
-                    size="small"
-                />
-            </div>
-        )
-    }
-
-    const logicProps: TraceErrorsLogicProps = { traceId, timestamp, sessionId }
+    const logicProps: TraceErrorsLogicProps = { traceId, spanId, timestamp, sessionId }
 
     return (
         <BindLogic logic={traceErrorsLogic} props={logicProps}>
@@ -52,54 +64,102 @@ export function TraceErrorsTab({ traceId, timestamp, sessionId, resolving }: Tra
 }
 
 function TraceErrorsTabContent(): JSX.Element {
-    const { sessionIssues, sessionIssuesLoading, sessionIssuesFailed } = useValues(traceErrorsLogic)
-    const { loadSessionIssues } = useActions(traceErrorsLogic)
+    const { issues, issuesLoading, issuesFailed, availableScopes, effectiveScope } = useValues(traceErrorsLogic)
+    const { loadIssues, setScope } = useActions(traceErrorsLogic)
 
-    if (sessionIssuesLoading) {
-        return <LoadingState />
-    }
-
-    if (sessionIssuesFailed) {
-        return (
-            <LemonBanner type="error" action={{ children: 'Retry', onClick: loadSessionIssues }}>
-                Could not load the errors for this session.
-            </LemonBanner>
-        )
-    }
-
-    if (sessionIssues.length === 0) {
+    if (!effectiveScope) {
         return (
             <div className="flex justify-center w-full py-8">
                 <EmptyMessage
-                    title="No errors in this session"
-                    description={`No exceptions were found in this session within ${SESSION_ERRORS_WINDOW_HOURS} hours of this trace.`}
+                    title="No trace or session to match errors on"
+                    description="This span carries no trace ID, and the spans carry no session ID. Add a session ID attribute to your spans to see errors from the same session."
+                    buttonText="Learn more"
+                    buttonTo={TRACING_DOCS_URL}
                     size="small"
                 />
             </div>
         )
     }
 
-    return <SessionIssuesList issues={sessionIssues} />
+    return (
+        <div className="flex flex-col gap-2">
+            {availableScopes.length > 1 && (
+                <div className="flex">
+                    <LemonSegmentedButton
+                        size="small"
+                        value={effectiveScope}
+                        onChange={(scope) => setScope(scope as TraceErrorsScope)}
+                        options={availableScopes.map((scope) => ({
+                            value: scope,
+                            label: SCOPE_LABELS[scope],
+                            'data-attr': `tracing-trace-errors-scope-${scope}`,
+                        }))}
+                    />
+                </div>
+            )}
+            <TraceErrorsList
+                issues={issues}
+                loading={issuesLoading}
+                failed={issuesFailed}
+                scope={effectiveScope}
+                onRetry={loadIssues}
+            />
+        </div>
+    )
+}
+
+function TraceErrorsList({
+    issues,
+    loading,
+    failed,
+    scope,
+    onRetry,
+}: {
+    issues: MaxErrorTrackingIssuePreview[]
+    loading: boolean
+    failed: boolean
+    scope: TraceErrorsScope
+    onRetry: () => void
+}): JSX.Element {
+    if (loading) {
+        return <LoadingState />
+    }
+
+    if (failed) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Retry', onClick: onRetry }}>
+                Could not load the errors for this trace.
+            </LemonBanner>
+        )
+    }
+
+    if (issues.length === 0) {
+        const emptyState = SCOPE_EMPTY_STATES[scope]
+        return (
+            <div className="flex justify-center w-full py-8">
+                <EmptyMessage title={emptyState.title} description={emptyState.description} size="small" />
+            </div>
+        )
+    }
+
+    const totalOccurrences = issues.reduce((sum, issue) => sum + issue.occurrences, 0)
+    const where = scope === 'session' ? 'in this session' : scope === 'trace' ? 'in this trace' : 'in this span'
+    return (
+        <div className="flex flex-col">
+            <p className="text-muted text-sm mb-2">
+                {pluralize(issues.length, 'issue')} with {pluralize(totalOccurrences, 'occurrence')} {where}
+            </p>
+            {issues.map((issue) => (
+                <ErrorTrackingIssueCard key={issue.id} issue={issue} showUserCount={false} />
+            ))}
+        </div>
+    )
 }
 
 function LoadingState(): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
             <LemonSkeleton className="h-16 w-full" repeat={3} />
-        </div>
-    )
-}
-
-function SessionIssuesList({ issues }: { issues: MaxErrorTrackingIssuePreview[] }): JSX.Element {
-    const totalOccurrences = issues.reduce((sum, issue) => sum + issue.occurrences, 0)
-    return (
-        <div className="flex flex-col">
-            <p className="text-muted text-sm mb-2">
-                {pluralize(issues.length, 'issue')} with {pluralize(totalOccurrences, 'occurrence')} in this session
-            </p>
-            {issues.map((issue) => (
-                <ErrorTrackingIssueCard key={issue.id} issue={issue} showUserCount={false} />
-            ))}
         </div>
     )
 }
