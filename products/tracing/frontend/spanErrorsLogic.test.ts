@@ -174,6 +174,18 @@ describe('spanErrorsLogic', () => {
         expect(logic.values.errorBadgeByRow.get('row-2')).toEqual({ tier: 'trace', count: 5 })
     })
 
+    // A row with a span id but no trace id can be answered by neither exact tier, so asking about
+    // it records nothing and every later page would ask again.
+    it('leaves a row with no trace id to the session join instead of re-asking every page', async () => {
+        const row = spanWithIds('row-1', '', 'span-1', 'session-a')
+        await loadFirstPage([row])
+        await loadNextPage([row, spanWithIds('row-2', '', 'span-2', 'session-a')])
+
+        expect(asked('spanIds')).toEqual([])
+        expect(asked('traceIds')).toEqual([])
+        expect(asked('sessionIds')).toEqual([['session-a']])
+    })
+
     // Span rows read their ids back as uppercase hex while the SDKs write them lowercase.
     it('asks about ids in the case the events are stored in', async () => {
         await loadFirstPage([spanWithIds('row-1', 'TRACE-A', 'SPAN-1')])

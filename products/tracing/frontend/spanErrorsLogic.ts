@@ -159,9 +159,15 @@ async function lookUpExactCounts(rows: Span[], known: SpanErrorCounts, teamId: n
     // id keeps a span and the trace it belongs to in the same request, which the endpoint requires:
     // a span id is only unique in its trace.
     const exactRows = rows.filter((span) => {
-        const spanId = usableId(span.span_id)
         const traceId = usableId(span.trace_id)
-        return (!!spanId && !Object.hasOwn(known.span, spanId)) || (!!traceId && !Object.hasOwn(known.trace, traceId))
+        // Without a trace id neither tier can answer: the endpoint needs one, and a span id alone
+        // is ambiguous across traces. Such a row would otherwise never be recorded as looked up,
+        // so every later page would ask about it again.
+        if (!traceId) {
+            return false
+        }
+        const spanId = usableId(span.span_id)
+        return !Object.hasOwn(known.trace, traceId) || (!!spanId && !Object.hasOwn(known.span, spanId))
     })
     if (exactRows.length === 0) {
         return exact
@@ -181,13 +187,11 @@ async function lookUpExactCounts(rows: Span[], known: SpanErrorCounts, teamId: n
     }))
     const responses = await Promise.all(
         asks.map((ask) =>
-            ask.traceIds.length === 0
-                ? null
-                : tracingSpansErrorCountsCreate(String(teamId), {
-                      ...ask,
-                      dateFrom: range.date_from,
-                      dateTo: range.date_to,
-                  }).catch(() => null)
+            tracingSpansErrorCountsCreate(String(teamId), {
+                ...ask,
+                dateFrom: range.date_from,
+                dateTo: range.date_to,
+            }).catch(() => null)
         )
     )
 
