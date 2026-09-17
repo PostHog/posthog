@@ -220,6 +220,23 @@ describe('ML session key batches', () => {
         expect(await settled).toBe(succeeds ? 'read' : 'failed')
     })
 
+    it('stops a read when the caller deadline aborts instead of waiting out its attempts', async () => {
+        const db = new MlKeyDynamoDB(boundary as unknown as DynamoDBClient, table)
+        let attempts = 0
+        jest.spyOn(boundary, 'send').mockImplementation(() => {
+            attempts += 1
+            return Promise.reject(transientError('AbortError'))
+        })
+        jest.useFakeTimers()
+        const settled = db.read([sessionKeyId(session.teamId, session.sessionId)], AbortSignal.abort()).then(
+            () => 'read',
+            () => 'failed'
+        )
+        await jest.runAllTimersAsync()
+        expect(await settled).toBe('failed')
+        expect(attempts).toBe(1)
+    })
+
     it('writes the month index entry before the key and repairs a failed index put', async () => {
         const send = boundary.send.bind(boundary)
         let remaining = 1

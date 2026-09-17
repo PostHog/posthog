@@ -82,10 +82,13 @@ export class MlKeyDynamoDB {
                                 )
                             )
                         } catch (error) {
-                            if (!isTransientError(error) || attempt === this.attempts - 1) {
+                            // A spent deadline also aborts the request, and an AbortError counts as transient, so the
+                            // deadline is checked separately. Otherwise the loop waits out its attempts past the budget
+                            // that keeps a batch under the consumer's stall threshold.
+                            if (!isTransientError(error) || deadline?.aborted || attempt === this.attempts - 1) {
                                 throw error
                             }
-                            await this.backoff(attempt)
+                            await this.backoff(attempt, deadline)
                             continue
                         }
                         for (const item of response.Responses?.[this.tableName] ?? []) {
@@ -103,7 +106,7 @@ export class MlKeyDynamoDB {
                         }
                         pending = response.UnprocessedKeys?.[this.tableName]?.Keys ?? []
                         if (pending.length) {
-                            await this.backoff(attempt)
+                            await this.backoff(attempt, deadline)
                         }
                     }
                     if (pending.length) {
@@ -163,8 +166,24 @@ export class MlKeyDynamoDB {
         return deadline ? AbortSignal.any([deadline, timeout]) : timeout
     }
 
-    // The cap matches MlKeyBatch.commit because an account-wide throttle outlasts a shorter budget. A caller's deadline still bounds the total wait.
-    public async backoff(attempt: number): Promise<void> {
-        await new Promise((resolve) => setTimeout(resolve, Math.min(3_000, 50 * 2 ** attempt) + Math.random() * 50))
+    // The cap matches MlKeyBatch.commit because an account-wide throttle outlasts a shorter budget.
+    public async backoff(attempt: number, deadline?: AbortSignal): Promise<void> {
+        const delayMs = Math.min(3_000, 50 * 2 ** attempt) + Math.random() * 50
+        if (!deadline) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs))
+            return
+        }
+        if (deadline.aborted) {
+            return
+        }
+        await new Promise<void>((resolve) => {
+            const stop = (): void => {
+                clearTimeout(timer)
+                deadline.removeEventListener('abort', stop)
+                resolve()
+            }
+            const timer = setTimeout(stop, delayMs)
+            deadline.addEventListener('abort', stop, { once: true })
+        })
     }
 }
