@@ -3,7 +3,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
-from django.db import transaction
+from django.db import ProgrammingError, transaction
 from django.db.models import Case, Count, F, IntegerField, Min, Q, Value, When, Window
 from django.db.models.functions import Coalesce, RowNumber
 
@@ -28,10 +28,12 @@ from posthog.tasks.alerts.metrics_investigation import run_metrics_alert_investi
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
 from posthog.tasks.alerts.utils import (
     CALCULATION_INTERVAL_ORDER,
+    PREPARE_ALERT_FIELDS,
     add_alert_check,
     disable_invalid_alert,
     dispatch_alert_notification,
     get_alert_error_notification_recipients,
+    is_schema_lag_error,
     next_check_time,
     next_scheduled_check_time,
     record_alert_delivery,
@@ -178,6 +180,16 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
     return retrieved.alerts
 
 
+def _count_schema_lag(activity: str) -> None:
+    try:
+        get_metric_meter({"activity": activity}).create_counter(
+            "insight_alert_schema_lag_skips",
+            "Alert activity runs skipped because the database was missing a column this code reads",
+        ).add(1)
+    except Exception:
+        logger.exception("Failed to record alert schema lag metric")
+
+
 def _has_active_destinations(alert: AlertConfiguration) -> bool:
     return (
         count_active_alert_destinations(
@@ -196,8 +208,10 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
     @database_sync_to_async(thread_sensitive=False)
     def _prepare() -> PrepareAlertResult:
         try:
-            alert = AlertConfiguration.objects.select_related("insight", "team", "team__organization", "threshold").get(
-                id=inputs.alert_id
+            alert = (
+                AlertConfiguration.objects.select_related("insight", "team", "team__organization", "threshold")
+                .only(*PREPARE_ALERT_FIELDS)
+                .get(id=inputs.alert_id)
             )
         except AlertConfiguration.DoesNotExist:
             logger.warning("Alert not found", alert_id=inputs.alert_id)
@@ -286,7 +300,17 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
         return PrepareAlertResult(action=PrepareAction.EVALUATE)
 
     async with Heartbeater():
-        return await _prepare()
+        try:
+            return await _prepare()
+        except ProgrammingError as error:
+            if not is_schema_lag_error(error):
+                raise
+            # Skipping leaves next_check_at in the past, so the scheduler re-selects this alert
+            # on its next poll. Failing the activity instead would burn its retries in seconds
+            # and leave the alert unevaluated until its next due time.
+            logger.warning("alert.prepare_skipped_schema_lag", alert_id=inputs.alert_id, error=str(error))
+            _count_schema_lag("prepare_alert")
+            return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.SCHEMA_LAG)
 
 
 def _write_errored_alert_check(alert: AlertConfiguration, error: dict) -> tuple[AlertCheck, bool]:
@@ -643,7 +667,16 @@ async def run_investigation_safety_net() -> int:
         return run_investigation_notification_safety_net()
 
     async with Heartbeater():
-        return await _sweep()
+        try:
+            return await _sweep()
+        except ProgrammingError as error:
+            if not is_schema_lag_error(error):
+                raise
+            # The sweep is idempotent and runs on a schedule, so the next run picks up the same
+            # checks once the migration lands. Failing here would only add noise.
+            logger.warning("alert.investigation_safety_net_skipped_schema_lag", error=str(error))
+            _count_schema_lag("run_investigation_safety_net")
+            return 0
 
 
 @temporalio.activity.defn

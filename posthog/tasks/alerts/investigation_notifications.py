@@ -63,30 +63,30 @@ def run_investigation_notification_safety_net() -> int:
     # legitimately-held check from this safety net; `investigation_agent_enabled`
     # is a stickier configuration knob and picks up exactly the checks whose
     # dispatch could have been the workflow's responsibility.
-    candidates = (
-        AlertCheck.objects.select_related("alert_configuration")
-        .filter(
-            state=AlertState.FIRING,
-            notification_sent_at__isnull=True,
-            notification_suppressed_by_agent=False,
-            # Pre-PR-3 `notify_alert` populated `targets_notified` without setting
-            # `notification_sent_at`. New code writes both atomically, so the combination
-            # (targets_notified populated, notification_sent_at NULL) only occurs in
-            # legacy data delivered before this safety net existed; skip it.
-            targets_notified={},
-            alert_configuration__investigation_agent_enabled=True,
+    # No select_related on alert_configuration: that made the scan select every
+    # AlertConfiguration column, so a column the database has not migrated yet failed the whole
+    # sweep before it read a row. The filter still joins for `investigation_agent_enabled`, and
+    # each candidate loads its own alert below.
+    candidates = AlertCheck.objects.filter(
+        state=AlertState.FIRING,
+        notification_sent_at__isnull=True,
+        notification_suppressed_by_agent=False,
+        # Pre-PR-3 `notify_alert` populated `targets_notified` without setting
+        # `notification_sent_at`. New code writes both atomically, so the combination
+        # (targets_notified populated, notification_sent_at NULL) only occurs in
+        # legacy data delivered before this safety net existed; skip it.
+        targets_notified={},
+        alert_configuration__investigation_agent_enabled=True,
+    ).filter(
+        # Terminal investigation states (DONE / FAILED): the workflow is not coming
+        # back, so a 5-min grace gets stuck dispatches through quickly. Non-terminal
+        # states (RUNNING / PENDING / SKIPPED / null): wait past the activity's
+        # full retry budget so we don't race a healthy long-running investigation.
+        Q(
+            investigation_status__in=[InvestigationStatus.DONE, InvestigationStatus.FAILED],
+            created_at__lte=terminal_cutoff,
         )
-        .filter(
-            # Terminal investigation states (DONE / FAILED): the workflow is not coming
-            # back, so a 5-min grace gets stuck dispatches through quickly. Non-terminal
-            # states (RUNNING / PENDING / SKIPPED / null): wait past the activity's
-            # full retry budget so we don't race a healthy long-running investigation.
-            Q(
-                investigation_status__in=[InvestigationStatus.DONE, InvestigationStatus.FAILED],
-                created_at__lte=terminal_cutoff,
-            )
-            | Q(created_at__lte=running_cutoff)
-        )
+        | Q(created_at__lte=running_cutoff)
     )
 
     notified = 0

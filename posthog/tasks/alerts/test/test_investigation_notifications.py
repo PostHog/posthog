@@ -4,6 +4,8 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
+
 from parameterized import parameterized
 
 from posthog.schema import AlertState
@@ -177,6 +179,18 @@ class TestInvestigationNotificationSafetyNet(APIBaseTest):
         notified = run_investigation_notification_safety_net()
         assert notified == 0
         mock_dispatch.assert_not_called()  # type: ignore[attr-defined]
+
+    def test_sweeps_when_an_alert_column_it_does_not_read_is_missing(self) -> None:
+        # Stands in for a deploy where the worker image runs ahead of an alerts migration.
+        # The candidate scan reads no AlertConfiguration column, so a column the database
+        # does not have yet cannot fail the sweep before it looks at a single check.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "ALTER TABLE posthog_alertconfiguration "
+                "RENAME COLUMN investigation_inconclusive_action TO investigation_inconclusive_action__hidden"
+            )
+
+        assert run_investigation_notification_safety_net() == 0
 
     @patch("posthog.tasks.alerts.investigation_notifications.dispatch_alert_notification")
     def test_skips_already_suppressed_check(self, mock_dispatch: object) -> None:

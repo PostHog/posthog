@@ -3,9 +3,11 @@ from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from django.db import ProgrammingError
 from django.utils import timezone
 
 import pytz
+import psycopg
 import structlog
 
 from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayType, NodeKind, TrendsQuery
@@ -48,6 +50,43 @@ from products.exports.backend.facade import api as exports
 logger = structlog.get_logger(__name__)
 
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
+
+# AlertConfiguration columns the prepare path and its helpers read. Narrowing the SELECT to
+# these keeps alert evaluation working on a deploy where the worker image runs ahead of an
+# AlertConfiguration migration: a column the database does not have yet is not on this list,
+# so it is never selected. Related rows come through select_related and stay unnarrowed. Add
+# a column only when the prepare path reads it; a missing one costs a lazy query, not an
+# incorrect result.
+PREPARE_ALERT_FIELDS = (
+    "id",
+    "team_id",
+    "insight_id",
+    "threshold_id",
+    "name",
+    "enabled",
+    "state",
+    "config",
+    "condition",
+    "detector_config",
+    "calculation_interval",
+    "last_checked_at",
+    "last_notified_at",
+    "next_check_at",
+    "snoozed_until",
+    "skip_weekend",
+    "schedule_restriction",
+    "schedule_start_time",
+)
+
+
+def is_schema_lag_error(error: ProgrammingError) -> bool:
+    """True when the database lacks a column or table this code already knows about.
+
+    A deploy that lands the worker image before its migration produces this, and it clears
+    itself once the migration runs, so callers retry later instead of failing the whole run.
+    """
+    return isinstance(error.__cause__, psycopg.errors.UndefinedColumn | psycopg.errors.UndefinedTable)
+
 
 # TTL for the tokenized chart URL embedded in Slack. Slack fetches the image at delivery,
 # but the URL must stay resolvable while people scroll back to the message; 30 days matches

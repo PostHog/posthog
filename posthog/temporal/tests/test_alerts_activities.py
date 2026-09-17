@@ -6,6 +6,8 @@ import pytest
 import time_machine
 from unittest.mock import patch
 
+from django.db import connection
+
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from clickhouse_driver.errors import NetworkError, SocketTimeoutError
@@ -42,6 +44,7 @@ from posthog.temporal.alerts.activities import (
     prepare_alert,
     record_failed_evaluation,
     retrieve_due_alerts,
+    run_investigation_safety_net,
 )
 from posthog.temporal.alerts.retry_policy import alert_timeouts
 from posthog.temporal.alerts.types import (
@@ -192,6 +195,27 @@ async def _create_alert_check(
         )
 
     return await _create()
+
+
+@contextlib.asynccontextmanager
+async def _alert_column_missing(column: str):
+    """Reproduce a deploy where the worker image runs ahead of an alerts migration.
+
+    Renaming rather than dropping keeps the column's type, default and data, so putting the
+    name back afterwards restores the table exactly for the rest of the suite.
+    """
+
+    @sync_to_async
+    def _rename(old_name: str, new_name: str) -> None:
+        with connection.cursor() as cursor:
+            cursor.execute(f"ALTER TABLE posthog_alertconfiguration RENAME COLUMN {old_name} TO {new_name}")
+
+    hidden = f"{column}__hidden"
+    await _rename(column, hidden)
+    try:
+        yield
+    finally:
+        await _rename(hidden, column)
 
 
 @pytest.mark.asyncio
@@ -416,6 +440,35 @@ class TestPrepareAlert:
         entitled = await _create_alert(ateam, calculation_interval=calculation_interval)
         result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(entitled.id)))
         assert result.action == PrepareAction.EVALUATE
+
+    async def test_evaluates_when_a_column_it_does_not_read_is_missing(self, alert) -> None:
+        # investigation_inconclusive_action stands in for any column a later migration adds:
+        # the prepare path never reads it, so the narrowed SELECT must not ask for it.
+        async with _alert_column_missing("investigation_inconclusive_action"):
+            result = await ActivityEnvironment().run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(alert.id)))
+
+        assert result.action == PrepareAction.EVALUATE
+
+    async def test_skips_when_a_column_it_reads_is_missing(self, alert) -> None:
+        async with _alert_column_missing("schedule_start_time"):
+            result = await ActivityEnvironment().run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(alert.id)))
+
+        assert result.action == PrepareAction.SKIP
+        assert result.reason == SkipReason.SCHEMA_LAG
+
+        # next_check_at stays in the past so the scheduler re-selects the alert once the
+        # migration lands, instead of waiting for the next due time.
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert.pk)
+        assert refreshed.next_check_at == alert.next_check_at
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+class TestRunInvestigationSafetyNet:
+    async def test_sweep_skipped_when_a_column_it_reads_is_missing(self) -> None:
+        async with _alert_column_missing("investigation_agent_enabled"):
+            notified = await ActivityEnvironment().run(run_investigation_safety_net)
+        assert notified == 0
 
 
 @pytest.mark.asyncio
