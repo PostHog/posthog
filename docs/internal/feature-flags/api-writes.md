@@ -22,6 +22,7 @@ A rejected format returns `unsupported_dependency_config_version` at `filters`, 
 The check adds no database queries to the existing person-condition dependency walk.
 
 Group-only conditions and writes that re-enable a flag or restore an active deleted flag also check reachable target formats, independently of structural-validation rollout settings.
+This supplementary traversal fetches pending targets in batches of at most 100 IDs and visits each ID once, without scanning the whole project.
 This check does not enable group dependencies: their existing aggregation validation still applies.
 Metadata-only and empty-filter updates retain their existing no-op targeting semantics unless they make stored targeting usable again.
 Disabling, archival, and deletion retain their existing dependent-flag protections.

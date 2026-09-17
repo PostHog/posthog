@@ -1,5 +1,4 @@
 from copy import deepcopy
-from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -9,6 +8,7 @@ from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
+from pydantic import JsonValue
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.utils import ServiceRequest
@@ -20,12 +20,12 @@ from products.feature_flags.backend.facade.api import create_flag, set_flag_acti
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
-def dependency_filters(*targets: FeatureFlag) -> dict[str, Any]:
+def dependency_filters(*targets: FeatureFlag, value: bool | str = True) -> dict[str, JsonValue]:
     return {
         "groups": [
             {
                 "properties": [
-                    {"key": target.id, "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                    {"key": target.id, "type": "flag", "value": value, "operator": "flag_evaluates_to"}
                     for target in targets
                 ],
                 "rollout_percentage": 100,
@@ -35,7 +35,7 @@ def dependency_filters(*targets: FeatureFlag) -> dict[str, Any]:
 
 
 class TestFeatureFlagDependencyFormats(APIBaseTest):
-    def make_flag(self, key: str, **kwargs: Any) -> FeatureFlag:
+    def make_flag(self, key: str, **kwargs: object) -> FeatureFlag:
         return FeatureFlag.objects.create(team=self.team, key=key, **kwargs)
 
     @parameterized.expand(
@@ -51,7 +51,7 @@ class TestFeatureFlagDependencyFormats(APIBaseTest):
         ]
     )
     def test_non_v1_target_is_rejected_without_writes(
-        self, _name: str, method: str, version: Any, rules: set[str]
+        self, _name: str, method: str, version: int | float | str | bool | None, rules: set[str]
     ) -> None:
         target_filters = {"version": version, "groups": "invalid", "rules": [], "seed": "invented-seed"}
         target = self.make_flag("target", filters=target_filters, version=42)
@@ -85,12 +85,13 @@ class TestFeatureFlagDependencyFormats(APIBaseTest):
         assert (target.filters, target.version) == (target_filters, 42)
 
     @parameterized.expand([(None, True), (1, False), (1.0, "blue")])
-    def test_v1_targets_keep_normalization_and_expected_values(self, version: Any, value: Any) -> None:
+    def test_v1_targets_keep_normalization_and_expected_values(
+        self, version: int | float | None, value: bool | str
+    ) -> None:
         target = self.make_flag(
             "target", filters={"groups": [], **({"version": version} if version else {})}, version=42
         )
-        filters = dependency_filters(target)
-        filters["groups"][0]["properties"][0]["value"] = value
+        filters = dependency_filters(target, value=value)
         created = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/", {"key": "source", "filters": filters}, format="json"
         )
@@ -107,7 +108,7 @@ class TestFeatureFlagDependencyFormats(APIBaseTest):
     @parameterized.expand(
         [("leaf", {}), ("misleading", {"groups": [{"properties": []}]}), ("malformed", {"groups": [None]})]
     )
-    def test_transitive_non_v1_target_is_not_a_leaf(self, _name: str, shape: dict) -> None:
+    def test_transitive_non_v1_target_is_not_a_leaf(self, _name: str, shape: dict[str, JsonValue]) -> None:
         target = self.make_flag("target", filters={"version": 2, **shape})
         middle = self.make_flag("middle", filters=dependency_filters(target))
         response = self.client.post(
@@ -125,11 +126,13 @@ class TestFeatureFlagDependencyFormats(APIBaseTest):
     ) -> None:
         target = self.make_flag("target", filters={"version": 2})
         filters = dependency_filters(target)
-        filters["groups"][0]["aggregation_group_type_index"] = 0
+        groups = filters["groups"]
+        assert isinstance(groups, list) and isinstance(groups[0], dict)
+        groups[0]["aggregation_group_type_index"] = 0
         if mixed:
-            filters["groups"].append({"properties": [], "rollout_percentage": 100})
+            groups.append({"properties": [], "rollout_percentage": 100})
         if malformed:
-            filters["groups"].append(None)
+            groups.append(None)
             source = self.make_flag("source", filters=filters)
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{source.id}/",
@@ -151,7 +154,9 @@ class TestFeatureFlagDependencyFormats(APIBaseTest):
             ("remove", {"filters": {"groups": []}}, 200),
         ]
     )
-    def test_merged_candidate_and_metadata_compatibility(self, _name: str, data: dict, expected: int) -> None:
+    def test_merged_candidate_and_metadata_compatibility(
+        self, _name: str, data: dict[str, JsonValue], expected: int
+    ) -> None:
         target = self.make_flag("target", filters={"version": 2})
         source = self.make_flag("source", filters=dependency_filters(target), version=7)
         before = deepcopy(source.filters)
@@ -271,20 +276,34 @@ class TestFeatureFlagDependencyFormats(APIBaseTest):
         assert source.active
         assert source.filters["groups"] == []
 
-    def test_diamond_preserves_existing_dependency_query_bound(self) -> None:
+    @parameterized.expand([("person", False, 2, 8), ("group", True, 2, 2), ("wide_group", True, 101, 3)])
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=set())
+    def test_diamond_preserves_dependency_query_bound(
+        self, _name: str, group_only: bool, width: int, query_limit: int
+    ) -> None:
         leaf = self.make_flag("leaf", filters={"version": 1.0, "groups": []})
-        left = self.make_flag("left", filters=dependency_filters(leaf))
-        right = self.make_flag("right", filters=dependency_filters(leaf))
+        branches = FeatureFlag.objects.bulk_create(
+            [
+                FeatureFlag(team=self.team, key=f"branch-{index}", filters=dependency_filters(leaf))
+                for index in range(width)
+            ]
+        )
+        candidate = dependency_filters(*branches)
+        if group_only:
+            groups = candidate["groups"]
+            assert isinstance(groups, list) and isinstance(groups[0], dict)
+            groups[0]["aggregation_group_type_index"] = 0
+            FeatureFlag.objects.filter(id=leaf.id).update(filters=dependency_filters(leaf))
         serializer = FeatureFlagSerializer(
             data={"key": "source"}, context={"project_id": self.team.project_id, "request": ServiceRequest(self.user)}
         )
         with CaptureQueriesContext(connection) as queries:
-            filters = serializer.validate_filters(dependency_filters(left, right))
-        assert [prop["key"] for prop in filters["groups"][0]["properties"]] == [str(left.id), str(right.id)]
-        assert len(queries) == 8
+            filters = serializer.validate_filters(candidate)
+        assert [prop["key"] for prop in filters["groups"][0]["properties"]] == [str(flag.id) for flag in branches]
+        assert len(queries) <= query_limit
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
-            {"key": "source", "filters": dependency_filters(left, right)},
+            {"key": "source", "filters": candidate},
             format="json",
         )
         assert response.status_code == 201, response.json()

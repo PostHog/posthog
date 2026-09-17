@@ -6,7 +6,7 @@ import json
 import math
 import logging
 import functools
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, Literal, NoReturn, Optional, cast
@@ -23,6 +23,7 @@ from cryptography.fernet import InvalidToken
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema_field
 from prometheus_client import Counter
+from pydantic import JsonValue
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.exceptions import ErrorDetail
 from rest_framework.permissions import BasePermission
@@ -1948,7 +1949,7 @@ class FeatureFlagSerializer(
                 f"Please simplify conditions or reduce payload sizes."
             )
 
-    def _validate_dependency_formats(self, filters: dict, *, traverse: bool = False) -> None:
+    def _validate_dependency_formats(self, filters: Mapping[str, JsonValue], *, traverse: bool = False) -> None:
         try:
             if traverse:
                 validate_dependency_formats(filters, project_id=self.context["project_id"])
