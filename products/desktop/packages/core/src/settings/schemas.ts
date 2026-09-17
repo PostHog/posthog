@@ -153,7 +153,7 @@ export const settingsBackupSchema = z.object({
   appVersion: z.string().min(1).max(100),
   exportedAt: z.iso.datetime(),
   settings: z
-    .record(z.string(), z.unknown())
+    .record(z.string().max(256), z.unknown())
     .refine(
       (settings) => Object.keys(settings).length <= MAX_SETTINGS_BACKUP_ENTRIES,
     ),

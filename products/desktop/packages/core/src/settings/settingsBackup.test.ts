@@ -243,6 +243,10 @@ describe("SettingsBackupService", () => {
       ),
     ],
     [
+      "oversized setting key",
+      JSON.stringify(backup({ settings: { ["k".repeat(257)]: true } })),
+    ],
+    [
       "too many settings",
       JSON.stringify(
         backup({
