@@ -1,28 +1,42 @@
-"""Mailgun email webhook endpoints, and the inbound and outbound handling behind them."""
+"""Mailgun route deliveries for the conversations email channels.
+
+Ingress verifies the signature in the form and flattens the delivery before anything here runs,
+so no HTTP is left in this module: it answers which region owns a delivery, and it accepts the
+deliveries this region owns. The readers keep reading the form under the two names an
+`HttpRequest` gave it, through the `MailgunRequest` adapter below, so the parsing is the same
+code it has always been.
+
+Attachments are read and stored inside the request. An `UploadedFile` is backed by the request
+stream or by a temporary file, so it does not survive the response and cannot be handed to a task.
+"""
 
 import re
 import json
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime, timedelta
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from typing import Any, cast
+from urllib.parse import urlparse
 
+from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, transaction
 from django.db.models import F
-from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
-from django.views.decorators.csrf import csrf_exempt
 
+import requests
 import structlog
+from requests import RequestException
 
+from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
+from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout
+from posthog.ingress.mailgun.provider import FILES_KEY
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.regions import is_primary_region
+from posthog.regions import PRIMARY_REGION_DOMAIN, SECONDARY_REGION_DOMAIN
 
-from products.conversations.backend.mailgun import validate_webhook_signature
 from products.conversations.backend.models import (
     Channel,
     EmailChannel,
@@ -50,16 +64,11 @@ from products.conversations.backend.services.email_thread_ingestion import (
     ParsedEmail,
     ingest_customer_email,
 )
-from products.conversations.backend.services.region_routing import (
-    proxy_to_secondary_region,
-    request_secondary_region_status,
-)
 
 logger = structlog.get_logger(__name__)
 
 INBOUND_TOKEN_PATTERN = re.compile(r"^team-([a-f0-9]+)@")
 OUTBOUND_CAPTURE_LOCAL_PART = "sent"
-OUTBOUND_SENDER_LOOKUP_QUERY_PARAM = "sender_lookup"
 _VIA_SUFFIX_RE = re.compile(r"\s+via\s+.+$", re.IGNORECASE)
 _BASIC_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _MESSAGE_ID_RE = re.compile(r"<[^<>\s]+>")
@@ -85,6 +94,43 @@ AUTORESPONDER_HEADERS = ("X-Autoreply", "X-Autorespond")
 # and freeze its preview. Reject dates beyond a small clock-skew allowance and fall back to the
 # authenticated webhook timestamp (or now) instead.
 MAX_SENT_AT_CLOCK_SKEW = timedelta(minutes=5)
+
+# The channel lookups run inside the request, before dispatch, so they draw on the delivery's
+# wall-clock budget.
+_CHANNEL_LOOKUP_TIMEOUT_MS = 800
+SENDER_STATUS_PATH = "/api/conversations/v1/email/sender-status"
+# The same window the endpoint allowed the cross-region sender lookup before it moved to ingress.
+_SENDER_STATUS_TIMEOUT_SECONDS = 10
+# The other region holds an active channel for this sender.
+SENDER_STATUS_ACTIVE = 204
+# It does not.
+SENDER_STATUS_ABSENT = 404
+# A region that does not serve the sender-status route yet answers Django's own 404 to it, so the
+# absent answer needs a body to be told apart from that miss.
+SENDER_STATUS_ABSENT_BODY = {"sender_active": False}
+
+
+class MailgunSenderProbeError(Exception):
+    """The other region could not say whether it also holds an active channel for the sender.
+
+    Raising costs the delivery its receipt, so Mailgun redelivers and the question is asked again.
+    Ingesting on an unanswered question is the failure this check exists to prevent.
+    """
+
+
+class MailgunRequest:
+    """One verified route delivery, in the shape the readers below already read it.
+
+    Every reader took an `HttpRequest` and read `request.POST` and `request.FILES` before these
+    routes moved onto ingress. The fields are the same fields, so they keep those two names and
+    the readers keep their bodies. The attachments arrive under the provider's reserved `_files`
+    key, which is also where the provider applies the file cap.
+    """
+
+    def __init__(self, delivery: WebhookDelivery) -> None:
+        payload: Mapping[str, Any] = delivery.payload
+        self.POST: dict[str, str] = {name: value for name, value in payload.items() if isinstance(value, str)}
+        self.FILES: dict[str, UploadedFile] = payload.get(FILES_KEY) or {}
 
 
 def _extract_inbound_token(recipient: str) -> str | None:
@@ -210,7 +256,7 @@ def _is_plausible_email(addr: str) -> bool:
 
 
 def _recover_dmarc_rewritten_sender(
-    request: HttpRequest,
+    request: MailgunRequest,
     config: EmailChannel,
     sender_email: str,
     sender_name: str,
@@ -275,7 +321,7 @@ def _recover_dmarc_rewritten_sender(
     return sender_email, sender_name
 
 
-def _dkim_aligned_with_sender(request: HttpRequest, sender_domain: str) -> bool:
+def _dkim_aligned_with_sender(request: MailgunRequest, sender_domain: str) -> bool:
     if not _mailgun_authentication_passed(request, "X-Mailgun-Dkim-Check-Result"):
         return False
 
@@ -287,7 +333,7 @@ def _dkim_aligned_with_sender(request: HttpRequest, sender_domain: str) -> bool:
     return bool(signing_domains) and all(domain == sender_domain for domain in signing_domains)
 
 
-def _sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
+def _sender_authenticated(request: MailgunRequest, sender_email: str) -> bool:
     """Verify the From header domain before trusting it for identity.
 
     Mailgun SPF checks can fail for legitimate senders, so aligned DKIM is accepted as a fallback.
@@ -304,9 +350,16 @@ def _sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
     return spf_passed or _dkim_aligned_with_sender(request, from_domain)
 
 
-def _outbound_sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
+def _outbound_sender_authenticated(request: MailgunRequest, sender_email: str) -> bool:
     _, envelope_sender = parseaddr(request.POST.get("sender", ""))
     return envelope_sender.strip().lower() == sender_email.lower() and _sender_authenticated(request, sender_email)
+
+
+def _outbound_sender_email(request: MailgunRequest) -> str:
+    _, sender_email = parseaddr(request.POST.get("from", ""))
+    if not sender_email:
+        sender_email = request.POST.get("sender", "")
+    return sender_email.strip().lower()[:400]
 
 
 def _parse_message_ids(value: str) -> tuple[str, ...]:
@@ -316,7 +369,7 @@ def _parse_message_ids(value: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(message_id.strip()[:998] for message_id in message_ids if message_id.strip()))
 
 
-def _iter_message_header_values(request: HttpRequest, header_name: str) -> Iterator[str]:
+def _iter_message_header_values(request: MailgunRequest, header_name: str) -> Iterator[str]:
     direct_value = request.POST.get(header_name, "")
     if direct_value:
         yield direct_value
@@ -341,11 +394,11 @@ def _iter_message_header_values(request: HttpRequest, header_name: str) -> Itera
             yield header[1]
 
 
-def _message_header_values(request: HttpRequest, header_name: str) -> tuple[str, ...]:
+def _message_header_values(request: MailgunRequest, header_name: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(_iter_message_header_values(request, header_name)))
 
 
-def _forwarding_challenge_tokens(request: HttpRequest) -> tuple[str, ...]:
+def _forwarding_challenge_tokens(request: MailgunRequest) -> tuple[str, ...]:
     tokens: list[str] = []
     seen: set[str] = set()
 
@@ -367,14 +420,14 @@ def _forwarding_challenge_tokens(request: HttpRequest) -> tuple[str, ...]:
     return tuple(tokens)
 
 
-def _mailgun_authentication_passed(request: HttpRequest, header_name: str) -> bool:
+def _mailgun_authentication_passed(request: MailgunRequest, header_name: str) -> bool:
     results = tuple(
         dict.fromkeys(value.strip().lower() for value in _message_header_values(request, header_name) if value.strip())
     )
     return results == ("pass",)
 
 
-def _dkim_signing_domains(request: HttpRequest) -> tuple[str, ...]:
+def _dkim_signing_domains(request: MailgunRequest) -> tuple[str, ...]:
     domains: list[str] = []
     for signature in _message_header_values(request, "DKIM-Signature"):
         tags: dict[str, str] = {}
@@ -390,7 +443,7 @@ def _dkim_signing_domains(request: HttpRequest) -> tuple[str, ...]:
     return tuple(dict.fromkeys(domains))
 
 
-def _is_auto_generated(request: HttpRequest) -> bool:
+def _is_auto_generated(request: MailgunRequest) -> bool:
     """Report whether the message announces itself as machine-generated."""
     for value in _message_header_values(request, "Auto-Submitted"):
         # The header carries optional parameters, e.g. "auto-replied; owner-token=...".
@@ -418,7 +471,7 @@ def _parse_addresses(value: str) -> tuple[EmailAddress, ...]:
     return tuple(addresses)
 
 
-def _parse_sent_at(request: HttpRequest) -> datetime:
+def _parse_sent_at(request: MailgunRequest) -> datetime:
     now = timezone.now()
     date_header = request.POST.get("Date", "") or request.POST.get("date", "")
     if date_header:
@@ -441,7 +494,7 @@ def _parse_sent_at(request: HttpRequest) -> datetime:
     return now
 
 
-def _parse_inbound_email(request: HttpRequest, config: EmailChannel) -> ParsedEmail | None:
+def _parse_inbound_email(request: MailgunRequest, config: EmailChannel) -> ParsedEmail | None:
     message_ids = _parse_message_ids(request.POST.get("Message-Id", ""))
     if not message_ids:
         return None
@@ -551,16 +604,16 @@ def _process_support_email(
     config: EmailChannel,
     inbound_token: str,
     email: ParsedEmail,
-) -> HttpResponse:
+) -> None:
     team = config.team
     settings_dict = team.conversations_settings or {}
     if not settings_dict.get("email_enabled"):
         logger.info("email_inbound_disabled", team_id=team.id)
-        return HttpResponse(status=200)
+        return
 
     if EmailMessageMapping.objects.filter(message_id=email.message_id, team=team).exists():
         logger.info("email_inbound_duplicate", message_id=email.message_id)
-        return HttpResponse(status=200)
+        return
 
     existing_ticket = _find_thread_ticket(team.id, email.in_reply_to, email.references)
     sender_name = email.sender.name
@@ -676,7 +729,7 @@ def _process_support_email(
             )
     except IntegrityError:
         logger.info("email_inbound_duplicate_race", message_id=email.message_id)
-        return HttpResponse(status=200)
+        return
 
     logger.info(
         "email_inbound_processed",
@@ -684,7 +737,6 @@ def _process_support_email(
         ticket_id=str(ticket.id),
         is_reply=existing_ticket is not None,
     )
-    return HttpResponse(status=200)
 
 
 def _is_outbound_capture_recipient(recipient: str) -> bool:
@@ -715,82 +767,223 @@ def _has_external_recipient(*, config: EmailChannel, email: ParsedEmail) -> bool
     return bool(recipient_emails - internal_emails)
 
 
-@csrf_exempt
-def email_outbound_handler(request: HttpRequest) -> HttpResponse:
-    if request.method != "POST":
-        return HttpResponse(status=405)
+def _channel_for_inbound_token(inbound_token: str) -> EmailChannel | None:
+    """The channel the inbound address belongs to, or None when no channel here holds it.
 
-    token = request.POST.get("token", "")
-    timestamp = request.POST.get("timestamp", "")
-    signature = request.POST.get("signature", "")
-    if not validate_webhook_signature(token, timestamp, signature):
-        logger.warning("email_outbound_invalid_signature")
-        return HttpResponse("Invalid signature", status=403)
+    A cancelled statement raises, because a lookup that never finished is not an answer. Each
+    caller decides what to do with it.
+    """
+    with bounded_statement_timeout(_CHANNEL_LOOKUP_TIMEOUT_MS, models=[EmailChannel]):
+        return EmailChannel.objects.select_related("team", "owner").filter(inbound_token=inbound_token).first()
 
+
+def _channel_for_outbound_sender(sender_email: str) -> EmailChannel | None:
+    """The active customer-communication channel that sends as this address, or None.
+
+    Only an active channel counts. A channel still waiting for its forwarding confirmation is not
+    sending mail yet, so a capture claiming to come from it belongs to whichever region does hold
+    an active one.
+    """
+    with bounded_statement_timeout(_CHANNEL_LOOKUP_TIMEOUT_MS, models=[EmailChannel]):
+        return (
+            EmailChannel.objects.select_related("team", "owner")
+            .filter(
+                kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+                connection_status=EmailChannelConnectionStatus.ACTIVE,
+                from_email__iexact=sender_email,
+            )
+            .first()
+        )
+
+
+def mailgun_sender_is_active_here(sender_email: str) -> bool:
+    """Whether this region holds an active customer-communication channel for this sender.
+
+    The other region asks this before it ingests a captured outbound message. It is a lookup and
+    nothing else: the asking region decides what to do with the answer.
+    """
+    return bool(sender_email) and _channel_for_outbound_sender(sender_email) is not None
+
+
+def _other_region_sender_status_url() -> str | None:
+    """The other region's sender-status URL, or None when this deployment is the other region.
+
+    `posthog.regions.is_primary_region` answers the same question from a request host, and nothing
+    here sees a request any more. `SITE_URL` is this deployment's own address, which is how
+    `posthog.regions` derives the primary domain in development, so comparing the two says which
+    region this is without a second source for it. Only the primary asks, because the secondary
+    would otherwise ask itself and find its own channel.
+    """
+    if settings.DEBUG:
+        # A development server is both region domains at once, so it would probe itself over a
+        # scheme it does not serve and fail every local outbound capture. There is no second
+        # region to be ambiguous with there.
+        return None
+    if urlparse(settings.SITE_URL).netloc != PRIMARY_REGION_DOMAIN:
+        return None
+    return f"https://{SECONDARY_REGION_DOMAIN}{SENDER_STATUS_PATH}"
+
+
+def _answered_that_the_sender_is_absent(response: requests.Response) -> bool:
+    """Whether a 404 came from the sender-status route, and not from a region that lacks it.
+
+    A region running the previous version has no such route, so Django answers its own 404 page.
+    The status alone cannot tell the two apart, and an unanswered question has to read as unknown
+    rather than as absent.
+    """
+    try:
+        return response.json() == SENDER_STATUS_ABSENT_BODY
+    except ValueError:
+        return False
+
+
+def _sender_is_active_in_other_region(request: MailgunRequest, sender_email: str) -> bool:
+    """Ask the other region whether it also holds an active channel for this sender.
+
+    Channel uniqueness is per region, so a sender active in both would otherwise attach one team's
+    private outbound mail to the other team's thread. The probe replays the delivery's own Mailgun
+    signature triple, which is the proof the endpoint checks, exactly as the old `sender_lookup`
+    mode on the webhook path did.
+    """
+    target_url = _other_region_sender_status_url()
+    if target_url is None:
+        return False
+
+    try:
+        response = requests.post(
+            target_url,
+            data={
+                "timestamp": request.POST.get("timestamp", ""),
+                "token": request.POST.get("token", ""),
+                "signature": request.POST.get("signature", ""),
+                "sender": sender_email,
+            },
+            timeout=_SENDER_STATUS_TIMEOUT_SECONDS,
+        )
+    except RequestException as error:
+        raise MailgunSenderProbeError(f"sender status request failed: {error}") from error
+
+    if response.status_code == SENDER_STATUS_ACTIVE:
+        return True
+    if response.status_code == SENDER_STATUS_ABSENT and _answered_that_the_sender_is_absent(response):
+        return False
+    raise MailgunSenderProbeError(f"sender status answered {response.status_code}")
+
+
+def _ownership_of_channel(channel: EmailChannel | None) -> DeliveryOwnership:
+    """A channel this region does not hold is `ELSEWHERE` rather than undecided.
+
+    The other region is the only one that can tell a channel it holds from one nobody holds, so
+    the delivery has to reach it. This takes an answered lookup: a lookup that never finished has
+    not shown that no channel here holds the delivery either.
+    """
+    return DeliveryOwnership.LOCAL if channel is not None else DeliveryOwnership.ELSEWHERE
+
+
+def mailgun_inbound_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Which region holds the channel this inbound address belongs to."""
+    request = MailgunRequest(delivery)
+    inbound_token = _extract_inbound_token(request.POST.get("recipient", ""))
+    if not inbound_token:
+        # Nothing in the delivery names a channel, so no region can claim it.
+        return DeliveryOwnership.UNDECIDED
+
+    try:
+        config = _channel_for_inbound_token(inbound_token)
+    except OperationalError as error:
+        if not is_statement_timeout(error):
+            raise
+        logger.warning("email_inbound_channel_lookup_timed_out", inbound_token=inbound_token)
+        return DeliveryOwnership.ELSEWHERE
+
+    return _ownership_of_channel(config)
+
+
+def mailgun_outbound_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Which region holds the channel this captured message was sent from.
+
+    An unauthenticated sender is undecided rather than elsewhere: the From header is the only
+    thing naming a channel, and an unauthenticated one must not make this region replay the
+    delivery to the other one.
+    """
+    request = MailgunRequest(delivery)
+    if not _is_outbound_capture_recipient(request.POST.get("recipient", "")):
+        return DeliveryOwnership.UNDECIDED
+
+    sender_email = _outbound_sender_email(request)
+    if not sender_email or not _outbound_sender_authenticated(request, sender_email):
+        return DeliveryOwnership.UNDECIDED
+
+    # A lookup that raises is not caught here, unlike the inbound one. The same sender can be
+    # active in both regions, and forwarding on an unfinished lookup hands the capture to a region
+    # that ingests it at once, because only the primary runs the ambiguity probe. A failed lookup
+    # has to cost the receipt so Mailgun asks again. An inbox token is minted per channel rather
+    # than chosen, so the same token cannot be active in both regions and inbound is free to
+    # answer elsewhere on a timeout.
+    return _ownership_of_channel(_channel_for_outbound_sender(sender_email))
+
+
+def mailgun_capture_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """The catch-all route serves both directions, so the recipient picks the ownership question."""
+    if _is_outbound_capture_recipient(MailgunRequest(delivery).POST.get("recipient", "")):
+        return mailgun_outbound_delivery_ownership(delivery)
+    return mailgun_inbound_delivery_ownership(delivery)
+
+
+def mailgun_legacy_sender_lookup_status(delivery: WebhookDelivery) -> int:
+    """The status the outbound route answered a `sender_lookup=1` probe with, before ingress.
+
+    The ownership answer is the same question in the shape ingress asks it, so it decides this one
+    too and the two cannot drift. Only the recipient differs: the old route answered 400 for a
+    recipient that is not the capture address, where ownership calls that undecided. Delete this
+    together with the provider that reaches it, once both regions run the ingress version.
+    """
+    if not _is_outbound_capture_recipient(MailgunRequest(delivery).POST.get("recipient", "")):
+        return 400
+    ownership = mailgun_outbound_delivery_ownership(delivery)
+    if ownership is DeliveryOwnership.UNDECIDED:
+        return 200
+    return SENDER_STATUS_ACTIVE if ownership is DeliveryOwnership.LOCAL else SENDER_STATUS_ABSENT
+
+
+def accept_mailgun_outbound_message(delivery: WebhookDelivery) -> None:
+    """Record mail a customer's own agent sent, captured by the outbound route."""
+    request = MailgunRequest(delivery)
     recipient = request.POST.get("recipient", "")
     if not _is_outbound_capture_recipient(recipient):
         logger.warning("email_outbound_invalid_recipient", recipient=recipient)
-        return HttpResponse("Invalid recipient", status=400)
+        return
 
-    _, sender_email = parseaddr(request.POST.get("from", ""))
-    if not sender_email:
-        sender_email = request.POST.get("sender", "")
-    sender_email = sender_email.strip().lower()[:400]
+    sender_email = _outbound_sender_email(request)
     if not sender_email or not _outbound_sender_authenticated(request, sender_email):
         logger.warning("email_outbound_unauthenticated_sender", sender_email=sender_email)
-        return HttpResponse(status=200)
+        return
 
-    config = (
-        EmailChannel.objects.select_related("team", "owner")
-        .filter(
-            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
-            connection_status=EmailChannelConnectionStatus.ACTIVE,
-            from_email__iexact=sender_email,
-        )
-        .first()
-    )
-    lookup_only = request.GET.get(OUTBOUND_SENDER_LOOKUP_QUERY_PARAM) == "1"
+    # Unguarded on purpose: a lookup that raises costs the delivery its receipt, so the dispatcher
+    # releases the dedup mark and Mailgun's redelivery reaches this consumer again.
+    config = _channel_for_outbound_sender(sender_email)
     if config is None:
-        if lookup_only:
-            return HttpResponse(status=404)
-        if is_primary_region(request):
-            success = proxy_to_secondary_region(request, log_prefix="email_outbound", timeout=10)
-            return HttpResponse(status=200 if success else 502)
-        logger.info("email_outbound_unknown_sender", sender_email=sender_email)
-        return HttpResponse(status=200)
+        # Quiet on purpose: ingress reports a delivery no region here owns, off the ownership
+        # answer this module gave it before dispatch.
+        return
 
-    if lookup_only:
-        return HttpResponse(status=204)
-
-    if is_primary_region(request):
-        secondary_status = request_secondary_region_status(
-            request,
-            log_prefix="email_outbound_sender_lookup",
-            timeout=10,
-            query_params={OUTBOUND_SENDER_LOOKUP_QUERY_PARAM: "1"},
-            accepted_statuses=frozenset({404}),
+    if _sender_is_active_in_other_region(request, sender_email):
+        logger.error(
+            "email_outbound_sender_region_ambiguous",
+            sender_email=sender_email,
+            team_id=config.team_id,
+            config_id=str(config.id),
         )
-        if secondary_status is None or secondary_status >= 500:
-            return HttpResponse(status=502)
-        if secondary_status == 204:
-            logger.error(
-                "email_outbound_sender_region_ambiguous",
-                sender_email=sender_email,
-                team_id=config.team_id,
-                config_id=str(config.id),
-            )
-            return HttpResponse(status=200)
-        if secondary_status != 404:
-            return HttpResponse(status=502)
+        return
 
     email = _parse_inbound_email(request, config)
     if email is None:
         logger.warning("email_outbound_no_message_id", team_id=config.team_id)
-        return HttpResponse(status=200)
+        return
 
     if not _has_external_recipient(config=config, email=email):
         logger.info("email_outbound_internal_only", team_id=config.team_id, config_id=str(config.id))
-        return HttpResponse(status=200)
+        return
 
     result = ingest_customer_email(
         team_id=config.team_id,
@@ -806,40 +999,27 @@ def email_outbound_handler(request: HttpRequest) -> HttpResponse:
         message_id=str(result.message_id),
         created=result.created,
     )
-    return HttpResponse(status=200)
 
 
-@csrf_exempt
-def email_inbound_handler(request: HttpRequest) -> HttpResponse:
-    if request.method != "POST":
-        return HttpResponse(status=405)
-
-    token = request.POST.get("token", "")
-    timestamp = request.POST.get("timestamp", "")
-    signature = request.POST.get("signature", "")
-    if not validate_webhook_signature(token, timestamp, signature):
-        logger.warning("email_inbound_invalid_signature")
-        return HttpResponse("Invalid signature", status=403)
-
+def accept_mailgun_inbound_message(delivery: WebhookDelivery) -> None:
+    """Turn mail sent to a PostHog inbox address into a ticket or a customer email thread."""
+    request = MailgunRequest(delivery)
     recipient = request.POST.get("recipient", "")
     inbound_token = _extract_inbound_token(recipient)
     if not inbound_token:
         logger.warning("email_inbound_no_token", recipient=recipient)
-        return HttpResponse("Invalid recipient", status=400)
+        return
 
-    try:
-        config = EmailChannel.objects.select_related("team", "owner").get(inbound_token=inbound_token)
-    except EmailChannel.DoesNotExist:
-        if is_primary_region(request):
-            success = proxy_to_secondary_region(request, log_prefix="email_inbound", timeout=10)
-            return HttpResponse(status=200 if success else 502)
-        logger.warning("email_inbound_unknown_token", inbound_token=inbound_token)
-        return HttpResponse("Unknown recipient", status=404)
+    # Unguarded on purpose, for the same reason as the outbound lookup above.
+    config = _channel_for_inbound_token(inbound_token)
+    if config is None:
+        # Quiet on purpose: ingress reports a delivery no region here owns.
+        return
 
     email = _parse_inbound_email(request, config)
     if email is None:
         logger.warning("email_inbound_no_message_id", team_id=config.team_id)
-        return HttpResponse(status=200)
+        return
 
     if email.auto_generated and _is_self_addressed(
         config=config, inbound_token=inbound_token, sender_email=email.sender.email
@@ -854,7 +1034,7 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
             config_id=str(config.id),
             message_id=email.message_id,
         )
-        return HttpResponse(status=200)
+        return
 
     if config.kind == EmailChannelKind.CUSTOMER_COMMUNICATION:
         challenge_result = process_forwarding_challenges(
@@ -870,7 +1050,7 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                 config_id=str(config.id),
                 result=challenge_result,
             )
-            return HttpResponse(status=200)
+            return
 
         if config.connection_status == EmailChannelConnectionStatus.PENDING_CONFIRMATION:
             captured = capture_google_forwarding_confirmation(
@@ -884,9 +1064,9 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                 config_id=str(config.id),
                 captured=captured,
             )
-            return HttpResponse(status=200)
+            return
         if config.connection_status != EmailChannelConnectionStatus.ACTIVE:
-            return HttpResponse(status=200)
+            return
 
         try:
             result = ingest_customer_email(
@@ -897,14 +1077,14 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
             )
         except ValueError as error:
             # A misconfigured channel (e.g. a dangling owner) can't be fixed by redelivery, so log
-            # and ack rather than 500 into a Mailgun retry loop.
+            # and ack rather than raise into a Mailgun retry loop.
             logger.warning(
                 "customer_email_channel_misconfigured",
                 team_id=config.team_id,
                 config_id=str(config.id),
                 error=str(error),
             )
-            return HttpResponse(status=200)
+            return
         logger.info(
             "customer_email_inbound_processed",
             team_id=config.team_id,
@@ -913,13 +1093,14 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
             message_id=str(result.message_id),
             created=result.created,
         )
-        return HttpResponse(status=200)
+        return
 
-    return _process_support_email(config=config, inbound_token=inbound_token, email=email)
+    _process_support_email(config=config, inbound_token=inbound_token, email=email)
 
 
-@csrf_exempt
-def email_capture_handler(request: HttpRequest) -> HttpResponse:
-    if _is_outbound_capture_recipient(request.POST.get("recipient", "")):
-        return email_outbound_handler(request)
-    return email_inbound_handler(request)
+def accept_mailgun_captured_message(delivery: WebhookDelivery) -> None:
+    """The catch-all route serves both directions, so the recipient picks the handler."""
+    if _is_outbound_capture_recipient(MailgunRequest(delivery).POST.get("recipient", "")):
+        accept_mailgun_outbound_message(delivery)
+        return
+    accept_mailgun_inbound_message(delivery)
