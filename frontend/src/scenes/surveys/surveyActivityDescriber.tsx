@@ -334,6 +334,45 @@ const surveyActionsMapping: Record<
     },
 }
 
+function collectSurveyChanges(logItem: ActivityLogItem): {
+    changes: { field: string; description: Description }[]
+    summaryChanges: Description[]
+    preview?: string
+} {
+    const changes: { field: string; description: Description }[] = []
+    const summaryChanges: Description[] = []
+    let preview: string | undefined
+
+    for (const change of logItem.detail.changes || []) {
+        if (!change?.field) {
+            continue
+        }
+
+        const possibleLogItem = surveyActionsMapping[change.field]?.(change, logItem)
+        if (possibleLogItem?.description) {
+            summaryChanges.push(...(possibleLogItem.summary ?? possibleLogItem.description))
+            preview = possibleLogItem.preview ?? preview
+            if (Array.isArray(possibleLogItem.description) && possibleLogItem.description.length > 1) {
+                // This is for the conditions section, which may have multiple changes.
+                // Probably could be refactored into a separate handler like some of the other fields
+                changes.push(
+                    ...possibleLogItem.description.map((desc) => ({
+                        field: 'conditions',
+                        description: desc,
+                    }))
+                )
+            } else {
+                changes.push({
+                    field: change.field,
+                    description: possibleLogItem.description[0],
+                })
+            }
+        }
+    }
+
+    return { changes, summaryChanges, preview }
+}
+
 export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== 'Survey') {
         console.error('survey describer received a non-survey activity')
@@ -366,36 +405,7 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
     }
 
     if (logItem.activity === 'updated') {
-        const changes: { field: string; description: Description }[] = []
-        const summaryChanges: Description[] = []
-        let preview: string | undefined
-
-        for (const change of logItem.detail.changes || []) {
-            if (!change?.field) {
-                continue
-            }
-
-            const possibleLogItem = surveyActionsMapping[change.field]?.(change, logItem)
-            if (possibleLogItem?.description) {
-                summaryChanges.push(...(possibleLogItem.summary ?? possibleLogItem.description))
-                preview = possibleLogItem.preview ?? preview
-                if (Array.isArray(possibleLogItem.description) && possibleLogItem.description.length > 1) {
-                    // This is for the conditions section, which may have multiple changes.
-                    // Probably could be refactored into a separate handler like some of the other fields
-                    changes.push(
-                        ...possibleLogItem.description.map((desc) => ({
-                            field: 'conditions',
-                            description: desc,
-                        }))
-                    )
-                } else {
-                    changes.push({
-                        field: change.field,
-                        description: possibleLogItem.description[0],
-                    })
-                }
-            }
-        }
+        const { changes, summaryChanges, preview } = collectSurveyChanges(logItem)
 
         if (changes.length === 1) {
             const { field, description } = changes[0]

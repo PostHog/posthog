@@ -8,6 +8,29 @@ import {
 
 import { ActivityScope } from '~/types'
 
+function describeReplayAuthentication(logItem: ActivityLogItem): HumanizedChange {
+    const afterData = logItem.detail.changes?.[0]?.after as any
+    const clientIp = afterData?.client_ip || 'unknown IP'
+    const passwordNote = afterData?.password_note || 'unknown password'
+
+    return {
+        summary: activityLogSummary(
+            logItem,
+            'Authenticated to the shared recording',
+            logItem.detail?.name || 'Session recording',
+            `From ${clientIp}, using password ${passwordNote}`,
+            <strong>Anonymous user</strong>
+        ),
+        description: (
+            <>
+                <strong>Anonymous user</strong> successfully authenticated to shared session recording{' '}
+                <b>{logItem.detail?.name || 'session recording'}</b> from {clientIp} using password{' '}
+                <strong>{passwordNote}</strong>
+            </>
+        ),
+    }
+}
+
 export function replayActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== ActivityScope.REPLAY) {
         console.error('replay describer received a non-replay activity')
@@ -31,26 +54,7 @@ export function replayActivityDescriber(logItem: ActivityLogItem, asNotification
     }
 
     if (logItem.activity === 'share_login_success') {
-        const afterData = logItem.detail.changes?.[0]?.after as any
-        const clientIp = afterData?.client_ip || 'unknown IP'
-        const passwordNote = afterData?.password_note || 'unknown password'
-
-        return {
-            summary: activityLogSummary(
-                logItem,
-                'Authenticated to the shared recording',
-                logItem.detail?.name || 'Session recording',
-                `From ${clientIp}, using password ${passwordNote}`,
-                <strong>Anonymous user</strong>
-            ),
-            description: (
-                <>
-                    <strong>Anonymous user</strong> successfully authenticated to shared session recording{' '}
-                    <b>{logItem.detail?.name || 'session recording'}</b> from {clientIp} using password{' '}
-                    <strong>{passwordNote}</strong>
-                </>
-            ),
-        }
+        return describeReplayAuthentication(logItem)
     }
 
     if (logItem.activity === 'share_login_failed') {

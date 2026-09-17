@@ -12,6 +12,44 @@ import { urls } from 'scenes/urls'
 
 import { PersonDisplay } from './components/PersonDisplay'
 
+function describePersonSplit(logItem: ActivityLogItem): HumanizedChange | null {
+    const after = logItem.detail.changes?.[0].after
+    const distinctIds = isObject(after) ? after.distinct_ids : undefined
+
+    if (Array.isArray(distinctIds)) {
+        const normalizedDistinctIds = distinctIds.filter((id): id is string => typeof id === 'string')
+        return {
+            summary: activityLogSummary(
+                logItem,
+                <SentenceList
+                    prefix="Split the person into"
+                    listParts={normalizedDistinctIds.map((distinctId) => (
+                        <Link key={distinctId} to={urls.personByDistinctId(distinctId)}>
+                            {distinctId}
+                        </Link>
+                    ))}
+                />,
+                logItem.detail.name || 'Person'
+            ),
+            description: (
+                <SentenceList
+                    prefix={
+                        <>
+                            <ActivityLogUserName logItem={logItem} /> split this person into
+                        </>
+                    }
+                    listParts={normalizedDistinctIds.map((di) => (
+                        <span key={di} className="highlighted-activity">
+                            <Link to={urls.personByDistinctId(di)}>{di}</Link>
+                        </span>
+                    ))}
+                />
+            ),
+        }
+    }
+    return null
+}
+
 export function personActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope != 'Person') {
         console.error('person describer received a non-person activity')
@@ -77,39 +115,9 @@ export function personActivityDescriber(logItem: ActivityLogItem, asNotification
     }
 
     if (logItem.activity === 'split_person') {
-        const after = logItem.detail.changes?.[0].after
-        const distinctIds = isObject(after) ? after.distinct_ids : undefined
-
-        if (Array.isArray(distinctIds)) {
-            const normalizedDistinctIds = distinctIds.filter((id): id is string => typeof id === 'string')
-            return {
-                summary: activityLogSummary(
-                    logItem,
-                    <SentenceList
-                        prefix="Split the person into"
-                        listParts={normalizedDistinctIds.map((distinctId) => (
-                            <Link key={distinctId} to={urls.personByDistinctId(distinctId)}>
-                                {distinctId}
-                            </Link>
-                        ))}
-                    />,
-                    logItem.detail.name || 'Person'
-                ),
-                description: (
-                    <SentenceList
-                        prefix={
-                            <>
-                                <ActivityLogUserName logItem={logItem} /> split this person into
-                            </>
-                        }
-                        listParts={normalizedDistinctIds.map((di) => (
-                            <span key={di} className="highlighted-activity">
-                                <Link to={urls.personByDistinctId(di)}>{di}</Link>
-                            </span>
-                        ))}
-                    />
-                ),
-            }
+        const result = describePersonSplit(logItem)
+        if (result) {
+            return result
         }
     }
 

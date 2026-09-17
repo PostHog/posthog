@@ -773,6 +773,26 @@ function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
     )
 }
 
+function describeWorkflowEmailSuspension(logItem: ActivityLogItem): HumanizedChange {
+    const wasSuspended = logItem.activity === 'email_sending_suspended'
+    const reason = logItem.detail?.context?.reason as string | undefined
+    return {
+        summary: activityLogSummary(
+            logItem,
+            wasSuspended ? 'Suspended workflow email sending' : 'Re-enabled workflow email sending',
+            nameAndLink(logItem),
+            wasSuspended ? reason : undefined
+        ),
+        description: (
+            <>
+                <ActivityLogUserName logItem={logItem} /> {wasSuspended ? 'suspended' : 're-enabled'} workflow email
+                sending on {nameAndLink(logItem)}
+                {wasSuspended && reason ? <> (reason: {reason})</> : null}
+            </>
+        ),
+    }
+}
+
 export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== ActivityScope.TEAM) {
         console.error('team describer received a non-Team activity')
@@ -780,23 +800,7 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
     }
 
     if (logItem.activity === 'email_sending_suspended' || logItem.activity === 'email_sending_unsuspended') {
-        const wasSuspended = logItem.activity === 'email_sending_suspended'
-        const reason = logItem.detail?.context?.reason as string | undefined
-        return {
-            summary: activityLogSummary(
-                logItem,
-                wasSuspended ? 'Suspended workflow email sending' : 'Re-enabled workflow email sending',
-                nameAndLink(logItem),
-                wasSuspended ? reason : undefined
-            ),
-            description: (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> {wasSuspended ? 'suspended' : 're-enabled'} workflow email
-                    sending on {nameAndLink(logItem)}
-                    {wasSuspended && reason ? <> (reason: {reason})</> : null}
-                </>
-            ),
-        }
+        return describeWorkflowEmailSuspension(logItem)
     }
 
     if (logItem.activity == 'changed' || logItem.activity == 'updated') {

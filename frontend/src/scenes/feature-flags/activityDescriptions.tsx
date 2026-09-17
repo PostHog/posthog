@@ -4,9 +4,11 @@ import {
     describeListChanges,
     describeTagChanges,
 } from 'lib/components/ActivityLog/activityDescriptions/changeDescriptions'
+import { describeChangeMappings } from 'lib/components/ActivityLog/activityDescriptions/describeChangeMappings'
 import {
     ActivityChange,
     ActivityLogItem,
+    Describer,
     ActivityLogUserName,
     ChangeMapping,
     Description,
@@ -513,6 +515,182 @@ const getActorName = (logItem: ActivityLogItem): JSX.Element => {
     return <ActivityLogUserName logItem={logItem} />
 }
 
+// A referenced cohort's conditions changed: the flag's own fields are untouched
+// (only its version moved), so describe the cohort change instead of a field diff.
+// job_type must stay in sync with COHORT_CONDITIONS_UPDATED_JOB_TYPE in
+// products/feature_flags/backend/flag_version_sync.py.
+function describeLinkedCohortUpdate(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
+    const { cohort_id, cohort_name } = logItem.detail.trigger?.payload ?? {}
+    return {
+        summary: activityLogSummary(
+            logItem,
+            <>
+                Changed the conditions of linked cohort{' '}
+                {cohort_id ? (
+                    <Link to={urls.cohort(cohort_id)}>{cohort_name || `#${cohort_id}`}</Link>
+                ) : (
+                    cohort_name || 'unknown'
+                )}
+            </>,
+            nameOrLinkToFlag(logItem.item_id, logItem.detail.name),
+            undefined,
+            getActorName(logItem)
+        ),
+        description: (
+            <SentenceList
+                listParts={[
+                    <Fragment key="cohort-conditions-updated">
+                        changed the conditions of linked cohort{' '}
+                        {cohort_id ? (
+                            <Link to={urls.cohort(cohort_id)}>{cohort_name || `#${cohort_id}`}</Link>
+                        ) : (
+                            <span>{cohort_name || 'unknown'}</span>
+                        )}
+                    </Fragment>,
+                ]}
+                prefix={getActorName(logItem)}
+                suffix={
+                    <>
+                        on {asNotification && ' the flag '}
+                        {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}
+                    </>
+                }
+            />
+        ),
+    }
+}
+
+// A flag this one depends on changed its definition: same story as above, only
+// this flag's version moved. job_type must stay in sync with
+// FLAG_DEPENDENCY_UPDATED_JOB_TYPE in
+// products/feature_flags/backend/flag_version_sync.py.
+function describeLinkedFlagUpdate(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
+    const { flag_id, flag_key } = logItem.detail.trigger?.payload ?? {}
+    return {
+        summary: activityLogSummary(
+            logItem,
+            <>
+                Changed the definition of linked flag{' '}
+                {flag_id ? (
+                    <Link to={urls.featureFlag(flag_id)}>{flag_key || `#${flag_id}`}</Link>
+                ) : (
+                    flag_key || 'unknown'
+                )}
+            </>,
+            nameOrLinkToFlag(logItem.item_id, logItem.detail.name),
+            undefined,
+            getActorName(logItem)
+        ),
+        description: (
+            <SentenceList
+                listParts={[
+                    <Fragment key="flag-dependency-updated">
+                        changed the definition of linked flag{' '}
+                        {flag_id ? (
+                            <Link to={urls.featureFlag(flag_id)}>{flag_key || `#${flag_id}`}</Link>
+                        ) : (
+                            <span>{flag_key || 'unknown'}</span>
+                        )}
+                    </Fragment>,
+                ]}
+                prefix={getActorName(logItem)}
+                suffix={
+                    <>
+                        on {asNotification && ' the flag '}
+                        {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}
+                    </>
+                }
+            />
+        ),
+    }
+}
+
+// The experiment exposure freeze rewrites the flag's filters to pin enrollment to a
+// snapshot cohort; without the trigger check the rewrite reads as a manual targeting
+// edit. job_type must stay in sync with the Trigger in
+// products/experiments/backend/experiment_service.py.
+function describeExposureFrozen(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
+    return {
+        summary: activityLogSummary(
+            logItem,
+            'Restricted the release conditions to the exposure freeze snapshot cohort',
+            nameOrLinkToFlag(logItem.item_id, logItem.detail.name),
+            undefined,
+            getActorName(logItem)
+        ),
+        description: (
+            <SentenceList
+                listParts={['restricted the release conditions to the exposure freeze snapshot cohort']}
+                prefix={getActorName(logItem)}
+                suffix={
+                    <>
+                        on {asNotification && ' the flag '}
+                        {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}
+                    </>
+                }
+            />
+        ),
+    }
+}
+
+function describeExposureUnfrozen(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
+    return {
+        summary: activityLogSummary(
+            logItem,
+            'Removed the exposure freeze restriction',
+            nameOrLinkToFlag(logItem.item_id, logItem.detail.name),
+            undefined,
+            getActorName(logItem)
+        ),
+        description: (
+            <SentenceList
+                listParts={['removed the exposure freeze restriction']}
+                prefix={getActorName(logItem)}
+                suffix={
+                    <>
+                        from {asNotification && ' the flag '}
+                        {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}
+                    </>
+                }
+            />
+        ),
+    }
+}
+
+const FLAG_TRIGGER_DESCRIBERS = new Map<string, Describer>([
+    ['cohort_conditions_updated', describeLinkedCohortUpdate],
+    ['flag_dependency_updated', describeLinkedFlagUpdate],
+    ['experiment_exposure_frozen', describeExposureFrozen],
+    ['experiment_exposure_unfrozen', describeExposureUnfrozen],
+])
+
+function describeFlagFieldChanges(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange | null {
+    const mappings: ChangeMapping[] = []
+    for (const change of logItem.detail.changes || []) {
+        if (!change?.field) {
+            continue
+        }
+        const handler = featureFlagActionsMapping[change.field as keyof FeatureFlagType]
+        if (!handler) {
+            console.error({ field: change.field, change }, 'No activity describer found for feature flag field')
+        }
+        const result = handler ? handler(change, logItem) : null
+        if (result) {
+            mappings.push(result)
+        }
+    }
+    return describeChangeMappings(
+        logItem,
+        mappings,
+        nameOrLinkToFlag(logItem.item_id, logItem.detail.name),
+        <>
+            on {asNotification && ' the flag '}
+            {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}
+        </>,
+        getActorName(logItem)
+    )
+}
+
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope != 'FeatureFlag') {
         console.error('feature flag describer received a non-feature flag activity')
@@ -539,193 +717,13 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
     }
 
     if (logItem.activity == 'updated') {
-        // A referenced cohort's conditions changed: the flag's own fields are untouched
-        // (only its version moved), so describe the cohort change instead of a field diff.
-        // job_type must stay in sync with COHORT_CONDITIONS_UPDATED_JOB_TYPE in
-        // products/feature_flags/backend/flag_version_sync.py.
-        if (logItem.detail.trigger?.job_type === 'cohort_conditions_updated') {
-            const { cohort_id, cohort_name } = logItem.detail.trigger.payload ?? {}
-            return {
-                summary: activityLogSummary(
-                    logItem,
-                    <>
-                        Changed the conditions of linked cohort{' '}
-                        {cohort_id ? (
-                            <Link to={urls.cohort(cohort_id)}>{cohort_name || `#${cohort_id}`}</Link>
-                        ) : (
-                            cohort_name || 'unknown'
-                        )}
-                    </>,
-                    nameOrLinkToFlag(logItem.item_id, logItem.detail.name),
-                    undefined,
-                    getActorName(logItem)
-                ),
-                description: (
-                    <SentenceList
-                        listParts={[
-                            <Fragment key="cohort-conditions-updated">
-                                changed the conditions of linked cohort{' '}
-                                {cohort_id ? (
-                                    <Link to={urls.cohort(cohort_id)}>{cohort_name || `#${cohort_id}`}</Link>
-                                ) : (
-                                    <span>{cohort_name || 'unknown'}</span>
-                                )}
-                            </Fragment>,
-                        ]}
-                        prefix={getActorName(logItem)}
-                        suffix={
-                            <>
-                                on {asNotification && ' the flag '}
-                                {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}
-                            </>
-                        }
-                    />
-                ),
-            }
+        const describeTrigger = FLAG_TRIGGER_DESCRIBERS.get(logItem.detail.trigger?.job_type ?? '')
+        if (describeTrigger) {
+            return describeTrigger(logItem, asNotification)
         }
-        // A flag this one depends on changed its definition: same story as above, only
-        // this flag's version moved. job_type must stay in sync with
-        // FLAG_DEPENDENCY_UPDATED_JOB_TYPE in
-        // products/feature_flags/backend/flag_version_sync.py.
-        if (logItem.detail.trigger?.job_type === 'flag_dependency_updated') {
-            const { flag_id, flag_key } = logItem.detail.trigger.payload ?? {}
-            return {
-                summary: activityLogSummary(
-                    logItem,
-                    <>
-                        Changed the definition of linked flag{' '}
-                        {flag_id ? (
-                            <Link to={urls.featureFlag(flag_id)}>{flag_key || `#${flag_id}`}</Link>
-                        ) : (
-                            flag_key || 'unknown'
-                        )}
-                    </>,
-                    nameOrLinkToFlag(logItem.item_id, logItem.detail.name),
-                    undefined,
-                    getActorName(logItem)
-                ),
-                description: (
-                    <SentenceList
-                        listParts={[
-                            <Fragment key="flag-dependency-updated">
-                                changed the definition of linked flag{' '}
-                                {flag_id ? (
-                                    <Link to={urls.featureFlag(flag_id)}>{flag_key || `#${flag_id}`}</Link>
-                                ) : (
-                                    <span>{flag_key || 'unknown'}</span>
-                                )}
-                            </Fragment>,
-                        ]}
-                        prefix={getActorName(logItem)}
-                        suffix={
-                            <>
-                                on {asNotification && ' the flag '}
-                                {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}
-                            </>
-                        }
-                    />
-                ),
-            }
-        }
-        // The experiment exposure freeze rewrites the flag's filters to pin enrollment to a
-        // snapshot cohort; without the trigger check the rewrite reads as a manual targeting
-        // edit. job_type must stay in sync with the Trigger in
-        // products/experiments/backend/experiment_service.py.
-        if (logItem.detail.trigger?.job_type === 'experiment_exposure_frozen') {
-            return {
-                summary: activityLogSummary(
-                    logItem,
-                    'Restricted the release conditions to the exposure freeze snapshot cohort',
-                    nameOrLinkToFlag(logItem.item_id, logItem.detail.name),
-                    undefined,
-                    getActorName(logItem)
-                ),
-                description: (
-                    <SentenceList
-                        listParts={['restricted the release conditions to the exposure freeze snapshot cohort']}
-                        prefix={getActorName(logItem)}
-                        suffix={
-                            <>
-                                on {asNotification && ' the flag '}
-                                {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}
-                            </>
-                        }
-                    />
-                ),
-            }
-        }
-        if (logItem.detail.trigger?.job_type === 'experiment_exposure_unfrozen') {
-            return {
-                summary: activityLogSummary(
-                    logItem,
-                    'Removed the exposure freeze restriction',
-                    nameOrLinkToFlag(logItem.item_id, logItem.detail.name),
-                    undefined,
-                    getActorName(logItem)
-                ),
-                description: (
-                    <SentenceList
-                        listParts={['removed the exposure freeze restriction']}
-                        prefix={getActorName(logItem)}
-                        suffix={
-                            <>
-                                from {asNotification && ' the flag '}
-                                {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}
-                            </>
-                        }
-                    />
-                ),
-            }
-        }
-        let changes: Description[] = []
-        let summaryChanges: Description[] = []
-        let preview: string | undefined
-        let changeSuffix: Description = (
-            <>
-                on {asNotification && ' the flag '}
-                {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}
-            </>
-        )
-        let expandedView: ExpandedView | undefined
-
-        for (const change of logItem.detail.changes || []) {
-            if (!change?.field) {
-                continue // feature flag updates have to have a "field" to be described
-            }
-
-            const fieldHandler = featureFlagActionsMapping[change.field as keyof FeatureFlagType]
-            if (!fieldHandler) {
-                console.error({ field: change.field, change }, 'No activity describer found for feature flag field')
-            }
-            const possibleLogItem = fieldHandler ? fieldHandler(change, logItem) : null
-            if (possibleLogItem) {
-                const { description, suffix, summary, preview: changePreview, expandedView: view } = possibleLogItem
-                summaryChanges = summaryChanges.concat(summary ?? description ?? [])
-                preview = changePreview ?? preview
-                if (description) {
-                    changes = changes.concat(description)
-                }
-                if (suffix) {
-                    changeSuffix = suffix
-                }
-                if (view) {
-                    expandedView = view
-                }
-            }
-        }
-
-        if (changes.length) {
-            return {
-                summary: activityLogSummary(
-                    logItem,
-                    <SentenceList listParts={summaryChanges} />,
-                    nameOrLinkToFlag(logItem.item_id, logItem.detail.name),
-                    preview,
-                    getActorName(logItem)
-                ),
-                description: <SentenceList listParts={changes} prefix={getActorName(logItem)} suffix={changeSuffix} />,
-                expandedView,
-            }
+        const changes = describeFlagFieldChanges(logItem, asNotification)
+        if (changes) {
+            return changes
         }
 
         const updateChanges = logItem.detail.changes || []

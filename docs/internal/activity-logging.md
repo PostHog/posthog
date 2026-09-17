@@ -23,6 +23,8 @@ Every visible describer result supplies a `summary` with `actor`, `action`, and 
 Use `activityLogSummary` for the usual actor, or pass a specialized actor such as a workflow link or an anonymous user.
 The optional plain-text `preview` holds long values such as descriptions; keep them out of the action headline.
 Field mappings can supply separate summary clauses and a preview while preserving their notification wording.
+Use `describeMappedChanges` for a field-to-handler mapping, or `describeChangeMappings` when a product needs its own change selection.
+Both helpers assemble the summary and notification sentence and retain extended descriptions and custom detail tabs.
 The row uses that structure without parsing a JSX sentence.
 The complete `description` remains available to notifications and other activity consumers.
 A describer can still return `description: null` to hide an event.

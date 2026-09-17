@@ -1,6 +1,8 @@
 import { match } from 'ts-pattern'
 
 import {
+    ActivityChange,
+    ActivityLogDetail,
     ActivityLogItem,
     ActivityLogUserName,
     HumanizedChange,
@@ -95,6 +97,87 @@ const appendPreposition = (item: string | JSX.Element): string | JSX.Element => 
             {item} {preposition}
         </span>
     )
+}
+
+function getConclusionComment(
+    changes: ActivityChange[],
+    isExperiment: boolean
+): {
+    conclusionComment?: string
+    conclusionCommentRemoved: boolean
+} {
+    const conclusionCommentChange = isExperiment
+        ? changes.find((change) => change.field === 'conclusion_comment')
+        : undefined
+    const conclusionComment =
+        typeof conclusionCommentChange?.after === 'string' && conclusionCommentChange.after.trim()
+            ? conclusionCommentChange.after
+            : undefined
+    const conclusionCommentRemoved =
+        !conclusionComment &&
+        typeof conclusionCommentChange?.before === 'string' &&
+        Boolean(conclusionCommentChange.before.trim())
+
+    return { conclusionComment, conclusionCommentRemoved }
+}
+
+function getExperimentUpdateParts(updateLogDetail: ActivityLogDetail, isExperiment: boolean): (string | JSX.Element)[] {
+    const changes = updateLogDetail.changes || []
+    let listParts: (string | JSX.Element)[]
+    if (changes.length === 0) {
+        listParts = ['updated']
+    } else if (isExperiment) {
+        // Flatten each change into one or more parts. The preposition is appended
+        // exactly once below — to the final part — so the SentenceList reads
+        // "changed A, changed B, and changed C for Experiment Name" instead of
+        // duplicating prepositions inside each clause.
+        listParts = changes.flatMap((change) => humanizeExperimentChange(getExperimentChangeDescription(change)))
+    } else {
+        listParts = changes
+            .map((change) =>
+                match(updateLogDetail.type)
+                    .with('shared_metric', () => getSharedMetricChangeDescription(change))
+                    .with('holdout', () => getHoldoutChangeDescription(change))
+                    .otherwise(() => null)
+            )
+            .filter((part): part is string | JSX.Element => part !== null)
+    }
+
+    return listParts
+}
+
+function describeExperimentUpdate(
+    logItem: ActivityLogItem,
+    listParts: (string | JSX.Element)[],
+    hasExperimentChanges: boolean,
+    conclusionComment: string | undefined
+): HumanizedChange {
+    const { detail: updateLogDetail, item_id } = logItem
+    const summaryParts = [...listParts]
+
+    if (hasExperimentChanges && listParts.length > 0) {
+        const lastIndex = listParts.length - 1
+        listParts[lastIndex] = appendPreposition(listParts[lastIndex])
+    }
+
+    const suffix = match(updateLogDetail.type)
+        .with('shared_metric', () => nameOrLinkToSharedMetric(updateLogDetail.name, item_id))
+        .with('holdout', () => <strong>{updateLogDetail.name}</strong>)
+        .otherwise(() => nameOrLinkToExperiment(updateLogDetail.name, item_id))
+
+    return {
+        summary: activityLogSummary(
+            logItem,
+            <SentenceList listParts={summaryParts.length ? summaryParts : ['Updated']} />,
+            suffix
+        ),
+        description: (
+            <SentenceList prefix={<ActivityLogUserName logItem={logItem} />} listParts={listParts} suffix={suffix} />
+        ),
+        extendedDescription: conclusionComment ? (
+            <blockquote className="border-l-2 pl-2 text-secondary">{conclusionComment}</blockquote>
+        ) : undefined,
+    }
 }
 
 export const experimentActivityDescriber = (logItem: ActivityLogItem): HumanizedChange => {
@@ -407,52 +490,21 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                 ),
             }
         })
-        .with({ activity: 'updated' }, ({ item_id, detail: updateLogDetail }) => {
+        .with({ activity: 'updated' }, ({ detail: updateLogDetail }) => {
             /**
              * This is the catch all for all experiment updates
              */
             const changes = updateLogDetail.changes || []
 
-            const isExperiment =
-                updateLogDetail.type !== 'shared_metric' &&
-                updateLogDetail.type !== 'holdout' &&
-                updateLogDetail.type !== 'saved_metric_config'
+            const isExperiment = !['shared_metric', 'holdout', 'saved_metric_config'].includes(
+                updateLogDetail.type ?? ''
+            )
 
-            const conclusionCommentChange = isExperiment
-                ? changes.find((change) => change.field === 'conclusion_comment')
-                : undefined
-            const conclusionComment =
-                typeof conclusionCommentChange?.after === 'string' && conclusionCommentChange.after.trim()
-                    ? conclusionCommentChange.after
-                    : undefined
-            const conclusionCommentRemoved =
-                !conclusionComment &&
-                typeof conclusionCommentChange?.before === 'string' &&
-                Boolean(conclusionCommentChange.before.trim())
+            const { conclusionComment, conclusionCommentRemoved } = getConclusionComment(changes, isExperiment)
+            let listParts = getExperimentUpdateParts(updateLogDetail, isExperiment)
+            const hasExperimentChanges = isExperiment && changes.length > 0
 
-            let listParts: (string | JSX.Element)[]
-            if (changes.length === 0) {
-                listParts = ['updated']
-            } else if (isExperiment) {
-                // Flatten each change into one or more parts. The preposition is appended
-                // exactly once below — to the final part — so the SentenceList reads
-                // "changed A, changed B, and changed C for Experiment Name" instead of
-                // duplicating prepositions inside each clause.
-                listParts = changes.flatMap((change) =>
-                    humanizeExperimentChange(getExperimentChangeDescription(change))
-                )
-            } else {
-                listParts = changes
-                    .map((change) =>
-                        match(updateLogDetail.type)
-                            .with('shared_metric', () => getSharedMetricChangeDescription(change))
-                            .with('holdout', () => getHoldoutChangeDescription(change))
-                            .otherwise(() => null)
-                    )
-                    .filter((part): part is string | JSX.Element => part !== null)
-            }
-
-            if (isExperiment && changes.length > 0 && listParts.length === 0) {
+            if (hasExperimentChanges && listParts.length === 0) {
                 if (conclusionComment) {
                     // A comment-only edit still gets a row; the comment renders below it.
                     listParts = ['changed the conclusion']
@@ -464,35 +516,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                 }
             }
 
-            const summaryParts = [...listParts]
-
-            if (isExperiment && changes.length > 0 && listParts.length > 0) {
-                const lastIndex = listParts.length - 1
-                listParts[lastIndex] = appendPreposition(listParts[lastIndex])
-            }
-
-            const suffix = match(updateLogDetail.type)
-                .with('shared_metric', () => nameOrLinkToSharedMetric(updateLogDetail.name, item_id))
-                .with('holdout', () => <strong>{updateLogDetail.name}</strong>)
-                .otherwise(() => nameOrLinkToExperiment(updateLogDetail.name, item_id))
-
-            return {
-                summary: activityLogSummary(
-                    logItem,
-                    <SentenceList listParts={summaryParts.length ? summaryParts : ['Updated']} />,
-                    suffix
-                ),
-                description: (
-                    <SentenceList
-                        prefix={<ActivityLogUserName logItem={logItem} />}
-                        listParts={listParts}
-                        suffix={suffix}
-                    />
-                ),
-                extendedDescription: conclusionComment ? (
-                    <blockquote className="border-l-2 pl-2 text-secondary">{conclusionComment}</blockquote>
-                ) : undefined,
-            }
+            return describeExperimentUpdate(logItem, listParts, hasExperimentChanges, conclusionComment)
         })
         .otherwise(() => {
             return {

@@ -98,6 +98,53 @@ const canvasUpdateFieldCopy = (change: ActivityChange): Description | null => {
     return null
 }
 
+function describeCanvasPublished(
+    logItem: ActivityLogItem,
+    actor: JSX.Element,
+    canvasName: JSX.Element
+): HumanizedChange {
+    const capabilitiesChange = (logItem.detail.changes || []).find((change) => change.field === 'capabilities')
+    const parts = capabilitiesChange ? describeCapabilitiesChange(capabilitiesChange) : []
+    return {
+        summary: activityLogSummary(
+            logItem,
+            <>
+                Published the canvas
+                {parts.length > 0 && <> and changed its declared capabilities:{inlineOrList(parts)}</>}
+            </>,
+            canvasName
+        ),
+        description: (
+            <>
+                {actor} published canvas {canvasName}
+                {parts.length === 1 ? <> and</> : null}
+                {parts.length > 1 ? <> and changed its declared capabilities:</> : null}
+                {parts.length > 0 ? inlineOrList(parts) : null}
+            </>
+        ),
+    }
+}
+
+function describeCanvasDrafted(logItem: ActivityLogItem, actor: JSX.Element, canvasName: JSX.Element): HumanizedChange {
+    const capabilitiesChange = (logItem.detail.changes || []).find((change) => change.field === 'capabilities')
+    const parts = capabilitiesChange ? describeCapabilitiesChange(capabilitiesChange) : []
+    return {
+        summary: activityLogSummary(
+            logItem,
+            <>Drafted a new version{parts.length > 0 && <> with capability changes:{inlineOrList(parts)}</>}</>,
+            canvasName
+        ),
+        description: (
+            <>
+                {actor} drafted a new version of canvas {canvasName}
+                {parts.length === 1 ? <> that</> : null}
+                {parts.length > 1 ? <> that changes its declared capabilities:</> : null}
+                {parts.length > 0 ? inlineOrList(parts) : null}
+            </>
+        ),
+    }
+}
+
 export function canvasActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== 'Canvas') {
         console.error('canvas describer received a non-canvas activity')
@@ -108,46 +155,11 @@ export function canvasActivityDescriber(logItem: ActivityLogItem, asNotification
     const canvasName = <strong>{logItem.detail.name || 'Untitled canvas'}</strong>
 
     if (logItem.activity === 'published') {
-        const capabilitiesChange = (logItem.detail.changes || []).find((change) => change.field === 'capabilities')
-        const parts = capabilitiesChange ? describeCapabilitiesChange(capabilitiesChange) : []
-        return {
-            summary: activityLogSummary(
-                logItem,
-                <>
-                    Published the canvas
-                    {parts.length > 0 && <> and changed its declared capabilities:{inlineOrList(parts)}</>}
-                </>,
-                canvasName
-            ),
-            description: (
-                <>
-                    {actor} published canvas {canvasName}
-                    {parts.length === 1 ? <> and</> : null}
-                    {parts.length > 1 ? <> and changed its declared capabilities:</> : null}
-                    {parts.length > 0 ? inlineOrList(parts) : null}
-                </>
-            ),
-        }
+        return describeCanvasPublished(logItem, actor, canvasName)
     }
 
     if (logItem.activity === 'drafted') {
-        const capabilitiesChange = (logItem.detail.changes || []).find((change) => change.field === 'capabilities')
-        const parts = capabilitiesChange ? describeCapabilitiesChange(capabilitiesChange) : []
-        return {
-            summary: activityLogSummary(
-                logItem,
-                <>Drafted a new version{parts.length > 0 && <> with capability changes:{inlineOrList(parts)}</>}</>,
-                canvasName
-            ),
-            description: (
-                <>
-                    {actor} drafted a new version of canvas {canvasName}
-                    {parts.length === 1 ? <> that</> : null}
-                    {parts.length > 1 ? <> that changes its declared capabilities:</> : null}
-                    {parts.length > 0 ? inlineOrList(parts) : null}
-                </>
-            ),
-        }
+        return describeCanvasDrafted(logItem, actor, canvasName)
     }
 
     if (logItem.activity === 'reverted') {

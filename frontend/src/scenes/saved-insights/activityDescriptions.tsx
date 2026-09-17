@@ -5,12 +5,12 @@ import {
     describeDescriptionChange,
     describeTagChanges,
 } from 'lib/components/ActivityLog/activityDescriptions/changeDescriptions'
+import { describeChangeMappings } from 'lib/components/ActivityLog/activityDescriptions/describeChangeMappings'
 import {
     ActivityChange,
     ActivityLogItem,
     ActivityLogUserName,
     ChangeMapping,
-    Description,
     HumanizedChange,
     activityLogSummary,
     defaultDescriber,
@@ -272,222 +272,203 @@ function summarizeQueryChanges(query: InsightQueryNode | HogQLQuery): ChangeMapp
     }
 }
 
+function describeInsightUpdate(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange | null {
+    const mappings: ChangeMapping[] = []
+    try {
+        for (const change of logItem.detail.changes || []) {
+            const handler = insightActionsMapping[change.field as keyof InsightModel]
+            if (!change?.field || !handler) {
+                continue
+            }
+            const result = handler(change, logItem, asNotification)
+            if (result) {
+                mappings.push(result)
+            }
+        }
+    } catch (e) {
+        console.error('Error while summarizing insight update', e)
+        posthog.captureException(e)
+    }
+    return describeChangeMappings(
+        logItem,
+        mappings,
+        nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name),
+        <>
+            on {asNotification && ' the insight '}
+            {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}
+        </>
+    )
+}
+
+function describeInsightAuthentication(logItem: ActivityLogItem): HumanizedChange {
+    const afterData = logItem.detail.changes?.[0]?.after as any
+    const clientIp = afterData?.client_ip || 'unknown IP'
+    const passwordNote = afterData?.password_note || 'unknown password'
+
+    return {
+        summary: activityLogSummary(
+            logItem,
+            'Authenticated to the shared insight',
+            nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name),
+            `From ${clientIp} using password ${passwordNote}`,
+            <strong>Anonymous user</strong>
+        ),
+        description: (
+            <>
+                <strong>Anonymous user</strong> successfully authenticated to shared insight{' '}
+                {nameOrLinkToInsight(logItem?.detail.short_id, logItem.detail.name)} from {clientIp} using password{' '}
+                <strong>{passwordNote}</strong>
+            </>
+        ),
+    }
+}
+
+function describeInsightAuthenticationFailure(logItem: ActivityLogItem): HumanizedChange {
+    const afterData = logItem.detail.changes?.[0]?.after as any
+    const clientIp = afterData?.client_ip || 'unknown IP'
+
+    return {
+        summary: activityLogSummary(
+            logItem,
+            'Failed to authenticate to the shared insight',
+            nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name),
+            `From ${clientIp}`,
+            <strong>Anonymous user</strong>
+        ),
+        description: (
+            <>
+                <strong>Anonymous user</strong> failed to authenticate to shared insight{' '}
+                {nameOrLinkToInsight(logItem?.detail.short_id, logItem.detail.name)} from {clientIp}
+            </>
+        ),
+    }
+}
+
+function describeInsightExport(logItem: ActivityLogItem): HumanizedChange {
+    const exportFormat = logItem.detail.changes?.[0]?.after
+    let exportType = 'in an unknown format'
+    if (typeof exportFormat === 'string') {
+        exportType = exportFormat.split('/')[1]
+    }
+
+    return {
+        summary: activityLogSummary(
+            logItem,
+            `Exported as ${exportType}`,
+            nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name)
+        ),
+        description: (
+            <>
+                <ActivityLogUserName logItem={logItem} /> exported{' '}
+                {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} as a {exportType}
+            </>
+        ),
+    }
+}
+
+function describeInsightCreated(logItem: ActivityLogItem): HumanizedChange {
+    return {
+        summary: activityLogSummary(
+            logItem,
+            'Created the insight',
+            nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name)
+        ),
+        description: (
+            <>
+                <ActivityLogUserName logItem={logItem} /> created the insight:{' '}
+                {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}
+            </>
+        ),
+    }
+}
+
+function describeInsightDeleted(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
+    return {
+        summary: activityLogSummary(logItem, 'Deleted the insight', logItem.detail.name || 'Insight'),
+        description: (
+            <>
+                <ActivityLogUserName logItem={logItem} /> deleted {asNotification ? 'your' : 'the'} insight:{' '}
+                {logItem.detail.name}
+            </>
+        ),
+    }
+}
+
+function describeInsightPreviewExport(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
+    return {
+        summary: activityLogSummary(
+            logItem,
+            'Exported a preview image for the shared link',
+            nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name),
+            undefined,
+            <strong>PostHog</strong>
+        ),
+        description: (
+            <>
+                <strong>PostHog</strong> exported {asNotification ? 'your' : 'the'} insight: {logItem.detail.name} as an
+                image for the shared insight link.
+            </>
+        ),
+    }
+}
+
+function describeInsightSharingEnabled(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
+    return {
+        summary: activityLogSummary(
+            logItem,
+            'Enabled sharing',
+            nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name)
+        ),
+        description: (
+            <>
+                <ActivityLogUserName logItem={logItem} /> shared {asNotification ? 'your' : 'the'} insight:{' '}
+                {logItem.detail.name}.
+            </>
+        ),
+    }
+}
+
+function describeInsightSharingDisabled(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
+    return {
+        summary: activityLogSummary(
+            logItem,
+            'Deleted the shared link',
+            nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name)
+        ),
+        description: (
+            <>
+                <ActivityLogUserName logItem={logItem} /> deleted shared link for {asNotification ? 'your' : 'the'}{' '}
+                insight: {logItem.detail.name}.
+            </>
+        ),
+    }
+}
+
+const INSIGHT_ACTIVITY_DESCRIBERS = new Map<
+    string,
+    (logItem: ActivityLogItem, asNotification?: boolean) => HumanizedChange | null
+>([
+    ['created', describeInsightCreated],
+    ['deleted', describeInsightDeleted],
+    ['exported for opengraph image', describeInsightPreviewExport],
+    ['sharing enabled', describeInsightSharingEnabled],
+    ['sharing disabled', describeInsightSharingDisabled],
+    ['updated', describeInsightUpdate],
+    ['exported', describeInsightExport],
+    ['share_login_success', describeInsightAuthentication],
+    ['share_login_failed', describeInsightAuthenticationFailure],
+])
+
 export function insightActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope != 'Insight') {
         console.error('insight describer received a non-insight activity')
         return { description: null }
     }
 
-    if (logItem.activity == 'created') {
-        return {
-            summary: activityLogSummary(
-                logItem,
-                'Created the insight',
-                nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name)
-            ),
-            description: (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> created the insight:{' '}
-                    {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}
-                </>
-            ),
-        }
-    }
-
-    if (logItem.activity == 'deleted') {
-        return {
-            summary: activityLogSummary(logItem, 'Deleted the insight', logItem.detail.name || 'Insight'),
-            description: (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> deleted {asNotification ? 'your' : 'the'} insight:{' '}
-                    {logItem.detail.name}
-                </>
-            ),
-        }
-    }
-
-    if (logItem.activity == 'exported for opengraph image') {
-        return {
-            summary: activityLogSummary(
-                logItem,
-                'Exported a preview image for the shared link',
-                nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name),
-                undefined,
-                <strong>PostHog</strong>
-            ),
-            description: (
-                <>
-                    <strong>PostHog</strong> exported {asNotification ? 'your' : 'the'} insight: {logItem.detail.name}{' '}
-                    as an image for the shared insight link.
-                </>
-            ),
-        }
-    }
-
-    if (logItem.activity == 'sharing enabled') {
-        return {
-            summary: activityLogSummary(
-                logItem,
-                'Enabled sharing',
-                nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name)
-            ),
-            description: (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> shared {asNotification ? 'your' : 'the'} insight:{' '}
-                    {logItem.detail.name}.
-                </>
-            ),
-        }
-    }
-
-    if (logItem.activity == 'sharing disabled') {
-        return {
-            summary: activityLogSummary(
-                logItem,
-                'Deleted the shared link',
-                nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name)
-            ),
-            description: (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> deleted shared link for {asNotification ? 'your' : 'the'}{' '}
-                    insight: {logItem.detail.name}.
-                </>
-            ),
-        }
-    }
-
-    if (logItem.activity == 'updated') {
-        let changes: Description[] = []
-        let summaryChanges: Description[] = []
-        let preview: string | undefined
-        let extendedDescription: JSX.Element | undefined
-        let changeSuffix: Description = (
-            <>
-                on {asNotification && ' the insight '}
-                {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}
-            </>
-        )
-
-        try {
-            for (const change of logItem.detail.changes || []) {
-                const insightAction = insightActionsMapping[change.field as keyof InsightModel]
-                if (!change?.field || !insightAction) {
-                    continue // insight updates have to have a "field" to be described
-                }
-
-                const actionHandler = insightAction
-                const processedChange = actionHandler(change, logItem, asNotification)
-                if (processedChange === null) {
-                    continue // unexpected log from backend is indescribable
-                }
-
-                const {
-                    description,
-                    extendedDescription: _extendedDescription,
-                    suffix,
-                    summary,
-                    preview: changePreview,
-                } = processedChange
-                summaryChanges = summaryChanges.concat(summary ?? description ?? [])
-                preview = changePreview ?? preview
-                if (description) {
-                    changes = changes.concat(description)
-                }
-                if (_extendedDescription) {
-                    extendedDescription = _extendedDescription
-                }
-                if (suffix) {
-                    changeSuffix = suffix
-                }
-            }
-        } catch (e) {
-            console.error('Error while summarizing insight update', e)
-            posthog.captureException(e)
-        }
-
-        if (changes.length) {
-            return {
-                summary: activityLogSummary(
-                    logItem,
-                    <SentenceList listParts={summaryChanges} />,
-                    nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name),
-                    preview
-                ),
-                description: (
-                    <SentenceList
-                        listParts={changes}
-                        prefix={<ActivityLogUserName logItem={logItem} />}
-                        suffix={changeSuffix}
-                    />
-                ),
-                extendedDescription,
-            }
-        }
-    }
-    if (logItem.activity === 'exported') {
-        const exportFormat = logItem.detail.changes?.[0]?.after
-        let exportType = 'in an unknown format'
-        if (typeof exportFormat === 'string') {
-            exportType = exportFormat.split('/')[1]
-        }
-
-        return {
-            summary: activityLogSummary(
-                logItem,
-                `Exported as ${exportType}`,
-                nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name)
-            ),
-            description: (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> exported{' '}
-                    {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} as a {exportType}
-                </>
-            ),
-        }
-    }
-
-    if (logItem.activity === 'share_login_success') {
-        const afterData = logItem.detail.changes?.[0]?.after as any
-        const clientIp = afterData?.client_ip || 'unknown IP'
-        const passwordNote = afterData?.password_note || 'unknown password'
-
-        return {
-            summary: activityLogSummary(
-                logItem,
-                'Authenticated to the shared insight',
-                nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name),
-                `From ${clientIp} using password ${passwordNote}`,
-                <strong>Anonymous user</strong>
-            ),
-            description: (
-                <>
-                    <strong>Anonymous user</strong> successfully authenticated to shared insight{' '}
-                    {nameOrLinkToInsight(logItem?.detail.short_id, logItem.detail.name)} from {clientIp} using password{' '}
-                    <strong>{passwordNote}</strong>
-                </>
-            ),
-        }
-    }
-
-    if (logItem.activity === 'share_login_failed') {
-        const afterData = logItem.detail.changes?.[0]?.after as any
-        const clientIp = afterData?.client_ip || 'unknown IP'
-
-        return {
-            summary: activityLogSummary(
-                logItem,
-                'Failed to authenticate to the shared insight',
-                nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name),
-                `From ${clientIp}`,
-                <strong>Anonymous user</strong>
-            ),
-            description: (
-                <>
-                    <strong>Anonymous user</strong> failed to authenticate to shared insight{' '}
-                    {nameOrLinkToInsight(logItem?.detail.short_id, logItem.detail.name)} from {clientIp}
-                </>
-            ),
-        }
+    const describer = INSIGHT_ACTIVITY_DESCRIBERS.get(logItem.activity)
+    const description = describer?.(logItem, asNotification)
+    if (description) {
+        return description
     }
 
     return defaultDescriber(

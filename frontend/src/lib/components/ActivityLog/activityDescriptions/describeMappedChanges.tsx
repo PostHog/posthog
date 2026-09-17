@@ -1,56 +1,28 @@
-import {
-    ActivityChange,
-    ActivityLogItem,
-    ActivityLogUserName,
-    ChangeMapping,
-    Description,
-    HumanizedChange,
-    activityLogSummary,
-} from '../humanizeActivity'
-import { SentenceList } from '../SentenceList'
+import { ActivityChange, ActivityLogItem, ChangeMapping, Description, HumanizedChange } from '../humanizeActivity'
+import { describeChangeMappings } from './describeChangeMappings'
 
 export function describeMappedChanges(
     logItem: ActivityLogItem,
-    mapping: Record<string, (change: ActivityChange, logItem: ActivityLogItem) => ChangeMapping | null>,
+    mapping: Record<
+        string,
+        (change: ActivityChange, logItem: ActivityLogItem, asNotification?: boolean) => ChangeMapping | null
+    >,
     target: Description,
-    defaultSuffix: Description
+    defaultSuffix: Description,
+    asNotification?: boolean
 ): HumanizedChange | null {
-    const descriptions: Description[] = []
-    const summaries: Description[] = []
-    let preview: string | undefined
-    let changeSuffix = defaultSuffix
+    const mappings: ChangeMapping[] = []
 
     for (const change of logItem.detail.changes || []) {
         if (!change?.field || !Object.hasOwn(mapping, change.field)) {
             continue
         }
 
-        const processedChange = mapping[change.field](change, logItem)
-        if (processedChange === null) {
-            continue
-        }
-
-        const { description, summary, suffix, preview: changePreview } = processedChange
-        descriptions.push(...(description ?? []))
-        summaries.push(...(summary ?? description ?? []))
-        preview = changePreview ?? preview
-        if (suffix) {
-            changeSuffix = suffix
+        const processedChange = mapping[change.field](change, logItem, asNotification)
+        if (processedChange) {
+            mappings.push(processedChange)
         }
     }
 
-    if (!descriptions.length) {
-        return null
-    }
-
-    return {
-        summary: activityLogSummary(logItem, <SentenceList listParts={summaries} />, target, preview),
-        description: (
-            <SentenceList
-                listParts={descriptions}
-                prefix={<ActivityLogUserName logItem={logItem} />}
-                suffix={changeSuffix}
-            />
-        ),
-    }
+    return describeChangeMappings(logItem, mappings, target, defaultSuffix)
 }
