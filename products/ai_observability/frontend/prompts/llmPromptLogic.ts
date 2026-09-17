@@ -41,9 +41,10 @@ import {
     llmPromptsNameLabelsDestroy,
     llmPromptsNameLabelsUpdate,
     llmPromptsNamePartialUpdate,
+    llmPromptsNameRetrieve,
     llmPromptsResolveNameRetrieve,
 } from '../generated/api'
-import type { LLMPromptLabelApi, LLMPromptResolveResponseApi } from '../generated/api.schemas'
+import type { LLMPromptLabelApi, LLMPromptPublicApi, LLMPromptResolveResponseApi } from '../generated/api.schemas'
 import { llmPromptsLogic } from './llmPromptsLogic'
 import { LLM_PROMPTS_FORCE_RELOAD_PARAM } from './llmPromptsLogic'
 import { LLMPrompt, LLMPromptVersionSummary } from './types'
@@ -232,6 +233,7 @@ export interface llmPromptLogicValues {
     isPromptMissing: boolean
     isPublishReviewOpen: boolean
     isRenderingMarkdown: boolean
+    isShowingResolvedPreview: boolean
     isViewMode: boolean
     labelPickerVersion: number | null
     labelsByVersion: Record<number, LLMPromptLabelApi[]>
@@ -256,6 +258,8 @@ export interface llmPromptLogicValues {
     publishConflict: PublishConflict | null
     relatedTracesQuery: DataTableNode | null
     relatedTracesQueryOverride: DataTableNode | null
+    resolvedPreview: LLMPromptPublicApi | null
+    resolvedPreviewLoading: boolean
     shouldDisplaySkeleton: boolean
     showPromptFormErrors: boolean
     snippetLanguage: PromptSnippetLanguage
@@ -319,6 +323,21 @@ export interface llmPromptLogicActions {
         payload?: any
     ) => {
         prompt: ResolvedLLMPrompt
+        payload?: any
+    }
+    loadResolvedPreview: () => any
+    loadResolvedPreviewFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadResolvedPreviewSuccess: (
+        resolvedPreview: LLMPromptPublicApi | null,
+        payload?: any
+    ) => {
+        resolvedPreview: LLMPromptPublicApi | null
         payload?: any
     }
     openLabelPicker: (version: number) => {
@@ -419,6 +438,9 @@ export interface llmPromptLogicActions {
         value: true
     }
     toggleOutlineExpanded: () => {
+        value: true
+    }
+    toggleResolvedPreview: () => {
         value: true
     }
     touchPromptFormField: (key: string) => {
@@ -522,6 +544,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         setAnalyticsScope: (analyticsScope: PromptAnalyticsScope) => ({ analyticsScope }),
         setRelatedTracesQuery: (query: DataTableNode) => ({ query }),
         toggleMarkdownRendering: true,
+        toggleResolvedPreview: true,
         setCompareVersion: (compareVersion: number | null) => ({ compareVersion }),
         toggleOutlineExpanded: true,
         showConfigEditor: true,
@@ -573,6 +596,14 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             null as DataTableNode | null,
             {
                 setRelatedTracesQuery: (_, { query }) => query,
+            },
+        ],
+        isShowingResolvedPreview: [
+            false,
+            {
+                toggleResolvedPreview: (state: boolean) => !state,
+                setMode: () => false,
+                loadPromptSuccess: () => false,
             },
         ],
         isRenderingMarkdown: [
@@ -674,6 +705,26 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             loadComparePrompt: async (version: number) => {
                 const resolved = await fetchResolvedPrompt(props.promptName, { version, limit: 1 })
                 return resolved as LLMPrompt
+            },
+        },
+    })),
+
+    loaders(({ props, values }) => ({
+        resolvedPreview: {
+            __default: null as LLMPromptPublicApi | null,
+            loadResolvedPreview: async () => {
+                try {
+                    const viewedVersion =
+                        values.prompt && isPrompt(values.prompt) ? { version: values.prompt.version } : undefined
+                    return await llmPromptsNameRetrieve(
+                        String(ApiConfig.getCurrentTeamId()),
+                        props.promptName,
+                        viewedVersion
+                    )
+                } catch (error) {
+                    lemonToast.error(getApiErrorDetail(error) ?? 'Could not resolve this prompt. Try again.')
+                    return null
+                }
             },
         },
     })),
@@ -1191,6 +1242,11 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     }),
 
     listeners(({ actions, asyncActions, props, values }) => ({
+        toggleResolvedPreview: () => {
+            if (values.isShowingResolvedPreview) {
+                actions.loadResolvedPreview()
+            }
+        },
         requestSetLabel: ({ labelName, version }) => {
             const existing = values.promptLabels.find((label) => label.name === labelName)
             if (existing?.version === version) {
