@@ -77,14 +77,27 @@ def _get_persons_for_uuid_batch(
     return batch_valid
 
 
+_UUID_ONLY_READ_OPTIONS = ReadOptions(field_mask=["uuid", "id", "team_id"])
+
+# Every field proto_person_to_model reads, and nothing else: no read path consumes
+# properties_last_updated_at or properties_last_operation, so naming the fields keeps those
+# two jsonb columns off the replica's disk reads, which dominate the bulk lookup.
+_PERSON_MODEL_READ_OPTIONS = ReadOptions(
+    field_mask=["id", "uuid", "team_id", "properties", "is_identified", "created_at", "last_seen_at", "version"]
+)
+
+
 def _batched_get_persons_by_uuids(
     team_id: int,
     uuids: list[str],
     operation: str,
-    read_options: ReadOptions | None = None,
+    read_options: ReadOptions = _PERSON_MODEL_READ_OPTIONS,
     concurrency: int = 1,
 ) -> list[person_pb2.Person]:
     """Fetch persons for the given UUIDs, one RPC per PERSONHOG_BATCH_SIZE batch.
+
+    By default the request asks for the fields ``proto_person_to_model`` reads. Callers that
+    need even less pass ``_UUID_ONLY_READ_OPTIONS``.
 
     Sequential by default. Callers with large, latency-sensitive lookups opt into a
     concurrent fan-out by passing ``concurrency`` — opt-in so the many small/background
@@ -423,16 +436,19 @@ def get_distinct_ids_for_persons(
 def _fetch_persons_by_uuids_via_personhog(
     team_id: int, uuids: list[str], *, distinct_id_limit: int | None = None
 ) -> list[Person]:
-    valid_persons = _batched_get_persons_by_uuids(team_id, uuids, "get_persons_by_uuids")
+    # Callers needing only id/uuid (e.g. cohort membership) pass distinct_id_limit=0 to skip
+    # the per-person distinct-id fetch, which is otherwise unbounded and pulls thousands of
+    # rows for merge-heavy persons. The same callers read no person field beyond id/uuid, so
+    # the request also masks the properties columns away.
+    uuid_only = distinct_id_limit == 0
+    read_options = _UUID_ONLY_READ_OPTIONS if uuid_only else _PERSON_MODEL_READ_OPTIONS
+    valid_persons = _batched_get_persons_by_uuids(team_id, uuids, "get_persons_by_uuids", read_options=read_options)
 
     person_ids = [p.id for p in valid_persons]
     if not person_ids:
         return []
 
-    # Callers needing only id/uuid (e.g. cohort membership) pass distinct_id_limit=0 to skip
-    # the per-person distinct-id fetch, which is otherwise unbounded and pulls thousands of
-    # rows for merge-heavy persons.
-    if distinct_id_limit == 0:
+    if uuid_only:
         return [proto_person_to_model(p, distinct_ids=[]) for p in valid_persons]
 
     distinct_ids_by_person = _batched_get_distinct_ids_for_persons(
@@ -555,9 +571,6 @@ def get_person_by_pk_or_uuid(team_id: int, key: str, *, distinct_id_limit: int |
             return get_person_by_id(team_id, int(key), distinct_id_limit=distinct_id_limit)
         except ValueError:
             return None
-
-
-_UUID_ONLY_READ_OPTIONS = ReadOptions(field_mask=["uuid", "id", "team_id"])
 
 
 def _validate_uuids_via_personhog(team_id: int, uuids: list[str]) -> list[str]:

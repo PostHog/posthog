@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use uuid::Uuid;
 
 use crate::storage::error::StorageResult;
-use crate::storage::types::{Person, SplitResult, TombstonedDeleteOutcome};
+use crate::storage::types::{Person, PersonPropertyColumns, SplitResult, TombstonedDeleteOutcome};
 
 /// Person lookup operations by ID, UUID, and distinct ID
 #[async_trait]
@@ -18,14 +18,14 @@ pub trait PersonLookup: Send + Sync {
         &self,
         team_id: i64,
         person_ids: &[i64],
-        include_properties: bool,
+        property_columns: PersonPropertyColumns,
     ) -> StorageResult<Vec<Person>>;
 
     async fn get_persons_by_uuids(
         &self,
         team_id: i64,
         uuids: &[Uuid],
-        include_properties: bool,
+        property_columns: PersonPropertyColumns,
     ) -> StorageResult<Vec<Person>>;
 
     // Lookups by distinct ID
@@ -40,13 +40,13 @@ pub trait PersonLookup: Send + Sync {
         &self,
         team_id: i64,
         distinct_ids: &[String],
-        include_properties: bool,
+        property_columns: PersonPropertyColumns,
     ) -> StorageResult<Vec<(String, Option<Person>)>>;
 
     async fn get_persons_by_distinct_ids_cross_team(
         &self,
         team_distinct_ids: &[(i64, String)],
-        include_properties: bool,
+        property_columns: PersonPropertyColumns,
     ) -> StorageResult<Vec<((i64, String), Option<Person>)>>;
 
     // Deletes

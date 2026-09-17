@@ -2,6 +2,8 @@ use std::collections::HashSet;
 
 use personhog_proto::personhog::types::v1::{Group, Person, ReadOptions};
 
+use crate::storage::types::PersonPropertyColumns;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum PersonField {
     Id,
@@ -47,13 +49,6 @@ impl PersonField {
             "last_seen_at" => Some(Self::LastSeenAt),
             _ => None,
         }
-    }
-
-    fn is_property_field(self) -> bool {
-        matches!(
-            self,
-            Self::Properties | Self::PropertiesLastUpdatedAt | Self::PropertiesLastOperation
-        )
     }
 
     fn clear(self, person: &mut Person) {
@@ -136,14 +131,19 @@ impl GroupField {
     }
 }
 
-/// Returns true if the field mask requires person properties columns.
-pub fn person_needs_properties(read_options: &Option<ReadOptions>) -> bool {
-    let mask = match read_options.as_ref() {
-        Some(opts) if !opts.field_mask.is_empty() => &opts.field_mask,
-        _ => return true,
+/// Returns the person jsonb property columns the field mask asks for.
+///
+/// Takes the mask `build_field_mask` returns, so a caller that sends no mask — where that
+/// function yields None — still gets every column and an unmasked read stays complete.
+pub fn person_property_columns(fields: &Option<HashSet<String>>) -> PersonPropertyColumns {
+    let Some(fields) = fields else {
+        return PersonPropertyColumns::ALL;
     };
-    mask.iter()
-        .any(|f| PersonField::from_wire(f).is_some_and(|f| f.is_property_field()))
+    PersonPropertyColumns {
+        properties: fields.contains("properties"),
+        properties_last_updated_at: fields.contains("properties_last_updated_at"),
+        properties_last_operation: fields.contains("properties_last_operation"),
+    }
 }
 
 /// Returns true if the field mask requires group properties columns.
@@ -315,24 +315,36 @@ mod tests {
     }
 
     // ============================================================
-    // person_needs_properties / group_needs_properties
+    // person_property_columns / group_needs_properties
     // ============================================================
 
     use rstest::rstest;
 
     #[rstest]
-    #[case::no_read_options(None, true)]
-    #[case::empty_mask(Some(vec![]), true)]
-    #[case::mask_includes_properties(Some(vec!["properties"]), true)]
-    #[case::mask_includes_properties_last_updated_at(Some(vec!["properties_last_updated_at"]), true)]
-    #[case::mask_includes_properties_last_operation(Some(vec!["properties_last_operation"]), true)]
-    #[case::mask_with_only_non_property_fields(Some(vec!["id", "uuid"]), false)]
-    fn person_needs_properties_reflects_whether_mask_requests_property_fields(
+    #[case::no_read_options(None, PersonPropertyColumns::ALL)]
+    #[case::empty_mask(Some(vec![]), PersonPropertyColumns::ALL)]
+    #[case::mask_includes_properties(
+        Some(vec!["id", "uuid", "properties"]),
+        PersonPropertyColumns { properties: true, ..PersonPropertyColumns::NONE }
+    )]
+    #[case::mask_includes_properties_last_updated_at(
+        Some(vec!["properties_last_updated_at"]),
+        PersonPropertyColumns { properties_last_updated_at: true, ..PersonPropertyColumns::NONE }
+    )]
+    #[case::mask_includes_properties_last_operation(
+        Some(vec!["properties_last_operation"]),
+        PersonPropertyColumns { properties_last_operation: true, ..PersonPropertyColumns::NONE }
+    )]
+    #[case::mask_with_only_non_property_fields(Some(vec!["id", "uuid"]), PersonPropertyColumns::NONE)]
+    fn person_property_columns_reflects_which_property_fields_the_mask_requests(
         #[case] mask_fields: Option<Vec<&str>>,
-        #[case] expected: bool,
+        #[case] expected: PersonPropertyColumns,
     ) {
         let read_options = mask_fields.and_then(read_options_with_mask);
-        assert_eq!(person_needs_properties(&read_options), expected);
+        assert_eq!(
+            person_property_columns(&build_field_mask(&read_options)),
+            expected
+        );
     }
 
     #[rstest]

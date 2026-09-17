@@ -61,7 +61,7 @@ use consistency::{reject_strong_consistency, to_storage_consistency};
 use error::log_and_convert_error;
 use field_mask::{
     apply_group_field_mask, apply_person_field_mask, build_field_mask, group_needs_properties,
-    person_needs_properties,
+    person_property_columns,
 };
 
 /// Dependent rows one DeleteTombstonedPersons call deletes when the request leaves max_rows at 0.
@@ -114,10 +114,11 @@ impl PersonHogReplica for PersonHogReplicaService {
             )));
         }
 
-        let include_props = person_needs_properties(&req.read_options);
+        let mask = build_field_mask(&req.read_options);
+        let property_columns = person_property_columns(&mask);
         let persons = self
             .storage
-            .get_persons_by_ids(req.team_id, &req.person_ids, include_props)
+            .get_persons_by_ids(req.team_id, &req.person_ids, property_columns)
             .await
             .map_err(|e| log_and_convert_error(e, "get_persons"))?;
 
@@ -128,7 +129,6 @@ impl PersonHogReplica for PersonHogReplicaService {
             .filter(|id| !found_ids.contains(id))
             .collect();
 
-        let mask = build_field_mask(&req.read_options);
         let mut proto_persons: Vec<_> = persons.into_iter().map(Into::into).collect();
         for p in &mut proto_persons {
             apply_person_field_mask(p, &mask);
@@ -181,14 +181,14 @@ impl PersonHogReplica for PersonHogReplicaService {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))?;
 
-        let include_props = person_needs_properties(&req.read_options);
+        let mask = build_field_mask(&req.read_options);
+        let property_columns = person_property_columns(&mask);
         let persons = self
             .storage
-            .get_persons_by_uuids(req.team_id, &uuids, include_props)
+            .get_persons_by_uuids(req.team_id, &uuids, property_columns)
             .await
             .map_err(|e| log_and_convert_error(e, "get_persons_by_uuids"))?;
 
-        let mask = build_field_mask(&req.read_options);
         let mut proto_persons: Vec<_> = persons.into_iter().map(Into::into).collect();
         for p in &mut proto_persons {
             apply_person_field_mask(p, &mask);
@@ -235,14 +235,14 @@ impl PersonHogReplica for PersonHogReplicaService {
             )));
         }
 
-        let include_props = person_needs_properties(&req.read_options);
+        let mask = build_field_mask(&req.read_options);
+        let property_columns = person_property_columns(&mask);
         let results = self
             .storage
-            .get_persons_by_distinct_ids_in_team(req.team_id, &req.distinct_ids, include_props)
+            .get_persons_by_distinct_ids_in_team(req.team_id, &req.distinct_ids, property_columns)
             .await
             .map_err(|e| log_and_convert_error(e, "get_persons_by_distinct_ids_in_team"))?;
 
-        let mask = build_field_mask(&req.read_options);
         Ok(Response::new(PersonsByDistinctIdsInTeamResponse {
             results: results
                 .into_iter()
@@ -273,7 +273,8 @@ impl PersonHogReplica for PersonHogReplicaService {
             )));
         }
 
-        let include_props = person_needs_properties(&req.read_options);
+        let mask = build_field_mask(&req.read_options);
+        let property_columns = person_property_columns(&mask);
         let team_distinct_ids: Vec<(i64, String)> = req
             .team_distinct_ids
             .into_iter()
@@ -282,11 +283,10 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         let results = self
             .storage
-            .get_persons_by_distinct_ids_cross_team(&team_distinct_ids, include_props)
+            .get_persons_by_distinct_ids_cross_team(&team_distinct_ids, property_columns)
             .await
             .map_err(|e| log_and_convert_error(e, "get_persons_by_distinct_ids"))?;
 
-        let mask = build_field_mask(&req.read_options);
         Ok(Response::new(PersonsByDistinctIdsResponse {
             results: results
                 .into_iter()

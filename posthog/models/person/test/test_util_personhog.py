@@ -3,6 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from posthog.models.person.util import (
     _fetch_person_by_distinct_id_via_personhog,
     _fetch_person_by_id_via_personhog,
@@ -307,6 +309,35 @@ class TestFetchPersonsByUuidsViaPersonhog(SimpleTestCase):
             )
 
             assert result[0].distinct_ids == ["d1", "d2"]
+
+    @parameterized.expand(
+        [
+            (
+                "needs_properties",
+                None,
+                ["id", "uuid", "team_id", "properties", "is_identified", "created_at", "last_seen_at", "version"],
+            ),
+            ("uuid_only", 0, ["uuid", "id", "team_id"]),
+        ]
+    )
+    def test_masks_the_audit_property_columns_away(self, _name, distinct_id_limit, expected_mask):
+        with fake_personhog_client() as fake:
+            fake.add_person(
+                team_id=1,
+                person_id=42,
+                uuid="550e8400-e29b-41d4-a716-446655440042",
+                properties={"name": "Alice"},
+                distinct_ids=["d1"],
+            )
+
+            _fetch_persons_by_uuids_via_personhog(
+                team_id=1,
+                uuids=["550e8400-e29b-41d4-a716-446655440042"],
+                distinct_id_limit=distinct_id_limit,
+            )
+
+            calls = fake.assert_called("get_persons_by_uuids", times=1)
+            assert list(calls[0].request.read_options.field_mask) == expected_mask
 
 
 class TestValidateUuidsViaPersonhog(SimpleTestCase):
