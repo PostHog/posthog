@@ -165,17 +165,8 @@ def _validate_markdown(definition: dict) -> tuple[dict, list[str]]:
     return definition, []
 
 
-def _validate_hogql(definition: dict, team: Team, user: Optional[User]) -> tuple[dict, list[str]]:
-    extra_keys = set(definition.keys()) - _HOGQL_ALLOWED_KEYS
-    if extra_keys:
-        _fail(
-            f"HogQLQuery fields not allowed in a metric definition: {sorted(extra_keys)}.",
-            "A metric definition may only set 'query' (and 'values'). Fields like connectionId or "
-            "sendRawQuery are rejected.",
-        )
-
-    _ensure_valid_schema(definition, HogQLQuery)
-
+def _parse_hogql_definition(definition: dict) -> ast.SelectQuery | ast.SelectSetQuery:
+    """Parse a HogQL definition's query text. Raises :class:`ValidationError` on unparseable SQL."""
     # Both run paths substitute `values` as parse-time placeholders and set no globals, so this
     # parses the same way: `HogQLQueryRunner._parse_query` for a metric run, and `bind_metric_query`
     # for a data quality check on a metric. Resolving them as globals instead would accept a bare
@@ -187,7 +178,7 @@ def _validate_hogql(definition: dict, team: Team, user: Optional[User]) -> tuple
         else None
     )
     try:
-        ast_node = parse_select(definition["query"], placeholders=placeholders)
+        return parse_select(definition["query"], placeholders=placeholders)
     except ExposedHogQLError as e:
         _fail(f"Invalid HogQL query: {e}", "Fix the SQL syntax.")
     except ResolutionError as e:
@@ -196,6 +187,32 @@ def _validate_hogql(definition: dict, team: Team, user: Optional[User]) -> tuple
     except Exception as e:
         capture_exception(e)
         _fail("Could not parse the query.", "Check the SQL syntax.")
+
+
+def table_names_as_written(definition: dict) -> list[str]:
+    """The tables and views a HogQL definition names in its own query text.
+
+    Collected before resolution, which replaces a non-materialized view with its body: a metric that
+    reads a view depends on the view, not on the view's own sources. Not a substitute for
+    ``referenced_table_names``, which the catalog's denied-table filter needs resolved.
+    """
+    collector = _TableReferenceCollector()
+    collector.visit(_parse_hogql_definition(definition))
+    return sorted(collector.tables)
+
+
+def _validate_hogql(definition: dict, team: Team, user: Optional[User]) -> tuple[dict, list[str]]:
+    extra_keys = set(definition.keys()) - _HOGQL_ALLOWED_KEYS
+    if extra_keys:
+        _fail(
+            f"HogQLQuery fields not allowed in a metric definition: {sorted(extra_keys)}.",
+            "A metric definition may only set 'query' (and 'values'). Fields like connectionId or "
+            "sendRawQuery are rejected.",
+        )
+
+    _ensure_valid_schema(definition, HogQLQuery)
+
+    ast_node = _parse_hogql_definition(definition)
 
     context = HogQLContext(team_id=team.pk, user=user, enable_select_queries=True)
     try:

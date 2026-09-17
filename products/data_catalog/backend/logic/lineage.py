@@ -11,8 +11,8 @@ from posthog.exceptions_capture import capture_exception
 
 from products.data_modeling.backend.facade.api import delete_metric_node, mark_metric_node_degraded, sync_metric_to_dag
 
-from ..facade.enums import MARKDOWN_DEFINITION_KIND
-from .validation import definition_nodes
+from ..facade.enums import HOGQL_DEFINITION_KIND, MARKDOWN_DEFINITION_KIND
+from .validation import definition_nodes, table_names_as_written
 
 if TYPE_CHECKING:
     from ..models.metric import Metric
@@ -37,13 +37,25 @@ def has_executable_definition(metric: "Metric") -> bool:
     return metric.definition is not None and metric.definition_kind != MARKDOWN_DEFINITION_KIND
 
 
+def _referenced_names(metric: "Metric") -> list[str]:
+    """What the metric reads, by the names its own definition uses.
+
+    ``referenced_table_names`` is collected after the query is resolved, and resolution replaces a
+    non-materialized view with its body, so the view's name is not in there. Every other definition
+    kind records direct references already, so it keeps using the field.
+    """
+    if metric.definition_kind == HOGQL_DEFINITION_KIND and metric.definition:
+        return table_names_as_written(metric.definition)
+    return metric.referenced_table_names or []
+
+
 def dependency_names(metric: "Metric") -> list[str]:
     """The tables and views a metric reads, as lineage dependency names.
 
     Catalog metadata tables under `system.` are dropped: they describe the catalog rather than
     feeding the metric, and they have no node.
     """
-    names = {name for name in metric.referenced_table_names or [] if not name.startswith(SYSTEM_TABLE_PREFIX)}
+    names = {name for name in _referenced_names(metric) if not name.startswith(SYSTEM_TABLE_PREFIX)}
     if next(definition_nodes(metric.definition, EVENT_SOURCE_KINDS), None) is not None:
         names.add(EVENTS_TABLE_NAME)
     return sorted(names)
