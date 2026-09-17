@@ -1,6 +1,7 @@
 import type { LogicWrapper } from 'kea'
-import type { ComponentType, CSSProperties, ReactNode } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 
+import type { HoggiePngProps } from 'lib/brand/hoggies'
 import type { RestrictionScope } from 'lib/components/RestrictedArea'
 import type { FeatureFlagKey, TeamMembershipLevel } from 'lib/constants'
 
@@ -113,7 +114,7 @@ export interface ProductEmptyStateConfig {
     /** Dark-mode accent override; falls back to `accentColor` */
     accentColorDark?: string
     /** A `pngHoggie(...)`-wrapped hedgehog, rendered above the product name */
-    hedgehog?: ComponentType<{ className?: string; style?: CSSProperties; loading?: 'lazy' | 'eager' }>
+    hedgehog?: ComponentType<Pick<HoggiePngProps, 'className' | 'style' | 'loading'>>
     /**
      * Where the hedgehog sits: `above` (default) is a small illustration above the
      * product name; `beside` renders it large next to the text and install command,

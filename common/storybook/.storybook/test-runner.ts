@@ -541,21 +541,28 @@ async function takeSnapshotWithTheme(
     // check if all images have width, unless purposefully skipped
     if (!allowImagesWithoutWidth) {
         await page.waitForFunction(() => {
+            // Declared inside the callback because this whole body is serialized into the browser.
+            function isImageAccountedFor(i: HTMLImageElement): boolean {
+                if (i.naturalWidth) {
+                    return true
+                }
+                // ProseMirror-separator isn't an actual image of any sort, so we ignore those
+                if (i.classList.contains('ProseMirror-separator')) {
+                    return true
+                }
+                // An image with no layout box cannot appear in the screenshot, and a
+                // `loading="lazy"` one has nothing to intersect, so the browser can leave it
+                // unfetched for the whole run. Its naturalWidth then stays 0 and this wait can only
+                // time out. Responsive layouts hit this whenever they render the same image twice
+                // and let a media or container query display one of the pair. getClientRects() is
+                // empty only for display:none (the element's own or an ancestor's), so a visible
+                // image that is still downloading is still waited for. A story that reveals a
+                // hidden image from script after this point is not covered.
+                return i.getClientRects().length === 0
+            }
+
             const allImages = Array.from(document.images)
-            const areAllImagesLoaded = allImages.every(
-                (i: HTMLImageElement) =>
-                    !!i.naturalWidth ||
-                    // ProseMirror-separator isn't an actual image of any sort, so we ignore those
-                    i.classList.contains('ProseMirror-separator') ||
-                    // An image with no layout box cannot appear in the screenshot, and a
-                    // `loading="lazy"` one has nothing to intersect, so the browser can leave it
-                    // unfetched for the whole run. Its naturalWidth then stays 0 and this wait can
-                    // only time out. Responsive layouts hit this whenever they render the same
-                    // image twice and let a media or container query display one of the pair.
-                    // getClientRects() is empty only for display:none (the element's own or an
-                    // ancestor's), so a visible image that is still downloading is still waited for.
-                    i.getClientRects().length === 0
-            )
+            const areAllImagesLoaded = allImages.every(isImageAccountedFor)
             if (areAllImagesLoaded) {
                 // Hide gifs to prevent their animations causing flakiness
                 for (const image of allImages) {
