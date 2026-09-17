@@ -204,10 +204,13 @@ class TestWrapperCohortQuery:
 
 def convert_property(prop: Property) -> PersonPropertyFilter:
     value = prop.value
-    if isinstance(value, Number):
-        value = str(value)
-    elif isinstance(value, list):
-        value = [str(x) for x in value]
+    # bool is a subclass of Number at runtime, so it must be excluded from the numeric branch:
+    # the HogQL property layer resolves a real boolean, but reads str(True) as a plain string.
+    if not isinstance(value, bool):
+        if isinstance(value, Number):
+            value = str(value)
+        elif isinstance(value, list):
+            value = [str(x) for x in value]
     return PersonPropertyFilter(key=prop.key, value=value, operator=prop.operator or PropertyOperator.EXACT)
 
 
@@ -661,30 +664,9 @@ class HogQLCohortQuery:
             send_feature_flag_events=False,
         )
 
-    def _should_combine_person_properties_or(self) -> bool:
-        return feature_enabled_or_false(
-            "hogql-cohort-combine-person-properties-or",
-            str(self.team.uuid),
-            groups={
-                "organization": str(self.team.organization_id),
-                "project": str(self.team.id),
-            },
-            group_properties={
-                "organization": {
-                    "id": str(self.team.organization_id),
-                },
-                "project": {
-                    "id": str(self.team.id),
-                },
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-
     def _get_conditions(self) -> ast.SelectQuery | ast.SelectSetQuery:
         Condition = namedtuple("Condition", ["query", "negation"])
         should_combine_person_properties_and = self._should_combine_person_properties_and()
-        should_combine_person_properties_or = self._should_combine_person_properties_or()
 
         def unwrap_property(prop: Union[PropertyGroup, Property]) -> Optional[Property]:
             """Unwrap a PropertyGroup to get the underlying Property if it contains exactly one."""
@@ -745,7 +727,7 @@ class HogQLCohortQuery:
             if can_combine_person_properties(prop.values):
                 if should_combine_person_properties_and and prop.type == PropertyOperatorType.AND:
                     return Condition(combine_person_properties(prop.values, PropertyOperatorType.AND), False)
-                if should_combine_person_properties_or and prop.type == PropertyOperatorType.OR:
+                if prop.type == PropertyOperatorType.OR:
                     return Condition(combine_person_properties(prop.values, PropertyOperatorType.OR), False)
 
             children = [build_conditions(property) for property in prop.values]

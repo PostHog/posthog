@@ -6,6 +6,8 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 
@@ -212,8 +214,7 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         # Should use EXCEPT because one property is negated
         self.assertIn("EXCEPT", query_str)
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_multiple_person_properties_or_optimization(self, mock_feature_enabled: MagicMock) -> None:
+    def test_multiple_person_properties_or_optimization(self) -> None:
         """
         Test that multiple person property filters in an OR group are combined into a single query.
 
@@ -272,51 +273,7 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         # Should have OR logic in the WHERE clause
         self.assertIn("or(", query_str)
 
-    @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_or_optimization_disabled_when_feature_flag_off(self, mock_feature_enabled: MagicMock) -> None:
-        """
-        Test that the OR optimization is disabled when the feature flag is off.
-
-        When the feature flag is disabled, multiple person properties in OR should be processed
-        separately and combined with UNION DISTINCT instead of a single query.
-        """
-        cohort_filters = {
-            "type": "AND",
-            "values": [
-                {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "negation": False,
-                            "value": "@gmail.com",
-                            "operator": "icontains",
-                        },
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@yahoo.com",
-                            "negation": False,
-                            "operator": "icontains",
-                        },
-                    ],
-                }
-            ],
-        }
-
-        cohort = Cohort.objects.create(
-            team=self.team, name="Test OR Feature Flag Off Cohort", filters={"properties": cohort_filters}
-        )
-
-        hogql_query = HogQLCohortQuery(cohort=cohort)
-        query_str = hogql_query.query_str("clickhouse")
-
-        # With the feature flag off, should use UNION DISTINCT
-        self.assertIn("UNION DISTINCT", query_str)
-
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_or_optimization_skipped_for_mixed_property_types(self, mock_feature_enabled: MagicMock) -> None:
+    def test_or_optimization_skipped_for_mixed_property_types(self) -> None:
         """
         Test that the OR optimization is skipped when mixing person and behavioral properties.
 
@@ -515,6 +472,54 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
             {"cohort_id": cohort.pk, "team_id": self.team.pk, "version": version},
         )
         return {str(row[0]) for row in rows}
+
+    @parameterized.expand([("AND",), ("OR",)])
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_boolean_person_property_matches_when_combined(
+        self, group_type: str, mock_feature_enabled: MagicMock
+    ) -> None:
+        member = _create_person(
+            team=self.team,
+            distinct_ids=[f"member-{group_type}"],
+            properties={"is_internal": True},
+            immediate=True,
+        )
+        non_member = _create_person(
+            team=self.team,
+            distinct_ids=[f"non-member-{group_type}"],
+            properties={"is_internal": False},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name=f"internal users {group_type}",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": group_type,
+                            "values": [
+                                {
+                                    "key": "is_internal",
+                                    "type": "person",
+                                    "value": True,
+                                    "negation": False,
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        member_ids = self._cohort_member_ids(cohort, 0)
+        self.assertIn(str(member.uuid), member_ids)
+        self.assertNotIn(str(non_member.uuid), member_ids)
 
     def test_filter_test_accounts_excludes_person_matches_and_tracks_team_settings(self) -> None:
         internal = _create_person(
