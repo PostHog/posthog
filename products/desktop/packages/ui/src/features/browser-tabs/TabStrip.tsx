@@ -1,4 +1,3 @@
-import { RestrictToHorizontalAxis } from "@dnd-kit/abstract/modifiers";
 import { useSortable } from "@dnd-kit/react/sortable";
 import {
   PlusIcon,
@@ -13,6 +12,7 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
+  cn,
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -20,6 +20,8 @@ import {
 } from "@posthog/quill";
 import { Flex } from "@radix-ui/themes";
 import type { ReactNode } from "react";
+import { DetachFromStrip } from "./tabDetach";
+import { useTabReorderStore } from "./tabReorderStore";
 
 export interface TabView {
   id: string;
@@ -189,15 +191,17 @@ function SortableTabPill({
 >) {
   // Pinned and unpinned pills sort in separate groups so a drag can't preview
   // an insertion across the pin boundary (the drop handler rejects it too).
-  // Drags ride the x-axis only — the pill stays in the strip's row.
-  const { ref } = useSortable({
+  // A drag rides the x-axis until the pointer pulls the pill out of the row;
+  // then the pill follows the pointer, Chrome-style, to reach a tile edge.
+  const { ref, isDragSource } = useSortable({
     id: tab.id,
     index,
     group: tab.pinned ? "browser-tab-strip-pinned" : "browser-tab-strip",
-    modifiers: [RestrictToHorizontalAxis],
+    modifiers: [DetachFromStrip],
     transition: { duration: 200, easing: "ease" },
     data: { type: "browser-tab", tabId: tab.id },
   });
+  const detached = useTabReorderStore((s) => isDragSource && s.detached);
 
   const split = tab.split;
   const closeLabel = split
@@ -217,11 +221,13 @@ function SortableTabPill({
         event.stopPropagation();
         onClose(tab.id);
       }}
-      className={
+      className={cn(
         tab.pinned
           ? "no-drag flex shrink-0 items-center"
-          : "no-drag group relative flex min-w-0 max-w-[200px] flex-1 basis-[200px] items-center overflow-hidden"
-      }
+          : "no-drag group relative flex min-w-0 max-w-[200px] flex-1 basis-[200px] items-center overflow-hidden",
+        detached && "rounded-md bg-background shadow-lg ring-1 ring-border",
+      )}
+      data-detached={detached || undefined}
     >
       <Button
         variant="default"

@@ -5,19 +5,24 @@ import { create } from "zustand";
  * *stored* order (pin-agnostic ids) so the strip can shift pills aside under
  * the cursor without touching the domain snapshot mirror — the drop is what
  * finally persists. Not persisted; cleared the moment the drag ends or cancels.
- * `draggingTabId` names the pill in flight so the content pane can show tile
- * drop zones for every tab but that one.
+ * `draggingTabId` names the pill in flight; `detached` is true once it has
+ * left the strip's row, which is when the content pane shows tile drop zones
+ * for every tab but that one.
  */
 interface TabReorderStore {
   previewOrder: string[] | null;
   draggingTabId: string | null;
+  detached: boolean;
   setPreviewOrder: (order: string[] | null) => void;
   setDraggingTabId: (tabId: string | null) => void;
+  setDetached: (detached: boolean) => void;
 }
 
 export const useTabReorderStore = create<TabReorderStore>((set) => ({
   previewOrder: null,
   draggingTabId: null,
+  detached: false,
   setPreviewOrder: (previewOrder) => set({ previewOrder }),
   setDraggingTabId: (draggingTabId) => set({ draggingTabId }),
+  setDetached: (detached) => set({ detached }),
 }));

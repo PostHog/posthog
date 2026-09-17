@@ -17,6 +17,7 @@ import {
 } from "./browserTabsClient";
 import { reorderWithinGroup, storedOrderIds } from "./displayOrder";
 import { usePinnedTabsStore } from "./pinnedTabsStore";
+import { exceedsDetachDistance } from "./tabDetach";
 import { useTabReorderStore } from "./tabReorderStore";
 import { applyLocalTransform, persistWrite } from "./tabsSync";
 
@@ -42,6 +43,8 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
   const client = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
   /** Stored order captured at dragstart — used to skip a no-op persist. */
   const initialOrder = useRef<string[] | null>(null);
+  /** Pointer position at dragstart; the detach threshold measures from it. */
+  const dragStart = useRef<{ x: number; y: number } | null>(null);
 
   const onDragStart: DragDropEvents["dragstart"] = (event) => {
     const data = event.operation.source?.data;
@@ -51,14 +54,28 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
     if (!win) return;
     const order = storedOrderIds(snapshot, win.id);
     initialOrder.current = order;
+    dragStart.current = event.operation.position.current;
     useTabReorderStore.getState().setPreviewOrder(order);
     useTabReorderStore.getState().setDraggingTabId(data.tabId);
+  };
+
+  // dragmove fires before dnd-kit commits the new position, so the pointer
+  // is read from `to`; the snapshot's `position` is a plain copy with no delta.
+  const onDragMove: DragDropEvents["dragmove"] = (event) => {
+    if (event.operation.source?.data?.type !== "browser-tab") return;
+    const start = dragStart.current;
+    if (!start || !event.to) return;
+    const store = useTabReorderStore.getState();
+    const detached = exceedsDetachDistance(event.to.y - start.y);
+    if (detached !== store.detached) store.setDetached(detached);
   };
 
   const onDragOver: DragDropEvents["dragover"] = (event) => {
     const src = event.operation.source?.data;
     const tgt = event.operation.target?.data;
+    // A detached pill is out of the row, so it takes no slot there.
     if (
+      useTabReorderStore.getState().detached ||
       src?.type !== "browser-tab" ||
       tgt?.type !== "browser-tab" ||
       !src.tabId ||
@@ -85,11 +102,13 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
     const order = useTabReorderStore.getState().previewOrder;
     const initial = initialOrder.current;
     initialOrder.current = null;
+    dragStart.current = null;
     // Defer clearing the preview + persisting a frame so @dnd-kit finishes its
     // DOM cleanup first (same gotcha as the panels feature).
     requestAnimationFrame(() => {
       useTabReorderStore.getState().setPreviewOrder(null);
       useTabReorderStore.getState().setDraggingTabId(null);
+      useTabReorderStore.getState().setDetached(false);
       if (event.canceled || src?.type !== "browser-tab") return;
       // A drop on a tile edge tiles the tab instead of reordering the strip;
       // the preview order is discarded because the pill never left its slot.
@@ -128,6 +147,7 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
   return (
     <DragDropProvider
       onDragStart={onDragStart}
+      onDragMove={onDragMove}
       onDragOver={onDragOver}
       onDragEnd={onDragEnd}
     >

@@ -100,7 +100,8 @@ function TileTree(props: TileTreeProps) {
  * Wraps the route outlet. When the active tab belongs to a tiled group, the
  * outlet renders inside that tab's tile and the other tiles render their tabs
  * without the router. Otherwise the outlet fills the pane as before, and only
- * gains edge drop zones while a pill is dragged so the first split can start.
+ * gains edge drop zones while a detached pill is in flight, so the first split
+ * can start.
  */
 export function TileLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -110,9 +111,12 @@ export function TileLayout({ children }: { children: ReactNode }) {
   const untile = useTileLayoutStore((s) => s.untileTab);
   const noteActive = useTileLayoutStore((s) => s.noteActive);
   const pinnedTabIds = usePinnedTabsStore((s) => s.pinnedTabIds);
-  const rawDraggingTabId = useTabReorderStore((s) => s.draggingTabId);
-  // A split pill drags as one unit and a pinned pill stays icon-only, so
-  // neither can land on a tile edge: their drags show no drop zones.
+  // Zones appear once the pill has left the strip's row, so a plain reorder
+  // never flashes them. A split pill drags as one unit and a pinned pill
+  // stays icon-only, so neither can land on a tile edge: no zones for them.
+  const rawDraggingTabId = useTabReorderStore((s) =>
+    s.detached ? s.draggingTabId : null,
+  );
   const draggingTabId =
     rawDraggingTabId &&
     !groupForTab(groups, rawDraggingTabId) &&

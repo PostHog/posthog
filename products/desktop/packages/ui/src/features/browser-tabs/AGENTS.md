@@ -153,8 +153,15 @@ differ. Desktop ships first.
   partition.
 
 ### Drag to reorder
-- Pills are `@dnd-kit/react` sortables (x-axis–locked, full-opacity preview),
-  split into two sortable groups so a drag can't cross the pinned boundary.
+- Pills are `@dnd-kit/react` sortables (full-opacity preview), split into two
+  sortable groups so a drag can't cross the pinned boundary. The `DetachFromStrip`
+  modifier (`tabDetach.ts`) holds the pill in the row until the pointer has
+  moved `DETACH_DISTANCE` (one pill height, as Chrome does) up or down; then
+  the pill follows the pointer in both axes and snaps back into the row if the
+  pointer returns. `BrowserTabsDndProvider` mirrors that threshold into
+  `tabReorderStore.detached` on `dragmove` (measured from the pointer at
+  dragstart, because dnd-kit's event snapshot has no `position.delta`), and
+  `dragover` skips the reorder while detached.
 - The in-flight preview lives in a **transient view store** (`tabReorderStore`),
   never in the domain snapshot mirror: `dragover` reorders the previewed
   *stored* order **within the dragged tab's pin group only** (`reorderWithinGroup`
@@ -376,15 +383,18 @@ tabs unmarked and scattered in its bar, and that is its most-requested fix.
 - Cmd/Ctrl+1-9 count the split pill as one stop.
 
 ### Drag to tile
-- While a pill is dragged (`tabReorderStore.draggingTabId`), every tile of the
-  visible group, or the lone active page, shows four edge drop zones
+- While a pill is dragged **and detached** (`tabReorderStore.draggingTabId`
+  with `detached`), every tile of the visible group, or the lone active page,
+  shows four edge drop zones
   (`TileDropZones`, `useDroppable` in the same `BrowserTabsDndProvider` scope,
   data `{ type: "tile-drop", tabId, edge }`). The dragged tab's own tile shows
   none, and a full group disables its zones. A split pill drags as one unit
   and a pinned pill stays icon-only, so neither shows zones, and `dragend`
   refuses a tile drop for them.
-- Pill drags stay x-axis locked; the zones are still hit because dnd-kit's
-  default collision detection tests the **pointer** position first.
+- A detached pill renders lifted (`data-detached`: shadow, ring, rounded) so it
+  reads as a card the user carries into the pane, the way Chrome and Arc show
+  a tab in flight. The zones are hit by dnd-kit's default collision detection,
+  which tests the **pointer** position first.
 - `dragend` on a tile zone calls `tileTab` and returns without persisting the
   strip order, because the pill never left its slot.
 - Analytics: `Browser tab tiled` (`edge`, `tile_count`) and
