@@ -27,6 +27,12 @@ from products.data_modeling.backend.facade.models import DAG, Edge, Node, NodeTy
 
 _HOGQL_EVENTS = {"kind": "HogQLQuery", "query": "select count() from events"}
 _HOGQL_PERSONS = {"kind": "HogQLQuery", "query": "select count() from persons"}
+_HOGQL_SYSTEM = {"kind": "HogQLQuery", "query": "select count() from system.information_schema.metrics"}
+_HOGQL_VIEW = {"kind": "HogQLQuery", "query": "select count() from accounts_view"}
+_HOGQL_CTE_SHADOWING_A_TABLE = {
+    "kind": "HogQLQuery",
+    "query": "with events as (select * from persons) select count() from events",
+}
 _MARKDOWN = {"kind": "MarkdownDefinition", "markdown": "Count the accounts, then divide."}
 _TRENDS_EVENTS = {
     "kind": "TrendsQuery",
@@ -43,7 +49,9 @@ class TestDependencyNames(BaseTest):
     @parameterized.expand(
         [
             ("hogql_tables", _HOGQL_EVENTS, ["events"], ["events"]),
-            ("system_tables_dropped", _HOGQL_EVENTS, ["events", "system.information_schema.metrics"], ["events"]),
+            ("system_tables_dropped", _HOGQL_SYSTEM, ["system.information_schema.metrics"], []),
+            ("hogql_view_beats_its_resolved_sources", _HOGQL_VIEW, ["events", "persons"], ["accounts_view"]),
+            ("hogql_cte_does_not_shadow_a_table", _HOGQL_CTE_SHADOWING_A_TABLE, ["persons"], ["persons"]),
             ("events_node_adds_events", _TRENDS_EVENTS, [], ["events"]),
             ("warehouse_series_keeps_both", _TRENDS_EVENTS, ["stripe_charges"], ["events", "stripe_charges"]),
             ("markdown_reads_nothing", _MARKDOWN, [], []),

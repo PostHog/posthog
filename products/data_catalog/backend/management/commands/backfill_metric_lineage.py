@@ -20,7 +20,7 @@ logger = structlog.get_logger(__name__)
 METRIC_CHUNK_SIZE = 200
 
 
-@dataclass
+@dataclass(frozen=False)
 class TeamResult:
     seen: int = 0
     synced: int = 0
