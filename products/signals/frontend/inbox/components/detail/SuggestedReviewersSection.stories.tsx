@@ -117,3 +117,17 @@ export const NarrowPanel: Story = {
         ],
     },
 }
+
+export const NarrowPanelMixedSources: Story = {
+    parameters: { mockupWidth: 'narrow' },
+    args: {
+        suggestions: sharedReasonSuggestions.slice(0, 3).map((suggestion, index) => ({
+            ...suggestion,
+            source_label: [
+                'Infrastructure reliability and request processing ownership scout',
+                'Application request lifecycle and transport ownership scout',
+                'Platform runtime observability and incident response scout',
+            ][index],
+        })),
+    },
+}
