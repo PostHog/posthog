@@ -2,8 +2,9 @@ import { createDecipheriv } from 'node:crypto'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { MlDataKey, TAG_BYTES, encryptEnvelope, openSessionKey, sealSessionKey } from './crypto'
+import { MlDataKey, TAG_BYTES, canonicalJson, encryptEnvelope, openSessionKey, sealSessionKey } from './crypto'
 import { TrainingEncryptionVector, decryptEnvelope } from './envelope-testing'
+import { wrappingContext } from './schema'
 import { validateImageOwner } from './transport'
 
 const key: MlDataKey = {
@@ -109,7 +110,11 @@ describe('sealing a session key under its team month key', () => {
     it('does not seal with the stored key itself, which still seals image data', () => {
         const sealed = sealSessionKey(teamMonthKey, identity, sessionKey)
         const asStoredKey = createDecipheriv('aes-256-gcm', teamMonthKey, sealed.nonce, { authTagLength: TAG_BYTES })
+        asStoredKey.setAAD(Buffer.from(canonicalJson(wrappingContext(identity))))
         asStoredKey.setAuthTag(sealed.sealed.subarray(sealed.sealed.length - TAG_BYTES))
-        expect(() => asStoredKey.final()).toThrow()
+        expect(() => {
+            asStoredKey.update(sealed.sealed.subarray(0, sealed.sealed.length - TAG_BYTES))
+            asStoredKey.final()
+        }).toThrow()
     })
 })

@@ -154,7 +154,11 @@ export class SessionBatchRecorder {
                 return 0
             }
 
-            if (!existingSessionKey.encryptedKey.equals(sessionKey.encryptedKey)) {
+            // An ML session key carries no KMS blob, so the plaintext is what tells two of its keys apart.
+            if (
+                !existingSessionKey.encryptedKey.equals(sessionKey.encryptedKey) ||
+                !existingSessionKey.plaintextKey.equals(sessionKey.plaintextKey)
+            ) {
                 logger.warn('🔁', 'session_batch_recorder_session_key_mismatch', {
                     sessionId,
                     teamId,

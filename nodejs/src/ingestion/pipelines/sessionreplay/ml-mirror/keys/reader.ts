@@ -2,7 +2,15 @@ import { MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/m
 
 import { MlDataKey, MlKeyEncryption, openSessionKey } from './crypto'
 import { DynamoItem, MlKeyDynamoDB } from './dynamodb'
-import { MlKeyIdentity, TableKey, imageKeyId, storedSessionId, tableKeyString, teamBlockId } from './schema'
+import {
+    MlKeyIdentity,
+    TableKey,
+    imageKeyId,
+    keySessionMonth,
+    storedSessionId,
+    tableKeyString,
+    teamBlockId,
+} from './schema'
 
 export class MlKeyReader {
     constructor(
@@ -24,6 +32,15 @@ export class MlKeyReader {
         }
     }
 
+    /** The writer seals under the month it takes from the session id, so the reader takes the month the same way. */
+    private monthKeyIdFor(identity: MlKeyIdentity): string | undefined {
+        try {
+            return tableKeyString(imageKeyId(identity.teamId, keySessionMonth(identity)))
+        } catch {
+            return undefined
+        }
+    }
+
     public async read(keys: TableKey[]): Promise<Map<string, MlDataKey>> {
         const stored = await this.db.read(keys)
         const identities = new Map<string, MlKeyIdentity>()
@@ -35,17 +52,23 @@ export class MlKeyReader {
         }
         // A sealed session key opens under its team month key, so this read includes that row with the team blocks.
         const monthKeys = new Map<string, TableKey>()
+        const monthKeyOf = new Map<string, string>()
         for (const [id, identity] of identities) {
-            const month = stored.get(id)!.sealed_key?.B ? stored.get(id)!.session_month?.S : undefined
-            if (month) {
-                const key = imageKeyId(identity.teamId, month)
-                monthKeys.set(tableKeyString(key), key)
+            if (!stored.get(id)!.sealed_key?.B) {
+                continue
             }
+            const monthId = this.monthKeyIdFor(identity)
+            if (!monthId) {
+                continue
+            }
+            monthKeyOf.set(id, monthId)
+            monthKeys.set(monthId, imageKeyId(identity.teamId, keySessionMonth(identity)))
         }
         const state = await this.db.read([
             ...[...identities.values()].map((identity) => teamBlockId(identity.teamId)),
             ...monthKeys.values(),
         ])
+        const blocked = (teamId: number): boolean => state.has(tableKeyString(teamBlockId(teamId)))
         const months = new Map<string, MlDataKey>()
         await Promise.all(
             [...monthKeys.keys()].map(async (id) => {
@@ -53,28 +76,36 @@ export class MlKeyReader {
                 if (!item?.wrapped_key?.B || item.deleted?.BOOL === true) {
                     return
                 }
-                months.set(id, await this.encryption.decrypt(this.identityOf(item), Buffer.from(item.wrapped_key.B)))
+                const identity = this.identityOf(item)
+                if (blocked(identity.teamId)) {
+                    return
+                }
+                months.set(id, await this.encryption.decrypt(identity, Buffer.from(item.wrapped_key.B)))
             })
         )
         const result = new Map<string, MlDataKey>()
         await Promise.all(
             [...identities].map(async ([id, identity]) => {
-                if (state.has(tableKeyString(teamBlockId(identity.teamId)))) {
+                if (blocked(identity.teamId)) {
                     return
                 }
                 const item = stored.get(id)!
                 if (item.sealed_key?.B && item.key_nonce?.B) {
-                    MlMirrorMetrics.incrementMlKeyScheme('v3')
-                    const month = months.get(tableKeyString(imageKeyId(identity.teamId, String(item.session_month?.S))))
+                    const monthId = monthKeyOf.get(id)
+                    const month = monthId ? months.get(monthId) : undefined
                     if (!month) {
+                        MlMirrorMetrics.incrementMlKeyIdentityMismatch('month_key_unavailable', 1)
                         return
                     }
                     const sealed = { sealed: Buffer.from(item.sealed_key.B), nonce: Buffer.from(item.key_nonce.B) }
-                    result.set(id, {
-                        identity,
-                        plaintext: openSessionKey(month.plaintext, identity, sealed),
-                        wrapped: Buffer.alloc(0),
-                    })
+                    try {
+                        const plaintext = openSessionKey(month.plaintext, identity, sealed)
+                        MlMirrorMetrics.incrementMlKeyScheme('v3')
+                        result.set(id, { identity, plaintext, wrapped: Buffer.alloc(0) })
+                    } catch {
+                        // One row that disagrees with its month key must not fail the read for every other session.
+                        MlMirrorMetrics.incrementMlKeyIdentityMismatch('seal_unopenable', 1)
+                    }
                     return
                 }
                 MlMirrorMetrics.incrementMlKeyScheme('v2')

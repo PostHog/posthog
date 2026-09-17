@@ -19,7 +19,7 @@ export type MlUrlCrawlHistoryOutcome = 'fresh' | 'miss' | 'error'
 export type MlImageSource = 'css' | 'html'
 /** Phases of the ML key work around one Kafka batch: the key bulk read before processing, the key writes and re-read after it, and the deferred publications. */
 export type MlKeyPhase = 'prepare' | 'commit' | 'publish'
-export type MlKeyIdentityMismatchReason = 'wrapped_key_missing'
+export type MlKeyIdentityMismatchReason = 'wrapped_key_missing' | 'month_key_unavailable' | 'seal_unopenable'
 export type MlKeyRequest =
     | 'kms_generate'
     | 'kms_decrypt'
@@ -139,7 +139,7 @@ export class MlMirrorMetrics {
     private static urlBytesSeen = 0
     private static readonly mlKeyScheme = new Counter({
         name: 'recording_blob_ingestion_v2_ml_key_scheme_total',
-        help: 'Stored ML keys resolved, by the scheme that sealed them. v2 wraps each key with KMS directly. v3 seals a session key under its team month key, so only the month key reaches KMS. Read v2 falling to zero as the signal that no key predating v3 is still in use, which is what the team block and the deletion sweep wait for',
+        help: 'Stored ML session keys resolved, by the scheme that sealed them. v2 wraps a session key with KMS directly. v3 seals a session key under its team month key, so only the month key reaches KMS. A team month key always uses KMS, so this counter leaves month keys out and v2 counts session keys alone. When v2 reaches zero, no session key predates v3, and the team block and the Python deletion sweep can go',
         labelNames: ['scheme'],
     })
     private static readonly mlKeyRowCacheLookups = new Counter({

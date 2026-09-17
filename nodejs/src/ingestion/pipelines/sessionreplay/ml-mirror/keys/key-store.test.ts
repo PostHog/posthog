@@ -536,10 +536,17 @@ describe('ML session key batches', () => {
 
     it.each([
         // A session key opens under its month key only, so an unusable month key makes its sessions unusable too.
-        ['session', () => sessionKeyId(session.teamId, session.sessionId), 1],
-        ['monthly image', () => imageKeyId(session.teamId, '2025-09'), 2],
+        ['session', () => sessionKeyId(session.teamId, session.sessionId), [['wrapped_key_missing', 1]]],
+        [
+            'monthly image',
+            () => imageKeyId(session.teamId, '2025-09'),
+            [
+                ['month_key_unavailable', 1],
+                ['wrapped_key_missing', 1],
+            ],
+        ],
     ])(
-        'drops the sessions behind a stored %s key that has no wrapped key and no tombstone, reporting it once',
+        'drops the sessions behind a stored %s key that has no wrapped key and no tombstone, naming why',
         async (_kind, keyId, reported) => {
             const first = await store.prepare([session])
             await first.commit()
@@ -552,18 +559,53 @@ describe('ML session key batches', () => {
             expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
             await next.commit()
             expect(boundary.items.get(location)).toEqual(stored)
-            expect(unusable).toHaveBeenCalledTimes(1)
-            expect(unusable).toHaveBeenCalledWith('wrapped_key_missing', reported)
+            expect(unusable.mock.calls.sort()).toEqual(reported)
         }
     )
 
-    it('counts a key by the scheme that sealed it, so v2 can be watched to zero', async () => {
+    it('leaves the team month key out of the scheme counter, so v2 can reach zero', async () => {
         const scheme = jest.spyOn(MlMirrorMetrics, 'incrementMlKeyScheme')
         await (await store.prepare([session])).commit()
         coldCache()
         await store.prepare([session])
-        // The month key reaches KMS. The session key it sealed does not reach KMS.
-        expect(scheme.mock.calls.map(([value]) => value).sort()).toEqual(['v2', 'v3'])
+        expect(scheme.mock.calls.map(([value]) => value)).toEqual(['v3'])
+    })
+
+    it('counts a session key that KMS wrapped as v2', async () => {
+        const sessionKey = await encryption.generate({ teamId: session.teamId, sessionId: session.sessionId })
+        const location = sessionKeyId(session.teamId, session.sessionId)
+        boundary.items.set(tableKeyString(location), {
+            ...encodeKey(location),
+            wrapped_key: { B: sessionKey.wrapped },
+            team_id: { N: String(session.teamId) },
+            session_month: { S: '2025-09' },
+        })
+        const scheme = jest.spyOn(MlMirrorMetrics, 'incrementMlKeyScheme')
+        await store.prepare([session])
+        expect(scheme.mock.calls.map(([value]) => value)).toEqual(['v2'])
+    })
+
+    it('drops the sessions of a month key that lost its put to a tombstone, and still commits', async () => {
+        const batch = await store.prepare([session])
+        const monthLocation = imageKeyId(session.teamId, '2025-09')
+        boundary.items.set(tableKeyString(monthLocation), { ...encodeKey(monthLocation), deleted: { BOOL: true } })
+        await expect(batch.commit()).resolves.toBeUndefined()
+        expect(batch.get(session.teamId, session.sessionId)).toBeUndefined()
+        expect(boundary.items.has(tableKeyString(sessionKeyId(session.teamId, session.sessionId)))).toBe(false)
+    })
+
+    it('drops a session whose seal does not open, and still serves the rest of the batch', async () => {
+        const other = { ...session, sessionId: '01994569-4380-7000-8000-000000000009' }
+        await (await store.prepare([session, other])).commit()
+        const location = sessionKeyId(session.teamId, session.sessionId)
+        const stored = boundary.items.get(tableKeyString(location))!
+        boundary.items.set(tableKeyString(location), { ...stored, sealed_key: { B: Buffer.alloc(48, 9) } })
+        coldCache()
+        const mismatch = jest.spyOn(MlMirrorMetrics, 'incrementMlKeyIdentityMismatch')
+        const next = await store.prepare([session, other])
+        expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
+        expect(next.get(other.teamId, other.sessionId)).not.toBeUndefined()
+        expect(mismatch).toHaveBeenCalledWith('seal_unopenable', 1)
     })
 
     it('adopts a competing writer key when the refusal omits the stored row', async () => {

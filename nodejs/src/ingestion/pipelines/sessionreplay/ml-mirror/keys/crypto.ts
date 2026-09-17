@@ -131,6 +131,9 @@ export class MlKeyEncryption {
     }
 
     public rememberCommitted(key: MlDataKey): void {
+        if (!key.wrapped.length) {
+            return
+        }
         this.cache.set(this.cacheId(key.identity, key.wrapped), key.plaintext)
     }
 
