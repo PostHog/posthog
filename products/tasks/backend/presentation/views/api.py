@@ -311,17 +311,7 @@ def _release_backlog_bytes(size_bytes: int) -> None:
 def _parse_backlog(log_content: str) -> tuple[list[dict], TaskRunStreamBacklogIndex]:
     # Runs via asyncio.to_thread: parsing a log at the byte cap takes long
     # enough to stall every other stream on the ASGI event loop.
-    entries: list[dict] = []
-    for log_line in log_content.splitlines():
-        log_line = log_line.strip()
-        if not log_line:
-            continue
-        try:
-            parsed_line = json.loads(log_line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed_line, dict):
-            entries.append(parsed_line)
+    entries = list(tasks_facade.parse_task_run_log_entries(log_content))
     return entries, TaskRunStreamBacklogIndex(entries)
 
 

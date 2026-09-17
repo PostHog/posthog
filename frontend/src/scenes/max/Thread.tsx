@@ -82,6 +82,7 @@ import {
     RecordingsWidget,
     ThreadView,
     TurnFeedbackActions,
+    TurnSuggestionCard,
     type TurnTrailer,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { LogEntry } from 'products/posthog_ai/frontend/lib/parse-logs'
@@ -155,16 +156,24 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
     const feedbackRun = useMemo(() => ({ taskId: feedbackTaskId }), [feedbackTaskId])
     const renderTurnTrailer = useCallback(
         (trailer: TurnTrailer): JSX.Element | null =>
-            feedbackTaskId ? (
-                <TurnFeedbackActions
-                    sessionId={feedbackTaskId}
-                    turnIndex={trailer.turnIndex}
-                    run={feedbackRun}
-                    traceId={trailer.traceId}
-                    turnText={trailer.turnText}
-                />
+            feedbackTaskId && sandboxConversationKey ? (
+                <>
+                    <TurnSuggestionCard
+                        streamKey={sandboxConversationKey}
+                        turnIndex={trailer.turnIndex}
+                        isLastTurn={trailer.isLastTurn}
+                        sessionId={feedbackTaskId}
+                    />
+                    <TurnFeedbackActions
+                        sessionId={feedbackTaskId}
+                        turnIndex={trailer.turnIndex}
+                        run={feedbackRun}
+                        traceId={trailer.traceId}
+                        turnText={trailer.turnText}
+                    />
+                </>
             ) : null,
-        [feedbackTaskId, feedbackRun]
+        [feedbackTaskId, feedbackRun, sandboxConversationKey]
     )
 
     if (isPiTask) {

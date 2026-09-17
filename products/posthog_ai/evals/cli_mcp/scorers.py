@@ -107,7 +107,7 @@ def _exec_command_head(call: ToolCall) -> tuple[str, str]:
 
     Empty tuple for non-``exec`` or already-unwrapped calls. Lets scorers
     inspect the ``search`` / ``schema`` / ``tools`` verbs that
-    ``_parse_exec_command`` intentionally drops on the floor.
+    ``parse_exec_command`` intentionally drops on the floor.
     """
     if call.is_exec_unwrapped or call.name != EXEC_TOOL_NAME:
         return ("", "")

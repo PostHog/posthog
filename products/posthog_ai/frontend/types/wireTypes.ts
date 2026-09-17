@@ -407,6 +407,40 @@ export interface PosthogTurnCompleteParams {
     traceId?: string
 }
 
+/**
+ * Server-originated suggestion for a completed turn (`_posthog/turn_suggestion`), published by the
+ * turn classifier after the answer streamed. Loose on purpose: the fold validates it.
+ */
+export interface SuggestedInsightRefParams {
+    insightShortId?: string
+    insightId?: number | null
+    insightName?: string
+}
+
+export interface PosthogTurnSuggestionParams {
+    turnIndex?: number
+    kind?: string
+    intent?: string
+    confidence?: number
+    title?: string
+    description?: string
+    scout?: {
+        mode?: string
+        displayName?: string
+        description?: string
+        body?: string
+        cadence?: string
+    }
+    notebook?: {
+        title?: string
+        summary?: string
+        incident?: { timeline?: string; cause?: string; fix?: string } | null
+    }
+    alert?: SuggestedInsightRefParams & { direction?: string; changePercent?: number }
+    subscription?: SuggestedInsightRefParams & { cadence?: string }
+    errorAlert?: { issueId?: string; issueName?: string }
+}
+
 export interface PosthogNotificationParamsByMethod {
     '_posthog/console': PosthogConsoleParams
     '_posthog/progress': PosthogProgressParams
@@ -424,6 +458,7 @@ export interface PosthogNotificationParamsByMethod {
     '_posthog/permission_resolved': PosthogPermissionResolvedParams
     '_posthog/run_started': PosthogRunStartedParams
     '_posthog/turn_complete': PosthogTurnCompleteParams
+    '_posthog/turn_suggestion': PosthogTurnSuggestionParams
 }
 
 /**

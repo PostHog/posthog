@@ -1939,11 +1939,21 @@ export function escapeMarkdownLineStart(line: string): string {
         return `${leadingWhitespace}${orderedListMatch[1]}\\${content.slice(orderedListMatch[1].length)}`
     }
 
-    if (/^(#{1,6}\s|>|[-+•](\s|$)|-{3,}\s*$|<[A-Z]|<!--)/.test(content)) {
+    if (/^(#{1,6}\s|>|[-+•](\s|$)|-{3,}\s*$)/.test(content) || COMPONENT_TAG_LINE_START.test(content)) {
         return `${leadingWhitespace}\\${content}`
     }
 
     return line
+}
+
+const COMPONENT_TAG_LINE_START = /^(<[A-Z]|<!--)/
+
+// For markdown the author meant to render: only a line that would parse as a component tag or a
+// comment is neutralized, so headings and lists stay live.
+export function escapeComponentTagLineStart(line: string): string {
+    const leadingWhitespace = line.match(/^\s*/)?.[0] ?? ''
+    const content = line.slice(leadingWhitespace.length)
+    return COMPONENT_TAG_LINE_START.test(content) ? `${leadingWhitespace}\\${content}` : line
 }
 
 function getCodeBlockFence(text: string): string {

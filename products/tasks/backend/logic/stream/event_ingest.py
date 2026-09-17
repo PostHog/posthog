@@ -32,7 +32,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
 )
 from products.tasks.backend.metrics import observe_stream_write_skipped
 from products.tasks.backend.models import TaskRun
-from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
+from products.tasks.backend.turn_completed import on_interactive_turn_completed
 
 from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE, is_turn_complete, pi_turn_error
 
@@ -467,7 +467,7 @@ def _dispatch_turn_completed_sync(run_id: str) -> None:
     if task_run.mode != "interactive":
         return
 
-    notify_task_run_turn_completed(task_run)
+    on_interactive_turn_completed(task_run)
 
 
 async def _dispatch_turn_failed(run_id: str) -> None:

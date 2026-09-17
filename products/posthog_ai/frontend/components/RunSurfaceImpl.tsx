@@ -14,6 +14,7 @@ import { QuestionInput } from './QuestionInput'
 import { RunLogSkeleton } from './RunLogSkeleton'
 import { ThreadView } from './ThreadView'
 import { TurnFeedbackActions } from './TurnFeedbackActions'
+import { TurnSuggestionCard } from './TurnSuggestionCard'
 
 export interface RunSurfaceProps {
     taskId: string
@@ -219,15 +220,23 @@ function RunSurfaceThread({
     const renderTurnTrailer = useCallback(
         (trailer: TurnTrailer): JSX.Element | null =>
             feedbackSessionId ? (
-                <TurnFeedbackActions
-                    sessionId={feedbackSessionId}
-                    turnIndex={trailer.turnIndex}
-                    run={feedbackRun}
-                    traceId={trailer.traceId}
-                    turnText={trailer.turnText}
-                />
+                <>
+                    <TurnSuggestionCard
+                        streamKey={streamKey}
+                        turnIndex={trailer.turnIndex}
+                        isLastTurn={trailer.isLastTurn}
+                        sessionId={feedbackSessionId}
+                    />
+                    <TurnFeedbackActions
+                        sessionId={feedbackSessionId}
+                        turnIndex={trailer.turnIndex}
+                        run={feedbackRun}
+                        traceId={trailer.traceId}
+                        turnText={trailer.turnText}
+                    />
+                </>
             ) : null,
-        [feedbackSessionId, feedbackRun]
+        [feedbackSessionId, feedbackRun, streamKey]
     )
     const showSkeleton = bootstrapLoading && !hasThreadItems && streamKey === runId
     if (showSkeleton) {

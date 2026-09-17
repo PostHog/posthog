@@ -42,6 +42,8 @@ from products.signals.backend.signal_metadata import fetch_signal_stats_for_sour
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded as ReportTaskCapExceeded
 
 if TYPE_CHECKING:
+    from posthog.models import User
+
     from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 
 logger = structlog.get_logger(__name__)
@@ -1035,3 +1037,23 @@ def delete_scout_for_source(*, team: "Team", source_product: str, config_id: str
             pass  # Already archived; the config is the orphan being cleaned up.
         config.delete()
     return True
+
+
+def scout_creation_available(*, team: "Team", user: "User") -> bool:
+    """Whether ``user`` can create a scout on ``team``'s project through the scout API.
+
+    Mirrors the gates the scout create endpoint enforces, so a caller can decide whether to offer
+    scout creation at all: the canonical project must be enrolled in scouts, and the user needs
+    access to that project plus editor access to skills, because the skill body is the prompt the
+    scout agent runs.
+    """
+    from products.signals.backend.dismissal_notes import (
+        user_can_steer_scouts,  # noqa: PLC0415 — dismissal_notes imports this facade
+    )
+    from products.signals.backend.scout_harness.team_limits import (
+        team_is_enrolled,  # noqa: PLC0415 — keeps the flag-reading harness module off the facade import path
+    )
+
+    if not team_is_enrolled(team.parent_team_id or team.id):
+        return False
+    return user_can_steer_scouts(user, team.parent_team or team)
