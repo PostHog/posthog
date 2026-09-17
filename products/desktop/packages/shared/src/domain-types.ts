@@ -753,6 +753,7 @@ export interface SignalReport {
   created_at: string;
   updated_at: string;
   artefact_count: number;
+  collapsed_note_count?: number;
   /** P0–P4 from priority judgment when the report is researched */
   priority?: SignalReportPriority | null;
   /** Actionability choice from the actionability judgment artefact. */
