@@ -187,11 +187,12 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 # validated against this set where it is stored, and `resolve_scopes` intersects against it
 # again at mint time, so a stale or hand-edited grant cannot widen a token.
 #
-# Every entry is an artifact-shaped write, which is what makes an unattended agent holding one
-# acceptable at all. Kept out on purpose: `hog_function:write` and batch exports, because a
-# destination is arbitrary egress; `feature_flag:write`, `experiment:write` and `survey:write`,
-# because they change what end users see in production; `cohort:write` and `action:write` until
-# a scout needs them; and anything organization, user, member, or role shaped.
+# Almost every entry is an artifact-shaped write, which is what makes an unattended agent holding
+# one acceptable at all. Kept out on purpose: `hog_function:write` and batch exports, because a
+# destination is arbitrary egress; `experiment:write` and `survey:write`, because they change what
+# end users see in production; `cohort:write` and `action:write` until a scout needs them; and
+# anything organization, user, member, or role shaped. `feature_flag:write` is the one entry that is
+# not artifact-shaped: a flag changes what end users see, so read its row below before offering it.
 #
 # These scopes are object-level rather than tool-level, so each one carries update and delete of
 # every matching object the token can reach, not only the objects the scout created. The reach
@@ -235,13 +236,30 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          others meet. One scope object covers the whole surface, so the two
 #                          exclusions live in `products/replay_vision/backend/scout_writes.py`
 #                          instead: a scout cannot delete, and must cap what it creates or enables.
+#   feature_flag:write     Every feature flag in the scout's project: create, update, enable,
+#                          disable, archive, and delete, plus each flag's scheduled changes and the
+#                          bulk delete endpoint. This is the one grant that does not stop at an
+#                          artifact. A flag decides what end users see, so a scout holding it can
+#                          change production behavior: move a rollout, rewrite targeting, or turn off
+#                          a flag that shipped code still evaluates. It reaches every flag in the
+#                          project, not only stale ones and not only flags the scout made, including
+#                          the flags an experiment, an early access feature, a survey, a product
+#                          tour, or a replay setting runs on, so a change here can stop those too.
+#                          Delete is a recoverable soft-delete, and archiving takes a flag out of the
+#                          list reversibly. The organization-level copy endpoint names the scope as
+#                          well, but a scout token is scoped to one project and is refused there.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
 # that decision to make, not a default to assume. Whoever confirms the set has to accept those two
 # reaches, or drop the scopes. `llm_skill:write` carries the same kind of open question: a scout
 # holding it can rewrite the skill body it runs from. That is accepted while the grant is a
-# deliberate per-scout choice a person makes, and the surfaces that offer it say so.
+# deliberate per-scout choice a person makes, and the surfaces that offer it say so. So does
+# `feature_flag:write`, further than any of them: it is the only grant that reaches what end users
+# see rather than an artifact. #101988 put that reach to the team and settled on accepting it stated rather
+# than narrowed, so the scope is granted whole and every surface that offers it says what it can do.
+# Restricting it to hygiene writes, the way the scanner scope is restricted, stays a later decision
+# rather than one this code assumes.
 SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
     {
         "dashboard:write",
@@ -252,6 +270,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "warehouse_view:write",
         "warehouse_table:write",
         "replay_scanner:write",
+        "feature_flag:write",
     }
 )
 

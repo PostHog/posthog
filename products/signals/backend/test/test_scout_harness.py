@@ -794,6 +794,10 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         # from the prompt, not from a refused call.
         assert "Scanners spend credits" not in granted
         assert "Scanners spend credits" in _prompt(write_scopes=["replay_scanner:write"])
+        # The flag grant is the one the API bounds no further than the scope does, so the prompt
+        # is where the care it needs comes from.
+        assert "this is the grant to use least" not in granted
+        assert "this is the grant to use least" in _prompt(write_scopes=["feature_flag:write"])
 
         ungranted = _prompt(write_scopes=[])
         assert "# Write access" not in ungranted
@@ -1643,7 +1647,7 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
             team_id=ateam.id,
             skill_name="signals-scout-errors",
             emit=emit,
-            write_scopes=["dashboard:write", "feature_flag:write"],
+            write_scopes=["dashboard:write", "cohort:write"],
         )
 
     await database_sync_to_async(_seed_config, thread_sensitive=False)()

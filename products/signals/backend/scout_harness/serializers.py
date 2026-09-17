@@ -2911,6 +2911,8 @@ _WRITE_SCOPES_HELP = (
     "scout reads the project and writes only what every scout may write: notebooks, its findings, "
     "and its own memory. Each scope is project-wide and object-level, so a scout holding "
     "`dashboard:write` can update or delete any dashboard in the project, not only ones it made. "
+    "`feature_flag:write` goes furthest: a flag decides what end users see, so a scout holding it "
+    "can change production behavior, on every flag in the project rather than only stale ones. "
     "Grant only what this scout maintains. Only the person the scout's runs act as (whoever "
     "authored it) or a project admin can set it, and a scoped API key must itself carry each scope "
     "it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."

@@ -74,6 +74,14 @@ export const ScannerMaintainerScout: Story = {
     ),
 }
 
+export const FlagCleanupScout: Story = {
+    render: () => (
+        <div className="max-w-md p-4">
+            <ControlledPicker compact initialScopes={['feature_flag:write']} />
+        </div>
+    ),
+}
+
 export const CannotEdit: Story = {
     render: () => (
         <div className="max-w-md p-4">

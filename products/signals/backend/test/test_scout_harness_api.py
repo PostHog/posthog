@@ -1345,7 +1345,7 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
 
         response = self.client.patch(
             self._detail_url(str(config.id)),
-            data={"write_scopes": ["feature_flag:write"]},
+            data={"write_scopes": ["cohort:write"]},
             format="json",
         )
 
@@ -1499,7 +1499,7 @@ class TestWriteScopesValidation(SimpleTestCase):
                 True,
                 ["llm_skill:write", "warehouse_view:write"],
             ),
-            ("ungrantable_scope", ["feature_flag:write"], False, None),
+            ("ungrantable_scope", ["cohort:write"], False, None),
             # A scout run acts as its skill's author, so this scope would let a scout widen its own
             # grant through the scout config endpoint. It stays ungrantable until that has a gate.
             ("scout_config_scope", ["signal_scout:write"], False, None),
