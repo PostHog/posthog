@@ -40,7 +40,7 @@ Rules that decide whether this works:
 
 - `name` is unique per provider and is part of the dedup cache key. **Treat it as fixed once it ships**: renaming one lets a redelivery run the consumer a second time.
 - `provider` and `app` must match a `ProviderSpec` some incarnation declares, and `event_types` must be a subset of what that app declares. Anything else raises `RegistryError` when the registry is built, rather than sitting there looking registered and never running.
-- `handler` takes one `WebhookDelivery` and returns nothing. Its return value is ignored and it never decides the HTTP status.
+- `handler` takes one `WebhookDelivery` and returns nothing. Its return value is ignored and never decides the HTTP status. A handler that raises does cost the request its receipt when the provider sets `retry_status`, which is how a consumer whose durable record is written inside the handler gets the delivery again.
 - Keep the module cheap to import. The registry imports it on the first delivery through `load_product_modules("webhook_consumers")`, so defer heavy imports into the handler behind `# noqa: PLC0415` with a reason.
 - The handler runs synchronously inside the request. Enqueue a task for real work, the way stamphog and conversations do.
 - A handler that reads the database wraps the read in `bounded_statement_timeout(ms, models=...)` from `posthog.ingress.dispatch.database`, passing only the models the read actually uses. Opening an alias is itself unbounded, so naming one the read never touches can stall the delivery on connection setup.
@@ -62,6 +62,7 @@ Copy `github/` for the full shape, or `vapi/` for a small one.
   - `verify(request)` answers a `Verification`: the outcome, plus `facts`, whatever the scheme proved on the way. A scheme that validates a signed token puts its verified claims there and `deliveries` cross-checks the body against them; an HMAC scheme leaves it empty and `deliveries` ignores it.
   - `parse(request)` decodes the body, and defaults to JSON. Override it for a provider that posts a form, and raise `InvalidPayload` for a body it cannot read. Verification runs first and must, because reading `request.POST` consumes the request stream under ASGI.
   - `throttle_class` names a DRF throttle from `posthog.rate_limit`, run in front of verification. Set one when the endpoint is public and its verification is expensive, such as a JWT signing-key lookup.
+  - `retry_status` is the status answered instead of the receipt when ingress cannot vouch that the delivery was accepted: the forward to the owning region failed, a consumer raised, or the budget skipped a consumer. Set it when the provider redelivers on a non-2xx, and leave it `None` when it does not, because the non-2xx then only loses the delivery. A retry replays the delivery against every consumer on the endpoint, and dedup is what stops the ones that already accepted it from running twice.
 - A `build_<provider>_provider(...)` function returning it. Secrets and verifiers a product owns are **passed into this builder**, never imported: nothing under `posthog/ingress/` may import a product.
 
 Then:
@@ -81,7 +82,8 @@ Everything else goes through `build_webhook_view()`.
 
 ## Non-goals
 
-Ingress stores no delivery log, runs no queue, retry or dead letter, lets no consumer decide the response, and promises no consumer order.
+Ingress stores no delivery log, runs no queue, retry or dead letter of its own, lets no consumer decide the response, and promises no consumer order.
+It does answer `retry_status` when it cannot vouch that a delivery was accepted, which asks the provider's retry to run rather than adding one here.
 Each was a real proposal already; ["Non-goals" in the package README](../../../posthog/ingress/README.md#non-goals) records the reason for each one, so read it before proposing any of them again.
 
 ## Verify
