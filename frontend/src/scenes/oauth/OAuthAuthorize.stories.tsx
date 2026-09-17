@@ -195,8 +195,9 @@ export const ManyOptionalScopes: Story = {
     },
 }
 
-// The organization has access rules, so a granted scope can still meet a 403. The screen says
-// so above the permissions instead of second-guessing each row.
+// Sets the server flag that says one of the user's organizations has access-control rules.
+// The story below shows the notice this flag adds under the permission list. The decorator
+// restores the original flag on unmount so it cannot leak into other stories.
 const withAccessControls: Decorator = function AccessControlsDecorator(Story): JSX.Element {
     const appContext = (window as any).POSTHOG_APP_CONTEXT
     const original = useRef<{ value: unknown } | null>(null)
