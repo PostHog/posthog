@@ -1072,7 +1072,8 @@ Generated MCP tool names:
 - **`SignalReportArtefactSerializer`**
   - Exposes `id`, `type`, `content`, `created_at`
   - Parses JSON text into structured content
-  - For `suggested_reviewers`, enriches the stored payload with fresh PostHog org-member data, a source label, a concise explanation, and a shared team group when several scout suggestions carry the same rationale
+  - For `suggested_reviewers`, enriches the stored payload with fresh PostHog org-member data, a source label, and a concise explanation
+  - The inbox groups reviewers only when their displayed explanations match exactly, then shows the explanation once below the grouped people
 
 ---
 

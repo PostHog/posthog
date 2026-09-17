@@ -46,8 +46,6 @@ logger = logging.getLogger(__name__)
 MAX_SUGGESTED_REVIEWERS = 3
 MAX_COMMIT_LOOKUPS = 15
 
-_TEAM_NAME_RE = re.compile(r"\bthe\s+([a-z0-9][a-z0-9_-]*(?:\s+[a-z0-9][a-z0-9_-]*){0,2}\s+team)\b", re.IGNORECASE)
-
 RECENCY_FULL_WEIGHT_DAYS = 30
 RECENCY_DECAY_FLOOR = 0.3
 STALE_BLAME_MULTIPLIER = 0.15
@@ -160,16 +158,7 @@ def enrich_reviewer_dicts_with_org_members(
             user = resolved_map.get(login.strip().lower())
         enriched.append(_with_reviewer_presentation(r, user))
 
-    group_counts = Counter(
-        (reviewer.get("source_skill"), reviewer.get("reason"))
-        for reviewer in enriched
-        if isinstance(reviewer.get("source_skill"), str)
-        and isinstance(reviewer.get("reason"), str)
-        and reviewer.get("source_skill")
-        and reviewer.get("reason")
-        and not reviewer.get("relevant_commits")
-    )
-    return [_with_reviewer_group(reviewer, group_counts) for reviewer in enriched]
+    return enriched
 
 
 def _prettify_scout_name(skill_name: str) -> str:
@@ -221,21 +210,6 @@ def _with_reviewer_presentation(reviewer: dict, user: User | None) -> dict:
         if user
         else None,
     }
-
-
-def _with_reviewer_group(reviewer: dict, group_counts: Counter[tuple[object, object]]) -> dict:
-    source_skill = reviewer.get("source_skill")
-    reason = reviewer.get("reason")
-    if not isinstance(source_skill, str) or not isinstance(reason, str):
-        return reviewer
-    if reviewer.get("relevant_commits"):
-        return reviewer
-    if group_counts[(source_skill, reason)] < 2:
-        return reviewer
-
-    match = _TEAM_NAME_RE.search(str(reason))
-    name = match.group(1).capitalize() if match else f"{_prettify_scout_name(str(source_skill))} team"
-    return {**reviewer, "suggestion_group": {"name": name, "reason": reason}}
 
 
 def normalized_github_logins_from_suggested_reviewer_artefacts(

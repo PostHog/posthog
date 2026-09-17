@@ -135,7 +135,7 @@ def test_uuid_reviewer_does_not_fall_back_to_a_reassigned_login(organization, te
     assert enriched[0]["user"]["id"] == original.id
 
 
-def test_enriches_reviewer_sources_explanations_and_shared_team():
+def test_enriches_reviewer_sources_and_explanations():
     shared_reason = "The checkout parser belongs to the checkout platform team's service."
     enriched = enrich_reviewer_dicts_with_org_members(
         1,
@@ -176,10 +176,9 @@ def test_enriches_reviewer_sources_explanations_and_shared_team():
 
     assert enriched[0]["source_label"] == "Code history"
     assert enriched[0]["explanation"] == "Changed the checkout handler where this issue occurs."
-    assert enriched[0].get("suggestion_group") is None
     assert enriched[1]["source_label"] == "Checkout reliability scout"
-    assert enriched[1]["suggestion_group"] == {"name": "Checkout platform team", "reason": shared_reason}
-    assert enriched[2]["suggestion_group"] == enriched[1]["suggestion_group"]
+    assert enriched[1]["explanation"] == shared_reason
+    assert enriched[2]["explanation"] == shared_reason
     assert enriched[3]["source_label"] == "Added by teammate"
     assert enriched[3]["explanation"] is None
 

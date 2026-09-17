@@ -2,9 +2,9 @@ import { useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { EnrichedReviewer, ReviewerSuggestionGroup } from '../../types'
-import { getReviewerSourceLabel, SuggestedReviewerPerson } from './SuggestedReviewerPerson'
-import { SuggestedReviewerTeam } from './SuggestedReviewerTeam'
+import { EnrichedReviewer } from '../../types'
+import { getReviewerExplanation, getReviewerSourceLabel, SuggestedReviewerPerson } from './SuggestedReviewerPerson'
+import { SuggestedReviewerReasonGroup } from './SuggestedReviewerReasonGroup'
 
 const MAX_VISIBLE_SUGGESTIONS = 5
 
@@ -14,15 +14,15 @@ interface ReviewerPersonItem {
     reviewer: EnrichedReviewer
 }
 
-interface ReviewerTeamItem {
-    kind: 'team'
+interface ReviewerReasonGroupItem {
+    kind: 'reason-group'
     key: string
-    group: ReviewerSuggestionGroup
+    reason: string
     reviewers: EnrichedReviewer[]
-    sourceLabel: string
+    sourceLabels: string[]
 }
 
-type ReviewerItem = ReviewerPersonItem | ReviewerTeamItem
+type ReviewerItem = ReviewerPersonItem | ReviewerReasonGroupItem
 
 function reviewerKey(reviewer: EnrichedReviewer): string {
     return reviewer.user?.uuid ?? reviewer.user_uuid ?? reviewer.github_login ?? getReviewerDisplayFallback(reviewer)
@@ -32,25 +32,41 @@ function getReviewerDisplayFallback(reviewer: EnrichedReviewer): string {
     return reviewer.github_name ?? reviewer.user?.email ?? 'unknown-reviewer'
 }
 
-function buildReviewerItems(reviewers: EnrichedReviewer[]): ReviewerItem[] {
+export function buildReviewerItems(reviewers: EnrichedReviewer[]): ReviewerItem[] {
     const items: ReviewerItem[] = []
-    const teams = new Map<string, ReviewerTeamItem>()
+    const reasonCounts = new Map<string, number>()
+    const reasonGroups = new Map<string, ReviewerReasonGroupItem>()
 
     for (const reviewer of reviewers) {
-        const group = reviewer.suggestion_group
-        if (!group) {
+        const reason = getReviewerExplanation(reviewer)
+        if (reason) {
+            reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1)
+        }
+    }
+
+    for (const reviewer of reviewers) {
+        const reason = getReviewerExplanation(reviewer)
+        if (!reason || reasonCounts.get(reason) === 1) {
             items.push({ kind: 'person', key: reviewerKey(reviewer), reviewer })
             continue
         }
 
         const sourceLabel = getReviewerSourceLabel(reviewer)
-        const key = JSON.stringify([group.name, group.reason, sourceLabel])
-        const existing = teams.get(key)
+        const existing = reasonGroups.get(reason)
         if (existing) {
             existing.reviewers.push(reviewer)
+            if (!existing.sourceLabels.includes(sourceLabel)) {
+                existing.sourceLabels.push(sourceLabel)
+            }
         } else {
-            const item: ReviewerTeamItem = { kind: 'team', key, group, reviewers: [reviewer], sourceLabel }
-            teams.set(key, item)
+            const item: ReviewerReasonGroupItem = {
+                kind: 'reason-group',
+                key: JSON.stringify(['reason-group', reason]),
+                reason,
+                reviewers: [reviewer],
+                sourceLabels: [sourceLabel],
+            }
+            reasonGroups.set(reason, item)
             items.push(item)
         }
     }
@@ -74,14 +90,14 @@ export function SuggestedReviewersList({
     return (
         <div className="@container mr-[3.625rem] flex flex-col gap-1.5">
             {visibleItems.map((item) =>
-                item.kind === 'team' ? (
-                    <SuggestedReviewerTeam
+                item.kind === 'reason-group' ? (
+                    <SuggestedReviewerReasonGroup
                         key={item.key}
-                        group={item.group}
                         reviewers={item.reviewers}
-                        sourceLabel={item.sourceLabel}
+                        reason={item.reason}
+                        sourceLabels={item.sourceLabels}
                         disabled={disabled}
-                        onRemove={() => onRemove(item.reviewers)}
+                        onRemove={(reviewer) => onRemove([reviewer])}
                     />
                 ) : (
                     <SuggestedReviewerPerson
