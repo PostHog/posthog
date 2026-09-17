@@ -31,6 +31,9 @@ ConsumerOutcome = Literal["succeeded", "failed", "deduped", "budget_exceeded", "
 # undecided on one that does not.
 OwnershipOutcome = Literal["local", "elsewhere", "undecided", "failed"]
 
+# What came of opening a capped read again after its connection turned out to be dead.
+ReconnectOutcome = Literal["recovered", "failed"]
+
 # What the owning region answered the replayed request: `rejected` is a non-2xx, `failed` is the
 # request never completing.
 ForwardOutcome = Literal["forwarded", "rejected", "failed"]
@@ -59,6 +62,12 @@ INGRESS_FORWARDS_TOTAL = Counter(
     labelnames=["provider", "app", "outcome"],
 )
 
+INGRESS_BOUNDED_READ_RECONNECTS_TOTAL = Counter(
+    "posthog_ingress_bounded_read_reconnects_total",
+    "Capped reads whose database connection dropped and were opened again, labeled by outcome",
+    labelnames=["outcome"],
+)
+
 INGRESS_CONSUMER_DURATION_SECONDS = Histogram(
     "posthog_ingress_consumer_duration_seconds",
     "Wall-clock seconds one consumer spent on one inbound webhook delivery",
@@ -84,3 +93,7 @@ def observe_forward(*, provider: str, app: str, outcome: ForwardOutcome) -> None
 
 def observe_consumer_duration(*, provider: str, consumer: str, seconds: float) -> None:
     INGRESS_CONSUMER_DURATION_SECONDS.labels(provider=provider, consumer=consumer).observe(seconds)
+
+
+def observe_bounded_read_reconnect(*, outcome: ReconnectOutcome) -> None:
+    INGRESS_BOUNDED_READ_RECONNECTS_TOTAL.labels(outcome=outcome).inc()

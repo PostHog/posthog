@@ -1,8 +1,10 @@
+from contextlib import ExitStack
+
 from unittest.mock import patch
 
 from django.conf import settings
 from django.db import OperationalError, connections
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, TransactionTestCase
 
 from parameterized import parameterized
 
@@ -68,3 +70,43 @@ class TestBoundedStatementTimeout(TestCase):
             self.assertEqual(_current_statement_timeout(alias), "50ms")
 
         self.assertEqual(_current_statement_timeout(alias), before)
+
+
+class TestBoundedStatementTimeoutReconnects(TransactionTestCase):
+    def test_a_read_survives_a_connection_the_server_dropped(self) -> None:
+        # Installing the cap is the first thing that touches a connection, and the pooler drops
+        # connections. Before the retry, that lost the whole webhook delivery.
+        alias = read_aliases([Team])[0]
+        connection = connections[alias]
+        connection.ensure_connection()
+        with self.assertRaises(OperationalError):
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_terminate_backend(pg_backend_pid())")
+
+        with bounded_statement_timeout(500, models=[Team]):
+            self.assertEqual(Team.objects.filter(pk=-1).count(), 0)
+
+
+class TestCappedAliasRetry(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("a_dropped_connection_is_opened_again", "server closed the connection unexpectedly", 2),
+            # No backoff sits behind this retry, so a failure that needs one must not be repeated
+            # into the delivery's wall clock.
+            ("a_saturated_pool_is_not", "query_wait_timeout", 1),
+            ("a_cached_pooler_login_failure_is_not", "server login has been failing, cached error", 1),
+        ]
+    )
+    def test_only_a_dropped_connection_is_opened_again(self, _name: str, message: str, expected_opens: int) -> None:
+        opens = []
+
+        def open_alias(alias: str, timeout_ms: int) -> ExitStack:
+            opens.append(alias)
+            raise OperationalError(message)
+
+        with patch("posthog.ingress.dispatch.database._open_capped_alias", side_effect=open_alias):
+            with self.assertRaises(OperationalError):
+                with bounded_statement_timeout(500, models=[Team]):
+                    pass
+
+        self.assertEqual(len(opens), expected_opens)
