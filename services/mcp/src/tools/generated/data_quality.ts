@@ -5,48 +5,6 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/data_quality/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const DataQualitySubjectsSchema = () => z.object({})
-
-const dataQualitySubjects = (): ToolBase<
-    ReturnType<typeof DataQualitySubjectsSchema>,
-    Schemas.DataQualitySubject[]
-> => ({
-    name: 'data-quality-subjects',
-    schema: DataQualitySubjectsSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof DataQualitySubjectsSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.DataQualitySubject[]>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_quality_checks/subjects/`,
-        })
-        return result
-    },
-})
-
-const DataQualityCheckTypesSchema = () => {
-    const DataQualityChecksCheckTypesListQueryParams = orvalSchemas.DataQualityChecksCheckTypesListQueryParams()
-    return DataQualityChecksCheckTypesListQueryParams
-}
-
-const dataQualityCheckTypes = (): ToolBase<
-    ReturnType<typeof DataQualityCheckTypesSchema>,
-    Schemas.DataQualityCheckType[]
-> => ({
-    name: 'data-quality-check-types',
-    schema: DataQualityCheckTypesSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualityCheckTypesSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.DataQualityCheckType[]>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_quality_checks/check_types/`,
-            query: {
-                subject_type: params.subject_type,
-            },
-        })
-        return result
-    },
-})
-
 const DataQualityCheckCreateSchema = () => {
     const DataQualityChecksCreateBody = orvalSchemas.DataQualityChecksCreateBody()
     return DataQualityChecksCreateBody
@@ -108,6 +66,125 @@ const dataQualityCheckCreate = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_quality_checks/`,
             body,
+        })
+        return result
+    },
+})
+
+const DataQualityCheckDeleteSchema = () => {
+    const DataQualityChecksDestroyParams = orvalSchemas.DataQualityChecksDestroyParams()
+    return DataQualityChecksDestroyParams.omit({ project_id: true })
+}
+
+const dataQualityCheckDelete = (): ToolBase<ReturnType<typeof DataQualityCheckDeleteSchema>, unknown> => ({
+    name: 'data-quality-check-delete',
+    schema: DataQualityCheckDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualityCheckDeleteSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_quality_checks/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const DataQualityCheckResultsSchema = () => {
+    const DataQualityChecksRunsListParams = orvalSchemas.DataQualityChecksRunsListParams()
+    return DataQualityChecksRunsListParams.omit({ project_id: true })
+}
+
+const dataQualityCheckResults = (): ToolBase<
+    ReturnType<typeof DataQualityCheckResultsSchema>,
+    Schemas.DataQualityCheckRun[]
+> => ({
+    name: 'data-quality-check-results',
+    schema: DataQualityCheckResultsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualityCheckResultsSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.DataQualityCheckRun[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_quality_checks/${encodeURIComponent(String(params.id))}/runs/`,
+        })
+        return result
+    },
+})
+
+const DataQualityCheckRunSchema = () => {
+    const DataQualityChecksRunCreateParams = orvalSchemas.DataQualityChecksRunCreateParams()
+    return DataQualityChecksRunCreateParams.omit({ project_id: true })
+}
+
+const dataQualityCheckRun = (): ToolBase<
+    ReturnType<typeof DataQualityCheckRunSchema>,
+    Schemas.DataQualitySuiteRun
+> => ({
+    name: 'data-quality-check-run',
+    schema: DataQualityCheckRunSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualityCheckRunSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.DataQualitySuiteRun>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_quality_checks/${encodeURIComponent(String(params.id))}/run/`,
+        })
+        return result
+    },
+})
+
+const DataQualityCheckScheduleSchema = () => {
+    const DataQualityChecksSchedulePartialUpdateBody = orvalSchemas.DataQualityChecksSchedulePartialUpdateBody()
+    return DataQualityChecksSchedulePartialUpdateBody
+}
+
+const dataQualityCheckSchedule = (): ToolBase<
+    ReturnType<typeof DataQualityCheckScheduleSchema>,
+    Schemas.DataQualityCheckSchedule
+> => ({
+    name: 'data-quality-check-schedule',
+    schema: DataQualityCheckScheduleSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualityCheckScheduleSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.subject_type !== undefined) {
+            body['subject_type'] = params.subject_type
+        }
+        if (params.subject_uuid !== undefined) {
+            body['subject_uuid'] = params.subject_uuid
+        }
+        if (params.interval !== undefined) {
+            body['interval'] = params.interval
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        const result = await context.api.request<Schemas.DataQualityCheckSchedule>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_quality_checks/schedule/`,
+            body,
+        })
+        return result
+    },
+})
+
+const DataQualityCheckTypesSchema = () => {
+    const DataQualityChecksCheckTypesListQueryParams = orvalSchemas.DataQualityChecksCheckTypesListQueryParams()
+    return DataQualityChecksCheckTypesListQueryParams
+}
+
+const dataQualityCheckTypes = (): ToolBase<
+    ReturnType<typeof DataQualityCheckTypesSchema>,
+    Schemas.DataQualityCheckType[]
+> => ({
+    name: 'data-quality-check-types',
+    schema: DataQualityCheckTypesSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualityCheckTypesSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.DataQualityCheckType[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_quality_checks/check_types/`,
+            query: {
+                subject_type: params.subject_type,
+            },
         })
         return result
     },
@@ -175,108 +252,31 @@ const dataQualityCheckUpdate = (): ToolBase<
     },
 })
 
-const DataQualityCheckDeleteSchema = () => {
-    const DataQualityChecksDestroyParams = orvalSchemas.DataQualityChecksDestroyParams()
-    return DataQualityChecksDestroyParams.omit({ project_id: true })
-}
+const DataQualitySubjectsSchema = () => z.object({})
 
-const dataQualityCheckDelete = (): ToolBase<ReturnType<typeof DataQualityCheckDeleteSchema>, unknown> => ({
-    name: 'data-quality-check-delete',
-    schema: DataQualityCheckDeleteSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualityCheckDeleteSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'DELETE',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_quality_checks/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
-const DataQualityCheckRunSchema = () => {
-    const DataQualityChecksRunCreateParams = orvalSchemas.DataQualityChecksRunCreateParams()
-    return DataQualityChecksRunCreateParams.omit({ project_id: true })
-}
-
-const dataQualityCheckRun = (): ToolBase<
-    ReturnType<typeof DataQualityCheckRunSchema>,
-    Schemas.DataQualitySuiteRun
+const dataQualitySubjects = (): ToolBase<
+    ReturnType<typeof DataQualitySubjectsSchema>,
+    Schemas.DataQualitySubject[]
 > => ({
-    name: 'data-quality-check-run',
-    schema: DataQualityCheckRunSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualityCheckRunSchema>>) => {
+    name: 'data-quality-subjects',
+    schema: DataQualitySubjectsSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof DataQualitySubjectsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.DataQualitySuiteRun>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_quality_checks/${encodeURIComponent(String(params.id))}/run/`,
-        })
-        return result
-    },
-})
-
-const DataQualityCheckResultsSchema = () => {
-    const DataQualityChecksRunsListParams = orvalSchemas.DataQualityChecksRunsListParams()
-    return DataQualityChecksRunsListParams.omit({ project_id: true })
-}
-
-const dataQualityCheckResults = (): ToolBase<
-    ReturnType<typeof DataQualityCheckResultsSchema>,
-    Schemas.DataQualityCheckRun[]
-> => ({
-    name: 'data-quality-check-results',
-    schema: DataQualityCheckResultsSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualityCheckResultsSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.DataQualityCheckRun[]>({
+        const result = await context.api.request<Schemas.DataQualitySubject[]>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_quality_checks/${encodeURIComponent(String(params.id))}/runs/`,
-        })
-        return result
-    },
-})
-
-const DataQualityCheckScheduleSchema = () => {
-    const DataQualityChecksSchedulePartialUpdateBody = orvalSchemas.DataQualityChecksSchedulePartialUpdateBody()
-    return DataQualityChecksSchedulePartialUpdateBody
-}
-
-const dataQualityCheckSchedule = (): ToolBase<
-    ReturnType<typeof DataQualityCheckScheduleSchema>,
-    Schemas.DataQualityCheckSchedule
-> => ({
-    name: 'data-quality-check-schedule',
-    schema: DataQualityCheckScheduleSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof DataQualityCheckScheduleSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.subject_type !== undefined) {
-            body['subject_type'] = params.subject_type
-        }
-        if (params.subject_uuid !== undefined) {
-            body['subject_uuid'] = params.subject_uuid
-        }
-        if (params.interval !== undefined) {
-            body['interval'] = params.interval
-        }
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        const result = await context.api.request<Schemas.DataQualityCheckSchedule>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_quality_checks/schedule/`,
-            body,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_quality_checks/subjects/`,
         })
         return result
     },
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'data-quality-subjects': dataQualitySubjects,
-    'data-quality-check-types': dataQualityCheckTypes,
     'data-quality-check-create': dataQualityCheckCreate,
-    'data-quality-check-update': dataQualityCheckUpdate,
     'data-quality-check-delete': dataQualityCheckDelete,
-    'data-quality-check-run': dataQualityCheckRun,
     'data-quality-check-results': dataQualityCheckResults,
+    'data-quality-check-run': dataQualityCheckRun,
     'data-quality-check-schedule': dataQualityCheckSchedule,
+    'data-quality-check-types': dataQualityCheckTypes,
+    'data-quality-check-update': dataQualityCheckUpdate,
+    'data-quality-subjects': dataQualitySubjects,
 }
