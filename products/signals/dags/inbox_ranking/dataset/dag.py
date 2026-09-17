@@ -1,15 +1,18 @@
 """Daily modeling dataset for the Self-driving Inbox report-ranking model.
 
-Five assets on one daily partition, each writing Parquet under the configured S3 prefix:
+Six assets on one daily partition, each writing Parquet under the configured S3 prefix:
 
-    inbox_report_state/v1/dt=D/       Postgres spine + report state + tabular features
-    inbox_report_embeddings/v1/dt=D/  report_id -> small-1536 vector as of snapshot end
-    inbox_report_labels/v1/dt=D/      cumulative label columns from the dogfood project's events
-    inbox_report_model_data/v1/dt=D/  materialized join of the three, plus a rewritten latest/
-    inbox_signal_embeddings/v1/dt=D/  one row per signal emission during D, for the group-level model
+    inbox_report_state/v1/dt=D/             Postgres spine + report state + tabular features
+    inbox_report_embeddings/v1/dt=D/        report_id -> small-1536 vector as of snapshot end
+    inbox_report_labels/v1/dt=D/            cumulative label columns from the dogfood project's events
+    inbox_report_model_data/v1/dt=D/        materialized join of the three, plus a rewritten latest/
+    inbox_signal_embeddings/v1/dt=D/        one row per signal emission during D, for the group-level model
+    inbox_report_title_embeddings/v1/dt=D/  the same shape, for the title-only rendering
 
-The first four are report grain and feed one table; the fifth is signal grain and is read on its
-own, joined to the others by report_id at training time.
+The first four are report grain and feed one table. inbox_signal_embeddings is signal grain and is
+read on its own, joined to the others by report_id at training time. inbox_report_title_embeddings
+is a report-grain leaf: nothing joins it, and the training side pairs it to inbox_report_embeddings
+by report_id when it measures one rendering against the other.
 
 Partition dt=D is a full snapshot of the eligible report inventory (promoted or ever-labeled),
 with every label aggregate bounded `event_time < D+1 00:00 UTC`. Label columns are cumulative,
@@ -19,7 +22,12 @@ are never backfilled into old partitions.
 
 Point-in-time caveats, per source:
 - labels are fully point-in-time for any past day (explicit event-time bound);
-- embeddings are point-in-time within the underlying table's 3-month TTL (inserted_at bound);
+- embeddings are point-in-time within the underlying table's 3-month TTL (inserted_at bound), and
+  the title snapshot carries the same guarantee and the same limit. The bound does not cover a
+  re-embedded rendering: the source replaces on a key that includes the rendering and the document
+  id, so a partition rebuilt later for an earlier day sees only the newer row, whose inserted_at is
+  past the cutoff, and the report reads as having no vector that day. That loses coverage and never
+  leaks a future vector; forward-run daily partitions are unaffected;
 - signal embeddings are exact for any past day within that same TTL, which is measured from signal
   event time — a day whose signals have since aged out cannot be rebuilt, and the asset refuses to
   overwrite a partition with fewer rows rather than quietly shrink it;
@@ -51,6 +59,7 @@ from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_embeddings import (
     EMBEDDING_DOCUMENT_TYPE,
     EMBEDDING_PRODUCT,
+    EMBEDDING_RENDERING_TITLE,
     EMBEDDING_RENDERING_TITLE_SUMMARY,
 )
 from products.signals.backend.signal_metadata import (
@@ -110,6 +119,7 @@ BORN_VISIBLE_STATUSES = (
 
 STATE_TABLE = "inbox_report_state"
 EMBEDDINGS_TABLE = "inbox_report_embeddings"
+TITLE_EMBEDDINGS_TABLE = "inbox_report_title_embeddings"
 LABELS_TABLE = "inbox_report_labels"
 MODEL_DATA_TABLE = "inbox_report_model_data"
 SIGNAL_EMBEDDINGS_TABLE = "inbox_signal_embeddings"
@@ -497,11 +507,13 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     )
 
 
-@dagster.asset(name=EMBEDDINGS_TABLE, **COMMON_ASSET_KWARGS)
-def inbox_report_embeddings(context: dagster.AssetExecutionContext) -> None:
+def _snapshot_report_embeddings(
+    context: dagster.AssetExecutionContext, table: str, rendering: str, query_type: str
+) -> None:
+    """Point-in-time snapshot of one embedding rendering, shared by the report and title assets."""
     if skip_unconfigured(context):
         return
-    _tag_dagster_queries(context, query_type="inbox_ranking_report_embeddings")
+    _tag_dagster_queries(context, query_type=query_type)
     partition_key = context.partition_key
     _, snapshot_end = snapshot_bounds(partition_key)
     snapshot_date = datetime.date.fromisoformat(partition_key)
@@ -513,9 +525,7 @@ def inbox_report_embeddings(context: dagster.AssetExecutionContext) -> None:
             {
                 "product": EMBEDDING_PRODUCT,
                 "document_type": EMBEDDING_DOCUMENT_TYPE,
-                # One rendering per snapshot. The title-only rendering is emitted too, and gets its
-                # own snapshot when the model is ready to compare the two.
-                "rendering": EMBEDDING_RENDERING_TITLE_SUMMARY,
+                "rendering": rendering,
                 "snapshot_end": snapshot_end.replace(tzinfo=None),
             },
             settings=REPORT_EMBEDDINGS_QUERY_SETTINGS,
@@ -548,28 +558,59 @@ def inbox_report_embeddings(context: dagster.AssetExecutionContext) -> None:
         tombstone_flags.append(bool(is_tombstone))
     del results
 
-    table = pa.Table.from_pydict(
+    # An empty result still writes an object: a backfilled day from before the rendering was
+    # emitted must read as "present, zero rows" rather than as a missing partition.
+    arrow_table = pa.Table.from_pydict(
         {
             "snapshot_date": [snapshot_date] * row_count,
             "report_id": report_ids,
             "report_team_id": team_ids,
             "embedding_small": embeddings,
             "embedding_inserted_at": inserted_ats,
-            "embedding_rendering": [EMBEDDING_RENDERING_TITLE_SUMMARY] * row_count,
+            "embedding_rendering": [rendering] * row_count,
             "is_tombstone": tombstone_flags,
         },
         schema=EMBEDDINGS_SCHEMA,
     )
 
     bucket = dataset_bucket()
-    key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, EMBEDDINGS_TABLE, partition_key)
-    write_parquet(s3_client(), bucket, key, table)
+    key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, table, partition_key)
+    write_parquet(s3_client(), bucket, key, arrow_table)
     context.add_output_metadata(
         {
             "rows": dagster.MetadataValue.int(row_count),
             "tombstones": dagster.MetadataValue.int(tombstones),
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
         }
+    )
+
+
+@dagster.asset(name=EMBEDDINGS_TABLE, **COMMON_ASSET_KWARGS)
+def inbox_report_embeddings(context: dagster.AssetExecutionContext) -> None:
+    _snapshot_report_embeddings(
+        context,
+        EMBEDDINGS_TABLE,
+        EMBEDDING_RENDERING_TITLE_SUMMARY,
+        query_type="inbox_ranking_report_embeddings",
+    )
+
+
+@dagster.asset(
+    name=TITLE_EMBEDDINGS_TABLE,
+    # Ordering only, not data: the title snapshot is a leaf that nothing joins. It holds a vector
+    # per live report, the same width as inbox_report_embeddings, and inbox_report_model_data holds
+    # a full set of vectors while it joins. Running last keeps those peaks apart in the one run pod.
+    deps=[MODEL_DATA_TABLE],
+    **COMMON_ASSET_KWARGS,
+)
+def inbox_report_title_embeddings(context: dagster.AssetExecutionContext) -> None:
+    """The title-only rendering of the same reports, so a later family can measure the title
+    against the title-plus-summary vectors on identical rows."""
+    _snapshot_report_embeddings(
+        context,
+        TITLE_EMBEDDINGS_TABLE,
+        EMBEDDING_RENDERING_TITLE,
+        query_type="inbox_ranking_report_title_embeddings",
     )
 
 
@@ -897,7 +938,14 @@ def inbox_report_model_data(context: dagster.AssetExecutionContext) -> None:
 
 inbox_ranking_dataset_job = dagster.define_asset_job(
     name="inbox_ranking_dataset_job",
-    selection=[STATE_TABLE, EMBEDDINGS_TABLE, SIGNAL_EMBEDDINGS_TABLE, LABELS_TABLE, MODEL_DATA_TABLE],
+    selection=[
+        STATE_TABLE,
+        EMBEDDINGS_TABLE,
+        SIGNAL_EMBEDDINGS_TABLE,
+        LABELS_TABLE,
+        MODEL_DATA_TABLE,
+        TITLE_EMBEDDINGS_TABLE,
+    ],
     partitions_def=partition_def,
     # The seven label streams run sequentially and each may take its full 600s query timeout, so an
     # hour left a slow-but-valid pass no room for the join, the S3 writes, or an asset retry — and

@@ -10,6 +10,10 @@
 # two together. Without it the training job still runs: the family finds no vector for any report
 # and builds no examples, and every other family is unaffected.
 #
+# INBOX_RANKING_SYNC_TITLE_EMBEDDINGS=1 copies inbox_report_title_embeddings, the title-only
+# vectors of the same reports. It is a separate switch for the same reason: each table is a vector
+# per live report per partition, and a local loop usually wants one of them.
+#
 # Two hops: prod S3 -> a disk cache -> the local object-storage bucket. The disk copy is what
 # makes a re-sync cheap (aws s3 sync only moves new partitions) and doubles as input for
 # notebooks. Only the dt= partitions the training job reads are copied; latest/ is skipped.
@@ -35,6 +39,9 @@ CACHE_DIR="${INBOX_RANKING_SYNC_DIR:-$HOME/.cache/posthog/inbox_ranking}"
 TABLES=(inbox_report_state inbox_report_labels)
 if [ -n "${INBOX_RANKING_SYNC_EMBEDDINGS:-}" ]; then
     TABLES+=(inbox_report_embeddings)
+fi
+if [ -n "${INBOX_RANKING_SYNC_TITLE_EMBEDDINGS:-}" ]; then
+    TABLES+=(inbox_report_title_embeddings)
 fi
 
 if [ -z "${INBOX_RANKING_READER_SECRET_ID:-}" ]; then
