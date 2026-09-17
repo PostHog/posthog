@@ -214,10 +214,13 @@ class MetricAttributesTable(Table):
         return "metric_attributes"
 
 
-# Fields that vary across a series' duplicate ReplacingMergeTree rows (keyed on the fingerprint, so
-# labels, type, unit, etc. are constant within a series and `any()` cannot return a stale value).
-# `last_seen` is the engine's version column, so `max` picks the row FINAL would keep.
-_VERSION_VARYING_FIELDS = frozenset({"last_seen", "original_expiry_timestamp"})
+# `last_seen` is the ReplacingMergeTree version column, so `max` picks the row FINAL would keep.
+# `original_expiry_timestamp` is the series TTL, which also moves between versions.
+_MAX_FIELDS = frozenset({"last_seen", "original_expiry_timestamp"})
+
+# Not inputs to the series fingerprint, so a re-ingested series can change them between duplicate
+# rows; `any()` could return the stale version. `argMax(field, last_seen)` takes them from the newest.
+_ARGMAX_FIELDS = frozenset({"unit", "aggregation_temporality", "is_monotonic", "instrumentation_scope"})
 
 
 def join_metrics_with_metric_series_table(
@@ -241,11 +244,15 @@ def join_metrics_with_metric_series_table(
         # series_fingerprint is already selected as the join key.
         if field_name == "series_fingerprint":
             continue
-        aggregate = (
-            ast.Call(name="max", args=[ast.Field(chain=list(field_chain))])
-            if field_name in _VERSION_VARYING_FIELDS
-            else ast.Call(name="any", args=[ast.Field(chain=list(field_chain))])
-        )
+        # Everything else (labels, metric_type, service_name) is an input to the fingerprint, so every
+        # duplicate of one series agrees on it and `any()` cannot return a stale value.
+        field = ast.Field(chain=list(field_chain))
+        if field_name in _MAX_FIELDS:
+            aggregate = ast.Call(name="max", args=[field])
+        elif field_name in _ARGMAX_FIELDS:
+            aggregate = ast.Call(name="argMax", args=[field, ast.Field(chain=["last_seen"])])
+        else:
+            aggregate = ast.Call(name="any", args=[field])
         inner_select.select.append(ast.Alias(alias=field_name, expr=aggregate))
 
     join_expr = ast.JoinExpr(table=inner_select)

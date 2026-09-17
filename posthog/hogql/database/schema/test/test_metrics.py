@@ -92,6 +92,14 @@ class TestMetricsSeriesJoin(ClickhouseTestMixin, APIBaseTest):
         sql = self._print_clickhouse(f"SELECT series.attributes FROM {METRICS_TABLE} LIMIT 10")
         assert "any(" in sql, f"expected any() for the constant label map, got:\n{sql}"
 
+    @parameterized.expand(["unit", "aggregation_temporality", "is_monotonic", "instrumentation_scope"])
+    def test_mutable_metadata_uses_argmax_on_last_seen(self, field: str):
+        # These fields are NOT inputs to the series fingerprint, so a re-ingested series can change
+        # them. `any()` could return the stale duplicate, so they must be taken from the newest version.
+        sql = self._print_clickhouse(f"SELECT series.{field} FROM {METRICS_TABLE} LIMIT 10")
+        assert "argMax(" in sql, f"expected argMax() for mutable {field}, got:\n{sql}"
+        assert "last_seen" in sql, f"argMax must order by last_seen, got:\n{sql}"
+
     def test_end_to_end_last_seen_reflects_latest_series_version(self):
         # Two samples of one series create two metric_series rows (version column `last_seen`). The join
         # must surface the newest, not whichever duplicate the unmerged parts happen to return first.
@@ -115,6 +123,35 @@ class TestMetricsSeriesJoin(ClickhouseTestMixin, APIBaseTest):
         assert latest.replace(tzinfo=dt.UTC) >= dt.datetime(2026, 6, 1, tzinfo=dt.UTC), (
             f"expected the latest duplicate's last_seen, got {latest}"
         )
+
+    def test_end_to_end_mutable_metadata_reflects_latest_series_version(self):
+        # Same labels (same fingerprint) re-ingested with a new unit produce two duplicate series rows.
+        # The join must surface the unit from the newest version, not the stale one.
+        truncate_metrics_tables()
+        seed_metric(
+            team_id=self.team.pk,
+            metric_name="disk_bytes",
+            metric_type="gauge",
+            service_name="web",
+            unit="By",
+            points=[(dt.datetime(2026, 1, 1, 0, 0, 0, tzinfo=dt.UTC), 1.0)],
+            labels={"host": "a"},
+        )
+        seed_metric(
+            team_id=self.team.pk,
+            metric_name="disk_bytes",
+            metric_type="gauge",
+            service_name="web",
+            unit="KiBy",
+            points=[(dt.datetime(2026, 6, 1, 0, 0, 0, tzinfo=dt.UTC), 2.0)],
+            labels={"host": "a"},
+        )
+        response = execute_hogql_query(
+            f"SELECT DISTINCT series.unit FROM {METRICS_TABLE} WHERE metric_name = 'disk_bytes'",
+            self.team,
+        )
+        units = {row[0] for row in response.results}
+        assert units == {"KiBy"}, f"expected the latest version's unit, got: {units}"
 
     def test_resolver_resolves_series_field_type(self):
         database = self._database()
