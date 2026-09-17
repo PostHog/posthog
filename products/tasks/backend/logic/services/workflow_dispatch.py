@@ -3,6 +3,7 @@ from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, Protocol
+from uuid import UUID
 
 from django.db import close_old_connections, transaction
 from django.db.models import Count, F, Min, Q
@@ -12,6 +13,9 @@ from posthog.dataclasses import frozen
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.metrics import (
+    SCHEDULED_TASK_RUN_DUE,
+    SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL,
+    SCHEDULED_TASK_RUN_OLDEST_DUE_AGE_SECONDS,
     WORKFLOW_DISPATCH_CLAIMED,
     WORKFLOW_DISPATCH_CREATED_TOTAL,
     WORKFLOW_DISPATCH_DEAD_TOTAL,
@@ -121,6 +125,103 @@ def create_dispatch(task_run: TaskRun, kind: str, payload: dict[str, Any], workf
     return dispatch
 
 
+def _scheduled_dispatch_options(task_run: TaskRun) -> WorkflowDispatchOptions | None:
+    state = task_run.state if isinstance(task_run.state, dict) else {}
+    pending = state.get("pending_dispatch")
+    if not isinstance(pending, dict):
+        return None
+    workflow_id_prefix = pending.get("workflow_id_prefix")
+    slack_thread_context = pending.get("slack_thread_context")
+    return WorkflowDispatchOptions(
+        user_id=pending.get("user_id"),
+        create_pr=pending.get("create_pr", True),
+        posthog_mcp_scopes=pending.get("posthog_mcp_scopes", "read_only"),
+        slack_thread_context=slack_thread_context if isinstance(slack_thread_context, dict) else None,
+        workflow_id_prefix=workflow_id_prefix if isinstance(workflow_id_prefix, str) else None,
+    )
+
+
+def materialize_due_scheduled_task_runs(batch_size: int) -> int:
+    if batch_size <= 0:
+        return 0
+
+    now = django_timezone.now()
+    materialized_count = 0
+    invalid_count = 0
+    with transaction.atomic():
+        # Rows stop matching this partial-index scan as soon as they become QUEUED. Repeated
+        # LIMIT queries therefore page through the due set without OFFSET, and SKIP LOCKED lets
+        # dispatcher replicas drain it concurrently without coordinating outside Postgres.
+        task_runs = list(
+            TaskRun.objects.filter(status=TaskRun.Status.NOT_STARTED, scheduled_at__lte=now)
+            .only("id", "task_id", "team_id", "state", "scheduled_at")
+            .order_by("scheduled_at", "id")
+            .select_for_update(of=("self",), skip_locked=True)[:batch_size]
+        )
+        if not task_runs:
+            return 0
+
+        dispatches: list[TaskWorkflowDispatch] = []
+        valid_run_ids: list[UUID] = []
+        invalid_run_ids: list[UUID] = []
+        prefixed_runs: list[TaskRun] = []
+        for task_run in task_runs:
+            options = _scheduled_dispatch_options(task_run)
+            if options is None:
+                invalid_run_ids.append(task_run.id)
+                continue
+
+            workflow_id = TaskRun.get_workflow_id(task_run.task_id, task_run.id, options.workflow_id_prefix)
+            if options.workflow_id_prefix:
+                task_run.state = {**task_run.state, "workflow_id": workflow_id}
+                task_run.updated_at = now
+                prefixed_runs.append(task_run)
+            dispatches.append(
+                TaskWorkflowDispatch(
+                    team_id=task_run.team_id,
+                    task_run_id=task_run.id,
+                    workflow_id=workflow_id,
+                    dispatch_kind=TaskWorkflowDispatch.Kind.CREATE,
+                    payload=build_create_payload(options),
+                    status=TaskWorkflowDispatch.Status.PENDING,
+                    enqueued_at=now,
+                    next_attempt_at=now,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            valid_run_ids.append(task_run.id)
+
+        if prefixed_runs:
+            TaskRun.objects.bulk_update(prefixed_runs, ["state", "updated_at"], batch_size=batch_size)
+        if dispatches:
+            TaskWorkflowDispatch.objects.unscoped().bulk_create(dispatches, batch_size=batch_size)
+            TaskRun.objects.filter(id__in=valid_run_ids, status=TaskRun.Status.NOT_STARTED).update(
+                status=TaskRun.Status.QUEUED,
+                queued_at=now,
+                updated_at=now,
+            )
+            materialized_count = len(dispatches)
+        if invalid_run_ids:
+            TaskRun.objects.filter(id__in=invalid_run_ids, status=TaskRun.Status.NOT_STARTED).update(
+                status=TaskRun.Status.FAILED,
+                completed_at=now,
+                error_message=(
+                    "Couldn't start this scheduled task because its configuration is incomplete. "
+                    "Create a new scheduled task, and contact support if this keeps happening."
+                ),
+                updated_at=now,
+            )
+            invalid_count = len(invalid_run_ids)
+
+    if materialized_count:
+        WORKFLOW_DISPATCH_CREATED_TOTAL.labels(kind=TaskWorkflowDispatch.Kind.CREATE).inc(materialized_count)
+        SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL.labels(outcome="materialized").inc(materialized_count)
+    if invalid_count:
+        SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL.labels(outcome="invalid").inc(invalid_count)
+    return materialized_count
+
+
 def claim_dispatches(instance_id: str, batch_size: int, lease: timedelta) -> list[TaskWorkflowDispatch]:
     now = django_timezone.now()
     with transaction.atomic():
@@ -166,6 +267,15 @@ def sample_dispatch_metrics() -> None:
     WORKFLOW_DISPATCH_CLAIMED.set(values["claimed"] or 0)
     oldest = values["oldest_ready"]
     WORKFLOW_DISPATCH_OLDEST_READY_AGE_SECONDS.set(max(0.0, (now - oldest).total_seconds()) if oldest else 0)
+
+    scheduled_values = TaskRun.objects.filter(status=TaskRun.Status.NOT_STARTED, scheduled_at__lte=now).aggregate(
+        ready=Count("id"), oldest_ready=Min("scheduled_at")
+    )
+    SCHEDULED_TASK_RUN_DUE.set(scheduled_values["ready"] or 0)
+    oldest_scheduled = scheduled_values["oldest_ready"]
+    SCHEDULED_TASK_RUN_OLDEST_DUE_AGE_SECONDS.set(
+        max(0.0, (now - oldest_scheduled).total_seconds()) if oldest_scheduled else 0
+    )
 
 
 def dispatch_exceeded_max_age(

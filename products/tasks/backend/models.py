@@ -749,7 +749,11 @@ class Task(DeletedMetaFields, models.Model):
         extra_state: dict | None = None,
         branch: str | None = None,
         acting_user_id: int | None = None,
+        scheduled_at: datetime | None = None,
     ) -> "TaskRun":
+        if scheduled_at is not None and django_timezone.is_naive(scheduled_at):
+            raise ValueError("scheduled_at must be timezone-aware")
+
         expected_created_by_id = self.created_by_id
         expected_ownership_version = self.ownership_version
         dedicated_stream = (extra_state or {}).get("use_dedicated_stream")
@@ -827,8 +831,9 @@ class Task(DeletedMetaFields, models.Model):
             task_run = TaskRun.objects.create(
                 task=task,
                 team=task.team,
-                status=TaskRun.Status.QUEUED,
-                queued_at=django_timezone.now(),
+                status=TaskRun.Status.NOT_STARTED if scheduled_at is not None else TaskRun.Status.QUEUED,
+                queued_at=None if scheduled_at is not None else django_timezone.now(),
+                scheduled_at=scheduled_at,
                 **({"environment": environment} if environment else {}),
                 state=state,
                 branch=branch,
@@ -1340,6 +1345,7 @@ class Task(DeletedMetaFields, models.Model):
         self_driving_head_branch: str | None = None,
         pending_user_message: str | None = None,
         workflow_id_prefix: str | None = None,
+        scheduled_at: datetime | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
         github_read_access: bool = False,
@@ -1419,10 +1425,14 @@ class Task(DeletedMetaFields, models.Model):
 
         with transaction.atomic():
             task_run = task.create_run(
-                mode=mode, extra_state=run_extra_state or None, branch=branch, acting_user_id=user_id
+                mode=mode,
+                extra_state=run_extra_state or None,
+                branch=branch,
+                acting_user_id=user_id,
+                scheduled_at=scheduled_at,
             )
 
-            if start_workflow:
+            if start_workflow and scheduled_at is None:
                 # Defer the fire-and-forget workflow start until the creating transaction commits.
                 # Otherwise, when create_and_run runs inside a transaction.atomic() block, the
                 # workflow's first activity can read the TaskRun before its row is visible and fail.
@@ -2268,6 +2278,9 @@ class TaskRun(models.Model):
     # move it. Null on rows queued before this field existed; readers fall back to
     # `created_at`, which is exact for a run that was only ever queued once.
     queued_at = models.DateTimeField(null=True, blank=True)
+    # The requested start time for a deferred run. It remains populated after dispatch so the
+    # actual queue/start timestamps can be compared with the requested time.
+    scheduled_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_task_run"
@@ -2324,6 +2337,11 @@ class TaskRun(models.Model):
             models.Index(
                 fields=["status", "environment", "origin_product"],
                 name="task_run_status_env_origin_idx",
+            ),
+            models.Index(
+                fields=["scheduled_at", "id"],
+                name="task_run_scheduled_due_idx",
+                condition=models.Q(status="not_started", scheduled_at__isnull=False),
             ),
             # Terminal rows dominate over time, so the recency range must lead this partial index.
             models.Index(

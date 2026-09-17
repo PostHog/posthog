@@ -31,6 +31,7 @@ from products.tasks.backend.logic.services.workflow_dispatch import (
     dispatch_exceeded_max_age,
     mark_accepted,
     mark_dead,
+    materialize_due_scheduled_task_runs,
     parse_create_payload,
     parse_restart_payload,
     release_claims,
@@ -101,6 +102,9 @@ class Command(BaseCommand):
             while not stop.is_set():
                 Path("/tmp/dispatcher-heartbeat").touch()
                 try:
+                    await sync_to_async(materialize_due_scheduled_task_runs)(
+                        settings.TASKS_SCHEDULED_RUN_MATERIALIZATION_BATCH_SIZE
+                    )
                     if monotonic() - last_metrics_sample >= 15:
                         await sync_to_async(sample_dispatch_metrics)()
                         last_metrics_sample = monotonic()

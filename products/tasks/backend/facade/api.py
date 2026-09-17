@@ -1496,6 +1496,7 @@ def create_and_run_task(
     create_pr: bool = True,
     mode: str = "background",
     start_workflow: bool = True,
+    scheduled_at: datetime | None = None,
     branch: str | None = None,
     signal_report_id: str | None = None,
     free_trial_enabled: bool | None = None,
@@ -1517,6 +1518,9 @@ def create_and_run_task(
     ``free_trial_enabled`` is a free-trial verdict the caller already resolved. Auto-start reads
     that flag before it takes the report row lock, so handing the result over keeps the flag
     request out of the lock. Left NULL, the gate reads the flag itself.
+
+    ``scheduled_at`` creates the run in NOT_STARTED and defers its workflow until the dispatcher
+    materializes it at or after that time. The run still stores its complete execution settings.
     """
     # create_pr=False sessions (research, repo selection, custom agents) can never open the
     # billable PR, so the quota gate must not block them.
@@ -1542,6 +1546,7 @@ def create_and_run_task(
         create_pr=create_pr,
         mode=mode,
         start_workflow=start_workflow,
+        scheduled_at=scheduled_at,
         branch=branch,
         signal_report_id=signal_report_id,
         internal=internal,
