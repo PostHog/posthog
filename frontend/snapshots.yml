@@ -9272,6 +9272,10 @@ snapshots:
         hash: v1.k794b7964.dded071925e13813948059d3a851fda7045079765dd39c35a1909a33f4818670.uLBVI91IfZ7a2kAB6tnEs6CHaEQ_xl-6gI91X4096sM
     scenes-app-notebooks-widget-views--workflow-views--light:
         hash: v1.k794b7964.cd7fa77d9236079839583863834cd6f2a7a0aea88be4bdb1fb68e4e9c0ab4dab.df8Gy7QN0LSBis_grrNFZCyPlgTJV9k90oTKS9o2ouI
+    scenes-app-oauth-authorize--access-controls-apply--dark:
+        hash: v1.k794b7964.2268c82adb701899471a901fb008d250988c8443985ed232003ca12295b1d921.i8DoC2hnX3sWU5b-vb4iYAhnFb8ZMMlXM4F1KBUYEhk
+    scenes-app-oauth-authorize--access-controls-apply--light:
+        hash: v1.k794b7964.fea1155c17aac8781f826253e9518af5be6bbcc077d1fca1661d11396b86fe49.mV_6zj24dUY_Di77iUM35r40WPSxuLKJbvFtiELPWDM
     scenes-app-oauth-authorize--all-scopes-optional--dark:
         hash: v1.k794b7964.a03d00f6626add00255abe8fa712c056cecbf929f724284de20cf6e936a96fbe.cCaJ_N0193dGvxNreYfm9ltl9zmGo4r3-9-vKCX7TwQ
     scenes-app-oauth-authorize--all-scopes-optional--light:
