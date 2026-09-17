@@ -183,8 +183,6 @@ posthog/plugins/test/test_utils.py::TestPluginsUtils
 posthog/session/test/test_risk.py::TestSignalsAndTiers
 posthog/session/test/test_risk.py::TestUaSignature
 posthog/session_recordings/queries/test/test_session_replay_events.py::TestUuidv7SessionLowerBound
-posthog/session_recordings/test/recordings/test_recording_s3_client.py::TestAsyncRecordingS3Client
-posthog/session_recordings/test/recordings/test_recording_s3_client.py::TestRecordingS3Client
 posthog/session_recordings/test/test_session_recording_throttle.py::TestListingRatesConfig
 posthog/session_recordings/test/test_session_recording_throttle.py::TestListingRatesFromSettings
 posthog/session_recordings/test/test_session_recording_throttle.py::TestSharingTokenReplayThrottle
