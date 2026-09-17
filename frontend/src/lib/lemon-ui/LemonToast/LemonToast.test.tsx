@@ -1,8 +1,11 @@
 import '@testing-library/jest-dom'
 
 import { act, fireEvent, render } from '@testing-library/react'
+import posthog from 'posthog-js'
 
-import { GET_HELP_BUTTON, ToastContent, withClickableUrls } from './LemonToast'
+import { GET_HELP_BUTTON, ToastContent, lemonToast, withClickableUrls } from './LemonToast'
+
+const mockPosthog = posthog as unknown as { __loaded: boolean; capture: jest.Mock }
 
 describe('LemonToast', () => {
     const writeText = jest.fn((_text: string) => Promise.resolve())
@@ -58,5 +61,20 @@ describe('LemonToast', () => {
 
     it('returns a message without URLs unchanged', () => {
         expect(withClickableUrls('Load experiment failed')).toBe('Load experiment failed')
+    })
+
+    // The toolbar bundle imports this default instance but initializes a named one, so the guard has
+    // to read __loaded. `capture` is a class method, so checking for it lets the call through.
+    it.each([
+        { name: 'reports a warning toast on an initialized instance', type: 'warning', event: 'toast warning' },
+        { name: 'reports an error toast on an initialized instance', type: 'error', event: 'toast error' },
+        { name: 'stays quiet for a warning toast on an uninitialized instance', type: 'warning', event: null },
+        { name: 'stays quiet for an error toast on an uninitialized instance', type: 'error', event: null },
+    ] as const)('$name', ({ type, event }) => {
+        mockPosthog.__loaded = event !== null
+
+        lemonToast[type]('Load experiment failed')
+
+        expect(mockPosthog.capture.mock.calls.map(([name]) => name)).toEqual(event ? [event] : [])
     })
 })
