@@ -48,7 +48,10 @@ from google.oauth2 import service_account
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration.google_cloud import GOOGLE_SERVICE_ACCOUNT_TOKEN_URIS
+from posthog.models.integration.google_cloud import (
+    GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR,
+    GOOGLE_SERVICE_ACCOUNT_TOKEN_URIS,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_TABLE_SIZE_BYTES
@@ -175,10 +178,7 @@ BIGQUERY_INVALID_KEY_FILE_ERROR = (
 )
 
 # Matched in `BigQuerySource.get_non_retryable_errors`, so it must stay free of volatile data.
-BIGQUERY_INVALID_TOKEN_URI_ERROR = (
-    "The token_uri in your Google Cloud JSON key file is not Google's OAuth token endpoint. Please download "
-    "a fresh service account key from Google Cloud and re-upload the JSON file without editing it."
-)
+BIGQUERY_INVALID_TOKEN_URI_ERROR = GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR
 
 
 class BigQueryInvalidTokenUriError(Exception):
