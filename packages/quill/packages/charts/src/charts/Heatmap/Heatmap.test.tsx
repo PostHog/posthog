@@ -2,7 +2,7 @@ import { waitFor } from '@testing-library/react'
 
 import type { ChartTheme } from '../../core/types'
 import { rawDrag, renderHogChart } from '../../testing'
-import { Heatmap, type HeatmapBrushData } from './Heatmap'
+import { Heatmap, type HeatmapBrushData, type HeatmapCellDatum } from './Heatmap'
 
 const THEME: ChartTheme = {
     colors: ['#1f77b4', '#ff7f0e'],
@@ -62,6 +62,56 @@ describe('Heatmap', () => {
     })
 
     // The jsdom chart mounts at 800x400; coordinates well inside the plot area are safe for drags.
+    describe('cellLabel', () => {
+        function cellLabels(element: HTMLElement): HTMLElement[] {
+            return Array.from(element.querySelectorAll('[data-attr="hog-chart-heatmap-cell-label"]'))
+        }
+
+        function renderLabelled(
+            cellLabel: (cell: HeatmapCellDatum) => string | null,
+            xLabels: string[] = X_LABELS,
+            cells: number[][] = CELLS
+        ): HTMLElement[] {
+            const { chart } = renderHogChart(
+                <Heatmap xLabels={xLabels} yLabels={Y_LABELS} cells={cells} theme={THEME} config={{ cellLabel }} />
+            )
+            return cellLabels(chart.element)
+        }
+
+        it('renders no labels without a formatter', () => {
+            const { chart } = renderHogChart(
+                <Heatmap xLabels={X_LABELS} yLabels={Y_LABELS} cells={CELLS} theme={THEME} />
+            )
+            expect(cellLabels(chart.element)).toHaveLength(0)
+        })
+
+        it('labels every cell, empty ones included', () => {
+            const labels = renderLabelled((cell) => (cell.value > 0 ? String(cell.value) : '-'))
+            expect(labels).toHaveLength(X_LABELS.length * Y_LABELS.length)
+            expect(labels.filter((el) => el.textContent === '-')).toHaveLength(8)
+        })
+
+        it('leaves a cell unlabelled when the formatter returns null', () => {
+            const labels = renderLabelled((cell) => (cell.value > 0 ? String(cell.value) : null))
+            expect(labels).toHaveLength(8)
+        })
+
+        // Without the fit check a dense grid prints every number on top of its neighbour.
+        it('drops labels too wide for their cell', () => {
+            const manyColumns = Array.from({ length: 60 }, (_, i) => `col-${i}`)
+            const wideCells = Y_LABELS.map(() => manyColumns.map(() => 5))
+            expect(renderLabelled(() => '100.0%', manyColumns, wideCells)).toHaveLength(0)
+        })
+
+        // The densest cells are painted at the full accent, where dark text is unreadable.
+        it('turns the label white over a saturated cell and keeps it dark over an empty one', () => {
+            const labels = renderLabelled((cell) => String(cell.value))
+            const byText = new Map(labels.map((el) => [el.textContent, el.style.color]))
+            expect(byText.get('10')).toBe('rgb(255, 255, 255)')
+            expect(byText.get('0')).not.toBe('rgb(255, 255, 255)')
+        })
+    })
+
     describe('onBrush', () => {
         async function brush(from: { x: number; y: number }, to: { x: number; y: number }): Promise<HeatmapBrushData> {
             const onBrush = jest.fn()
