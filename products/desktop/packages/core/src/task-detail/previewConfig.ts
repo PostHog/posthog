@@ -1,7 +1,7 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { TaskRunDefaults } from "@posthog/api-client/posthog-client";
 import { flattenConfigValues } from "@posthog/core/task-detail/configOptions";
-import type { Adapter } from "@posthog/shared";
+import { type Adapter, PI_RUNTIME } from "@posthog/shared";
 import { EFFORT_LEVELS } from "@posthog/shared/domain-types";
 
 export const CONTEXT_WINDOW_OPTION_CATEGORY = "_context_window";
@@ -138,8 +138,6 @@ export type PreferredRunDefaults = Pick<
   "runtime_adapter" | "model" | "reasoning_effort"
 > &
   Partial<Pick<TaskRunDefaults, "runtime">>;
-
-export const PI_RUNTIME = "pi";
 
 export interface PreferredRunSelection {
   model: string;

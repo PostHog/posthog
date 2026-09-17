@@ -3,9 +3,13 @@ import type { PiThinkingLevel } from "@posthog/agent/pi/types";
 import type { TaskRunPreferences } from "@posthog/api-client/posthog-client";
 import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
 import { syntheticPiModelSelection } from "@posthog/core/task-detail/configOptions";
-import { PI_RUNTIME } from "@posthog/core/task-detail/previewConfig";
 import { Button } from "@posthog/quill";
-import { type Adapter, formatModelId, PI_HARNESS_FLAG } from "@posthog/shared";
+import {
+  type Adapter,
+  formatModelId,
+  PI_HARNESS_FLAG,
+  PI_RUNTIME,
+} from "@posthog/shared";
 import { EFFORT_LEVEL_LABELS } from "@posthog/shared/domain-types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
