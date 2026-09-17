@@ -1640,7 +1640,7 @@ export interface QueryScanWarningApi {
 export interface QueryScanAnalysisApi {
     /** The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query. */
     assistant_prompt?: string | null
-    /** Empty when the analysis found nothing to fix. */
+    /** Every finding, fixable or not. Empty when the analysis found none. */
     findings: QueryScanWarningApi[]
     /** How much of all the project's events the query read, 0 to 1. */
     project_share?: number | null
