@@ -15,6 +15,28 @@ Every incoming `filters.version`, including numeric 1, still fails with `reserve
 Supplied top-level v1 filter keys replace those keys in the stored state; `{}` retains targeting and `groups: []` clears it.
 The existing validation rollout controls normalization and unknown-key preservation.
 
+Dependency targets must also use v1 configurations.
+The dependency validator resolves IDs within the existing project scope, rejects disabled targets, and checks `filters.version` before accepting an edge.
+The cycle walk checks each loaded target before reading its v1 properties, including reachable targets without `groups`.
+A rejected format returns `unsupported_dependency_config_version` at `filters`, without including the target's configuration.
+The check adds no database queries to the existing person-condition dependency walk.
+
+Group-only conditions and writes that re-enable a flag or restore an active deleted flag also check reachable target formats, independently of structural-validation rollout settings.
+This check does not enable group dependencies: their existing aggregation validation still applies.
+Metadata-only and empty-filter updates retain their existing no-op targeting semantics unless they make stored targeting usable again.
+Disabling, archival, and deletion retain their existing dependent-flag protections.
+
+| Source configuration | Target configuration                      | Write behavior                                      |
+| -------------------- | ----------------------------------------- | --------------------------------------------------- |
+| V1                   | Absent version, numeric 1, or numeric 1.0 | Existing dependency validation                      |
+| V1                   | Numeric 2 or 2.0                          | Reject the dependency                               |
+| V1                   | Null, string, boolean, or another version | Reject the dependency                               |
+| V2                   | Any flag dependency                       | Unsupported by the dormant validator; no write path |
+
+The row's `FeatureFlag.version` remains an independent concurrency counter.
+Conversion attempts remain blocked by incoming-version rejection and the stored-format write guard.
+A future converter must reject conversion of a target with inbound v1 dependencies before changing its configuration format.
+
 Do not wrap facade writes in an outer transaction.
 An approval-required write creates a pending change request and then raises; an outer transaction would roll that request back.
 The serializer's existing update transaction locks the flag and increments its row version.
@@ -27,3 +49,4 @@ Empty-filter updates preserve the stored ciphertext without encrypting it again.
 
 A rollback restores ordinary HTTP routing to the previous serializer path.
 Keep any format rejection or reader capability required by configuration data that exists at rollback time.
+In particular, retain v1-to-v2 dependency protection once v2 targets can exist; rollback does not convert stored configurations to v1.
