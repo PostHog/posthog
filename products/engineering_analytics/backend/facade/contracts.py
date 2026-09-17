@@ -1683,8 +1683,9 @@ class DeliverySummary:
 
 
 class ComparisonTeamBasis(StrEnum):
-    """Why a delivery comparison shows the teams it shows. The candidates are the author's GitHub teams,
-    limited to the teams that own code when the ownership census has run."""
+    """Why a delivery comparison shows the teams it shows. The candidates are the author's GitHub teams
+    with evidence of owning code (the ownership census or a review request), or every team of an author
+    without such a team."""
 
     # The pull request in focus asked one of the author's teams to review.
     PULL_REQUEST = "pull_request"
@@ -1728,7 +1729,8 @@ class PullRequestReadyToMerge:
 class TeamReadyToMergeMedians:
     github_team: str
     # Over the pull requests by the team's members, the same population as a github_team delivery scope.
-    medians: ReadyToMergeMedians
+    # None when too few other authors merged in the window: the author could read a teammate's value back.
+    medians: ReadyToMergeMedians | None
 
 
 @dataclass(frozen=True)

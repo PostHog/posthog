@@ -41,9 +41,12 @@ def build_query(table_name: str, *, created_floor: bool = False) -> str:
     """
 
 
-def build_team_review_requests_query(table_name: str) -> str:
-    """One row per team review request: the pull request, the requested team's slug, and when. Callers
-    register {event_created_floor}: the raw-string floor bounds the scan like ``created_floor`` above."""
+def build_team_review_requests_query(table_name: str, *, created_floor: bool) -> str:
+    """One row per team review request: the pull request, the requested team's slug, and when. With
+    ``created_floor``, callers register {event_created_floor}, as for ``build_query``."""
+    table_source = (
+        f"(SELECT * FROM {table_name} WHERE created_at >= {{event_created_floor}})" if created_floor else table_name
+    )
     return f"""
         SELECT pr_number, team_slug, requested_at
         FROM (
@@ -51,7 +54,7 @@ def build_team_review_requests_query(table_name: str) -> str:
                 JSONExtractInt(issue, 'number') AS pr_number,
                 ifNull(JSONExtractString(requested_team, 'slug'), '') AS team_slug,
                 parseDateTimeBestEffort(created_at) AS requested_at
-            FROM (SELECT * FROM {table_name} WHERE created_at >= {{event_created_floor}})
+            FROM {table_source}
             WHERE event = '{REVIEW_REQUESTED_EVENT}'
         )
         WHERE team_slug != '' AND requested_at IS NOT NULL

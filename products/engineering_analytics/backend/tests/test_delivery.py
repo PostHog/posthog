@@ -328,10 +328,18 @@ class TestComparisonTeamChoice(SimpleTestCase):
             (
                 "a_group_that_owns_no_code_is_no_candidate",
                 {"team-a", "approvers"},
-                {"approvers": 9},
+                {},
                 set(),
                 ["team-a"],
                 Basis.ONLY_TEAM,
+            ),
+            (
+                "a_requested_team_owns_code_without_tests",
+                {"team-a", "team-untested", "approvers"},
+                {"team-untested": 2, "team-a": 1},
+                set(),
+                ["team-untested"],
+                Basis.REVIEW_REQUESTS,
             ),
             (
                 "the_pull_request_in_focus_wins",
@@ -358,8 +366,8 @@ class TestComparisonTeamChoice(SimpleTestCase):
                 Basis.REVIEW_REQUESTS,
             ),
             (
-                "requests_for_other_teams_show_every_team",
-                {"team-b", "team-a"},
+                "requests_for_other_teams_show_every_code_team",
+                {"team-b", "team-a", "approvers"},
                 {"team-x": 3},
                 set(),
                 ["team-a", "team-b"],
@@ -385,12 +393,12 @@ class TestComparisonTeamChoice(SimpleTestCase):
 
         assert (choice.teams, choice.basis) == (teams, basis)
 
-    def test_every_team_is_a_candidate_without_a_census(self) -> None:
+    def test_every_team_is_a_candidate_without_any_evidence_of_owning_code(self) -> None:
         choice = choose_comparison_teams(
-            author_teams={"team-a", "approvers"}, code_teams=set(), requested_prs={}, focus_requested=set()
+            author_teams={"team-untested", "approvers"}, code_teams={"team-a"}, requested_prs={}, focus_requested=set()
         )
 
-        assert (choice.teams, choice.basis) == (["approvers", "team-a"], Basis.ALL_TEAMS)
+        assert (choice.teams, choice.basis) == (["approvers", "team-untested"], Basis.ALL_TEAMS)
 
 
 class TestDeliverySummaryAggregator(SimpleTestCase):

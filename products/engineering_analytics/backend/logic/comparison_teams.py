@@ -26,13 +26,16 @@ def choose_comparison_teams(
 ) -> TeamChoice:
     """Pick the teams from ``author_teams``.
 
-    ``code_teams`` holds the teams that own code, from the ownership census. The members table also
-    holds groups that own none, such as approver groups, so only code teams are candidates. Without a
-    census, ``code_teams`` is empty and every team stays a candidate.
-    ``requested_prs`` counts, per team, the author's pull requests in the window that asked the team to
-    review. ``focus_requested`` holds the teams that the pull request in focus asked, if there is one.
+    ``requested_prs`` counts, per team, the author's pull requests that asked the team to review in the
+    window. ``focus_requested`` holds the teams that the pull request in focus asked, if there is one.
+    ``code_teams`` holds the teams the ownership census counts. The census only sees test files, so a
+    review request is evidence of owning code too.
+
+    The members table also holds groups that own no code, such as approver groups, so the candidates
+    are the author's teams with that evidence. An author with no such team keeps every team.
     """
-    ranked = sorted(team for team in author_teams if not code_teams or team in code_teams)
+    owning = {team for team in author_teams if team in code_teams or requested_prs.get(team) or team in focus_requested}
+    ranked = sorted(owning or author_teams)
     if not ranked:
         return TeamChoice(teams=[], basis=ComparisonTeamBasis.NO_TEAM)
     if len(ranked) == 1:
