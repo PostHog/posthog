@@ -163,6 +163,35 @@ describe('teamLogic', () => {
             expect((logic.values.currentTeam as TeamType)?.product_intents).toBeUndefined()
         })
 
+        it('skips the intent write while impersonating', async () => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+            let intentRequests = 0
+            useMocks({
+                patch: {
+                    '/api/environments/:id/add_product_intent': () => {
+                        intentRequests++
+                        return [200, MOCK_DEFAULT_TEAM]
+                    },
+                },
+            })
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                current_user: { ...window.POSTHOG_APP_CONTEXT?.current_user, is_impersonated: true },
+            } as unknown as AppContext
+
+            await expectLogic(logic, () => {
+                logic.actions.addProductIntent({
+                    product_type: ProductKey.SESSION_REPLAY,
+                    intent_context: ProductIntentContext.TAXONOMIC_FILTER_EMPTY_STATE,
+                })
+            }).toDispatchActions(['addProductIntentSuccess'])
+
+            // Read-only impersonation rejects this write with a 403, and the loader failure
+            // toasts at the operator on every surface that records an intent.
+            expect(intentRequests).toBe(0)
+            expect(logic.values.currentTeam?.id).toBe(MOCK_TEAM_ID)
+        })
+
         it('forwards the intent context', async () => {
             let requestBody: Record<string, unknown> | undefined
             useMocks({
