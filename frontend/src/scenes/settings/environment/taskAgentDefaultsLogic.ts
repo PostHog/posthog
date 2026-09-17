@@ -69,6 +69,7 @@ export interface taskAgentDefaultsLogicValues {
     myPreferenceStored: AIRunPreferenceDraft
     myPreferences: TasksUserConfigResponseApi | null
     myPreferencesLoading: boolean
+    myStoredPreferences: TasksAIRunPreferencesApi | null
     teamDraft: AIRunPreferenceDraft
     teamDraftDirty: boolean
     teamDraftState: DraftState
@@ -153,17 +154,14 @@ export interface taskAgentDefaultsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         teamDraft: (teamDraftState: DraftState) => AIRunPreferenceDraft
         myDraft: (myDraftState: DraftState) => AIRunPreferenceDraft
-        myPreferenceStored: (
+        myStoredPreferences: (
             myPreferences: TasksUserConfigResponseApi | null,
             myConfig: TasksUserConfigResponseApi | null
-        ) => AIRunPreferenceDraft
+        ) => TasksAIRunPreferencesApi | null
+        myPreferenceStored: (myStoredPreferences: any) => AIRunPreferenceDraft
         teamDraftDirty: (teamDraft: AIRunPreferenceDraft, teamPreferences: TasksAIRunPreferencesApi | null) => boolean
         myDraftDirty: (myDraft: AIRunPreferenceDraft, myPreferenceStored: AIRunPreferenceDraft) => boolean
-        canResetMyPreference: (
-            myDraft: AIRunPreferenceDraft,
-            myPreferences: TasksUserConfigResponseApi | null,
-            myConfig: TasksUserConfigResponseApi | null
-        ) => boolean
+        canResetMyPreference: (myDraft: AIRunPreferenceDraft, myStoredPreferences: any) => boolean
     }
 }
 
@@ -266,10 +264,16 @@ export const taskAgentDefaultsLogic = kea<taskAgentDefaultsLogicType>([
         // The save response is read first so the reset button settles in the same tick as the
         // save; `myConfig` (refreshed alongside it) is what's there on mount and after a
         // project-level write.
-        myPreferenceStored: [
+        myStoredPreferences: [
             (s) => [s.myPreferences, s.myConfig],
-            (saved: TasksUserConfigResponseApi | null, loaded: TasksUserConfigResponseApi | null) =>
-                draftFromStored((saved ?? loaded)?.ai_run_preferences),
+            (
+                saved: TasksUserConfigResponseApi | null,
+                loaded: TasksUserConfigResponseApi | null
+            ): TasksAIRunPreferencesApi | null => (saved ?? loaded)?.ai_run_preferences ?? null,
+        ],
+        myPreferenceStored: [
+            (s) => [s.myStoredPreferences],
+            (stored: TasksAIRunPreferencesApi | null): AIRunPreferenceDraft => draftFromStored(stored),
         ],
         // Whether there's anything to send.
         teamDraftDirty: [
@@ -284,12 +288,9 @@ export const taskAgentDefaultsLogic = kea<taskAgentDefaultsLogicType>([
         // Nothing to fall back to when neither the draft nor the stored preference pins a model — the
         // effort alone is never stored without one.
         canResetMyPreference: [
-            (s) => [s.myDraft, s.myPreferences, s.myConfig],
-            (
-                draft: AIRunPreferenceDraft,
-                saved: TasksUserConfigResponseApi | null,
-                loaded: TasksUserConfigResponseApi | null
-            ): boolean => Boolean(draft.model || (saved ?? loaded)?.ai_run_preferences?.model),
+            (s) => [s.myDraft, s.myStoredPreferences],
+            (draft: AIRunPreferenceDraft, stored: TasksAIRunPreferencesApi | null): boolean =>
+                Boolean(draft.model || stored?.model),
         ],
     }),
 
