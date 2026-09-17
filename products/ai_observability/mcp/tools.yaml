@@ -32,6 +32,21 @@ tools:
     datasets-exports-retrieve:
         operation: datasets_exports_retrieve
         enabled: false
+    evaluations-backfills-cancel-create:
+        operation: evaluations_backfills_cancel_create
+        enabled: false
+    evaluations-backfills-create:
+        operation: evaluations_backfills_create
+        enabled: false
+    evaluations-backfills-estimate-create:
+        operation: evaluations_backfills_estimate_create
+        enabled: false
+    evaluations-backfills-list:
+        operation: evaluations_backfills_list
+        enabled: false
+    evaluations-backfills-retrieve:
+        operation: evaluations_backfills_retrieve
+        enabled: false
     llm-analytics-offline-evaluations-experiment-items-create:
         operation: llm_analytics_offline_evaluations_experiment_items_create
         enabled: false
