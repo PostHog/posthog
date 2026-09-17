@@ -3,6 +3,8 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
+import { recentItemsModel } from '~/models/recentItemsModel'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { customProductsLogic } from './customProductsLogic'
@@ -222,6 +224,40 @@ describe('projectTreeDataLogic', () => {
         }).toFinishAllListeners()
 
         expect(error).toHaveBeenCalledWith('Error moving item: Error: nope')
+    })
+
+    it('drops an item deleted from the tree out of Recents, and lets undo bring it back', async () => {
+        const recentItem = { id: 'fs-1', type: 'dashboard', ref: '1', path: 'Marketing/A' } as FileSystemEntry
+        const success = jest.spyOn(lemonToast, 'success').mockReturnValue('' as any)
+        jest.spyOn(api.fileSystemLogView, 'list').mockResolvedValue([])
+        jest.spyOn(api.fileSystem, 'delete').mockResolvedValue({
+            deleted: [{ type: 'dashboard', ref: '1', mode: 'soft', undo: 'undo', path: 'Marketing/A', can_undo: true }],
+        })
+        jest.spyOn(api.fileSystem, 'undoDelete').mockResolvedValue()
+
+        const recents = recentItemsModel()
+        recents.mount()
+        await expectLogic(recents).toDispatchActions(['loadRecentsSuccess'])
+        recents.actions.loadRecentsSuccess([recentItem])
+
+        // Deleting from the tree must prune Recents too, or the item stays clickable there and the
+        // user reads the delete as failed.
+        await expectLogic(logic, () => {
+            logic.actions.deleteItem(recentItem, 'project-tree')
+        }).toFinishAllListeners()
+        expect(recents.values.recents).toEqual([])
+
+        await success.mock.calls[0][1]?.button?.action?.()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // Undo must also clear the tombstone the delete left, or every later load filters the
+        // restored item back out.
+        jest.mocked(api.fileSystem.list).mockResolvedValue({ count: 1, results: [recentItem], users: [] })
+        await expectLogic(recents, () => {
+            recents.actions.loadRecents()
+        })
+            .toDispatchActions(['loadRecents', 'loadRecentsSuccess'])
+            .toMatchValues({ recents: [recentItem] })
     })
 
     it('deleteSavedItem does not crash when the parent folder is not loaded (lazy store)', () => {

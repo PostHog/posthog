@@ -45,6 +45,7 @@ import {
 } from '~/layout/panel-layout/ProjectTree/utils'
 import { FEATURE_FLAGS } from '~/lib/constants'
 import { groupsModel } from '~/models/groupsModel'
+import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
@@ -858,6 +859,13 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             actions.removeQueuedAction(action)
                             actions.deleteSavedItem(action.item)
                             const deletionSummary = deletionResult?.deleted ?? []
+                            // Only the entries the backend actually deleted reach this list, so a 204
+                            // (a duplicate row removed, backing object untouched) leaves Recents alone.
+                            for (const entry of deletionSummary) {
+                                if (entry.ref) {
+                                    recentItemsModel.findMounted()?.actions.removeItem(entry.type, entry.ref)
+                                }
+                            }
                             const countsByType = new Map<string, number>()
                             for (const entry of deletionSummary) {
                                 countsByType.set(entry.type, (countsByType.get(entry.type) ?? 0) + 1)
@@ -896,6 +904,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                                               .findMounted({ key: projectTreeLogicKey })
                                                               ?.actions.expandProjectFolder(folder)
                                                       }
+                                                  }
+                                                  for (const entry of undoableEntries) {
+                                                      recentItemsModel
+                                                          .findMounted()
+                                                          ?.actions.restoreItem(entry.type, entry.ref as string)
                                                   }
                                                   // Signal non-sidebar consumers (the dashboards tree) to refetch.
                                                   actions.restoredItems()
