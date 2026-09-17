@@ -4,6 +4,8 @@
 // everywhere on the hot path.
 #![allow(clippy::unnecessary_lazy_evaluations)]
 
+pub const CI_CACHE_VALIDATION: u8 = 1;
+
 mod context;
 mod error;
 mod memory;
