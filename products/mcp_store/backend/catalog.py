@@ -145,8 +145,9 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         auth_type="oauth",
         category="design",
         icon_domain="figma.com",
-        # Figma only accepts OAuth clients on its MCP catalog allowlist, which PostHog is
-        # not on, so Dynamic Client Registration answers 403 and no install can complete.
+        # Figma accepts OAuth clients only from its own MCP catalog allowlist, and PostHog
+        # is not on it. The registration endpoint answers 403, so no install reaches
+        # Figma's consent screen. https://www.figma.com/mcp-catalog/
         disabled=True,
     ),
     CatalogEntry(
