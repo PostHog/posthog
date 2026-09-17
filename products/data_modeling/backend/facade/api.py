@@ -75,6 +75,7 @@ _LAZY = {
     "inject_incremental_filter": "logic.incremental_filter",
     "EligibilityResult": "logic.incremental_eligibility",
     "check_incremental_eligibility": "logic.incremental_eligibility",
+    "record_saved_query_demand": "logic.demand",
 }
 
 __all__ = sorted(_LAZY)
