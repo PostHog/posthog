@@ -795,7 +795,12 @@ export class RerunPaginatorService {
             // with "No recipient identifier found". Dropping it makes the
             // action re-enter fresh, so inputs re-render against the current
             // config, which is what a rerun intends anyway.
-            const { hogFunctionState: _stripped, ...restoredCurrentAction } = persistedState.currentAction ?? {}
+            const {
+                hogFunctionState: _stripped,
+                awaitingResume: _awaitingResume,
+                resumeResult: _resumeResult,
+                ...restoredCurrentAction
+            } = persistedState.currentAction ?? {}
 
             invocation.id = row.invocation_id
             invocation.parentRunId = row.parent_run_id || null
@@ -803,6 +808,8 @@ export class RerunPaginatorService {
                 ...invocation.state!,
                 event: eventForFilter,
                 actionStepCount: persistedState.actionStepCount ?? 0,
+                // Absence must override the new-run default so legacy replays keep their original task keys.
+                customerTaskIdempotencyVersion: persistedState.customerTaskIdempotencyVersion,
                 variables: persistedState.variables ?? {},
                 // Restore where the flow had progressed to. The executor resumes
                 // from `currentAction` (via ensureCurrentAction); without it the

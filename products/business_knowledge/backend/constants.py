@@ -7,6 +7,9 @@ import datetime
 # Per-team caps. Enforced in the create endpoint, not at the DB layer — easier
 # to relax for a single paying customer without a migration.
 MAX_SOURCES_PER_TEAM = 500
+# Generated sources are excluded from MAX_SOURCES_PER_TEAM. This bounds the
+# sources list when learning publishes one text source per accepted topic.
+MAX_LEARNED_SOURCES_PER_TEAM = 10000
 MAX_CHUNKS_PER_TEAM = 100_000
 # 1 MB of raw text. Above this Stage 1 refuses the create; for longer docs the
 # customer is expected to split them or wait for Stage 2/3.

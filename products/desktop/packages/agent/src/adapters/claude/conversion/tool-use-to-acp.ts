@@ -21,6 +21,10 @@ import type {
   BetaWebFetchToolResultBlockParam,
   BetaWebSearchToolResultBlockParam,
 } from "@anthropic-ai/sdk/resources/beta.mjs";
+import {
+  type AskUserQuestionInput,
+  normalizeAskUserQuestionInput,
+} from "../questions/utils";
 
 const SYSTEM_REMINDER_REGEX =
   /\s*<system-reminder>[\s\S]*?<\/system-reminder>/g;
@@ -723,6 +727,10 @@ export function toolUpdateFromToolResult(
       return { title: "Exited Plan Mode" };
     }
     case "AskUserQuestion": {
+      const questions = normalizeAskUserQuestionInput(
+        (toolUse?.input ?? {}) as AskUserQuestionInput,
+      );
+      const plural = (questions?.length ?? 0) > 1;
       const content = toolResult.content;
       if (Array.isArray(content) && content.length > 0) {
         const firstItem = content[0];
@@ -732,12 +740,12 @@ export function toolUpdateFromToolResult(
           "text" in firstItem
         ) {
           return {
-            title: "Answer received",
+            title: plural ? "Answers received" : "Answer received",
             content: toolContent().text(String(firstItem.text)).build(),
           };
         }
       }
-      return { title: "Question answered" };
+      return { title: plural ? "Questions answered" : "Question answered" };
     }
     case "WebFetch": {
       const input = toolUse?.input as Record<string, unknown> | undefined;

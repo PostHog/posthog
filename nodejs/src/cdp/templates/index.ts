@@ -3,6 +3,7 @@ import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
 import { HogFunctionTemplate, NativeTemplate } from '../types'
 import { template as accoilTemplate } from './_destinations/accoil/accoil.template'
 import { template as appcuesTemplate } from './_destinations/appcues/appcues.template'
+import { template as beehiivTemplate } from './_destinations/beehiiv/beehiiv.template'
 import { template as clickupTemplate } from './_destinations/clickup/clickup.template'
 import { template as closeTemplate } from './_destinations/close/close.template'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
@@ -26,6 +27,7 @@ import { template as posthogUpdatePersonPropertiesTemplate } from './_destinatio
 import { template as posthogGetTicketTemplate } from './_destinations/posthog_conversations/posthog-get-ticket.template'
 import { template as posthogUpdateTicketTemplate } from './_destinations/posthog_conversations/posthog-update-ticket.template'
 import { template as posthogCreateAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-create-account.template'
+import { template as posthogCreateCustomerTaskTemplate } from './_destinations/posthog_customer_analytics/posthog-create-customer-task.template'
 import { template as posthogGetAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-get-account.template'
 import { template as posthogTagAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-tag-account.template'
 import { template as posthogUpdateAccountPropertyTemplate } from './_destinations/posthog_customer_analytics/posthog-update-account-property.template'
@@ -53,6 +55,7 @@ import { template as defaultTransformationTemplate } from './_transformations/de
 import { template as downsamplingTemplate } from './_transformations/downsampling/downsampling.template'
 import { template as dropEventsTemplate } from './_transformations/drop-events/drop-events.template'
 import { template as filterPropertiesTemplate } from './_transformations/filter-properties/filter-properties.template'
+import { template as flattenPropertiesTemplate } from './_transformations/flatten-properties/flatten-properties.template'
 import { template as geoipTemplate } from './_transformations/geoip/geoip.template'
 import { template as hashPropertiesTemplate } from './_transformations/hash-properties/hash-properties.template'
 import { template as ipAnonymizationTemplate } from './_transformations/ip-anonymization/ip-anonymization.template'
@@ -92,6 +95,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     googleTagManagerTemplate,
     emailTemplate,
     pushTemplate,
+    beehiivTemplate,
     clickupTemplate,
     posthogCaptureTemplate,
     posthogGroupIdentifyTemplate,
@@ -102,6 +106,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogCreateTaskTemplate,
     posthogRunScoutTemplate,
     posthogCreateAccountTemplate,
+    posthogCreateCustomerTaskTemplate,
     posthogGetAccountTemplate,
     posthogTagAccountTemplate,
     posthogUpdateAccountRelationshipsTemplate,
@@ -134,6 +139,7 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     urlParametersToPropertiesTemplate,
     taxonomyTemplate,
     userAgentTemplate,
+    flattenPropertiesTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_LOG: HogFunctionTemplate[] = [

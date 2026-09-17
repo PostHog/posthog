@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconExternal, IconGear } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
@@ -100,6 +100,8 @@ export function WorkflowRunsScene(): JSX.Element {
         repoName,
         workflowName,
         healthSummary,
+        workflowHealthLoading,
+        workflowHealthFailed,
         costSummary,
         runsTruncated,
         activityRuns,
@@ -321,6 +323,12 @@ export function WorkflowRunsScene(): JSX.Element {
                 right={verdictPill}
             />
             {/* Same window + run scope as the repo hub, so numbers match after drilling in. */}
+            {workflowHealthFailed && (
+                <LemonBanner type="warning">
+                    These figures could not load, so they cover only the runs in the table below rather than the whole
+                    window. Refresh to try again.
+                </LemonBanner>
+            )}
             <ScopePanel busy={panelBusy} controls={<WorkflowScopeControls />}>
                 <div className="flex flex-wrap gap-2.5">
                     <MetricTile
@@ -329,7 +337,7 @@ export function WorkflowRunsScene(): JSX.Element {
                             healthSummary.conclusiveRuns
                         )} runs with a pass-or-fail result passed.`}
                         value={percent(healthSummary.passRate)}
-                        loading={runsLoading}
+                        loading={workflowHealthLoading}
                     />
                     <MetricTile
                         label="Runs"
@@ -339,12 +347,12 @@ export function WorkflowRunsScene(): JSX.Element {
                                 : undefined
                         }
                         value={compactCount(healthSummary.totalRuns)}
-                        sub={runsTruncated ? `stats cover the most recent ${runRows.length}` : undefined}
-                        loading={runsLoading}
+                        sub={runsTruncated ? `table shows the most recent ${runRows.length}` : undefined}
+                        loading={workflowHealthLoading}
                     />
                     <MetricTile
                         label="Duration p50"
-                        tooltip="Wall-clock, over successful runs."
+                        tooltip="Median wall-clock duration over successful runs, excluding runs that settled in under 10 seconds without doing work."
                         value={
                             healthSummary.medianSeconds != null
                                 ? humanFriendlyDuration(healthSummary.medianSeconds)
@@ -355,7 +363,7 @@ export function WorkflowRunsScene(): JSX.Element {
                                 ? `→ ${humanFriendlyDuration(healthSummary.p95Seconds)} p95`
                                 : undefined
                         }
-                        loading={runsLoading}
+                        loading={workflowHealthLoading}
                     />
                     <MetricTile
                         label="Queue time p50"
@@ -368,7 +376,7 @@ export function WorkflowRunsScene(): JSX.Element {
                         tooltip={
                             costSummary?.estimatedCostUsd != null
                                 ? `${compactMinutes(costSummary.billableMinutes)} billable · ${compactUsd(
-                                      healthSummary.totalRuns > 0
+                                      !workflowHealthFailed && healthSummary.totalRuns > 0
                                           ? costSummary.estimatedCostUsd / healthSummary.totalRuns
                                           : null
                                   )} per run.`
@@ -376,7 +384,7 @@ export function WorkflowRunsScene(): JSX.Element {
                         }
                         value={costSummary?.estimatedCostUsd != null ? compactUsd(costSummary.estimatedCostUsd) : '—'}
                         sub={costSummary?.estimatedCostUsd != null ? undefined : 'Job-level source not synced'}
-                        loading={runnerCostsLoading}
+                        loading={runnerCostsLoading || workflowHealthLoading}
                     />
                 </div>
                 <Section id="health" title="Health" busy={healthBusy}>

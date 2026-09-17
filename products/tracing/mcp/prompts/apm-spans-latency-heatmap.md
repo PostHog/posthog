@@ -1,5 +1,11 @@
 Latency over time — trace counts per (time bucket, duration bucket) cell, combining `apm-spans-sparkline` and `apm-spans-duration-histogram` into one call: "when did latency change, and how".
 
+All parameters go inside `query` — top-level fields are rejected:
+
+```json
+{ "query": { "serviceNames": ["api"], "dateRange": { "date_from": "-1h" } } }
+```
+
 Returns one row per non-empty `(time bucket, duration bucket)` cell:
 
 - `time` — ISO 8601 bucket start (UTC)
@@ -17,8 +23,6 @@ Use to answer:
 
 For a single distribution with per-service breakdown, use `apm-spans-duration-histogram`; for counts over time, `apm-spans-sparkline`; for per-operation percentiles, `apm-spans-aggregate`.
 
-All parameters must be nested inside a `query` object.
-
 # Reading the grid
 
 Group rows by `bucket_ns` and read each duration bucket as a horizontal band over time:
@@ -28,8 +32,6 @@ Group rows by `bucket_ns` and read each duration bucket as a horizontal band ove
 - The whole distribution stepping up one or two buckets at once = a uniform slowdown.
 
 # Parameters
-
-All parameters go inside `query`.
 
 ## query.dateRange
 

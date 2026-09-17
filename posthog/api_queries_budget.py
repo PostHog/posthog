@@ -3,7 +3,7 @@
 Each team has a token bucket in Redis measured in bytes read. The rate comes from the team's
 organization, since the subscription belongs to the organization: teams of a paying organization
 refill API_QUERIES_BUDGET_PAID_MULTIPLIER times faster. The ClickHouse client debits what every
-chargeable query read after it runs (posthog/clickhouse/client/execute.py) and the query runner
+budgeted query read after it runs (posthog/clickhouse/client/execute.py) and the query runner
 reads the balance before admitting one. Refill is lazy: the balance is only brought up to date
 when it is read, so a debit never needs to know the team's rate. The balance floors at minus one
 hour of refill, so the query that crosses the line can never lock a team out for longer than an
@@ -13,6 +13,7 @@ Exports:
 * BudgetSpec, budget_spec_for, budget_enabled
 * refill_and_read, debit, seconds_until_positive
 * QueryCost, reset_request_query_cost, record_request_query_cost, get_request_query_cost
+* claim_limited_event
 """
 
 import math
@@ -155,6 +156,22 @@ def debit(team_id: str, bytes_read: int) -> Optional[float]:
         API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="debit").inc()
         capture_exception(e)
         return None
+
+
+LIMITED_EVENT_INTERVAL_SECONDS = 3600
+
+
+def claim_limited_event(team_id: str) -> bool:
+    try:
+        return bool(
+            get_client().set(
+                f"{BUDGET_KEY_PREFIX}limited-event/{team_id}", "1", nx=True, ex=LIMITED_EVENT_INTERVAL_SECONDS
+            )
+        )
+    except Exception as e:
+        API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="limited_event").inc()
+        capture_exception(e)
+        return False
 
 
 def seconds_until_positive(remaining: float, spec: BudgetSpec) -> int:

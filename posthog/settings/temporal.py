@@ -25,6 +25,10 @@ MAX_CONCURRENT_WORKFLOW_TASKS: int | None = get_from_env(
     "MAX_CONCURRENT_WORKFLOW_TASKS", None, optional=True, type_cast=int
 )
 MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES", None, optional=True, type_cast=int)
+# Caps the @asyncify pool. An asyncify thread can hold a Django connection for its whole call, so the
+# pool is a pgbouncer client-connection multiplier: worker replicas x pool size must stay under the
+# pooler's max_client_conn at its minimum replica count. Raise only with that arithmetic redone.
+ASYNCIFY_MAX_WORKERS: int = get_from_env("ASYNCIFY_MAX_WORKERS", 32, type_cast=int)
 TARGET_MEMORY_USAGE: float | None = get_from_env("TARGET_MEMORY_USAGE", None, optional=True, type_cast=float)
 TARGET_CPU_USAGE: float | None = get_from_env("TARGET_CPU_USAGE", None, optional=True, type_cast=float)
 
@@ -265,6 +269,10 @@ TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
 BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
 VIDEO_EXPORT_TASK_QUEUE = _set_temporal_task_queue("video-export-task-queue")
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
+# Keep the smoke fleets separate in local development as well as deployed environments.
+ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE = "alerts-product-shared-orchestration-task-queue"
+ALERTS_PRODUCT_EVALUATION_TASK_QUEUE = "alerts-product-evaluation-task-queue"
+ALERTS_PRODUCT_DELIVERY_TASK_QUEUE = "alerts-product-delivery-task-queue"
 SESSION_REPLAY_TASK_QUEUE = _set_temporal_task_queue("session-replay-task-queue")
 REPLAY_VISION_TASK_QUEUE = _set_temporal_task_queue("replay-vision-task-queue")
 # The XGBoost-based session surfacing scoring sweep runs on the session-replay
@@ -276,6 +284,12 @@ SURFACING_SCORING_SWEEP_TASK_QUEUE = SESSION_REPLAY_TASK_QUEUE
 WEEKLY_DIGEST_TASK_QUEUE = _set_temporal_task_queue("weekly-digest-task-queue")
 LLMA_EVALS_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-evals-task-queue")
 LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
+# Units one evaluation backfill dispatches per tick, one tick per BACKFILL_TICK_INTERVAL.
+# evaluation_backfill.py clamps this to 1..1000 where it reads the setting, because the candidate
+# page crosses a Temporal activity boundary as one payload, capped at about 2 MiB.
+# A tick costs one candidate query whatever it dispatches, so a larger batch means fewer ticks and
+# less ClickHouse work for the same backfill.
+LLMA_EVAL_BACKFILL_BATCH_SIZE: int = get_from_env("LLMA_EVAL_BACKFILL_BATCH_SIZE", 500, type_cast=int)
 # Defaults to the general-purpose fleet so dispatch always has a live worker; set the env to
 # "mcp-analytics-task-queue" to route MCP analytics clustering to a dedicated, separately-scalable
 # worker once one is deployed.
@@ -290,6 +304,9 @@ LOGS_VOLUME_TICK_TASK_QUEUE = _set_temporal_task_queue(
     os.getenv("LOGS_VOLUME_TICK_TASK_QUEUE", "logs-volume-tick-task-queue")
 )
 RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev — separate Node.js worker process
+# Replay Vision observation media (thumbnails, clips). Kept off the shared rasterization
+# queue so media never competes with customer exports and session video summaries.
+RASTERIZATION_MEDIA_TASK_QUEUE = "rasterization-media-task-queue"
 
 # Error tracking
 # Global on/off switch for auto-merging close fingerprints into their nearest issue.

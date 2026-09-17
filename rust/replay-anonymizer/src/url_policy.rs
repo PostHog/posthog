@@ -20,6 +20,8 @@ use public_suffix::{EffectiveTLDProvider, DEFAULT_PROVIDER};
 
 use url::Url;
 
+mod shopify;
+
 const VOLATILE_PARAMS: &[&str] = &["cb", "nocache", "rnd"];
 
 const CREDENTIAL_PARAMS: &[&str] = &[
@@ -391,8 +393,12 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
         return Err(Decline::TooLong);
     }
 
-    let dedup_query = remove_volatile_params(original_query)?;
-    let dedup = serialize_with_query(&serialized_without_query, dedup_query.as_deref());
+    let resized_query = shopify::normalize_image_size(&mut url, original_query);
+    let dedup_query = remove_volatile_params(resized_query.as_deref().or(original_query))?;
+    let dedup = serialize_with_query(url.as_str(), dedup_query.as_deref());
+    if dedup.len() > MAX_URL_LEN {
+        return Err(Decline::TooLong);
+    }
 
     Ok(CanonicalUrl {
         fetch,
@@ -716,6 +722,132 @@ mod tests {
             "https://cdn.example.com/a.png?w=200&%63b=first&CB=second&no%63ache=third&RND=fourth"
         );
         assert_eq!(canonical.dedup, "https://cdn.example.com/a.png?w=200");
+    }
+
+    #[test]
+    fn shopify_resize_variants_share_an_identity_and_keep_their_fetch_urls() {
+        for (first, second, expected) in [
+            (
+                "photo.jpg?v=123&width=300",
+                "photo.jpg?v=123&width=800",
+                "photo.jpg?v=123&width=1024",
+            ),
+            (
+                "photo.jpg?height=100",
+                "photo.jpg?height=200",
+                "photo.jpg?height=1024",
+            ),
+            (
+                "photo_64x64.jpg?v=123",
+                "photo_128x128.jpg?v=123",
+                "photo_1024x1024.jpg?v=123",
+            ),
+            ("photo_480x.jpg", "photo_960x@2x.jpg", "photo_1024x.jpg"),
+            ("photo_x480.jpg", "photo_x960.jpg", "photo_x1024.jpg"),
+            ("photo_small.jpg", "photo_large.jpg", "photo_1024x1024.jpg"),
+            (
+                "photo_300x200.png",
+                "photo_600x400.png",
+                "photo_1023x682.png",
+            ),
+        ] {
+            for prefix in [
+                "https://cdn.shopify.com/s/files/1/0000/0001/files/",
+                "https://cdn.shopify.com/s/files/1/0000/0001/products/",
+                "https://cdn.shopify.com/s/files/1/0000/0001/collections/",
+                "https://example-store.myshopify.com/cdn/shop/files/",
+                "https://example-store.myshopify.com/cdn/shop/products/",
+                "https://example-store.myshopify.com/cdn/shop/collections/",
+            ] {
+                let first_url = format!("{prefix}{first}");
+                let second_url = format!("{prefix}{second}");
+                let first = canonicalize(&first_url).unwrap();
+                let second = canonicalize(&second_url).unwrap();
+                assert_eq!(first.fetch, first_url);
+                assert_eq!(second.fetch, second_url);
+                assert_eq!(first.dedup, format!("{prefix}{expected}"));
+                assert_eq!(first.dedup, second.dedup);
+                assert_eq!(canonicalize(&first.fetch).unwrap(), first);
+            }
+        }
+    }
+
+    #[test]
+    fn shopify_paths_on_unknown_hosts_preserve_distinct_resources() {
+        for prefix in [
+            "https://store.example.com/cdn/shop/files/",
+            "https://store.example.com/cdn/shop/products/",
+            "https://store.example.com/cdn/shop/collections/",
+            "https://notmyshopify.com/cdn/shop/files/",
+            "https://example-store.myshopify.com.example.com/cdn/shop/files/",
+            "https://nested.example-store.myshopify.com/cdn/shop/files/",
+            "https://myshopify.com/cdn/shop/files/",
+            "https://cdn.shopify.com.example.com/s/files/1/0000/0001/files/",
+        ] {
+            for suffix in [
+                "photo.jpg?width=300",
+                "photo.jpg?width=800",
+                "photo.jpg?height=100",
+                "photo.jpg?height=200",
+                "photo_480x.jpg",
+                "photo_960x.jpg",
+            ] {
+                let raw = format!("{prefix}{suffix}");
+                let canonical = canonicalize(&raw).unwrap();
+                assert_eq!(canonical.fetch, raw);
+                assert_eq!(canonical.dedup, raw);
+            }
+        }
+    }
+
+    #[test]
+    fn shopify_resize_normalization_preserves_content_boundaries() {
+        let prefix = "https://cdn.shopify.com/s/files/1/0000/0001/files/";
+        for (first, second) in [
+            ("photo.jpg?v=1&width=300", "photo.jpg?v=2&width=300"),
+            (
+                "photo_300x200_crop_center.jpg",
+                "photo_200x300_crop_center.jpg",
+            ),
+            (
+                "photo_300x300_crop_top.jpg",
+                "photo_300x300_crop_bottom.jpg",
+            ),
+            (
+                "photo.jpg?width=300&height=200",
+                "photo.jpg?width=200&height=300",
+            ),
+            (
+                "photo.jpg?width=300&height=200&crop=top",
+                "photo.jpg?width=300&height=200&crop=bottom",
+            ),
+            ("photo.jpg?width=300", "other.jpg?width=300"),
+        ] {
+            assert_ne!(
+                canonicalize(&format!("{prefix}{first}")).unwrap().dedup,
+                canonicalize(&format!("{prefix}{second}")).unwrap().dedup
+            );
+        }
+        for raw in [
+            "https://example.com/photo.jpg?width=300&height=200&size=small",
+            "https://example.com/photo_480x.jpg",
+            "https://cdn.shopify.com/other/photo.jpg?width=300",
+            "https://cdn.shopify.com/s/files/1/0000/0001/files/photo.jpg?width=300&width=400",
+            "https://cdn.shopify.com/s/files/1/0000/0001/files/photo.jpg?width=0",
+            "https://cdn.shopify.com/s/files/1/0000/0001/files/photo.jpg?width=999999999999999999999",
+            "https://cdn.shopify.com/s/files/1/0000/0001/files/photo.jpg?width=300&crop=region&crop_width=100",
+            "https://cdn.shopify.com/s/files/1/0000/0001/files/photo.jpg?width=300&height=200",
+            "https://cdn.shopify.com/s/files/1/0000/0001/files/photo.jpg?width=300&height=200&crop=center",
+            "https://cdn.shopify.com/s/files/1/0000/0001/files/photo_64x64_crop_center.jpg",
+            "https://cdn.shopify.com/s/files/1/0000/0001/files/photo.jpg?width=300&size=small",
+            "https://cdn.shopify.com/s/files/1/0000/0001/files/photo_300x200.jpg?width=100",
+            "https://cdn.shopify.com/s/files/1/0000/0001/files/photo_350x350_banner.jpg",
+            "https://cdn.shopify.com/s/files/1/0000/0001/files/photo_480px.jpg",
+        ] {
+            let canonical = canonicalize(raw).unwrap();
+            assert_eq!(canonical.fetch, raw);
+            assert_eq!(canonical.dedup, raw);
+        }
     }
 
     #[test]

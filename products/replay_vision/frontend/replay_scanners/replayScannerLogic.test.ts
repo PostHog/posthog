@@ -9,6 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { parseCsvParam, parseNumericParam, parseSortParam } from '../utils/urlParams'
@@ -23,8 +24,9 @@ import {
 } from './replayScannerLogic'
 import { readScannerDraft, writeScannerDraft } from './scannerDraft'
 import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
+import { consumeScannerHandoffIntent, markScannerHandoffIntent } from './scannerHandoffIntent'
 import { observationsDrilldownSearchParams } from './scannerOverviewLogic'
-import { defaultScannerTemplates } from './scannerTemplates'
+import { defaultScannerTemplates, newScanner } from './scannerTemplates'
 import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
 
 jest.mock('lib/forms/scrollToFormError', () => ({
@@ -103,6 +105,71 @@ describe('replayScannerLogic', () => {
                     scanner_config: template.scanner_config,
                 }),
             })
+        })
+
+        it('new scanner seeds its query from a ?filters= deep link', async () => {
+            const query = {
+                kind: 'RecordingsQuery',
+                events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
+            }
+            router.actions.push(urls.replayVisionScannerConfigure('new'), { filters: JSON.stringify(query) })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toMatchValues({
+                scanner: expect.objectContaining({ query: expect.objectContaining({ events: query.events }) }),
+            })
+        })
+
+        it('a ?filters= deep link outranks a saved draft', async () => {
+            const query = { kind: 'RecordingsQuery', events: [{ id: '$autocapture', type: 'events' }] }
+            writeScannerDraft(teamLogic.values.currentTeamId!, { ...newScanner(null), name: 'stale draft' })
+            router.actions.push(urls.replayVisionScannerConfigure('new'), { filters: JSON.stringify(query) })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toMatchValues({
+                scanner: expect.objectContaining({
+                    name: newScanner(null, teamLogic.values.currentTeam?.name).name,
+                    query: expect.objectContaining({ events: query.events }),
+                }),
+            })
+        })
+
+        // A crafted or truncated param must not reach the filter UI, which spreads what it gets:
+        // a list field holding a string renders one filter per character.
+        it.each([
+            ['unparseable JSON', 'not-json{'],
+            ['a JSON array', '[]'],
+            ['a list field that is not a list', '{"kind":"RecordingsQuery","events":"x"}'],
+        ])('a ?filters= param carrying %s falls back to the blank wizard', async (_label, filters) => {
+            router.actions.push(urls.replayVisionScannerConfigure('new'), { filters })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toMatchValues({
+                scanner: expect.objectContaining({
+                    scanner_type: 'monitor',
+                    query: { kind: 'RecordingsQuery' },
+                }),
+            })
+        })
+
+        it('strips the consumed ?filters= param, so a reload does not re-seed over the user edits', async () => {
+            const query = { kind: 'RecordingsQuery', events: [{ id: '$pageview', type: 'events' }] }
+            router.actions.push(urls.replayVisionScannerConfigure('new'), { filters: JSON.stringify(query) })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            expect(router.values.searchParams.filters).toBeUndefined()
+        })
+
+        // The replay filters entry point sends both when the filters scope to an experiment, since
+        // exposure can't ride inside the query. Keeping only the targeting would silently widen the
+        // scanner to every session; keeping only the filters would drop the experiment entirely.
+        it('combines an experiment deep link with a ?filters= query rather than dropping either', async () => {
+            useMocks({
+                get: { '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }] },
+            })
+            const query = { kind: 'RecordingsQuery', events: [{ id: '$pageview', type: 'events' }] }
+            router.actions.push(urls.replayVisionScannerConfigure('new'), {
+                experiment: '7',
+                filters: JSON.stringify(query),
+            })
+
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+
+            expect(logic.values.scanner?.experiment_targeting).toMatchObject({ experiment_id: 7 })
+            expect(logic.values.scanner?.query).toMatchObject({ events: query.events })
         })
     })
 
@@ -348,6 +415,44 @@ describe('replayScannerLogic', () => {
             expect(logic.values.scanner).toMatchObject({ name: 'My saved work' })
             expect(logic.values.goalDraftInput).toEqual('find rage clicks in checkout')
             expect(draftSpy).not.toHaveBeenCalled()
+        })
+
+        // A cross-product entry point (e.g. "scan this error's recordings" in error tracking)
+        // hands over a whole prefilled scanner via one-shot sessionStorage, so customer text in
+        // the name and prompt never enters the URL. It expresses fresh intent like the experiment
+        // deep link, so it outranks a saved draft, but must not delete that draft.
+        it('consumes a scanner hand-off: seeds the wizard over a saved draft, one-shot, draft intact', async () => {
+            writeScannerDraft(MOCK_TEAM_ID, { ...logic.values.scanner!, name: 'My saved work' })
+            markScannerHandoffIntent({
+                source: 'error_tracking',
+                scanner: {
+                    name: 'Error tracking: TypeError',
+                    scanner_type: 'summarizer',
+                    scanner_config: { prompt: 'Watch each recording around the error.', length: 'medium' },
+                    query: {
+                        kind: NodeKind.RecordingsQuery,
+                        events: [{ id: '$exception', name: '$exception', type: 'events' }],
+                    },
+                    sampling_rate: 1.0,
+                    credit_limit: 5000,
+                    credit_limit_enabled: true,
+                },
+            })
+            router.actions.push(urls.replayVisionScannerOverview('new'))
+
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+
+            expect(logic.values.scanner).toMatchObject({
+                name: 'Error tracking: TypeError',
+                scanner_type: 'summarizer',
+                scanner_config: { prompt: 'Watch each recording around the error.', length: 'medium' },
+                query: expect.objectContaining({ events: [expect.objectContaining({ id: '$exception' })] }),
+                sampling_rate: 1.0,
+                credit_limit: 5000,
+                credit_limit_enabled: true,
+            })
+            expect(consumeScannerHandoffIntent()).toBeNull()
+            expect(readScannerDraft(MOCK_TEAM_ID)?.scanner.name).toEqual('My saved work')
         })
     })
 
@@ -645,6 +750,23 @@ describe('replayScannerLogic', () => {
             logic.unmount()
 
             router.actions.push(urls.replayVisionScannerConfigure('new'), { experiment: '7' })
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
+        })
+
+        it('preserves an existing draft when the wizard is entered from a ?filters= deep link', async () => {
+            // The prefill outranks the draft for this entry but must not delete it; without the
+            // restoringDraft guard, persistDraft sees scanner === originalScanner and clears it.
+            const teamId = teamLogic.values.currentTeamId!
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
+            logic.unmount()
+
+            const query = { kind: 'RecordingsQuery', events: [{ id: '$pageview', type: 'events' }] }
+            router.actions.push(urls.replayVisionScannerConfigure('new'), { filters: JSON.stringify(query) })
             logic = replayScannerLogic({ id: 'new' })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -1202,8 +1324,10 @@ describe('replayScannerLogic', () => {
 
     describe('observationsPage / sort URL sync', () => {
         let scannedLogic: ReturnType<typeof replayScannerLogic.build>
+        let observationRequests: URL[]
 
         beforeEach(() => {
+            observationRequests = []
             useMocks({
                 get: {
                     '/api/projects/:team/vision/scanners/:id/': () => [
@@ -1217,7 +1341,10 @@ describe('replayScannerLogic', () => {
                             enabled: true,
                         },
                     ],
-                    '/api/projects/:team/vision/scanners/:id/observations/': { results: [], count: 0 },
+                    '/api/projects/:team/vision/scanners/:id/observations/': ({ request }) => {
+                        observationRequests.push(new URL(request.url))
+                        return [200, { results: [], count: 0 }]
+                    },
                     '/api/projects/:team/vision/scanners/:id/observations/stats/': {
                         status_counts: {
                             total: 0,
@@ -1237,6 +1364,45 @@ describe('replayScannerLogic', () => {
             })
             scannedLogic = replayScannerLogic({ id: 'sid' })
             scannedLogic.mount()
+        })
+
+        it('loads rows only when the table opens and preserves filters across tab changes', async () => {
+            await expectLogic(scannedLogic).toFinishAllListeners()
+            expect(observationRequests).toHaveLength(0)
+            expect(scannedLogic.values.observationStatsApi).not.toBeNull()
+
+            await expectLogic(scannedLogic, () => {
+                router.actions.push(urls.replayVision('sid'), {
+                    tab: 'configuration',
+                    status: 'failed',
+                    sort: 'created_at',
+                })
+            }).toFinishAllListeners()
+            expect(observationRequests).toHaveLength(0)
+
+            await expectLogic(scannedLogic, () =>
+                scannedLogic.actions.setObservationsActive(true)
+            ).toFinishAllListeners()
+            expect(observationRequests).toHaveLength(1)
+            expect(observationRequests[0].searchParams.get('status')).toBe('failed')
+            expect(observationRequests[0].searchParams.get('order_by')).toBe('created_at')
+
+            await expectLogic(scannedLogic, () => scannedLogic.actions.refreshObservations()).toFinishAllListeners()
+            expect(observationRequests).toHaveLength(2)
+
+            await expectLogic(scannedLogic, () => {
+                scannedLogic.actions.setObservationsActive(false)
+                scannedLogic.actions.refreshObservations()
+                scannedLogic.actions.setObservationStatusFilter(['succeeded'])
+            }).toFinishAllListeners()
+            expect(observationRequests).toHaveLength(2)
+
+            await expectLogic(scannedLogic, () =>
+                scannedLogic.actions.setObservationsActive(true)
+            ).toFinishAllListeners()
+            expect(observationRequests).toHaveLength(3)
+            expect(observationRequests[2].searchParams.get('status')).toBe('succeeded')
+            expect(observationRequests[2].searchParams.get('order_by')).toBe('created_at')
         })
 
         afterEach(() => {
@@ -1435,6 +1601,7 @@ describe('replayScannerLogic', () => {
             persisted.mount()
             try {
                 // The initial foreground load (also manual refresh, filter/sort/pagination) shows the overlay.
+                persisted.actions.setObservationsActive(true)
                 expect(persisted.values.observationsLoading).toBe(true)
 
                 persisted.actions.loadObservationsSuccess([], 0)

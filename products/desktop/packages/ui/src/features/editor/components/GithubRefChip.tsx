@@ -18,7 +18,26 @@ interface GithubRefChipLinkProps
   /** Names the icon for screen readers. Omit when the icon says nothing extra. */
   iconLabel?: string;
   toneClass?: string;
+  /** Keeps a trailing `#number` visible when the label truncates. */
+  preservePrNumber?: boolean;
   children: ReactNode;
+}
+
+/**
+ * Splits `owner/repo#number` into the part that may truncate and the number
+ * that may not, so neither the start nor the end of the number is ellipsized.
+ * Only labels that end in a number qualify: `#12 - Title` already keeps its
+ * number at the front.
+ */
+function splitRefNumber(label: ReactNode): [string, string] | null {
+  if (typeof label !== "string") {
+    return null;
+  }
+  const match = label.match(/^(.*)(#\d+)$/);
+  if (!match) {
+    return null;
+  }
+  return [match[1], match[2]];
 }
 
 /**
@@ -32,9 +51,18 @@ export const GithubRefChipLink = forwardRef<
   HTMLButtonElement,
   GithubRefChipLinkProps
 >(function GithubRefChipLink(
-  { href, icon: RefIcon, iconLabel, toneClass, children, ...buttonProps },
+  {
+    href,
+    icon: RefIcon,
+    iconLabel,
+    toneClass,
+    preservePrNumber,
+    children,
+    ...buttonProps
+  },
   ref,
 ) {
+  const split = preservePrNumber ? splitRefNumber(children) : null;
   return (
     <Button
       ref={ref}
@@ -53,29 +81,22 @@ export const GithubRefChipLink = forwardRef<
       }
       {...buttonProps}
       className={cn(
-        "cli-file-mention focus-visible:-outline-offset-1 mx-0.5 inline-block max-w-full cursor-pointer! select-text whitespace-nowrap pl-1.5 align-baseline leading-[1.375rem] no-underline",
+        "cli-file-mention focus-visible:-outline-offset-1 mx-0.5 inline-flex max-w-full cursor-pointer! select-text gap-0 overflow-hidden whitespace-nowrap pl-1.5 align-middle leading-[1.375rem] no-underline",
         buttonProps.className,
       )}
     >
       <RefIcon
         size={12}
         weight="bold"
-        className={cn("mr-1 inline-block align-[-0.125em]", toneClass)}
+        className={cn("mr-1", toneClass)}
         aria-label={iconLabel}
         aria-hidden={iconLabel ? undefined : true}
         role={iconLabel ? "img" : undefined}
       />
-      <span
-        // 1rem is the icon and its margin, which share the chip's content box
-        // with the label. Without that subtraction the label paints past the
-        // chip edge in a narrow panel instead of truncating.
-        className={cn(
-          "inline-block max-w-[min(16rem,calc(100%-1rem))] truncate align-top",
-          toneClass,
-        )}
-      >
-        {children}
+      <span className={cn("min-w-0 max-w-64 truncate", toneClass)}>
+        {split ? split[0] : children}
       </span>
+      {split && <span className={cn("shrink-0", toneClass)}>{split[1]}</span>}
     </Button>
   );
 });
@@ -98,6 +119,7 @@ export function GithubRefChip({
     <GithubRefChipLink
       href={href}
       icon={kind === "pr" ? GitPullRequestIcon : GithubLogoIcon}
+      preservePrNumber={kind === "pr"}
     >
       {children}
     </GithubRefChipLink>

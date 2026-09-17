@@ -9,7 +9,7 @@ import type {
 
 import { AccountPinnedProperties } from './AccountPinnedProperties'
 import { AccountPropertyConfigurator } from './AccountPropertyConfigurator'
-import { AccountPropertyRow } from './AccountPropertyRow'
+import { AccountPropertyField } from './AccountPropertyField'
 import type {
     AccountCustomProperty,
     AccountCustomPropertyValue,
@@ -79,6 +79,7 @@ function relationshipProperty(
         name,
         description: null,
         is_single_holder: isSingleHolder,
+        is_controlled: false,
     }
     return { key: `relationship:${id}`, kind: 'relationship', definition, members }
 }
@@ -174,7 +175,7 @@ export const CustomPropertyEditors: Story = {
                     }),
                 }),
             ].map((property) => (
-                <AccountPropertyRow
+                <AccountPropertyField
                     key={property.key}
                     property={property}
                     editing
@@ -195,7 +196,7 @@ export const DateAndDatetimeEditors: Story = {
                 customProperty('date', 'Renewal date', 'date', '2026-11-14'),
                 customProperty('datetime', 'Next check-in', 'datetime', '2026-09-18T14:30:00Z'),
             ].map((property) => (
-                <AccountPropertyRow
+                <AccountPropertyField
                     key={property.key}
                     property={property}
                     editing
@@ -216,7 +217,7 @@ export const RelationshipEditors: Story = {
                 relationshipProperty('owner', 'Account owner', [MEMBERS[0]], true),
                 relationshipProperty('team', 'Account team', [MEMBERS[0], MEMBERS[1]], false),
             ].map((property) => (
-                <AccountPropertyRow
+                <AccountPropertyField
                     key={property.key}
                     property={property}
                     editing

@@ -50,6 +50,8 @@ User ─────────────────────────
 
 ## Components
 
+For combined task creation, run-start responses, and MCP tools, see [Create tasks and start runs](../../../../../docs/internal/task-run-api.md).
+
 ### PostHog API
 
 `backend/presentation/views/api.py` (thin viewsets) over `backend/facade/api.py` (behavior) — every user-triggered cloud launch path, including prewarming, checks server-side PostHog Desktop access before provisioning or activating a run. Composer prewarming carries the complete ordered repository selection, so single- and multi-repository submissions can reuse only a matching sandbox. A terminal task can also prewarm a successor through `POST .../tasks/{id}/warm/`; the source run must remain the task's latest terminal run, and the normal `run` request activates that successor with `resume_from_run_id`. Runtime, model, branch, permission mode, and sandbox configuration must match; reasoning effort may change and is applied before the warmed agent's first turn. Full-filesystem resume snapshots bundle their agent binary, so prewarming probes for the deferred-resume capability and falls back to a fresh sandbox when an old snapshot lacks it. `TaskViewSet.run` creates a `TaskRun` (status=QUEUED) and starts the Temporal workflow. `TaskRunViewSet.partial_update` handles status transitions and signals the Temporal workflow on terminal statuses via `signal_workflow_completion`. `TaskRunViewSet.cancel` (`POST .../runs/{id}/cancel/`) is the user-facing kill switch: `cancel_task_run` interrupts the in-flight agent turn, signals `complete_task("cancelled")` so the workflow snapshots the session and tears down the sandbox, and falls back to finalizing the run directly when no workflow is running.
@@ -168,7 +170,8 @@ If no token arrives within 120 seconds, the run fails with setup instructions.
 
 Subscription runs require the `--claudeSubscription` startup option.
 The launcher checks support before starting the process.
-Subscription health checks have a 155-second command limit, leaving time for setup and diagnostics within the five-minute activity.
+Health polls stop at a wall-clock budget (120 seconds, or 150 for subscription runs) even when each poll is slow, and the exec limit sits a few seconds above that budget, leaving time for setup and diagnostics within the five-minute activity.
+When the exec limit is still hit, the launcher collects the same startup diagnostics as a failed poll and raises `SandboxTimeoutError` with them, because the Modal SDK reports an expired exec as return code -1 rather than raising.
 The PID check applies only when the PID file exists, so servers launched before deployment can still pass the health check.
 Continuation inherits the selected billing mode unless the caller explicitly changes it.
 Subscription runs do not reuse prewarmed sessions, because those processes have already selected their credentials.

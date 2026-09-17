@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from textwrap import dedent
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
@@ -187,11 +187,61 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("$virt_initial_channel_type", result)
         self.assertIn("$virt_revenue", result)
 
+    @parameterized.expand(
+        [
+            ["plural table name", "sessions", "$session_duration"],
+            ["mixed case", "Session", "$session_duration"],
+            ["plural person", "persons", "$virt_initial_channel_type"],
+        ]
+    )
+    def test_retrieve_entity_properties_accepts_the_name_a_query_uses(
+        self, _name: str, entity: str, expected_property: str
+    ):
+        result = DummyToolkit(self.team, self.user).retrieve_entity_properties(entity)
+
+        self.assertIn(f"- {expected_property}", result)
+
+    def test_retrieve_entity_properties_names_the_entities_it_has(self):
+        result = DummyToolkit(self.team, self.user).retrieve_entity_properties("sesion")
+
+        self.assertEqual(
+            result,
+            "The entity sesion does not exist in the taxonomy. You must use one of the following: person, session.",
+        )
+
+    def test_retrieve_entity_properties_lists_the_session_fields_web_analytics_breaks_down_by(self):
+        breakdown_fields = (
+            "$entry_pathname",
+            "$entry_hostname",
+            "$end_pathname",
+            "$end_hostname",
+            "$entry_referring_domain",
+            "$entry_utm_source",
+            "$entry_utm_medium",
+            "$entry_utm_campaign",
+            "$entry_utm_term",
+            "$entry_utm_content",
+            "$channel_type",
+            "$last_external_click_url",
+        )
+
+        result = DummyToolkit(self.team, self.user).retrieve_entity_properties("session")
+
+        self.assertEqual([name for name in breakdown_fields if f"- {name} " not in result], [])
+
     def test_retrieve_entity_property_values(self):
         toolkit = DummyToolkit(self.team, self.user)
         self.assertEqual(
             toolkit.retrieve_entity_property_values("session", "$session_duration"),
             "30, 146, 2 and many more distinct values.",
+        )
+        self.assertEqual(
+            toolkit.retrieve_entity_property_values("sessions", "$session_duration"),
+            "30, 146, 2 and many more distinct values.",
+        )
+        self.assertEqual(
+            toolkit.retrieve_entity_property_values("session", "$entry_utm_source"),
+            '"Google", "Bing", "Twitter", "Facebook" and many more distinct values.',
         )
         self.assertEqual(
             toolkit.retrieve_entity_property_values("session", "nonsense"),
@@ -215,13 +265,13 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         base_time = datetime.now(UTC)
         for i in range(25):
             id = f"person{i}"
-            with freeze_time(base_time - timedelta(minutes=25 - i)):
+            with time_machine.travel(base_time - timedelta(minutes=25 - i), tick=False):
                 _create_person(
                     distinct_ids=[id],
                     properties={"taxonomy_email": f"{id}@example.com", "id": i},
                     team=self.team,
                 )
-        with freeze_time(base_time):
+        with time_machine.travel(base_time, tick=False):
             _create_person(
                 distinct_ids=["person25"],
                 properties={"taxonomy_email": "person25@example.com", "id": 25},
@@ -253,14 +303,14 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
 
         for i in range(7):
             id = f"group{i}"
-            with freeze_time(f"2024-01-01T{i}:00:00Z"):
+            with time_machine.travel(f"2024-01-01T{i}:00:00Z", tick=False):
                 create_group(
                     group_type_index=0,
                     group_key=id,
                     properties={"test": i},
                     team_id=self.team.pk,
                 )
-        with freeze_time(f"2024-01-02T00:00:00Z"):
+        with time_machine.travel(f"2024-01-02T00:00:00Z", tick=False):
             create_group(
                 group_type_index=1,
                 group_key="org",

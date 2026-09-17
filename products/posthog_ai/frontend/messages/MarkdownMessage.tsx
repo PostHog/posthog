@@ -3,6 +3,8 @@ import { memo, useMemo } from 'react'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
+import { stripObjectTags } from '../utils/stripObjectTags'
+
 function parseMarkdownIntoBlocks(markdown: string): string[] {
     // Convert single newlines to markdown line breaks (two spaces + newline)
     const withLineBreaks = markdown.replace(/(?<!\n)\n(?!\n)/g, '  \n')
@@ -23,7 +25,7 @@ export const MarkdownMessage = memo(function MarkdownMessage({
     id: string
     className?: string
 }): JSX.Element {
-    const blocks = useMemo(() => parseMarkdownIntoBlocks(content), [content])
+    const blocks = useMemo(() => parseMarkdownIntoBlocks(stripObjectTags(content)), [content])
     return (
         <LemonMarkdown.Container className={className}>
             {blocks.map((block, index) => (

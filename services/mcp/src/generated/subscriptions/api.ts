@@ -227,6 +227,30 @@ export const SubscriptionsCreateBody = () => zod
                     .describe(
                         'Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false.'
                     ),
+                include_images: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.'
+                    ),
+                include_feedback: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include report feedback links. Defaults to true when omitted.'
+                    ),
+                include_manage_link: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted.'
+                    ),
+                include_posthog_hint: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include PostHog product guidance. Slack only. Email and Microsoft Teams reports do not include it. Defaults to true when omitted.'
+                    ),
             })
             .describe('Typed view over the Subscription.delivery_config JSON blob.')
             .optional()
@@ -430,6 +454,30 @@ export const SubscriptionsPartialUpdateBody = () => zod
                     .default(subscriptionsPartialUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
                     .describe(
                         'Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false.'
+                    ),
+                include_images: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.'
+                    ),
+                include_feedback: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include report feedback links. Defaults to true when omitted.'
+                    ),
+                include_manage_link: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted.'
+                    ),
+                include_posthog_hint: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'AI prompt subscriptions only: include PostHog product guidance. Slack only. Email and Microsoft Teams reports do not include it. Defaults to true when omitted.'
                     ),
             })
             .describe('Typed view over the Subscription.delivery_config JSON blob.')

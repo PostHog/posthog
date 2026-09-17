@@ -15,6 +15,12 @@ import { getAppViewSnapshot } from "./useAppView";
 // written in id form silently never matches and settings falls through to the
 // task-input view.
 describe("getAppViewSnapshot", () => {
+  it("treats the canonical report as its own view, not a task or Inbox", () => {
+    mocks.matches = [
+      { fullPath: "/reports/$reportId", params: { reportId: "report-1" } },
+    ];
+    expect(getAppViewSnapshot()).toEqual({ type: "report" });
+  });
   it.each([
     { fullPath: "/settings/$category", params: { category: "general" } },
     { fullPath: "/settings/", params: {} },

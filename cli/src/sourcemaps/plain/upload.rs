@@ -18,6 +18,10 @@ use tracing::{debug, info, warn};
 /// extra glue (PostHog chunk-id IIFE, etc.) without misclassifying real code.
 const WRAPPER_JS_SIZE_THRESHOLD_BYTES: usize = 2048;
 
+/// Cap on the suspect paths named in the summary line. They share one line, and an
+/// oversized line kills the process on a non-blocking stderr pipe (see `FileSelectionArgs`).
+const MAX_LISTED_SUSPECT_PATHS: usize = 3;
+
 use crate::{
     api::{
         releases::Release,
@@ -158,6 +162,7 @@ pub fn upload_pairs(
         .partition(|pair| pair.sourcemap.is_empty());
     let mut empty_skipped_wrapper = 0usize;
     let mut empty_skipped_suspect = 0usize;
+    let mut suspect_paths: Vec<String> = Vec::new();
     for pair in &empty_pairs {
         let js_size = pair.source.inner.content.len();
         let map_path = pair.sourcemap.inner.path.display();
@@ -169,11 +174,29 @@ pub fn upload_pairs(
             );
         } else {
             empty_skipped_suspect += 1;
-            warn!(
-                "Skipping {}: sourcemap is empty but sibling JS is {} bytes — likely a bundler misconfiguration. Check your bundler's source-map setting (e.g. webpack `devtool`, Next.js `productionBrowserSourceMaps`, server compiler config).",
+            if suspect_paths.len() < MAX_LISTED_SUSPECT_PATHS {
+                suspect_paths.push(map_path.to_string());
+            }
+            debug!(
+                "Skipping {}: sourcemap is empty but sibling JS is {} bytes — possible bundler misconfiguration",
                 map_path, js_size
             );
         }
+    }
+    if empty_skipped_suspect > 0 {
+        let unlisted = empty_skipped_suspect - suspect_paths.len();
+        let rest = if unlisted > 0 {
+            format!(" and {unlisted} more (set RUST_LOG=debug to list them all)")
+        } else {
+            String::new()
+        };
+        info!(
+            "Skipped {} empty sourcemaps whose sibling JS file is at least {} bytes: {}{}. If those files must symbolicate, check your bundler's source-map setting (e.g. webpack `devtool`, Next.js `productionBrowserSourceMaps`, server compiler config).",
+            empty_skipped_suspect,
+            WRAPPER_JS_SIZE_THRESHOLD_BYTES,
+            suspect_paths.join(", "),
+            rest
+        );
     }
     let empty_skipped = empty_pairs.len();
 

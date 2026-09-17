@@ -52,7 +52,6 @@ export const canvasesPartialUpdateBodyNameMax = 400
 export const CanvasesPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(canvasesPartialUpdateBodyNameMax).optional().describe('Updated display name.'),
-        context: zod.string().optional().describe('Updated author context markdown.'),
         description: zod
             .string()
             .optional()
@@ -105,12 +104,21 @@ export const CanvasesBuildActionCreateBody = /* @__PURE__ */ zod.object({
  * (the reviewed permission boundary); the call runs with the viewer's own
  * connection, so two viewers of the same canvas see their own data.
  */
+export const canvasesConnectorsCallBodyApprovalTokenMax = 200
+
 export const canvasesConnectorsCallBodyProviderMax = 300
 
 export const canvasesConnectorsCallBodyToolMax = 200
 
 export const CanvasesConnectorsCallBody = /* @__PURE__ */ zod
     .object({
+        approval_token: zod
+            .string()
+            .max(canvasesConnectorsCallBodyApprovalTokenMax)
+            .optional()
+            .describe(
+                'Single-use token from a needs_approval response. Submit only after the viewer approves this exact call. Expires after 15 minutes.'
+            ),
         provider: zod
             .string()
             .max(canvasesConnectorsCallBodyProviderMax)

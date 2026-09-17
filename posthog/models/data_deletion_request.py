@@ -224,6 +224,7 @@ def event_removal_where(obj, use_new_events_schema: bool = False) -> tuple[str, 
 class RequestType(models.TextChoices):
     PROPERTY_REMOVAL = "property_removal"
     EVENT_REMOVAL = "event_removal"
+    HOGQL_EVENT_REMOVAL = "hogql_event_removal", "HogQL event removal"
     PERSON_REMOVAL = "person_removal"
 
 
@@ -249,7 +250,8 @@ class DataDeletionRequest(UUIDModel):
         max_length=40,
         choices=RequestType.choices,
         help_text="property_removal: remove specific properties from matching events. "
-        "event_removal: delete entire events matching the criteria.",
+        "event_removal: delete entire events matching the criteria. "
+        "hogql_event_removal: delete events selected by a stored HogQL query.",
     )
     start_time = models.DateTimeField(null=True, blank=True)
     end_time = models.DateTimeField(null=True, blank=True)
@@ -273,6 +275,18 @@ class DataDeletionRequest(UUIDModel):
         "Validated against the events table at save time. Combined with the other "
         "filters (team/timestamp/events) via AND. Example: "
         "properties.$browser = 'Chrome'.",
+    )
+    hogql_query = models.TextField(
+        blank=True,
+        default="",
+        db_default="",
+        help_text="HogQL query snapshot for a query-backed event removal request.",
+    )
+    hogql_variables = models.JSONField(
+        blank=True,
+        default=dict,
+        db_default={},
+        help_text="Variables stored with the HogQL query snapshot.",
     )
     properties = ArrayField(
         models.CharField(max_length=1024),
@@ -427,6 +441,7 @@ class DataDeletionRequest(UUIDModel):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [models.Index(fields=["team_id", "-created_at"], name="ddr_team_created_at_idx")]
 
     def __str__(self) -> str:
         return f"DataDeletionRequest({self.request_type}, team={self.team_id}, status={self.status})"
@@ -445,6 +460,9 @@ class DataDeletionRequest(UUIDModel):
             self._clean_event_removal()
         elif self.request_type == RequestType.PROPERTY_REMOVAL:
             self._clean_property_removal()
+        elif self.request_type == RequestType.HOGQL_EVENT_REMOVAL:
+            self._clean_hogql_event_removal()
+            return
         elif self.request_type == RequestType.PERSON_REMOVAL:
             self._clean_person_removal()
             return  # PERSON_REMOVAL never has hogql_predicate / events / properties
@@ -457,11 +475,28 @@ class DataDeletionRequest(UUIDModel):
             compile_hogql_predicate(self)
 
     def _clean_event_removal(self) -> None:
+        self._reject_hogql_query_fields()
         self._require_time_range()
         self._validate_event_scope(verb="delete")
         self._reject_person_fields()
 
+    def _clean_hogql_event_removal(self) -> None:
+        if not self.hogql_query.strip():
+            raise ValidationError({"hogql_query": "Provide a HogQL query."})
+        if self.execution_mode != ExecutionMode.DEFERRED:
+            raise ValidationError(
+                {"execution_mode": "Query-backed event removal requests must use deferred execution."}
+            )
+        if self.start_time is not None or self.end_time is not None or self.events or self.delete_all_events:
+            raise ValidationError({"events": "Query-backed event removal requests cannot use legacy event filters."})
+        if self.hogql_predicate or self.properties or self.person_properties:
+            raise ValidationError(
+                {"hogql_predicate": "Query-backed event removal requests cannot use legacy criteria."}
+            )
+        self._reject_person_fields()
+
     def _clean_property_removal(self) -> None:
+        self._reject_hogql_query_fields()
         self._require_time_range()
         self._validate_event_scope(verb="match")
         self._reject_person_fields()
@@ -481,6 +516,7 @@ class DataDeletionRequest(UUIDModel):
             raise ValidationError({"start_time": "start_time must be before end_time."})
 
     def _clean_person_removal(self) -> None:
+        self._reject_hogql_query_fields()
         if self.person_uuids and self.person_distinct_ids:
             raise ValidationError({"person_uuids": "Provide either person_uuids or person_distinct_ids, not both."})
         total = len(self.person_uuids) + len(self.person_distinct_ids)
@@ -500,6 +536,12 @@ class DataDeletionRequest(UUIDModel):
             raise ValidationError({"person_properties": "person_properties are not valid for person_removal."})
         if self.hogql_predicate:
             raise ValidationError({"hogql_predicate": "hogql_predicate is not valid for person_removal."})
+
+    def _reject_hogql_query_fields(self) -> None:
+        if self.hogql_query or self.hogql_variables:
+            raise ValidationError(
+                {"hogql_query": "HogQL query snapshots are only valid for query-backed event removal."}
+            )
 
     def _reject_person_fields(self) -> None:
         if self.person_uuids or self.person_distinct_ids:
@@ -709,6 +751,8 @@ def fetch_property_deletion_stats(obj: "DataDeletionRequest", *, user_id: int | 
 
 def fetch_deletion_stats(obj: "DataDeletionRequest", *, user_id: int | None = None) -> dict:
     """Dispatch to the appropriate stats function based on request type."""
+    if obj.request_type == RequestType.HOGQL_EVENT_REMOVAL:
+        raise ValueError("Stats are not available for query-backed deletion requests yet.")
     if obj.request_type == RequestType.PROPERTY_REMOVAL:
         return fetch_property_deletion_stats(obj, user_id=user_id)
     return fetch_event_deletion_stats(obj, user_id=user_id)
@@ -934,6 +978,32 @@ def count_remaining_for_request(request: "DataDeletionRequest") -> int | None:
     return None
 
 
+def count_pending_hogql_event_removals(request: "DataDeletionRequest") -> int:
+    from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
+    from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.client.connection import ClickHouseUser
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+    from posthog.clickhouse.workload import Workload
+
+    with tags_context(
+        product=Product.INTERNAL,
+        feature=Feature.DATA_DELETION,
+        team_id=request.team_id,
+        workload=Workload.OFFLINE,
+        query_type="data_deletion_request_verify_queued",
+    ):
+        result = sync_execute(
+            f"SELECT count() FROM {ADHOC_EVENTS_DELETION_TABLE} FINAL "
+            "WHERE team_id = %(team_id)s AND data_deletion_request_id = %(request_id)s AND is_deleted = 0",
+            {"team_id": request.team_id, "request_id": str(request.pk)},
+            team_id=request.team_id,
+            readonly=True,
+            workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.META,
+        )
+    return int(result[0][0]) if result else 0
+
+
 @dataclass
 class VerifyOutcome:
     remaining: int
@@ -950,11 +1020,15 @@ VERIFIABLE_STATUSES = (RequestStatus.QUEUED, RequestStatus.FAILED)
 def verify_queued_request(request: "DataDeletionRequest") -> VerifyOutcome:
     """Verify an event-removal request and promote it to COMPLETED when its events are gone.
 
-    Counts events still matching the request in ClickHouse. When zero remain and the request is in a
-    verifiable status (QUEUED or FAILED), atomically promotes it to COMPLETED via a status-guarded
-    update. Idempotent; safe to call from both the Dagster sweep job and the Django admin button.
+    Counts matching events for criteria-backed requests and pending queue rows for query-backed
+    requests. When zero remain and the request is in a verifiable status (QUEUED or FAILED),
+    atomically promotes it to COMPLETED via a status-guarded update. Idempotent; safe to call from
+    both the Dagster sweep job and the Django admin button.
     """
-    remaining = count_remaining_matching_events(request)
+    if request.request_type == RequestType.HOGQL_EVENT_REMOVAL:
+        remaining = count_pending_hogql_event_removals(request)
+    else:
+        remaining = count_remaining_matching_events(request)
     if remaining > 0 or request.status not in VERIFIABLE_STATUSES:
         return VerifyOutcome(remaining=remaining, promoted=False)
     promoted = DataDeletionRequest.objects.filter(pk=request.pk, status__in=VERIFIABLE_STATUSES).update(

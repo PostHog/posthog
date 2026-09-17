@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 
 from products.revenue_analytics.backend.views.core import SourceHandle
 from products.revenue_analytics.backend.views.schemas.mrr import SCHEMA as MRR_SCHEMA
@@ -15,7 +15,7 @@ class TestMRREventsBuilder(EventsSourceBaseTest):
 
     def test_build_mrr_query(self):
         """Test building MRR query for an event."""
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             handle = SourceHandle(type="events", team=self.team, event=self.events[0])
 
             query = build(handle)

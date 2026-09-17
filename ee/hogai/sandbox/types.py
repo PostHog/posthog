@@ -14,13 +14,27 @@ TURN_COMPLETE_METHOD = "_posthog/turn_complete"
 # Stop reasons
 STOP_REASON_END_TURN = "end_turn"
 
+# pi agent event shapes
+PI_EVENT_TYPE = "pi_event"
+PI_TURN_COMPLETED_TYPE = "turn_completed"
+PI_STOP_REASON_ERROR = "error"
+
+PI_RUNTIME_ERROR_MESSAGE = "The agent stopped with a runtime error"
+
 
 def is_turn_complete(event: dict) -> bool:
-    """Check if an ACP event signals the agent finished a turn.
+    """Check if a sandbox event signals the agent finished a turn.
 
-    Matches both the raw ACP prompt response (``result.stopReason == "end_turn"``)
-    and the synthetic ``_posthog/turn_complete`` notification.
+    Matches the raw ACP prompt response (``result.stopReason == "end_turn"``), the synthetic
+    ``_posthog/turn_complete`` notification, and the pi-shaped ``turn_completed`` event. Every
+    plane that closes a turn shares this predicate, so a run ends on the same event everywhere.
+
+    True for a pi turn that ended in a runtime error too — the turn is over either way. Check
+    `pi_turn_error` to tell the two apart before treating this as a successful completion.
     """
+    if event.get("type") == PI_EVENT_TYPE:
+        pi_event = event.get("event")
+        return isinstance(pi_event, dict) and pi_event.get("type") == PI_TURN_COMPLETED_TYPE
     if event.get("type") != ACP_NOTIFICATION_TYPE:
         return False
     notification = event.get("notification", {})
@@ -28,6 +42,21 @@ def is_turn_complete(event: dict) -> bool:
         return True
     result = notification.get("result")
     return isinstance(result, dict) and result.get("stopReason") == STOP_REASON_END_TURN
+
+
+def pi_turn_error(event: dict) -> bool:
+    """True when a pi ``turn_completed`` event reports a terminal runtime failure.
+
+    Pi keeps the same event shape for a normal end and a fatal error; only `stopReason`
+    tells them apart. A caller must check this before signalling `is_turn_complete` as a
+    successful completion, or a failed run gets recorded as one.
+    """
+    if event.get("type") != PI_EVENT_TYPE:
+        return False
+    pi_event = event.get("event")
+    if not isinstance(pi_event, dict) or pi_event.get("type") != PI_TURN_COMPLETED_TYPE:
+        return False
+    return pi_event.get("stopReason") == PI_STOP_REASON_ERROR
 
 
 def turn_complete_trace_id(event: dict) -> str | None:

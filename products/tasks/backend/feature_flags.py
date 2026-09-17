@@ -153,7 +153,7 @@ def is_agent_otel_telemetry_enabled(*, distinct_id: str, organization_id: str) -
 def get_model_access_error(model: str | None, *, distinct_id: str | None) -> str | None:
     """Reject a gated model the caller isn't entitled to; `None` when the selection is allowed.
 
-    Fail-closed on purpose. Only a model in `MODEL_ACCESS_FLAGS` reaches an evaluation at all,
+    Fail-closed on purpose. Only a model the catalog gives an `access_flag` reaches an evaluation at all,
     so an evaluation outage withholds a preview model from everyone rather than opening it to
     everyone — the opposite trade to the telemetry flags above, because this one decides spend.
     """

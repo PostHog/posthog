@@ -251,6 +251,7 @@ function createCodexConnection(config: AcpConnectionConfig): AcpConnection {
       },
       model: codexOptions.model,
       reasoningEffort: codexOptions.reasoningEffort,
+      serviceTier: codexOptions.serviceTier,
       gatewayModels: config.codexModels,
       processCallbacks: config.processCallbacks,
       onStructuredOutput: config.onStructuredOutput,

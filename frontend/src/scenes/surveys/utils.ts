@@ -13,8 +13,11 @@ import {
     SURVEY_RATING_SCALE,
 } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
+import { urls } from 'scenes/urls'
 
 import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
+import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import {
     BasicSurveyQuestion,
     CyclotronJobInvocationGlobals,
@@ -911,6 +914,42 @@ export function buildSurveyResponsesQuery(survey: Survey, filters: SurveyQueryFi
     return `SELECT ${columns.join(',\n')} FROM (${merged}) ORDER BY submitted_at DESC`
 }
 
+export function buildSurveyResponsesExportQuery(
+    survey: Survey,
+    filters: SurveyQueryFilters
+): DataTableNode & { source: HogQLQuery } {
+    const questions = getAnswerableQuestions(survey)
+    const merged = buildMergedSubmissionsSubquery(survey, filters, questions, { includeRespondentMetadata: true })
+    const columns = ['Respondent ID', 'Submitted at (UTC)', 'Status']
+    const expressions = [
+        'distinct_id',
+        "formatDateTime(submitted_at, '%Y-%m-%d %H:%i:%S', 'UTC')",
+        "multiIf(outcome = 'completed', 'Completed', outcome = 'dismissed', 'Dismissed', 'Abandoned')",
+    ]
+
+    for (const { question, index } of questions) {
+        const title = question.question.replace(/\s+/g, ' ').trim()
+        columns.push(`Q${index + 1}${title ? `: ${title}` : ''}`)
+        const answer = mergedAnswerAlias(index)
+        expressions.push(
+            question.type === SurveyQuestionType.MultipleChoice
+                ? `arrayStringConcat(arrayMap(choice -> JSONExtractString(choice), ${answer}), ', ')`
+                : isScaleTwoRating(question)
+                  ? `multiIf(${answer} = '1', 'Thumbs up', ${answer} = '2', 'Thumbs down', ${answer})`
+                  : answer
+        )
+    }
+
+    return {
+        kind: NodeKind.DataTableNode,
+        columns,
+        source: {
+            kind: NodeKind.HogQLQuery,
+            query: `SELECT ${expressions.map((expression, index) => `${expression} AS ${escapePropertyAsHogQLIdentifier(columns[index])}`).join(',\n')} FROM (${merged}) ORDER BY submitted_at DESC`,
+        },
+    }
+}
+
 export function buildSurveyResponseSQLQuery(
     survey: Survey,
     filters: SurveyQueryFilters,
@@ -1350,6 +1389,7 @@ export type SurveyConditionType =
     | 'events'
     | 'actions'
     | 'flag'
+    | 'flag_variant'
     | 'targeting'
     | 'wait_period'
 
@@ -1357,6 +1397,7 @@ export interface SurveyConditionSummary {
     type: SurveyConditionType
     label: string
     value: string
+    href?: string
 }
 
 export interface SurveyCollectionLimitSummary {
@@ -1494,9 +1535,17 @@ export function getSurveyDisplayConditionsSummary(survey: Survey | NewSurvey): S
         })
     }
     if (survey.linked_flag?.key) {
-        parts.push({ type: 'flag', label: 'Feature flag', value: survey.linked_flag.key })
+        parts.push({
+            type: 'flag',
+            label: 'Feature flag',
+            value: survey.linked_flag.key,
+            href: urls.featureFlag(survey.linked_flag.id),
+        })
     } else if (survey.linked_flag_id) {
         parts.push({ type: 'flag', label: 'Feature flag', value: 'Linked' })
+    }
+    if ((survey.linked_flag || survey.linked_flag_id) && conditions?.linkedFlagVariant) {
+        parts.push({ type: 'flag_variant', label: 'Variant', value: conditions.linkedFlagVariant })
     }
     const audienceSummary = getSurveyAudienceSummaryValue(survey)
     if (audienceSummary) {

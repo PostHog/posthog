@@ -32,8 +32,12 @@ const OUTCOME_BOX_CLASS: Record<ScoutRunOutcome, string> = {
 
 const MAX_BOXES = 24
 const BOX_CLASS = 'block h-3 w-2 shrink-0 rounded-[2px] transition-transform duration-100 hover:scale-y-125'
+// A box column always keeps the marker's height, priced or not, so the strip does not jump a few
+// pixels when the costs land a moment after the runs.
+const COLUMN_CLASS = 'flex h-4 w-2 shrink-0 flex-col items-center justify-end gap-px'
+const MARKER_CLASS = 'block h-[3px] w-2 rounded-[1px] bg-brand-yellow'
 
-function runTooltip(run: SignalScoutRunSummary, now: Date, costUsd: number | undefined): string {
+function runTooltip(run: SignalScoutRunSummary, now: Date, costUsd: number | undefined, expensive: boolean): string {
     const parts = [scoutRunOutcomeLabel(run, now)]
     const duration = formatRunDuration(runDurationSeconds(run, now))
     if (duration) {
@@ -46,6 +50,11 @@ function runTooltip(run: SignalScoutRunSummary, now: Date, costUsd: number | und
     // rest of the tooltip reads the same as before.
     if (costUsd !== undefined) {
         parts.push(formatRunCost(costUsd))
+    }
+    // The marker is a colored bar, so say the same thing in words for anyone reading the tooltip
+    // or the screen-reader label.
+    if (expensive) {
+        parts.push('top 10% of runs by cost')
     }
     return parts.join(' · ')
 }
@@ -67,18 +76,25 @@ function runTooltip(run: SignalScoutRunSummary, now: Date, costUsd: number | und
 export function ScoutRunBoxes({
     runs,
     costs,
+    costThreshold,
 }: {
     runs: SignalScoutRunSummary[]
     costs?: Map<string, number>
+    costThreshold?: number | null
 }): JSX.Element | null {
     const visible = useMemo(() => {
         const now = new Date()
-        return runs.slice(-MAX_BOXES).map((run) => ({
-            run,
-            outcome: deriveRunOutcome(run, now),
-            tooltip: runTooltip(run, now, costs?.get(run.run_id)),
-        }))
-    }, [runs, costs])
+        return runs.slice(-MAX_BOXES).map((run) => {
+            const costUsd = costs?.get(run.run_id)
+            const expensive = costUsd !== undefined && costThreshold != null && costUsd >= costThreshold
+            return {
+                run,
+                outcome: deriveRunOutcome(run, now),
+                expensive,
+                tooltip: runTooltip(run, now, costUsd, expensive),
+            }
+        })
+    }, [runs, costs, costThreshold])
 
     if (runs.length === 0) {
         return null
@@ -91,23 +107,30 @@ export function ScoutRunBoxes({
 
     return (
         <div className="flex flex-row-reverse items-center gap-1 min-w-0 overflow-hidden">
-            {newestFirst.map(({ run, outcome, tooltip }) => {
+            {newestFirst.map(({ run, outcome, expensive, tooltip }) => {
                 const boxClass = `${BOX_CLASS} ${OUTCOME_BOX_CLASS[outcome]}`
-                if (run.task_url) {
-                    const linkTooltip = `${tooltip} · open task run`
-                    return (
-                        <Tooltip key={run.run_id} title={linkTooltip}>
-                            <Link to={run.task_url} className={boxClass}>
-                                <span className="sr-only">Run {linkTooltip}</span>
-                            </Link>
-                        </Tooltip>
-                    )
-                }
+                const boxTooltip = run.task_url ? `${tooltip} · open task run` : tooltip
+                const label = <span className="sr-only">Run {boxTooltip}</span>
+                const column = (
+                    <>
+                        {expensive ? <span className={MARKER_CLASS} /> : null}
+                        <span className={boxClass}>{label}</span>
+                    </>
+                )
+                // The whole column links, not only the box, because the tooltip spans the column
+                // and offers to open the task run. A marker left outside the link would not
+                // navigate there: the roster card holds no handler above the box, and the roster
+                // table's row handler pushes the scout page for every click that is not inside an
+                // `a` or `button`.
                 return (
-                    <Tooltip key={run.run_id} title={tooltip}>
-                        <span className={boxClass}>
-                            <span className="sr-only">Run {tooltip}</span>
-                        </span>
+                    <Tooltip key={run.run_id} title={boxTooltip}>
+                        {run.task_url ? (
+                            <Link to={run.task_url} className={COLUMN_CLASS}>
+                                {column}
+                            </Link>
+                        ) : (
+                            <span className={COLUMN_CLASS}>{column}</span>
+                        )}
                     </Tooltip>
                 )
             })}
