@@ -7,12 +7,14 @@ export function useAgentConversationItems(
   events: AgentConversationEvent[],
   isPromptPending: boolean | null,
   historyVersion: number,
+  currentRunId?: string,
 ): BuildResult {
   const ref = useRef<{
     builder: ReturnType<typeof createIncrementalAgentConversationBuilder>;
     events: AgentConversationEvent[] | null;
     pending: boolean | null;
     version: number;
+    currentRunId: string | undefined;
     result: BuildResult | null;
   } | null>(null);
   if (!ref.current) {
@@ -21,6 +23,7 @@ export function useAgentConversationItems(
       events: null,
       pending: null,
       version: historyVersion,
+      currentRunId: undefined,
       result: null,
     };
   }
@@ -33,11 +36,15 @@ export function useAgentConversationItems(
   if (
     !cache.result ||
     cache.events !== events ||
-    cache.pending !== isPromptPending
+    cache.pending !== isPromptPending ||
+    cache.currentRunId !== currentRunId
   ) {
-    cache.result = cache.builder.update(events, isPromptPending);
+    cache.result = cache.builder.update(events, isPromptPending, {
+      currentRunId,
+    });
     cache.events = events;
     cache.pending = isPromptPending;
+    cache.currentRunId = currentRunId;
     cache.version = historyVersion;
   }
   return cache.result;

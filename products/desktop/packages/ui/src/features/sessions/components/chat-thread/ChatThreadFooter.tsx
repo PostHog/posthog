@@ -56,7 +56,11 @@ export function ChatThreadFooter({
     <div className="pt-1">
       {taskId && task && (
         <div className="-mx-2.5 pb-1">
-          <SessionStartupRow taskId={taskId} task={task} />
+          <SessionStartupRow
+            taskId={taskId}
+            task={task}
+            hasCurrentSetupProgress={footerState.hasCurrentSetupProgress}
+          />
         </div>
       )}
       <SessionFooter

@@ -1311,10 +1311,15 @@ export function ChatThread({
   historyVersion,
   ...props
 }: ChatThreadProps) {
+  const currentRunId = useSessionSelector(
+    props.taskId,
+    (session) => session?.taskRunId,
+  );
   const { items, ...footerState } = useAgentConversationItems(
     events,
     props.isPromptPending,
     historyVersion,
+    currentRunId,
   );
 
   return (
@@ -1331,11 +1336,16 @@ export function ChatThread({
 
 export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
   const showDebugLogs = useSettingsStore((state) => state.debugLogsCloudRuns);
+  const currentRunId = useSessionSelector(
+    props.taskId,
+    (session) => session?.taskRunId,
+  );
   const { items, ...footerState } = useConversationItems(
     events,
     props.isPromptPending,
     {
       showDebugLogs,
+      currentRunId,
     },
   );
 

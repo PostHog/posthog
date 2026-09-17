@@ -7,6 +7,7 @@ import {
   type ConversationItem,
   createItemBuilder,
   finalizeBuilder,
+  hasSetupProgressForRun,
   type ItemBuilder,
   markThoughtCompletion,
   orderEventsByTimestamp,
@@ -97,6 +98,7 @@ function createBuilder<Event>(adapter: {
   let firstEventRef: Event | null = null;
   let boundaryEventRef: Event | null = null;
   let showDebugLogs: boolean | undefined;
+  let currentRunId: string | undefined;
   /** Timestamp of the last event fed to `b`, so a late arrival is detectable. */
   let lastProcessedTs = Number.NEGATIVE_INFINITY;
 
@@ -105,6 +107,7 @@ function createBuilder<Event>(adapter: {
     processedCount = 0;
     firstEventRef = null;
     boundaryEventRef = null;
+    currentRunId = undefined;
     lastProcessedTs = Number.NEGATIVE_INFINITY;
   }
 
@@ -114,6 +117,7 @@ function createBuilder<Event>(adapter: {
     options?: BuildConversationOptions,
   ): BuildResult {
     const debug = options?.showDebugLogs;
+    const runId = options?.currentRunId;
 
     // Idle (not streaming): finalize the persistent builder in place instead of
     // re-parsing every event, but only when the append-only prefix is still
@@ -124,6 +128,7 @@ function createBuilder<Event>(adapter: {
       const canFinalizeInPlace =
         b !== null &&
         debug === showDebugLogs &&
+        runId === currentRunId &&
         events.length >= processedCount &&
         (processedCount === 0 || events[0] === firstEventRef) &&
         (processedCount === 0 ||
@@ -145,6 +150,7 @@ function createBuilder<Event>(adapter: {
           items: builder.items,
           lastTurnInfo: readLastTurnInfo(builder),
           isCompacting: builder.isCompacting,
+          hasCurrentSetupProgress: hasSetupProgressForRun(builder, runId),
           isClearing: builder.isClearing,
           completedToolCallCount: builder.completedToolCallCount,
           lastActivityAt: builder.lastActivityAt,
@@ -170,6 +176,7 @@ function createBuilder<Event>(adapter: {
     const canAppend =
       b !== null &&
       debug === showDebugLogs &&
+      runId === currentRunId &&
       events.length >= processedCount &&
       (processedCount === 0 || events[0] === firstEventRef) &&
       (processedCount === 0 ||
@@ -186,6 +193,7 @@ function createBuilder<Event>(adapter: {
       processedCount = 0;
       lastProcessedTs = Number.NEGATIVE_INFINITY;
       showDebugLogs = debug;
+      currentRunId = runId;
     }
 
     const builder = b as ItemBuilder;
@@ -235,6 +243,7 @@ function createBuilder<Event>(adapter: {
       items: assembleItems(builder, activeStart),
       lastTurnInfo: readLastTurnInfoForOutput(builder),
       isCompacting: builder.isCompacting,
+      hasCurrentSetupProgress: hasSetupProgressForRun(builder, runId),
       isClearing: builder.isClearing,
       completedToolCallCount: builder.completedToolCallCount,
       lastActivityAt: builder.lastActivityAt,

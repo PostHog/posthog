@@ -707,6 +707,28 @@ describe("buildConversationItems", () => {
       expect(update.isActive).toBe(true);
     });
 
+    it("reports setup progress only for the current run", () => {
+      const events: AcpMessage[] = [
+        progressMsg(
+          1,
+          "sandbox",
+          "in_progress",
+          "Setting up sandbox",
+          undefined,
+          "setup:run-1",
+        ),
+      ];
+
+      expect(
+        buildConversationItems(events, null, { currentRunId: "run-1" })
+          .hasCurrentSetupProgress,
+      ).toBe(true);
+      expect(
+        buildConversationItems(events, null, { currentRunId: "run-2" })
+          .hasCurrentSetupProgress,
+      ).toBe(false);
+    });
+
     it("marks the progress group inactive once no step is in_progress", () => {
       const events: AcpMessage[] = [
         progressMsg(1, "sandbox", "completed", "Set up sandbox"),

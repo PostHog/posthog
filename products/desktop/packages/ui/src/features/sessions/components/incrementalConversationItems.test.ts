@@ -214,6 +214,7 @@ function normalize(result: BuildResult) {
     items: result.items.map(normItem),
     lastTurnInfo: result.lastTurnInfo,
     isCompacting: result.isCompacting,
+    hasCurrentSetupProgress: result.hasCurrentSetupProgress,
     completedToolCallCount: result.completedToolCallCount,
     lastActivityAt: result.lastActivityAt,
   };

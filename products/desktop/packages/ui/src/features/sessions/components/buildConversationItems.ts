@@ -83,6 +83,8 @@ export interface BuildResult {
   items: ConversationItem[];
   lastTurnInfo: LastTurnInfo | null;
   isCompacting: boolean;
+  /** True when the transcript contains setup progress for the current run. */
+  hasCurrentSetupProgress: boolean;
   /** A `/clear` is in flight (its status row shows the dedicated spinner), so
    *  the generic "Generating…" footer must stay hidden — same as compaction. */
   isClearing: boolean;
@@ -303,6 +305,7 @@ function pushItem(b: ItemBuilder, update: RenderItem, ts?: number) {
 export interface BuildConversationOptions {
   /** Render `debug`-level console logs inline; without this only info/warn/error show up. */
   showDebugLogs?: boolean;
+  currentRunId?: string;
 }
 
 /**
@@ -349,6 +352,7 @@ export function buildConversationItems(
     items: b.items,
     lastTurnInfo,
     isCompacting: b.isCompacting,
+    hasCurrentSetupProgress: hasSetupProgressForRun(b, options?.currentRunId),
     isClearing: b.isClearing,
     completedToolCallCount: b.completedToolCallCount,
     lastActivityAt: b.lastActivityAt,
@@ -397,6 +401,7 @@ export function processEvent(
 export function buildAgentConversationItems(
   events: AgentConversationEvent[],
   isPromptPending: boolean | null,
+  options?: BuildConversationOptions,
 ): BuildResult {
   const b = createItemBuilder();
   const ordered = orderEventsByTimestamp(events, (event) => event.timestamp);
@@ -411,6 +416,7 @@ export function buildAgentConversationItems(
     items: b.items,
     lastTurnInfo: readLastTurnInfo(b),
     isCompacting: b.isCompacting,
+    hasCurrentSetupProgress: hasSetupProgressForRun(b, options?.currentRunId),
     isClearing: b.isClearing,
     completedToolCallCount: b.completedToolCallCount,
     lastActivityAt: b.lastActivityAt,
@@ -1045,6 +1051,15 @@ function syncProgressCard(
   ) {
     b.items[card.itemIndex] = { ...item, update: renderItem };
   }
+}
+
+export function hasSetupProgressForRun(
+  b: ItemBuilder,
+  currentRunId?: string,
+): boolean {
+  return (
+    currentRunId !== undefined && b.progressCards.has(`setup:${currentRunId}`)
+  );
 }
 
 function handleProgress(
