@@ -1484,6 +1484,8 @@ class TestTicketConfirmationBlocks(BaseTest):
 
 
 UNFURL_TEAM = "T_WORKSPACE"
+# What conversations.info returns for an ordinary internal channel.
+INTERNAL_CHANNEL = {"id": "C_INTERNAL", "name": "team-support", "is_channel": True}
 
 
 class TestTicketLinkUnfurl(BaseTest):
@@ -1501,19 +1503,19 @@ class TestTicketLinkUnfurl(BaseTest):
         self.mock_capture = capture_patcher.start()
         self.addCleanup(capture_patcher.stop)
 
-    def _event(self, *, url: str | None = None, user: str = "U_TEAMMATE", **extra) -> dict:
+    def _event(self, *, urls: list[str] | None = None, user: str = "U_TEAMMATE", **extra) -> dict:
         return {
             "type": "link_shared",
             "channel": "C_INTERNAL",
             "user": user,
             "message_ts": MESSAGE_TS,
-            "links": [{"domain": "posthog.com", "url": url or self.url}],
+            "links": [{"domain": "posthog.com", "url": url} for url in (urls or [self.url])],
             **extra,
         }
 
-    def _run(self, event: dict, *, channel_info: dict | None = None, sharer: dict | None = None) -> MagicMock:
+    def _run(self, event: dict, *, channel_info: dict = INTERNAL_CHANNEL, sharer: dict | None = None) -> MagicMock:
         client = MagicMock()
-        client.conversations_info.return_value = {"channel": channel_info if channel_info is not None else {}}
+        client.conversations_info.return_value = {"channel": channel_info}
         resolved = sharer if sharer is not None else {"email": self.user.email, "team_id": UNFURL_TEAM}
         with (
             patch(f"{MODULE}.get_slack_client", return_value=client),
@@ -1586,7 +1588,37 @@ class TestTicketLinkUnfurl(BaseTest):
         client.chat_unfurl.assert_not_called()
 
     def test_unknown_ticket_number_is_not_unfurled(self):
-        client = self._run(self._event(url=f"{settings.SITE_URL}/project/{self.team.id}/support/tickets/424242"))
+        client = self._run(self._event(urls=[f"{settings.SITE_URL}/project/{self.team.id}/support/tickets/424242"]))
+
+        client.chat_unfurl.assert_not_called()
+
+    def test_a_link_that_is_not_a_ticket_costs_no_slack_calls(self):
+        # The app's whole host is registered for unfurling, so every pasted PostHog link lands
+        # here. Looking the channel up first would spend an uncached, rate-limited
+        # conversations_info call on every insight and dashboard link in the workspace.
+        with patch(f"{MODULE}.get_slack_client") as mock_get_client:
+            handle_link_shared(
+                self._event(urls=[f"{settings.SITE_URL}/project/{self.team.id}/insights/abc123"]),
+                self.team,
+                UNFURL_TEAM,
+            )
+
+        mock_get_client.assert_not_called()
+
+    def test_each_link_gets_the_card_for_its_own_ticket(self):
+        other = _create_slack_ticket(self.team)
+        other_url = ticket_deep_link(other, self.team)
+
+        client = self._run(self._event(urls=[self.url, other_url]))
+
+        unfurls = client.chat_unfurl.call_args.kwargs["unfurls"]
+        assert set(unfurls) == {self.url, other_url}
+        assert f"Ticket #{self.ticket.ticket_number}" in json.dumps(unfurls[self.url])
+        assert f"Ticket #{other.ticket_number}" in json.dumps(unfurls[other_url])
+
+    def test_channel_lookup_without_a_channel_fails_closed(self):
+        # ok-but-empty should never read as "no external flags, so internal".
+        client = self._run(self._event(), channel_info={})
 
         client.chat_unfurl.assert_not_called()
 
@@ -1615,3 +1647,10 @@ class TestTicketLinkUnfurl(BaseTest):
 
     def test_our_own_ticket_url_resolves(self):
         assert ticket_number_from_url(self.url, self.team) == self.ticket.ticket_number
+
+    def test_host_match_ignores_case(self):
+        # Hosts are case-insensitive, so a typed-out host is still our own link.
+        scheme, _, rest = self.url.partition("://")
+        host, _, path = rest.partition("/")
+
+        assert ticket_number_from_url(f"{scheme}://{host.upper()}/{path}", self.team) == self.ticket.ticket_number

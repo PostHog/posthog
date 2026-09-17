@@ -1556,7 +1556,7 @@ def ticket_number_from_url(url: str, team: Team) -> int | None:
         parsed = urlparse(url)
     except ValueError:
         return None
-    if parsed.netloc != urlparse(settings.SITE_URL).netloc:
+    if parsed.netloc.lower() != urlparse(settings.SITE_URL).netloc.lower():
         return None
     match = _TICKET_URL_PATH_RE.match(parsed.path)
     if not match:
@@ -1612,6 +1612,9 @@ def _is_internal_channel(client: WebClient, channel: str) -> bool:
         logger.warning("slack_support_unfurl_channel_lookup_failed", slack_channel_id=channel)
         return False
     info = response.get("channel") or {}
+    if not info:
+        logger.warning("slack_support_unfurl_channel_missing", slack_channel_id=channel)
+        return False
     return not any(info.get(flag) for flag in _EXTERNALLY_SHARED_FLAGS)
 
 
@@ -1628,8 +1631,24 @@ def handle_link_shared(event: dict, team: Team, slack_team_id: str) -> None:
         return
 
     channel = event.get("channel") or ""
-    links = [link.get("url", "") for link in event.get("links") or []]
-    if not channel or not links:
+    if not channel:
+        return
+
+    # Match the URLs before calling Slack. The app's whole host is registered for unfurling, so
+    # every PostHog link anyone pastes arrives here — an insight, a dashboard, a replay — and
+    # conversations_info below is uncached and rate limited per workspace. The cap counts ticket
+    # links, so one pasted after five unrelated links is still previewed.
+    candidates: dict[str, int] = {}
+    for link in event.get("links") or []:
+        if len(candidates) >= MAX_UNFURLS_PER_MESSAGE:
+            break
+        url = link.get("url", "")
+        if url in candidates:
+            continue
+        ticket_number = ticket_number_from_url(url, team)
+        if ticket_number is not None:
+            candidates[url] = ticket_number
+    if not candidates:
         return
 
     client = get_slack_client(team)
@@ -1640,19 +1659,11 @@ def handle_link_shared(event: dict, team: Team, slack_team_id: str) -> None:
     if sharer.get("team_id") != slack_team_id or not resolve_posthog_user_for_slack(sharer.get("email"), team):
         return
 
-    # Cap the cards, not the links scanned: a ticket link pasted after five unrelated ones
-    # is still the one worth previewing.
-    unfurls: dict[str, dict] = {}
-    for url in links:
-        if len(unfurls) >= MAX_UNFURLS_PER_MESSAGE:
-            break
-        ticket_number = ticket_number_from_url(url, team)
-        if ticket_number is None or url in unfurls:
-            continue
-        ticket = Ticket.objects.filter(team=team, ticket_number=ticket_number).first()
-        if ticket is not None:
-            unfurls[url] = ticket_unfurl(ticket, team)
-
+    tickets = {
+        ticket.ticket_number: ticket
+        for ticket in Ticket.objects.filter(team=team, ticket_number__in=set(candidates.values()))
+    }
+    unfurls = {url: ticket_unfurl(tickets[number], team) for url, number in candidates.items() if number in tickets}
     if not unfurls:
         return
 
