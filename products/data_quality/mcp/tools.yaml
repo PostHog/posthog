@@ -29,7 +29,7 @@ tools:
             Query `system.information_schema.data_quality_checks` first — re-creating an identical check is a no-op,
             but a near-duplicate with different config is noise for whoever reviews the results.
 
-            Prefer a generic type over custom_sql. Config per type:
+            On a table or a view, prefer a generic type over custom_sql. Config per type:
               - not_null, unique: no config; set column_name.
               - accepted_values: {"values": ["paid", "refunded"]}; set column_name.
               - relationships: {"to_subject_type": "table", "to_subject_uuid": "<uuid>", "to_column": "id"}; set
@@ -37,6 +37,10 @@ tools:
               - row_count: {"min": 1} and/or {"max": 1000000}; no column_name.
               - freshness: {"max_age_minutes": 60}; set column_name to a timestamp column.
               - custom_sql: {"query": "select 1 from orders where total < 0"}; every row it returns is a failure.
+
+            A metric supports custom_sql only, and takes no column_name. Its query must read the {metric} relation
+            exactly once and cannot use CTEs: {"query": "select * from {metric} where orders < 100"}. Call
+            data-quality-check-types with the subject_type to see which types that kind of subject supports.
 
             Use severity 'error' when bad data should block trusting the model, 'warn' when it is worth surfacing but
             not acting on. A check on a table runs after each sync of it, a check on a view when the view refreshes, and
