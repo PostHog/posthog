@@ -54,7 +54,9 @@ class SlackMembershipUnknown(SlackIntegrationError):
 
 def _is_rate_limited(error: SlackApiError) -> bool:
     response = getattr(error, "response", None)
-    return bool(response) and response.get("error") == "ratelimited"
+    if response is None:
+        return False
+    return bool(response.get("error") == "ratelimited")
 
 
 SLACK_INTEGRATION_KINDS: tuple[str, ...] = ("slack",)
