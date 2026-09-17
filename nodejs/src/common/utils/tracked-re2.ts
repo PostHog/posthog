@@ -33,12 +33,28 @@ const re2CreationCounter = new Counter({
  * mutable `lastIndex` state across exec() calls, so sharing it would corrupt matches.
  * The cache is bounded so adversarial or high-cardinality patterns cannot grow it
  * without limit (each RE2 holds native memory).
+ *
+ * Two bounds guard the cache, not one:
+ *   - entry count (RE2_CACHE_MAX_ENTRIES) caps how many patterns are held, and
+ *   - per-entry size (RE2_CACHE_MAX_PATTERN_BYTES) caps how large any single
+ *     cached pattern may be.
+ * The count bound alone is not sufficient: a customer-controlled transformation
+ * could feed a handful of multi-megabyte patterns into the cache, and each cached
+ * RE2 holds native memory proportional to its pattern, growing shared
+ * ingestion-worker memory without limit. Oversized patterns are compiled fresh on
+ * every call and never stored.
  */
 const RE2_CACHE_MAX_ENTRIES = 256
+// Patterns larger than this are compiled but never cached. 8 KB is far above any
+// legitimate transformation pattern yet small enough that the maximum native memory
+// the cache can hold stays bounded (~256 × 8 KB of pattern source, plus compiled
+// program size) regardless of attacker input.
+const RE2_CACHE_MAX_PATTERN_BYTES = 8 * 1024
 const re2Cache = new Map<string, RE2>()
 
 export function createTrackedRE2(pattern: string | RegExp, flags?: string, source = 'unknown'): RE2 {
-    const cacheable = typeof pattern === 'string' && !flags?.includes('g') && !flags?.includes('y')
+    const cacheable =
+        typeof pattern === 'string' && pattern.length <= RE2_CACHE_MAX_PATTERN_BYTES && !flags?.includes('g') && !flags?.includes('y')
     if (!cacheable) {
         re2CreationCounter.inc({ source })
         return (flags ? new RE2(pattern, flags) : new RE2(pattern)) as RE2

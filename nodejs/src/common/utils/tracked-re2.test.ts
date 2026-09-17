@@ -39,4 +39,22 @@ describe('createTrackedRE2', () => {
         expect(re.exec('sk_test_zzzzzzzzzzzz')?.[1]).toBe('zzzzzzzzzzzz')
         expect(re.test('no match here')).toBe(false)
     })
+
+    it('does not cache patterns above the per-entry size limit', () => {
+        // A customer-controlled pattern can be arbitrarily large; caching even a handful
+        // of huge patterns would grow shared ingestion-worker memory without bound.
+        const hugePattern = 'a'.repeat(64 * 1024)
+        const a = createTrackedRE2(hugePattern, undefined, 'test-cache-huge')
+        const b = createTrackedRE2(hugePattern, undefined, 'test-cache-huge')
+        // Not cached: each call compiles a fresh instance.
+        expect(a).not.toBe(b)
+    })
+
+    it('still caches patterns at the boundary size', () => {
+        // Just under the limit must remain cached (we do not break the hot path).
+        const pattern = 'a'.repeat(1024)
+        const a = createTrackedRE2(pattern, undefined, 'test-cache-boundary')
+        const b = createTrackedRE2(pattern, undefined, 'test-cache-boundary')
+        expect(a).toBe(b)
+    })
 })
