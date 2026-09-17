@@ -178,6 +178,55 @@ describe('dataCatalogMetricSceneLogic', () => {
         }
     })
 
+    it('keeps the delayed retry when the metric reload lands after the failure', async () => {
+        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] })
+        try {
+            lineageRequest().mockRejectedValue(new ApiError('nope', 404))
+            let finishReload: (metric: DataCatalogMetricApi) => void = () => {}
+            ;(dataCatalogMetricsRetrieve as jest.Mock).mockReturnValue(
+                new Promise<DataCatalogMetricApi>((resolve) => {
+                    finishReload = resolve
+                })
+            )
+
+            logic.actions.setActiveTab('lineage')
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.lineageProblem).toBe('not_ready')
+
+            finishReload(buildMetric())
+            await jest.advanceTimersByTimeAsync(0)
+            expect(lineageRequest()).toHaveBeenCalledTimes(1)
+
+            await jest.advanceTimersByTimeAsync(LINEAGE_RETRY_MS)
+            expect(lineageRequest()).toHaveBeenCalledTimes(2)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('drops the delayed retry when a refresh loaded lineage inside the window', async () => {
+        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] })
+        try {
+            lineageRequest().mockRejectedValue(new ApiError('nope', 404))
+            logic.actions.setActiveTab('lineage')
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.lineageProblem).toBe('not_ready')
+            lineageRequest().mockClear()
+
+            lineageRequest().mockResolvedValueOnce({ nodes: [{ id: 'node-1' }], edges: [] })
+            lineageRequest().mockRejectedValue(new ApiError('boom', 500))
+            logic.actions.loadLineage()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.lineage?.nodes).toHaveLength(1)
+
+            await jest.advanceTimersByTimeAsync(LINEAGE_RETRY_MS * 2)
+            expect(lineageRequest()).toHaveBeenCalledTimes(1)
+            expect(logic.values.lineageProblem).toBeNull()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it.each([
         [404, 'not_ready'],
         [403, 'no_warehouse_access'],

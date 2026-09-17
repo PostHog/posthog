@@ -397,6 +397,7 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
                 setMetric: () => true,
                 markLineageStale: () => true,
                 loadLineageSuccess: () => false,
+                loadLineageFailure: () => false,
             },
         ],
         lineageRequestedFor: [
@@ -526,7 +527,9 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             if (!metricHasExecutableDefinition(values.metric)) {
                 return
             }
-            if (values.lineage && !values.lineageStale) {
+            // The request for this metric has settled and the tab shows what it returned, so asking
+            // again would repeat it. After a failure the scheduled retry owns the next attempt.
+            if (!values.lineageStale && lineageMetricKey(values.metric) === values.lineageRequestedFor) {
                 return
             }
             actions.setLineageRequestedFor(lineageMetricKey(values.metric))
@@ -538,6 +541,11 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             }
             actions.setLineageRetried(true)
             await breakpoint(LINEAGE_RETRY_MS)
+            // A refresh or a reload can load the graph inside the window, so ask again only while
+            // the tab still waits for the node.
+            if (values.lineageProblem !== 'not_ready' || values.lineageLoading) {
+                return
+            }
             actions.loadLineage()
         },
         loadMetricFailure: () => {
