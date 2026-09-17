@@ -172,6 +172,13 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
         ]
     }
 
+    const selectedProperties = columnsToSelectedProperties({
+        columns,
+        taxonomicGroupTypes,
+        toHogQL: columnFromTaxonomicFilter,
+        implicitPrefixGroupType: isSessionsQuery(query.source) ? TaxonomicFilterGroupType.SessionProperties : undefined,
+    })
+
     const showPersistedColumnReorder =
         isEventsQuery(query.source) ||
         isGroupsQuery(query.source) ||
@@ -261,19 +268,18 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                                             width={width}
                                             taxonomicGroupTypes={taxonomicGroupTypes}
                                             value={undefined}
-                                            selectedProperties={columnsToSelectedProperties({
-                                                columns,
-                                                taxonomicGroupTypes,
-                                                toHogQL: columnFromTaxonomicFilter,
-                                                implicitPrefixGroupType: isSessionsQuery(query.source)
-                                                    ? TaxonomicFilterGroupType.SessionProperties
-                                                    : undefined,
-                                            })}
+                                            selectedProperties={selectedProperties}
                                             keepSearchOnSelect
                                             onChange={(group, value) => {
                                                 const column = columnFromTaxonomicFilter(group.type, value)
                                                 if (column === null) {
                                                     lemonToast.error("This property can't be a column on this table")
+                                                    return
+                                                }
+                                                // A column keeps whatever text the table stored, so a labeled
+                                                // or unprefixed one never equals what the converter builds.
+                                                // Gate on the keys that drew the check, not on the column string.
+                                                if (selectedProperties[group.type]?.includes(value)) {
                                                     return
                                                 }
                                                 selectColumn(column)
