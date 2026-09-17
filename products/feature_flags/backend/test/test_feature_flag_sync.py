@@ -8,7 +8,9 @@ from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone as tz
 
+from django_redis.exceptions import ConnectionInterrupted
 from prometheus_client import REGISTRY
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManyBytes, CHQueryErrorUnknownTable
 from posthog.exceptions import ClickHouseAtCapacity
@@ -638,3 +640,26 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         # sync_execute wraps capacity errors (code 202) into ClickHouseAtCapacity,
         # so the wrapped form must be retryable too
         assert ClickHouseAtCapacity in autoretry_for
+        # The lock and the checkpoint both live in Redis, so a Redis blip has to retry too,
+        # otherwise the checkpoint stays put and the 6 hour lookback cap drops updates
+        assert issubclass(RedisConnectionError, autoretry_for)
+        assert ConnectionInterrupted in autoretry_for
+
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
+    @patch("posthog.clickhouse.client.sync_execute")
+    @patch("posthog.tasks.tasks.get_client")
+    def test_failed_lock_release_does_not_mask_original_error(
+        self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
+    ) -> None:
+        redis_mock = mock_redis_client()
+        checkpoint_key = "posthog:feature_flag_last_called_sync:last_timestamp"
+        checkpoint_time = tz.make_aware(datetime(2024, 6, 15, 11, 55, 0))
+        redis_mock.storage[checkpoint_key] = checkpoint_time.isoformat().encode()
+        mock_get_client.return_value = redis_mock
+        mock_sync_execute.side_effect = ClickHouseAtCapacity()
+
+        # The lock release runs while the ClickHouse error is on its way out, so a Redis error
+        # there must not become the error Celery sees
+        with patch("django.core.cache.cache.delete", side_effect=RedisConnectionError("redis is down")):
+            with self.assertRaises(ClickHouseAtCapacity):
+                sync_feature_flag_last_called()
