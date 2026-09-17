@@ -23,6 +23,7 @@ import {
     pullRequest,
     push,
     schedule,
+    workflowDispatch,
 } from '../src/scenarios.ts'
 
 const WORKFLOWS_DIR = path.join(REPO_ROOT, '.github/workflows')
@@ -77,6 +78,19 @@ const suite = (file: string, selectors: Stubs): ExpectationBuilder => {
 const backend = suite('ci-backend.yml', backendSelectors)
 const frontend = suite('ci-frontend.yml', frontendSelectors)
 const PINNED_WORKFLOWS = ['ci-backend.yml', 'ci-frontend.yml']
+
+// A release workflow builds its artifacts on a pull request as a check. Only a manual dispatch
+// from master reaches the job that uploads to a registry.
+const release = (file: string, job: string, step: string, output: string): ExpectationBuilder =>
+    suite(file, { [job]: { [step]: { outputs: { [output]: 'true' } } } })
+const cppParser = release('build-hogql-parser.yml', 'check-version', 'version', 'parser-release-needed')
+const rustParser = release('build-hogql-parser-rs.yml', 'check-version', 'version', 'parser-release-needed')
+const npmParser = release(
+    'build-hogql-parser-npm.yml',
+    'check-package-version',
+    'check-package-version',
+    'is-new-version'
+)
 
 const frontendOnlyFilters: Stubs = {
     changes: {
@@ -297,6 +311,33 @@ const EXPECTATIONS: Expectation[] = [
         {
             results: { frontend_tests: 'cancelled' },
         }
+    ),
+    cppParser({ name: 'ready PR' }, { runs: ['check-version', 'build-wheels'], skipped: ['publish'] }),
+    cppParser(
+        { name: 'fork PR', github: pullRequest({ fork: true }) },
+        { runs: ['check-version'], skipped: ['build-wheels', 'publish'] }
+    ),
+    cppParser(
+        { name: 'master dispatch', github: workflowDispatch() },
+        { runs: ['check-version', 'build-wheels', 'publish'] }
+    ),
+    rustParser({ name: 'ready PR' }, { runs: ['check-version', 'build-wheels'], skipped: ['publish'] }),
+    rustParser(
+        { name: 'fork PR', github: pullRequest({ fork: true }) },
+        { runs: ['check-version'], skipped: ['build-wheels', 'publish'] }
+    ),
+    rustParser(
+        { name: 'master dispatch', github: workflowDispatch() },
+        { runs: ['check-version', 'build-wheels', 'publish'] }
+    ),
+    npmParser({ name: 'ready PR' }, { runs: ['check-package-version', 'build-wasm'], skipped: ['publish-npm'] }),
+    npmParser(
+        { name: 'fork PR', github: pullRequest({ fork: true }) },
+        { runs: ['check-package-version'], skipped: ['build-wasm', 'publish-npm'] }
+    ),
+    npmParser(
+        { name: 'master dispatch', github: workflowDispatch() },
+        { runs: ['check-package-version', 'build-wasm', 'publish-npm'] }
     ),
 ]
 
