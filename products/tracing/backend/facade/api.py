@@ -16,6 +16,7 @@ Do NOT:
 - Return ORM instances or QuerySets
 """
 
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from posthog.schema import (
@@ -45,6 +46,10 @@ from products.tracing.backend.latency_heatmap_query_runner import (
     run_latency_heatmap_query as _run_latency_heatmap_query,
 )
 from products.tracing.backend.self_time import annotate_self_time as _annotate_self_time
+from products.tracing.backend.session_error_counts import (
+    MAX_SESSIONS_PER_LOOKUP as _MAX_SESSIONS_PER_LOOKUP,
+    count_session_exceptions as _count_session_exceptions,
+)
 from products.tracing.backend.symbol_stats_query_runner import run_symbol_stats_query as _run_symbol_stats_query
 
 if TYPE_CHECKING:
@@ -54,6 +59,10 @@ if TYPE_CHECKING:
 # Allowlisted top-level span columns for the "span" breakdown type. Re-exported so the
 # presentation layer can validate `breakdownKey` without reaching into the query runner.
 FACET_COLUMNS = _FACET_COLUMNS
+
+# Cap on the sessions one error-count request may ask about. Re-exported so the presentation
+# layer can bound its request serializer without reaching into the lookup module.
+MAX_SESSIONS_PER_LOOKUP = _MAX_SESSIONS_PER_LOOKUP
 
 
 # --- Converters (model -> frozen dataclass) ---
@@ -176,3 +185,13 @@ def run_latency_heatmap_query(
 def annotate_self_time(spans: list[dict]) -> None:
     """Set `self_time_nano` on every span dict of a full trace, in place."""
     _annotate_self_time(spans)
+
+
+def count_session_exceptions(
+    *, team: "Team", session_ids: list[str], date_from: datetime, date_to: datetime
+) -> dict[str, int]:
+    """Count the exceptions Error Tracking linked to an issue, per session, inside the window.
+
+    A session with no such exceptions is absent from the result rather than present with a zero.
+    """
+    return _count_session_exceptions(team=team, session_ids=session_ids, date_from=date_from, date_to=date_to)

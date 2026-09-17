@@ -48,7 +48,9 @@ from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
 
 from ..facade.api import (
     FACET_COLUMNS,
+    MAX_SESSIONS_PER_LOOKUP,
     annotate_self_time,
+    count_session_exceptions,
     run_attribute_breakdown_query,
     run_count_query,
     run_duration_histogram_query,
@@ -66,7 +68,6 @@ from ..logic import (
     run_service_names_query,
     run_tree_query,
 )
-from ..session_error_counts import MAX_SESSIONS_PER_LOOKUP, count_session_exceptions
 from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
 from .date_window import normalize_tracing_date_range
 
