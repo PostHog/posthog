@@ -82,3 +82,16 @@ class TestGitHubTransport(SimpleTestCase):
         ):
             github_request("GET", "https://api.github.com/search/code?q=x", source="test", installation_id=None)
         consume.assert_not_called()
+
+    def test_span_uses_the_request_host_for_raw_github_urls(self) -> None:
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+        with (
+            patch("posthog.egress.github.transport.tracer", provider.get_tracer("test")),
+            patch("requests.request", return_value=_response()),
+        ):
+            github_request("GET", "https://raw.githubusercontent.com/PostHog/posthog/main/README.md", source="test")
+
+        assert exporter.get_finished_spans()[0].attributes["server.address"] == "raw.githubusercontent.com"

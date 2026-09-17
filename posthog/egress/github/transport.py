@@ -12,6 +12,7 @@ is defined here for the same reason: the transport needs it, and it can't reach 
 
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 from opentelemetry import trace
@@ -136,7 +137,7 @@ def github_request(
     ``source`` attributes the call to a subsystem. ``headers`` must carry the caller's ``Authorization``."""
     attributes: dict[str, str | bool] = {
         "http.request.method": method.upper(),
-        "server.address": "api.github.com",
+        "server.address": urlparse(url).hostname or "unknown",
         "github.endpoint": endpoint or "unknown",
         "github.resource": classify_github_resource(url).value,
         "github.source": source,

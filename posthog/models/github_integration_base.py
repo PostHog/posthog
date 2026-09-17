@@ -53,7 +53,9 @@ GITHUB_BRANCH_CACHE_TTL_SECONDS = 60 * 10
 GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
 # A complete refresh can walk hundreds of GitHub pages. Keep one installation/repository refresh
 # in flight, and serve an existing stale snapshot to concurrent callers instead of repeating it.
-GITHUB_BRANCH_CACHE_REFRESH_CLAIM_TTL_SECONDS = GITHUB_BRANCH_CACHE_TTL_SECONDS
+# This is deliberately longer than the freshness window because the refresh itself may paginate
+# through a large repository. The finally block releases the claim as soon as the refresh ends.
+GITHUB_BRANCH_CACHE_REFRESH_CLAIM_TTL_SECONDS = 60 * 60
 
 INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY = "installation_unavailable_since"
 
