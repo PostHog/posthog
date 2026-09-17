@@ -4904,7 +4904,7 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
         # The producer's numbers are its own claim; the reading stored beside them is PostHog's, from
         # the same per-version, per-step series the outcome card reads.
         HogFlow.objects.filter(id=self.flow.id).update(
-            actions=[{"id": "email_1", "type": "function_email", "name": "Email", "config": {}}]
+            actions=[{"id": "email_1", "type": "function_email", "name": "Email", "config": {}}], status="active"
         )
         opted_in = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/optimisation", {"enabled": True}, format="json"
