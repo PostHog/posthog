@@ -198,6 +198,7 @@ func (s *queryScope) provenanceSources(name string) []Relation {
 	var sources []Relation
 	seen := map[string]bool{}
 	for current := s; current != nil; current = current.parent {
+		currentNames := map[string]bool{}
 		for _, source := range current.sources {
 			if !s.budget.lookup(len(name) + 1) {
 				return nil
@@ -206,8 +207,11 @@ func (s *queryScope) provenanceSources(name string) []Relation {
 			if seen[key] {
 				continue
 			}
-			seen[key] = true
+			currentNames[key] = true
 			sources = append(sources, source.relation)
+		}
+		for key := range currentNames {
+			seen[key] = true
 		}
 		if current.cteRoot {
 			break

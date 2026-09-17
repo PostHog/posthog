@@ -291,6 +291,7 @@ func TestCompletesScopedProjections(t *testing.T) {
 		{"cte name does not determine provenance", "WITH events AS (SELECT properties FROM persons) SELECT events.properties.$geo| FROM events", map[string]string{"$geo_city": "String"}},
 		{"ambiguous joined properties", "WITH t AS (SELECT properties FROM events JOIN persons ON 1 = 1) SELECT t.properties.$geo| FROM t", nil},
 		{"self join properties are ambiguous", "WITH t AS (SELECT properties FROM events AS e JOIN events AS other ON 1 = 1) SELECT t.properties.$geo| FROM t", nil},
+		{"unaliased self join properties are ambiguous", "WITH t AS (SELECT properties FROM events JOIN events ON 1 = 1) SELECT t.properties.$geo| FROM t", nil},
 		{"self join wildcard properties are ambiguous", "WITH t AS (SELECT * FROM events AS e JOIN events AS other ON 1 = 1) SELECT t.properties.$geo| FROM t", nil},
 		{"inner alias hides outer property source", "SELECT (SELECT properties.$geo| FROM persons AS e) FROM events AS e", map[string]string{"$geo_city": "String"}},
 		{"duplicate projected properties", "WITH t AS (SELECT events.properties, events.properties FROM events) SELECT t.properties.$geo| FROM t", nil},
