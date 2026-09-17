@@ -69,7 +69,7 @@ impl Pipeline {
             // The two refuse differently, each fitting its own response
             // contract: v0's `process_events` rejects the whole request
             // (`CaptureError::NonAiEventOnAiLane`, 400), while v1's
-            // `drop_non_ai_events` drops only the offenders, because it can
+            // `drop_misrouted_events` drops only the offenders, because it can
             // report per-event outcomes. The guarantee relied on here is the
             // same either way.
             CaptureMode::Ai => vec![Self::Ai],
