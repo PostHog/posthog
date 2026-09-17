@@ -58,6 +58,19 @@ _EVENT_FILTER_REASONS = get_args(EventFilterReason)
 
 
 @frozen
+class Subquery:
+    """One subquery of an execution, printed on its own, with the verdict and facts for its reads."""
+
+    sql: str
+    event_filter: dict[str, Any] | None = None
+    tree: dict[str, Any] | None = None
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> Subquery:
+        return cls(sql=payload["sql"], event_filter=payload.get("event_filter"), tree=payload.get("tree"))
+
+
+@frozen
 class Execution:
     """One printed execution of the run, as the trigger enqueued it. ``event_filter`` is the tree
     verdict the trigger classified and ``tree`` the other facts it read off the tree; either is
@@ -65,7 +78,7 @@ class Execution:
     """
 
     stubbed_sql: str
-    subqueries: tuple[str, ...]
+    subqueries: tuple[Subquery, ...]
     values: dict[str, Any]
     rows_read: int
     event_filter: dict[str, Any] | None = None
@@ -75,7 +88,7 @@ class Execution:
     def from_payload(cls, payload: dict[str, Any]) -> Execution:
         return cls(
             stubbed_sql=payload["stubbed_sql"],
-            subqueries=tuple(payload.get("subqueries") or ()),
+            subqueries=tuple(Subquery.from_payload(subquery) for subquery in payload.get("subqueries") or ()),
             values=payload.get("values") or {},
             rows_read=payload.get("rows_read") or 0,
             event_filter=payload.get("event_filter"),
@@ -137,8 +150,15 @@ def _run(job: QueryScanJob, started: float) -> None:
     for execution in job.executions:
         outer = _plan(execution.stubbed_sql, execution.values, job.team.pk)
         subqueries = tuple(
-            SubqueryPlan(plan=plan, range_granules=_range_granules(job.team.pk, plan, team_granules, range_cache))
-            for plan in (_plan(sql, execution.values, job.team.pk) for sql in execution.subqueries)
+            SubqueryPlan(
+                plan=plan,
+                range_granules=_range_granules(job.team.pk, plan, team_granules, range_cache),
+                event_filter=_combined_event_filter(subquery.event_filter, plan),
+                tree=TreeFacts.from_payload(subquery.tree),
+            )
+            for subquery, plan in (
+                (subquery, _plan(subquery.sql, execution.values, job.team.pk)) for subquery in execution.subqueries
+            )
             if plan is not None
         )
         range_granules = _range_granules(job.team.pk, outer, team_granules, range_cache)
@@ -155,7 +175,7 @@ def _run(job: QueryScanJob, started: float) -> None:
                     open_filters_placeholder=job.open_filters_placeholder,
                     tree=TreeFacts.from_payload(execution.tree),
                 ),
-                event_filter=_combined_event_filter(execution, outer),
+                event_filter=_combined_event_filter(execution.event_filter, outer),
                 table_row_averages=table_row_averages,
             )
         )
@@ -191,11 +211,10 @@ def _plan(sql: str, values: dict[str, Any], team_id: int) -> QueryPlan | None:
     return parse_query_plan(rows[0][0])
 
 
-def _combined_event_filter(execution: Execution, outer: QueryPlan | None) -> EventFilterOutcome | None:
-    """The tree verdict the trigger shipped, folded with the outer plan's key use. None when it shipped
-    none, so the plan alone decides.
+def _combined_event_filter(payload: dict[str, Any] | None, plan: QueryPlan | None) -> EventFilterOutcome | None:
+    """The tree verdict the trigger shipped for a plan, folded with the plan's key use. None when it
+    shipped none, so the plan alone decides.
     """
-    payload = execution.event_filter
     if not payload:
         return None
     classification = payload.get("classification")
@@ -207,7 +226,7 @@ def _combined_event_filter(execution: Execution, outer: QueryPlan | None) -> Eve
         reason=reason if reason in _EVENT_FILTER_REASONS else None,
         hidden_from_plan=payload.get("hidden_from_plan") is True,
     )
-    return combine_event_filter(outcome, outer)
+    return combine_event_filter(outcome, plan)
 
 
 def _range_granules(

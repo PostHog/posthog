@@ -66,12 +66,14 @@ def _same_verdict(one: EventFilterOutcome, other: EventFilterOutcome) -> bool:
     )
 
 
-def classify_event_filter(tree: ast.AST) -> EventFilterOutcome | None:
+def classify_event_filter(tree: ast.AST, reads: list[EventsRead] | None = None) -> EventFilterOutcome | None:
     """The verdict the tree alone supports; ``usable`` when there is no events read. None when the
     reads disagree: the tree cannot say which of them is the plan's heaviest read, the one the advice
-    is about, so no verdict can be pinned to it.
+    is about, so no verdict can be pinned to it. ``reads`` narrows the verdict to the reads one plan
+    holds; None takes every read in the tree.
     """
-    reads = find_events_reads(tree)
+    if reads is None:
+        reads = find_events_reads(tree)
     if not reads:
         return EventFilterOutcome(classification="usable")
 

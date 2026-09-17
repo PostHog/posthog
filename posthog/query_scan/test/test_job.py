@@ -14,7 +14,7 @@ from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.errors import InternalCHQueryError
 from posthog.query_scan import slot
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
-from posthog.query_scan.job import Execution, QueryScanJob, run_query_scan
+from posthog.query_scan.job import Execution, QueryScanJob, Subquery, run_query_scan
 from posthog.query_scan.stub import stub_in_subqueries
 
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
@@ -64,7 +64,7 @@ class TestQueryScanJob(BaseTest):
         self,
         dispatch: dict[str, Any],
         *,
-        subqueries: tuple[str, ...] = (),
+        subqueries: tuple[str | Subquery, ...] = (),
         team_denom: str = "plan_no_date_bound",
         range_denom: str = "plan_no_event_filter",
         averages_error: BaseException | None = None,
@@ -93,7 +93,10 @@ class TestQueryScanJob(BaseTest):
             executions=(
                 Execution(
                     stubbed_sql="STUBBED_MARKER",
-                    subqueries=subqueries,
+                    subqueries=tuple(
+                        subquery if isinstance(subquery, Subquery) else Subquery(sql=subquery)
+                        for subquery in subqueries
+                    ),
                     values={},
                     rows_read=500_000,
                     tree=tree,
@@ -141,6 +144,15 @@ class TestQueryScanJob(BaseTest):
                 ("SUB_MARKER",),
                 None,
                 ["no_event_filter/subquery"],
+                ["no_event_filter"],
+                True,
+            ),
+            (
+                "a subquery gets the cause its own verdict names",
+                {"STUBBED_MARKER": "plan_event_filter_used", "SUB_MARKER": "plan_no_event_filter"},
+                (Subquery(sql="SUB_MARKER", event_filter={"classification": "not_used", "reason": "wrapped"}),),
+                None,
+                ["no_event_filter/wrapped/subquery"],
                 ["no_event_filter"],
                 True,
             ),
@@ -253,7 +265,9 @@ class TestQueryScanJobOnClickhouse(ClickhouseTestMixin, BaseTest):
                 Execution(
                     stubbed_sql=print_prepared_ast(stub.stubbed, context, dialect="clickhouse"),
                     subqueries=tuple(
-                        print_prepared_ast(stub_in_subqueries(subquery).stubbed, context, dialect="clickhouse")
+                        Subquery(
+                            sql=print_prepared_ast(stub_in_subqueries(subquery).stubbed, context, dialect="clickhouse")
+                        )
                         for subquery in stub.subqueries
                     ),
                     values=context.values,

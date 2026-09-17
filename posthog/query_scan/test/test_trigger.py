@@ -1,6 +1,7 @@
 import json
 from typing import Any
 
+from posthog.test.base import BaseTest
 from unittest import mock
 
 from django.test import SimpleTestCase
@@ -27,9 +28,11 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
+from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.query_stats import QueryStats, RecordedExecution
 
 from posthog.clickhouse.query_tagging import AccessMethod, Feature, reset_query_tags, tag_queries
@@ -360,7 +363,7 @@ class TestQueryScanTrigger(SimpleTestCase):
         enqueued = self.delay.call_args.kwargs["executions"]
         assert [execution["rows_read"] for execution in enqueued] == [100, 50]
         assert enqueued[0]["stubbed_sql"] == "SELECT 1"
-        assert enqueued[0]["subqueries"] == ["SELECT 1"]
+        assert [subquery["sql"] for subquery in enqueued[0]["subqueries"]] == ["SELECT 1"]
         # A warehouse run's own values hold its source credentials, so only the job's print travels.
         assert [execution["values"] for execution in enqueued] == [{}, {}]
 
@@ -471,6 +474,51 @@ class TestQueryScanTrigger(SimpleTestCase):
         self._trigger(query=query)
 
         assert self.delay.call_args.kwargs["all_events_by_design"] is expected
+
+
+class TestSubqueryVerdicts(BaseTest):
+    def test_the_outer_query_and_a_subquery_are_each_judged_on_their_own_reads(self) -> None:
+        executor = HogQLQueryExecutor(
+            query=parse_select(
+                "select count() from events where event = '$pageview' and timestamp > now() - interval 7 day "
+                "and distinct_id in (select distinct_id from events "
+                "where lower(event) = 'signup' and timestamp > now() - interval 7 day)"
+            ),
+            team=self.team,
+            query_type="HogQLQuery",
+            limit_context=LimitContext.QUERY_ASYNC,
+        )
+        executor.generate_clickhouse_sql()
+        assert isinstance(executor.clickhouse_prepared_ast, ast.Expr) and executor.clickhouse_context is not None
+        execution = RecordedExecution(
+            tree=executor.clickhouse_prepared_ast, context=executor.clickhouse_context, rows_read=100
+        )
+        redis = mock.Mock()
+        redis.get.return_value = None
+        redis.incr.return_value = 1
+
+        with (
+            mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis),
+            mock.patch("posthog.tasks.query_scan.analyze_query_scan.delay") as delay,
+        ):
+            result = maybe_trigger_query_scan(
+                flag=FLAG,
+                stats=_stats(executions=[execution]),
+                team_id=self.team.pk,
+                cache_key="cache_key_1",
+                query=HogQLQuery(query="select 1"),
+                trigger="fresh",
+                cacheable=True,
+                insight_id=7,
+            )
+
+        assert result is None
+        shipped = delay.call_args.kwargs["executions"][0]
+        assert shipped["event_filter"]["classification"] == "usable"
+        assert [
+            (subquery["event_filter"]["classification"], subquery["event_filter"]["reason"])
+            for subquery in shipped["subqueries"]
+        ] == [("not_used", "wrapped")]
 
 
 class TestOpenFiltersPlaceholder(SimpleTestCase):

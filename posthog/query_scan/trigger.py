@@ -44,6 +44,7 @@ from posthog.query_scan.slot import (
     set_pending,
 )
 from posthog.query_scan.stub import stub_in_subqueries
+from posthog.query_scan.tree import EventsRead, find_events_reads
 from posthog.query_scan.tree_facts import tree_facts
 
 logger = structlog.get_logger(__name__)
@@ -266,13 +267,22 @@ def _print_execution(execution: RecordedExecution, subquery_budget: int) -> dict
             if execution.settings is not None
             else None
         )
+        # Each plan is judged on the reads it holds: a subquery's on its own, the outer query's
+        # without any of them. The tree is the run's, so the subqueries are the nodes inside it.
+        subquery_reads = [find_events_reads(subquery) for subquery in stub.subqueries]
+        in_a_subquery = {id(read.select) for reads in subquery_reads for read in reads}
+        outer_reads = [read for read in find_events_reads(execution.tree) if id(read.select) not in in_a_subquery]
         entry = {
             "stubbed_sql": print_prepared_ast(stub.stubbed, context, dialect="clickhouse", settings=settings),
             "subqueries": [
-                print_prepared_ast(
-                    stub_in_subqueries(subquery).stubbed, context, dialect="clickhouse", settings=settings
-                )
-                for subquery in stub.subqueries[: max(subquery_budget, 0)]
+                {
+                    "sql": print_prepared_ast(
+                        stub_in_subqueries(subquery).stubbed, context, dialect="clickhouse", settings=settings
+                    ),
+                    "event_filter": _event_filter_verdict(execution.tree, reads),
+                    "tree": _tree_facts_payload(execution.tree, reads),
+                }
+                for subquery, reads in list(zip(stub.subqueries, subquery_reads))[: max(subquery_budget, 0)]
             ],
             # The parameter values travel as they are: Celery's JSON serializer round-trips the
             # datetimes, dates, UUIDs and decimals among them.
@@ -280,8 +290,8 @@ def _print_execution(execution: RecordedExecution, subquery_budget: int) -> dict
             "rows_read": execution.rows_read,
             # The plan says whether ClickHouse pruned on `event`; the tree says why it could not.
             # Classify here, where the prepared tree is held; the job folds it into the plan.
-            "event_filter": _event_filter_verdict(execution.tree),
-            "tree": _tree_facts_payload(execution.tree),
+            "event_filter": _event_filter_verdict(execution.tree, outer_reads),
+            "tree": _tree_facts_payload(execution.tree, outer_reads),
         }
         if any(key.endswith("_sensitive") for key in context.values):
             # The warehouse stub runs before the print, so this catches any other credential or access list.
@@ -294,14 +304,14 @@ def _print_execution(execution: RecordedExecution, subquery_budget: int) -> dict
         return "print_failed"
 
 
-def _event_filter_verdict(tree: ast.Expr) -> dict[str, str | bool | None] | None:
+def _event_filter_verdict(tree: ast.Expr, reads: list[EventsRead]) -> dict[str, str | bool | None] | None:
     """The tree's event-filter classification, JSON-safe, for the job to combine with the plan.
 
     A classifier failure ships None rather than dropping the execution, because the plan-only
     fallback still produces a finding. Reads that disagree ship None for the same reason.
     """
     try:
-        outcome = classify_event_filter(tree)
+        outcome = classify_event_filter(tree, reads)
     except Exception:
         logger.warning("query_scan_classify_failed", exc_info=True)
         return None
@@ -314,11 +324,11 @@ def _event_filter_verdict(tree: ast.Expr) -> dict[str, str | bool | None] | None
     }
 
 
-def _tree_facts_payload(tree: ast.Expr) -> dict[str, Any] | None:
+def _tree_facts_payload(tree: ast.Expr, reads: list[EventsRead]) -> dict[str, Any] | None:
     """What the tree says about its events reads, JSON-safe. A failure ships None rather than
     dropping the execution: the plan alone still yields a finding, with the plain wording."""
     try:
-        facts = tree_facts(tree)
+        facts = tree_facts(tree, reads)
     except Exception:
         logger.warning("query_scan_tree_facts_failed", exc_info=True)
         return None

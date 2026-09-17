@@ -6,6 +6,8 @@ facts the trigger read off the tree say why. They give each finding its cause, w
 much by design and where its fix goes, and those pick its wording and whether the person can act.
 """
 
+from dataclasses import replace
+
 from posthog.schema import QueryScanFindingKind, QueryScanFixLocation, QueryScanWarning
 
 from posthog.dataclasses import frozen
@@ -20,11 +22,13 @@ __all__ = ["PlanSet", "QueryScanResult", "SubqueryPlan", "analyze"]
 
 @frozen
 class SubqueryPlan:
-    """One subquery's plan, with the project's events over the subquery's own date range, so it is
-    judged by the rule the outer query is."""
+    """One subquery's plan with what the outer query's plan gets: the project's events over its own
+    date range, and the verdict and facts the trigger read off its own part of the tree."""
 
     plan: QueryPlan
     range_granules: int | None = None
+    event_filter: EventFilterOutcome | None = None
+    tree: TreeFacts | None = None
 
 
 @frozen
@@ -87,9 +91,8 @@ def analyze(
     table_row_averages: dict[str, float] | None = None,
 ) -> QueryScanResult:
     """`event_filter` is the combined tree-and-plan verdict for the outer execution, from the job.
-    None means no verdict shipped, so the outer read's no-event-filter gate falls back to the
-    plan's keys alone. A subquery is never classified from the tree, so it always uses that
-    fallback.
+    None means no verdict shipped, so the no-event-filter gate falls back to the plan's keys alone.
+    Each subquery carries its own.
 
     `table_row_averages` is empty when the `system.parts` read failed; the persons gate then falls
     back to a raw granule comparison, so the analysis still runs without the metadata query.
@@ -98,10 +101,7 @@ def analyze(
     if plans.outer is None:
         return QueryScanResult(findings=[], explain_ok=False)
 
-    outer_events = plans.outer.heaviest_events_read()
-    numerator = outer_events.selected_granules() if outer_events is not None else None
-    if _plan_overstates_the_read(run, event_filter):
-        numerator = None
+    numerator = _read_granules(plans.outer, run, event_filter)
     range_share = _share(numerator, plans.range_granules)
     project_share = _share(numerator, plans.team_granules)
 
@@ -118,20 +118,19 @@ def analyze(
         event_filter=event_filter,
     )
     for index, subquery in enumerate(plans.subqueries):
-        subquery_events = subquery.plan.heaviest_events_read()
+        subquery_run = replace(run, tree=subquery.tree)
         findings += _findings_for_plan(
             subquery.plan,
             flag,
             query_kind=query_kind,
-            run=run,
+            run=subquery_run,
             range_share=_share(
-                subquery_events.selected_granules() if subquery_events is not None else None,
-                subquery.range_granules,
+                _read_granules(subquery.plan, subquery_run, subquery.event_filter), subquery.range_granules
             ),
             team_granules=plans.team_granules,
             subquery_index=index,
             table_row_averages=averages,
-            event_filter=None,
+            event_filter=subquery.event_filter,
         )
 
     return QueryScanResult(
@@ -244,6 +243,14 @@ def _findings_for_plan(
         )
 
     return findings
+
+
+def _read_granules(plan: QueryPlan, run: RunFacts, event_filter: EventFilterOutcome | None) -> int | None:
+    """The granules of the plan's largest events read, for its shares. None when the plan overstates it."""
+    events_read = plan.heaviest_events_read()
+    if events_read is None or _plan_overstates_the_read(run, event_filter):
+        return None
+    return events_read.selected_granules()
 
 
 def _plan_overstates_the_read(run: RunFacts, event_filter: EventFilterOutcome | None) -> bool:

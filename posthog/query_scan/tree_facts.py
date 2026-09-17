@@ -110,9 +110,11 @@ class _ReadFacts:
     view_name: str | None
 
 
-def tree_facts(tree: ast.AST) -> TreeFacts | None:
-    """The facts for ``tree``, or None when it reads no events."""
-    reads = find_events_reads(tree)
+def tree_facts(tree: ast.AST, reads: list[EventsRead] | None = None) -> TreeFacts | None:
+    """The facts for ``tree``, or None when it reads no events. ``reads`` narrows the facts to the
+    reads one plan holds; None takes every read in the tree."""
+    if reads is None:
+        reads = find_events_reads(tree)
     if not reads:
         return None
     parents = _ParentSelects()
