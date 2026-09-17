@@ -9,67 +9,67 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, RetryState
 
-from products.conversations.backend.temporal.ai_reply.activities.build_context import support_build_context_activity
-from products.conversations.backend.temporal.ai_reply.activities.clarify import support_clarify_activity
-from products.conversations.backend.temporal.ai_reply.activities.classify import support_classify_activity
-from products.conversations.backend.temporal.ai_reply.activities.draft import support_draft_activity
-from products.conversations.backend.temporal.ai_reply.activities.persist_knowledge_gap import (
-    support_persist_knowledge_gap_activity,
-)
-from products.conversations.backend.temporal.ai_reply.activities.persist_reply import support_persist_reply_activity
-from products.conversations.backend.temporal.ai_reply.activities.record_triage import support_record_triage_activity
-from products.conversations.backend.temporal.ai_reply.activities.refine_queries import support_refine_queries_activity
-from products.conversations.backend.temporal.ai_reply.activities.retrieve import support_retrieve_activity
-from products.conversations.backend.temporal.ai_reply.activities.review_reply import support_review_reply_activity
-from products.conversations.backend.temporal.ai_reply.activities.safety_filter import support_safety_filter_activity
-from products.conversations.backend.temporal.ai_reply.activities.validate import support_validate_activity
-from products.conversations.backend.temporal.ai_reply.constants import (
-    AI_REPLY_TRACE_NAMESPACE,
-    BLOCKER_AWARE_LOOP_PATCH,
-    DEFER_KNOWLEDGE_GAPS_UNTIL_RESOLUTION_PATCH,
-    LEGACY_MAX_ATTEMPTS,
-    MAX_ATTEMPTS,
-    MAX_CLARIFICATION_ROUNDS,
-    MAX_SAFETY_REVIEWED_CHARS,
-    SCORE_THRESHOLD,
-    TIERED_CLARIFY_PATCH,
-)
-from products.conversations.backend.temporal.ai_reply.gate import (
-    FINDINGS_WITHHELD_REASON,
-    decide_reply_action,
-    findings_reason_for,
-    format_clarifying_question,
-    format_findings_comment,
-    format_suggested_question_comment,
-    should_persist_findings,
-)
-from products.conversations.backend.temporal.ai_reply.schemas import (
-    BuildContextOutput,
-    ClarifyInput,
-    ClarifyOutput,
-    ClassifyInput,
-    DraftInput,
-    DraftOutput,
-    PersistKnowledgeGapInput,
-    PersistReplyInput,
-    PersistReplyOutput,
-    RecordTriageInput,
-    RefineQueriesInput,
-    RetrieveInput,
-    ReviewReplyInput,
-    SafetyFilterInput,
-    SupportReplyInput,
-    ValidateInput,
-    ValidateOutput,
-    coerce_dataclass,
-)
-
 # These modules (Django models, langchain, pydantic models, etc.) are non-deterministic
 # and/or define classes the Temporal workflow sandbox proxies — importing them inside the
 # sandbox crashes workflow validation. Only the activities touch them at runtime, so pass
 # them through the sandbox unmodified.
 with workflow.unsafe.imports_passed_through():
-    pass
+    from products.conversations.backend.temporal.ai_reply.activities.build_context import support_build_context_activity
+    from products.conversations.backend.temporal.ai_reply.activities.clarify import support_clarify_activity
+    from products.conversations.backend.temporal.ai_reply.activities.classify import support_classify_activity
+    from products.conversations.backend.temporal.ai_reply.activities.draft import support_draft_activity
+    from products.conversations.backend.temporal.ai_reply.activities.persist_knowledge_gap import (
+        support_persist_knowledge_gap_activity,
+    )
+    from products.conversations.backend.temporal.ai_reply.activities.persist_reply import support_persist_reply_activity
+    from products.conversations.backend.temporal.ai_reply.activities.record_triage import support_record_triage_activity
+    from products.conversations.backend.temporal.ai_reply.activities.refine_queries import (
+        support_refine_queries_activity,
+    )
+    from products.conversations.backend.temporal.ai_reply.activities.retrieve import support_retrieve_activity
+    from products.conversations.backend.temporal.ai_reply.activities.review_reply import support_review_reply_activity
+    from products.conversations.backend.temporal.ai_reply.activities.safety_filter import support_safety_filter_activity
+    from products.conversations.backend.temporal.ai_reply.activities.validate import support_validate_activity
+    from products.conversations.backend.temporal.ai_reply.constants import (
+        AI_REPLY_TRACE_NAMESPACE,
+        BLOCKER_AWARE_LOOP_PATCH,
+        DEFER_KNOWLEDGE_GAPS_UNTIL_RESOLUTION_PATCH,
+        LEGACY_MAX_ATTEMPTS,
+        MAX_ATTEMPTS,
+        MAX_CLARIFICATION_ROUNDS,
+        MAX_SAFETY_REVIEWED_CHARS,
+        SCORE_THRESHOLD,
+        TIERED_CLARIFY_PATCH,
+    )
+    from products.conversations.backend.temporal.ai_reply.gate import (
+        FINDINGS_WITHHELD_REASON,
+        decide_reply_action,
+        findings_reason_for,
+        format_clarifying_question,
+        format_findings_comment,
+        format_suggested_question_comment,
+        should_persist_findings,
+    )
+    from products.conversations.backend.temporal.ai_reply.schemas import (
+        BuildContextOutput,
+        ClarifyInput,
+        ClarifyOutput,
+        ClassifyInput,
+        DraftInput,
+        DraftOutput,
+        PersistKnowledgeGapInput,
+        PersistReplyInput,
+        PersistReplyOutput,
+        RecordTriageInput,
+        RefineQueriesInput,
+        RetrieveInput,
+        ReviewReplyInput,
+        SafetyFilterInput,
+        SupportReplyInput,
+        ValidateInput,
+        ValidateOutput,
+        coerce_dataclass,
+    )
 
 
 def _bill_llm_activity(*, output: Any | None, error: BaseException | None, maximum_attempts: int) -> int:
