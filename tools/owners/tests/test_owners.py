@@ -945,6 +945,17 @@ def test_cli_lint_reports_no_alias_conflict_the_resolver_does_not_see(tmp_path: 
     assert "has both" not in result.output
 
 
+def test_cli_lint_reports_two_aliases_with_owners_in_one_directory(tmp_path: Path) -> None:
+    _write(tmp_path, "owners.yaml", "version: 1\nowners: [team-a]\nalias_files: [product.yaml, package.yaml]\n")
+    _write(tmp_path, "web/product.yaml", "owners:\n  - team-web\n")
+    _write(tmp_path, "web/package.yaml", "owners:\n  - team-other\n")
+
+    result = CliRunner().invoke(main, ["lint", "--repo-root", str(tmp_path)])
+
+    assert result.exit_code != 0
+    assert "web: has both" in result.output
+
+
 def test_cli_lints_a_tree_that_is_not_a_git_worktree(registry_repo: Path) -> None:
     _write(registry_repo, "reg/code.py", "")
     _write(registry_repo, "loose/code.py", "")

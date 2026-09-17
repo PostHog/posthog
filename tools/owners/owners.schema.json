@@ -45,7 +45,7 @@
             "type": "array",
             "maxItems": 8,
             "uniqueItems": true,
-            "items": { "type": "string", "minLength": 1, "not": { "pattern": "[/\\\\]|^\\.{1,2}$" } },
+            "items": { "type": "string", "minLength": 1, "not": { "pattern": "[/\\\\]|^\\.{1,2}$|^owners\\.yaml$" } },
             "description": "Repository settings: other bare file names that count as ownership files."
         },
         "codeowners": {

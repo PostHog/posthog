@@ -272,6 +272,7 @@ def cmd_lint(live: bool, org: str | None, repo_root: Path | None, paths: tuple[s
 
     entries = resolver.parsed_ownership_files()  # the single parse pass
     owners_yaml_dirs = {e.rel_dir for e in entries if e.name == OWNERS_FILENAME}
+    alias_by_dir: dict[str, str] = {}
 
     for entry in entries:
         rel = entry.path.relative_to(repo_root).as_posix()
@@ -289,6 +290,10 @@ def cmd_lint(live: bool, org: str | None, repo_root: Path | None, paths: tuple[s
             # not a conflict: any repo naming a general manifest as an alias holds plenty of them.
             if parsed is not None and directory in owners_yaml_dirs:
                 errors.append(f"{directory or '<root>'}: has both {entry.name} (with owners) and owners.yaml")
+            elif parsed is not None and directory in alias_by_dir:
+                errors.append(f"{directory}: has both {alias_by_dir[directory]} and {entry.name} (with owners)")
+            elif parsed is not None:
+                alias_by_dir[directory] = entry.name
             if parsed and parsed.owners:
                 owners_by_file[rel].update(normalize_owners(parsed.owners))
             continue
