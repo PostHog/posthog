@@ -7,6 +7,7 @@ import type {
     SignalScoutConfigApi as SignalScoutConfig,
 } from 'products/signals/frontend/generated/api.schemas'
 
+import { scoutListInputKeyDown } from '../../../utils/scoutListInput'
 import {
     MAX_SCOUT_TAG_LENGTH,
     MAX_SCOUT_TAGS,
@@ -79,15 +80,11 @@ export function ScoutTagsEditor({
                         setError(null)
                     }}
                     onBlur={commitDraft}
-                    onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ',') {
-                            event.preventDefault()
-                            commitDraft()
-                        } else if (event.key === 'Backspace' && draft === '' && tags.length > 0) {
-                            event.preventDefault()
-                            removeTag(tags[tags.length - 1])
-                        }
-                    }}
+                    onKeyDown={scoutListInputKeyDown(
+                        draft,
+                        commitDraft,
+                        tags.length > 0 ? () => removeTag(tags[tags.length - 1]) : undefined
+                    )}
                     size="xsmall"
                     placeholder={atCap ? `${MAX_SCOUT_TAGS} tag limit` : 'Add tag'}
                     aria-label={`${config.skill_name} tags`}

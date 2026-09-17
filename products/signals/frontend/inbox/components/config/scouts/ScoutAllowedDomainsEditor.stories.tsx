@@ -13,6 +13,7 @@ const config: SignalScoutConfigApi = {
     skill_name: 'signals-scout-vendor-status',
     description: 'Watches a vendor status page.',
     scout_origin: 'custom',
+    scout_role: 'specialist',
     owners: [],
     enabled: true,
     status: 'active',
