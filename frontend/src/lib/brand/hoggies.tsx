@@ -28,10 +28,9 @@ export interface HoggiePngModule {
 
 export type HoggiePngProps = AssetSvgProps & {
     /**
-     * `lazy` (the default) defers the fetch until the illustration is near the viewport. Pass
-     * `eager` when the element can be `display: none` at some widths, because a lazy image with
-     * no layout box has nothing to intersect, so the browser can leave it unfetched until a
-     * responsive query reveals it.
+     * Pass `eager` when the element can be `display: none` at some widths: a lazy image with no
+     * layout box has nothing to intersect, so the browser can leave it unfetched until a
+     * responsive query reveals it. Defaults to `lazy`.
      */
     loading?: 'lazy' | 'eager'
 }
