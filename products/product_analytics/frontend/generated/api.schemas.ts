@@ -964,6 +964,16 @@ export interface ClickhouseQueryProgressApi {
     time_elapsed: number
 }
 
+export type QueryScanFixLocationApi = (typeof QueryScanFixLocationApi)[keyof typeof QueryScanFixLocationApi]
+
+export const QueryScanFixLocationApi = {
+    Query: 'query',
+    Subquery: 'subquery',
+    View: 'view',
+    InsightDateRange: 'insight_date_range',
+    DashboardDateFilter: 'dashboard_date_filter',
+} as const
+
 export type QueryScanFindingKindApi = (typeof QueryScanFindingKindApi)[keyof typeof QueryScanFindingKindApi]
 
 export const QueryScanFindingKindApi = {
@@ -972,36 +982,22 @@ export const QueryScanFindingKindApi = {
     PersonsJoin: 'persons_join',
 } as const
 
-export type QueryScanFindingReasonApi = (typeof QueryScanFindingReasonApi)[keyof typeof QueryScanFindingReasonApi]
-
-export const QueryScanFindingReasonApi = {
-    InOr: 'in_or',
-    Wrapped: 'wrapped',
-    Negated: 'negated',
-    Dynamic: 'dynamic',
-    NotPruned: 'not_pruned',
-    PropertyFilter: 'property_filter',
-    HelperRead: 'helper_read',
-    AllEvents: 'all_events',
-    Filters: 'filters',
-    BoundNotUsed: 'bound_not_used',
-    AllTime: 'all_time',
-    DashboardAllTime: 'dashboard_all_time',
-    AllHistory: 'all_history',
-} as const
-
 export interface QueryScanWarningApi {
     /** Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and "Fix with AI" only when a finding is actionable. */
     actionable: boolean
+    /** True when the query reads this much on purpose, so reading less would change the answer. Absent means no. */
+    by_design?: boolean | null
+    /** A short label for what in the query text kept the read wide, such as `in_or`. Analytics and the assistant read it, and the set of labels can change. Surfaces branch on `actionable`. */
+    cause?: string | null
     /** The one fact the finding rests on. */
     evidence?: string | null
     /** What "Fix with AI" and the assistant are told to do. */
     fix: string
+    /** Where the change goes. Absent means the query itself. */
+    fix_location?: QueryScanFixLocationApi | null
     kind: QueryScanFindingKindApi
     /** Shown to the person: what happened and what to do. */
     message: string
-    /** Only with `no_event_filter` and `no_start_date`. */
-    reason?: QueryScanFindingReasonApi | null
 }
 
 export interface QueryScanAnalysisApi {
