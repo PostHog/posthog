@@ -511,7 +511,9 @@ export const WarehouseSavedQueriesPartialUpdateBody = () => zod
         edited_history_id: zod
             .string()
             .nullish()
-            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+            .describe(
+                'The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.'
+            ),
         dag_id: zod.string().nullish().describe('Optional DAG to place this view into'),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
@@ -661,7 +663,9 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = () => zod
         edited_history_id: zod
             .string()
             .nullish()
-            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+            .describe(
+                'The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.'
+            ),
         soft_update: zod
             .boolean()
             .nullish()

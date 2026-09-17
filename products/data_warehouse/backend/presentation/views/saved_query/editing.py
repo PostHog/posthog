@@ -116,7 +116,8 @@ class DataWarehouseSavedQuerySerializer(
         write_only=True,
         required=False,
         allow_null=True,
-        help_text="Activity log ID from the last known edit. Used for conflict detection.",
+        help_text="The latest_history_id you last read for this view. Required when changing the query. "
+        "The write is refused if someone else changed the query in the meantime.",
     )
     soft_update = serializers.BooleanField(
         write_only=True,

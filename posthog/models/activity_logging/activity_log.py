@@ -772,6 +772,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "DataWarehouseSavedQuery": [
         "name",
         "columns",
+        # Optimistic-concurrency token, not a user-meaningful change.
+        "query_revision",
         "status",
         "external_tables",
         "last_run_at",

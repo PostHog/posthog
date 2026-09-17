@@ -24524,7 +24524,7 @@ export namespace Schemas {
       /** @nullable */
       readonly latest_error: string | null;
       /**
-         * Activity log ID from the last known edit. Used for conflict detection.
+         * The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.
          * @nullable
          */
       edited_history_id?: string | null;
@@ -66586,7 +66586,7 @@ export namespace Schemas {
       /** @nullable */
       readonly latest_error?: string | null;
       /**
-         * Activity log ID from the last known edit. Used for conflict detection.
+         * The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.
          * @nullable
          */
       edited_history_id?: string | null;

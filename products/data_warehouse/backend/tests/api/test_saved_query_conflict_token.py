@@ -1,9 +1,13 @@
+from typing import Any, cast
+
 from posthog.test.base import NonAtomicAPIBaseTest
 from unittest.mock import patch
 
 from django.test import override_settings
 
 from parameterized import parameterized
+
+from posthog.models import ActivityLog
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
@@ -104,3 +108,14 @@ class TestSavedQueryConflictToken(NonAtomicAPIBaseTest):
 
         stale = self._patch_query(created["id"], "select event from events limit 5", None)
         self.assertEqual(stale.status_code, 400, stale.content)
+
+    def test_query_edit_does_not_record_the_revision_bump(self) -> None:
+        created = self._create()
+
+        response = self._patch_query(created["id"], "select event from events limit 10", created["latest_history_id"])
+        self.assertEqual(response.status_code, 200, response.content)
+
+        log = ActivityLog.objects.get(scope="DataWarehouseSavedQuery", item_id=created["id"], activity="updated")
+        changed = [change["field"] for change in cast(dict[str, Any], log.detail)["changes"]]
+        self.assertIn("query", changed)
+        self.assertNotIn("query_revision", changed)
