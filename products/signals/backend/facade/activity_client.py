@@ -3,8 +3,9 @@
 A scout authenticates as the person who owns its config, so the acting user on an
 activity-log row cannot tell a scout's edit from that person's own MCP edit. The sandbox
 OAuth token carries the id of the task the run happens in, and that binding is written
-server-side at mint time, which is what makes the tag derived from it trustworthy where the
-caller-settable `x-posthog-client` header is not.
+server-side at mint time, which is what makes a tag derived from it trustworthy where the
+caller-settable `x-posthog-client` header is not. The `scout:` prefix is reserved for this
+path: `client_from_header` drops a header value that claims it, so only the server writes one.
 
 Core reads the tag through this module so `posthog.auth` never imports a signals model.
 """
@@ -13,9 +14,9 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from products.signals.backend.models import SignalScoutRun
+from posthog.models.activity_logging.utils import SCOUT_CLIENT_PREFIX
 
-SCOUT_CLIENT_PREFIX = "scout:"
+from products.signals.backend.models import SignalScoutRun
 
 
 def resolve_scout_client_tag(*, sandbox_task_id: UUID, team_id: int) -> str | None:
