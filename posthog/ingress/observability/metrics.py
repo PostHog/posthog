@@ -13,6 +13,7 @@ DeliveryOutcome = Literal[
     "method_not_allowed",
     "throttled",
     "not_configured",
+    "verify_unavailable",
     "invalid_signature",
     "invalid_payload",
     "forward_failed",

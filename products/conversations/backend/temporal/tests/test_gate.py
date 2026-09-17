@@ -2,9 +2,11 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.conversations.backend.temporal.ai_reply.constants import MAX_CLARIFYING_QUESTION_CHARS
 from products.conversations.backend.temporal.ai_reply.gate import (
     decide_reply_action,
     findings_reason_for,
+    format_clarifying_question,
     should_persist_findings,
 )
 from products.conversations.backend.temporal.ai_reply.schemas import (
@@ -56,6 +58,7 @@ class TestDecideReplyAction(SimpleTestCase):
         verdict: str = "answerable",
         attempt: int = 0,
         max_attempts: int = 2,
+        allow_clarify: bool = True,
     ):
         return decide_reply_action(
             grounded=grounded,
@@ -66,6 +69,7 @@ class TestDecideReplyAction(SimpleTestCase):
             verdict=verdict,
             attempt=attempt,
             max_attempts=max_attempts,
+            allow_clarify=allow_clarify,
         )
 
     def test_auto_send_when_both_judges_agree(self):
@@ -85,6 +89,9 @@ class TestDecideReplyAction(SimpleTestCase):
 
     def test_blocked_on_customer_verdict_exits_to_clarify(self):
         assert self._decide(verdict="blocked_on_customer", blocker="none") == "clarify"
+
+    def test_second_round_cannot_clarify(self):
+        assert self._decide(blocker="customer_info", allow_clarify=False) == "findings"
 
     def test_knowledge_retries_on_first_attempt(self):
         assert self._decide(blocker="knowledge", grounded=False, validator_confidence=0.2) == "retry"
@@ -159,6 +166,21 @@ class TestFindingsNote(SimpleTestCase):
             blocker="none",
             verdict="answerable",
         )
+
+
+class TestFormatClarifyingQuestion(SimpleTestCase):
+    def test_uses_first_question_only(self):
+        text = format_clarifying_question(questions=["Which SDK are you using", "What version"])
+        assert text == "Which SDK are you using?"
+        assert "What version" not in text
+
+    def test_empty_questions_are_blank(self):
+        assert format_clarifying_question(questions=["", "  "]) == ""
+
+    def test_truncated_question_still_ends_with_mark(self):
+        text = format_clarifying_question(questions=["A" * 600])
+        assert len(text) == MAX_CLARIFYING_QUESTION_CHARS
+        assert text.endswith("?")
 
 
 class TestCoerceActivityResults(SimpleTestCase):

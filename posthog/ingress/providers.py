@@ -25,6 +25,7 @@ _INCARNATION_MODULES = (
     "posthog.ingress.github.provider",
     "posthog.ingress.slack.provider",
     "posthog.ingress.pandadoc.provider",
+    "posthog.ingress.mailgun.provider",
     "posthog.ingress.vapi.provider",
     "posthog.ingress.sns.provider",
 )
@@ -66,6 +67,10 @@ class WebhookProvider(ABC):
     # An incarnation that answers 404 to withhold the endpoint's existence sets this False, so the
     # body does not name the reason the status code was chosen to hide.
     explains_rejections: bool = True
+    # How long the forward to the owning region may take. The default suits a small JSON body; a
+    # provider whose deliveries carry uploaded files needs longer, because the forward rebuilds
+    # and re-sends every part.
+    forward_timeout_seconds: float = 3.0
 
     @abstractmethod
     def scheme(self) -> SignatureScheme:

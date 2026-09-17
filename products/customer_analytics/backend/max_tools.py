@@ -19,6 +19,7 @@ from products.customer_analytics.backend.facade.api import (
     create_account,
     update_account,
 )
+from products.customer_analytics.backend.facade.enums import AccountRelationshipSource
 from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models import Account, AccountRelationshipDefinition
 from products.notebooks.backend.facade.content import build_markdown_notebook_content, is_markdown_notebook_content
@@ -122,7 +123,9 @@ UPSERT_ACCOUNT_TOOL_DESCRIPTION = dedent("""
     # Relationships
     Pass `relationships` to assign users to the account's relationships (CSM, Account executive, or
     any definition the team has created), keyed by definition name: the value is the PostHog user id,
-    or null to end the current assignment. Only the named definitions are changed.
+    or null to end the current assignment. Only the named definitions are changed. A controlled
+    relationship that Customer analytics manages for the account cannot be changed through this
+    tool; the change is made from the account page.
 
     # Tags
     Pass `tags` to set the account's tags. On update this REPLACES the existing tag set.
@@ -333,22 +336,26 @@ class UpsertAccountTool(MaxTool):
         missing = sorted(user_ids - memberships.keys())
         if missing:
             raise RelationshipAssignmentError(f"User {missing[0]} is not a member of this organization.")
-        for name, user_id in assignments.items():
-            definition = definitions[name]
-            if user_id is None:
-                relationships_logic.end_active(
+        actor = relationships_logic.Actor(source=AccountRelationshipSource.AI, user=self._user)
+        try:
+            for name, user_id in assignments.items():
+                definition = definitions[name]
+                if user_id is None:
+                    relationships_logic.end_active(
+                        team_id=self._team.id, account=account, definition=definition, actor=actor
+                    )
+                    continue
+                relationships_logic.assign(
                     team_id=self._team.id,
                     account=account,
                     definition=definition,
-                    actor=self._user,
+                    user=memberships[user_id].user,
+                    actor=actor,
                 )
-                continue
-            relationships_logic.assign(
-                team_id=self._team.id,
-                account=account,
-                definition=definition,
-                user=memberships[user_id].user,
-                created_by=self._user,
+        except relationships_logic.ManagedRolePolicyError:
+            raise RelationshipAssignmentError(
+                "This relationship is controlled in Customer analytics and is changed from the account page, "
+                "not through this tool."
             )
 
 

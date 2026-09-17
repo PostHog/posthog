@@ -653,6 +653,10 @@ class CheckResult(BaseModel):
         default=None, description="The value recorded when the check was written, when the author gave one."
     )
     threshold: str | None = Field(default=None, description="The expectation the value was compared against.")
+    run_id: str | None = Field(
+        default=None,
+        description="Scout run that answered an `agent` check. Absent on a deterministic run, which has none.",
+    )
 
     @field_validator("explanation")
     @classmethod
