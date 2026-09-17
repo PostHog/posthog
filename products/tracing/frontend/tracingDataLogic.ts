@@ -221,7 +221,7 @@ export interface tracingDataLogicActions {
     } // tracingFiltersLogic
     setDateRange: (
         dateRange: DateRange,
-        source?: import('./sparklineSelection').TracingDateRangeSource
+        source?: import('./sparklineSelection').TracingDateRangeSource | undefined
     ) => {
         dateRange: DateRange
         source: import('./sparklineSelection').TracingDateRangeSource | undefined
