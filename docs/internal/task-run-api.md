@@ -41,6 +41,20 @@ Agent-sourced runs use the read-only MCP permission preset.
 Run state updates cannot change or remove the run source or base branch.
 The `state` field must be a JSON object.
 
+## Run summaries
+
+`PATCH /api/projects/{team_id}/tasks/{task_id}/runs/{run_id}/set_summary/` replaces the run's progress summary.
+Send a JSON object with a `summary` string of 1 to 1,500 characters after trimming whitespace.
+The endpoint requires permission to control the task. A task-bound sandbox token can update only its own task.
+The update does not complete the run or change its structured `output`.
+Generic run-state updates cannot change the summary or its inherited value.
+
+A resumed run uses its source run's summary until it saves a new summary.
+Task details, paginated task lists, and task summaries include the effective `task_summary`.
+Workflow summaries are visible only to the task owner or its authorized sandbox agent.
+Shared workflow stream events always set `task_summary` to `null`.
+Other task streams include the effective summary.
+
 ## MCP tools
 
 - `tasks-create` creates an idle task. It does not accept run-start inputs.
