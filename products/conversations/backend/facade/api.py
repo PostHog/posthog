@@ -23,6 +23,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError
 
 from posthog.dataclasses import frozen
+from posthog.ingress.contracts import WebhookDelivery
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
 from posthog.models.team import Team
@@ -103,6 +104,14 @@ class SupportMessageSendError(Exception):
         super().__init__(code)
         self.code = code
         self.retry_after = retry_after
+
+
+def accept_github_event(delivery: WebhookDelivery) -> None:
+    """The inbound GitHub App webhook enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import github_events  # noqa: PLC0415
+
+    github_events.accept_github_event(delivery)
 
 
 def sync_google_account_email(integration_id: int, team_id: int) -> None:

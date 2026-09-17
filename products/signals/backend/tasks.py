@@ -555,7 +555,7 @@ def send_reviewer_added_slack_notifications(
 )
 @with_team_scope()
 def assign_reviewers_on_implementation_pr(team_id: int, report_id: str, pr_url: str) -> None:
-    """Add a report's opted-in suggested reviewers as GitHub assignees on its implementation PR.
+    """Put a report's opted-in reviewers, or else one DRI, on its implementation PR as GitHub assignees.
 
     Runs on a worker because the GitHub calls (integration probe, PR read, assign) must not hold up
     the claim, sync, or reviewer edit that queued it. Best-effort end to end, so the assigner
