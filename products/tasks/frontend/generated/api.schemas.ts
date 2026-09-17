@@ -45,6 +45,8 @@ export interface TaskRunErrorResponseApi {
     type?: string
     /** Machine-readable error code */
     code?: string
+    /** After confirmed warm startup nondelivery, echo this token in X-PostHog-Warm-Retry to retry the same run and message within 60 seconds. */
+    retry_token?: string
     /** Why PostHog Desktop access was denied, when applicable.
      *
      * * `startup_plan` - startup_plan
@@ -88,11 +90,6 @@ export interface SandboxComputePricingApi {
     history: ComputeRateCardApi[]
 }
 
-export interface DesktopBetaTermsAcceptanceDTOApi {
-    /** Whether the organization has accepted the PostHog Desktop beta terms. */
-    readonly is_desktop_beta_terms_accepted: boolean
-}
-
 export interface DesktopAccessResponseApi {
     /** Whether the selected project can use PostHog Desktop. */
     allowed: boolean
@@ -101,6 +98,11 @@ export interface DesktopAccessResponseApi {
      * * `startup_plan` - startup_plan
      * * `prepaid_credits` - prepaid_credits */
     reason: DesktopAccessReasonEnumApi | null
+}
+
+export interface DesktopBetaTermsAcceptanceDTOApi {
+    /** Whether the organization has accepted the PostHog Desktop beta terms. */
+    readonly is_desktop_beta_terms_accepted: boolean
 }
 
 export interface LoopRepositoryEntryDTOApi {
@@ -887,9 +889,10 @@ export interface PaginatedSandboxEnvironmentDTOListApi {
  * * `full` - Full
  * * `custom` - Custom
  */
-export type NetworkAccessLevelEnumApi = (typeof NetworkAccessLevelEnumApi)[keyof typeof NetworkAccessLevelEnumApi]
+export type SandboxEnvironmentNetworkAccessLevelEnumApi =
+    (typeof SandboxEnvironmentNetworkAccessLevelEnumApi)[keyof typeof SandboxEnvironmentNetworkAccessLevelEnumApi]
 
-export const NetworkAccessLevelEnumApi = {
+export const SandboxEnvironmentNetworkAccessLevelEnumApi = {
     Trusted: 'trusted',
     Full: 'full',
     Custom: 'custom',
@@ -909,7 +912,7 @@ export interface SandboxEnvironmentWriteApi {
      * * `trusted` - Trusted
      * * `full` - Full
      * * `custom` - Custom */
-    network_access_level?: NetworkAccessLevelEnumApi
+    network_access_level?: SandboxEnvironmentNetworkAccessLevelEnumApi
     /**
      * Allowed domains for custom network access.
      * @maxItems 100
@@ -948,7 +951,7 @@ export interface PatchedSandboxEnvironmentWriteApi {
      * * `trusted` - Trusted
      * * `full` - Full
      * * `custom` - Custom */
-    network_access_level?: NetworkAccessLevelEnumApi
+    network_access_level?: SandboxEnvironmentNetworkAccessLevelEnumApi
     /**
      * Allowed domains for custom network access.
      * @maxItems 100
@@ -1086,9 +1089,9 @@ export interface TaskActivityMarkReadResponseApi {
  * * `personal` - Personal
  * * `general` - General
  */
-export type SystemRoleEnumApi = (typeof SystemRoleEnumApi)[keyof typeof SystemRoleEnumApi]
+export type ChannelSystemRoleEnumApi = (typeof ChannelSystemRoleEnumApi)[keyof typeof ChannelSystemRoleEnumApi]
 
-export const SystemRoleEnumApi = {
+export const ChannelSystemRoleEnumApi = {
     Personal: 'personal',
     General: 'general',
 } as const
@@ -1112,7 +1115,7 @@ export interface ChannelDTOApi {
      *
      * * `personal` - Personal
      * * `general` - General */
-    readonly system_role: SystemRoleEnumApi | null
+    readonly system_role: ChannelSystemRoleEnumApi | null
 }
 
 export interface PaginatedChannelDTOListApi {
@@ -1125,15 +1128,33 @@ export interface PaginatedChannelDTOListApi {
 }
 
 /**
- * Request body for creating (resolve-or-create) or renaming a public channel.
+ * * `public` - public
+ * * `private` - private
  */
+export type TaskChannelWriteTypeEnumApi = (typeof TaskChannelWriteTypeEnumApi)[keyof typeof TaskChannelWriteTypeEnumApi]
+
+export const TaskChannelWriteTypeEnumApi = {
+    Public: 'public',
+    Private: 'private',
+} as const
+
 export interface ChannelWriteApi {
     /**
-     * Channel name, rendered as #<name>. Normalized to lowercase-dashed.
+     * Channel name, shown as #<name>. Uses lowercase letters and hyphens.
      * @maxLength 128
      */
     name: string
-    /** Star the channel for the requester when this call creates it. Ignored when the channel already exists, which leaves existing stars untouched. */
+    /** Use 'public' for access by all project members. Use 'private' for access by channel members only. Defaults to 'public'. This endpoint cannot create personal #me spaces.
+     *
+     * * `public` - public
+     * * `private` - private */
+    channel_type?: TaskChannelWriteTypeEnumApi
+    /**
+     * User IDs to add to a private channel. The requester is always a member. The endpoint ignores this field for public channels and skips users without project access.
+     * @maxItems 100
+     */
+    member_ids?: number[]
+    /** Star a new channel for the requester. This field does not change stars on an existing channel. */
     star?: boolean
 }
 
@@ -1212,6 +1233,11 @@ export interface PatchedChannelUpdateApi {
      * @nullable
      */
     auto_archive_after_days?: number | null
+    /** Switch a shared space between 'public' and 'private'. Making a space private keeps only the creator and the requester as members. Making it public removes its member list. Personal #me spaces cannot change.
+     *
+     * * `public` - public
+     * * `private` - private */
+    channel_type?: TaskChannelWriteTypeEnumApi
 }
 
 export interface ChannelDeleteConflictApi {
@@ -1282,6 +1308,14 @@ export interface PaginatedChannelInstructionsDTOListApi {
     results: ChannelInstructionsDTOApi[]
 }
 
+export interface ChannelMembersWriteApi {
+    /**
+     * Required list of member user IDs. This list replaces the current members. The creator remains a member. Send an empty list to remove all other members. Each submitted user must have project access.
+     * @maxItems 100
+     */
+    user_ids: number[]
+}
+
 /**
  * Request body for starring/unstarring a channel for the requesting user.
  */
@@ -1298,6 +1332,12 @@ export interface OnboardingSessionApi {
 }
 
 export interface OnboardingSessionTestApi {
+    /**
+     * Optional LLM model identifier for the test session. Omit to use the plan default.
+     * @maxLength 255
+     * @nullable
+     */
+    model?: string | null
     /**
      * Company domain to research. Blank simulates a personal email address.
      * @maxLength 253
@@ -1394,9 +1434,9 @@ export interface PaginatedTaskMentionDTOListApi {
  * * `acp` - ACP
  * * `pi` - Pi
  */
-export type RuntimeEnumApi = (typeof RuntimeEnumApi)[keyof typeof RuntimeEnumApi]
+export type TaskRuntimeEnumApi = (typeof TaskRuntimeEnumApi)[keyof typeof TaskRuntimeEnumApi]
 
-export const RuntimeEnumApi = {
+export const TaskRuntimeEnumApi = {
     Acp: 'acp',
     Pi: 'pi',
 } as const
@@ -1702,7 +1742,7 @@ export interface TaskDetailDTOApi {
      *
      * * `acp` - ACP
      * * `pi` - Pi */
-    runtime: RuntimeEnumApi
+    runtime: TaskRuntimeEnumApi
     /** @nullable */
     repository: string | null
     repositories: string[]
@@ -1739,13 +1779,81 @@ export interface TaskDetailDTOApi {
     origin_key?: string | null
 }
 
-export interface PaginatedTaskDetailDTOListApi {
+/**
+ * @nullable
+ */
+export type TaskBasicApiJsonSchema = { [key: string]: unknown } | null
+
+/**
+ * Basic list response for a task, returned when the list is asked for ``basic=true``.
+ *
+ * A surface that renders only a summary of each task asks for the basic payload and gets this
+ * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+ * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+ * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+ * always returns it. A client uses the ``search`` query parameter to match description text
+ * server-side.
+ */
+export interface TaskBasicApi {
+    id: string
+    /** @nullable */
+    task_number: number | null
+    slug: string
+    title: string
+    title_manually_set: boolean
+    origin_product: string
+    /** Agent protocol and harness used for this task's runs.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    runtime: TaskRuntimeEnumApi
+    /** @nullable */
+    repository: string | null
+    repositories: string[]
+    /** @nullable */
+    github_integration: number | null
+    /** @nullable */
+    github_user_integration: string | null
+    /** @nullable */
+    signal_report: string | null
+    /** @nullable */
+    json_schema: TaskBasicApiJsonSchema
+    internal: boolean
+    archived: boolean
+    /** @nullable */
+    archived_at: string | null
+    /** Latest run details for this task */
+    latest_run?: TaskRunDetailDTOApi | null
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    updated_at?: string | null
+    /** @nullable */
+    last_activity_at?: string | null
+    created_by?: TaskUserBasicInfoApi | null
+    /** @nullable */
+    ci_prompt: string | null
+    /** @nullable */
+    channel?: string | null
+    readonly slack_thread_references: readonly SlackThreadReferenceDTOApi[]
+    /**
+     * Stable key of the server-side flow that created this task, e.g. `desktop_onboarding_session:<user_id>`. Null for tasks people create themselves.
+     * @nullable
+     */
+    origin_key?: string | null
+    /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
+    readonly description_preview: string
+}
+
+export type TaskListItemApi = TaskDetailDTOApi | TaskBasicApi
+
+export interface PaginatedTaskListItemListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: TaskDetailDTOApi[]
+    results: TaskListItemApi[]
 }
 
 /**
@@ -1760,6 +1868,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `experiments` - Experiments
  * * `signal_report` - Signal Report
  * * `signals_scout` - Signals Scout
+ * * `scout_suggestions` - Signals Scout Suggestions
  * * `support_reply` - Support Reply
  * * `hogdesk` - HogDesk
  * * `review_hog` - ReviewHog
@@ -1770,9 +1879,9 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `task_analysis` - Task Analysis
  * * `workflow` - Workflow
  */
-export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
+export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof typeof TaskOriginProductEnumApi]
 
-export const OriginProductEnumApi = {
+export const TaskOriginProductEnumApi = {
     Onboarding: 'onboarding',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
@@ -1784,6 +1893,7 @@ export const OriginProductEnumApi = {
     Experiments: 'experiments',
     SignalReport: 'signal_report',
     SignalsScout: 'signals_scout',
+    ScoutSuggestions: 'scout_suggestions',
     SupportReply: 'support_reply',
     Hogdesk: 'hogdesk',
     ReviewHog: 'review_hog',
@@ -1817,13 +1927,6 @@ export const TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi = {
     FullAccess: 'full-access',
 } as const
 
-/**
- * Request body for creating or updating a task.
- *
- * Field required/default semantics match the ``Task`` model. The view passes
- * ``validated_data`` (integration/report PK fields already resolved to instances) to the
- * facade ``create_task`` / ``update_task`` functions.
- */
 export interface TaskCreateApi {
     /**
      * Short human-readable title. Auto-generated from `description` when omitted.
@@ -1847,6 +1950,7 @@ export interface TaskCreateApi {
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
+     * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
@@ -1856,7 +1960,7 @@ export interface TaskCreateApi {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow */
-    origin_product?: OriginProductEnumApi
+    origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
      * @maxLength 255
@@ -1899,22 +2003,22 @@ export interface TaskCreateApi {
      */
     ci_prompt?: string | null
     /**
-     * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
+     * Base branch for the first run when start_run is true, or for matching a pre-warmed run. Omit to use the repository's default branch. Write-only and not persisted on the task.
      * @maxLength 255
      * @nullable
      */
     branch?: string | null
-    /** Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.
+    /** Runtime adapter ('claude' or 'codex') for the first run when start_run is true, or for matching a pre-warmed run. A different adapter prevents warm reuse. Write-only and not persisted on the task.
      *
      * * `claude` - claude
      * * `codex` - codex */
     runtime_adapter?: RuntimeAdapterEnumApi | null
     /**
-     * Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.
+     * LLM model for the first run when start_run is true, or for matching a pre-warmed run. Write-only.
      * @nullable
      */
     model?: string | null
-    /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
+    /** Reasoning effort for the first run when start_run is true, or for matching a pre-warmed run. Write-only.
      *
      * * `low` - low
      * * `medium` - medium
@@ -1923,7 +2027,7 @@ export interface TaskCreateApi {
      * * `max` - max
      * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
-    /** Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.
+    /** Agent permission mode for the first run when start_run is true, or for matching a pre-warmed run. Omit to match any warm permission mode. Write-only.
      *
      * * `default` - default
      * * `acceptEdits` - acceptEdits
@@ -1934,17 +2038,17 @@ export interface TaskCreateApi {
      * * `full-access` - full-access */
     initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi | null
     /**
-     * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
+     * First user message when start_run is true or creation reuses a pre-warmed run. This message can differ from description. Ignored if creation does not start a run. Write-only and not persisted on the task.
      * @nullable
      */
     pending_user_message?: string | null
     /**
-     * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched.
+     * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched. Not supported when start_run is true.
      * @items.maxLength 128
      */
     pending_user_artifact_ids?: string[]
     /**
-     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead.
+     * When true, the agent pushes its work and opens a draft pull request on completion without an explicit request. Applies when start_run is true or creation reuses a pre-warmed run. Resumed runs keep this setting. Ignored if creation does not start a run. Write-only and not persisted on the task.
      * @nullable
      */
     auto_publish?: boolean | null
@@ -1953,15 +2057,22 @@ export interface TaskCreateApi {
      * @nullable
      */
     channel?: string | null
+    /** Start the task's first cloud run immediately after creation. */
+    start_run?: boolean
+    /**
+     * Question to forward to the signal report's scout when creating a discussion task. Send an empty string when there is no question. Omit only for older clients that embed the question in the task description. Not persisted on the task.
+     * @maxLength 4000
+     */
+    signal_report_discussion_question?: string
     /** Text the server generates the title from instead of `description`. Lets a client whose `description` is only an attachment summary (e.g. pasted text stored as a file) supply the real content for naming, so `description` (the prompt passed to the agent) stays unchanged. Not persisted. */
     naming_source?: string
     /**
-     * Sandbox environment selected for matching a pre-warmed cloud run. Not persisted on the task.
+     * Sandbox environment for the first run when start_run is true, or for matching a pre-warmed run. Not persisted on the task.
      * @nullable
      */
     sandbox_environment_id?: string | null
     /**
-     * Custom image selected for matching a pre-warmed cloud run. Not persisted on the task.
+     * Custom image for the first run when start_run is true, or for matching a pre-warmed run. Not persisted on the task.
      * @nullable
      */
     custom_image_id?: string | null
@@ -1969,16 +2080,73 @@ export interface TaskCreateApi {
      *
      * * `acp` - ACP
      * * `pi` - Pi */
-    runtime?: RuntimeEnumApi
+    runtime?: TaskRuntimeEnumApi
 }
 
 /**
- * Request body for creating or updating a task.
- *
- * Field required/default semantics match the ``Task`` model. The view passes
- * ``validated_data`` (integration/report PK fields already resolved to instances) to the
- * facade ``create_task`` / ``update_task`` functions.
+ * @nullable
  */
+export type TaskCreateResponseDTOApiJsonSchema = { [key: string]: unknown } | null
+
+/**
+ * Detail response for a task.
+ *
+ * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+ * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+ * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+ */
+export interface TaskCreateResponseDTOApi {
+    id: string
+    /** @nullable */
+    task_number: number | null
+    slug: string
+    title: string
+    title_manually_set: boolean
+    description: string
+    origin_product: string
+    /** Agent protocol and harness used for this task's runs.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    runtime: TaskRuntimeEnumApi
+    /** @nullable */
+    repository: string | null
+    repositories: string[]
+    /** @nullable */
+    github_integration: number | null
+    /** @nullable */
+    github_user_integration: string | null
+    /** @nullable */
+    signal_report: string | null
+    /** @nullable */
+    json_schema: TaskCreateResponseDTOApiJsonSchema
+    internal: boolean
+    archived: boolean
+    /** @nullable */
+    archived_at: string | null
+    /** Latest run details for this task */
+    latest_run?: TaskRunDetailDTOApi | null
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    updated_at?: string | null
+    /** @nullable */
+    last_activity_at?: string | null
+    created_by?: TaskUserBasicInfoApi | null
+    /** @nullable */
+    ci_prompt: string | null
+    /** @nullable */
+    channel?: string | null
+    readonly slack_thread_references: readonly SlackThreadReferenceDTOApi[]
+    /**
+     * Stable key of the server-side flow that created this task, e.g. `desktop_onboarding_session:<user_id>`. Null for tasks people create themselves.
+     * @nullable
+     */
+    origin_key?: string | null
+    /** Error returned when the task was created but its first run could not start. */
+    run_error?: string
+}
+
 export interface TaskWriteApi {
     /**
      * Short human-readable title. Auto-generated from `description` when omitted.
@@ -2002,6 +2170,7 @@ export interface TaskWriteApi {
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
+     * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
@@ -2011,7 +2180,7 @@ export interface TaskWriteApi {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow */
-    origin_product?: OriginProductEnumApi
+    origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
      * @maxLength 255
@@ -2054,22 +2223,22 @@ export interface TaskWriteApi {
      */
     ci_prompt?: string | null
     /**
-     * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
+     * Base branch for the first run when start_run is true, or for matching a pre-warmed run. Omit to use the repository's default branch. Write-only and not persisted on the task.
      * @maxLength 255
      * @nullable
      */
     branch?: string | null
-    /** Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.
+    /** Runtime adapter ('claude' or 'codex') for the first run when start_run is true, or for matching a pre-warmed run. A different adapter prevents warm reuse. Write-only and not persisted on the task.
      *
      * * `claude` - claude
      * * `codex` - codex */
     runtime_adapter?: RuntimeAdapterEnumApi | null
     /**
-     * Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.
+     * LLM model for the first run when start_run is true, or for matching a pre-warmed run. Write-only.
      * @nullable
      */
     model?: string | null
-    /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
+    /** Reasoning effort for the first run when start_run is true, or for matching a pre-warmed run. Write-only.
      *
      * * `low` - low
      * * `medium` - medium
@@ -2078,7 +2247,7 @@ export interface TaskWriteApi {
      * * `max` - max
      * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
-    /** Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.
+    /** Agent permission mode for the first run when start_run is true, or for matching a pre-warmed run. Omit to match any warm permission mode. Write-only.
      *
      * * `default` - default
      * * `acceptEdits` - acceptEdits
@@ -2089,17 +2258,17 @@ export interface TaskWriteApi {
      * * `full-access` - full-access */
     initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi | null
     /**
-     * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
+     * First user message when start_run is true or creation reuses a pre-warmed run. This message can differ from description. Ignored if creation does not start a run. Write-only and not persisted on the task.
      * @nullable
      */
     pending_user_message?: string | null
     /**
-     * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched.
+     * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched. Not supported when start_run is true.
      * @items.maxLength 128
      */
     pending_user_artifact_ids?: string[]
     /**
-     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead.
+     * When true, the agent pushes its work and opens a draft pull request on completion without an explicit request. Applies when start_run is true or creation reuses a pre-warmed run. Resumed runs keep this setting. Ignored if creation does not start a run. Write-only and not persisted on the task.
      * @nullable
      */
     auto_publish?: boolean | null
@@ -2110,13 +2279,6 @@ export interface TaskWriteApi {
     channel?: string | null
 }
 
-/**
- * Request body for creating or updating a task.
- *
- * Field required/default semantics match the ``Task`` model. The view passes
- * ``validated_data`` (integration/report PK fields already resolved to instances) to the
- * facade ``create_task`` / ``update_task`` functions.
- */
 export interface PatchedTaskWriteApi {
     /**
      * Short human-readable title. Auto-generated from `description` when omitted.
@@ -2140,6 +2302,7 @@ export interface PatchedTaskWriteApi {
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
+     * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
@@ -2149,7 +2312,7 @@ export interface PatchedTaskWriteApi {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow */
-    origin_product?: OriginProductEnumApi
+    origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
      * @maxLength 255
@@ -2192,22 +2355,22 @@ export interface PatchedTaskWriteApi {
      */
     ci_prompt?: string | null
     /**
-     * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
+     * Base branch for the first run when start_run is true, or for matching a pre-warmed run. Omit to use the repository's default branch. Write-only and not persisted on the task.
      * @maxLength 255
      * @nullable
      */
     branch?: string | null
-    /** Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.
+    /** Runtime adapter ('claude' or 'codex') for the first run when start_run is true, or for matching a pre-warmed run. A different adapter prevents warm reuse. Write-only and not persisted on the task.
      *
      * * `claude` - claude
      * * `codex` - codex */
     runtime_adapter?: RuntimeAdapterEnumApi | null
     /**
-     * Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.
+     * LLM model for the first run when start_run is true, or for matching a pre-warmed run. Write-only.
      * @nullable
      */
     model?: string | null
-    /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
+    /** Reasoning effort for the first run when start_run is true, or for matching a pre-warmed run. Write-only.
      *
      * * `low` - low
      * * `medium` - medium
@@ -2216,7 +2379,7 @@ export interface PatchedTaskWriteApi {
      * * `max` - max
      * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
-    /** Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.
+    /** Agent permission mode for the first run when start_run is true, or for matching a pre-warmed run. Omit to match any warm permission mode. Write-only.
      *
      * * `default` - default
      * * `acceptEdits` - acceptEdits
@@ -2227,17 +2390,17 @@ export interface PatchedTaskWriteApi {
      * * `full-access` - full-access */
     initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi | null
     /**
-     * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
+     * First user message when start_run is true or creation reuses a pre-warmed run. This message can differ from description. Ignored if creation does not start a run. Write-only and not persisted on the task.
      * @nullable
      */
     pending_user_message?: string | null
     /**
-     * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched.
+     * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched. Not supported when start_run is true.
      * @items.maxLength 128
      */
     pending_user_artifact_ids?: string[]
     /**
-     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead.
+     * When true, the agent pushes its work and opens a draft pull request on completion without an explicit request. Applies when start_run is true or creation reuses a pre-warmed run. Resumed runs keep this setting. Ignored if creation does not start a run. Write-only and not persisted on the task.
      * @nullable
      */
     auto_publish?: boolean | null
@@ -2470,6 +2633,17 @@ export interface RelayedMcpServerApi {
 }
 
 /**
+ * * `posthog-gateway` - posthog-gateway
+ * * `own-subscription` - own-subscription
+ */
+export type ClaudeModelAccessEnumApi = (typeof ClaudeModelAccessEnumApi)[keyof typeof ClaudeModelAccessEnumApi]
+
+export const ClaudeModelAccessEnumApi = {
+    PosthogGateway: 'posthog-gateway',
+    OwnSubscription: 'own-subscription',
+} as const
+
+/**
  * * `interactive` - interactive
  * * `background` - background
  */
@@ -2494,12 +2668,14 @@ export const PrAuthorshipModeEnumApi = {
 /**
  * * `manual` - manual
  * * `signal_report` - signal_report
+ * * `agent` - agent
  */
 export type RunSourceEnumApi = (typeof RunSourceEnumApi)[keyof typeof RunSourceEnumApi]
 
 export const RunSourceEnumApi = {
     Manual: 'manual',
     SignalReport: 'signal_report',
+    Agent: 'agent',
 } as const
 
 /**
@@ -2554,6 +2730,21 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * @nullable
      */
     relayed_mcp_servers?: RelayedMcpServerApi[] | null
+    /**
+     * Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.
+     * @nullable
+     */
+    rtk_enabled?: boolean | null
+    /**
+     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
+     * @nullable
+     */
+    benjamin_enabled?: boolean | null
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    claude_model_access?: ClaudeModelAccessEnumApi | null
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
      *
      * * `interactive` - interactive
@@ -2591,7 +2782,8 @@ export interface ClaudeTaskRunCreateSchemaApi {
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual
-     * * `signal_report` - signal_report */
+     * * `signal_report` - signal_report
+     * * `agent` - agent */
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
@@ -2630,16 +2822,6 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * * `bypassPermissions` - bypassPermissions
      * * `auto` - auto */
     initial_permission_mode?: InitialPermissionModeEnumApi
-    /**
-     * Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.
-     * @nullable
-     */
-    rtk_enabled?: boolean | null
-    /**
-     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
-     * @nullable
-     */
-    benjamin_enabled?: boolean | null
 }
 
 /**
@@ -2681,6 +2863,21 @@ export interface CodexTaskRunCreateSchemaApi {
      * @nullable
      */
     relayed_mcp_servers?: RelayedMcpServerApi[] | null
+    /**
+     * Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.
+     * @nullable
+     */
+    rtk_enabled?: boolean | null
+    /**
+     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
+     * @nullable
+     */
+    benjamin_enabled?: boolean | null
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    claude_model_access?: ClaudeModelAccessEnumApi | null
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
      *
      * * `interactive` - interactive
@@ -2718,7 +2915,8 @@ export interface CodexTaskRunCreateSchemaApi {
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual
-     * * `signal_report` - signal_report */
+     * * `signal_report` - signal_report
+     * * `agent` - agent */
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
@@ -2756,16 +2954,6 @@ export interface CodexTaskRunCreateSchemaApi {
      * * `read-only` - read-only
      * * `full-access` - full-access */
     initial_permission_mode?: CodexTaskRunCreateSchemaInitialPermissionModeEnumApi
-    /**
-     * Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.
-     * @nullable
-     */
-    rtk_enabled?: boolean | null
-    /**
-     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
-     * @nullable
-     */
-    benjamin_enabled?: boolean | null
 }
 
 export interface TaskRunResumeRequestSchemaApi {
@@ -2796,7 +2984,8 @@ export interface TaskRunResumeRequestSchemaApi {
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual
-     * * `signal_report` - signal_report */
+     * * `signal_report` - signal_report
+     * * `agent` - agent */
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
@@ -2808,6 +2997,70 @@ export type TaskRunCreateRequestSchemaApi =
     | ClaudeTaskRunCreateSchemaApi
     | CodexTaskRunCreateSchemaApi
     | TaskRunResumeRequestSchemaApi
+
+/**
+ * @nullable
+ */
+export type TaskRunResponseApiJsonSchema = { [key: string]: unknown } | null
+
+/**
+ * Detail response for a task.
+ *
+ * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+ * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+ * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+ */
+export interface TaskRunResponseApi {
+    id: string
+    /** @nullable */
+    task_number: number | null
+    slug: string
+    title: string
+    title_manually_set: boolean
+    description: string
+    origin_product: string
+    /** Agent protocol and harness used for this task's runs.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    runtime: TaskRuntimeEnumApi
+    /** @nullable */
+    repository: string | null
+    repositories: string[]
+    /** @nullable */
+    github_integration: number | null
+    /** @nullable */
+    github_user_integration: string | null
+    /** @nullable */
+    signal_report: string | null
+    /** @nullable */
+    json_schema: TaskRunResponseApiJsonSchema
+    internal: boolean
+    archived: boolean
+    /** @nullable */
+    archived_at: string | null
+    /** Latest run details for this task */
+    latest_run?: TaskRunDetailDTOApi | null
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    updated_at?: string | null
+    /** @nullable */
+    last_activity_at?: string | null
+    created_by?: TaskUserBasicInfoApi | null
+    /** @nullable */
+    ci_prompt: string | null
+    /** @nullable */
+    channel?: string | null
+    readonly slack_thread_references: readonly SlackThreadReferenceDTOApi[]
+    /**
+     * Stable key of the server-side flow that created this task, e.g. `desktop_onboarding_session:<user_id>`. Null for tasks people create themselves.
+     * @nullable
+     */
+    origin_key?: string | null
+    /** Error returned when the run could not start. */
+    run_error?: string
+}
 
 /**
  * * `plan` - plan
@@ -3028,12 +3281,23 @@ export interface PaginatedTaskRunDetailDTOListApi {
  * * `local` - local
  * * `cloud` - cloud
  */
-export type TaskRunBootstrapCreateRequestEnvironmentEnumApi =
-    (typeof TaskRunBootstrapCreateRequestEnvironmentEnumApi)[keyof typeof TaskRunBootstrapCreateRequestEnvironmentEnumApi]
+export type RunEnvironmentEnumApi = (typeof RunEnvironmentEnumApi)[keyof typeof RunEnvironmentEnumApi]
 
-export const TaskRunBootstrapCreateRequestEnvironmentEnumApi = {
+export const RunEnvironmentEnumApi = {
     Local: 'local',
     Cloud: 'cloud',
+} as const
+
+/**
+ * * `manual` - manual
+ * * `signal_report` - signal_report
+ */
+export type TaskBootstrapRunSourceEnumApi =
+    (typeof TaskBootstrapRunSourceEnumApi)[keyof typeof TaskBootstrapRunSourceEnumApi]
+
+export const TaskBootstrapRunSourceEnumApi = {
+    Manual: 'manual',
+    SignalReport: 'signal_report',
 } as const
 
 /**
@@ -3050,11 +3314,26 @@ export interface TaskRunBootstrapCreateRequestApi {
      * @nullable
      */
     relayed_mcp_servers?: RelayedMcpServerApi[] | null
+    /**
+     * Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.
+     * @nullable
+     */
+    rtk_enabled?: boolean | null
+    /**
+     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
+     * @nullable
+     */
+    benjamin_enabled?: boolean | null
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    claude_model_access?: ClaudeModelAccessEnumApi | null
     /** Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.
      *
      * * `local` - local
      * * `cloud` - cloud */
-    environment?: TaskRunBootstrapCreateRequestEnvironmentEnumApi
+    environment?: RunEnvironmentEnumApi
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
      *
      * * `interactive` - interactive
@@ -3084,7 +3363,7 @@ export interface TaskRunBootstrapCreateRequestApi {
      *
      * * `manual` - manual
      * * `signal_report` - signal_report */
-    run_source?: RunSourceEnumApi
+    run_source?: TaskBootstrapRunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
     /** Agent runtime adapter to launch for this run. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime.
@@ -3127,17 +3406,12 @@ export interface TaskRunBootstrapCreateRequestApi {
      * * `read-only` - read-only
      * * `full-access` - full-access */
     initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi
-    /**
-     * Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.
-     * @nullable
-     */
-    rtk_enabled?: boolean | null
-    /**
-     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
-     * @nullable
-     */
-    benjamin_enabled?: boolean | null
 }
+
+/**
+ * State of the run
+ */
+export type PatchedTaskRunUpdateApiState = { [key: string]: unknown }
 
 /**
  * State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race.
@@ -3186,7 +3460,7 @@ export interface PatchedTaskRunUpdateApi {
     /** Output from the run */
     output?: unknown
     /** State of the run */
-    state?: unknown
+    state?: PatchedTaskRunUpdateApiState
     /** State keys to remove atomically before applying any state updates. */
     state_remove_keys?: string[]
     /** State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race. */
@@ -3199,213 +3473,197 @@ export interface PatchedTaskRunUpdateApi {
 }
 
 /**
- * * `run_was_efficient` - run_was_efficient
- * * `too_short_to_judge` - too_short_to_judge
- * * `insufficient_visibility` - insufficient_visibility
+ * * `orient` - orient
+ * * `explore` - explore
+ * * `gather` - gather
+ * * `produce` - produce
+ * * `verify` - verify
+ * * `setup_env` - setup_env
+ * * `ship` - ship
+ * * `wait` - wait
+ * * `operate` - operate
+ * * `deliver` - deliver
  */
-export type NoFindingsReasonEnumApi = (typeof NoFindingsReasonEnumApi)[keyof typeof NoFindingsReasonEnumApi]
+export type TaskAnalysisGoalKindEnumApi = (typeof TaskAnalysisGoalKindEnumApi)[keyof typeof TaskAnalysisGoalKindEnumApi]
 
-export const NoFindingsReasonEnumApi = {
-    RunWasEfficient: 'run_was_efficient',
-    TooShortToJudge: 'too_short_to_judge',
-    InsufficientVisibility: 'insufficient_visibility',
+export const TaskAnalysisGoalKindEnumApi = {
+    Orient: 'orient',
+    Explore: 'explore',
+    Gather: 'gather',
+    Produce: 'produce',
+    Verify: 'verify',
+    SetupEnv: 'setup_env',
+    Ship: 'ship',
+    Wait: 'wait',
+    Operate: 'operate',
+    Deliver: 'deliver',
 } as const
 
 /**
- * * `transcript_quote` - transcript_quote
- * * `command_output` - command_output
- * * `measured_count` - measured_count
+ * * `worked` - worked
+ * * `failed` - failed
+ * * `abandoned` - abandoned
+ * * `unknown` - unknown
  */
-export type EvidenceTypeEnumApi = (typeof EvidenceTypeEnumApi)[keyof typeof EvidenceTypeEnumApi]
+export type TaskAnalysisOutcomeEnumApi = (typeof TaskAnalysisOutcomeEnumApi)[keyof typeof TaskAnalysisOutcomeEnumApi]
 
-export const EvidenceTypeEnumApi = {
-    TranscriptQuote: 'transcript_quote',
-    CommandOutput: 'command_output',
-    MeasuredCount: 'measured_count',
+export const TaskAnalysisOutcomeEnumApi = {
+    Worked: 'worked',
+    Failed: 'failed',
+    Abandoned: 'abandoned',
+    Unknown: 'unknown',
 } as const
 
-export interface TaskAnalysisEvidenceApi {
+/**
+ * * `missing_binary` - missing_binary
+ * * `missing_package` - missing_package
+ * * `service_down` - service_down
+ * * `missing_build_artifact` - missing_build_artifact
+ * * `missing_credential` - missing_credential
+ * * `memory_limit` - memory_limit
+ * * `network` - network
+ * * `shallow_git` - shallow_git
+ * * `tool_error` - tool_error
+ * * `tool_syntax` - tool_syntax
+ * * `api_error` - api_error
+ * * `missing_flag` - missing_flag
+ * * `unclear_instructions` - unclear_instructions
+ * * `user_redirect` - user_redirect
+ */
+export type TaskAnalysisBlockerKindEnumApi =
+    (typeof TaskAnalysisBlockerKindEnumApi)[keyof typeof TaskAnalysisBlockerKindEnumApi]
+
+export const TaskAnalysisBlockerKindEnumApi = {
+    MissingBinary: 'missing_binary',
+    MissingPackage: 'missing_package',
+    ServiceDown: 'service_down',
+    MissingBuildArtifact: 'missing_build_artifact',
+    MissingCredential: 'missing_credential',
+    MemoryLimit: 'memory_limit',
+    Network: 'network',
+    ShallowGit: 'shallow_git',
+    ToolError: 'tool_error',
+    ToolSyntax: 'tool_syntax',
+    ApiError: 'api_error',
+    MissingFlag: 'missing_flag',
+    UnclearInstructions: 'unclear_instructions',
+    UserRedirect: 'user_redirect',
+} as const
+
+/**
+ * One activity record from a task-run analysis: what the agent tried, how it went, and what blocked it.
+ */
+export interface TaskRunAnalysisActivityRequestApi {
+    /** Which kind of work the agent did in this span.
+     *
+     * * `orient` - orient
+     * * `explore` - explore
+     * * `gather` - gather
+     * * `produce` - produce
+     * * `verify` - verify
+     * * `setup_env` - setup_env
+     * * `ship` - ship
+     * * `wait` - wait
+     * * `operate` - operate
+     * * `deliver` - deliver */
+    goal_kind: TaskAnalysisGoalKindEnumApi
     /**
-     * Verbatim span copied from the analysed run log.
-     * @minLength 20
+     * What the agent tried, in 3 to 8 words.
+     * @minLength 3
+     * @maxLength 80
+     */
+    goal: string
+    /** How the activity ended for the agent.
+     *
+     * * `worked` - worked
+     * * `failed` - failed
+     * * `abandoned` - abandoned
+     * * `unknown` - unknown */
+    outcome: TaskAnalysisOutcomeEnumApi
+    /** What stopped the agent, when something did. Omit for healthy work.
+     *
+     * * `missing_binary` - missing_binary
+     * * `missing_package` - missing_package
+     * * `service_down` - service_down
+     * * `missing_build_artifact` - missing_build_artifact
+     * * `missing_credential` - missing_credential
+     * * `memory_limit` - memory_limit
+     * * `network` - network
+     * * `shallow_git` - shallow_git
+     * * `tool_error` - tool_error
+     * * `tool_syntax` - tool_syntax
+     * * `api_error` - api_error
+     * * `missing_flag` - missing_flag
+     * * `unclear_instructions` - unclear_instructions
+     * * `user_redirect` - user_redirect */
+    blocker_kind?: TaskAnalysisBlockerKindEnumApi | null
+    /**
+     * The exact binary, package, service, file, flag, or error the blocker names. Required with blocker_kind.
+     * @maxLength 120
+     * @nullable
+     */
+    blocker_name?: string | null
+    /**
+     * The command or step that removed the blocker, when the agent found one. Requires blocker_kind.
      * @maxLength 300
+     * @nullable
      */
-    quote: string
-    /** What kind of log content the quote was taken from.
-     *
-     * * `transcript_quote` - transcript_quote
-     * * `command_output` - command_output
-     * * `measured_count` - measured_count */
-    evidence_type: EvidenceTypeEnumApi
-}
-
-/**
- * * `environment_failure` - environment_failure
- * * `missing_tool` - missing_tool
- * * `verbose_output` - verbose_output
- * * `redundant_work` - redundant_work
- * * `missing_capability` - missing_capability
- * * `instruction_gap` - instruction_gap
- * * `wasted_retry` - wasted_retry
- * * `other` - other
- */
-export type TaskRunAnalysisInsightRequestCategoryEnumApi =
-    (typeof TaskRunAnalysisInsightRequestCategoryEnumApi)[keyof typeof TaskRunAnalysisInsightRequestCategoryEnumApi]
-
-export const TaskRunAnalysisInsightRequestCategoryEnumApi = {
-    EnvironmentFailure: 'environment_failure',
-    MissingTool: 'missing_tool',
-    VerboseOutput: 'verbose_output',
-    RedundantWork: 'redundant_work',
-    MissingCapability: 'missing_capability',
-    InstructionGap: 'instruction_gap',
-    WastedRetry: 'wasted_retry',
-    Other: 'other',
-} as const
-
-export interface TaskAnalysisWastedEffortApi {
+    repair?: string | null
     /**
-     * Wasted tool calls, counted from the log.
-     * @minimum 1
-     */
-    tool_calls?: number
-    /**
-     * Wall-clock seconds across the wasted span.
-     * @minimum 1
-     */
-    seconds?: number
-    /**
-     * Token delta across the wasted span.
-     * @minimum 1
-     */
-    tokens?: number
-    /**
-     * Sum of tool-output sizes across the wasted span.
-     * @minimum 1
-     */
-    output_bytes?: number
-}
-
-/**
- * * `every_run_in_this_repo` - every_run_in_this_repo
- * * `runs_touching_this_area` - runs_touching_this_area
- * * `one_off` - one_off
- */
-export type RecurrenceEnumApi = (typeof RecurrenceEnumApi)[keyof typeof RecurrenceEnumApi]
-
-export const RecurrenceEnumApi = {
-    EveryRunInThisRepo: 'every_run_in_this_repo',
-    RunsTouchingThisArea: 'runs_touching_this_area',
-    OneOff: 'one_off',
-} as const
-
-/**
- * * `directly_observed` - directly_observed
- * * `inferred` - inferred
- */
-export type ConfidenceBasisEnumApi = (typeof ConfidenceBasisEnumApi)[keyof typeof ConfidenceBasisEnumApi]
-
-export const ConfidenceBasisEnumApi = {
-    DirectlyObserved: 'directly_observed',
-    Inferred: 'inferred',
-} as const
-
-export interface TaskAnalysisSuggestedFixApi {
-    /**
-     * The specific change to make.
-     * @minLength 50
-     * @maxLength 400
-     */
-    change: string
-    /**
-     * A checkable condition confirming the fix worked.
-     * @minLength 30
+     * One exact quote from the run log inside the activity's line range.
+     * @minLength 10
      * @maxLength 200
      */
-    done_when: string
+    evidence: string
     /**
-     * Single-line commands only; these may become image build steps.
-     * @maxItems 10
-     * @items.minLength 1
-     * @items.maxLength 500
-     */
-    setup_commands?: string[]
-    /**
-     * Services the fix needs available.
-     * @maxItems 10
-     * @items.minLength 1
-     * @items.maxLength 100
-     */
-    required_services?: string[]
-    /**
-     * Environment variable names only, never values.
-     * @maxItems 10
-     * @items.minLength 1
-     * @items.maxLength 100
-     */
-    env_var_names?: string[]
-}
-
-/**
- * One analysis finding. The shape the server stores, independent of what the tool sent.
- */
-export interface TaskRunAnalysisInsightRequestApi {
-    /** Only for a run with zero findings; never combined with a finding.
-     *
-     * * `run_was_efficient` - run_was_efficient
-     * * `too_short_to_judge` - too_short_to_judge
-     * * `insufficient_visibility` - insufficient_visibility */
-    no_findings_reason?: NoFindingsReasonEnumApi
-    /**
-     * What happened, 1-3 sentences.
-     * @minLength 80
-     * @maxLength 500
-     */
-    observation?: string
-    /** Quotes from the analysed log backing the observation. */
-    evidence?: TaskAnalysisEvidenceApi[]
-    /**
-     * How often this happened.
+     * First log line of the activity, 1-based.
      * @minimum 1
      */
-    occurrence_count?: number
-    /** The kind of inefficiency observed.
-     *
-     * * `environment_failure` - environment_failure
-     * * `missing_tool` - missing_tool
-     * * `verbose_output` - verbose_output
-     * * `redundant_work` - redundant_work
-     * * `missing_capability` - missing_capability
-     * * `instruction_gap` - instruction_gap
-     * * `wasted_retry` - wasted_retry
-     * * `other` - other */
-    category?: TaskRunAnalysisInsightRequestCategoryEnumApi
+    start_line: number
     /**
-     * Required when category is 'other'.
-     * @minLength 50
-     * @maxLength 200
+     * Last log line of the activity, 1-based.
+     * @minimum 1
      */
-    other_justification?: string
-    /** Effort measured from the log, never estimated. */
-    wasted_effort?: TaskAnalysisWastedEffortApi
-    /** How widely this is expected to recur.
-     *
-     * * `every_run_in_this_repo` - every_run_in_this_repo
-     * * `runs_touching_this_area` - runs_touching_this_area
-     * * `one_off` - one_off */
-    recurrence?: RecurrenceEnumApi
-    /** How the finding was established.
-     *
-     * * `directly_observed` - directly_observed
-     * * `inferred` - inferred */
-    confidence_basis?: ConfidenceBasisEnumApi
-    /** The fix the finding argues for. */
-    suggested_fix?: TaskAnalysisSuggestedFixApi
+    end_line: number
+    /**
+     * Distinct tool calls started inside the line range.
+     * @minimum 0
+     */
+    tool_calls: number
+    /**
+     * Tool calls started inside the line range that ended as failed.
+     * @minimum 0
+     */
+    failed_calls: number
+    /**
+     * Wall-clock seconds from the last timestamp before the line range to the last timestamp inside it.
+     * @minimum 0
+     */
+    seconds: number
+    /**
+     * Sum of the gaps longer than 4 minutes between those consecutive timestamps.
+     * @minimum 0
+     */
+    idle_seconds: number
+    /**
+     * Command heads run in the activity, in order, adjacent duplicates removed.
+     * @maxItems 24
+     * @items.minLength 1
+     * @items.maxLength 60
+     */
+    commands?: string[]
+    /**
+     * Skills, AGENTS.md files, templates, and wiki pages the agent read in the activity.
+     * @maxItems 20
+     * @items.minLength 1
+     * @items.maxLength 200
+     */
+    guidance_read?: string[]
 }
 
-export interface TaskRunAnalysisInsightResponseApi {
-    /** Zero-based position of the stored finding on the run. */
-    insight_index: number
+export interface TaskRunAnalysisActivityResponseApi {
+    /** Zero-based position of the stored activity on the run. */
+    activity_index: number
 }
 
 export interface TaskRunAnalyzeResponseApi {
@@ -3711,6 +3969,7 @@ export const JsonrpcEnumApi = {
  * * `permission_response` - permission_response
  * * `set_config_option` - set_config_option
  * * `mcp_response` - mcp_response
+ * * `credential_response` - credential_response
  * * `pi/rpc` - pi/rpc
  * * `queue_get` - queue_get
  * * `queue_clear` - queue_clear
@@ -3726,6 +3985,7 @@ export const TaskRunCommandRequestMethodEnumApi = {
     PermissionResponse: 'permission_response',
     SetConfigOption: 'set_config_option',
     McpResponse: 'mcp_response',
+    CredentialResponse: 'credential_response',
     PiRpc: 'pi/rpc',
     QueueGet: 'queue_get',
     QueueClear: 'queue_clear',
@@ -3748,6 +4008,7 @@ export interface TaskRunCommandRequestApi {
      * * `permission_response` - permission_response
      * * `set_config_option` - set_config_option
      * * `mcp_response` - mcp_response
+     * * `credential_response` - credential_response
      * * `pi/rpc` - pi/rpc
      * * `queue_get` - queue_get
      * * `queue_clear` - queue_clear
@@ -3760,7 +4021,7 @@ export interface TaskRunCommandRequestApi {
 }
 
 /**
- * Error details on failure
+ * JSON-RPC error details, including failures returned with HTTP 200
  */
 export type TaskRunCommandResponseApiError = { [key: string]: unknown }
 
@@ -3772,9 +4033,9 @@ export interface TaskRunCommandResponseApi {
     jsonrpc: string
     /** Request ID echoed back (string or number) */
     id?: unknown
-    /** Command result on success */
+    /** Command result. Permission responses confirm acceptance only with resolved=true. */
     result?: unknown
-    /** Error details on failure */
+    /** JSON-RPC error details, including failures returned with HTTP 200 */
     error?: TaskRunCommandResponseApiError
 }
 
@@ -3894,6 +4155,11 @@ export interface TaskRunRelayMessageRequestApi {
      * @items.maxLength 10000
      */
     text_parts?: string[]
+    /**
+     * AI observability trace id of the turn that wrote this answer, when the sandbox reported one.
+     * @nullable
+     */
+    trace_id?: string | null
 }
 
 export interface TaskRunRelayMessageResponseApi {
@@ -3962,9 +4228,9 @@ export interface TaskSessionSyncResponseApi {
  * * `file` - file
  * * `github_pr` - github_pr
  */
-export type ArtifactTypeEnumApi = (typeof ArtifactTypeEnumApi)[keyof typeof ArtifactTypeEnumApi]
+export type ArtifactType2f0EnumApi = (typeof ArtifactType2f0EnumApi)[keyof typeof ArtifactType2f0EnumApi]
 
-export const ArtifactTypeEnumApi = {
+export const ArtifactType2f0EnumApi = {
     SlackMessage: 'slack_message',
     SlackCanvas: 'slack_canvas',
     Document: 'document',
@@ -4024,7 +4290,7 @@ export interface TaskRunLivingArtifactResponseApi {
      * * `dashboard` - dashboard
      * * `file` - file
      * * `github_pr` - github_pr */
-    artifact_type: ArtifactTypeEnumApi
+    artifact_type: ArtifactType2f0EnumApi
     /** Adapter that currently stores or edits the artifact.
      *
      * * `slack_message` - slack_message
@@ -4083,7 +4349,7 @@ export interface TaskRunLivingArtifactCreateRequestApi {
      * * `dashboard` - dashboard
      * * `file` - file
      * * `github_pr` - github_pr */
-    artifact_type?: ArtifactTypeEnumApi
+    artifact_type?: ArtifactType2f0EnumApi
     /** Optional preferred external storage or delivery adapter. Slack adapters deliver into the mapped Slack thread; omitted Slack-run documents use Slack canvas, omitted Slack-run files and spreadsheets use Slack file upload, and document_connector uses a connected external document provider.
      *
      * * `slack_message` - slack_message
@@ -4134,7 +4400,7 @@ export interface TaskRunLivingArtifactOpenResponseApi {
      * * `dashboard` - dashboard
      * * `file` - file
      * * `github_pr` - github_pr */
-    artifact_type: ArtifactTypeEnumApi
+    artifact_type: ArtifactType2f0EnumApi
     /** Adapter that currently stores or edits the artifact.
      *
      * * `slack_message` - slack_message
@@ -4270,6 +4536,87 @@ export interface TaskThreadMessageWriteApi {
 }
 
 /**
+ * The default AI run triple stored at team or user level.
+ *
+ * Write payload for the tasks config endpoints and the `ai_run_preferences` block of
+ * their responses. `runtime_adapter` and `model` must be set together; send all three
+ * as null to clear a stored preference.
+ */
+export interface TasksAIRunPreferencesApi {
+    /** Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter?: RuntimeAdapterEnumApi | null
+    /**
+     * Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.
+     * @nullable
+     */
+    model?: string | null
+    /** Default reasoning effort for models that expose an effort control.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max
+     * * `ultracode` - ultracode */
+    reasoning_effort?: ReasoningEffortEnumApi | null
+}
+
+/**
+ * * `user` - user
+ * * `team` - team
+ * * `none` - none
+ */
+export type TasksResolvedAIRunDefaultsSourceEnumApi =
+    (typeof TasksResolvedAIRunDefaultsSourceEnumApi)[keyof typeof TasksResolvedAIRunDefaultsSourceEnumApi]
+
+export const TasksResolvedAIRunDefaultsSourceEnumApi = {
+    User: 'user',
+    Team: 'team',
+    None: 'none',
+} as const
+
+/**
+ * The AI run triple a new run will effectively use when the caller pins nothing,
+ * plus which preference level supplied it.
+ */
+export interface TasksResolvedAIRunDefaultsApi {
+    /**
+     * Effective default runtime adapter, or null when no preference is stored.
+     * @nullable
+     */
+    runtime_adapter: string | null
+    /**
+     * Effective default model identifier, or null when no preference is stored.
+     * @nullable
+     */
+    model: string | null
+    /**
+     * Effective default reasoning effort, or null when unset or unsupported.
+     * @nullable
+     */
+    reasoning_effort: string | null
+    /** Preference level that supplied the default: the caller's own per-project preference ('user'), the project default ('team'), or 'none'.
+     *
+     * * `user` - user
+     * * `team` - team
+     * * `none` - none */
+    source: TasksResolvedAIRunDefaultsSourceEnumApi
+}
+
+/**
+ * The requesting user's per-project tasks configuration.
+ */
+export interface TasksUserConfigResponseApi {
+    /** The requesting user's per-project default AI run triple; all fields null when unset. */
+    ai_run_preferences: TasksAIRunPreferencesApi
+    /** The defaults a new run will use when no explicit runtime selection is sent. */
+    resolved_ai_run_defaults: TasksResolvedAIRunDefaultsApi
+}
+
+/**
  * The team's active onboarding wizard cloud run, used to rehydrate
  * the setup-progress FAB when the run was started server-side (drop flow).
  */
@@ -4285,6 +4632,14 @@ export interface WizardCloudRunDTOApi {
      * @nullable
      */
     started_at?: string | null
+}
+
+/**
+ * Team-level tasks configuration.
+ */
+export interface TasksTeamConfigResponseApi {
+    /** Project-wide default AI run triple; all fields null when unset. */
+    ai_run_preferences: TasksAIRunPreferencesApi
 }
 
 /**
@@ -4314,6 +4669,101 @@ export interface ModelCatalogueResponseApi {
 export interface PinnedTaskIdsResponseApi {
     /** Visible task IDs pinned by the requester, newest pin first. */
     task_ids: string[]
+}
+
+/**
+ * * `engineering` - Engineering
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `student` - Student
+ * * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Student: 'student',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+export interface RepoRoutingRuleApi {
+    readonly id: string
+    /**
+     * Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters.
+     * @maxLength 300
+     */
+    rule_text: string
+    /**
+     * Target repository as owner/repo, e.g. 'posthog/posthog.com'.
+     * @maxLength 255
+     */
+    repository: string
+    readonly priority: number
+    /** Who created the rule, from the UI or the Slack commands. Null when that user was deleted. */
+    readonly created_by: UserBasicApi | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PatchedRepoRoutingRuleApi {
+    readonly id?: string
+    /**
+     * Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters.
+     * @maxLength 300
+     */
+    rule_text?: string
+    /**
+     * Target repository as owner/repo, e.g. 'posthog/posthog.com'.
+     * @maxLength 255
+     */
+    repository?: string
+    readonly priority?: number
+    /** Who created the rule, from the UI or the Slack commands. Null when that user was deleted. */
+    readonly created_by?: UserBasicApi | null
+    readonly created_at?: string
+    readonly updated_at?: string
 }
 
 export interface TaskRepositoriesResponseApi {
@@ -4410,6 +4860,7 @@ export interface RepositoryReadinessResponseApi {
  * * `pull_request` - pull_request
  * * `artifact` - artifact
  * * `channel` - channel
+ * * `canvas` - canvas
  */
 export type TaskSearchResultKindEnumApi = (typeof TaskSearchResultKindEnumApi)[keyof typeof TaskSearchResultKindEnumApi]
 
@@ -4418,7 +4869,80 @@ export const TaskSearchResultKindEnumApi = {
     PullRequest: 'pull_request',
     Artifact: 'artifact',
     Channel: 'channel',
+    Canvas: 'canvas',
 } as const
+
+/**
+ * * `not_started` - Not Started
+ * * `queued` - Queued
+ * * `in_progress` - In Progress
+ * * `completed` - Completed
+ * * `failed` - Failed
+ * * `cancelled` - Cancelled
+ */
+export type TaskRunStatusEnumApi = (typeof TaskRunStatusEnumApi)[keyof typeof TaskRunStatusEnumApi]
+
+export const TaskRunStatusEnumApi = {
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+/**
+ * * `local` - Local
+ * * `cloud` - Cloud
+ */
+export type TaskRunEnvironmentEnumApi = (typeof TaskRunEnvironmentEnumApi)[keyof typeof TaskRunEnvironmentEnumApi]
+
+export const TaskRunEnvironmentEnumApi = {
+    Local: 'local',
+    Cloud: 'cloud',
+} as const
+
+/**
+ * * `open` - open
+ * * `draft` - draft
+ * * `merged` - merged
+ * * `closed` - closed
+ * * `unknown` - unknown
+ */
+export type PrStateEnumApi = (typeof PrStateEnumApi)[keyof typeof PrStateEnumApi]
+
+export const PrStateEnumApi = {
+    Open: 'open',
+    Draft: 'draft',
+    Merged: 'merged',
+    Closed: 'closed',
+    Unknown: 'unknown',
+} as const
+
+export interface TaskRunSummaryApi {
+    /** ID of the latest run. */
+    id: string
+    status: TaskRunStatusEnumApi | null
+    environment: TaskRunEnvironmentEnumApi | null
+    /** Execution mode of the latest run.
+     *
+     * * `interactive` - interactive
+     * * `background` - background */
+    mode: TaskExecutionModeEnumApi
+    /**
+     * URL of the pull request the latest run opened, or null when it opened none.
+     * @nullable
+     */
+    pr_url: string | null
+    /** State of that pull request: open, draft, merged, closed, or unknown. Null when the latest run opened no pull request.
+     *
+     * * `open` - open
+     * * `draft` - draft
+     * * `merged` - merged
+     * * `closed` - closed
+     * * `unknown` - unknown */
+    pr_state: PrStateEnumApi | null
+}
 
 export interface TaskSearchResultApi {
     /** Search document identifier. */
@@ -4428,7 +4952,8 @@ export interface TaskSearchResultApi {
      * * `task` - task
      * * `pull_request` - pull_request
      * * `artifact` - artifact
-     * * `channel` - channel */
+     * * `channel` - channel
+     * * `canvas` - canvas */
     kind: TaskSearchResultKindEnumApi
     /** Primary result label. */
     title: string
@@ -4449,6 +4974,17 @@ export interface TaskSearchResultApi {
      * @nullable
      */
     channel_id: string | null
+    /** Who created the containing task, when the match has one. */
+    created_by: TaskUserBasicInfoApi | null
+    /**
+     * What created the containing task, for example 'slack'.
+     * @nullable
+     */
+    origin_product: string | null
+    /** Status of the containing task's most recent run. */
+    latest_run: TaskRunSummaryApi | null
+    /** When the matched resource last changed. */
+    updated_at: string
     /** Resource-specific navigation metadata. */
     metadata: unknown
 }
@@ -4634,41 +5170,6 @@ export interface TaskSummariesRequestApi {
 }
 
 /**
- * * `not_started` - Not Started
- * * `queued` - Queued
- * * `in_progress` - In Progress
- * * `completed` - Completed
- * * `failed` - Failed
- * * `cancelled` - Cancelled
- */
-export type TaskRunStatusEnumApi = (typeof TaskRunStatusEnumApi)[keyof typeof TaskRunStatusEnumApi]
-
-export const TaskRunStatusEnumApi = {
-    NotStarted: 'not_started',
-    Queued: 'queued',
-    InProgress: 'in_progress',
-    Completed: 'completed',
-    Failed: 'failed',
-    Cancelled: 'cancelled',
-} as const
-
-/**
- * * `local` - Local
- * * `cloud` - Cloud
- */
-export type TaskRunEnvironmentEnumApi = (typeof TaskRunEnvironmentEnumApi)[keyof typeof TaskRunEnvironmentEnumApi]
-
-export const TaskRunEnvironmentEnumApi = {
-    Local: 'local',
-    Cloud: 'cloud',
-} as const
-
-export interface TaskRunSummaryApi {
-    status: TaskRunStatusEnumApi | null
-    environment: TaskRunEnvironmentEnumApi | null
-}
-
-/**
  * Summary response for a task — reads from a frozen ``TaskSummaryDTO``.
  */
 export interface TaskSummaryDTOApi {
@@ -4676,6 +5177,11 @@ export interface TaskSummaryDTOApi {
     title: string
     /** @nullable */
     repository: string | null
+    /**
+     * ID of the user who created the task, or null for system-created tasks.
+     * @nullable
+     */
+    created_by_id: number | null
     created_at: string
     updated_at: string
     origin_product?: string
@@ -4814,7 +5320,30 @@ export type LoopsRunsRetrieveParams = {
      * @maximum 100
      */
     limit?: number
+    /**
+     * Only return runs with this status. Use failed to read errors even when canvas state is unavailable.
+     *
+     * * `not_started` - Not Started
+     * * `queued` - Queued
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled
+     * @minLength 1
+     */
+    status?: LoopsRunsRetrieveStatus
 }
+
+export type LoopsRunsRetrieveStatus = (typeof LoopsRunsRetrieveStatus)[keyof typeof LoopsRunsRetrieveStatus]
+
+export const LoopsRunsRetrieveStatus = {
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
 
 export type LoopsTriggerCreateBodyOne = { [key: string]: unknown }
 
@@ -4915,6 +5444,10 @@ export type TasksListParams = {
      */
     archived?: TasksListArchived
     /**
+     * With true, return basic list rows for summary surfaces: each row omits the full description and includes description_preview, its first 1000 characters. Defaults to false, which returns full task rows with description. The search parameter still matches description text server-side.
+     */
+    basic?: boolean
+    /**
      * Filter tasks to a channel's feed.
      */
     channel?: string
@@ -4928,6 +5461,13 @@ export type TasksListParams = {
      * @minLength 1
      */
     ci_status?: TasksListCiStatus
+    /**
+     * Filter by the client that created the task
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * @minLength 1
+     */
+    client_provenance?: TasksListClientProvenance
     /**
      * Filter to tasks carrying a thread comment written by this user ID.
      */
@@ -4950,6 +5490,7 @@ export type TasksListParams = {
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
+     * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
@@ -5067,6 +5608,12 @@ export const TasksListCiStatus = {
     None: 'none',
 } as const
 
+export type TasksListClientProvenance = (typeof TasksListClientProvenance)[keyof typeof TasksListClientProvenance]
+
+export const TasksListClientProvenance = {
+    PosthogDesktop: 'posthog_desktop',
+} as const
+
 export type TasksListExcludeOriginProduct =
     (typeof TasksListExcludeOriginProduct)[keyof typeof TasksListExcludeOriginProduct]
 
@@ -5082,6 +5629,7 @@ export const TasksListExcludeOriginProduct = {
     Experiments: 'experiments',
     SignalReport: 'signal_report',
     SignalsScout: 'signals_scout',
+    ScoutSuggestions: 'scout_suggestions',
     SupportReply: 'support_reply',
     Hogdesk: 'hogdesk',
     ReviewHog: 'review_hog',
@@ -5227,6 +5775,28 @@ export type TasksRunsStreamRetrieveParams = {
 }
 
 export type TasksThreadMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type TasksMeConfigListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type TasksConfigListParams = {
     /**
      * Number of results to return per page.
      */

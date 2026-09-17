@@ -56,7 +56,6 @@ describe("AutoresearchRuntimeStats", () => {
       used: 42_800,
       size: 200_000,
       percentage: 21,
-      cost: { amount: 1.284, currency: "USD" },
       breakdown: null,
     });
 

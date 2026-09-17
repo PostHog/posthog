@@ -1,7 +1,7 @@
 from datetime import timedelta
 from uuid import uuid4
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
@@ -101,7 +101,6 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         alerts = next(r for r in response.json()["results"] if r["type"] == "alerts")
         self.assertEqual(alerts["meta"], MOCK_ALERTS_META_UPDATED)
 
-    @freeze_time("2026-01-01T00:00:00Z", as_kwarg="frozen_time")
     @patch(
         "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
     )
@@ -109,19 +108,20 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_long_running_is_cached_until_interval_elapses(self, mock_alerts, mock_long_running, frozen_time):
-        mock_long_running.return_value = {"issues": []}
-        self._list()
-        self.assertEqual(mock_long_running.call_count, 1)
+    def test_long_running_is_cached_until_interval_elapses(self, mock_alerts, mock_long_running):
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen_time:
+            mock_long_running.return_value = {"issues": []}
+            self._list()
+            self.assertEqual(mock_long_running.call_count, 1)
 
-        # Re-listing within the same refresh window doesn't recompute.
-        self._list()
-        self.assertEqual(mock_long_running.call_count, 1)
+            # Re-listing within the same refresh window doesn't recompute.
+            self._list()
+            self.assertEqual(mock_long_running.call_count, 1)
 
-        # A full refresh_interval always crosses into the next window — recompute, regardless of phase.
-        frozen_time.tick(LongRunningIssuesRecommendation.refresh_interval)
-        self._list()
-        self.assertEqual(mock_long_running.call_count, 2)
+            # A full refresh_interval always crosses into the next window — recompute, regardless of phase.
+            frozen_time.shift(LongRunningIssuesRecommendation.refresh_interval)
+            self._list()
+            self.assertEqual(mock_long_running.call_count, 2)
 
     @patch(
         "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",

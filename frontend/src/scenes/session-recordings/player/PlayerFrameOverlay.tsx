@@ -79,8 +79,15 @@ const RECOVERABLE_SNAPSHOT_ERRORS = [
 ]
 
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
-    const { currentPlayerState, endReached, logicProps, playerError, isWaitingForIngestion, sessionPlayerMetaData } =
-        useValues(sessionRecordingPlayerLogic)
+    const {
+        currentPlayerState,
+        endReached,
+        logicProps,
+        playerError,
+        isWaitingForIngestion,
+        sessionPlayerMetaData,
+        matchingEventSkipTarget,
+    } = useValues(sessionRecordingPlayerLogic)
     const { setPlay, retryLoadingSnapshots } = useActions(sessionRecordingPlayerLogic)
 
     const handlePlay = (e: MouseEvent): void => {
@@ -214,7 +221,13 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
         content = <div className="text-3xl italic font-medium text-white">Skipping inactivity</div>
     }
     if (currentPlayerState === SessionPlayerState.SKIP_TO_MATCHING_EVENT) {
-        content = <div className="text-3xl italic font-medium text-white">Skipping to filtered event</div>
+        content = (
+            <div className="text-3xl italic font-medium text-white">
+                {matchingEventSkipTarget === 'experiment-exposure'
+                    ? 'Skipping to experiment exposure'
+                    : 'Skipping to filtered event'}
+            </div>
+        )
     }
     return content ? (
         <div

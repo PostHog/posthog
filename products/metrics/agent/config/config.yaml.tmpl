@@ -1,8 +1,6 @@
 receivers:
-    prometheus:
-        config:
-            scrape_configs:
-#__SCRAPE_CONFIGS__
+#__PROMETHEUS_RECEIVER__
+#__GCP_RECEIVER__
 
 processors:
     # Shed load instead of buffering unbounded memory when PostHog is unreachable.
@@ -11,6 +9,7 @@ processors:
         limit_mib: 512
         spike_limit_mib: 128
     batch:
+#__GCP_RESOURCE_PROCESSOR__
 
 exporters:
 #__DEBUG_EXPORTER__
@@ -44,6 +43,6 @@ service:
     extensions: [__SERVICE_EXTENSIONS__]
     pipelines:
         metrics:
-            receivers: [prometheus]
-            processors: [memory_limiter, batch]
+            receivers: [__PIPELINE_RECEIVERS__]
+            processors: [__PIPELINE_PROCESSORS__]
             exporters: [__PIPELINE_EXPORTERS__]

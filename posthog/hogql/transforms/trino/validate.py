@@ -5,15 +5,86 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_locator import resolve_trino_table_locator
 from posthog.hogql.printer.trino_functions import (
+    TRINO_AGGREGATE_COMBINATORS,
+    TRINO_ARRAY_INSERT_AGGREGATES,
+    TRINO_DELTA_AGGREGATES,
+    TRINO_EXACT_QUANTILES,
+    TRINO_EXACT_WEIGHTED_MEDIANS,
     TRINO_FUNCTION_HANDLERS_LOWER,
     TRINO_FUNCTION_RENAMES_LOWER,
+    TRINO_INTERSECTION_AGGREGATES,
+    TRINO_MOVING_ARRAY_AGGREGATES,
     TRINO_PASSTHROUGH_FUNCTIONS,
+    TRINO_QUANTILES,
+    TRINO_STATISTICAL_AGGREGATES,
+    TRINO_TUPLE_OPERATORS,
+    TRINO_UNIQUE_ARRAY_AGGREGATES,
+    TRINO_VECTOR_REWRITES,
+    TRINO_WINDOW_ONLY_FUNCTIONS,
 )
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
+from posthog.hogql.transforms.trino.persons import is_internal_trino_logical_table
 from posthog.hogql.visitor import TraversingVisitor
+
+from posthog.schema_enums import PersonsOnEventsMode
 
 _SPECIAL_CALLS = frozenset(
     {
+        *TRINO_AGGREGATE_COMBINATORS,
+        *TRINO_ARRAY_INSERT_AGGREGATES,
+        *TRINO_EXACT_QUANTILES,
+        *TRINO_EXACT_WEIGHTED_MEDIANS,
+        *TRINO_DELTA_AGGREGATES,
+        *TRINO_INTERSECTION_AGGREGATES,
+        *TRINO_MOVING_ARRAY_AGGREGATES,
+        *TRINO_QUANTILES,
+        *TRINO_STATISTICAL_AGGREGATES,
+        *TRINO_UNIQUE_ARRAY_AGGREGATES,
+        *TRINO_WINDOW_ONLY_FUNCTIONS,
+        *TRINO_TUPLE_OPERATORS,
+        *TRINO_VECTOR_REWRITES,
+        "arraylast",
+        "arrayreduce",
+        "arraycumsum",
+        "arraycumsumnonnegative",
+        "arrayfill",
+        "arrayreversefill",
+        "arraysplit",
+        "arrayreversesplit",
+        "tonullablestring",
+        "to_timestamp",
+        "defaultvalueoftypename",
+        "datename",
+        "accuratecast",
+        "accuratecastornull",
+        "format",
+        "domain",
+        "intdiv",
+        "multiplydecimal",
+        "convertcurrency",
+        "formatreadabletimedelta",
+        "roundbankers",
+        "extracturlparameter",
+        "arrayzip",
+        "arrayfold",
+        "arrayreversesort",
+        "extractallgroups",
+        "extractallgroupshorizontal",
+        "extractallgroupsvertical",
+        "extractgroups",
+        "regexpextract",
+        "replaceregexpone",
+        "median",
+        "medianif",
+        "topk",
+        "arraymax",
+        "arrayenumerate",
+        "arrayall",
+        "arrayexists",
+        "arraycount",
+        "countequal",
+        "multisearchanycaseinsensitive",
+        "tostartofinterval",
         "percentile_cont",
         "percentile_disc",
         "argmax",
@@ -26,13 +97,16 @@ _SPECIAL_CALLS = frozenset(
         "arrayfilter",
         "arrayfirst",
         "arrayflatten",
+        "arraylastindex",
         "arraymap",
         "arraymin",
+        "arrayslice",
         "arraysort",
         "arraysum",
         "empty",
         "extract",
         "extractall",
+        "first_value",
         "grouparrayif",
         "groupuniqarrayif",
         "groupuniqarray",
@@ -41,6 +115,7 @@ _SPECIAL_CALLS = frozenset(
         "hasany",
         "in",
         "countdistinct",
+        "countdistinctif",
         "date_part",
         "dateadd",
         "datesub",
@@ -62,8 +137,23 @@ _SPECIAL_CALLS = frozenset(
         "notempty",
         "notin",
         "parsedatetime",
+        "parsedatetimebesteffort",
         "quantile",
         "quantileif",
+        "avgweighted",
+        "avgweightedif",
+        "aggregate_funnel_trends",
+        "cityhash64",
+        "cuttofirstsignificantsubdomain",
+        "ngramdistance",
+        "ngramdistancecaseinsensitive",
+        "ngramdistanceutf8",
+        "ngramsearch",
+        "ngramsearchcaseinsensitive",
+        "ngramsearchutf8",
+        "hex",
+        "touuidordefault",
+        "reinterpretasuuid",
         "range",
         "repeat",
         "splitbychar",
@@ -87,6 +177,10 @@ _SPECIAL_CALLS = frozenset(
         "tostartofyear",
         "tolastdayofweek",
         "totimezone",
+        "like",
+        "ilike",
+        "notlike",
+        "notilike",
     }
 )
 _SEMANTIC_CALLS = frozenset({"cohort", "matchesaction", "savedquery"})
@@ -100,17 +194,44 @@ _SUPPORTED_CALLS = frozenset(
 )
 
 
+def validate_trino_context(context: HogQLContext) -> None:
+    mode = context.modifiers.personsOnEventsMode
+    if mode != PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+        mode_name = mode.value if mode is not None else "unset"
+        raise TrinoLoweringError(
+            "TRINO_PERSONS_ON_EVENTS_MODE_UNSUPPORTED",
+            f"personsOnEventsMode={mode_name}",
+            detail=(
+                "Trino compilation supports only "
+                "personsOnEventsMode=person_id_override_properties_on_events. "
+                f"The effective mode is {mode_name}. Change the query or project setting before compiling."
+            ),
+        )
+
+
 class TrinoSourceValidator(TraversingVisitor):
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        if isinstance(node.table, ast.Field) and is_internal_trino_logical_table(node.table.chain):
+            raise TrinoLoweringError("TRINO_INTERNAL_TABLE_UNAVAILABLE", "internal Trino table", node)
+        super().visit_join_expr(node)
+
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         if node.settings is not None:
             raise TrinoLoweringError("TRINO_SETTINGS_UNSUPPORTED", "SETTINGS", node)
         super().visit_select_query(node)
 
-    def visit_pivot_expr(self, node: ast.PivotExpr) -> None:
-        raise TrinoLoweringError("TRINO_PIVOT_UNSUPPORTED", "PIVOT", node)
-
     def visit_unpivot_expr(self, node: ast.UnpivotExpr) -> None:
-        raise TrinoLoweringError("TRINO_UNPIVOT_UNSUPPORTED", "UNPIVOT", node)
+        if len(node.columns) != 1 or not all(
+            isinstance(expr, ast.Field)
+            for column in node.columns
+            for expr in [column.value_columns, column.name_columns, *column.unpivot_values]
+        ):
+            raise TrinoLoweringError(
+                "TRINO_UNPIVOT_SHAPE_UNSUPPORTED",
+                "UNPIVOT with tuple outputs, aliases, or multiple column groups",
+                node,
+            )
+        super().visit_unpivot_expr(node)
 
 
 class TrinoReadyValidator(TraversingVisitor):
@@ -171,8 +292,8 @@ class TrinoReadyValidator(TraversingVisitor):
     def visit_cte(self, node: ast.CTE) -> None:
         if node.cte_type != "subquery":
             self._fail("TRINO_SCALAR_CTE_UNSUPPORTED", "scalar CTE", node)
-        if node.materialized is not None or node.using_key is not None:
-            self._fail("TRINO_CTE_MODIFIER_UNSUPPORTED", "CTE modifier", node)
+        if node.using_key is not None:
+            self._fail("TRINO_CTE_MODIFIER_UNSUPPORTED", "CTE USING KEY", node)
         super().visit_cte(node)
 
     def visit_pivot_expr(self, node: ast.PivotExpr) -> None:

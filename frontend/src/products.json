@@ -270,6 +270,7 @@
             "type": null,
             "intents": ["web_analytics"]
         },
+        { "path": "Wizard", "category": "Tools", "iconType": null, "type": "wizard", "intents": [] },
         {
             "path": "Workflows",
             "category": "Messaging",
@@ -287,7 +288,8 @@
     ],
     "games": [
         { "path": "368 Hedgehogs", "category": null, "iconType": null, "type": null, "intents": [] },
-        { "path": "Flappy Hog", "category": null, "iconType": null, "type": null, "intents": [] }
+        { "path": "Flappy Hog", "category": null, "iconType": null, "type": null, "intents": [] },
+        { "path": "Ship It", "category": null, "iconType": null, "type": null, "intents": [] }
     ],
     "metadata": [
         { "path": "Actions", "category": "Schema", "iconType": null, "type": null, "intents": [] },
@@ -373,7 +375,6 @@
         },
         { "path": "SQL variables", "category": "Schema", "iconType": null, "type": null, "intents": [] },
         { "path": "Annotations", "category": "Metadata", "iconType": "annotation", "type": null, "intents": [] },
-        { "path": "Comments", "category": "Metadata", "iconType": "comment", "type": null, "intents": [] },
         { "path": "Revenue definitions", "category": "Schema", "iconType": null, "type": null, "intents": [] }
     ]
 }

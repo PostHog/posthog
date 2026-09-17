@@ -54,11 +54,21 @@ pub async fn seed_persons(
 /// writes and whose FK blocks the person delete. Cleanup stays inside
 /// the person table's own namespace: targeting the validation set must
 /// never delete from the real tables.
-fn distinct_id_tables_for(person_table: &str) -> &'static [&'static str] {
+pub fn distinct_id_tables_for(person_table: &str) -> &'static [&'static str] {
     if person_table == "personhog_person_tmp" {
         &["personhog_persondistinctid_tmp"]
     } else {
         &["posthog_persondistinctid"]
+    }
+}
+
+/// The saga tables paired with a person table, derived the way identity
+/// and the leader derive them.
+pub fn lifecycle_tables_for(person_table: &str) -> (&'static str, &'static str) {
+    if person_table == "personhog_person_tmp" {
+        ("lifecycle_op_tmp", "lifecycle_op_person_tmp")
+    } else {
+        ("lifecycle_op", "lifecycle_op_person")
     }
 }
 

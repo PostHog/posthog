@@ -215,7 +215,7 @@ describe("canUseTool MCP approval enforcement", () => {
     setMcpToolApprovalStates({ mcp__posthog__exec: "approved" });
 
     const context = createContext("mcp__posthog__exec", {
-      toolInput: { command: "call experiment-get-all {}" },
+      toolInput: { command: "call experiment-list {}" },
     });
     const result = await canUseTool(context);
 
@@ -400,7 +400,7 @@ describe("canUseTool MCP approval enforcement", () => {
     setMcpToolApprovalStates({ mcp__posthog__exec: "approved" });
 
     const context = createContext("mcp__posthog__exec", {
-      toolInput: { command: "call experiment-get-all {}" },
+      toolInput: { command: "call experiment-list {}" },
       session: {
         permissionMode: "bypassPermissions",
         posthogExecPermissionRegex,

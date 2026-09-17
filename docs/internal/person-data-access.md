@@ -54,7 +54,7 @@ So the split follows the shape of the question:
 Some code still hydrates person properties through personhog and is migrating toward ClickHouse:
 
 - `PersonStrategy.get_actors` (`posthog/hogql_queries/actor_strategies.py`) fetches properties via personhog after ClickHouse has selected the actor UUIDs.
-- `get_serialized_people` (`posthog/queries/actor_base_query.py`), used by the persons list API.
+- `get_serialized_people` (`posthog/hogql_queries/serialized_actors.py`), used by the persons list API.
 
 Do not copy these patterns into new code: bulk hydration of persons with properties always belongs in ClickHouse.
 

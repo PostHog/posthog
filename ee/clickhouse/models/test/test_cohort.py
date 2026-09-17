@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
@@ -370,7 +370,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.calculate_cohort_hogql_test_harness(cohort1, 0)
 
     def test_cohortpeople_prop_changed(self):
-        with freeze_time((datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")):
+        with time_machine.travel((datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d"), tick=False):
             p1 = create_person(
                 team_id=self.team.pk,
                 distinct_ids=["1"],
@@ -405,7 +405,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         self.calculate_cohort_hogql_test_harness(cohort1, 0)
 
-        with freeze_time((datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")):
+        with time_machine.travel((datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d"), tick=False):
             p2.version = 1
             p2.properties = {"$some_prop": "another", "$another_prop": "another"}
             update_person(p2)

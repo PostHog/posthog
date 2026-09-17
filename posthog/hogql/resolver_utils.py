@@ -198,7 +198,35 @@ def lookup_table_by_name(
         if isinstance(cte.type, ast.CTETableType):
             return cte.type.select_query_type
 
+    # Some external engines resolve unquoted identifiers case-insensitively, so a qualifier may
+    # spell such a table differently than the FROM clause did. Accept a unique folded match.
+    if len(node.chain) > 1:
+        head = str(node.chain[0]).lower()
+        folded_matches = [
+            table
+            for table_alias, table in scope.tables.items()
+            if table_alias.lower() == head and _folds_identifier_case(table)
+        ]
+        if len(folded_matches) == 1:
+            return folded_matches[0]
+
     return None
+
+
+def _folds_identifier_case(table_type: ast.TableOrSelectType) -> bool:
+    if isinstance(table_type, ast.TableType):
+        return getattr(table_type.table, "case_insensitive_identifiers", False)
+    # A table referenced with different casing than discovery registers as an implicit alias.
+    # Fold only that re-spelling; an explicit alias keeps the user's exact name.
+    if isinstance(table_type, ast.TableAliasType):
+        inner = table_type.table_type
+        return (
+            isinstance(inner, ast.TableType)
+            and getattr(inner.table, "case_insensitive_identifiers", False)
+            and inner.table.name is not None
+            and inner.table.name.lower() == table_type.alias.lower()
+        )
+    return False
 
 
 def lookup_cte_by_name(global_scopes: list[ast.SelectQueryType], name: str) -> Optional[ast.CTE]:

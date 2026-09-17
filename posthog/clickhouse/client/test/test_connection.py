@@ -1,14 +1,16 @@
 import pytest
-
-from clickhouse_pool import ChPool
+from unittest.mock import patch
 
 from posthog.clickhouse.client import connection
 from posthog.clickhouse.client.connection import (
+    ClickHouseChPool,
     ClickHouseCredentials,
     ClickHouseUser,
     RefreshingChPool,
     Workload,
+    get_clickhouse_creds,
     get_http_client,
+    get_http_kwargs,
     get_pool,
     init_clickhouse_users,
     make_ch_pool,
@@ -42,7 +44,7 @@ def test_connection_pool_creation_without_offline_cluster(settings):
     settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST = None
 
     online_pool = get_pool(Workload.ONLINE)
-    assert type(online_pool) is ChPool  # a user with no password file keeps a plain, non-refreshing pool
+    assert type(online_pool) is ClickHouseChPool  # a user with no password file keeps a non-refreshing pool
     assert get_pool(Workload.ONLINE) is online_pool
     assert get_pool(Workload.OFFLINE) is online_pool
     assert get_pool(Workload.DEFAULT) is online_pool
@@ -115,6 +117,14 @@ def test_password_file_env_registers_file_backed_user(monkeypatch, tmp_path):
     assert creds.read_password() == "cohorts-token-value"
 
 
+def test_business_knowledge_credentials_do_not_fall_back_to_default(monkeypatch):
+    default_creds = ClickHouseCredentials(user="default", password="default-password")
+    monkeypatch.setattr(connection, "__user_dict", {ClickHouseUser.DEFAULT: default_creds})
+
+    with pytest.raises(RuntimeError, match="CLICKHOUSE_BUSINESS_KNOWLEDGE_USER"):
+        get_clickhouse_creds(ClickHouseUser.BUSINESS_KNOWLEDGE)
+
+
 def test_file_backed_pool_is_stable_across_credential_rotation(settings, monkeypatch, tmp_path):
     settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST = None
     token = tmp_path / "token"
@@ -127,6 +137,32 @@ def test_file_backed_pool_is_stable_across_credential_rotation(settings, monkeyp
     token.write_text("tok-1")  # rotate the projected token in place
     assert get_pool(Workload.ONLINE) is pool
     assert make_ch_pool.cache_info().currsize == 1
+
+
+def test_get_http_kwargs_reads_file_backed_credential_fresh(monkeypatch, tmp_path):
+    token = tmp_path / "token"
+    token.write_text("tok-0")
+    _file_backed_default(monkeypatch, token)
+
+    assert get_http_kwargs(Workload.ONLINE)["password"] == "tok-0"
+
+    token.write_text("tok-1")  # a rotation must reach the short-lived HTTP client, not a value cached at build
+    assert get_http_kwargs(Workload.ONLINE)["password"] == "tok-1"
+
+
+def test_get_client_from_pool_http_branch_sends_fresh_token(settings, monkeypatch, tmp_path):
+    settings.CLICKHOUSE_USE_HTTP = True
+    token = tmp_path / "token"
+    token.write_text("tok-0")
+    _file_backed_default(monkeypatch, token)
+
+    with patch.object(connection, "get_http_client") as mock_http_client:
+        connection.get_client_from_pool(Workload.ONLINE)
+
+    # The HTTP dispatch must route through get_http_kwargs so a rotated token reaches the client.
+    # Asserting the credential handed to get_http_client, not that the helper was called, keeps this
+    # green if the kwargs building is ever inlined.
+    assert mock_http_client.call_args.kwargs["password"] == "tok-0"
 
 
 def test_refreshing_pool_stamps_current_credential(tmp_path):

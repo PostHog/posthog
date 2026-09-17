@@ -1,6 +1,5 @@
 import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
-import { CREATING_BROADCASTS_SKILL, WORKFLOWS_MCP_TOOLS } from '../generated/agentContext'
 import type { BroadcastEmailValue } from './broadcastWizardLogic'
 
 // Each visible chip and the hidden payload items it stands for share a dismiss group, so closing
@@ -8,37 +7,27 @@ import type { BroadcastEmailValue } from './broadcastWizardLogic'
 const BROADCAST_STATE_DISMISS_GROUP = 'broadcast-scene-state'
 const GUIDANCE_DISMISS_GROUP = 'broadcast-scene-guidance'
 
-// The wizard only edits one email step, so the agent needs the email-focused slice of the
-// workflows tool catalog rather than the full graph-editing set.
-const BROADCAST_TOOL_NAMES = [
-    'workflows-get',
-    'workflows-patch-action-email',
-    'workflows-list-email-templates',
-    'workflows-get-email-template',
-]
+const CREATING_BROADCASTS_SKILL = 'creating-broadcasts'
 
-const TOOL_CONTEXT_ITEMS: AttachedContextItem[] = WORKFLOWS_MCP_TOOLS.filter((tool) =>
-    BROADCAST_TOOL_NAMES.includes(tool.name)
-).map((tool) => ({
-    type: 'instructions',
-    hidden: true,
-    dismissGroup: GUIDANCE_DISMISS_GROUP,
-    value: `MCP tool ${tool.name}: ${tool.description}`,
-}))
-
-// The skill body is embedded rather than discovered so the agent never spends turns working out
-// that PostHog can send a broadcast at all, the way it does from a cold start.
+// The skill body and the tool schemas are not embedded: product skills are installed in the agent's
+// sandbox and the exec MCP tool already exposes the workflows commands, so naming them is enough to
+// skip discovery. The wizard only edits one email step, so only that slice of the catalog is named.
 const SKILL_CONTENT_CONTEXT_ITEM: AttachedContextItem = {
     type: 'instructions',
     hidden: true,
     dismissGroup: GUIDANCE_DISMISS_GROUP,
-    value: `Skill ${CREATING_BROADCASTS_SKILL.name} (embedded): ${CREATING_BROADCASTS_SKILL.content}`,
+    value:
+        `The user has a broadcast open. Load the ${CREATING_BROADCASTS_SKILL} skill before your first tool ` +
+        'call; it covers the batch trigger, the email step, and the confirm-token discipline a send needs. ' +
+        'Act through the exec workflows commands: workflows-get, workflows-patch-action-email, ' +
+        'workflows-list-email-templates and workflows-get-email-template. Do not search for tools; use the ' +
+        'exec `info <tool>` command when you need a full input schema.',
 }
 
-// The visible counterpart to the embedded body, so the sender can see which skill is in play.
+// The visible counterpart, so the sender can see which skill is in play.
 const SKILL_CHIP_CONTEXT_ITEM: AttachedContextItem = {
     type: 'skill',
-    key: CREATING_BROADCASTS_SKILL.name,
+    key: CREATING_BROADCASTS_SKILL,
     label: 'Creating broadcasts skill',
     dismissGroup: GUIDANCE_DISMISS_GROUP,
 }
@@ -133,7 +122,7 @@ export function buildBroadcastAgentContext(
         },
         SKILL_CONTENT_CONTEXT_ITEM,
         SKILL_CHIP_CONTEXT_ITEM,
-        ...(broadcastId ? TOOL_CONTEXT_ITEMS : [CREATE_TOOL_CONTEXT_ITEM]),
+        ...(broadcastId ? [] : [CREATE_TOOL_CONTEXT_ITEM]),
     ]
     if (broadcastId) {
         items.push({

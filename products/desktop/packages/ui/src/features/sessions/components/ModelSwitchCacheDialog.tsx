@@ -9,6 +9,7 @@ import {
   AlertDialogTitle,
   Button,
   Checkbox,
+  DialogBody,
   Label,
   Text,
 } from "@posthog/quill";
@@ -22,30 +23,33 @@ interface ModelSwitchCacheDialogProps {
   toModelId: string;
   toModelLabel: string;
   contextTokens?: number;
-  sessionCostUsd?: number;
   onConfirm: () => Promise<boolean>;
-  onCopyHandoffSummary?: () => Promise<void>;
   onCancel: () => void;
 }
 
-type ActiveAction = "copy_summary" | "switch" | null;
-
 export function ModelSwitchCacheDialog({
+  open,
+  ...props
+}: ModelSwitchCacheDialogProps): ReactElement | null {
+  if (!open) return null;
+
+  return <OpenModelSwitchCacheDialog open {...props} />;
+}
+
+function OpenModelSwitchCacheDialog({
   open,
   fromModelLabel,
   toModelId,
   toModelLabel,
   contextTokens = 0,
-  sessionCostUsd,
   onConfirm,
-  onCopyHandoffSummary,
   onCancel,
 }: ModelSwitchCacheDialogProps): ReactElement {
   const setWarnOnModelSwitch = useSettingsStore(
     (state) => state.setWarnOnMidSessionModelSwitch,
   );
   const [dontShowAgain, setDontShowAgain] = useState(false);
-  const [activeAction, setActiveAction] = useState<ActiveAction>(null);
+  const [isSwitching, setIsSwitching] = useState(false);
   const checkboxId = useId();
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const requestTokenRef = useRef(0);
@@ -53,40 +57,24 @@ export function ModelSwitchCacheDialog({
     toModelId,
     contextTokens,
   );
-  const hasCostInfo =
-    estimatedInputCost !== null || sessionCostUsd !== undefined;
-  const busy = activeAction !== null;
 
   useEffect(() => {
     if (open) {
       setDontShowAgain(false);
-      setActiveAction(null);
+      setIsSwitching(false);
       requestTokenRef.current += 1;
     }
   }, [open]);
 
-  const rememberChoice = (): void => {
-    if (dontShowAgain) setWarnOnModelSwitch(false);
-  };
-
   const handleConfirm = async (): Promise<void> => {
     const token = requestTokenRef.current;
-    setActiveAction("switch");
+    setIsSwitching(true);
     try {
-      if (await onConfirm()) rememberChoice();
+      if (await onConfirm()) {
+        if (dontShowAgain) setWarnOnModelSwitch(false);
+      }
     } finally {
-      if (requestTokenRef.current === token) setActiveAction(null);
-    }
-  };
-
-  const handleCopyHandoffSummary = async (): Promise<void> => {
-    if (!onCopyHandoffSummary) return;
-    const token = requestTokenRef.current;
-    setActiveAction("copy_summary");
-    try {
-      await onCopyHandoffSummary();
-    } finally {
-      if (requestTokenRef.current === token) setActiveAction(null);
+      if (requestTokenRef.current === token) setIsSwitching(false);
     }
   };
 
@@ -94,7 +82,9 @@ export function ModelSwitchCacheDialog({
     <AlertDialog
       open={open}
       onOpenChange={(next) => {
-        if (!next && !busy) onCancel();
+        // Only the switch request holds the dialog, and it resolves in about a
+        // second. Nothing else here can lock a person in.
+        if (!next && !isSwitching) onCancel();
       }}
     >
       <AlertDialogContent initialFocus={cancelButtonRef}>
@@ -105,73 +95,37 @@ export function ModelSwitchCacheDialog({
             the full conversation to the new model.
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <div className="flex flex-col gap-4 px-4 pb-4">
-          {hasCostInfo && (
-            <div className="overflow-hidden rounded-(--radius-3) border border-(--gray-4) bg-(--gray-2)">
-              <div className="flex items-center justify-center gap-2.5 px-3 py-3">
-                <span className="truncate rounded-(--radius-2) bg-(--gray-4) px-2 py-1 text-[12px] text-muted-foreground">
-                  {fromModelLabel}
-                </span>
-                <ArrowRight
-                  size={13}
-                  className="shrink-0 text-muted-foreground"
-                />
-                <span className="truncate rounded-(--radius-2) bg-(--gray-4) px-2 py-1 font-medium text-[12px] text-foreground">
-                  {toModelLabel}
-                </span>
-              </div>
-              <div className="flex flex-col gap-2 border-(--gray-4) border-t px-3 py-3">
-                {estimatedInputCost !== null && (
-                  <div className="flex items-center justify-between gap-4">
-                    <Text className="text-[12px] text-muted-foreground">
-                      Estimated cost to resend history
-                    </Text>
-                    <Text className="shrink-0 font-medium text-[12px] text-foreground tabular-nums">
-                      {formatCostUsd(estimatedInputCost)}
-                    </Text>
-                  </div>
-                )}
-                {sessionCostUsd !== undefined && (
-                  <div className="flex items-center justify-between gap-4">
-                    <Text className="text-[12px] text-muted-foreground">
-                      Session cost so far
-                    </Text>
-                    <Text className="shrink-0 font-medium text-[12px] text-foreground tabular-nums">
-                      {formatCostUsd(sessionCostUsd)}
-                    </Text>
-                  </div>
-                )}
-              </div>
+        <DialogBody viewportClassName="flex flex-col gap-3.5 px-4 pb-4">
+          <div className="flex flex-col gap-1.5">
+            <div className="flex min-w-0 items-center gap-2 text-[13px]">
+              <span className="truncate text-muted-foreground">
+                {fromModelLabel}
+              </span>
+              <ArrowRight
+                size={12}
+                className="shrink-0 text-muted-foreground"
+              />
+              <span className="truncate font-medium text-foreground">
+                {toModelLabel}
+              </span>
             </div>
-          )}
-          {onCopyHandoffSummary && (
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex min-w-0 flex-col">
-                <Text className="font-medium text-[12px] text-foreground">
-                  Continue with another agent
+            {estimatedInputCost !== null && (
+              <div className="flex items-baseline justify-between gap-4">
+                <Text className="text-[13px] text-muted-foreground">
+                  Estimated cost to resend history
                 </Text>
-                <Text className="text-[12px] text-muted-foreground">
-                  Copy the important context from this conversation.
+                <Text className="shrink-0 font-medium text-[13px] text-foreground tabular-nums">
+                  {formatCostUsd(estimatedInputCost)}
                 </Text>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                loading={activeAction === "copy_summary"}
-                disabled={busy}
-                data-attr="model-switch-cache-dialog-copy-summary"
-                onClick={handleCopyHandoffSummary}
-              >
-                Copy summary
-              </Button>
-            </div>
-          )}
-          <div className="flex flex-col gap-1 border-(--gray-4) border-t pt-3">
+            )}
+          </div>
+          <div className="flex flex-col gap-0.5 border-(--gray-4) border-t pt-3">
             <div className="flex items-center gap-2">
               <Checkbox
                 id={checkboxId}
                 checked={dontShowAgain}
-                disabled={busy}
+                disabled={isSwitching}
                 onCheckedChange={(checked) =>
                   setDontShowAgain(checked === true)
                 }
@@ -181,31 +135,31 @@ export function ModelSwitchCacheDialog({
                 htmlFor={checkboxId}
                 className="cursor-pointer text-[13px] text-muted-foreground"
               >
-                Do not show this ever again
+                Do not show this again
               </Label>
             </div>
-            <Text className="text-[12px] text-muted-foreground">
-              You can always change your mind in Cost management settings.
+            <Text className="pl-6 text-[11.5px] text-muted-foreground">
+              Turn it back on in Cost management settings.
             </Text>
           </div>
-        </div>
+        </DialogBody>
         <AlertDialogFooter className="flex-row justify-end">
           <Button
             ref={cancelButtonRef}
             variant="outline"
-            disabled={busy}
+            disabled={isSwitching}
             onClick={onCancel}
           >
             Cancel
           </Button>
           <Button
             variant="primary"
-            loading={activeAction === "switch"}
-            disabled={busy}
+            loading={isSwitching}
+            disabled={isSwitching}
             data-attr="model-switch-cache-dialog-confirm"
             onClick={handleConfirm}
           >
-            Switch now
+            Switch model
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

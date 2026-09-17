@@ -6,6 +6,7 @@ import { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 
 import { AccessControlLevel, UserBasicType } from '~/types'
 
+import { HogFlowOriginProductEnumApi } from '../../generated/api.schemas'
 import { CyclotronJobInputSchemaTypeSchema, HogFlowActionSchema, HogFlowTriggerSchema } from './steps/types'
 
 const HogFlowEdgeSchema = z.object({
@@ -92,12 +93,23 @@ export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     // UX discriminator set by purpose-built surfaces; 'broadcast' rows are managed via the
     // broadcasts UI and hidden from the ordinary workflows list.
     kind?: 'broadcast' | null
+    // Product surface that owns this workflow (e.g. `loops` for Desktop loops). Null when built directly in the workflows UI.
+    origin_product?: HogFlowOriginProductEnumApi | null
     // Effective access level of the current user for this workflow (resource access control).
     user_access_level?: AccessControlLevel
     // Staged content changes awaiting publish (active workflows only). A full snapshot of the
     // content fields; null when nothing is staged. Read-only server state.
     draft?: Partial<HogFlow> | null
     draft_updated_at?: string | null
+    // Set when PostHog paused this workflow's email because its spam complaint or hard bounce rate
+    // crossed a threshold. Read-only server state: only the resume endpoint clears it.
+    email_sending_paused_at?: string | null
+    email_sending_paused_reason?: string
+    // "auto" (detector) or "staff"; a staff pause has no customer resume. Empty when not paused.
+    email_sending_paused_by?: string
+    // True when only PostHog can lift the pause: staff placed it, or it re-tripped soon after a resume.
+    email_sending_pause_requires_support?: boolean
+    email_sending_resumed_at?: string | null
 }
 
 export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}

@@ -1,5 +1,6 @@
 import json
 import uuid
+from types import SimpleNamespace
 
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 
@@ -24,6 +25,7 @@ from posthog.persons_seed import insert_seed_group, insert_seed_group_type_mappi
 
 from products.access_control.backend.models.role import Role
 from products.actions.backend.models.action import Action
+from products.aeo.backend.facade.testing import create_citation_check
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation
@@ -32,6 +34,7 @@ from products.ai_observability.backend.models.score_definitions import ScoreDefi
 from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.annotations.backend.models.annotation import Annotation
+from products.autoresearch.backend.facade import testing as autoresearch_testing
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource
 from products.business_knowledge.backend.models.constants import SourceStatus, SourceType
 from products.canvas.backend.models import Canvas
@@ -46,6 +49,7 @@ from products.customer_analytics.backend.facade.testing import (
     create_account_relationship_definition,
     create_custom_property_definition,
     create_custom_property_value,
+    create_customer_task,
     create_feature_request,
     create_feature_request_account_link,
     create_feature_request_evidence,
@@ -235,6 +239,10 @@ def _create_custom_property_definition(team: Team, label: str):
     return create_custom_property_definition(team_id=team.pk, name=f"def_{label}")
 
 
+def _create_customer_task(team: Team, label: str):
+    return create_customer_task(team_id=team.pk, name=f"customer_task_{label}")
+
+
 def _create_account_relationship(team: Team, label: str):
     account = create_account(team_id=team.pk, name=f"account_{label}")
     definition = create_account_relationship_definition(team_id=team.pk, name=f"rel_{label}")
@@ -290,6 +298,11 @@ def _create_cohort(team: Team, label: str) -> Cohort:
 
 def _create_annotation(team: Team, label: str) -> Annotation:
     return Annotation.objects.create(team=team, content=f"annotation_{label}")
+
+
+def _create_autoresearch_pipeline(team: Team, label: str) -> SimpleNamespace:
+    # autoresearch is sealed: the row is planted through its facade, so only the id comes back.
+    return SimpleNamespace(pk=autoresearch_testing.create_pipeline(team_id=team.pk, name=f"pipeline_{label}"))
 
 
 def _create_cohort_calculation_history(team: Team, label: str) -> CohortCalculationHistory:
@@ -860,12 +873,14 @@ def _create_business_knowledge_chunk(team: Team, label: str):
 
 SYSTEM_TABLE_FACTORIES = [
     ("account_relationship_definitions", _create_account_relationship_definition),
+    ("aeo_citation_checks", create_citation_check),
     ("account_relationships", _create_account_relationship),
     ("accounts", _create_account),
     ("activity_logs", _create_activity_log),
     ("actions", _create_action),
     ("alerts", _create_alert),
     ("annotations", _create_annotation),
+    ("autoresearch_pipelines", _create_autoresearch_pipeline),
     ("batch_export_backfills", _create_batch_export_backfill),
     ("batch_export_on_demands", _create_batch_export_on_demand),
     ("batch_export_runs", _create_batch_export_run),
@@ -879,6 +894,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("cohorts", _create_cohort),
     ("cohort_calculation_history", _create_cohort_calculation_history),
     ("custom_property_definitions", _create_custom_property_definition),
+    ("customer_tasks", _create_customer_task),
     ("_account_meetings", _create_account_meeting),
     ("_account_channel_summaries", _create_account_channel_summary),
     ("_account_email_threads", _create_account_email_thread),

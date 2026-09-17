@@ -4,8 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig
-
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mux import MuxSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux.settings import ENDPOINTS, MUX_ENDPOINTS
@@ -89,9 +88,16 @@ class TestMuxNonRetryableErrors:
         [
             ("unauthorized", "401 Client Error: Unauthorized for url: https://api.mux.com/video/v1/assets?limit=100"),
             ("forbidden", "403 Client Error: Forbidden for url: https://api.mux.com/system/v1/signing-keys?limit=100"),
+            # The REST engine appends the Mux error `type` to the raise_for_status text as
+            # `code=invalid_timeframe` (see rest_client `_error_identity`). The window is fixed for the
+            # run, so retrying replays the same 400. The sync must stop and show a clear message instead.
+            (
+                "invalid_timeframe",
+                "400 Client Error: Bad Request for url: https://api.mux.com/data/v1/errors | api error: code=invalid_timeframe",
+            ),
         ]
     )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
+    def test_deterministic_client_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
         non_retryable = MuxSource().get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 

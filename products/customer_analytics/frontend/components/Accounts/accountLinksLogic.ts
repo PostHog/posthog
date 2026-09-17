@@ -20,6 +20,9 @@ const ORGANIZATION_GROUP_TYPE_INDEX = 0
 const REVENUE_DASHBOARD_ID = 259114
 const BILLING_ADMIN_ORIGIN = 'https://billing.posthog.com'
 const SLACK_ARCHIVES_ORIGIN = 'https://posthog.slack.com/archives'
+// Append a Stripe customer id to deep-link to that customer in the Stripe dashboard. Links to
+// live mode — the account model carries no live-vs-test signal to pick the /test/ path.
+const STRIPE_DASHBOARD_ORIGIN = 'https://dashboard.stripe.com/customers'
 
 export interface AccountLinksLogicProps {
     accountId: string
@@ -244,6 +247,7 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                 const usageDashboardLink = account?.properties?.usage_dashboard_link ?? null
                 const metabaseLink = account?.properties?.metabase_link ?? null
                 const sfdcId = account?.properties?.sfdc_id ?? null
+                const stripeCustomerId = account?.properties?.stripe_customer_id ?? null
                 const backUrl =
                     removeProjectIdIfPresent(currentLocation.pathname) + currentLocation.search + currentLocation.hash
                 return [
@@ -300,6 +304,13 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                         to: billingId ? `${BILLING_ADMIN_ORIGIN}/admin/billing/customer/${billingId}/change/` : null,
                         targetBlank: true,
                         disabledReason: billingId ? null : 'No billing ID set',
+                    },
+                    {
+                        key: 'stripe',
+                        label: 'Stripe',
+                        to: stripeCustomerId ? `${STRIPE_DASHBOARD_ORIGIN}/${stripeCustomerId}` : null,
+                        targetBlank: true,
+                        disabledReason: stripeCustomerId ? null : 'No Stripe customer ID set',
                     },
                     {
                         key: 'salesforce',

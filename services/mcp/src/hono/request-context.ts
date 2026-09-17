@@ -19,9 +19,14 @@ import { getCustomApiBaseUrl, getPublicBaseUrl } from './constants'
 import {
     buildMCPRequestContext,
     buildMCPSessionAnalyticsProperties,
+    getEffectiveMCPClientContext,
+    getEffectiveMCPClientIdentity,
     type MCPRequestContext,
     type MCPSessionContext,
 } from './mcp-context'
+
+// A session's gate markers only need to outlive the session itself.
+const SESSION_CACHE_TTL_SECONDS = 24 * 60 * 60
 
 export class RequestContext {
     private tokenCacheInstance: RedisCache<State> | undefined
@@ -64,6 +69,11 @@ export class RequestContext {
         return this.userCacheInstance
     }
 
+    /** State scoped to one MCP session, such as the skills-first gate markers. */
+    getSessionCache(mcpSessionId: string): RedisCache<State> {
+        return new RedisCache<State>(hash(mcpSessionId), this.redis, 'session', SESSION_CACHE_TTL_SECONDS)
+    }
+
     get cache(): RedisCache<State> {
         return this.tokenCache
     }
@@ -77,6 +87,7 @@ export class RequestContext {
 
     private async api(): Promise<ApiClient> {
         if (!this.apiInstance) {
+            const clientContext = getEffectiveMCPClientContext(this.requestContext, this.sessionContext)
             const customApiBaseUrl = getCustomApiBaseUrl()
             let baseUrl: string
             if (customApiBaseUrl) {
@@ -93,10 +104,10 @@ export class RequestContext {
                 baseUrl,
                 publicBaseUrl: getPublicBaseUrl(),
                 clientUserAgent: this.props.clientUserAgent,
-                mcpClientName: this.props.mcpClientName,
-                mcpClientVersion: this.props.mcpClientVersion,
-                mcpProtocolVersion: this.props.mcpProtocolVersion,
-                mcpConsumer: this.props.mcpConsumer,
+                mcpClientName: clientContext.mcpClientName,
+                mcpClientVersion: clientContext.mcpClientVersion,
+                mcpProtocolVersion: clientContext.mcpProtocolVersion,
+                mcpConsumer: clientContext.mcpConsumer,
                 // Cached from a previous request's token introspection. On a cold cache this is
                 // still unset here, so `StateManager` also stamps it onto the live client's config
                 // the moment introspection resolves it — otherwise a token's first request would
@@ -177,6 +188,10 @@ export class RequestContext {
     setMcpContexts(requestContext: MCPRequestContext, sessionContext: MCPSessionContext | null): void {
         this.requestContext = requestContext
         this.sessionContext = sessionContext
+        if (this.apiInstance) {
+            const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
+            Object.assign(this.apiInstance.config, clientContext)
+        }
     }
 
     async safelyGetAnalyticsContext(context: Pick<Context, 'stateManager'>): Promise<MCPAnalyticsContext | undefined> {
@@ -215,23 +230,27 @@ export class RequestContext {
         requestContext: MCPRequestContext = this.requestContext,
         sessionContext: MCPSessionContext | null = this.sessionContext
     ): Record<string, unknown> {
+        // `clientInfo` arrives on `initialize` only, so a mid-session call carries none of
+        // it. Resolve live-first with the session-pinned value per field, the way
+        // `buildBaseProperties` does for tool calls, or these events record no client.
+        const clientIdentity = getEffectiveMCPClientIdentity(requestContext, sessionContext)
         return {
             $ai_product: 'mcp',
             $mcp_source: MCP_ANALYTICS_SOURCE,
             $mcp_server_name: MCP_SERVER_NAME,
             $mcp_server_version: MCP_SERVER_VERSION,
-            $mcp_client_name: requestContext.mcpClientName,
-            $mcp_client_version: requestContext.mcpClientVersion,
+            $mcp_client_name: clientIdentity.mcpClientName,
+            $mcp_client_version: clientIdentity.mcpClientVersion,
             $mcp_client_user_agent: requestContext.clientUserAgent,
-            $mcp_protocol_version: requestContext.mcpProtocolVersion,
+            $mcp_protocol_version: clientIdentity.mcpProtocolVersion,
             $mcp_transport: requestContext.transport,
             $mcp_session_id: requestContext.mcpSessionId,
             $mcp_conversation_id: requestContext.mcpConversationId,
-            $mcp_consumer: requestContext.mcpConsumer,
+            $mcp_consumer: clientIdentity.mcpConsumer,
             $mcp_mode: requestContext.mode,
             $mcp_region: requestContext.region,
             mcp_runtime: 'hono',
-            mcp_vendor_client: requestContext.mcpVendorClient,
+            $mcp_vendor_client: clientIdentity.mcpVendorClient,
             ...buildMCPSessionAnalyticsProperties(sessionContext),
         }
     }

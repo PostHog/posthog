@@ -109,6 +109,7 @@ function VerifiedDomainsTable(): JSX.Element {
         updatingDomainLoading,
         isSSOEnforcementAvailable,
         isSAMLAvailable,
+        isOIDCAvailable,
         isSCIMAvailable,
         isXAAAuthenticationAvailable,
         ownVerifiedDomain,
@@ -128,6 +129,7 @@ function VerifiedDomainsTable(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const showXAAControls = !!featureFlags[FEATURE_FLAGS.XAA_AUTHENTICATION] && isXAAAuthenticationAvailable
+    const isSSOSettingsRedesignEnabled = !!featureFlags[FEATURE_FLAGS.SSO_SETTINGS_REDESIGN]
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -216,6 +218,11 @@ function VerifiedDomainsTable(): JSX.Element {
                         loading={updatingDomainLoading}
                         onChange={(val) => updateDomain({ id, sso_enforcement: val })}
                         samlAvailable={hasSaml}
+                        oidcAvailable={Boolean(
+                            isOIDCAvailable &&
+                            getIdentityProviderConfigForDomain(identityProviderConfigs, id, ConfigScopeEnumApi.Oidc)
+                                ?.has_oidc
+                        )}
                         disabledReason={restrictionReason}
                     />
                 )
@@ -234,6 +241,11 @@ function VerifiedDomainsTable(): JSX.Element {
                     identityProviderConfigs,
                     id,
                     ConfigScopeEnumApi.Scim
+                )
+                const oidcConfig = getIdentityProviderConfigForDomain(
+                    identityProviderConfigs,
+                    id,
+                    ConfigScopeEnumApi.Oidc
                 )
                 const idJagConfig = getIdentityProviderConfigForDomain(
                     identityProviderConfigs,
@@ -275,6 +287,23 @@ function VerifiedDomainsTable(): JSX.Element {
                         />
                     )
                 }
+
+                badges.push(
+                    <IntegrationBadge
+                        key="oidc"
+                        label="OIDC"
+                        type={isOIDCAvailable && oidcConfig?.has_oidc ? 'success' : 'muted'}
+                        icon={<IconLock />}
+                        tooltip={
+                            !isOIDCAvailable
+                                ? 'Upgrade your plan to enable OIDC'
+                                : oidcConfig?.has_oidc
+                                  ? 'OIDC is enabled'
+                                  : 'OIDC is not enabled'
+                        }
+                        to={!isOIDCAvailable ? billingLink : undefined}
+                    />
+                )
 
                 if (!isSCIMAvailable) {
                     badges.push(
@@ -338,41 +367,47 @@ function VerifiedDomainsTable(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton
-                                    onClick={() => setConfigureSAMLModalId(id)}
-                                    fullWidth
-                                    disabledReason={
-                                        restrictionReason || (!isSAMLAvailable ? 'Upgrade to enable SAML' : undefined)
-                                    }
-                                >
-                                    Configure SAML
-                                </LemonButton>
-                                <LemonButton
-                                    onClick={() => setConfigureSCIMModalId(id)}
-                                    fullWidth
-                                    disabledReason={
-                                        restrictionReason || (!isSCIMAvailable ? 'Upgrade to enable SCIM' : undefined)
-                                    }
-                                >
-                                    Configure SCIM
-                                </LemonButton>
-                                {showXAAControls && (
-                                    <LemonButton
-                                        onClick={() => setConfigureIdJagModalId(id)}
-                                        fullWidth
-                                        disabledReason={restrictionReason}
-                                    >
-                                        Configure XAA
-                                    </LemonButton>
-                                )}
-                                {isSCIMAvailable && (
-                                    <LemonButton
-                                        onClick={() => setScimLogsModalId(id)}
-                                        fullWidth
-                                        disabledReason={restrictionReason}
-                                    >
-                                        View SCIM logs
-                                    </LemonButton>
+                                {!isSSOSettingsRedesignEnabled && (
+                                    <>
+                                        <LemonButton
+                                            onClick={() => setConfigureSAMLModalId(id)}
+                                            fullWidth
+                                            disabledReason={
+                                                restrictionReason ||
+                                                (!isSAMLAvailable ? 'Upgrade to enable SAML' : undefined)
+                                            }
+                                        >
+                                            Configure SAML
+                                        </LemonButton>
+                                        <LemonButton
+                                            onClick={() => setConfigureSCIMModalId(id)}
+                                            fullWidth
+                                            disabledReason={
+                                                restrictionReason ||
+                                                (!isSCIMAvailable ? 'Upgrade to enable SCIM' : undefined)
+                                            }
+                                        >
+                                            Configure SCIM
+                                        </LemonButton>
+                                        {showXAAControls && (
+                                            <LemonButton
+                                                onClick={() => setConfigureIdJagModalId(id)}
+                                                fullWidth
+                                                disabledReason={restrictionReason}
+                                            >
+                                                Configure XAA
+                                            </LemonButton>
+                                        )}
+                                        {isSCIMAvailable && (
+                                            <LemonButton
+                                                onClick={() => setScimLogsModalId(id)}
+                                                fullWidth
+                                                disabledReason={restrictionReason}
+                                            >
+                                                View SCIM logs
+                                            </LemonButton>
+                                        )}
+                                    </>
                                 )}
                                 <LemonButton
                                     status="danger"
@@ -390,6 +425,9 @@ function VerifiedDomainsTable(): JSX.Element {
             },
         },
     ]
+    const visibleVerifiedColumns = isSSOSettingsRedesignEnabled
+        ? verifiedColumns.filter((column) => column.key !== 'integrations')
+        : verifiedColumns
 
     const unverifiedColumns: LemonTableColumns<OrganizationDomainType> = [
         {
@@ -460,7 +498,7 @@ function VerifiedDomainsTable(): JSX.Element {
         <div className="space-y-4">
             <LemonTable
                 dataSource={verifiedDomainsList}
-                columns={verifiedColumns}
+                columns={visibleVerifiedColumns}
                 loading={verifiedDomainsLoading || identityProviderConfigsLoading}
                 rowKey="id"
                 emptyState="You haven't registered any authentication domains yet."
@@ -477,10 +515,14 @@ function VerifiedDomainsTable(): JSX.Element {
                 </>
             )}
             <AddDomainModal />
-            <ConfigureSAMLModal />
-            <ConfigureSCIMModal />
-            {showXAAControls && <ConfigureIdJagModal />}
-            <ScimLogsModal />
+            {!isSSOSettingsRedesignEnabled && (
+                <>
+                    <ConfigureSAMLModal />
+                    <ConfigureSCIMModal />
+                    {showXAAControls && <ConfigureIdJagModal />}
+                    <ScimLogsModal />
+                </>
+            )}
             <VerifyDomainModal />
             <RemoveDomainModal />
         </div>

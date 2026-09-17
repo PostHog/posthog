@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -95,7 +95,7 @@ class TestWindows:
         # A window must never extend past the requested end (the API rejects future/oversized windows).
         assert all(w_end <= end for _, w_end in windows)
 
-    @freeze_time("2026-07-15T12:00:00Z")
+    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     def test_first_sync_starts_at_the_retention_floor(self) -> None:
         # Snowplow only keeps about a week of runs; asking for more gets the window rejected.
         window = _jobs_window_bounds(
@@ -107,7 +107,7 @@ class TestWindows:
         assert window.end == datetime(2026, 7, 15, 12, tzinfo=UTC)
         assert window.start == window.end - snowplow.JOB_RUNS_RETENTION
 
-    @freeze_time("2026-07-15T12:00:00Z")
+    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     def test_incremental_run_rewinds_watermark_by_lookback(self) -> None:
         # A run listed while RUNNING changes state after we fetch it; advancing straight from the
         # watermark would freeze it at RUNNING forever.
@@ -119,7 +119,7 @@ class TestWindows:
         )
         assert window.start == datetime(2026, 7, 14, tzinfo=UTC)
 
-    @freeze_time("2026-07-15T12:00:00Z")
+    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     def test_stale_watermark_is_clamped_to_the_retention_floor(self) -> None:
         # A watermark older than the retention window would produce a from the API rejects.
         window = _jobs_window_bounds(
@@ -130,7 +130,7 @@ class TestWindows:
         )
         assert window.start == window.end - snowplow.JOB_RUNS_RETENTION
 
-    @freeze_time("2026-07-15T12:00:00Z")
+    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     def test_future_watermark_is_clamped_to_now(self) -> None:
         window = _jobs_window_bounds(
             should_use_incremental_field=True,
@@ -140,7 +140,7 @@ class TestWindows:
         )
         assert window.start == window.end
 
-    @freeze_time("2026-07-15T12:00:00Z")
+    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     def test_resume_window_takes_precedence_over_the_watermark(self) -> None:
         # On resume the saved window marks what was already yielded; restarting from the watermark
         # would re-fetch (and re-merge) everything the crashed attempt already produced.
@@ -154,7 +154,7 @@ class TestWindows:
 
 
 class TestJobRuns:
-    @freeze_time("2026-07-15T12:00:00Z")
+    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     def test_windows_are_requested_and_state_saved_after_each(self, monkeypatch: Any) -> None:
         run = {"runId": "r1", "state": "SUCCEEDED", "startTime": "2026-07-14T00:10:00Z"}
 
@@ -180,13 +180,13 @@ class TestJobRuns:
         # in-flight window instead of skipping it.
         assert [s.window_from for s in manager.saved] == ["2026-07-15T12:00:00Z"]
 
-    @freeze_time("2026-07-15T12:00:00Z")
+    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     def test_resume_restarts_from_the_saved_window(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager(SnowplowResumeConfig(window_from="2026-07-15T00:00:00Z"))
         _, client = _run_endpoint("job_runs", lambda path, params: [], manager, monkeypatch)
         assert [p for _, p in client.calls] == [{"from": "2026-07-15T00:00:00Z", "to": "2026-07-15T12:00:00Z"}]
 
-    @freeze_time("2026-07-15T12:00:00Z")
+    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     def test_full_window_logs_a_truncation_warning(self, monkeypatch: Any) -> None:
         # The API silently caps a window at 10k rows; without the warning a truncated sync looks complete.
         logger = MagicMock()
@@ -208,7 +208,7 @@ class TestJobRuns:
 
 
 class TestJobRunSteps:
-    @freeze_time("2026-07-15T12:00:00Z")
+    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     def test_steps_carry_parent_run_fields(self, monkeypatch: Any) -> None:
         # Step names are unique only within a run; the injected runId is what makes the composite
         # primary key unique table-wide, and runStartTime is the advertised incremental field.
@@ -243,7 +243,7 @@ class TestJobRunSteps:
             }
         ]
 
-    @freeze_time("2026-07-15T12:00:00Z")
+    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     def test_run_that_404s_is_skipped(self, monkeypatch: Any) -> None:
         # A run that aged out of retention between the window listing and the steps fetch must not
         # fail the whole sync.
@@ -264,7 +264,7 @@ class TestJobRunSteps:
         rows, _ = _run_endpoint("job_run_steps", handler, manager, monkeypatch)
         assert [r["runId"] for r in rows] == ["r2"]
 
-    @freeze_time("2026-07-15T12:00:00Z")
+    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     def test_run_without_run_id_is_skipped(self, monkeypatch: Any) -> None:
         # runId is part of the (runId, name) primary key; a null-keyed row would collapse steps
         # from every such run into one persisted row.
@@ -339,7 +339,7 @@ class TestFailedEventMetricsFanOut:
             }
         ]
 
-    @freeze_time("2026-07-15T12:00:00Z")
+    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     def test_fans_out_over_pipelines_with_incremental_window(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
         rows, client = _run_endpoint(
@@ -361,7 +361,7 @@ class TestFailedEventMetricsFanOut:
         # mid-pipeline re-processes it (merge dedupes) rather than skipping it.
         assert [s.completed_pipeline_ids for s in manager.saved] == [["p1"], ["p1", "p2"]]
 
-    @freeze_time("2026-07-15T12:00:00Z")
+    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     def test_resume_skips_completed_pipelines(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager(SnowplowResumeConfig(completed_pipeline_ids=["p1"]))
         rows, client = _run_endpoint("failed_event_metrics", self._handler, manager, monkeypatch)

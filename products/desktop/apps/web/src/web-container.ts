@@ -75,6 +75,7 @@ import {
   REPORT_MODEL_RESOLVER,
   type ReportModelResolver,
 } from "@posthog/core/inbox/identifiers";
+import { inboxCoreModule } from "@posthog/core/inbox/inbox.module";
 import { selectModelFromOptions } from "@posthog/core/inbox/reportTaskCreation";
 import { githubConnectModule } from "@posthog/core/integrations/githubConnect.module";
 import {
@@ -166,7 +167,7 @@ import {
 } from "@posthog/core/tasks/identifiers";
 import type { TaskDeletionService } from "@posthog/core/tasks/taskDeletionService";
 import { tasksModule } from "@posthog/core/tasks/tasks.module";
-import { setRootContainer } from "@posthog/di/container";
+import { resolveService, setRootContainer } from "@posthog/di/container";
 import { assertHostCapabilities } from "@posthog/di/hostCapabilities";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import {
@@ -252,6 +253,10 @@ import {
 } from "@posthog/ui/features/notifications/identifiers";
 import { notificationsUiModule } from "@posthog/ui/features/notifications/notifications.module";
 import { OnboardingGithubConnectClient } from "@posthog/ui/features/onboarding/githubConnectClientImpl";
+import {
+  AGENT_PROMPT_SENDER,
+  type AgentPromptSender,
+} from "@posthog/ui/features/sessions/agentPromptSender";
 import { getSessionService } from "@posthog/ui/features/sessions/sessionServiceHost";
 import { setupUiModule } from "@posthog/ui/features/setup/setup.module";
 import { taskCreationEffects } from "@posthog/ui/features/task-detail/taskCreationEffectsImpl";
@@ -358,6 +363,7 @@ interface WebBindings {
   [CLOUD_TASK_SERVICE]: CloudTaskService;
   [CLOUD_TASK_AUTH]: ICloudTaskAuth;
   [SESSION_SERVICE]: SessionService;
+  [AGENT_PROMPT_SENDER]: AgentPromptSender;
   [SETUP_STORE]: ISetupStore;
   [GITHUB_ISSUE_CLIENT]: GitHubIssueClient;
   [HEDGEHOG_MODE_HOST]: HedgehogModeHost;
@@ -464,9 +470,10 @@ container.bind(POWER_MANAGER_SERVICE).toConstantValue(webPowerManager);
 // The web host is cloud-only: no local filesystem, so the UI must use remote
 // (connected-GitHub-org) repositories and cloud workspaces everywhere it would
 // otherwise reach for local folders/worktrees/terminal.
-container
-  .bind(HOST_CAPABILITIES)
-  .toConstantValue({ localWorkspaces: false } satisfies HostCapabilities);
+container.bind(HOST_CAPABILITIES).toConstantValue({
+  localWorkspaces: false,
+  customCloud: false,
+} satisfies HostCapabilities);
 
 container.load(authUiModule);
 
@@ -489,7 +496,6 @@ container.bind(CLOUD_TASK_AUTH).toDynamicValue((ctx) => ({
     return teamId === null ? null : { apiHost, teamId };
   },
 }));
-
 // ── Canvas / Channels: host-agnostic dashboard + freeform canvas services ──
 // They only need AuthService + fetch (they reach the PostHog canvases and
 // task_channels APIs), so the web host binds them by loading the same core
@@ -504,6 +510,18 @@ container
   .bind(SESSION_SERVICE)
   .toDynamicValue(() => getSessionService())
   .inSingletonScope();
+
+// Shared UI resolves AGENT_PROMPT_SENDER for send-to-agent actions
+// (sendPromptToAgent, the flag edit popover); route it through SessionService
+// like the desktop renderer does.
+container
+  .bind<AgentPromptSender>(AGENT_PROMPT_SENDER)
+  .toConstantValue(async (taskId, prompt) => {
+    await resolveService<SessionService>(SESSION_SERVICE).sendPrompt(
+      taskId,
+      prompt,
+    );
+  });
 
 // ── Feature flags (real posthog-js) ──
 // When posthog isn't initialized (no real VITE_POSTHOG_API_KEY), isEnabled
@@ -670,11 +688,14 @@ container.bind(SHELL_CLIENT).toConstantValue(webShellClient);
 
 // ── Archive (sidebar's ArchivedTasksController) ──
 // The controller resolves eagerly for the sidebar; UnarchiveService needs an
-// ARCHIVE_CLIENT. Its methods are user actions (unarchive/delete/context menu)
-// backed by workspace-server on desktop — not available on web, so reject. The
-// archived-task LIST comes from the api-client, not this client.
+// ARCHIVE_CLIENT. User-initiated restore and delete remain unavailable on web,
+// while server archive sync uses the web host's local archive implementation.
 container.load(archiveModule);
 container.bind(ARCHIVE_CLIENT).toConstantValue({
+  archive: (input) => hostTrpcClient.archive.archive.mutate(input),
+  refreshArchiveState: async () => {
+    await queryClient.invalidateQueries({ queryKey: [["archive"]] });
+  },
   unarchive: () =>
     Promise.reject(new Error("Unarchive is not available on the web")),
   delete: () => Promise.reject(new Error("Delete is not available on the web")),
@@ -835,6 +856,13 @@ container.bind(REPORT_MODEL_RESOLVER).toConstantValue({
     }
   },
 } satisfies ReportModelResolver);
+
+// ── Inbox: the report services the shared Inbox hooks resolve ──
+// Self-driving lives in the shared route tree, so the web host loads the same
+// core module the desktop renderer does. Bindings resolve lazily, and the one
+// token the shared hooks reach for (the report implementation service) has no
+// injected dependencies, so nothing here needs a local-only capability.
+container.load(inboxCoreModule);
 
 // Fail loudly at composition time if a capability the shared app resolves via
 // service location is unbound, instead of limping to the first navigation that

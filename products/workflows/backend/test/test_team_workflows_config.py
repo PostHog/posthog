@@ -1,10 +1,28 @@
 from posthog.test.base import APIBaseTest
 
+from django.contrib.admin import AdminSite
+from django.test import RequestFactory, SimpleTestCase
+
 from rest_framework import status
 
 from posthog.models import OrganizationMembership
 
+from products.workflows.backend.admin.team_workflows_config_admin import TeamWorkflowsConfigAdmin
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+
+
+class TestTeamWorkflowsConfigAdmin(SimpleTestCase):
+    def setUp(self) -> None:
+        self.admin = TeamWorkflowsConfigAdmin(TeamWorkflowsConfig, AdminSite())
+        self.request = RequestFactory().get("/admin/workflows/teamworkflowsconfig/")
+
+    def test_team_is_editable_only_when_adding_a_config(self) -> None:
+        assert self.admin.get_readonly_fields(self.request) == ()
+        assert self.admin.get_readonly_fields(self.request, TeamWorkflowsConfig()) == ("team",)
+
+    def test_config_cannot_be_deleted(self) -> None:
+        assert self.admin.has_delete_permission(self.request) is False
+        assert self.admin.has_delete_permission(self.request, TeamWorkflowsConfig()) is False
 
 
 class TestTeamWorkflowsConfig(APIBaseTest):
@@ -27,6 +45,8 @@ class TestTeamWorkflowsConfig(APIBaseTest):
         assert response.json()["workflows_config"] == {
             "capture_workflows_engagement_events": False,
             "email_tracking_consent_mode": "off",
+            "workflow_task_rate_limit_per_day": None,
+            "workflow_task_team_rate_limit_per_day": None,
         }
 
     def test_patch_enables_capture(self) -> None:
@@ -86,4 +106,6 @@ class TestTeamWorkflowsConfig(APIBaseTest):
         assert response.json()["workflows_config"] == {
             "capture_workflows_engagement_events": True,
             "email_tracking_consent_mode": "off",
+            "workflow_task_rate_limit_per_day": None,
+            "workflow_task_team_rate_limit_per_day": None,
         }

@@ -15,6 +15,7 @@ export type {
   AgentToolCallLocation,
   AgentToolCallStatus,
   AgentToolKind,
+  AgentTurnUsage,
 } from "./agent-conversation";
 export * from "./agent-runtime";
 export * from "./analytics-events";
@@ -51,6 +52,11 @@ export {
   tabsSnapshotSchema,
   tabViewStateSchema,
 } from "./browser-tabs-schemas";
+export {
+  boundPersistedMcpResult,
+  MAX_PERSISTED_MCP_RESULT_BYTES,
+  omitNullCallToolResultFields,
+} from "./call-tool-result";
 export * from "./canvas-contracts";
 export * from "./canvas-platform";
 export type { CloudRunSource, PrAuthorshipMode } from "./cloud";
@@ -60,9 +66,12 @@ export {
   serializeCloudPrompt,
 } from "./cloud-prompt";
 export {
+  adapterForModelId,
   BLOCKED_GATEWAY_MODEL_IDS,
   buildCloudTaskConfigOptions,
+  buildProviderModelGroups,
   type CloudTaskConfigOption,
+  type CloudTaskConfigSelectGroup,
   type CloudTaskConfigSelectOption,
   compareModelsForPicker,
   DEFAULT_CODEX_MODEL,
@@ -73,6 +82,7 @@ export {
   getClaudeModelRecency,
   getCloudTaskGatewayUrl,
   getProviderName,
+  HARNESS_DISPLAY_NAMES,
   isAnthropicModel,
   isAnthropicModelId,
   isBasetenModel,
@@ -90,6 +100,14 @@ export {
   pickAllowedModel,
 } from "./cloud-task-models";
 export {
+  type CustomCloud,
+  configureCustomCloud,
+  customCloudSchema,
+  getCustomCloud,
+  isCustomCloudHost,
+  normalizeCustomCloud,
+} from "./custom-cloud";
+export {
   buildLoopDeeplink,
   buildScoutDeeplink,
   decodePlanBase64,
@@ -103,6 +121,9 @@ export {
   DISMISSAL_REASON_OPTIONS,
   type DismissalReasonOptionValue,
   dismissalReasonLabel,
+  RESOLVE_REASON_OPTIONS,
+  type ReportStateReason,
+  type ResolveReasonOptionValue,
 } from "./dismissal-reasons";
 export {
   type ArtifactSource,
@@ -113,6 +134,7 @@ export {
   isSkillBundleArtifactMetadata,
   isTerminalStatus,
   type PendingFollowupMessage,
+  type StoreSkillStub,
   type Task,
   type TaskRun,
   type TaskRunArtifact,
@@ -135,6 +157,7 @@ export {
   isNotAuthenticatedError,
   isRateLimitError,
   isTransientUpstreamError,
+  isTurnEndedWithoutResponseError,
   NotAuthenticatedError,
   type PromptFailure,
   type PromptFailureKind,
@@ -165,7 +188,11 @@ export {
   MAX_IMAGE_BASE64_LENGTH,
   parseImageDataUrl,
 } from "./image";
-export { buildDiscussReportPrompt } from "./inbox-prompts";
+export {
+  buildDiscussReportPrompt,
+  buildLocalCodeSnapshotPrompt,
+  CODE_CONTEXT_DISCLOSURE,
+} from "./inbox-prompts";
 export type {
   AvailableSuggestedReviewer,
   SignalRecordKind,
@@ -201,15 +228,22 @@ export {
   splitMentionSegments,
 } from "./mentions";
 export {
+  customModelMeta,
   DEFAULT_OPTION_META_KEY,
   defaultEligibleModel,
+  isCustomModelOption,
   isDefaultSelectOption,
+  isHiddenPiModelId,
   isRestrictedModelOption,
+  modelHarnessMeta,
   OPTION_DOCS_URL_META_KEY,
   restrictedModelMeta,
   selectOptionDocsUrl,
+  selectOptionHarness,
 } from "./models";
 export {
+  DEV_CALLBACK_PORT,
+  DEV_REDIRECT_URI,
   getOauthClientIdFromRegion,
   OAUTH_SCOPE_VERSION,
   OAUTH_SCOPES,
@@ -227,11 +261,14 @@ export {
   workflowAgentStateSchema,
 } from "./orchestration";
 export {
+  CLIPBOARD_ATTACHMENT_DIR_NAME,
+  CLIPBOARD_ATTACHMENT_PREFIX,
   compactHomePath,
   expandTildePath,
   getFileExtension,
   getFileName,
   isAbsolutePath,
+  isClipboardAttachmentPath,
   pathToFileUri,
   toRelativePath,
 } from "./path";
@@ -263,17 +300,21 @@ export {
 } from "./reasoning-effort";
 export { REFUND_REASON_OPTIONS } from "./refund-reasons";
 export {
+  CLOUD_REGIONS,
   type CloudRegion,
+  describeRegion,
   REGION_LABELS,
+  type RegionLabel,
 } from "./regions";
 export { normalizeRepoKey } from "./repo";
 export { getTaskRepository, parseRepository } from "./repository";
 export { rewriteSavedLocation } from "./route-migrations";
 export { Saga, type SagaLogger, type SagaResult } from "./saga";
-export { scoutSkillNameFromSlug, scoutSkillSlug } from "./scout-naming";
 export {
   type AcpMessage,
+  IDLE_RESUME_STOP_REASON,
   IMPORTED_USER_PROMPT_META_KEY,
+  isIdleResumeTurnComplete,
   isJsonRpcNotification,
   isJsonRpcRequest,
   isJsonRpcResponse,
@@ -334,6 +375,7 @@ export {
   getLocalDayKey,
   getRelativeDateGroup,
 } from "./time";
+export { singleLineTitle } from "./title-text";
 export {
   mcpToolKey,
   parseMcpToolName,
@@ -344,8 +386,13 @@ export {
   readMcpToolName,
   readParentToolCallId,
 } from "./tool-meta";
+export { isTranscriptNeutralNotificationMethod } from "./transcript-neutral-notifications";
 export { TypedEventEmitter } from "./typed-event-emitter";
-export { isSafeExternalUrl, isSafePostHogUrl } from "./url";
+export {
+  isSafeExternalUrl,
+  isSafeGitHubPullRequestUrl,
+  isSafePostHogUrl,
+} from "./url";
 export { getCloudUrlFromRegion } from "./urls";
 export {
   buildVideoDataUrl,

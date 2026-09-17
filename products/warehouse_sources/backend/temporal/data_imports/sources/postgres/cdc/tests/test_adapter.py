@@ -7,6 +7,7 @@ import psycopg.errors
 from parameterized import parameterized
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import (
     PostgresCDCAdapter,
     _slot_setup_error_message,
@@ -378,6 +379,7 @@ class TestIsConnectionError:
             ("connect_timeout", psycopg.errors.ConnectionTimeout("connection timeout expired"), True),
             ("operational", psycopg.OperationalError("connection refused"), True),
             ("ssh_tunnel", BaseSSHTunnelForwarderError("could not open tunnel"), True),
+            ("host_policy", HostNotAllowedError("resolves to a private address"), True),
             ("programming_bug", ValueError("unexpected status shape"), False),
         ]
     )

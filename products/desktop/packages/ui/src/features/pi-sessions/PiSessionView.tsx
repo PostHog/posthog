@@ -630,6 +630,8 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
 
   const currentExtensionState =
     extensionState ?? createEmptyPiExtensionTaskState();
+  const { "current-work": currentWork, ...extensionStatuses } =
+    currentExtensionState.statuses;
   const extensionDialog = currentExtensionState.dialogs[0];
 
   return (
@@ -657,11 +659,13 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
       <div className="min-h-0 flex-1">
         <ChatThread
           events={session.events}
+          historyVersion={session.historyVersion}
           isPromptPending={isStreaming}
           taskId={taskId}
           repoPath={repoPath}
           promptRecallRef={promptRecallRef}
           hasPendingPermission={Boolean(mcpPermission)}
+          currentWork={currentWork}
         />
       </div>
       <div
@@ -673,7 +677,7 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
           onEdit={editQueuedMessage}
           onRemove={removeQueuedMessage}
         />
-        <PiExtensionStatuses statuses={currentExtensionState.statuses} />
+        <PiExtensionStatuses statuses={extensionStatuses} />
         <PiExtensionWidgets
           widgets={currentExtensionState.widgets}
           placement="aboveEditor"
@@ -697,7 +701,11 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
           <PromptInput
             sessionId={taskId}
             toolbarEndSlot={
-              <ContextUsageIndicator usage={contextUsage} taskId={taskId} />
+              <ContextUsageIndicator
+                usage={contextUsage}
+                taskId={taskId}
+                originProduct={task.origin_product}
+              />
             }
             taskId={taskId}
             repoPath={repoPath}

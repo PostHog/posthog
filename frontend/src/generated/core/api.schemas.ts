@@ -192,6 +192,37 @@ export interface PatchedOrganizationDomainApi {
     readonly scim_base_url?: string | null
 }
 
+export interface SCIMRequestLogApi {
+    readonly id: string
+    readonly request_method: string
+    readonly request_path: string
+    readonly request_headers: unknown
+    readonly request_body: unknown
+    readonly response_status: number
+    readonly response_body: unknown
+    readonly identity_provider: string
+    /** @nullable */
+    readonly duration_ms: number | null
+    readonly created_at: string
+}
+
+export interface PaginatedSCIMRequestLogApi {
+    /** Total number of matching SCIM requests. */
+    count: number
+    /**
+     * URL for the next page, or null on the last page.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL for the previous page, or null on the first page.
+     * @nullable
+     */
+    previous: string | null
+    /** SCIM requests on this page. */
+    results: SCIMRequestLogApi[]
+}
+
 /**
  * * `all` - All
  * * `selected` - Selected
@@ -205,6 +236,7 @@ export const DomainScopeEnumApi = {
 
 /**
  * * `saml` - Saml
+ * * `oidc` - Oidc
  * * `scim` - Scim
  * * `xaa` - Xaa
  */
@@ -212,6 +244,7 @@ export type ConfigScopeEnumApi = (typeof ConfigScopeEnumApi)[keyof typeof Config
 
 export const ConfigScopeEnumApi = {
     Saml: 'saml',
+    Oidc: 'oidc',
     Scim: 'scim',
     Xaa: 'xaa',
 } as const
@@ -231,6 +264,7 @@ export interface IdentityProviderConfigApi {
     /** Feature configured by this identity provider configuration.
      *
      * * `saml` - Saml
+     * * `oidc` - Oidc
      * * `scim` - Scim
      * * `xaa` - Xaa */
     config_scope?: ConfigScopeEnumApi | BlankEnumApi | null
@@ -240,6 +274,22 @@ export interface IdentityProviderConfigApi {
     readonly updated_at: string
     /** Whether SAML is fully configured on this config. */
     readonly has_saml: boolean
+    /** Whether OIDC has an issuer, client ID, and client secret. */
+    readonly has_oidc: boolean
+    /** Whether an encrypted OIDC client secret is saved. */
+    readonly has_oidc_client_secret: boolean
+    /** HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document. */
+    oidc_issuer_url?: string
+    /**
+     * Client ID of the organization's OIDC application.
+     * @maxLength 512
+     */
+    oidc_client_id?: string
+    /**
+     * OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.
+     * @maxLength 4096
+     */
+    oidc_client_secret?: string
     /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
     readonly saml_relay_state: string
     /**
@@ -263,6 +313,8 @@ export interface IdentityProviderConfigApi {
     readonly has_scim: boolean
     /** Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token. */
     scim_enabled?: boolean
+    /** SCIM base URL for this identity provider configuration. */
+    readonly scim_base_url: string
     /**
      * Plaintext SCIM bearer token. Only returned once, immediately after SCIM is enabled or the token is regenerated; null otherwise.
      * @nullable
@@ -313,6 +365,7 @@ export interface PatchedIdentityProviderConfigApi {
     /** Feature configured by this identity provider configuration.
      *
      * * `saml` - Saml
+     * * `oidc` - Oidc
      * * `scim` - Scim
      * * `xaa` - Xaa */
     config_scope?: ConfigScopeEnumApi | BlankEnumApi | null
@@ -322,6 +375,22 @@ export interface PatchedIdentityProviderConfigApi {
     readonly updated_at?: string
     /** Whether SAML is fully configured on this config. */
     readonly has_saml?: boolean
+    /** Whether OIDC has an issuer, client ID, and client secret. */
+    readonly has_oidc?: boolean
+    /** Whether an encrypted OIDC client secret is saved. */
+    readonly has_oidc_client_secret?: boolean
+    /** HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document. */
+    oidc_issuer_url?: string
+    /**
+     * Client ID of the organization's OIDC application.
+     * @maxLength 512
+     */
+    oidc_client_id?: string
+    /**
+     * OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.
+     * @maxLength 4096
+     */
+    oidc_client_secret?: string
     /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
     readonly saml_relay_state?: string
     /**
@@ -345,6 +414,8 @@ export interface PatchedIdentityProviderConfigApi {
     readonly has_scim?: boolean
     /** Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token. */
     scim_enabled?: boolean
+    /** SCIM base URL for this identity provider configuration. */
+    readonly scim_base_url?: string
     /**
      * Plaintext SCIM bearer token. Only returned once, immediately after SCIM is enabled or the token is regenerated; null otherwise.
      * @nullable
@@ -581,6 +652,11 @@ export interface ProjectBackwardCompatBasicApi {
     readonly is_demo: boolean
     readonly timezone: string
     readonly access_control: boolean
+    /**
+     * Labels applied to this project.
+     * @items.maxLength 255
+     */
+    readonly tags: readonly string[]
 }
 
 export interface PaginatedProjectBackwardCompatBasicListApi {
@@ -1716,6 +1792,8 @@ export interface TeamMarketingAnalyticsConfigApi {
      * * `time_decay` - Time Decay
      * * `position_based` - Position Based */
     attribution_mode?: AttributionModeEnumApi
+    /** Whether marketing analytics drops traffic matching the project's test-account filters. Off by default. */
+    filter_test_accounts?: boolean
     /** Manual campaign name aliases, keyed by integration type then by canonical campaign name, with the list of names that should be folded into it. Applied before automatic matching. */
     campaign_name_mappings?: MarketingAnalyticsCampaignNameMappingsApi
     /** Custom UTM source values to fold into an integration, keyed by integration type. A UTM source can only belong to one integration. */
@@ -1765,6 +1843,23 @@ export interface TeamWorkflowsConfigApi {
      * * `opt_out` - Opt Out
      * * `opt_in` - Opt In */
     email_tracking_consent_mode?: EmailTrackingConsentModeEnumApi
+    /**
+     * How many AI tasks one workflow can create in a rolling 24 hours. Null uses the default of 100; zero pauses task creation for every workflow in the project. Support raises the limit above 500.
+     * @minimum 0
+     * @nullable
+     */
+    workflow_task_rate_limit_per_day?: number | null
+    /**
+     * How many AI tasks all workflows in the project can create together in a rolling 24 hours. Null uses the default of 500; zero pauses task creation for the project. Support raises the limit above 2500.
+     * @minimum 0
+     * @nullable
+     */
+    workflow_task_team_rate_limit_per_day?: number | null
+}
+
+export interface TeamFeatureFlagPolicyConfigApi {
+    /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
+    require_tags?: boolean
 }
 
 /**
@@ -1782,7 +1877,10 @@ export const CookielessServerHashModeEnumApi = {
 } as const
 
 /**
- * Mixin for serializers to add user access control fields
+ * A project and its settings, including the settings that live on its passthrough Team.
+ *
+ * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+ * onto /api/projects/ never loses a field.
  */
 export interface ProjectBackwardCompatApi {
     readonly id: number
@@ -1799,6 +1897,11 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     product_description?: string | null
+    /**
+     * Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     readonly created_at: string
     readonly effective_membership_level: OrganizationMembershipLevelEnumApi
     readonly has_group_types: boolean
@@ -2546,6 +2649,11 @@ export interface ProjectBackwardCompatApi {
     readonly secret_api_token: string | null
     /** @nullable */
     readonly secret_api_token_backup: string | null
+    /**
+     * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
+     * @nullable
+     */
+    readonly heatmaps_screenshot_secret: string | null
     /** @nullable */
     receive_org_level_activity_logs?: boolean | null
     /** Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.
@@ -2569,6 +2677,11 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     readonly is_pending_deletion: boolean | null
+    /**
+     * When the scheduled project deletion will run.
+     * @nullable
+     */
+    readonly deletion_scheduled_at: string | null
     /** ID of the project this environment belongs to. */
     readonly project_id: number
     /**
@@ -2581,6 +2694,7 @@ export interface ProjectBackwardCompatApi {
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
     workflows_config?: TeamWorkflowsConfigApi
+    feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     base_currency?: BaseCurrencyEnumApi
     /**
      * Enables capturing clicks that had no effect (rage-click detection).
@@ -2613,10 +2727,6 @@ export interface ProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
-    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
-    readonly event_retention_months: number
-    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
-    readonly events_retention_enforced: boolean
 }
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
@@ -2634,7 +2744,10 @@ export type PatchedProjectBackwardCompatApiProductIntentsItem = {
 export type PatchedProjectBackwardCompatApiManagedViewsets = { [key: string]: boolean }
 
 /**
- * Mixin for serializers to add user access control fields
+ * A project and its settings, including the settings that live on its passthrough Team.
+ *
+ * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+ * onto /api/projects/ never loses a field.
  */
 export interface PatchedProjectBackwardCompatApi {
     readonly id?: number
@@ -2651,6 +2764,11 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     product_description?: string | null
+    /**
+     * Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     readonly created_at?: string
     readonly effective_membership_level?: OrganizationMembershipLevelEnumApi
     readonly has_group_types?: boolean
@@ -3398,6 +3516,11 @@ export interface PatchedProjectBackwardCompatApi {
     readonly secret_api_token?: string | null
     /** @nullable */
     readonly secret_api_token_backup?: string | null
+    /**
+     * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
+     * @nullable
+     */
+    readonly heatmaps_screenshot_secret?: string | null
     /** @nullable */
     receive_org_level_activity_logs?: boolean | null
     /** Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.
@@ -3421,6 +3544,11 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     readonly is_pending_deletion?: boolean | null
+    /**
+     * When the scheduled project deletion will run.
+     * @nullable
+     */
+    readonly deletion_scheduled_at?: string | null
     /** ID of the project this environment belongs to. */
     readonly project_id?: number
     /**
@@ -3433,6 +3561,7 @@ export interface PatchedProjectBackwardCompatApi {
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
     workflows_config?: TeamWorkflowsConfigApi
+    feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     base_currency?: BaseCurrencyEnumApi
     /**
      * Enables capturing clicks that had no effect (rage-click detection).
@@ -3465,10 +3594,43 @@ export interface PatchedProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
-    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
-    readonly event_retention_months?: number
-    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
-    readonly events_retention_enforced?: boolean
+}
+
+/**
+ * The project as the app context serves it, which is where the frontend reads it on page load.
+ *
+ * projectLogic bootstraps `currentProject` from the app context and only calls the API when that
+ * is missing, so a field left out here is invisible to the app until something refetches.
+ */
+export interface ProjectApi {
+    readonly id: number
+    readonly organization_id: string
+    /**
+     * @minLength 1
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * @maxLength 1000
+     * @nullable
+     */
+    product_description?: string | null
+    readonly created_at: string
+    /**
+     * Set to True when project deletion has been initiated. Blocks UI access to this project until the async task completes.
+     * @nullable
+     */
+    readonly is_pending_deletion: boolean | null
+    /**
+     * When the scheduled project deletion will run.
+     * @nullable
+     */
+    readonly deletion_scheduled_at: string | null
+    /**
+     * Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 /**
@@ -3495,9 +3657,9 @@ export const RestrictionTypeEnumApi = {
  * * `clientwarnings` - Clientwarnings
  * * `ai` - Ai
  */
-export type PipelinesEnumApi = (typeof PipelinesEnumApi)[keyof typeof PipelinesEnumApi]
+export type IngestionPipelineEnumApi = (typeof IngestionPipelineEnumApi)[keyof typeof IngestionPipelineEnumApi]
 
-export const PipelinesEnumApi = {
+export const IngestionPipelineEnumApi = {
     Analytics: 'analytics',
     SessionRecordings: 'session_recordings',
     Errortracking: 'errortracking',
@@ -3523,7 +3685,7 @@ export interface EventIngestionRestrictionApi {
     /** Event UUIDs the restriction applies to. Empty means it is not filtered by event UUID. */
     event_uuids: string[]
     /** Ingestion pipelines the restriction applies to. Filters combine with AND; values within a filter combine with OR. */
-    pipelines: PipelinesEnumApi[]
+    pipelines: IngestionPipelineEnumApi[]
 }
 
 export interface SharePasswordApi {
@@ -3916,10 +4078,9 @@ export interface PatchedProjectSecretAPIKeyApi {
  * * `Boolean` - Boolean
  * * `Duration` - Duration
  */
-export type PropertyDefinitionTypeEnumApi =
-    (typeof PropertyDefinitionTypeEnumApi)[keyof typeof PropertyDefinitionTypeEnumApi]
+export type PropertyTypeEnumApi = (typeof PropertyTypeEnumApi)[keyof typeof PropertyTypeEnumApi]
 
-export const PropertyDefinitionTypeEnumApi = {
+export const PropertyTypeEnumApi = {
     DateTime: 'DateTime',
     String: 'String',
     Numeric: 'Numeric',
@@ -3941,7 +4102,7 @@ export interface EnterprisePropertyDefinitionApi {
     readonly updated_by: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events: boolean | null
-    property_type?: PropertyDefinitionTypeEnumApi | BlankEnumApi | null
+    property_type?: PropertyTypeEnumApi | BlankEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at: string | null
@@ -3975,7 +4136,7 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     readonly updated_by?: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events?: boolean | null
-    property_type?: PropertyDefinitionTypeEnumApi | BlankEnumApi | null
+    property_type?: PropertyTypeEnumApi | BlankEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at?: string | null
@@ -4011,7 +4172,11 @@ export interface BulkUpdateTagsRequestApi {
      * * `remove` - remove
      * * `set` - set */
     action: BulkUpdateTagsActionEnumApi
-    /** Tag names to add, remove, or set. */
+    /**
+     * Tag names to add, remove, or set (up to 100 per request, 255 characters each).
+     * @maxItems 100
+     * @items.maxLength 255
+     */
     tags: string[]
 }
 
@@ -4159,9 +4324,10 @@ export interface TeamBasicApi {
  * * `6` - install
  * * `9` - root
  */
-export type PluginsAccessLevelEnumApi = (typeof PluginsAccessLevelEnumApi)[keyof typeof PluginsAccessLevelEnumApi]
+export type OrganizationPluginsAccessLevelEnumApi =
+    (typeof OrganizationPluginsAccessLevelEnumApi)[keyof typeof OrganizationPluginsAccessLevelEnumApi]
 
-export const PluginsAccessLevelEnumApi = {
+export const OrganizationPluginsAccessLevelEnumApi = {
     Number0: 0,
     Number3: 3,
     Number6: 6,
@@ -4172,10 +4338,10 @@ export const PluginsAccessLevelEnumApi = {
  * * `bayesian` - Bayesian
  * * `frequentist` - Frequentist
  */
-export type DefaultExperimentStatsMethodEnumApi =
-    (typeof DefaultExperimentStatsMethodEnumApi)[keyof typeof DefaultExperimentStatsMethodEnumApi]
+export type OrganizationDefaultExperimentStatsMethodEnumApi =
+    (typeof OrganizationDefaultExperimentStatsMethodEnumApi)[keyof typeof OrganizationDefaultExperimentStatsMethodEnumApi]
 
-export const DefaultExperimentStatsMethodEnumApi = {
+export const OrganizationDefaultExperimentStatsMethodEnumApi = {
     Bayesian: 'bayesian',
     Frequentist: 'frequentist',
 } as const
@@ -4197,7 +4363,7 @@ export interface OrganizationApi {
     readonly created_at: string
     readonly updated_at: string
     readonly membership_level: OrganizationMembershipLevelEnumApi
-    readonly plugins_access_level: PluginsAccessLevelEnumApi
+    readonly plugins_access_level: OrganizationPluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
     /** @nullable */
@@ -4248,13 +4414,13 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly is_ai_training_cta_shown: boolean | null
-    /** @nullable */
-    readonly is_hipaa: boolean | null
+    /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
+    readonly has_signed_baa: boolean
     /** Default statistical method for new experiments in this organization.
      *
      * * `bayesian` - Bayesian
      * * `frequentist` - Frequentist */
-    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
+    default_experiment_stats_method?: OrganizationDefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -4721,10 +4887,10 @@ export interface GitHubReposRefreshResponseApi {
  * * `approved` - Approved
  * * `unidentified` - Unidentified
  */
-export type GitHubInstallRequestItemStatusEnumApi =
-    (typeof GitHubInstallRequestItemStatusEnumApi)[keyof typeof GitHubInstallRequestItemStatusEnumApi]
+export type GitHubInstallRequestStatusEnumApi =
+    (typeof GitHubInstallRequestStatusEnumApi)[keyof typeof GitHubInstallRequestStatusEnumApi]
 
-export const GitHubInstallRequestItemStatusEnumApi = {
+export const GitHubInstallRequestStatusEnumApi = {
     Pending: 'pending',
     Approved: 'approved',
     Unidentified: 'unidentified',
@@ -4740,7 +4906,7 @@ export interface GitHubInstallRequestItemApi {
      * * `pending` - Pending
      * * `approved` - Approved
      * * `unidentified` - Unidentified */
-    status: GitHubInstallRequestItemStatusEnumApi
+    status: GitHubInstallRequestStatusEnumApi
     /**
      * GitHub App installation id, set once the request is approved.
      * @nullable
@@ -4905,13 +5071,27 @@ export interface OnboardingSkipRequestApi {
 }
 
 /**
+ * Request body for PATCH /api/users/@me/product_intro_seen.
+ */
+export interface PatchedProductIntroSeenApi {
+    /**
+     * Which key in `has_seen_product_intro_for` to set. Any string is accepted: besides the product keys, the map holds keys composed per team and keys for surfaces that are not products.
+     * @maxLength 128
+     */
+    product_key?: string
+    /** Whether the intro counts as seen. Send false to show it again. */
+    seen?: boolean
+}
+
+/**
  * * `ios` - iOS
  * * `android` - Android
  * * `web` - Web
  */
-export type PushTokenPlatformEnumApi = (typeof PushTokenPlatformEnumApi)[keyof typeof PushTokenPlatformEnumApi]
+export type UserPushTokenPlatformEnumApi =
+    (typeof UserPushTokenPlatformEnumApi)[keyof typeof UserPushTokenPlatformEnumApi]
 
-export const PushTokenPlatformEnumApi = {
+export const UserPushTokenPlatformEnumApi = {
     Ios: 'ios',
     Android: 'android',
     Web: 'web',
@@ -4928,7 +5108,7 @@ export interface UserPushTokenRegisterRequestApi {
      * * `ios` - iOS
      * * `android` - Android
      * * `web` - Web */
-    platform: PushTokenPlatformEnumApi
+    platform: UserPushTokenPlatformEnumApi
 }
 
 export interface UserPushTokenItemApi {
@@ -4939,7 +5119,7 @@ export interface UserPushTokenItemApi {
      * * `ios` - iOS
      * * `android` - Android
      * * `web` - Web */
-    platform: PushTokenPlatformEnumApi
+    platform: UserPushTokenPlatformEnumApi
     /** When this token was first registered. */
     created_at: string
     /** Last time the mobile app re-registered this token. */
@@ -4986,6 +5166,41 @@ export type DomainsListParams = {
     offset?: number
 }
 
+export type DomainsScimLogsRetrieveParams = {
+    /**
+     * Include requests at or after this time.
+     */
+    after?: string
+    /**
+     * Include requests at or before this time.
+     */
+    before?: string
+    /**
+     * Page number to return.
+     * @minimum 1
+     */
+    page?: number
+    /**
+     * Number of requests to return per page.
+     * @minimum 1
+     * @maximum 100
+     */
+    page_size?: number
+    /**
+     * Search request paths and masked request bodies.
+     * @minLength 1
+     */
+    search?: string
+    /**
+     * Maximum HTTP response status to include, such as 499.
+     */
+    status_max?: number
+    /**
+     * Minimum HTTP response status to include, such as 400.
+     */
+    status_min?: number
+}
+
 export type IdentityProviderConfigsListParams = {
     /**
      * Number of results to return per page.
@@ -4995,6 +5210,41 @@ export type IdentityProviderConfigsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type IdentityProviderConfigsScimLogsRetrieveParams = {
+    /**
+     * Include requests at or after this time.
+     */
+    after?: string
+    /**
+     * Include requests at or before this time.
+     */
+    before?: string
+    /**
+     * Page number to return.
+     * @minimum 1
+     */
+    page?: number
+    /**
+     * Number of requests to return per page.
+     * @minimum 1
+     * @maximum 100
+     */
+    page_size?: number
+    /**
+     * Search request paths and masked request bodies.
+     * @minLength 1
+     */
+    search?: string
+    /**
+     * Maximum HTTP response status to include, such as 499.
+     */
+    status_max?: number
+    /**
+     * Minimum HTTP response status to include, such as 400.
+     */
+    status_min?: number
 }
 
 export type InvitesListParams = {
@@ -5032,7 +5282,23 @@ export type OrganizationsProjectsListParams = {
      * A search term.
      */
     search?: string
+    /**
+     * Comma-separated tag names to filter by, for example `production,eu-region`. Names are trimmed and lowercased before matching. At most 20 distinct tags per request.
+     */
+    tags?: string
+    /**
+     * How to combine the `tags` filter. `all` (the default) returns projects carrying every listed tag; `any` returns projects carrying at least one.
+     */
+    tags_match?: OrganizationsProjectsListTagsMatch
 }
+
+export type OrganizationsProjectsListTagsMatch =
+    (typeof OrganizationsProjectsListTagsMatch)[keyof typeof OrganizationsProjectsListTagsMatch]
+
+export const OrganizationsProjectsListTagsMatch = {
+    All: 'all',
+    Any: 'any',
+} as const
 
 export type OrganizationsProjectsEventIngestionRestrictionsListParams = {
     /**
@@ -5192,6 +5458,7 @@ export type UploadedMediaListParams = {
 export type UploadedMediaListPurpose = (typeof UploadedMediaListPurpose)[keyof typeof UploadedMediaListPurpose]
 
 export const UploadedMediaListPurpose = {
+    Canvas: 'canvas',
     Email: 'email',
 } as const
 
@@ -5203,6 +5470,7 @@ export type UploadedMediaCreateBodyPurpose =
 
 export const UploadedMediaCreateBodyPurpose = {
     Email: 'email',
+    Canvas: 'canvas',
 } as const
 
 export type UploadedMediaCreateBody = {
@@ -5294,3 +5562,5 @@ export type UsersLoginSessionsListParams = {
     email?: string
     is_staff?: boolean
 }
+
+export type UsersProductIntroSeenPartialUpdate200 = { [key: string]: boolean }

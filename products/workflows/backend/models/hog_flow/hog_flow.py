@@ -107,6 +107,11 @@ def hog_flow_kind_choices() -> list[tuple[str, str | Promise]]:
     return list(HogFlow.Kind.choices)
 
 
+def hog_flow_origin_product_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(HogFlow.OriginProduct.choices)
+
+
 class HogFlow(UUIDTModel):
     """
     Stores the version, layout and other meta information for each HogFlow
@@ -137,11 +142,19 @@ class HogFlow(UUIDTModel):
     class Kind(models.TextChoices):
         BROADCAST = "broadcast"
 
+    class OriginProduct(models.TextChoices):
+        LOOPS = "loops", "Loops"
+
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True, default="")
     version = models.IntegerField(default=1)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     status = models.CharField(max_length=20, choices=State, default=State.DRAFT)
+    # The product surface that owns this workflow, so that surface can list only its own flows.
+    # Null for workflows built directly in the workflows UI or over the API.
+    origin_product = models.CharField(
+        max_length=40, choices=hog_flow_origin_product_choices, null=True, blank=True, db_index=False
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
@@ -160,6 +173,30 @@ class HogFlow(UUIDTModel):
     # Optional email pacing for deliverability: {"count": <int>, "period": "minute" | "hour"}.
     # Enforced per workflow by the email worker, which spreads sends instead of dropping them.
     email_sending_rate_limit = models.JSONField(null=True, blank=True)
+
+    # Automatic per-workflow email pause, set by the deliverability detector when this workflow's
+    # complaint or hard-bounce rate crosses a threshold. All workflow email shares one SES account,
+    # so one bad workflow degrades every customer's deliverability. Enforced at the send choke point
+    # in the email worker. Only the resume endpoint (or a staff admin action) clears it; a normal
+    # workflow update must not, so the API exposes these read-only.
+    email_sending_paused_at = models.DateTimeField(null=True, blank=True)
+    email_sending_paused_reason = models.TextField(blank=True, default="", db_default="")
+    # Start bound for every detector window on this workflow. Without it, resuming instantly
+    # re-trips on the feedback that caused the pause in the first place.
+    email_sending_resumed_at = models.DateTimeField(null=True, blank=True)
+
+    class EmailSendingPausedBy(models.TextChoices):
+        AUTO = "auto", "auto"
+        STAFF = "staff", "staff"
+
+    # Who paused it: "auto" for the deliverability detector, "staff" for a PostHog admin. A staff
+    # pause is not customer-resumable, so the resume endpoint refuses it. Empty when not paused.
+    email_sending_paused_by = models.CharField(
+        max_length=16, blank=True, default="", db_default="", choices=EmailSendingPausedBy.choices
+    )
+    # When the deliverability detector last warned this workflow's admins that its rates are
+    # approaching the pause thresholds. Bounds how often the warning email can repeat.
+    email_sending_warned_at = models.DateTimeField(null=True, blank=True)
 
     edges = models.JSONField(default=dict)
     actions = models.JSONField(default=dict)

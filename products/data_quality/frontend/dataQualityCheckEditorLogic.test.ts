@@ -3,12 +3,18 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
 import { DataQualitySubjectRef } from './checksApi'
 import { DataQualityCheckEditorLogicProps, dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
 import {
+    dataCatalogMetricsChecksCheckTypesList,
+    dataCatalogMetricsChecksCreate,
+    dataCatalogMetricsChecksOutputSchemaRetrieve,
+    dataCatalogMetricsChecksPartialUpdate,
+    dataQualityChecksMetricSubjectsList,
     warehouseSavedQueriesChecksCheckTypesList,
     warehouseSavedQueriesChecksCreate,
     warehouseSavedQueriesChecksPartialUpdate,
@@ -53,6 +59,10 @@ jest.mock('lib/lemon-ui/LemonDialog', () => ({
     LemonDialog: { open: jest.fn() },
 }))
 
+jest.mock('~/queries/query', () => ({
+    performQuery: jest.fn(),
+}))
+
 // A real logic rather than a stub: the editor connects the catalog's values, and `loadCount` is how
 // these tests see whether it asked for them.
 jest.mock('scenes/data-management/database/databaseTableListLogic', () => {
@@ -62,9 +72,15 @@ jest.mock('scenes/data-management/database/databaseTableListLogic', () => {
             path(['scenes', 'data-management', 'database', 'databaseTableListLogic']),
             actions({ loadDatabase: true }),
             reducers({
-                views: [[{ id: 'view-7', name: 'orders_view', fields: { order_id: {} } }]],
+                views: [[{ id: 'view-7', name: 'orders_view', fields: { order_id: { type: 'string' } } }]],
                 dataWarehouseTables: [
-                    [{ id: 'table-9', name: 'stripe_charges', fields: { customer_id: {}, amount: {} } }],
+                    [
+                        {
+                            id: 'table-9',
+                            name: 'stripe_charges',
+                            fields: { customer_id: { type: 'string' }, amount: { type: 'decimal' } },
+                        },
+                    ],
                 ],
                 databaseLoading: [false],
                 databaseLoadError: [null],
@@ -75,6 +91,11 @@ jest.mock('scenes/data-management/database/databaseTableListLogic', () => {
 })
 
 jest.mock('./generated/api', () => ({
+    dataCatalogMetricsChecksCheckTypesList: jest.fn(),
+    dataCatalogMetricsChecksCreate: jest.fn(),
+    dataCatalogMetricsChecksOutputSchemaRetrieve: jest.fn(),
+    dataCatalogMetricsChecksPartialUpdate: jest.fn(),
+    dataQualityChecksMetricSubjectsList: jest.fn(),
     warehouseSavedQueriesChecksCreate: jest.fn(),
     warehouseSavedQueriesChecksPartialUpdate: jest.fn(),
     warehouseSavedQueriesChecksCheckTypesList: jest.fn(),
@@ -150,11 +171,137 @@ describe('dataQualityCheckEditorLogic', () => {
         silenceKeaLoadersErrors()
         ;(warehouseSavedQueriesChecksCheckTypesList as jest.Mock).mockResolvedValue(CHECK_TYPE_CATALOG)
         ;(warehouseTablesChecksCheckTypesList as jest.Mock).mockResolvedValue(CHECK_TYPE_CATALOG)
+        ;(dataQualityChecksMetricSubjectsList as jest.Mock).mockResolvedValue([
+            { id: 'metric-1', name: 'daily_signups', display_name: 'Daily signups' },
+        ])
+        ;(dataCatalogMetricsChecksOutputSchemaRetrieve as jest.Mock).mockResolvedValue({
+            columns: [
+                { name: 'day', type: 'Nullable(Date)' },
+                { name: 'signups', type: 'UInt64' },
+            ],
+        })
     })
 
     afterEach(() => {
         resumeKeaLoadersErrors()
         logic?.unmount()
+    })
+
+    it('authors metric SQL with a relation placeholder, no column, and no raw query execution', async () => {
+        ;(dataCatalogMetricsChecksCheckTypesList as jest.Mock).mockResolvedValue(
+            CHECK_TYPE_CATALOG.filter((type) => type.check_type === 'custom_sql')
+        )
+        ;(dataCatalogMetricsChecksCreate as jest.Mock).mockResolvedValue(buildCheck({ check_type: 'custom_sql' }))
+        await mountLogic()
+        logic.actions.openEditor(null, { subjectType: 'metric', subjectId: 'metric-1' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.checkForm).toMatchObject({
+            checkType: 'custom_sql',
+            columnName: '',
+            customSql: 'SELECT *\nFROM {metric}\nWHERE <failure condition>',
+        })
+        expect(logic.values.checkTypes.map((type) => type.check_type)).toEqual(['custom_sql'])
+        expect(logic.values.requiresColumn).toBe(false)
+        expect(logic.values.needsWarehouseCatalog).toBe(false)
+        expect(logic.values.isMetricSubject).toBe(true)
+        expect(logic.values.availableOutputSchema).toEqual([
+            { name: 'day', type: 'Nullable(Date)' },
+            { name: 'signups', type: 'UInt64' },
+        ])
+        logic.actions.setCheckFormValue('customSql', 'SELECT * FROM {metric} WHERE signups < 100')
+        logic.actions.submitCheckForm()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(dataCatalogMetricsChecksCreate).toHaveBeenCalledWith(
+            '1',
+            'metric-1',
+            expect.objectContaining({
+                check_type: 'custom_sql',
+                column_name: '',
+                config: { query: 'SELECT * FROM {metric} WHERE signups < 100' },
+            })
+        )
+        expect(performQuery).not.toHaveBeenCalled()
+    })
+
+    it('offers HogQL metrics in the overview and pre-fills the metric query after selection', async () => {
+        ;(dataCatalogMetricsChecksCheckTypesList as jest.Mock).mockResolvedValue(
+            CHECK_TYPE_CATALOG.filter((type) => type.check_type === 'custom_sql')
+        )
+        await mountLogic({ surface: 'overview' })
+
+        logic.actions.openEditor(null, null)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.selectableSubjects).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    id: 'metric-1',
+                    name: 'Daily signups',
+                    type: 'metric',
+                }),
+            ])
+        )
+
+        logic.actions.setSubject({ subjectType: 'metric', subjectId: 'metric-1' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.checkForm).toMatchObject({
+            checkType: 'custom_sql',
+            customSql: 'SELECT *\nFROM {metric}\nWHERE <failure condition>',
+        })
+        expect(dataCatalogMetricsChecksOutputSchemaRetrieve).toHaveBeenCalledWith('1', 'metric-1')
+    })
+
+    it('uses warehouse field types as the selected table output schema', async () => {
+        await mountLogic({ surface: 'overview' })
+        logic.actions.openEditor(null, null)
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setSubject({ subjectType: 'table', subjectId: 'table-9' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.availableOutputSchema).toEqual([
+            { name: 'customer_id', type: 'string' },
+            { name: 'amount', type: 'decimal' },
+        ])
+    })
+
+    it('does not let a late table catalog replace the metric-only check types', async () => {
+        let resolveTableCatalog: (catalog: typeof CHECK_TYPE_CATALOG) => void = () => {}
+        ;(warehouseTablesChecksCheckTypesList as jest.Mock).mockReturnValue(
+            new Promise((resolve) => {
+                resolveTableCatalog = resolve
+            })
+        )
+        ;(dataCatalogMetricsChecksCheckTypesList as jest.Mock).mockResolvedValue(
+            CHECK_TYPE_CATALOG.filter((type) => type.check_type === 'custom_sql')
+        )
+        await mountLogic()
+        logic.actions.openEditor(null, { subjectType: 'table', subjectId: 'table-1' }, COLUMNS)
+        logic.actions.openEditor(null, { subjectType: 'metric', subjectId: 'metric-1' })
+        await expectLogic(logic).toDispatchActions(['loadCheckTypesSuccess'])
+        resolveTableCatalog(CHECK_TYPE_CATALOG)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.checkTypes.map((type) => type.check_type)).toEqual(['custom_sql'])
+    })
+
+    it('discards an in-flight table preview when opening a metric check', async () => {
+        let resolvePreview: (response: { columns: string[]; results: unknown[][] }) => void = () => {}
+        ;(performQuery as jest.Mock).mockReturnValue(
+            new Promise((resolve) => {
+                resolvePreview = resolve
+            })
+        )
+        ;(dataCatalogMetricsChecksCheckTypesList as jest.Mock).mockResolvedValue(
+            CHECK_TYPE_CATALOG.filter((type) => type.check_type === 'custom_sql')
+        )
+        await mountLogic()
+        await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT 1' })
+        logic.actions.runCustomSqlPreview(undefined)
+        logic.actions.openEditor(null, { subjectType: 'metric', subjectId: 'metric-1' })
+        resolvePreview({ columns: ['value'], results: [[1]] })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.customSqlPreview).toBeNull()
     })
 
     it.each<[string, Record<string, unknown>, Record<string, unknown>]>([
@@ -232,6 +379,38 @@ describe('dataQualityCheckEditorLogic', () => {
         })
     })
 
+    it('leaves an unchanged assertion out of a metadata-only edit', async () => {
+        // The backend revalidates the definition whenever a request carries one, which a metric that
+        // moved off its HogQL definition fails. Renaming its check must not go down that path.
+        ;(dataCatalogMetricsChecksCheckTypesList as jest.Mock).mockResolvedValue(
+            CHECK_TYPE_CATALOG.filter((type) => type.check_type === 'custom_sql')
+        )
+        ;(dataCatalogMetricsChecksPartialUpdate as jest.Mock).mockResolvedValue(buildCheck())
+        await mountLogic()
+        logic.actions.openEditor(
+            buildCheck({
+                check_type: CheckTypeEnumApi.CustomSql,
+                column_name: '',
+                config: { query: 'SELECT 1 FROM {metric}' },
+                name: 'signup_floor',
+            }),
+            { subjectType: 'metric', subjectId: 'metric-1' }
+        )
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setCheckFormValues({ name: 'signups_floor', description: 'renamed' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.submitCheckForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataCatalogMetricsChecksPartialUpdate).toHaveBeenCalledWith('1', 'metric-1', 'check-1', {
+            severity: 'error',
+            name: 'signups_floor',
+            description: 'renamed',
+            tags: [],
+        })
+    })
+
     it('does not submit before the check-type catalog arrives', async () => {
         // Enter can submit while the catalog request is still pending. Without it there is no column
         // requirement to validate against, so the payload would omit column_name and be rejected.
@@ -296,6 +475,186 @@ describe('dataQualityCheckEditorLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(warehouseSavedQueriesChecksCreate).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows a stale failing preview until the custom SQL is tested again', async () => {
+        ;(performQuery as jest.Mock).mockResolvedValue({
+            columns: ['order_id'],
+            results: [['order-1']],
+            hasMore: false,
+        })
+        await mountLogic()
+        await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT order_id FROM orders' })
+
+        await expectLogic(logic, () => logic.actions.runCustomSqlPreview(undefined))
+            .toDispatchActions(['runCustomSqlPreviewSuccess'])
+            .toFinishAllListeners()
+
+        expect(logic.values.customSqlPreviewVerdict).toEqual('fail')
+        expect(logic.values.customSqlPreviewStale).toBe(false)
+
+        logic.actions.setCheckFormValue('customSql', "SELECT order_id FROM orders WHERE status = 'failed'")
+
+        expect(logic.values.customSqlPreviewStale).toBe(true)
+
+        ;(performQuery as jest.Mock).mockResolvedValueOnce({ columns: [], results: [], hasMore: false })
+        await expectLogic(logic, () => logic.actions.runCustomSqlPreview(undefined))
+            .toDispatchActions(['runCustomSqlPreviewSuccess'])
+            .toFinishAllListeners()
+
+        expect(logic.values.customSqlPreviewVerdict).toEqual('pass')
+        expect(logic.values.customSqlPreviewStale).toBe(false)
+    })
+
+    it('forces a fresh calculation for the custom SQL preview so it cannot serve cached data', async () => {
+        ;(performQuery as jest.Mock).mockResolvedValue({ columns: [], results: [], hasMore: false })
+        await mountLogic()
+        await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT order_id FROM orders' })
+
+        await expectLogic(logic, () => logic.actions.runCustomSqlPreview(undefined))
+            .toDispatchActions(['runCustomSqlPreviewSuccess'])
+            .toFinishAllListeners()
+
+        const refresh = (performQuery as jest.Mock).mock.calls.at(-1)?.[2]
+        expect(refresh).toEqual('force_blocking')
+    })
+
+    it('carries warehouse-sync warnings onto the preview so a pass is not shown as final', async () => {
+        // A query over a source whose last sync failed can still return zero rows, which would
+        // otherwise read as a confident pass over data the platform already knows is behind.
+        ;(performQuery as jest.Mock).mockResolvedValue({
+            columns: [],
+            results: [],
+            hasMore: false,
+            warnings: [
+                {
+                    type: 'warehouse_sync',
+                    table_name: 'stripe_charges',
+                    schema_name: 'charges',
+                    source_type: 'Stripe',
+                    status: 'Failed',
+                    message: 'The Stripe charges sync last failed, so this data may be behind.',
+                },
+            ],
+        })
+        await mountLogic()
+        await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT id FROM stripe_charges WHERE amount < 0' })
+
+        await expectLogic(logic, () => logic.actions.runCustomSqlPreview(undefined))
+            .toDispatchActions(['runCustomSqlPreviewSuccess'])
+            .toFinishAllListeners()
+
+        expect(logic.values.customSqlPreviewVerdict).toEqual('pass')
+        expect(logic.values.customSqlPreview?.warnings).toEqual([
+            expect.objectContaining({
+                type: 'warehouse_sync',
+                message: 'The Stripe charges sync last failed, so this data may be behind.',
+            }),
+        ])
+    })
+
+    it('clears a custom SQL preview error when the query changes', async () => {
+        ;(performQuery as jest.Mock).mockRejectedValue({ detail: 'Unknown table' })
+        await mountLogic()
+        await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT * FROM missing' })
+
+        await expectLogic(logic, () => logic.actions.runCustomSqlPreview(undefined))
+            .toDispatchActions(['runCustomSqlPreviewFailure'])
+            .toFinishAllListeners()
+
+        expect(logic.values.customSqlPreviewError).toEqual('Unknown table')
+
+        logic.actions.setCheckFormValue('customSql', 'SELECT 1')
+
+        expect(logic.values.customSqlPreviewError).toBeNull()
+    })
+
+    it('drops a superseded preview so a late failure keeps the newer result', async () => {
+        // Cmd+Enter can start a second preview while the first is still running. If the older
+        // request then fails, its error must not replace the newer request's good result.
+        let failFirst: (error: unknown) => void = () => {}
+        ;(performQuery as jest.Mock)
+            .mockImplementationOnce(() => new Promise((_resolve, reject) => (failFirst = reject)))
+            .mockResolvedValueOnce({ columns: [], results: [], hasMore: false })
+
+        await mountLogic()
+        await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT order_id FROM orders' })
+
+        // First request stays pending; the second supersedes it and passes. Do not wait for all
+        // listeners here — the first request is meant to still be in flight.
+        logic.actions.runCustomSqlPreview(undefined)
+        await expectLogic(logic, () => logic.actions.runCustomSqlPreview(undefined)).toDispatchActions([
+            'runCustomSqlPreviewSuccess',
+        ])
+
+        expect(logic.values.customSqlPreviewVerdict).toEqual('pass')
+
+        // The stale first request fails last; the breakpoint must swallow it, not show an error.
+        failFirst({ detail: 'Unknown table' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.customSqlPreviewError).toBeNull()
+        expect(logic.values.customSqlPreviewVerdict).toEqual('pass')
+    })
+
+    it('blocks saving custom SQL with a Monaco validation error', async () => {
+        await mountLogic()
+        await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT * FROM orders' })
+
+        logic.actions.setCustomSqlEditorError('Unknown table')
+        logic.actions.submitCheckForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(warehouseSavedQueriesChecksCreate).not.toHaveBeenCalled()
+        expect(logic.values.checkFormErrors.customSql).toEqual('Unknown table')
+    })
+
+    it('blocks saving custom SQL until Monaco validates an edited query', async () => {
+        await mountLogic()
+        await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT * FROM orders' })
+
+        logic.actions.setCheckFormValue('customSql', 'SELECT * FROM orders WHERE missing_column = 1')
+        logic.actions.submitCheckForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(warehouseSavedQueriesChecksCreate).not.toHaveBeenCalled()
+        expect(logic.values.checkFormErrors.customSql).toEqual('Checking query...')
+    })
+
+    it('saves a query nobody edited while Monaco validates the one it opened with', async () => {
+        // Monaco validates the query as soon as the editor mounts. That pass is not an edit, so it
+        // must not hold the save while it runs.
+        ;(warehouseSavedQueriesChecksPartialUpdate as jest.Mock).mockResolvedValue(buildCheck())
+        await mountLogic()
+        await openWith(
+            buildCheck({
+                check_type: CheckTypeEnumApi.CustomSql,
+                column_name: '',
+                config: { query: 'SELECT id FROM orders' },
+            }),
+            { description: 'Every order keeps a positive id' }
+        )
+
+        logic.actions.setCustomSqlValidationLoading(true)
+        logic.actions.submitCheckForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(warehouseSavedQueriesChecksPartialUpdate).toHaveBeenCalledWith(
+            '1',
+            'view-1',
+            'check-1',
+            expect.objectContaining({ description: 'Every order keeps a positive id' })
+        )
+    })
+
+    it('keeps a Monaco error until an edited query receives a new validation result', async () => {
+        await mountLogic()
+        await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT * FROM orders' })
+
+        logic.actions.setCustomSqlEditorError('Error on line 1, column 15')
+        logic.actions.setCheckFormValue('customSql', 'SELECT * FROM orderz')
+
+        expect(logic.values.customSqlEditorError).toEqual('Error on line 1, column 15')
     })
 
     it.each<[string, { detail: string; code?: string; attr?: string }, string, string]>([
@@ -433,7 +792,7 @@ describe('dataQualityCheckEditorLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.checkForm.columnName).toEqual('')
-        expect(logic.values.checkForm.toColumn).toEqual('id')
+        expect(logic.values.checkForm.toColumn).toEqual('')
         expect(logic.values.checkFormManualErrors).toEqual({})
         expect(logic.values.serverError).toBeNull()
     })
@@ -475,6 +834,26 @@ describe('dataQualityCheckEditorLogic', () => {
         expect(logic.values.checkTypesError).toBe(true)
 
         logic.actions.loadCheckTypes()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.checkTypesError).toBe(false)
+        expect(logic.values.checkTypes).toEqual(CHECK_TYPE_CATALOG)
+    })
+
+    it('drops a superseded check type request so a late failure keeps the newer catalog', async () => {
+        let failFirst: (error: unknown) => void = () => {}
+        ;(warehouseSavedQueriesChecksCheckTypesList as jest.Mock)
+            .mockImplementationOnce(() => new Promise((_resolve, reject) => (failFirst = reject)))
+            .mockResolvedValueOnce(CHECK_TYPE_CATALOG)
+        await mountLogic()
+
+        // The first request stays in flight while a subject change supersedes it.
+        logic.actions.openEditor(null, VIEW_SUBJECT, COLUMNS)
+        await expectLogic(logic, () =>
+            logic.actions.setSubject({ subjectType: 'view', subjectId: 'view-2' })
+        ).toDispatchActions(['loadCheckTypesSuccess'])
+
+        failFirst(new Error('down'))
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.checkTypesError).toBe(false)

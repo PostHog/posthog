@@ -1,8 +1,7 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig
-
+from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
@@ -116,6 +115,31 @@ def test_project_url_host_is_rejected_before_connecting(host):
 @pytest.mark.parametrize(
     "host",
     [
+        "postgres.abcdefghijklmnop",
+        "POSTGRES.ABCDEFGHIJKLMNOP",
+        "  postgres.abcdefghijklmnop  ",
+        "postgres://postgres.abcdefghijklmnop",
+    ],
+)
+def test_pooler_username_as_host_is_rejected_before_connecting(host):
+    # The pooler username (`postgres.<project-ref>`) reads like a host name, so it lands in the
+    # host field; it can never resolve, so short-circuit to guidance that names both fields
+    # instead of attempting a doomed connection that yields an opaque DNS error.
+    config = mock.MagicMock(host=host)
+
+    with mock.patch.object(PostgresSource, "validate_credentials") as super_validate:
+        success, error = SupabaseSource().validate_credentials(config, team_id=1)
+
+    super_validate.assert_not_called()
+    assert success is False
+    assert error is not None
+    assert "pooler username" in error
+    assert "pooler.supabase.com" in error
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
         "db.abcdefghijklmnop.supabase.co",
         "aws-0-us-east-1.pooler.supabase.com",
         "db.example.com",
@@ -137,6 +161,10 @@ def test_successful_connection_delegates_to_postgres(host):
     [
         "aws-0-us-east-1.pooler.supabase.com",
         "my-db.internal",
+        # A resolvable host whose first label is `postgres` must not be read as the pooler
+        # username, so the username check only claims a single long trailing label.
+        "postgres.example.com",
+        "postgres.internal",
     ],
 )
 def test_non_direct_host_failure_uses_postgres_error(host):
@@ -193,6 +221,29 @@ def test_vault_tables_are_never_sync_enabled_by_default():
         "vault.secrets": False,
         "vault.decrypted_secrets": False,
     }
+
+
+@pytest.mark.parametrize(
+    "name,source_schema,expected_default",
+    [
+        ("realtime.messages_2020_01_01", "realtime", False),
+        # A single-schema source lists the table unqualified, so the schema and table fields
+        # are the only reliable signal.
+        ("messages_2020_01_01", "realtime", False),
+        # The partitioned parent and the rest of the schema keep their normal default.
+        ("realtime.messages", "realtime", True),
+        ("realtime.subscription", "realtime", True),
+        # A customer table that happens to share the prefix is not a Realtime partition.
+        ("public.messages_archive", "public", True),
+    ],
+)
+def test_dated_realtime_partitions_are_never_sync_enabled_by_default(name, source_schema, expected_default):
+    # Supabase drops each day's realtime.messages partition, so a partition enabled by auto-sync
+    # of newly discovered tables fails for good within days. The partitions stay listed for the
+    # same reason the vault tables do.
+    schemas = _get_schemas([_discovered_schema(name, source_schema)])
+
+    assert schemas[0].should_sync_default is expected_default
 
 
 def test_update_tracking_column_leads_the_incremental_candidates():

@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const HogFlowsListParams = /* @__PURE__ */ zod.object({
+export const HogFlowsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,13 +16,17 @@ export const HogFlowsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const HogFlowsListQueryParams = /* @__PURE__ */ zod.object({
+export const HogFlowsListQueryParams = () => zod.object({
     created_at: zod.iso.datetime({ offset: true }).optional(),
     created_by: zod.string().optional().describe('Filter to workflows created by the user with this uuid.'),
     id: zod.string().optional(),
     kind: zod.enum(['broadcast']).nullish().describe('\* `broadcast` - Broadcast'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    origin_product: zod
+        .enum(['loops'])
+        .optional()
+        .describe('Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.'),
     search: zod.string().optional().describe('Case-insensitive search across workflow name and description.'),
     status: zod
         .enum(['active', 'archived', 'draft'])
@@ -35,15 +39,15 @@ export const HogFlowsListQueryParams = /* @__PURE__ */ zod.object({
             'Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {\"type\": \"event\"}.'
         ),
     type: zod
-        .enum(['automation', 'messaging'])
+        .enum(['automation', 'loop', 'messaging'])
         .optional()
         .describe(
-            'Filter by workflow type. `messaging` returns workflows with an email, SMS, or push action; `automation` returns the rest.'
+            'Filter by workflow type. `loop` returns workflows owned by a Desktop loop; `messaging` returns the remaining workflows with an email, SMS, or push action; `automation` returns the rest.'
         ),
     updated_at: zod.iso.datetime({ offset: true }).optional(),
 })
 
-export const HogFlowsCreateParams = /* @__PURE__ */ zod.object({
+export const HogFlowsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -58,6 +62,9 @@ export const hogFlowsCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsCreateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsCreateBodyConversionOneWindowMax = 32
+
+export const hogFlowsCreateBodyConversionOneWindowRegExp = new RegExp('^(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)[dhms]$')
 export const hogFlowsCreateBodyEmailSendingRateLimitOneCountMax = 1000000
 
 export const hogFlowsCreateBodyActionsItemIdMax = 200
@@ -69,7 +76,7 @@ export const hogFlowsCreateBodyActionsItemFiltersOneSourceDefault = `events`
 export const hogFlowsCreateBodyActionsItemConfigTwoConditionFiltersOneSourceDefault = `events`
 export const hogFlowsCreateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDefault = `events`
 
-export const HogFlowsCreateBody = /* @__PURE__ */ zod
+export const HogFlowsCreateBody = () => zod
     .object({
         name: zod.string().max(hogFlowsCreateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod.string().default(hogFlowsCreateBodyDescriptionDefault).describe('Optional description.'),
@@ -79,6 +86,12 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+            ),
+        origin_product: zod
+            .union([zod.enum(['loops']).describe('\* `loops` - Loops'), zod.null()])
+            .optional()
+            .describe(
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops'
             ),
         kind: zod
             .union([zod.enum(['broadcast']).describe('\* `broadcast` - Broadcast'), zod.null()])
@@ -158,11 +171,19 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                         .describe(
                             "Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]."
                         ),
+                    window: zod
+                        .string()
+                        .max(hogFlowsCreateBodyConversionOneWindowMax)
+                        .regex(hogFlowsCreateBodyConversionOneWindowRegExp)
+                        .nullish()
+                        .describe(
+                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. Omit it to use the default window. Set this or 'window_minutes', not both."
+                        ),
                     window_minutes: zod
                         .number()
                         .nullish()
                         .describe(
-                            'Conversion window in minutes after a person enters the workflow. null = no explicit window.'
+                            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default window. Set this or 'window', not both."
                         ),
                     bytecode: zod
                         .unknown()
@@ -173,7 +194,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+                "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
             ),
         exit_condition: zod
             .enum([
@@ -422,7 +443,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                 ),
                         ])
                         .describe(
-                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person\/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person\/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                         ),
                     output_variable: zod
                         .unknown()
@@ -444,7 +465,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
-export const HogFlowsRetrieveParams = /* @__PURE__ */ zod.object({
+export const HogFlowsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -453,7 +474,7 @@ export const HogFlowsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const HogFlowsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const HogFlowsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -468,9 +489,14 @@ export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsPartialUpdateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsPartialUpdateBodyConversionOneWindowMax = 32
+
+export const hogFlowsPartialUpdateBodyConversionOneWindowRegExp = new RegExp(
+    '^(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)[dhms]$'
+)
 export const hogFlowsPartialUpdateBodyEmailSendingRateLimitOneCountMax = 1000000
 
-export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
+export const HogFlowsPartialUpdateBody = () => zod
     .object({
         name: zod.string().max(hogFlowsPartialUpdateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod.string().optional().describe('Optional description.'),
@@ -554,11 +580,19 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                         .describe(
                             "Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]."
                         ),
+                    window: zod
+                        .string()
+                        .max(hogFlowsPartialUpdateBodyConversionOneWindowMax)
+                        .regex(hogFlowsPartialUpdateBodyConversionOneWindowRegExp)
+                        .nullish()
+                        .describe(
+                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. Omit it to use the default window. Set this or 'window_minutes', not both."
+                        ),
                     window_minutes: zod
                         .number()
                         .nullish()
                         .describe(
-                            'Conversion window in minutes after a person enters the workflow. null = no explicit window.'
+                            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default window. Set this or 'window', not both."
                         ),
                     bytecode: zod
                         .unknown()
@@ -569,7 +603,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+                "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
             ),
         exit_condition: zod
             .enum([
@@ -617,7 +651,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
-export const HogFlowsActionsEmailPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const HogFlowsActionsEmailPartialUpdateParams = () => zod.object({
     action_id: zod.string().describe('Id of the function_email step to edit.'),
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
@@ -627,7 +661,7 @@ export const HogFlowsActionsEmailPartialUpdateParams = /* @__PURE__ */ zod.objec
         ),
 })
 
-export const HogFlowsActionsEmailPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const HogFlowsActionsEmailPartialUpdateBody = () => zod.object({
     base_updated_at: zod.iso
         .datetime({ offset: true })
         .optional()
@@ -701,7 +735,7 @@ export const HogFlowsActionsEmailPartialUpdateBody = /* @__PURE__ */ zod.object(
         ),
 })
 
-export const HogFlowsBatchJobsListParams = /* @__PURE__ */ zod.object({
+export const HogFlowsBatchJobsListParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -710,7 +744,7 @@ export const HogFlowsBatchJobsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const HogFlowsDiscardDraftCreateParams = /* @__PURE__ */ zod.object({
+export const HogFlowsDiscardDraftCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -719,7 +753,7 @@ export const HogFlowsDiscardDraftCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const HogFlowsGraphPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const HogFlowsGraphPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -728,7 +762,7 @@ export const HogFlowsGraphPartialUpdateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const HogFlowsGraphPartialUpdateBody = () => zod.object({
     base_updated_at: zod.iso
         .datetime({ offset: true })
         .optional()
@@ -819,7 +853,7 @@ export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const HogFlowsInvocationResultsRetrieveParams = /* @__PURE__ */ zod.object({
+export const HogFlowsInvocationResultsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -835,7 +869,7 @@ export const hogFlowsInvocationResultsRetrieveQueryErrorMessageContainsMax = 200
 export const hogFlowsInvocationResultsRetrieveQueryLimitDefault = 50
 export const hogFlowsInvocationResultsRetrieveQueryLimitMax = 500
 
-export const HogFlowsInvocationResultsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const HogFlowsInvocationResultsRetrieveQueryParams = () => zod.object({
     after: zod
         .string()
         .min(1)
@@ -874,7 +908,7 @@ export const HogFlowsInvocationResultsRetrieveQueryParams = /* @__PURE__ */ zod.
         .describe("Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'."),
 })
 
-export const HogFlowsInvocationResultRetrieveParams = /* @__PURE__ */ zod.object({
+export const HogFlowsInvocationResultRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     invocation_id: zod.string(),
     project_id: zod
@@ -884,7 +918,7 @@ export const HogFlowsInvocationResultRetrieveParams = /* @__PURE__ */ zod.object
         ),
 })
 
-export const HogFlowsInvocationsCreateParams = /* @__PURE__ */ zod.object({
+export const HogFlowsInvocationsCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -896,11 +930,13 @@ export const HogFlowsInvocationsCreateParams = /* @__PURE__ */ zod.object({
 export const hogFlowsInvocationsCreateBodyMockAsyncFunctionsDefault = true
 export const hogFlowsInvocationsCreateBodyUseDraftDefault = false
 
-export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
+export const HogFlowsInvocationsCreateBody = () => zod.object({
     globals: zod
         .record(zod.string(), zod.unknown())
         .optional()
-        .describe('Test trigger payload, typically {event, person, groups}.'),
+        .describe(
+            "Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person."
+        ),
     mock_async_functions: zod
         .boolean()
         .default(hogFlowsInvocationsCreateBodyMockAsyncFunctionsDefault)
@@ -919,7 +955,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const HogFlowsLogsRetrieveParams = /* @__PURE__ */ zod.object({
+export const HogFlowsLogsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -931,7 +967,7 @@ export const HogFlowsLogsRetrieveParams = /* @__PURE__ */ zod.object({
 export const hogFlowsLogsRetrieveQueryLimitDefault = 50
 export const hogFlowsLogsRetrieveQueryLimitMax = 500
 
-export const HogFlowsLogsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const HogFlowsLogsRetrieveQueryParams = () => zod.object({
     after: zod.iso
         .datetime({ offset: true })
         .optional()
@@ -959,7 +995,7 @@ export const HogFlowsLogsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     search: zod.string().min(1).optional().describe('Case-insensitive substring search across log messages.'),
 })
 
-export const HogFlowsMetricsRetrieveParams = /* @__PURE__ */ zod.object({
+export const HogFlowsMetricsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -973,7 +1009,7 @@ export const hogFlowsMetricsRetrieveQueryAfterDefault = `-7d`
 export const hogFlowsMetricsRetrieveQueryBreakdownByDefault = `kind`
 export const hogFlowsMetricsRetrieveQueryIntervalDefault = `day`
 
-export const HogFlowsMetricsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const HogFlowsMetricsRetrieveQueryParams = () => zod.object({
     after: zod
         .string()
         .min(1)
@@ -999,7 +1035,7 @@ export const HogFlowsMetricsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     name: zod.string().min(1).optional().describe('Comma-separated metric names to filter by.'),
 })
 
-export const HogFlowsPublishCreateParams = /* @__PURE__ */ zod.object({
+export const HogFlowsPublishCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -1010,7 +1046,7 @@ export const HogFlowsPublishCreateParams = /* @__PURE__ */ zod.object({
 
 export const hogFlowsPublishCreateBodyConfirmDefault = false
 
-export const HogFlowsPublishCreateBody = /* @__PURE__ */ zod.object({
+export const HogFlowsPublishCreateBody = () => zod.object({
     confirm: zod
         .boolean()
         .default(hogFlowsPublishCreateBodyConfirmDefault)
@@ -1025,7 +1061,7 @@ export const HogFlowsPublishCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const HogFlowsRevisionsListParams = /* @__PURE__ */ zod.object({
+export const HogFlowsRevisionsListParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -1034,12 +1070,12 @@ export const HogFlowsRevisionsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const HogFlowsRevisionsListQueryParams = /* @__PURE__ */ zod.object({
+export const HogFlowsRevisionsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const HogFlowsRevisionsRetrieveParams = /* @__PURE__ */ zod.object({
+export const HogFlowsRevisionsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -1049,7 +1085,7 @@ export const HogFlowsRevisionsRetrieveParams = /* @__PURE__ */ zod.object({
     version: zod.number().describe('Workflow version to fetch.'),
 })
 
-export const HogFlowsRevisionsRestoreCreateParams = /* @__PURE__ */ zod.object({
+export const HogFlowsRevisionsRestoreCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -1061,7 +1097,7 @@ export const HogFlowsRevisionsRestoreCreateParams = /* @__PURE__ */ zod.object({
 
 export const hogFlowsRevisionsRestoreCreateBodyOverwriteDefault = false
 
-export const HogFlowsRevisionsRestoreCreateBody = /* @__PURE__ */ zod.object({
+export const HogFlowsRevisionsRestoreCreateBody = () => zod.object({
     overwrite: zod
         .boolean()
         .default(hogFlowsRevisionsRestoreCreateBodyOverwriteDefault)
@@ -1076,7 +1112,7 @@ export const HogFlowsRevisionsRestoreCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const HogFlowsSchedulesPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const HogFlowsSchedulesPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()
@@ -1088,7 +1124,7 @@ export const HogFlowsSchedulesPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const hogFlowsSchedulesPartialUpdateBodyTimezoneMax = 64
 
-export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const HogFlowsSchedulesPartialUpdateBody = () => zod.object({
     rrule: zod
         .string()
         .optional()
@@ -1107,7 +1143,7 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Variable value overrides merged with the workflow defaults on each run.'),
 })
 
-export const HogFlowsMetricsGlobalRetrieveParams = /* @__PURE__ */ zod.object({
+export const HogFlowsMetricsGlobalRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1117,7 +1153,7 @@ export const HogFlowsMetricsGlobalRetrieveParams = /* @__PURE__ */ zod.object({
 
 export const hogFlowsMetricsGlobalRetrieveQueryAfterDefault = `-7d`
 
-export const HogFlowsMetricsGlobalRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const HogFlowsMetricsGlobalRetrieveQueryParams = () => zod.object({
     after: zod
         .string()
         .min(1)

@@ -271,22 +271,59 @@ if [ -z "${POSTHOG_API_URL:-}" ] || [ -z "${POSTHOG_PERSONAL_API_KEY:-}" ] || [ 
     echo "publish: POSTHOG_API_URL, POSTHOG_PERSONAL_API_KEY, and POSTHOG_CONTEXT_LAYER_COMMITS_PATH must be set (they are inside PostHog sandboxes)" >&2
     exit 1
 fi
-branch="$(git rev-parse --abbrev-ref HEAD)"
-if ! git bundle create /tmp/context-layer-publish.bundle "origin/main..$branch" 2>/dev/null; then
-    echo "publish: nothing to publish; commit your edits first"
-    exit 0
+dream=false
+if [ "${1:-}" = "--dream" ]; then
+    dream=true
+    shift
 fi
 summary_file="${1:-}"
+summary=""
+if [ -n "$summary_file" ]; then
+    summary="$(cat "$summary_file")"
+fi
+python3 scripts/lint
+git rev-parse --verify origin/main >/dev/null
+branch="$(git rev-parse --abbrev-ref HEAD)"
+if [ "$dream" = true ]; then
+    if [ -z "$summary" ]; then
+        echo "publish: a scheduled dream needs a nonempty summary file" >&2
+        exit 1
+    fi
+    target_branch="dream/$(date -u +%F)"
+    if [ "$branch" != "$target_branch" ]; then
+        branch="$target_branch"
+        if git show-ref --verify --quiet "refs/heads/$branch"; then
+            git checkout "$branch"
+        else
+            git checkout -b "$branch"
+        fi
+    fi
+    git add --all
+    if ! git diff --cached --quiet; then
+        git -c user.name="PostHog Context Layer" -c user.email="context-layer@posthog.com" \\
+            -c commit.gpgsign=false commit -m "dream: ${branch#dream/}" -m "$summary"
+    fi
+elif [ -n "$(git status --porcelain)" ]; then
+    echo "publish: uncommitted edits; scheduled dreams must use --dream" >&2
+    exit 1
+fi
+if [ "$(git rev-list --count "origin/main..$branch")" = 0 ]; then
+    echo "publish: no changes"
+    exit 0
+fi
+bundle="$(mktemp /tmp/context-layer-publish.XXXXXX.bundle)"
+trap 'rm -f "$bundle"' EXIT
+git bundle create "$bundle" "origin/main..$branch"
 set --
 if [ -n "$summary_file" ]; then
-    set -- "$@" -F "summary=@$summary_file"
+    set -- "$@" --form-string "summary=$summary"
 fi
 if [ "$branch" != "main" ]; then
     set -- "$@" -F "branch=$branch"
 fi
 curl -fsS -X POST \\
     -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
-    -F "bundle=@/tmp/context-layer-publish.bundle" \\
+    -F "bundle=@$bundle" \\
     "$@" \\
     "${POSTHOG_API_URL%/}$POSTHOG_CONTEXT_LAYER_COMMITS_PATH"
 echo ""

@@ -3,8 +3,10 @@ import type {
     Series,
     TimeSeriesBarChartConfig,
     TimeSeriesLineChartConfig,
+    TimeInterval,
     TooltipConfig,
     TrendLineConfig,
+    XAxisConfig,
     YAxisConfig,
 } from '@posthog/quill-charts'
 
@@ -12,8 +14,8 @@ import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/in
 import type { GoalLineLike } from 'products/product_analytics/frontend/insights/trends/shared/trendsChartDisplayOptions'
 
 // Dependency-neutral shape both the kea `RetentionTrendPayload` and lighter fixtures (e.g. the MCP
-// UI app) satisfy. Declared structurally rather than imported from `scenes/retention/types` so this
-// module stays free of `~/`/`scenes/` deps and compiles in the MCP Vite bundle, which only resolves
+// UI app) satisfy. Declared structurally rather than imported from `../types`, which pulls in
+// `lib/dayjs` and `~/types`, so this module compiles in the MCP Vite bundle, which only resolves
 // `products/*` and `@posthog/*`. The real `RetentionTrendPayload` is assignable to this (asserted in
 // retentionChartTransforms.test.ts), so web callers pass it unchanged.
 export interface RetentionResultLike {
@@ -37,6 +39,7 @@ export interface RetentionSeriesMeta {
     days?: string[]
     cohortLabel?: string
     cohortCount: number
+    isMean?: boolean
 }
 
 export interface BuildRetentionSeriesOpts {
@@ -85,12 +88,36 @@ export function buildRetentionSeries(
     })
 }
 
+/** Opacity for one cohort line when every line shares a color: the newest cohort is fully opaque
+ *  and earlier ones fade, so the lines stay separable without a palette. */
+export function retentionSeriesOpacity(index: number, total: number): number {
+    const MIN_OPACITY = 0.25
+    if (total <= 1) {
+        return 1
+    }
+    return MIN_OPACITY + (1 - MIN_OPACITY) * (index / (total - 1))
+}
+
+export function buildRetentionMeanSeries(data: number[], color?: string): Series<RetentionSeriesMeta> {
+    return {
+        key: 'retention-mean',
+        label: 'Mean',
+        data,
+        color,
+        meta: { rowIndex: -1, cohortCount: 0, isMean: true },
+        stroke: { pattern: [6, 4] },
+    }
+}
+
 export interface BuildRetentionChartConfigOpts {
     isPercentage: boolean
     goalLines?: GoalLineLike[] | null
     showTrendLines?: boolean
     series: Series<RetentionSeriesMeta>[]
     tooltip?: TooltipConfig
+    isIntervalView?: boolean
+    period?: string
+    timezone?: string
 }
 
 function buildTrendLines(
@@ -100,15 +127,28 @@ function buildTrendLines(
     if (!enabled || series.length === 0) {
         return undefined
     }
-    return series.map((s) => ({ seriesKey: s.key, kind: 'linear' }))
+    return series.filter((s) => !s.meta?.isMean).map((s) => ({ seriesKey: s.key, kind: 'linear' }))
 }
 
 function buildGoalLines(goalLines: GoalLineLike[] | null | undefined): GoalLineConfig[] | undefined {
     return schemaGoalLinesToConfigs(goalLines)
 }
 
+const TIME_INTERVAL_BY_RETENTION_PERIOD: Record<string, TimeInterval> = {
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+}
+
+function buildXAxis(opts: BuildRetentionChartConfigOpts): XAxisConfig | undefined {
+    const interval = opts.period ? TIME_INTERVAL_BY_RETENTION_PERIOD[opts.period] : undefined
+    return opts.isIntervalView && interval && opts.timezone ? { interval, timezone: opts.timezone } : undefined
+}
+
 export function buildRetentionLineChartConfig(opts: BuildRetentionChartConfigOpts): TimeSeriesLineChartConfig {
     return {
+        xAxis: buildXAxis(opts),
         yAxis: {
             format: opts.isPercentage ? 'percentage' : 'numeric',
             scale: 'linear',
@@ -124,6 +164,7 @@ export function buildRetentionBarChartConfig(
     opts: BuildRetentionChartConfigOpts
 ): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
     return {
+        xAxis: buildXAxis(opts),
         yAxis: {
             format: opts.isPercentage ? 'percentage' : 'numeric',
             scale: 'linear',

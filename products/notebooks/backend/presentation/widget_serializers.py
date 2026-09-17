@@ -1,13 +1,28 @@
+from typing import Any
+
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from products.notebooks.backend.facade.widgets import DEFAULT_WIDGET_MODEL, WIDGET_MODEL_CHOICES
+from products.notebooks.backend.facade.widgets import (
+    DEFAULT_WIDGET_MODEL,
+    MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH,
+    MAX_WIDGET_PROMPT_LENGTH,
+    WIDGET_LIFECYCLE_STATUS_CHOICES,
+    WIDGET_MODEL_CHOICES,
+)
 
 
 class WidgetGenerateRequestSerializer(serializers.Serializer):
     prompt = serializers.CharField(
-        max_length=20_000,
+        max_length=MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH,
         trim_whitespace=False,
-        help_text="Instructions for the generated widget.",
+        error_messages={
+            "max_length": f"Keep widget instructions to {MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH:,} characters or fewer."
+        },
+        help_text=(
+            "Instructions for the generated widget. Initial and improvement instructions accept up to 20,000 "
+            "characters; regeneration accepts complete instructions up to 50,000 characters."
+        ),
     )
     generation_id = serializers.UUIDField(help_text="Idempotency key for this generation job.")
     model = serializers.ChoiceField(
@@ -20,10 +35,32 @@ class WidgetGenerateRequestSerializer(serializers.Serializer):
         default="regenerate",
         help_text="Whether to generate from scratch or improve the current source.",
     )
+    expected_current_version_id = serializers.UUIDField(
+        required=False,
+        help_text="Current widget version the improvement is based on. Required for improve operations.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        operation = attrs["generation_operation"]
+        prompt = attrs["prompt"].strip()
+        if operation != "regenerate" and len(prompt) > MAX_WIDGET_PROMPT_LENGTH:
+            raise serializers.ValidationError(
+                {"prompt": f"Keep widget instructions to {MAX_WIDGET_PROMPT_LENGTH:,} characters or fewer."}
+            )
+        if operation == "improve" and "expected_current_version_id" not in attrs:
+            raise serializers.ValidationError({"expected_current_version_id": "Reload the widget before improving it."})
+        return attrs
 
 
 class WidgetCancelRequestSerializer(serializers.Serializer):
     generation_id = serializers.UUIDField(help_text="Generation job to cancel.")
+
+
+class WidgetPinRequestSerializer(serializers.Serializer):
+    version_id = serializers.UUIDField(
+        allow_null=True,
+        help_text="Immutable version to pin, or null to follow the reusable widget's latest version.",
+    )
 
 
 class WidgetJobSerializer(serializers.Serializer):
@@ -59,12 +96,57 @@ class WidgetSecurityReviewSerializer(serializers.Serializer):
     reviewed_at = serializers.DateTimeField(help_text="When this exact widget source was reviewed.")
 
 
+@extend_schema_field(
+    {
+        "type": "object",
+        "additionalProperties": {
+            "type": "object",
+            "properties": {
+                "source": {"type": "string"},
+                "hog": {"type": "string"},
+            },
+            "required": ["source"],
+        },
+    }
+)
+class WidgetInputBindingsField(serializers.DictField):
+    pass
+
+
+class WidgetInputContractColumnSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Column name expected by the reusable widget.")
+    type = serializers.CharField(help_text="Column type expected by the reusable widget.")
+
+
+class WidgetInputContractItemSerializer(serializers.Serializer):
+    slot = serializers.CharField(help_text="Stable logical input name used by the reusable widget.")
+    sourceName = serializers.CharField(help_text="Original dataframe name when the widget was published.")
+    columns = WidgetInputContractColumnSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text="Columns the notebook-local binding must produce after its optional Hog mapping.",
+    )
+    schemaHash = serializers.CharField(help_text="Hash of the expected column schema.")
+
+
 class WidgetStatusSerializer(serializers.Serializer):
     lifecycle_status = serializers.ChoiceField(
-        choices=["awaiting_generation", "generating", "building", "ready", "failed", "incompatible"],
+        choices=WIDGET_LIFECYCLE_STATUS_CHOICES,
         help_text="Current widget and preview state.",
     )
     error_detail = serializers.CharField(required=False, allow_null=True, help_text="Actionable failure detail.")
+    error_code = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Stable failure code for support and diagnostics.",
+    )
+    failure_phase = serializers.ChoiceField(
+        choices=["generating_source", "reviewing_source", "publishing_source", "unknown"],
+        required=False,
+        allow_null=True,
+        help_text="Generation step that failed, if a generation job failed.",
+    )
     artifact_url = serializers.URLField(
         required=False,
         allow_null=True,
@@ -74,7 +156,18 @@ class WidgetStatusSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Logical dataframe slots available to the selected version.",
     )
+    input_bindings = WidgetInputBindingsField(
+        help_text="Notebook-local mapping from each logical widget input slot to a dataframe and optional Hog transform.",
+    )
+    input_contract = WidgetInputContractItemSerializer(
+        many=True,
+        help_text="Logical dataframe slots and output schemas required by the selected widget version.",
+    )
     current_version_id = serializers.UUIDField(allow_null=True, help_text="Selected immutable widget version.")
+    pinned_version_id = serializers.UUIDField(
+        allow_null=True,
+        help_text="Version explicitly pinned for this notebook placement, or null when it follows the latest version.",
+    )
     widget_id = serializers.UUIDField(allow_null=True, help_text="Reusable widget identity.")
     instance_id = serializers.UUIDField(allow_null=True, help_text="Placement in this notebook.")
     has_versions = serializers.BooleanField(help_text="Whether the widget has generated history.")
@@ -82,6 +175,9 @@ class WidgetStatusSerializer(serializers.Serializer):
     security_review = WidgetSecurityReviewSerializer(
         allow_null=True,
         help_text="Automated review for the selected source, or null for a legacy unreviewed version.",
+    )
+    is_reusable = serializers.BooleanField(
+        help_text="Whether this widget identity is published in the reusable widget catalog.",
     )
     build_hash = serializers.CharField(
         allow_null=True,
@@ -99,7 +195,10 @@ class WidgetVersionSerializer(serializers.Serializer):
         help_text="Action that created this version.",
     )
     prompt_delta = serializers.CharField(help_text="Instructions added by this version.")
-    effective_prompt = serializers.CharField(help_text="Complete instructions represented by this version.")
+    effective_prompt = serializers.CharField(
+        max_length=MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH,
+        help_text="Complete instructions represented by this version, up to 50,000 characters.",
+    )
     model = serializers.CharField(allow_null=True, help_text="AI model, or null when this version did not run a model.")
     created_at = serializers.DateTimeField(help_text="When this version was created.")
     build_status = serializers.ChoiceField(

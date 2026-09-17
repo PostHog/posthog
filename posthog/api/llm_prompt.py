@@ -1,4 +1,5 @@
 import json
+from collections.abc import Sequence
 from typing import Any, cast
 from uuid import UUID
 
@@ -7,14 +8,14 @@ from django.db import IntegrityError
 from django.db.models import Func, IntegerField, Q, QuerySet, TextField
 from django.db.models.functions import Cast
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import capture_batch_internal, capture_internal
 from posthog.api.llm_prompt_serializers import (
     ALLOWED_LIST_ORDERINGS,
     LLMPromptDuplicateSerializer,
@@ -25,6 +26,7 @@ from posthog.api.llm_prompt_serializers import (
     LLMPromptListSerializer,
     LLMPromptPublicSerializer,
     LLMPromptPublishSerializer,
+    LLMPromptReferencedConflictSerializer,
     LLMPromptResolveQuerySerializer,
     LLMPromptResolveResponseSerializer,
     LLMPromptSerializer,
@@ -41,11 +43,13 @@ from posthog.api.services.llm_prompt import (
     LLMPromptLabelLimitError,
     LLMPromptLabelNotFoundError,
     LLMPromptNotFoundError,
+    LLMPromptReferencedError,
     LLMPromptVersionConflictError,
     LLMPromptVersionLimitError,
     archive_prompt,
     duplicate_prompt,
     get_active_prompt_queryset,
+    get_labeled_prompts_queryset,
     get_latest_prompts_queryset,
     get_prompt_by_name_from_db,
     get_prompt_labels,
@@ -190,10 +194,10 @@ class LLMPromptViewSet(
             prompt["config"] = prompt.get("config")
         return prompt
 
-    def _track_prompt_fetch(self, prompt: dict[str, Any]) -> None:
+    def _prompt_fetch_properties(self, prompt: dict[str, Any], fetch_path: str) -> dict[str, Any]:
         # prompt_label + prompt_version together answer "what was the production label
         # actually serving at time X" from the event stream alone.
-        properties = {
+        return {
             "prompt_id": prompt["id"],
             "prompt_name": prompt["name"],
             "prompt_version": prompt["version"],
@@ -201,7 +205,11 @@ class LLMPromptViewSet(
             "prompt_is_latest": prompt["is_latest"],
             "prompt_first_version_created_at": prompt["first_version_created_at"],
             "prompt_has_config": prompt.get("config") is not None,
+            "prompt_fetch_path": fetch_path,
         }
+
+    def _track_prompt_fetch(self, prompt: dict[str, Any]) -> None:
+        properties = self._prompt_fetch_properties(prompt, fetch_path="by_name")
         if not settings.TEST:
             try:
                 capture_internal(
@@ -217,6 +225,34 @@ class LLMPromptViewSet(
 
         report_team_action(self.team, "llma prompt fetched", properties)
 
+    def _track_labeled_list_fetches(self, prompts: Sequence[LLMPrompt], label: str) -> None:
+        # One batch call, not one capture_internal per prompt: capture_internal is a
+        # synchronous HTTP request, so per-prompt calls would multiply request latency
+        # by the page size.
+        properties_per_prompt = [
+            self._prompt_fetch_properties(self._labeled_list_fetch_payload(prompt, label), fetch_path="list")
+            for prompt in prompts
+        ]
+        if not settings.TEST and properties_per_prompt:
+            try:
+                capture_batch_internal(
+                    events=[
+                        {
+                            "event": PROMPT_FETCHED_EVENT,
+                            "distinct_id": str(self.team.uuid),
+                            "properties": properties,
+                        }
+                        for properties in properties_per_prompt
+                    ],
+                    token=self.team.api_token,
+                    event_source=PROMPT_FETCHED_EVENT_SOURCE,
+                )
+            except Exception as err:
+                capture_exception(err)
+
+        for properties in properties_per_prompt:
+            report_team_action(self.team, "llma prompt fetched", properties)
+
     def _get_list_params(self, request: Request) -> dict[str, Any]:
         serializer = LLMPromptListQuerySerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
@@ -225,7 +261,11 @@ class LLMPromptViewSet(
     def _get_list_queryset(self, request: Request) -> QuerySet[LLMPrompt]:
         params = self._get_list_params(request)
 
-        queryset = get_latest_prompts_queryset(self.team).annotate(
+        label = params.get("label")
+        base_queryset = (
+            get_labeled_prompts_queryset(self.team, label) if label else get_latest_prompts_queryset(self.team)
+        )
+        queryset = base_queryset.annotate(
             prompt_size_bytes=Func(
                 Cast("prompt", output_field=TextField()), function="OCTET_LENGTH", output_field=IntegerField()
             ),
@@ -439,7 +479,16 @@ class LLMPromptViewSet(
             }
         )
 
-    @extend_schema(request=None, responses={204: None})
+    @extend_schema(
+        request=None,
+        responses={
+            204: None,
+            409: OpenApiResponse(
+                response=LLMPromptReferencedConflictSerializer,
+                description="The prompt is referenced by other prompts and cannot be archived.",
+            ),
+        },
+    )
     @action(
         methods=["POST"],
         detail=False,
@@ -457,6 +506,17 @@ class LLMPromptViewSet(
             prompt_versions = archive_prompt(self.team, prompt_name, user=cast(User, request.user))
         except LLMPromptNotFoundError:
             return self._prompt_not_found_response(prompt_name)
+        except LLMPromptReferencedError as err:
+            return Response(
+                {
+                    "detail": (
+                        f"This prompt is referenced by {', '.join(err.referencing_prompts)}. "
+                        "Remove those references before archiving."
+                    ),
+                    "referencing_prompts": err.referencing_prompts,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         report_user_action(
             cast(User, request.user),
@@ -516,7 +576,15 @@ class LLMPromptViewSet(
         )
         return Response(self._serialize_prompt(new_prompt), status=status.HTTP_201_CREATED)
 
-    @extend_schema(request=LLMPromptSetLabelSerializer, responses={200: LLMPromptLabelSerializer})
+    @extend_schema(
+        request=LLMPromptSetLabelSerializer,
+        responses={
+            200: LLMPromptLabelSerializer,
+            400: OpenApiResponse(
+                description="The label is referenced by other prompts and the target version contains references or is not plain text."
+            ),
+        },
+    )
     @action(
         methods=["PUT"],
         detail=False,
@@ -582,7 +650,15 @@ class LLMPromptViewSet(
             status=status.HTTP_201_CREATED if result.created else status.HTTP_200_OK,
         )
 
-    @extend_schema(responses={204: None})
+    @extend_schema(
+        responses={
+            204: None,
+            409: OpenApiResponse(
+                response=LLMPromptReferencedConflictSerializer,
+                description="The label is referenced by other prompts and cannot be deleted.",
+            ),
+        },
+    )
     @set_label.mapping.delete
     @llma_track_latency("llma_prompts_delete_label")
     @monitor(feature=None, endpoint="llma_prompts_delete_label", method="DELETE")
@@ -598,6 +674,17 @@ class LLMPromptViewSet(
                 {"detail": f"Label '{label_name}' not found on prompt '{prompt_name}'."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        except LLMPromptReferencedError as err:
+            return Response(
+                {
+                    "detail": (
+                        f"This label is referenced by {', '.join(err.referencing_prompts)}. "
+                        "Remove those references before deleting the label."
+                    ),
+                    "referencing_prompts": err.referencing_prompts,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         report_user_action(
             cast(User, request.user),
@@ -607,6 +694,18 @@ class LLMPromptViewSet(
             request=request,
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _labeled_list_fetch_payload(self, prompt: LLMPrompt, label: str) -> dict[str, Any]:
+        first_version_created_at = getattr(prompt, "first_version_created_at", None) or prompt.created_at
+        return {
+            "id": str(prompt.id),
+            "name": prompt.name,
+            "version": prompt.version,
+            "label": label,
+            "is_latest": prompt.is_latest,
+            "first_version_created_at": first_version_created_at.isoformat().replace("+00:00", "Z"),
+            "config": prompt.config,
+        }
 
     def _get_prompt_labels_map(self, prompt_names: list[str]) -> dict[str, list[dict[str, Any]]]:
         labels_map: dict[str, list[dict[str, Any]]] = {}
@@ -630,6 +729,13 @@ class LLMPromptViewSet(
         context = self.get_serializer_context()
         context["prompt_labels_by_name"] = self._get_prompt_labels_map([prompt.name for prompt in prompts])
         serializer = LLMPromptListSerializer(prompts, many=True, context=context)
+
+        label = self._get_list_params(request).get("label")
+        if label:
+            # Each prompt served through a labeled list counts as one fetch, matching
+            # get_by_name, so usage counts survive a caller migrating from per-name
+            # calls. The unlabeled list backs the prompts UI page and stays untracked.
+            self._track_labeled_list_fetches(prompts, label)
 
         if page is not None:
             return self.get_paginated_response(serializer.data)

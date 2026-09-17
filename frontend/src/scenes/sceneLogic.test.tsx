@@ -1,3 +1,5 @@
+import { MOCK_USER_UUID } from 'lib/api.mock'
+
 import { kea, path } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
@@ -30,6 +32,7 @@ const sceneImport = (): any => ({ scene: { component: Component, logic: testLogi
 const testScenes: Record<string, () => any> = {
     [Scene.Alerts]: sceneImport,
     [Scene.DataManagement]: sceneImport,
+    [Scene.PasswordResetComplete]: sceneImport,
     [Scene.Settings]: sceneImport,
 }
 
@@ -61,6 +64,13 @@ describe('sceneLogic', () => {
         })
     })
 
+    it('keeps teamLogic mounted after every other mount reference is released', () => {
+        // openScene and activeSceneId read teamLogic.values directly. Without a mount reference of
+        // its own, navigation throws as soon as nothing else holds teamLogic up.
+        teamLogic.unmount()
+        expect(teamLogic.isMounted()).toBe(true)
+    })
+
     it('changing URL runs openScene, loadScene and setScene', async () => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             sceneId: Scene.DataManagement,
@@ -81,16 +91,41 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.featureFlag('123'))
     })
 
+    it('redirects a bare /billing to /organization/billing instead of a 404', async () => {
+        router.actions.push('/billing')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.organizationBilling())
+    })
+
+    it('keeps /billing/authorization_status on its own scene route, not the billing redirect', async () => {
+        router.actions.push(urls.billingAuthorizationStatus())
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.billingAuthorizationStatus())
+    })
+
     it('redirects /project/new to the create-project flow instead of a 404', async () => {
         router.actions.push('/project/new')
         await expectLogic(logic).delay(1)
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectCreateFirst())
     })
 
+    it.each(['/project', '/project/'])('sends the id-less %s path to the homepage, not a 404', async (path) => {
+        router.actions.push(path)
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
+    })
+
     it('redirects /data-warehouse/new to the new-source wizard instead of a 404', async () => {
         router.actions.push('/data-warehouse/new')
         await expectLogic(logic).delay(1)
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dataWarehouseSourceNew())
+    })
+
+    it('sends a guessed /replay/vision to replay vision, not the recording-not-found scene', async () => {
+        // `/replay/:id` would otherwise match and read `vision` as a recording id.
+        router.actions.push('/replay/vision')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.replayVision())
     })
 
     it('redirects the old /code_review path to /code-review, preserving the ?review= deep link and hash', async () => {
@@ -102,6 +137,15 @@ describe('sceneLogic', () => {
         // carries global side-panel state, so it has to survive the redirect too.
         expect(router.values.searchParams.review).toEqual('r-9')
         expect(router.values.hashParams.panel).toEqual('max:inspect')
+    })
+
+    // The change password form emails this link to a user who is already signed in.
+    it('keeps a signed-in user on the password reset link instead of redirecting them away', async () => {
+        const resetLink = urls.passwordResetComplete(MOCK_USER_UUID, 'a-token')
+        router.actions.push(resetLink)
+        await expectLogic(logic).delay(1)
+
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(resetLink)
     })
 
     it('persists the loaded scenes', async () => {
@@ -150,6 +194,31 @@ describe('sceneLogic', () => {
             window.POSTHOG_APP_CONTEXT = priorAppContext
         }
     })
+
+    // The third case is a legacy project token, which matches no route on its own.
+    test.each(['12345', 'phc_12345', 'aBcDeFgHiJkLmN'])(
+        'renders the project access denied scene while the address names the refused project %s',
+        async (refusedProject) => {
+            const priorAppContext = window.POSTHOG_APP_CONTEXT
+            try {
+                window.POSTHOG_APP_CONTEXT = {
+                    ...window.POSTHOG_APP_CONTEXT,
+                    project_access_denied: refusedProject,
+                } as AppContext
+
+                router.actions.push(`/project/${refusedProject}/settings/user`)
+                await expectLogic(logic).delay(1)
+                expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
+
+                // Later navigations run against the project we do serve.
+                router.actions.push(urls.settings('user'))
+                await expectLogic(logic).delay(1)
+                expect(logic.values.activeSceneId).toEqual(Scene.Settings)
+            } finally {
+                window.POSTHOG_APP_CONTEXT = priorAppContext
+            }
+        }
+    )
 
     describe('/home honors the configured homepage', () => {
         const dashboardHomepage = {

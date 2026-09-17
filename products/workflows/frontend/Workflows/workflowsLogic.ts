@@ -11,14 +11,15 @@ import { urls } from 'scenes/urls'
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 
 import type { HogFlow } from './hogflows/types'
+import { prepareWorkflowDuplicate } from './workflowDuplication'
 
 export type WorkflowStatusFilter = 'all' | 'active' | 'draft' | 'archived'
 
 const WORKFLOW_STATUS_FILTERS: WorkflowStatusFilter[] = ['all', 'active', 'draft', 'archived']
 
-export type WorkflowTypeFilter = 'all' | 'messaging' | 'automation'
+export type WorkflowTypeFilter = 'all' | 'messaging' | 'automation' | 'loop'
 
-const WORKFLOW_TYPE_FILTERS: WorkflowTypeFilter[] = ['all', 'messaging', 'automation']
+const WORKFLOW_TYPE_FILTERS: WorkflowTypeFilter[] = ['all', 'messaging', 'automation', 'loop']
 
 export type WorkflowTriggerTypeFilter = 'all' | (NonNullable<HogFlow['trigger']> extends { type: infer T } ? T : never)
 
@@ -332,11 +333,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
                     return values.workflows
                 },
                 duplicateWorkflow: async ({ workflow }) => {
-                    await api.hogFlows.createHogFlow({
-                        ...workflow,
-                        status: 'draft',
-                        name: `${workflow.name} (copy)`,
-                    })
+                    await api.hogFlows.createHogFlow(prepareWorkflowDuplicate(workflow))
                     // The copy is a draft; reload so it only shows when it matches the current filter
                     // and lands in the right spot under the server-side sort and pagination.
                     actions.loadWorkflows()
