@@ -6763,7 +6763,7 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
                     "project_id": "hijacked-project",
                     "private_key": "new",
                     "private_key_id": "new",
-                    "token_uri": "new",
+                    "token_uri": "https://oauth2.googleapis.com/token",
                 },
             },
             format="json",

@@ -15,6 +15,18 @@ from . import model, refresh_tracking
 
 logger = structlog.get_logger(__name__)
 
+# google-auth posts the signed service-account grant to whatever URL `token_uri` names, so a stored
+# key file decides where a worker sends an outbound request. Google issues service-account keys with
+# only these two endpoints, so any other value is hand-edited.
+GOOGLE_SERVICE_ACCOUNT_TOKEN_URIS = frozenset(
+    {"https://oauth2.googleapis.com/token", "https://accounts.google.com/o/oauth2/token"}
+)
+
+GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR = (
+    "The token_uri in your Google Cloud JSON key file is not Google's OAuth token endpoint. Please download "
+    "a fresh service account key from Google Cloud and re-upload the JSON file without editing it."
+)
+
 
 def is_unique_service_account_by_organization_id(service_account_email: str, organization_id: str) -> bool:
     """Check if the service account is only in one organization.
@@ -65,6 +77,8 @@ class GoogleCloudServiceAccountIntegration:
         sensitive_config = {}
         is_impersonated = True
         if isinstance(private_key, str) and isinstance(private_key_id, str) and isinstance(token_uri, str):
+            if token_uri.strip() not in GOOGLE_SERVICE_ACCOUNT_TOKEN_URIS:
+                raise ValidationError(GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR)
             sensitive_config["private_key"] = private_key
             sensitive_config["private_key_id"] = private_key_id
             sensitive_config["token_uri"] = token_uri

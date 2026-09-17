@@ -9,6 +9,7 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.integration import GoogleCloudIntegration, GoogleCloudServiceAccountIntegration, Integration
@@ -167,6 +168,28 @@ class TestGoogleCloudIntegrationModel(BaseTest):
 
 
 class TestGoogleCloudServiceAccountIntegration(BaseTest):
+    @parameterized.expand(
+        [
+            ("relay", "https://relay.example.com/token"),
+            ("plain_http_google", "http://oauth2.googleapis.com/token"),
+            ("lookalike_host", "https://oauth2.googleapis.com.example.com/token"),
+            ("link_local", "http://169.254.169.254/latest/meta-data/"),
+        ]
+    )
+    def test_rejects_key_file_token_uri_that_is_not_google(self, _name: str, token_uri: str):
+        with pytest.raises(ValidationError):
+            GoogleCloudServiceAccountIntegration.integration_from_service_account(
+                team_id=self.team.pk,
+                organization_id=str(self.team.organization.id),
+                service_account_email="test@test.iam.gserviceaccount.com",
+                project_id="test",
+                private_key="something",
+                private_key_id="something",
+                token_uri=token_uri,
+            )
+
+        assert not Integration.objects.filter(team_id=self.team.pk, kind="google-cloud-service-account").exists()
+
     def test_raises_on_duplicate_service_account_email(self):
         _ = GoogleCloudServiceAccountIntegration.integration_from_service_account(
             team_id=self.team.pk,
@@ -190,7 +213,7 @@ class TestGoogleCloudServiceAccountIntegration(BaseTest):
             project_id="test",
             private_key="something",
             private_key_id="something",
-            token_uri="something",
+            token_uri="https://oauth2.googleapis.com/token",
         )
 
         other_org = Organization.objects.create(name="other org")
@@ -209,7 +232,7 @@ class TestGoogleCloudServiceAccountIntegration(BaseTest):
             project_id="test",
             private_key="something",
             private_key_id="something",
-            token_uri="something",
+            token_uri="https://oauth2.googleapis.com/token",
         )
 
         assert (

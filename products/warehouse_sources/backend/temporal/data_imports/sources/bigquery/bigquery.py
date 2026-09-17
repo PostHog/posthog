@@ -48,6 +48,7 @@ from google.oauth2 import service_account
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration.google_cloud import GOOGLE_SERVICE_ACCOUNT_TOKEN_URIS
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_TABLE_SIZE_BYTES
@@ -171,13 +172,6 @@ BIGQUERY_CREDENTIALS_REJECTED_ERROR = (
 BIGQUERY_INVALID_KEY_FILE_ERROR = (
     "We couldn't read the private key in your Google Cloud JSON key file — it appears truncated or "
     "corrupted. Please download a fresh service account key from Google Cloud and re-upload the JSON file."
-)
-
-# `token_uri` comes from the uploaded key file, and google-auth posts the service-account grant to
-# whatever URL it names, so the field decides where a worker sends an outbound request. Google
-# issues service-account keys with only these two endpoints, so any other value is hand-edited.
-GOOGLE_SERVICE_ACCOUNT_TOKEN_URIS = frozenset(
-    {"https://oauth2.googleapis.com/token", "https://accounts.google.com/o/oauth2/token"}
 )
 
 # Matched in `BigQuerySource.get_non_retryable_errors`, so it must stay free of volatile data.
