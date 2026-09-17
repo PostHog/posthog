@@ -235,7 +235,7 @@ class TestWebExperiment(APIBaseTest):
         ids = [self._create_web_experiment(f"Experiment {index}").json()["id"] for index in range(3)]
         WebExperiment.objects.filter(id__in=ids).update(created_at=datetime(2026, 1, 1, tzinfo=UTC))
 
-        paged_ids = []
+        paged_ids: list[int] = []
         for offset in range(len(ids)):
             page = self.client.get(f"/api/projects/{self.team.id}/web_experiments/?limit=1&offset={offset}")
             assert page.status_code == status.HTTP_200_OK
