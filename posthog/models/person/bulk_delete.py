@@ -282,50 +282,56 @@ def _run_queued_deletion_steps(
     failures: builtins.list[PersonDeletionFailure],
     options: _QueuedDeletionOptions,
 ) -> int:
-    """Run the requested steps for persons whose distinct IDs are loaded; returns how many were deleted."""
-    person_uuids = [person.uuid for person in persons]
-    prerequisites_ok = True
+    """Run the requested steps for persons whose distinct IDs are loaded; returns how many were deleted.
+
+    A person that fails a step is left out of every later step, so a retry redoes that person
+    alone. Training deletion is queued per person for that reason: one person whose session
+    lookup keeps failing must not block the profile delete of everyone else in the batch.
+    """
+    eligible = list(persons)
     if options.delete_profile or options.delete_recordings:
+        queued: builtins.list[Person] = []
+        for person in eligible:
+            try:
+                queue_person_training_deletion(team_id, person.distinct_ids)
+            except Exception as exc:
+                _record_step_failure(
+                    failures,
+                    step=PersonDeletionStep.QUEUE_TRAINING_DELETION,
+                    team_id=team_id,
+                    exc=exc,
+                    person_uuids=[person.uuid],
+                )
+                continue
+            queued.append(person)
+        eligible = queued
+    if options.delete_recordings and eligible:
         try:
-            queue_person_training_deletion(
-                team_id, [distinct_id for person in persons for distinct_id in person.distinct_ids]
-            )
+            queue_person_recording_deletion(team_id, eligible, actor=options.actor, queue_ai_training_deletion=False)
         except Exception as exc:
-            prerequisites_ok = False
-            _record_step_failure(
-                failures,
-                step=PersonDeletionStep.QUEUE_TRAINING_DELETION,
-                team_id=team_id,
-                exc=exc,
-                person_uuids=person_uuids,
-            )
-    if options.delete_recordings:
-        try:
-            queue_person_recording_deletion(team_id, persons, actor=options.actor, queue_ai_training_deletion=False)
-        except Exception as exc:
-            prerequisites_ok = False
             _record_step_failure(
                 failures,
                 step=PersonDeletionStep.QUEUE_RECORDING_DELETION,
                 team_id=team_id,
                 exc=exc,
-                person_uuids=person_uuids,
+                person_uuids=[person.uuid for person in eligible],
             )
+            eligible = []
 
-    if not options.delete_profile:
+    if not options.delete_profile or not eligible:
         return 0
-    if not prerequisites_ok:
+    skipped = len(persons) - len(eligible)
+    if skipped:
         logger.warning(
             "person_deletion.profile_delete_skipped",
             team_id=team_id,
-            person_count=len(persons),
-            reason="a step before the profile delete failed; the persons stay for the retry",
+            person_count=skipped,
+            reason="a step before the profile delete failed; those persons stay for the retry",
         )
-        return 0
 
     result = _tombstone_and_delete_persons(
         team_id,
-        persons,
+        eligible,
         lambda person: distinct_ids_by_person[person.pk],
         actor=options.actor,
         was_impersonated=options.was_impersonated,

@@ -316,15 +316,45 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
             )
         assert result.deleted_count == 3
         assert result.failures == []
-        # p1 and p2 fill the cap together; p3 runs in a second, smaller batch.
+        # p1 and p2 fill the cap together; p3 runs in a second, smaller batch. Training deletion is per person.
         assert [[person.uuid for person in call.args[1]] for call in pg_delete.call_args_list] == [
             [p1.uuid, p2.uuid],
             [p3.uuid],
         ]
         assert [sorted(call.args[1]) for call in training.call_args_list] == [
-            ["a1", "a2", "a3", "b1", "b2", "b3"],
+            ["a1", "a2", "a3"],
+            ["b1", "b2", "b3"],
             ["c1"],
         ]
+
+    def test_failed_training_deletion_for_one_person_does_not_block_the_others(self):
+        p1 = create_person(team=self.team, distinct_ids=["bad"], properties={})
+        p2 = create_person(team=self.team, distinct_ids=["good"], properties={})
+
+        def training(_team_id, distinct_ids):
+            if "bad" in distinct_ids:
+                raise RuntimeError("session lookup timed out")
+
+        with (
+            patch("posthog.models.person.bulk_delete.queue_person_training_deletion", side_effect=training),
+            patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
+            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
+        ):
+            result = process_queued_person_deletion(
+                self.team.pk,
+                [str(p1.uuid), str(p2.uuid)],
+                delete_profile=True,
+                delete_recordings=False,
+                actor=self.user,
+                was_impersonated=False,
+                organization_id=self.organization.id,
+            )
+        assert result.deleted_count == 1
+        assert [(f.step, f.person_uuid) for f in result.failures] == [
+            (PersonDeletionStep.QUEUE_TRAINING_DELETION, p1.uuid)
+        ]
+        assert ch_delete.call_args.kwargs["person"].uuid == p2.uuid
+        assert [person.uuid for person in pg_delete.call_args.args[1]] == [p2.uuid]
 
     def test_recordings_only_pages_distinct_ids_into_workflows_without_deleting(self):
         p = create_person(team=self.team, distinct_ids=["a", "b", "c"], properties={})
