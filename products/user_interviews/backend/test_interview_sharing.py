@@ -13,6 +13,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
 from django.db import InterfaceError, OperationalError, connection
+from django.db.models import QuerySet
 from django.template.loader import get_template
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -744,10 +745,14 @@ class TestVapiWebhook(APIBaseTest):
         payload = self._end_of_call_payload(share.access_token)
         response = self._signed_post("topsecret", payload)
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
+        assert share.interviewee_context is not None
         mock_delay.assert_called_once_with(
             payload=payload,
             event_type="end-of-call-report",
-            sharing_configuration_id=share.pk,
+            team_id=self.team.pk,
+            topic_id=str(share.interviewee_context.topic_id),
+            interviewee_context_id=str(share.interviewee_context_id),
+            interviewee_identifier="alex@example.com",
             received_at=timezone.now().isoformat(),
         )
         self.assertEqual(UserInterview.objects.count(), 0)
@@ -798,27 +803,29 @@ class TestVapiWebhook(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("share_disabled", lambda: {"enabled": False}),
+            ("share_disabled", lambda shares: shares.update(enabled=False)),
             (
                 "token_past_its_grace_period",
-                lambda: {"expires_at": timezone.now() - datetime.timedelta(minutes=1)},
+                lambda shares: shares.update(expires_at=timezone.now() - datetime.timedelta(minutes=1)),
             ),
+            ("share_row_deleted", lambda shares: shares.delete()),
         ]
     )
     @time_machine.travel("2026-05-14 12:00:00", tick=False)
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
     @patch("products.user_interviews.backend.tasks.tasks.handle_vapi_webhook.delay")
     def test_report_is_stored_when_the_share_stops_answering_after_the_endpoint_accepted_it(
-        self, _name: str, revocation_factory: Callable[[], dict[str, Any]], mock_delay
+        self, _name: str, revoke: Callable[[QuerySet[SharingConfiguration]], Any], mock_delay
     ):
         share = self._create_share()
         self.client.logout()
         accepted = self._signed_post("topsecret", self._end_of_call_payload(share.access_token))
         self.assertEqual(accepted.status_code, status.HTTP_202_ACCEPTED, accepted.content)
 
-        # revocation_factory is a callable so the expiry is computed here, under the frozen
-        # clock above, instead of at parameterized.expand's module-import time.
-        SharingConfiguration.objects.filter(pk=share.pk).update(**revocation_factory())
+        # revoke is a callable so the expiry it writes is computed here, under the frozen clock
+        # above, instead of at parameterized.expand's module-import time. Deleting the row is what
+        # cleanup_expired_sharing_configs does to a share once its token is past the grace period.
+        revoke(SharingConfiguration.objects.filter(pk=share.pk, team_id=self.team.pk))
         handle_vapi_webhook(**mock_delay.call_args.kwargs)
 
         self.assertEqual(UserInterview.objects.filter(team=self.team).count(), 1)

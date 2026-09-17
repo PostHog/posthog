@@ -72,7 +72,9 @@ def accept_vapi_event(delivery: WebhookDelivery) -> None:
     The token is resolved here, in the request, because the answer expires: a share that the
     team disables, or a token that leaves its rotation grace period, while the work waits in
     the queue would make the worker find nothing and drop a report the endpoint has already
-    accepted. What crosses the broker is the share's identity, which does not expire.
+    accepted. So does the share row itself, which the cleanup command deletes once the token is
+    past its grace period. What crosses the broker is the team, the topic and the interviewee
+    context the share names, and nothing removes those with the share.
 
     A token nothing answers enqueues nothing. ingress ignores what a consumer returns, so there
     is no status to refuse the delivery with, and queueing work for a share nobody can name only
@@ -92,8 +94,8 @@ def accept_vapi_event(delivery: WebhookDelivery) -> None:
         )
         return
 
-    sharing_configuration_id = logic.active_share_id(access_token)
-    if sharing_configuration_id is None:
+    share = logic.vapi_share_identity(access_token)
+    if share is None:
         logger.warning(
             "user_interviews_vapi_webhook_unknown_access_token",
             event_type=delivery.event_type,
@@ -104,7 +106,10 @@ def accept_vapi_event(delivery: WebhookDelivery) -> None:
     handle_vapi_webhook.delay(
         payload=dict(delivery.payload),
         event_type=delivery.event_type,
-        sharing_configuration_id=sharing_configuration_id,
+        team_id=share.team_id,
+        topic_id=share.topic_id,
+        interviewee_context_id=share.interviewee_context_id,
+        interviewee_identifier=share.interviewee_identifier,
         # The lifecycle analytics events are timestamped with this, not with the moment the worker
         # runs, so a delayed or retried task cannot report a call as started after it ended. Sent
         # as a string because the broker carries JSON, which has no datetime.

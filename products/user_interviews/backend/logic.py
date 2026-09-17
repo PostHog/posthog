@@ -12,8 +12,7 @@ from collections.abc import Mapping
 from typing import Any
 from uuid import UUID, uuid4
 
-from django.db.models import QuerySet
-
+from posthog.dataclasses import frozen
 from posthog.ingress.dispatch.database import bounded_statement_timeout
 from posthog.models.sharing_configuration import SharingConfiguration
 
@@ -117,41 +116,24 @@ def shared_interviewee_identifier(respondent_key: str) -> str:
     return f"{SHARED_RESPONDENT_IDENTIFIER_PREFIX}{respondent_key or uuid4().hex}"
 
 
-def _interview_shares() -> QuerySet[SharingConfiguration]:
-    """Shares with everything an interview write needs already joined, so the worker that stores a
-    report does not walk the topic and the organization one query at a time."""
-    return SharingConfiguration.objects.select_related(
-        "team",
-        "team__organization",
-        "interviewee_context",
-        "interviewee_context__topic",
-        "interviewee_context__topic__created_by",
-    )
-
-
 def resolve_share(access_token: str) -> SharingConfiguration | None:
-    """Resolve a share token to its `SharingConfiguration`.
+    """Resolve a share token to its `SharingConfiguration`, with the rows the public interview
+    page reads off it already joined.
 
     Uses the same enabled/expiry predicate as `SharingViewerPageViewSet.get_object()`, so a
     rotated token past its grace period is dead here exactly when it is dead on the public viewer.
     """
     try:
-        return _interview_shares().filter(SharingConfiguration.tokens_active_q()).get(access_token=access_token)
-    except SharingConfiguration.DoesNotExist:
-        return None
-
-
-def share_by_id(sharing_configuration_id: int) -> SharingConfiguration | None:
-    """Load a share by primary key, deliberately without the active-token predicate.
-
-    The caller resolved the token while the request was still open. Asking the token question
-    again later answers a different question: a share that the team disabled, or a token that
-    left its rotation grace period, while the work waited in a queue would drop a report that
-    the endpoint already accepted. The share row itself is the identity, so only its deletion
-    (which takes the interviews with it) stops the write.
-    """
-    try:
-        return _interview_shares().get(pk=sharing_configuration_id)
+        return (
+            SharingConfiguration.objects.select_related(
+                "team",
+                "team__organization",
+                "interviewee_context",
+                "interviewee_context__topic",
+            )
+            .filter(SharingConfiguration.tokens_active_q())
+            .get(access_token=access_token)
+        )
     except SharingConfiguration.DoesNotExist:
         return None
 
@@ -182,19 +164,52 @@ def vapi_access_token(payload: Mapping[str, Any]) -> str:
 SHARE_LOOKUP_TIMEOUT_MS = 1_000
 
 
-def active_share_id(access_token: str) -> int | None:
-    """The primary key of the share this token currently opens, or None when no share answers.
+@frozen
+class VapiShareIdentity:
+    """What a queued Vapi report needs from the share the delivery arrived on.
 
-    Asks the same enabled/expiry question as `resolve_share` and reads nothing else, because the
-    caller only needs an identity to hand to a worker.
+    The share row is not durable. `cleanup_expired_sharing_configs` deletes every configuration
+    that is past its `expires_at`, so a token rotated during a call can lose its row while the
+    report still waits in the queue or between retries. Nothing deletes the team, the topic or
+    the interviewee context with it, so these ids still say where the report belongs.
+
+    The ids are strings because the broker carries JSON, which has no UUID.
+    """
+
+    team_id: int
+    topic_id: str
+    interviewee_context_id: str
+    interviewee_identifier: str
+
+
+def vapi_share_identity(access_token: str) -> VapiShareIdentity | None:
+    """The identity behind a Vapi delivery's token, or None when no interview share answers it.
+
+    Asks the same enabled/expiry question as `resolve_share`, and reads only the ids and the
+    identifier a worker needs, because the caller hands the answer to a queue rather than to a
+    page.
     """
     with bounded_statement_timeout(SHARE_LOOKUP_TIMEOUT_MS, models=[SharingConfiguration]):
-        return (
+        identity = (
             SharingConfiguration.objects.filter(SharingConfiguration.tokens_active_q())
-            .filter(access_token=access_token)
-            .values_list("pk", flat=True)
+            .filter(access_token=access_token, interviewee_context__isnull=False)
+            .values_list(
+                "team_id",
+                "interviewee_context__topic_id",
+                "interviewee_context_id",
+                "interviewee_context__interviewee_identifier",
+            )
             .first()
         )
+    if identity is None:
+        return None
+    team_id, topic_id, interviewee_context_id, interviewee_identifier = identity
+    return VapiShareIdentity(
+        team_id=team_id,
+        topic_id=str(topic_id),
+        interviewee_context_id=str(interviewee_context_id),
+        interviewee_identifier=interviewee_identifier,
+    )
 
 
 def parse_interviewee_identifier(identifier: str) -> IntervieweeIdentity:

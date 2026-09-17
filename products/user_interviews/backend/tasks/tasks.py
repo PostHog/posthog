@@ -48,7 +48,10 @@ def handle_vapi_webhook(
     self: Task,
     payload: dict[str, Any],
     event_type: str,
-    sharing_configuration_id: int,
+    team_id: int,
+    topic_id: str,
+    interviewee_context_id: str,
+    interviewee_identifier: str,
     received_at: str | None = None,
 ) -> None:
     """Store one verified Vapi delivery, outside the request that accepted it.
@@ -65,7 +68,10 @@ def handle_vapi_webhook(
         vapi_events.handle_vapi_webhook_delivery(
             payload,
             event_type,
-            sharing_configuration_id=sharing_configuration_id,
+            team_id=team_id,
+            topic_id=topic_id,
+            interviewee_context_id=interviewee_context_id,
+            interviewee_identifier=interviewee_identifier,
             received_at=received_at,
         )
     except (OperationalError, InterfaceError):
@@ -77,6 +83,7 @@ def handle_vapi_webhook(
                 "user_interviews_vapi_webhook_retries_exhausted",
                 event_type=event_type,
                 call_id=_call_id(payload),
-                sharing_configuration_id=sharing_configuration_id,
+                team_id=team_id,
+                topic_id=topic_id,
             )
         raise

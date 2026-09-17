@@ -16,7 +16,6 @@ from posthog.schema import EmbeddingModelName
 
 from posthog.api.embedding_worker import emit_embedding_request
 from posthog.event_usage import groups
-from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team import Team
 from posthog.ph_client import ph_scoped_capture
 
@@ -26,7 +25,6 @@ from products.user_interviews.backend.logic import (
     RESPONDENT_NAME_MAX_CHARS,
     clean_field,
     is_shared_interviewee_context,
-    share_by_id,
     shared_interviewee_identifier,
     valid_distinct_id,
     valid_session_id,
@@ -127,7 +125,7 @@ def _collapse_abandoned_partials(*, team: Team, topic: UserInterviewTopic, respo
     )
 
 
-def _lock_call(sharing_config: SharingConfiguration, call_id: str) -> None:
+def _lock_call(team_id: int, call_id: str) -> None:
     """Hold the sole right to store this call's report until the transaction ends.
 
     Nothing in the schema stops a second row for one call. Vapi resends a report whose receipt it
@@ -140,14 +138,16 @@ def _lock_call(sharing_config: SharingConfiguration, call_id: str) -> None:
     with connection.cursor() as cursor:
         cursor.execute(
             "SELECT pg_advisory_xact_lock(hashtext(%s))",
-            [f"user_interviews_vapi_call:{sharing_config.team_id}:{call_id}"],
+            [f"user_interviews_vapi_call:{team_id}:{call_id}"],
         )
 
 
 def _capture_user_interview_event(
     event: str,
     *,
-    sharing_config: SharingConfiguration,
+    team: Team,
+    topic_id: str,
+    interviewee_context_id: str,
     call_id: str | None,
     received_at: str | None,
     session_id: str = "",
@@ -173,12 +173,9 @@ def _capture_user_interview_event(
     email/distinct_id — so these feature-usage events never create person profiles for the
     third-party interviewees themselves. The events report on the user_interviews feature, not
     the people being interviewed."""
-    interviewee_context = sharing_config.interviewee_context
-    if interviewee_context is None:
-        return
     properties: dict[str, Any] = {
-        "topic_id": str(interviewee_context.topic_id),
-        "team_id": sharing_config.team_id,
+        "topic_id": topic_id,
+        "team_id": team.id,
         "call_id": call_id,
     }
     if session_id:
@@ -193,17 +190,17 @@ def _capture_user_interview_event(
         # when the context exits. A run emits at most one event, so the client is opened once.
         with ph_scoped_capture() as capture:
             capture(
-                distinct_id=f"user_interview:{interviewee_context.id}",
+                distinct_id=f"user_interview:{interviewee_context_id}",
                 event=event,
                 properties=properties,
                 timestamp=received_at,
-                groups=groups(organization=sharing_config.team.organization, team=sharing_config.team),
+                groups=groups(organization=team.organization, team=team),
             )
     except Exception:
         logger.exception(
             "user_interviews_event_capture_failed",
             event=event,
-            team_id=sharing_config.team_id,
+            team_id=team.id,
             call_id=call_id,
         )
 
@@ -212,14 +209,20 @@ def handle_vapi_webhook_delivery(
     payload: Mapping[str, Any],
     event_type: str,
     *,
-    sharing_configuration_id: int,
+    team_id: int,
+    topic_id: str,
+    interviewee_context_id: str,
+    interviewee_identifier: str,
     received_at: str | None,
 ) -> None:
     """Act on one verified Vapi delivery: the lifecycle event, and the end-of-call report.
 
-    The share comes in by id because ``accept_vapi_event`` resolved the token in the request,
-    before the endpoint accepted the delivery. That keeps a share the team disables while this
-    waits in the queue from turning an accepted report into nothing.
+    The share is not read here. ``accept_vapi_event`` resolved the token in the request, before
+    the endpoint accepted the delivery, and took out of the share everything this needs. The
+    share row does not survive the wait: the team can disable it, its token can leave the
+    rotation grace period, and ``cleanup_expired_sharing_configs`` then deletes the row itself.
+    Each of those would turn an accepted report into nothing. The topic and the interviewee
+    context the share names outlive it.
 
     Idempotent on ``call.id`` (stored in ``call_metadata.id``). Vapi repeats that id across the
     status update and the end-of-call report, so ingress cannot dedup on it and this does
@@ -245,11 +248,19 @@ def handle_vapi_webhook_delivery(
         logger.warning("user_interviews_vapi_webhook_missing_call_id", team_id=team_id, topic_id=topic_id)
         return
 
-    sharing_config = share_by_id(sharing_configuration_id)
-    if sharing_config is None:
+    topic = (
+        UserInterviewTopic.objects.select_related("team", "team__organization", "created_by")
+        .filter(team_id=team_id, id=topic_id)
+        .first()
+    )
+    if topic is None:
+        # The team deleted the topic while the report waited in the queue, so there is nothing
+        # left to file the report under. Say so, because the alternative reads like a delivery
+        # that never arrived.
         logger.warning(
-            "user_interviews_vapi_webhook_share_gone",
-            sharing_configuration_id=sharing_configuration_id,
+            "user_interviews_vapi_webhook_topic_gone",
+            team_id=team_id,
+            topic_id=topic_id,
             call_id=call_id,
         )
         return
@@ -259,10 +270,12 @@ def handle_vapi_webhook_delivery(
         # is followed by a separate `end-of-call-report` with the full transcript, so we
         # capture the ended event from that branch where we already have the interview row.
         call_status = message.get("status")
-        if call_status == "in-progress" and sharing_config.interviewee_context is not None:
+        if call_status == "in-progress":
             _capture_user_interview_event(
                 "user_interview_conversation_started",
-                sharing_config=sharing_config,
+                team=topic.team,
+                topic_id=topic_id,
+                interviewee_context_id=interviewee_context_id,
                 call_id=call_id,
                 received_at=received_at,
                 session_id=valid_session_id(merged_metadata.get("session_id")),
@@ -276,26 +289,16 @@ def handle_vapi_webhook_delivery(
 
     # The consumer registers for status-update and end-of-call-report only, so the registry
     # drops every other message type before this runs and the rest is the end-of-call report.
-    interviewee_context = sharing_config.interviewee_context
-    if interviewee_context is None:
-        logger.warning(
-            "user_interviews_vapi_webhook_wrong_share_type",
-            team_id=sharing_config.team_id,
-            call_id=call_id,
-        )
-        return
-
     recording_url = (message.get("recording") or {}).get("url", "") or message.get("recordingUrl", "") or ""
     transcript = message.get("transcript", "") or ""
     classifications = derive_auto_classifications(transcript)
-    topic = interviewee_context.topic
 
-    if is_shared_interviewee_context(interviewee_context.interviewee_identifier):
+    if is_shared_interviewee_context(interviewee_identifier):
         respondent_name = clean_field(merged_metadata.get("respondent_name"), RESPONDENT_NAME_MAX_CHARS)
         respondent_key = clean_field(merged_metadata.get("respondent_key"), RESPONDENT_KEY_MAX_CHARS)
         # Recompute the identifier from respondent_key rather than trusting the echoed metadata, so it
         # is always a namespaced shared marker and can never be steered onto a targeted invitee.
-        interviewee_identifier = shared_interviewee_identifier(respondent_key)
+        stored_identifier = shared_interviewee_identifier(respondent_key)
         interviewee_emails = []
         # Best-effort, untrusted person linkage. Re-validated here (defense in depth) and stored in its
         # own column — never as the interviewee_identifier, so it can't forge attribution.
@@ -304,28 +307,28 @@ def handle_vapi_webhook_delivery(
         # (defense in depth) so only a well-formed UUIDv7 reaches the event.
         session_id = valid_session_id(merged_metadata.get("session_id"))
     else:
-        interviewee_identifier = interviewee_context.interviewee_identifier
-        interviewee_emails = [interviewee_identifier] if "@" in interviewee_identifier else []
+        stored_identifier = interviewee_identifier
+        interviewee_emails = [stored_identifier] if "@" in stored_identifier else []
         respondent_name = respondent_key = ""
         distinct_id = ""
         session_id = ""
 
     with transaction.atomic():
         if call_id:
-            _lock_call(sharing_config, call_id)
-            existing = UserInterview.objects.filter(team=sharing_config.team, call_metadata__id=call_id).first()
+            _lock_call(team_id, call_id)
+            existing = UserInterview.objects.filter(team_id=team_id, call_metadata__id=call_id).first()
             if existing is not None:
                 logger.info(
                     "user_interviews_vapi_webhook_duplicate",
-                    team_id=sharing_config.team_id,
+                    team_id=team_id,
                     interview_id=str(existing.id),
                     call_id=call_id,
                 )
                 return
         interview = UserInterview.objects.create(
-            team=sharing_config.team,
+            team=topic.team,
             topic=topic,
-            interviewee_identifier=interviewee_identifier,
+            interviewee_identifier=stored_identifier,
             interviewee_emails=interviewee_emails,
             respondent_name=respondent_name,
             respondent_key=respondent_key,
@@ -342,7 +345,7 @@ def handle_vapi_webhook_delivery(
         # rows so the topic shows one response per respondent instead of a junk trail.
         if respondent_key and UserInterviewClassification.ABANDONED not in classifications:
             _collapse_abandoned_partials(
-                team=sharing_config.team,
+                team=topic.team,
                 topic=topic,
                 respondent_key=respondent_key,
                 keep_pk=interview.pk,
@@ -351,7 +354,9 @@ def handle_vapi_webhook_delivery(
 
     _capture_user_interview_event(
         "user_interview_conversation_ended",
-        sharing_config=sharing_config,
+        team=topic.team,
+        topic_id=topic_id,
+        interviewee_context_id=interviewee_context_id,
         call_id=call_id,
         received_at=received_at,
         session_id=session_id,
@@ -364,7 +369,7 @@ def handle_vapi_webhook_delivery(
 
     logger.info(
         "user_interviews_vapi_webhook_stored",
-        team_id=sharing_config.team_id,
-        topic_id=str(topic.id),
+        team_id=team_id,
+        topic_id=topic_id,
         interview_id=str(interview.id),
     )
