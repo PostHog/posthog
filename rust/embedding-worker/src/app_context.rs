@@ -1,25 +1,21 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
 use common_kafka::{
     kafka_consumer::SingleTopicConsumer, kafka_producer::KafkaContext,
     transaction::TransactionalProducer,
 };
-use common_types::embedding::{ApiLimits, EmbeddingModel};
+use common_types::embedding::ApiLimits;
 use health::{HealthHandle, HealthRegistry};
-use leaky_bucket::RateLimiter;
-use metrics::{counter, gauge};
 use moka::sync::{Cache, CacheBuilder};
-use reqwest::Response;
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use tokio::sync::{Mutex, RwLock};
-use tracing::warn;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::{
     config::Config,
-    metrics_utils::{LIMITS_UPDATED, LIMIT_BALANCE},
     organization::Organization,
+    provider::EmbeddingClient,
     recently_seen::{build_store, RecentlySeenStore},
 };
 
@@ -30,16 +26,9 @@ pub struct AppContext {
     pub transactional_producer: Mutex<TransactionalProducer<KafkaContext>>,
     pub pool: PgPool,
     pub config: Config,
-    pub client: reqwest::Client,
+    pub embeddings: EmbeddingClient,
     pub org_cache: Cache<i32, Option<Organization>>,
     pub recently_seen: Arc<dyn RecentlySeenStore>,
-    rate_limits: RwLock<HashMap<String, Limiter>>,
-}
-
-struct Limiter {
-    pub definition: ApiLimits,
-    pub tokens: RateLimiter,
-    pub requests: RateLimiter,
 }
 
 impl AppContext {
@@ -72,6 +61,15 @@ impl AppContext {
             ))
             .build()?;
 
+        let embeddings = EmbeddingClient::new(
+            client,
+            config.openai_api_key.clone(),
+            ApiLimits {
+                requests_per_minute: config.embedding_requests_per_minute,
+                tokens_per_minute: config.embedding_tokens_per_minute,
+            },
+        )?;
+
         let org_cache = CacheBuilder::new(10_000)
             .time_to_live(Duration::from_secs(30))
             .build();
@@ -85,162 +83,9 @@ impl AppContext {
             transactional_producer: Mutex::new(transactional_producer),
             pool,
             config,
-            client,
+            embeddings,
             org_cache,
             recently_seen,
-            rate_limits: Default::default(),
         })
-    }
-
-    pub async fn respect_rate_limits(&self, model: EmbeddingModel, tokens: usize) {
-        let read = self.rate_limits.read().await;
-
-        let Some(limiter) = read.get(model.limits_key()) else {
-            drop(read);
-            let mut write = self.rate_limits.write().await;
-            write.insert(model.limits_key().to_string(), model.api_limits().into());
-            drop(write);
-
-            let read = self.rate_limits.read().await;
-            let limiter = read.get(model.limits_key()).expect("We just inserted this");
-
-            limiter.report_balance(model);
-            limiter.acquire(tokens, 1).await;
-            return;
-        };
-
-        limiter.report_balance(model);
-        limiter.acquire(tokens, 1).await;
-    }
-
-    pub async fn update_rate_limits(&self, model: EmbeddingModel, response: &Response) {
-        let header_fn = |key: &str| {
-            response
-                .headers()
-                .get(key)
-                .and_then(|v| v.to_str().ok())
-                .map(|s| s.to_string())
-        };
-
-        if let Some(new_limits) = model.api_limits_from_response(&header_fn) {
-            // Do we need to update? We do this here, rather than inside the Limiter,
-            // because it lets us only take a read lock on the happy path
-            let needs_update = self
-                .rate_limits
-                .read()
-                .await
-                .get(model.limits_key())
-                .map(|l| l.needs_update(&new_limits))
-                .unwrap_or(true); // If we don't find a limiter for this model, we need to add one
-            if !needs_update {
-                return; // Bail early, never taking a write lock
-            }
-
-            counter!(LIMITS_UPDATED, &[("key", model.limits_key())]).increment(1);
-            warn!(
-                "Updating rate limits for {}: {:?}",
-                model.limits_key(),
-                new_limits
-            );
-
-            let mut write = self.rate_limits.write().await;
-            match write.get_mut(model.limits_key()) {
-                Some(limiter) => {
-                    limiter.update(new_limits).await;
-                }
-                None => {
-                    write.insert(model.limits_key().to_string(), new_limits.into());
-                }
-            }
-        }
-    }
-}
-
-// leaky-bucket adds `refill` tokens once per `interval`. Refilling the whole
-// per-minute budget in a single 60s lump means a drained bucket suspends the
-// next acquire() until the minute boundary - up to ~60s - which stalls the
-// worker's liveness heartbeat and gets the pod killed. Drip the budget in small
-// sub-second increments instead, so a drained bucket only ever blocks for about
-// one interval. Long-run throughput is unchanged (still capped at the budget).
-const REFILL_INTERVAL: Duration = Duration::from_millis(100);
-const REFILLS_PER_MINUTE: usize = 600; // 60_000ms / 100ms
-
-fn build_rate_limiter(per_minute: usize) -> RateLimiter {
-    RateLimiter::builder()
-        .max(per_minute.max(1))
-        .initial(per_minute)
-        .refill((per_minute / REFILLS_PER_MINUTE).max(1))
-        .interval(REFILL_INTERVAL)
-        .build()
-}
-
-impl From<ApiLimits> for Limiter {
-    fn from(definition: ApiLimits) -> Self {
-        Limiter {
-            tokens: build_rate_limiter(definition.tokens_per_minute),
-            requests: build_rate_limiter(definition.requests_per_minute),
-            definition,
-        }
-    }
-}
-
-impl Limiter {
-    pub async fn acquire(&self, tokens: usize, requests: usize) {
-        self.tokens.acquire(tokens).await;
-        self.requests.acquire(requests).await;
-    }
-
-    pub fn report_balance(&self, model: EmbeddingModel) {
-        gauge!(
-            LIMIT_BALANCE,
-            &[("key", model.limits_key()), ("type", "tokens")]
-        )
-        .set(self.tokens.balance() as f64);
-        gauge!(
-            LIMIT_BALANCE,
-            &[("key", model.limits_key()), ("type", "requests")]
-        )
-        .set(self.requests.balance() as f64);
-    }
-
-    pub fn needs_update(&self, new_limits: &ApiLimits) -> bool {
-        self.definition != *new_limits
-    }
-
-    pub async fn update(&mut self, new_limits: ApiLimits) {
-        let to_consume_tokens = self
-            .definition
-            .tokens_per_minute
-            .saturating_sub(self.tokens.balance());
-        let to_consume_requests = self
-            .definition
-            .requests_per_minute
-            .saturating_sub(self.requests.balance());
-
-        *self = new_limits.into();
-
-        self.acquire(to_consume_tokens, to_consume_requests).await;
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test(start_paused = true)]
-    async fn drained_rate_limiter_refills_within_one_interval() {
-        // 600/min => 1 token dripped every 100ms.
-        let limiter = build_rate_limiter(600);
-
-        // Drain the full initial balance, then acquire one more token. With the old
-        // 60s-lump refill this acquire blocks until the minute boundary; with the
-        // sub-second drip it must be satisfied within roughly one interval. Paused
-        // time auto-advances to the next timer, so the 1s ceiling fails fast if the
-        // refill cadence ever regresses to ~60s.
-        limiter.acquire(600).await;
-
-        tokio::time::timeout(Duration::from_secs(1), limiter.acquire(1))
-            .await
-            .expect("drained limiter should refill within ~100ms, well under 60s");
     }
 }
