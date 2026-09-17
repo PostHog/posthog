@@ -1709,10 +1709,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         # iteration columns while the edit form reads `schedule`, so a survey holding both a
         # non-recurring schedule and iteration state repeats while presenting itself as one-shot.
         schedule = validated_data.get("schedule")
-        if schedule in (Survey.Schedule.ONCE, Survey.Schedule.ALWAYS):
-            validated_data["iteration_count"] = None
-            validated_data["iteration_frequency_days"] = None
-        elif (
+        if (
             schedule is None
             and validated_data.get("iteration_count")
             and validated_data.get("iteration_frequency_days")
@@ -1721,6 +1718,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             # partial updates rely on that, so read them as asking for a recurring schedule
             # rather than dropping the caller's values.
             validated_data["schedule"] = Survey.Schedule.RECURRING
+        elif "schedule" in validated_data and schedule != Survey.Schedule.RECURRING:
+            # Every schedule the API accepts other than `recurring` is non-recurring, an explicit
+            # null included: the field is nullable and the edit form reads a null as "Once".
+            validated_data["iteration_count"] = None
+            validated_data["iteration_frequency_days"] = None
 
     def create(self, validated_data):
         if "remove_targeting_flag" in validated_data:
