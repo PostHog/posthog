@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -40,7 +41,7 @@ import type { PaginatedResponse } from '../../../../../../lib/api'
 import type { FeatureFlagsSet } from '../../../../../../lib/logic/featureFlagLogic'
 import type { ProductIntentProperties } from '../../../../../../lib/utils/product-intents'
 import { defaultConversionGoalFilter } from '../components/settings/constants'
-import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
+import { SetupEntryPoint, marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 import { externalAdsCostTile } from './marketingCostTile'
 import {
     MarketingDashboardMapper,
@@ -245,6 +246,7 @@ export interface marketingAnalyticsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     conversion_goals: ConversionGoalFilter[] // marketingAnalyticsSettingsLogic
     filter_test_accounts: boolean // marketingAnalyticsSettingsLogic
+    setupEntryPoint: SetupEntryPoint | null // marketingAnalyticsSettingsLogic
     sources_map: Record<string, SourceMap> // marketingAnalyticsSettingsLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourceManagementLogic
     dataWarehouseSourcesLoading: boolean // sourceManagementLogic
@@ -405,6 +407,16 @@ export interface marketingAnalyticsLogicActions {
     setActiveTab: (tab: MarketingAnalyticsTab) => {
         tab: MarketingAnalyticsTab
     }
+    openSetup: (
+        section: SetupSection,
+        entryPoint: SetupEntryPoint
+    ) => {
+        section: SetupSection
+        entryPoint: SetupEntryPoint
+    }
+    setSetupEntryPoint: (entryPoint: SetupEntryPoint | null) => {
+        entryPoint: SetupEntryPoint | null
+    } // marketingAnalyticsSettingsLogic
     setAdPerformanceConversionGoals: (include: boolean) => {
         include: boolean
     }
@@ -624,7 +636,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             teamLogic,
             ['baseCurrency'],
             marketingAnalyticsSettingsLogic,
-            ['sources_map', 'conversion_goals', 'filter_test_accounts'],
+            ['sources_map', 'conversion_goals', 'filter_test_accounts', 'setupEntryPoint'],
             sourceManagementLogic,
             ['dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
             featureFlagLogic,
@@ -636,7 +648,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             dataNodeCollectionLogic({ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }),
             ['reloadAll'],
             marketingAnalyticsSettingsLogic,
-            ['addOrUpdateConversionGoal', 'updateFilterTestAccounts'],
+            ['addOrUpdateConversionGoal', 'updateFilterTestAccounts', 'setSetupEntryPoint'],
             teamLogic,
             ['addProductIntent'],
         ],
@@ -645,6 +657,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         setAdPerformanceConversionGoals: (include: boolean) => ({ include }),
         setActiveTab: (tab: MarketingAnalyticsTab) => ({ tab }),
         setSetupSection: (section: SetupSection) => ({ section }),
+        openSetup: (section: SetupSection, entryPoint: SetupEntryPoint) => ({ section, entryPoint }),
 
         // Low-level state setters (used by listeners)
         setDraftConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
@@ -1412,6 +1425,17 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         }
 
         return {
+            openSetup: ({ section, entryPoint }) => {
+                actions.setSetupEntryPoint(entryPoint)
+                posthog.capture('marketing analytics dashboard setup opened', { entry_point: entryPoint, section })
+                actions.setSetupSection(section)
+                actions.setActiveTab(MarketingAnalyticsTab.SETUP)
+            },
+            setActiveTab: ({ tab }) => {
+                if (tab !== MarketingAnalyticsTab.SETUP && values.setupEntryPoint) {
+                    actions.setSetupEntryPoint(null)
+                }
+            },
             // Track dashboard interactions for filters and chart controls
             setDates: trackDashboardInteraction,
             setDateInterval: trackDashboardInteraction,
