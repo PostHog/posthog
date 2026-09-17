@@ -9,12 +9,16 @@ for teams that haven't been organically re-synced. This command warms it from th
 persisted RemoteConfig.config column without calling build_config(), avoiding the
 expense and side effects of a full rebuild across tens of thousands of teams.
 
-Writes go through `HyperCache.set_cache_value_redis_only` with `track_expiry=True`,
-which writes to Redis (plus the secondary mirror) and seeds the
-`remote_config_cache_expiry` sorted set, but skips S3 — S3 already holds fresh data
-via the normal sync() path, and the goal here is to populate the Redis tier the Rust
+By default writes go through `HyperCache.set_cache_value_redis_only` with
+`track_expiry=True`, which writes to Redis (plus the secondary mirror) and seeds the
+`remote_config_cache_expiry` sorted set, but skips S3 — S3 usually already holds fresh
+data via the normal sync() path, and the goal here is to populate the Redis tier the Rust
 service reads first. A per-row S3 PUT would turn a fast Redis backfill into hours of
 synchronous boto3 round-trips for tens of thousands of teams.
+
+Pass `--include-object-storage` for the teams where S3 does not hold the data either,
+which is what a project API token reset used to leave behind: the entry was re-keyed to
+the new token in Redis only, so the durable tier had nothing under that key.
 
 Race note: this reads `RemoteConfig.config` via a cursored snapshot and writes
 it to Redis. If an organic `sync()` for the same team writes a newer config to
@@ -35,6 +39,10 @@ Usage:
 
     # Tune batch size
     python manage.py warm_remote_configs_cache --batch-size 500
+
+    # Also write the object-storage copy, for teams whose durable tier is missing
+    # (e.g. after a project API token reset re-keyed the entry without an S3 write)
+    python manage.py warm_remote_configs_cache --team-ids 12345 --include-object-storage
 """
 
 import time
@@ -68,6 +76,15 @@ class Command(BaseCommand):
             help="Number of rows fetched per DB batch. Default 1000.",
         )
         parser.add_argument(
+            "--include-object-storage",
+            action="store_true",
+            help=(
+                "Write the object-storage copy as well as Redis. Needed when the durable tier "
+                "is missing, not just cold. One synchronous PUT per row, so pair it with "
+                "--team-ids rather than running it fleet-wide."
+            ),
+        )
+        parser.add_argument(
             "--dry-run",
             action="store_true",
             help="Count eligible rows without writing to the cache.",
@@ -77,6 +94,7 @@ class Command(BaseCommand):
         team_ids: list[int] | None = options["team_ids"]
         batch_size: int = options["batch_size"]
         dry_run: bool = options["dry_run"]
+        include_object_storage: bool = options["include_object_storage"]
 
         if batch_size <= 0 or batch_size > 10_000:
             raise CommandError("--batch-size must be between 1 and 10000")
@@ -104,7 +122,11 @@ class Command(BaseCommand):
             queryset = queryset.filter(team_id__in=team_ids)
 
         total = queryset.count()
-        self.stdout.write(f"Backfilling {total} RemoteConfig row(s){' (dry run)' if dry_run else ''}")
+        self.stdout.write(
+            f"Backfilling {total} RemoteConfig row(s) to "
+            f"{'Redis + object storage' if include_object_storage else 'Redis'}"
+            f"{' (dry run)' if dry_run else ''}"
+        )
 
         warmed = 0
         failed = 0
@@ -119,8 +141,11 @@ class Command(BaseCommand):
                 continue
 
             try:
-                # Pass the Team (not the token) so track_expiry stamps the expiry sorted set.
-                hypercache.set_cache_value_redis_only(team, remote_config.config, track_expiry=True)
+                # Pass the Team (not the token) so expiry tracking stamps the sorted set.
+                if include_object_storage:
+                    hypercache.set_cache_value(team, remote_config.config)
+                else:
+                    hypercache.set_cache_value_redis_only(team, remote_config.config, track_expiry=True)
                 warmed += 1
             except Exception:
                 failed += 1

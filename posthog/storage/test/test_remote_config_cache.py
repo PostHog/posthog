@@ -6,7 +6,9 @@ from posthog.storage.cache_expiry_manager import CacheRefreshCounts
 from posthog.storage.remote_config_cache import (
     cleanup_stale_expiry_tracking,
     refresh_expiring_caches,
+    remote_config_hypercache,
     update_remote_config_cache,
+    verify_team_remote_config,
 )
 
 
@@ -112,3 +114,43 @@ class TestCleanupStaleRemoteConfigExpiryTracking(BaseTest):
 
         assert removed == 1
         mock_redis.zrem.assert_called_once_with("remote_config_cache_expiry", "phc_does_not_exist")
+
+
+class TestVerifyTeamRemoteConfig(BaseTest):
+    def setUp(self):
+        super().setUp()
+        RemoteConfig.objects.filter(team=self.team).delete()
+        self.config = {"token": self.team.api_token, "sessionRecording": {"endpoint": "/s/"}}
+        self.remote_config = RemoteConfig.objects.create(team=self.team, config=self.config)
+
+    def test_reports_a_miss_when_the_cache_entry_is_gone(self):
+        # The reported failure: the entry is absent while a synced config exists, so the
+        # CDN reader 404s and session replay, surveys and heatmaps go dark for the team.
+        remote_config_hypercache.clear_cache(self.team.api_token)
+
+        result = verify_team_remote_config(self.team)
+
+        assert result["status"] == "miss"
+        assert result["db_data"] == self.config
+
+    def test_reports_a_match_when_the_cache_holds_the_synced_config(self):
+        remote_config_hypercache.set_cache_value(self.team, self.config)
+
+        assert verify_team_remote_config(self.team)["status"] == "match"
+
+    def test_reports_a_mismatch_with_the_differing_keys(self):
+        remote_config_hypercache.set_cache_value(self.team, {**self.config, "surveys": True})
+
+        result = verify_team_remote_config(self.team)
+
+        assert result["status"] == "mismatch"
+        assert result["diff_fields"] == ["surveys"]
+        assert result["db_data"] == self.config
+
+    def test_reports_a_match_when_nothing_has_been_synced_yet(self):
+        # A team with no synced config has no authoritative value to compare against;
+        # reporting it would bury the real misses.
+        self.remote_config.delete()
+        remote_config_hypercache.clear_cache(self.team.api_token)
+
+        assert verify_team_remote_config(self.team)["status"] == "match"

@@ -19,7 +19,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.js_snippet_versioning import DEFAULT_SNIPPET_VERSION
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.js_snippet_config import TeamJsSnippetConfig
-from posthog.models.team.team import Team
+from posthog.models.team.team import REMOTE_CONFIG_PREVIOUS_TOKEN_ATTR, Team
 from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
@@ -85,12 +85,24 @@ class RemoteConfig(UUIDTModel):
             except (Team.DoesNotExist, RemoteConfig.DoesNotExist):
                 return HyperCacheStoreMissing()
 
+        def batch_load_configs(teams: list[Team]) -> dict[int, dict]:
+            # The last synced blob, not build_config(): a fleet-wide sweep only needs to
+            # know the cache still serves what the last sync produced, and rebuilding per
+            # team would be both expensive and side-effecting. Empty rows are dropped so
+            # a caller never writes an empty config over a good entry.
+            return {
+                team_id: config
+                for team_id, config in RemoteConfig.objects.filter(team__in=teams).values_list("team_id", "config")
+                if config
+            }
+
         has_dedicated_cache = FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES
         return HyperCache(
             namespace="array",
             value="config.json",
             token_based=True,  # We store and load via the team token
             load_fn=load_config,
+            batch_load_fn=batch_load_configs,
             cache_ttl=REMOTE_CONFIG_CACHE_TTL,
             cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if has_dedicated_cache else None,
             # Mirror to the shared Redis so the hypercache-server doesn't fall
@@ -450,7 +462,28 @@ class RemoteConfig(UUIDTModel):
             CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="failure").inc()
             raise
 
-    def _purge_cdn(self):
+    def sync_after_token_change(self, old_token: str) -> None:
+        """
+        Re-sync every tier after the team's project API token changed.
+
+        The cache entry is keyed by the token, but the payload holds no token, so a
+        token change leaves the rebuilt config identical and sync() takes the
+        unchanged fast path, which writes Redis only. The new token would then have
+        no object-storage copy to fall back on, and the old token would keep serving
+        until its own entries expire.
+        """
+        try:
+            RemoteConfig.get_hypercache().delete_cache_entry(old_token)
+        except Exception as e:
+            # A failed eviction leaves the revoked token serving, but the new token
+            # still needs its durable copy, so carry on to the forced sync.
+            logger.exception(f"Failed to evict old token cache entry for team {self.team_id}")
+            capture_exception(e)
+
+        self._purge_cdn(token=old_token)
+        self.sync(force=True)
+
+    def _purge_cdn(self, token: str | None = None):
         if (
             not settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT
             or not settings.REMOTE_CONFIG_CDN_PURGE_TOKEN
@@ -458,13 +491,14 @@ class RemoteConfig(UUIDTModel):
         ):
             return
 
+        token = token or self.team.api_token
         data: dict[str, Any] = {"files": []}
 
         for domain in settings.REMOTE_CONFIG_CDN_PURGE_DOMAINS:
             # Check if the domain starts with https:// and if not add it
             full_domain = domain if domain.startswith("https://") else f"https://{domain}"
-            data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config"})
-            data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config.js"})
+            data["files"].append({"url": f"{full_domain}/array/{token}/config"})
+            data["files"].append({"url": f"{full_domain}/array/{token}/config.js"})
 
         logger.info(f"Purging CDN for team {self.team_id}", {"data": data})
 
@@ -518,9 +552,21 @@ def _update_team_remote_config(team_id: int):
     update_team_remote_config.delay(team_id)
 
 
+def _sync_team_remote_config_after_token_change(team_id: int, old_token: str):
+    from posthog.tasks.remote_config import sync_team_remote_config_after_token_change
+
+    sync_team_remote_config_after_token_change.delay(team_id, old_token)
+
+
 @receiver(post_save, sender=Team)
 def team_saved(sender, instance: "Team", created, **kwargs):
-    transaction.on_commit(lambda: _update_team_remote_config(instance.id))
+    # A token change needs the token-aware sync, and only one of the two: both rebuild the
+    # config, so dispatching each would run build_config() twice for the same save.
+    old_token = instance.__dict__.pop(REMOTE_CONFIG_PREVIOUS_TOKEN_ATTR, None)
+    if old_token:
+        transaction.on_commit(lambda: _sync_team_remote_config_after_token_change(instance.id, old_token))
+    else:
+        transaction.on_commit(lambda: _update_team_remote_config(instance.id))
 
 
 @receiver(post_save, sender=FeatureFlag)

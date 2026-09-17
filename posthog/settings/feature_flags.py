@@ -132,6 +132,12 @@ TEAM_METADATA_CACHE_VERIFICATION_CHUNK_SIZE: int = get_from_env(
     "TEAM_METADATA_CACHE_VERIFICATION_CHUNK_SIZE", 1000, type_cast=int
 )
 
+# Batch size for array/config.json cache verification. Each batch holds one config
+# blob per team, which is larger than team metadata but smaller than flags data.
+REMOTE_CONFIG_CACHE_VERIFICATION_CHUNK_SIZE: int = get_from_env(
+    "REMOTE_CONFIG_CACHE_VERIFICATION_CHUNK_SIZE", 500, type_cast=int
+)
+
 # Grace period in minutes for skipping team metadata cache fixes during verification.
 # If a team was updated within this window, the verification task will skip
 # "fixing" it to avoid race conditions with async cache update tasks.

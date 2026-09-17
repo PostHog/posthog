@@ -666,6 +666,55 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
             )
 
 
+class TestRemoteConfigTokenChange(_RemoteConfigBase):
+    def test_token_change_writes_the_new_token_to_every_tier(self):
+        # The config holds no api_token, so a reset leaves it identical and plain sync()
+        # takes the unchanged fast path, which writes Redis only. The new token would
+        # then have no object-storage copy and reads would 404 once Redis lapsed.
+        hypercache = RemoteConfig.get_hypercache()
+        old_token = self.team.api_token
+        self.team.api_token = "phc_new_token"
+        self.team.save()
+
+        with patch("posthog.storage.object_storage.write") as mock_s3_write:
+            self.remote_config.sync_after_token_change(old_token)
+
+        assert hypercache.get_from_cache("phc_new_token") is not None
+        written_keys = [call.args[0] for call in mock_s3_write.call_args_list]
+        assert hypercache.get_cache_key("phc_new_token") in written_keys
+
+    def test_token_change_drops_the_old_token_entry(self):
+        hypercache = RemoteConfig.get_hypercache()
+        old_token = self.team.api_token
+        hypercache.set_cache_value_redis_only(old_token, self.remote_config.config)
+        self.team.api_token = "phc_new_token"
+        self.team.save()
+
+        with patch("posthog.storage.object_storage.delete") as mock_s3_delete:
+            self.remote_config.sync_after_token_change(old_token)
+
+        # A revoked token that keeps serving 200 is how the reset looks like it worked.
+        assert hypercache.get_from_cache_with_source(old_token)[1] != "redis"
+        mock_s3_delete.assert_called_once_with(hypercache.get_cache_key(old_token))
+
+    @patch("posthog.models.remote_config.requests.post")
+    def test_token_change_purges_both_tokens_from_the_cdn(self, mock_post):
+        old_token = self.team.api_token
+        self.team.api_token = "phc_new_token"
+        self.team.save()
+
+        with self.settings(
+            REMOTE_CONFIG_CDN_PURGE_ENDPOINT="https://api.cloudflare.com/client/v4/zones/MY_ZONE_ID/purge_cache",
+            REMOTE_CONFIG_CDN_PURGE_TOKEN="MY_TOKEN",
+            REMOTE_CONFIG_CDN_PURGE_DOMAINS=["cdn.posthog.com"],
+        ):
+            self.remote_config.sync_after_token_change(old_token)
+
+        purged = [file["url"] for call in mock_post.call_args_list for file in call.kwargs["json"]["files"]]
+        assert f"https://cdn.posthog.com/array/{old_token}/config" in purged
+        assert "https://cdn.posthog.com/array/phc_new_token/config" in purged
+
+
 class TestRemoteConfigRaceCondition(_RemoteConfigBase):
     """Test for the race condition where post_save signal fires before transaction commits."""
 

@@ -22,6 +22,7 @@ from posthog.tasks.gateway_credential import drain_gateway_credential_last_used_
 from posthog.tasks.hypercache_verification import (
     verify_and_fix_flag_definitions_cache_task,
     verify_and_fix_flags_cache_task,
+    verify_and_fix_remote_config_cache_task,
     verify_and_fix_team_metadata_cache_task,
 )
 from posthog.tasks.integrations import refresh_integrations
@@ -543,6 +544,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="20"),
         verify_and_fix_team_metadata_cache_task.s(),
         name="verify and fix team metadata cache",
+        expires_seconds=60 * 60,
+    )
+
+    # Remote config (array/config.json) cache verification - hourly at minute 10
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="*", minute="10"),
+        verify_and_fix_remote_config_cache_task.s(),
+        name="verify and fix remote config cache",
         expires_seconds=60 * 60,
     )
 
