@@ -163,6 +163,14 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         )
 
 
+def _source_url(team_id: int, subject_type: str, subject_name: str) -> str:
+    if subject_type == SubjectType.METRIC:
+        return f"/project/{team_id}/data-catalog/metrics/{quote(subject_name, safe='')}?tab=tests"
+    if subject_type == SubjectType.POSTHOG_TABLE:
+        return f"/project/{team_id}/models?tab=data-quality"
+    return ""
+
+
 def notify_check_started_failing(
     check: DataQualityCheck,
     failed_row_count: int | None,
@@ -180,7 +188,8 @@ def notify_check_started_failing(
         if not subject.exists:
             return 0
         is_metric = check.subject_type == SubjectType.METRIC
-        subject_name = subject.name if is_metric else check.subject_name
+        is_posthog_table = check.subject_type == SubjectType.POSTHOG_TABLE
+        subject_name = subject.name if is_metric or is_posthog_table else check.subject_name
         event = create_notification(
             NotificationData(
                 team_id=check.team_id,
@@ -195,9 +204,7 @@ def notify_check_started_failing(
                 # members with object-level access to it, plus query access for the count.
                 resource_type="data_catalog" if is_metric else "warehouse_objects",
                 resource_id=str(check.subject_uuid),
-                source_url=f"/project/{team.id}/data-catalog/metrics/{quote(subject_name, safe='')}?tab=tests"
-                if is_metric
-                else "",
+                source_url=_source_url(team.id, check.subject_type, subject_name),
                 idempotency_key=idempotency_key,
                 resolver=_WarehouseSubjectResolver(
                     team,

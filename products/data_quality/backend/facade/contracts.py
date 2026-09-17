@@ -56,6 +56,7 @@ class RunCheckSuiteInputs:
     saved_query_ids: list[str] = field(default_factory=list)
     table_ids: list[str] = field(default_factory=list)
     metric_ids: list[str] = field(default_factory=list)
+    posthog_table_ids: list[str] = field(default_factory=list)
     check_ids: list[str] = field(default_factory=list)
     node_ids: list[str] = field(default_factory=list)
     suite_run_id: str | None = None

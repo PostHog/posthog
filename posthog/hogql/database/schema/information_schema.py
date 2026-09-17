@@ -1977,7 +1977,9 @@ class InformationSchemaDataQualityChecksTable(LazyTable):
         "id": _string_field("id", description="Stable UUID of the check (pass to the run/update/delete tools)."),
         "name": _string_field("name", nullable=True, description="Optional handle; NULL when addressed by id."),
         "subject_type": _string_field(
-            "subject_type", description="'table' (synced source), 'view' (saved query), or 'metric' (catalog metric)."
+            "subject_type",
+            description="'table' (synced source), 'view' (saved query), 'metric' (catalog metric), "
+            "or 'posthog_table' (events, persons, groups).",
         ),
         "subject_uuid": _string_field(
             "subject_uuid",
@@ -2041,7 +2043,9 @@ class InformationSchemaDataQualityCheckRunsTable(LazyTable):
         ),
         "suite_run_id": _string_field("suite_run_id", description="UUID of the batch this execution belonged to."),
         "subject_type": _string_field(
-            "subject_type", description="'table' (synced source), 'view' (saved query), or 'metric' (catalog metric)."
+            "subject_type",
+            description="'table' (synced source), 'view' (saved query), 'metric' (catalog metric), "
+            "or 'posthog_table' (events, persons, groups).",
         ),
         "subject_uuid": _string_field("subject_uuid", description="UUID of the checked table, view, or metric."),
         "subject_name": _string_field("subject_name", description="Name of the subject at the time of the run."),
@@ -2092,12 +2096,15 @@ class InformationSchemaDataQualityHealthTable(LazyTable):
     )
     fields: dict[str, FieldOrTable] = {
         "subject_type": _string_field(
-            "subject_type", description="'table' (synced source), 'view' (saved query), or 'metric' (catalog metric)."
+            "subject_type",
+            description="'table' (synced source), 'view' (saved query), 'metric' (catalog metric), "
+            "or 'posthog_table' (events, persons, groups).",
         ),
         "subject_uuid": _string_field("subject_uuid", description="UUID of the table, view, or metric."),
         "subject_name": _string_field(
             "subject_name",
-            description="Name of the table, view, or metric. Only table and view names are queryable in HogQL.",
+            description="Name of the table, view, metric, or PostHog table. "
+            "Table, view and PostHog table names are queryable in HogQL; a metric name is not.",
         ),
         "health": _string_field(
             "health", description="'failing', 'erroring', 'warn', 'healthy', or 'unknown'. Worst outcome wins."

@@ -42,12 +42,12 @@ export const DataQualityChecksCreateBody = () => zod
             .describe('Optional identifier-safe handle, unique per project. Omit to address the check by id.'),
         description: zod.string().optional().describe('Why this check exists and what a failure means.'),
         subject_type: zod
-            .enum(['table', 'view', 'metric'])
-            .describe('\* `table` - table\n\* `view` - view\n\* `metric` - metric')
+            .enum(['table', 'view', 'metric', 'posthog_table'])
+            .describe('\* `table` - table\n\* `view` - view\n\* `metric` - metric\n\* `posthog_table` - posthog_table')
             .describe(
-                "Kind of catalog object to check: 'table', 'view', or 'metric'.\n\n\* `table` - table\n\* `view` - view\n\* `metric` - metric"
+                "Kind of object to check: 'table', 'view', 'metric', or 'posthog_table'.\n\n\* `table` - table\n\* `view` - view\n\* `metric` - metric\n\* `posthog_table` - posthog_table"
             ),
-        subject_uuid: zod.string().describe('Id of the table, view, or metric to check.'),
+        subject_uuid: zod.string().describe('Id of the table, view, metric, or PostHog table to check.'),
         column_name: zod
             .string()
             .max(dataQualityChecksCreateBodyColumnNameMax)
@@ -233,7 +233,7 @@ export const DataQualityChecksCheckTypesListParams = () => zod.object({
 
 export const DataQualityChecksCheckTypesListQueryParams = () => zod.object({
     subject_type: zod
-        .enum(['metric', 'table', 'view'])
+        .enum(['metric', 'posthog_table', 'table', 'view'])
         .optional()
         .describe("Kind of catalog object: 'table', 'view', or 'metric'."),
 })
@@ -252,13 +252,13 @@ export const DataQualityChecksSchedulePartialUpdateParams = () => zod.object({
 export const DataQualityChecksSchedulePartialUpdateBody = () => zod
     .object({
         subject_type: zod
-            .enum(['table', 'view', 'metric'])
-            .describe('\* `table` - table\n\* `view` - view\n\* `metric` - metric')
+            .enum(['table', 'view', 'metric', 'posthog_table'])
+            .describe('\* `table` - table\n\* `view` - view\n\* `metric` - metric\n\* `posthog_table` - posthog_table')
             .optional()
             .describe(
-                "Kind of catalog object: 'table', 'view', or 'metric'.\n\n\* `table` - table\n\* `view` - view\n\* `metric` - metric"
+                "Kind of object: 'table', 'view', 'metric', or 'posthog_table'.\n\n\* `table` - table\n\* `view` - view\n\* `metric` - metric\n\* `posthog_table` - posthog_table"
             ),
-        subject_uuid: zod.string().optional().describe('Id of the table, view, or metric.'),
+        subject_uuid: zod.string().optional().describe('Id of the table, view, metric, or PostHog table.'),
         interval: zod
             .enum(['1hour', '6hour', '12hour', '24hour', '7day'])
             .describe(
