@@ -730,5 +730,29 @@ describe("OtelRunTelemetry", () => {
         tool_status: "unterminated",
       });
     });
+
+    it("settles a tool call that arrives already terminal", async () => {
+      telemetry.append(RUN_ID, makeEntry("session/prompt", {}));
+      // A memory recall emits one tool_call and never updates it again.
+      telemetry.append(
+        RUN_ID,
+        sessionUpdate({
+          sessionUpdate: "tool_call",
+          toolCallId: "t1",
+          kind: "read",
+          status: "completed",
+        }),
+      );
+      telemetry.append(
+        RUN_ID,
+        makeEntry("_posthog/turn_complete", { stopReason: "end_turn" }),
+      );
+
+      await telemetry.shutdown();
+
+      const tool = spanByName("tool_call:read");
+      expect(tool.status.code).toBe(SpanStatusCode.OK);
+      expect(tool.attributes).toMatchObject({ tool_status: "completed" });
+    });
   });
 });
