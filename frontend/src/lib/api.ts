@@ -7573,8 +7573,12 @@ async function handleFetch(
         }
         // The caught value is the failure, not its message: passing it as `message` stringifies an
         // object to "[object Object]" and leaves `detail`, `code` and `data` empty, so neither the
-        // user nor support can read what went wrong.
-        throw new ApiError(readableErrorMessage(error), response?.status, response?.headers, error)
+        // user nor support can read what went wrong. `cause` carries the original stack, which is the
+        // only frame naming where in the request path the fault came from - every `ApiError` shares
+        // this one.
+        const failure = new ApiError(readableErrorMessage(error), response?.status, response?.headers, error)
+        failure.cause = error
+        throw failure
     }
 
     // Standalone OAuth mode: a 401 likely means the access token expired — refresh once and retry.

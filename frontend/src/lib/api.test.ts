@@ -498,6 +498,18 @@ describe('API helper', () => {
             expect(error.code).toBe('permission_denied')
             expect(error.data).toBe(thrown)
         })
+
+        it('keeps the original stack as the cause', async () => {
+            // Every ApiError is built in one file, so they share its stack. posthog-js walks `cause`
+            // and reports the chained frames; it never reads `data`, so only this keeps a reported
+            // request-path fault locatable.
+            const thrown = new Error('the fetcher itself broke')
+            fakeFetch.mockRejectedValue(thrown)
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error.cause).toBe(thrown)
+        })
     })
 
     describe('uploads reporting progress', () => {
