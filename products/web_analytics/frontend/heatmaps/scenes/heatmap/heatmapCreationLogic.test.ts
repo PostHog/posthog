@@ -85,6 +85,32 @@ describe('heatmapCreationLogic', () => {
         expect(logic.values.pageStepBlockReason).toBeNull()
     })
 
+    // A trailing slash does not make it another page: the readiness query and the redirect notice
+    // both ignore one, so the probe behind the notice has to run here too.
+    it('probes for a redirect when the data URL differs from the page URL by a trailing slash', async () => {
+        const logic = heatmapCreationLogic
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setDisplayUrl('https://example.com/pricing')
+        logic.actions.setDataUrl('https://example.com/pricing/')
+
+        await expectLogic(logic, () => {
+            logic.actions.requestPageDataCheck('manual')
+        }).toDispatchActions(['checkPageDataSuccess', 'checkPagePreflight'])
+
+        logic.actions.checkPagePreflightSuccess({
+            url: 'https://example.com/pricing',
+            framing: 'allowed',
+            blocked_by: null,
+            http_status: 200,
+            body_excerpt: null,
+            resolved_url: 'https://example.com/app/pricing',
+        })
+
+        expect(logic.values.redirectDestination).toBe('https://example.com/app/pricing')
+    })
+
     it('keeps a selected recording background in the wizard through the interactive heatmap', async () => {
         const logic = heatmapCreationLogic
         logic.mount()

@@ -101,6 +101,13 @@ export function preflightBannerMessage(preflight: PagePreflight | null): string 
 const withoutTrailingSlash = (url: string): string => url.trim().replace(/\/+$/, '')
 
 /**
+ * Whether two URLs name the same page. Surrounding whitespace and a trailing slash do not count,
+ * which is how the heatmap queries compare a URL too.
+ */
+export const isSameHeatmapUrl = (a: string | null, b: string | null): boolean =>
+    !!a && !!b && withoutTrailingSlash(a) === withoutTrailingSlash(b)
+
+/**
  * The page the heatmap data URL redirects to, or null when it does not redirect.
  *
  * Heatmap rows are keyed by the URL the SDK reported, so an entry URL that redirects holds none of
@@ -110,12 +117,11 @@ export function heatmapUrlRedirect(preflight: PagePreflight | null, dataUrl: str
     if (!preflight?.resolved_url || !dataUrl || isUrlPattern(dataUrl)) {
         return null
     }
-    const probed = withoutTrailingSlash(preflight.url)
     // A verdict for some other page says nothing about where this one's interactions are.
-    if (probed !== withoutTrailingSlash(dataUrl)) {
+    if (!isSameHeatmapUrl(preflight.url, dataUrl)) {
         return null
     }
-    return withoutTrailingSlash(preflight.resolved_url) === probed ? null : preflight.resolved_url
+    return isSameHeatmapUrl(preflight.resolved_url, preflight.url) ? null : preflight.resolved_url
 }
 
 export const redirectEmptyStateMessage = (destination: string): string =>

@@ -35,7 +35,12 @@ import type { TeamPublicType, TeamType } from '~/types'
 
 import { savedPrewarmCreate } from 'products/web_analytics/frontend/generated/api'
 
-import { heatmapUrlRedirect, heatmapsBrowserLogic, isUrlPattern } from '../../components/heatmapsBrowserLogic'
+import {
+    heatmapUrlRedirect,
+    heatmapsBrowserLogic,
+    isSameHeatmapUrl,
+    isUrlPattern,
+} from '../../components/heatmapsBrowserLogic'
 import type { PagePreflight } from '../../components/heatmapsBrowserLogic'
 import { ReplayIframeData, getStoredRecordingBackground } from '../../replayIframeData'
 import { HeatmapCreationContext, heatmapLogic } from './heatmapLogic'
@@ -722,7 +727,7 @@ export const heatmapCreationLogic = kea<heatmapCreationLogicType>([
                 })
                 // A redirect is the likeliest reason a page with traffic holds no interactions, and
                 // probing costs an outbound request, so only ask once the check has come back empty.
-                if (pageDataCheck.outcome === 'none' && pageDataCheck.url === values.displayUrl) {
+                if (pageDataCheck.outcome === 'none' && isSameHeatmapUrl(pageDataCheck.url, values.displayUrl)) {
                     actions.checkPagePreflight(values.displayUrl)
                 }
             },
