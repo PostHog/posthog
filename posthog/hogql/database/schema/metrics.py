@@ -1,3 +1,6 @@
+from posthog.hogql.ast import SelectQuery
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.lazy_join_tags import METRICS_TO_METRIC_SERIES
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DANGEROUS_NoTeamIdCheckTable,
@@ -5,11 +8,14 @@ from posthog.hogql.database.models import (
     FieldOrTable,
     FloatDatabaseField,
     IntegerDatabaseField,
+    LazyJoin,
+    LazyJoinToAdd,
     MapStringDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
 )
+from posthog.hogql.errors import ResolutionError
 
 from posthog.clickhouse.workload import Workload
 
@@ -96,6 +102,13 @@ class MetricsTable(Table):
             name="has_labels",
             nullable=False,
             description="True when the ingested record carried the series labels; only such records write `metric_series` and `metric_attributes` rows.",
+        ),
+        # Lazy join that adds the series labels (attributes, resource_attributes) by joining
+        # metric_series on series_fingerprint. Access labels via `series.attributes.*`.
+        "series": LazyJoin(
+            from_field=["series_fingerprint"],
+            join_table="posthog.metric_series",
+            resolver=METRICS_TO_METRIC_SERIES,
         ),
     }
 
@@ -196,6 +209,52 @@ class MetricAttributesTable(Table):
 
     def to_printed_hogql(self):
         return "metric_attributes"
+
+
+def join_metrics_with_metric_series_table(
+    join_to_add: LazyJoinToAdd,
+    context: HogQLContext,
+    node: SelectQuery,
+):
+    from posthog.hogql import ast
+
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from metric_series")
+
+    # metric_series is a ReplacingMergeTree keyed on (team_id, metric_name, series_fingerprint) with
+    # duplicate rows per series (replaced by last_seen). Deduplicate to one row per fingerprint so the
+    # join can't fan out the metrics rows, then join on the fingerprint. team_id is added by HogQL's
+    # automatic team scoping on the subquery.
+    inner_select = ast.SelectQuery(
+        select=[
+            ast.Alias(alias="series_fingerprint", expr=ast.Field(chain=["series_fingerprint"])),
+        ],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "metric_series"])),
+        group_by=[ast.Field(chain=["series_fingerprint"])],
+    )
+    for field_name, field_chain in join_to_add.fields_accessed.items():
+        # series_fingerprint is already selected as the join key.
+        if field_name == "series_fingerprint":
+            continue
+        inner_select.select.append(
+            ast.Alias(
+                alias=field_name,
+                expr=ast.Call(name="any", args=[ast.Field(chain=list(field_chain))]),
+            )
+        )
+
+    join_expr = ast.JoinExpr(table=inner_select)
+    join_expr.join_type = "LEFT JOIN"
+    join_expr.alias = join_to_add.to_table
+    join_expr.constraint = ast.JoinConstraint(
+        expr=ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=[join_to_add.from_table, "series_fingerprint"]),
+            right=ast.Field(chain=[join_to_add.to_table, "series_fingerprint"]),
+        ),
+        constraint_type="ON",
+    )
+    return join_expr
 
 
 class MetricsKafkaMetricsTable(DANGEROUS_NoTeamIdCheckTable):
