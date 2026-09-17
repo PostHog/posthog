@@ -19,6 +19,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
+import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -50,7 +51,6 @@ import { urlForSubscriptions } from 'products/subscriptions/frontend/components/
 
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
-import { DashboardMenuBarTags } from './DashboardMenuBarTags'
 import { dashboardTemplateModalLogic } from './dashboards/templates/dashboardTemplateModalLogic'
 
 const RESOURCE_TYPE = 'dashboard'
@@ -332,11 +332,12 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                     contentClassName="w-80 p-2 flex flex-col gap-2"
                 >
                     <>
-                        <DashboardMenuBarTags
+                        <SceneTagsCombobox
                             onSave={(t) => updateDashboardTags(t)}
                             canEdit={canEditDashboard}
                             tags={dashboard?.tags}
                             loading={isSavingTags}
+                            dataAttrKey={RESOURCE_TYPE}
                         />
                         <SceneActivityIndicator
                             at={dashboard?.created_at}

@@ -25,6 +25,7 @@ import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
 import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { SceneMenuBarAddToNotebook } from 'lib/components/Scenes/SceneMenuBarAddToNotebook'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
+import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -73,7 +74,6 @@ import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
 import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
 import { insightModalsLogic } from '../insightModalsLogic'
-import { InsightMenuBarTags } from './InsightMenuBarTags'
 import { openSaveAsCohortDialog } from './insightSidePanelDialogs'
 
 const RESOURCE_TYPE = 'insight'
@@ -432,11 +432,12 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                     contentClassName="w-80 p-2 flex flex-col gap-2"
                 >
                     <>
-                        <InsightMenuBarTags
+                        <SceneTagsCombobox
                             onSave={(tags) => setInsightMetadata({ tags })}
                             tags={insight.tags}
                             canEdit={canEditInsight}
                             loading={isSavingTags}
+                            dataAttrKey={RESOURCE_TYPE}
                         />
                         <SceneActivityIndicator
                             at={insight.last_modified_at}

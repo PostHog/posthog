@@ -30,7 +30,6 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { notebooksModel } from '~/models/notebooksModel'
-import { tagsModel } from '~/models/tagsModel'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterFormat } from '~/types'
 
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
@@ -51,20 +50,7 @@ function DashboardScenePanelTags({
     canEdit: boolean
     loading: boolean
 }): JSX.Element {
-    const { tags: tagsAvailable } = useValues(tagsModel)
-    const { loadTagsIfNeeded } = useActions(tagsModel)
-
-    return (
-        <SceneTags
-            onSave={onSave}
-            canEdit={canEdit}
-            tags={tags}
-            tagsAvailable={tagsAvailable.filter((tag) => !tags?.includes(tag))}
-            dataAttrKey={RESOURCE_TYPE}
-            loading={loading}
-            onEdit={loadTagsIfNeeded}
-        />
-    )
+    return <SceneTags onSave={onSave} canEdit={canEdit} tags={tags} dataAttrKey={RESOURCE_TYPE} loading={loading} />
 }
 
 export function DashboardScenePanel(): JSX.Element | null {
