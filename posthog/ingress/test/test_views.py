@@ -21,6 +21,7 @@ from rest_framework.throttling import BaseThrottle, ScopedRateThrottle
 from posthog.ingress.contracts import (
     DeliveryDispatch,
     DeliveryOwnership,
+    DeliveryOwnershipAnswers,
     ProviderSpec,
     WebhookConsumer,
     WebhookDelivery,
@@ -106,7 +107,7 @@ class TestWebhookView(SimpleTestCase):
     def setUp(self) -> None:
         self.factory = RequestFactory()
         self.dispatcher = Mock()
-        self.dispatcher.ownership_of.return_value = (DeliveryOwnership.UNDECIDED, ())
+        self.dispatcher.ownership_of.return_value = DeliveryOwnershipAnswers()
         self.dispatcher.dispatch.return_value = DeliveryDispatch()
         patcher = patch("posthog.ingress.views.get_dispatcher", return_value=self.dispatcher)
         patcher.start()
@@ -420,27 +421,91 @@ class TestRegionalForwarding(_DispatchingViewTestCase):
 
     @parameterized.expand(
         [
-            ("elsewhere_forwards_once", DeliveryOwnership.ELSEWHERE, 1, 0),
-            ("local_forwards_nothing", DeliveryOwnership.LOCAL, 0, 0),
-            ("undecided_forwards_nothing", DeliveryOwnership.UNDECIDED, 0, 0),
-            ("a_lookup_that_raises_counts_as_undecided", RAISES, 0, 1),
+            ("elsewhere_forwards_once", DeliveryOwnership.ELSEWHERE, 1),
+            ("local_forwards_nothing", DeliveryOwnership.LOCAL, 0),
+            ("undecided_forwards_nothing", DeliveryOwnership.UNDECIDED, 0),
         ]
     )
     def test_the_ownership_answer_decides_the_forward_and_never_the_local_dispatch(
-        self, _name: str, answer: object, forwards: int, captures: int
+        self, _name: str, answer: object, forwards: int
     ) -> None:
         view = self._view([_consumer(GITHUB_SPEC, name="probe", handler=self.handler, answer=answer)])
 
-        with (
-            patch("posthog.regions.PRIMARY_REGION_DOMAIN", "testserver"),
-            patch("posthog.ingress.dispatch.dispatcher.capture_exception") as capture,
-        ):
+        with patch("posthog.regions.PRIMARY_REGION_DOMAIN", "testserver"):
             response = view(self._github_request())
 
         self.assertEqual(response.status_code, 202)
         self.assertEqual(self.requests.call_count, forwards)
         self.handler.assert_called_once()
-        self.assertEqual(capture.call_count, captures)
+
+    @parameterized.expand(
+        [
+            ("a_provider_that_redelivers_asks_for_one", _RedeliveringGitHubProvider, 502, "retry_requested", 0),
+            ("a_provider_that_does_not_dispatches_locally", GitHubProvider, 202, "accepted", 1),
+        ]
+    )
+    def test_a_failed_ownership_lookup_answers_what_the_provider_needs_to_redeliver(
+        self, _name: str, provider_class: type[GitHubProvider], status: int, outcome: str, dispatched: int
+    ) -> None:
+        view = self._view(
+            [_consumer(GITHUB_SPEC, name="probe", handler=self.handler, answer=RAISES)],
+            provider=provider_class("posthog"),
+        )
+
+        with (
+            patch("posthog.regions.PRIMARY_REGION_DOMAIN", "testserver"),
+            patch("posthog.ingress.dispatch.dispatcher.capture_exception") as capture,
+            patch("posthog.ingress.views.observe_delivery") as observe,
+        ):
+            response = view(self._github_request())
+
+        self.assertEqual(response.status_code, status)
+        self.assertEqual([call.kwargs["outcome"] for call in observe.call_args_list], [outcome])
+        # The delivery may belong to the other region, so a local run that finds nothing to do must
+        # not receipt it where the provider would send it again.
+        self.assertEqual(self.handler.call_count, dispatched)
+        self.requests.assert_not_called()
+        capture.assert_called_once()
+
+    def test_a_failed_lookup_asks_for_the_delivery_again_rather_than_forwarding_on_what_is_left(self) -> None:
+        elsewhere = Mock()
+        view = self._view(
+            [
+                _consumer(GITHUB_SPEC, name="alpha", handler=self.handler, answer=RAISES),
+                _consumer(GITHUB_SPEC, name="zulu", handler=elsewhere, answer=DeliveryOwnership.ELSEWHERE),
+            ],
+            provider=_RedeliveringGitHubProvider("posthog"),
+        )
+
+        with (
+            patch("posthog.regions.PRIMARY_REGION_DOMAIN", "testserver"),
+            patch("posthog.ingress.dispatch.dispatcher.capture_exception"),
+        ):
+            response = view(self._github_request())
+
+        self.assertEqual(response.status_code, 502)
+        # The redelivery asks every lookup again and forwards then, so forwarding now would send
+        # the same request to the other region twice.
+        self.requests.assert_not_called()
+        self.handler.assert_not_called()
+        elsewhere.assert_not_called()
+
+    def test_the_delivery_the_provider_sends_again_is_not_deduped_away(self) -> None:
+        provider = _RedeliveringGitHubProvider("posthog")
+        unanswered = self._view(
+            [_consumer(GITHUB_SPEC, name="probe", handler=self.handler, answer=RAISES)], provider=provider
+        )
+
+        with patch("posthog.ingress.dispatch.dispatcher.capture_exception"):
+            self.assertEqual(unanswered(self._github_request()).status_code, 502)
+
+        answered = self._view(
+            [_consumer(GITHUB_SPEC, name="probe", handler=self.handler, answer=DeliveryOwnership.LOCAL)],
+            provider=provider,
+        )
+
+        self.assertEqual(answered(self._github_request()).status_code, 202)
+        self.handler.assert_called_once()
 
     @parameterized.expand(
         [

@@ -8,7 +8,13 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.ingress.contracts import DeliveryOwnership, ProviderSpec, WebhookConsumer, WebhookDelivery
+from posthog.ingress.contracts import (
+    DeliveryOwnership,
+    DeliveryOwnershipAnswers,
+    ProviderSpec,
+    WebhookConsumer,
+    WebhookDelivery,
+)
 from posthog.ingress.dispatch.budget import DEFAULT_DELIVERY_BUDGET_SECONDS, DeliveryBudget, delivery_budget_seconds
 from posthog.ingress.dispatch.dedup import DeliveryClaim, DeliveryDedup
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
@@ -223,37 +229,34 @@ class TestDeliveryDedup(SimpleTestCase):
 class TestDeliveryOwnership(SimpleTestCase):
     @parameterized.expand(
         [
-            ("nobody_declares_one", [], DeliveryOwnership.UNDECIDED, ()),
-            ("every_answer_is_local", [DeliveryOwnership.LOCAL] * 2, DeliveryOwnership.LOCAL, ()),
+            ("nobody_declares_one", [], DeliveryOwnershipAnswers()),
+            ("every_answer_is_local", [DeliveryOwnership.LOCAL] * 2, DeliveryOwnershipAnswers()),
             (
                 "one_elsewhere_decides_the_request",
                 [DeliveryOwnership.LOCAL, DeliveryOwnership.ELSEWHERE],
-                DeliveryOwnership.ELSEWHERE,
-                ("consumer-1",),
+                DeliveryOwnershipAnswers(elsewhere_consumers=("consumer-1",)),
             ),
             (
                 "a_lookup_that_raises_leaves_the_others_deciding",
                 [RuntimeError("lookup failed"), DeliveryOwnership.ELSEWHERE],
-                DeliveryOwnership.ELSEWHERE,
-                ("consumer-1",),
+                DeliveryOwnershipAnswers(elsewhere_consumers=("consumer-1",), failed_consumers=("consumer-0",)),
             ),
             (
-                "a_lookup_that_raises_alone_is_undecided",
+                "a_lookup_that_raises_is_named_rather_than_read_as_an_answer",
                 [RuntimeError("lookup failed")],
-                DeliveryOwnership.UNDECIDED,
-                (),
+                DeliveryOwnershipAnswers(failed_consumers=("consumer-0",)),
             ),
         ]
     )
-    def test_any_consumer_answering_elsewhere_forwards_the_request(
-        self, _name: str, answers: list, expected: DeliveryOwnership, expected_names: tuple[str, ...]
+    def test_the_answers_name_who_forwards_the_request_and_whose_lookup_failed(
+        self, _name: str, answers: list, expected: DeliveryOwnershipAnswers
     ) -> None:
         consumers = [
             _consumer(f"consumer-{index}", Mock(), ownership=_ownership(answer)) for index, answer in enumerate(answers)
         ]
 
         with patch("posthog.ingress.dispatch.dispatcher.capture_exception"):
-            self.assertEqual(_dispatcher(consumers).ownership_of(_delivery()), (expected, expected_names))
+            self.assertEqual(_dispatcher(consumers).ownership_of(_delivery()), expected)
 
     def test_a_consumer_without_an_ownership_lookup_is_never_asked(self) -> None:
         asked = Mock(return_value=DeliveryOwnership.LOCAL)

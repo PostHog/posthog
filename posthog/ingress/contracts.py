@@ -14,6 +14,9 @@ class DeliveryOwnership(Enum):
     LOCAL = "local"  # this region holds the resource; dispatch here
     ELSEWHERE = "elsewhere"  # the resource lives in the other region; forward the request
     UNDECIDED = "undecided"  # nothing in the delivery says; dispatch here, forward nothing
+    # The lookup raised, so it ruled no region out. A consumer never answers this one: the
+    # dispatcher records it, and the transport asks a provider that redelivers to send again.
+    FAILED = "failed"
 
 
 @frozen
@@ -52,7 +55,9 @@ class WebhookConsumer:
     dedup: bool = True
     # A consumer whose resources are split by region answers where this delivery's resource lives,
     # and ingress forwards the signed request when the answer is elsewhere. A lookup inside must be
-    # bounded (`bounded_statement_timeout`): it runs in the request, before dispatch.
+    # bounded (`bounded_statement_timeout`): it runs in the request, before dispatch. Let a
+    # transient error out rather than answering local or undecided through it: a raised lookup asks
+    # a provider that redelivers for the delivery again, and a guess loses it.
     ownership: Callable[[WebhookDelivery], DeliveryOwnership] | None = None
 
 
@@ -63,6 +68,19 @@ class ProviderSpec:
     provider: str
     app: str
     event_types: frozenset[str]
+
+
+@frozen
+class DeliveryOwnershipAnswers:
+    """What the consumers that declare an ownership lookup said about one delivery.
+
+    The two names carry different decisions. `elsewhere_consumers` forwards the signed request to
+    the other region. `failed_consumers` says a lookup did not answer, which leaves the owning
+    region unknown, so a provider that redelivers is asked for the delivery again.
+    """
+
+    elsewhere_consumers: tuple[str, ...] = ()
+    failed_consumers: tuple[str, ...] = ()
 
 
 @frozen

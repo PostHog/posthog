@@ -83,7 +83,7 @@ The HTTP response is a transport receipt: the verification result, the method, a
 If a provider's protocol needs the response body to say something, the incarnation answers that handshake before dispatch.
 
 What the transport does decide is whether it can vouch that the delivery was taken.
-It cannot when the forward to the owning region failed, when a consumer raised, or when the budget skipped a consumer — in each case some of the work never ran.
+It cannot when an ownership lookup failed, when the forward to the owning region failed, when a consumer raised, or when the budget skipped a consumer — in each case some of the work never ran, or ingress cannot tell whether it ran in the right region.
 A provider that redelivers on a non-2xx sets `retry_status` on its incarnation, and the view then answers that status with outcome `retry_requested` instead of the receipt, so the provider sends the delivery again.
 A provider that does not redeliver leaves it at `None` and keeps the receipt, because a non-2xx buys it nothing.
 That is still the transport deciding, on whether the work ran at all, rather than a consumer choosing an answer: a consumer cannot ask for a retry, and a delivery no consumer is registered for is accepted by construction.
@@ -167,6 +167,8 @@ A consumer whose resources are split by region declares `ownership`, a callable 
 - `ELSEWHERE` — the other region holds it. The request is forwarded.
 - `UNDECIDED` — nothing in the delivery says, so nothing is forwarded.
 
+A fourth value, `FAILED`, is the dispatcher's own: a consumer never answers it, and it records a lookup that raised.
+
 Every delivery in the request is assessed first, and the request is then forwarded **once**, when any consumer answered `ELSEWHERE`.
 One forward per request rather than per delivery, because the unit being replayed is the HTTP request.
 Local dispatch runs either way: a consumer that answered `ELSEWHERE` no-ops on its own, and the other consumers on the endpoint are unaffected.
@@ -176,7 +178,15 @@ The receiving region reads which region it is off the connection it receives, so
 
 The ownership lookup runs inside the request, before dispatch, and inside the same wall-clock budget.
 A lookup that reads the database must be bounded with `bounded_statement_timeout(ms, models=...)`.
-A lookup that raises is logged, captured, counted as `failed` and treated as `UNDECIDED`, so one consumer cannot cost the delivery the receipt it earned by signing.
+
+A lookup that raises is logged, captured and counted as `failed`, and it rules no region out.
+On a provider that sets `retry_status` the view answers that status with outcome `retry_requested`, before the forward and before any consumer runs.
+Local dispatch alone would otherwise receipt the delivery: the consumer's own lookup runs again inside the handler, correctly finds nothing local, the handler returns, and the region that owns the delivery never sees it.
+Nothing has claimed a dedup mark at that point, so the redelivery is processed in full, and the lookups it asks again decide the forward then.
+A provider that does not redeliver keeps the delivery instead: the failure counts as `UNDECIDED`, local dispatch runs, and the request is receipted, because a non-2xx there would only lose the local run as well.
+
+An ownership lookup should therefore let a transient error out rather than answering `LOCAL` or `UNDECIDED` through it.
+A guess is what turns a dropped connection into a lost delivery.
 
 What crosses is the raw signed body, except for a provider that signs the form rather than the body.
 Reading that form consumes the request stream and leaves no raw bytes, so the forward rebuilds the fields and the files and drops the original `Content-Type`, which names the boundary of a body that is gone.
