@@ -2390,19 +2390,18 @@ export class SessionService {
         customInstructions: customInstructions || undefined,
       });
 
-      // Record the billing this respawn ran under, both on the session (the
-      // live value) and back in the store (normalized), so the next send only
-      // respawns again when the run's billing actually changes.
-      this.d.store.updateSession(taskRunId, {
-        codexModelAccess,
-        claudeModelAccess,
-      });
-      this.d.billingStore.setBilling(taskRunId, {
-        codex: codexModelAccess,
-        claude: claudeModelAccess,
-      });
-
       if (result) {
+        // Record the billing this respawn ran under, both on the session (the
+        // live value) and back in the store (normalized), so the next send only
+        // respawns again when the run's billing actually changes.
+        this.d.store.updateSession(taskRunId, {
+          codexModelAccess,
+          claudeModelAccess,
+        });
+        this.d.billingStore.setBilling(taskRunId, {
+          codex: codexModelAccess,
+          claude: claudeModelAccess,
+        });
         const liveConfigOptions = result.configOptions as
           | SessionConfigOption[]
           | undefined;
