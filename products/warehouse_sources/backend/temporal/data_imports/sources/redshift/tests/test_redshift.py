@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import date
 from typing import Any
@@ -57,6 +57,18 @@ from products.warehouse_sources.backend.types import IncrementalFieldType
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _catalog_primary_key_rows(
+    constraints: list[tuple[str, str, Any]], attributes: list[tuple[str, str, int, str]]
+) -> Callable[[], list[tuple[Any, ...]]]:
+    """`fetchall` side effect for the two `pg_catalog` reads a key lookup makes."""
+    rows: list[list[tuple[Any, ...]]] = [list(constraints), list(attributes)]
+
+    def fetchall() -> list[tuple[Any, ...]]:
+        return rows.pop(0) if rows else []
+
+    return fetchall
 
 
 def _make_config(**overrides) -> RedshiftSourceConfig:
@@ -341,8 +353,22 @@ class TestGetPrimaryKeysForTable:
         assert impl.get_primary_keys_for_table(cursor, "public", "t") is None
 
     def test_returns_pk_column_names(self, impl, cursor):
-        cursor.fetchall.return_value = [("id",), ("email",)]
+        cursor.fetchall.side_effect = _catalog_primary_key_rows(
+            [("public", "t", "1 2")],
+            [("public", "t", 1, "id"), ("public", "t", 2, "email"), ("public", "t", 3, "created_at")],
+        )
         assert impl.get_primary_keys_for_table(cursor, "public", "t") == ["id", "email"]
+
+    def test_reads_the_key_from_pg_catalog(self, impl, cursor):
+        # `information_schema` is privilege-filtered and holds no row at all for a materialized
+        # view, so a key read from there is missing for the relations that most need one.
+        cursor.fetchall.return_value = []
+
+        impl.get_primary_keys_for_table(cursor, "public", "t")
+
+        query = cursor.execute.call_args_list[0].args[0].as_string()
+        assert "pg_catalog.pg_constraint" in query
+        assert "information_schema" not in query
 
     @pytest.mark.parametrize(
         "table_type,expected_phrase",
@@ -400,15 +426,16 @@ class TestGetPrimaryKeysForTable:
         assert "Could not determine a primary key" in warning
         assert "No primary key is set" not in warning
 
-    def test_orders_composite_key_columns_by_declared_position(self, impl, cursor):
-        # Without ORDER BY, Redshift returns the constraint's columns in arbitrary order and a
-        # composite key is assembled wrong, which silently corrupts incremental merge matching.
-        cursor.fetchall.return_value = [("a",), ("b",)]
+    @pytest.mark.parametrize("conkey", ["2 1", "{2,1}", [2, 1]])
+    def test_orders_composite_key_columns_by_declared_position(self, impl, cursor, conkey):
+        # The catalog holds the key as column numbers, in whichever form the driver hands back.
+        # Sorting by column number instead assembles a composite key wrong, which silently
+        # corrupts incremental merge matching.
+        cursor.fetchall.side_effect = _catalog_primary_key_rows(
+            [("public", "t", conkey)], [("public", "t", 1, "a"), ("public", "t", 2, "b")]
+        )
 
-        impl.get_primary_keys_for_table(cursor, "public", "t")
-
-        assert "ORDER BY" in cursor.execute.call_args.args[0].as_string()
-        assert "kcu.ordinal_position" in cursor.execute.call_args.args[0].as_string()
+        assert impl.get_primary_keys_for_table(cursor, "public", "t") == ["b", "a"]
 
 
 class TestGetTableMetadata:
@@ -1209,11 +1236,14 @@ class TestGetPrimaryKeys:
         conn = MagicMock()
         cur = MagicMock()
         cur.__enter__.return_value = cur
-        cur.fetchall.return_value = [
-            ("public", "users", "id"),
-            ("public", "users", "tenant_id"),
-            ("public", "orders", "id"),
-        ]
+        cur.fetchall.side_effect = _catalog_primary_key_rows(
+            [("public", "users", "1 2"), ("public", "orders", "1")],
+            [
+                ("public", "users", 1, "id"),
+                ("public", "users", 2, "tenant_id"),
+                ("public", "orders", 1, "id"),
+            ],
+        )
         conn.cursor.return_value = cur
 
         result = impl.get_primary_keys(conn, _make_config(), ["users", "orders", "items"])
@@ -1223,7 +1253,10 @@ class TestGetPrimaryKeys:
         conn = MagicMock()
         cur = MagicMock()
         cur.__enter__.return_value = cur
-        cur.fetchall.return_value = [("analytics", "users", "id"), ("public", "users", "uid")]
+        cur.fetchall.side_effect = _catalog_primary_key_rows(
+            [("analytics", "users", "1"), ("public", "users", "1")],
+            [("analytics", "users", 1, "id"), ("public", "users", 1, "uid")],
+        )
         conn.cursor.return_value = cur
 
         result = impl.get_primary_keys(conn, _make_config(schema=""), ["analytics.users", "public.users"])
@@ -1239,6 +1272,22 @@ class TestGetPrimaryKeys:
 
         result = impl.get_primary_keys(conn, _make_config(schema=""), ["users"])
         assert result == {"users": None}
+
+    def test_reads_the_key_from_pg_catalog(self, impl):
+        # Discovery reads columns from `pg_catalog` because `information_schema` is
+        # privilege-filtered; the key has to come from the same place or a relation lists its
+        # columns and still reports no key it could merge on.
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.__enter__.return_value = cur
+        cur.fetchall.return_value = []
+        conn.cursor.return_value = cur
+
+        impl.get_primary_keys(conn, _make_config(), ["users"])
+
+        query = cur.execute.call_args_list[0].args[0].as_string()
+        assert "pg_catalog.pg_constraint" in query
+        assert "information_schema" not in query
 
     def test_swallows_errors_and_returns_none_per_table(self, impl):
         conn = MagicMock()

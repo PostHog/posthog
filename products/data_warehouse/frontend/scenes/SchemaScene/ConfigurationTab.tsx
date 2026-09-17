@@ -25,6 +25,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
+    AvailableColumn,
     DataWarehouseSyncInterval,
     ExternalDataSchemaSourceSummary,
     ExternalDataSource,
@@ -386,6 +387,13 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
 
     const loading = schemaIncrementalFieldsLoading || !schemaIncrementalFields
 
+    const storedColumns: AvailableColumn[] = (schema.available_columns ?? []).map((column) => ({
+        field: column.name,
+        label: column.name,
+        type: column.data_type ?? '',
+        nullable: column.is_nullable ?? false,
+    }))
+
     const persistSyncMethod = async (
         syncType: ExternalDataSourceSchema['sync_type'],
         incrementalField: string | null,
@@ -482,7 +490,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                                 incremental_fields: schemaIncrementalFields.incremental_fields,
                                 supports_webhooks: schemaIncrementalFields.supports_webhooks ?? false,
                                 primary_key_columns: schema.primary_key_columns ?? null,
-                                available_columns: [],
+                                available_columns: storedColumns,
                                 detected_primary_keys: null,
                             }}
                             availableColumns={schemaIncrementalFields.available_columns ?? []}

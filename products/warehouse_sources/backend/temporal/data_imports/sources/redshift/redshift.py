@@ -162,6 +162,61 @@ _CATALOG_COLUMNS_SQL = """
 _TYPE_MODIFIER_PATTERN = re.compile(r"\((\d+)(?:,\s*(\d+))?\)")
 
 
+# `information_schema.table_constraints` is filtered on the connecting role's privileges, the same
+# way `information_schema.columns` is, and a Redshift materialized view never appears in it at all.
+# A key read from there is therefore missing for exactly the relations that most need one, so the
+# declared key comes from `pg_catalog` instead — the catalog the Postgres source already reads.
+_CATALOG_PRIMARY_KEYS_SQL = sql.SQL("""
+    SELECT n.nspname, c.relname, con.conkey
+    FROM pg_catalog.pg_constraint con
+    JOIN pg_catalog.pg_class c ON c.oid = con.conrelid
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    WHERE con.contype = 'p' AND {where}""")
+
+# Redshift holds the key as column numbers and has neither `array_position` nor `unnest`, so the
+# names are resolved and put back in declared order in Python.
+_CATALOG_KEY_COLUMN_NAMES_SQL = sql.SQL("""
+    SELECT n.nspname, c.relname, a.attnum, a.attname
+    FROM pg_catalog.pg_attribute a
+    JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    WHERE a.attnum > 0 AND NOT a.attisdropped AND {where}""")
+
+_CONSTRAINT_KEY_POSITION_PATTERN = re.compile(r"\d+")
+
+
+def _parse_constraint_key(raw: Any) -> list[int]:
+    """Column numbers of a primary key, in declared order.
+
+    `conkey` arrives as a sequence when the driver knows the array type, and as the catalog's own
+    text form (`1 2`) when it does not, so both are read the same way.
+    """
+    if isinstance(raw, list | tuple):
+        return [int(position) for position in raw]
+    return [int(position) for position in _CONSTRAINT_KEY_POSITION_PATTERN.findall(str(raw or ""))]
+
+
+def _primary_keys_from_catalog(cursor: psycopg.Cursor, where: sql.Composable) -> dict[tuple[str, str], list[str]]:
+    """Declared primary keys of the relations `where` selects, each in declared column order."""
+    cursor.execute(_CATALOG_PRIMARY_KEYS_SQL.format(where=where))
+    key_positions = {(schema, table): _parse_constraint_key(conkey) for schema, table, conkey in cursor.fetchall()}
+    if not key_positions:
+        return {}
+
+    cursor.execute(_CATALOG_KEY_COLUMN_NAMES_SQL.format(where=where))
+    names_by_relation: dict[tuple[str, str], dict[int, str]] = {}
+    for schema, table, attnum, attname in cursor.fetchall():
+        names_by_relation.setdefault((schema, table), {})[int(attnum)] = attname
+
+    keys: dict[tuple[str, str], list[str]] = {}
+    for relation, positions in key_positions.items():
+        names = names_by_relation.get(relation, {})
+        columns = [names[position] for position in positions if position in names]
+        if columns:
+            keys[relation] = columns
+    return keys
+
+
 @frozen
 class _CatalogColumn:
     """One `pg_catalog` column, normalized to what `information_schema.columns` would report."""
@@ -541,17 +596,18 @@ def _retry_on_transient_connection_drop(
 def _reads_primary_keys(cursor: psycopg.Cursor, schema: str) -> bool | None:
     """Can this connection read primary-key constraints in `schema` at all?
 
-    `information_schema.table_constraints` exposes only the objects the role holds privileges on,
-    so an empty result for one table means either "no key is declared" or "no privilege to see the
-    one that is", and the two need opposite advice. Finding a key on any table in the schema
-    settles it: the role can read the view, so an empty per-table result is a real absence.
+    An empty result for one table means either "no key is declared" or "the catalog lookup told us
+    nothing", and the two need opposite advice. Finding a key on any table in the schema settles it:
+    the role can read the catalog, so an empty per-table result is a real absence.
 
     `None` when the probe itself fails, which settles nothing either way.
     """
     query = sql.SQL("""
         SELECT 1
-        FROM information_schema.table_constraints
-        WHERE table_schema = {schema} AND constraint_type = 'PRIMARY KEY'
+        FROM pg_catalog.pg_constraint con
+        JOIN pg_catalog.pg_class c ON c.oid = con.conrelid
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE con.contype = 'p' AND n.nspname = {schema}
         LIMIT 1""").format(schema=sql.Literal(schema))
     try:
         return cursor.execute(query).fetchone() is not None
@@ -1098,11 +1154,9 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         config: RedshiftSourceConfig,
         tables: list[str],
     ) -> dict[str, list[str] | None]:
-        """Detect primary keys for all tables in a single query, each in declared column order.
+        """Detect primary keys for all tables from `pg_catalog`, each in declared column order.
 
-        Permission-sensitive — some Redshift deployments restrict access
-        to `information_schema.table_constraints`. Swallow and log any
-        failure so schema discovery keeps working without PKs.
+        Swallow and log any failure so schema discovery keeps working without PKs.
 
         A swallowed failure returns every table as `None`, which the base
         contract cannot distinguish from "declares no key". The sync path
@@ -1117,23 +1171,12 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         selected_schema = normalize_namespace(config.schema)
         index = self._index_display_names(tables, selected_schema)
 
+        where = sql.SQL("n.nspname = ANY({schemas}) AND c.relname = ANY({names})").format(
+            schemas=sql.Literal(index.schemas), names=sql.Literal(index.bare_tables)
+        )
         try:
             with conn.cursor() as cursor:
-                cursor.execute(
-                    sql.SQL("""
-                        SELECT tc.table_schema, tc.table_name, kcu.column_name
-                        FROM information_schema.table_constraints tc
-                        JOIN information_schema.key_column_usage kcu
-                        ON tc.constraint_name = kcu.constraint_name
-                        AND tc.table_schema = kcu.table_schema
-                        AND tc.table_name = kcu.table_name
-                        WHERE tc.table_schema = ANY({schemas})
-                        AND tc.table_name = ANY({names})
-                        AND tc.constraint_type = 'PRIMARY KEY'
-                        ORDER BY tc.table_schema, tc.table_name, kcu.ordinal_position
-                    """).format(schemas=sql.Literal(index.schemas), names=sql.Literal(index.bare_tables))
-                )
-                rows = cursor.fetchall()
+                keys_by_relation = _primary_keys_from_catalog(cursor, where)
         except Exception as e:
             structlog.get_logger().warning(
                 "Primary keys for Redshift schemas are undetermined, not absent: the detection query failed",
@@ -1141,13 +1184,10 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             )
             return result
 
-        pks: dict[str, list[str]] = collections.defaultdict(list)
-        for table_schema, table_name, column_name in rows:
-            display = index.display_by_pair.get((table_schema, table_name))
+        for relation, pk_cols in keys_by_relation.items():
+            display = index.display_by_pair.get(relation)
             if display is not None:
-                pks[display].append(column_name)
-        for display, pk_cols in pks.items():
-            result[display] = pk_cols
+                result[display] = pk_cols
         return result
 
     @staticmethod
@@ -1394,32 +1434,18 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
     ) -> list[str] | None:
         """Return the primary-key column names for a single table in declared order, or None.
 
-        `table_type` only shapes the warning on an empty result, which is ambiguous on its own:
-        see `_no_primary_key_warning` for what each case establishes.
+        Reads `pg_catalog`, the same catalog discovery reads, so a key found when the table was
+        listed is still found here. `table_type` only shapes the warning on an empty result, which
+        is ambiguous on its own: see `_no_primary_key_warning` for what each case establishes.
         """
-        query = sql.SQL("""
-            SELECT
-                kcu.column_name
-            FROM
-                information_schema.table_constraints tc
-            JOIN
-                information_schema.key_column_usage kcu
-                ON tc.constraint_name = kcu.constraint_name
-                AND tc.table_schema = kcu.table_schema
-            WHERE
-                tc.table_schema = {schema}
-                AND tc.table_name = {table}
-                AND tc.constraint_type = 'PRIMARY KEY'
-            ORDER BY
-                kcu.ordinal_position""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
-
+        where = sql.SQL("n.nspname = {schema} AND c.relname = {table}").format(
+            schema=sql.Literal(schema), table=sql.Literal(table_name)
+        )
         if logger is not None:
-            _explain_query(cursor, query, logger)
-            logger.debug(f"Running query: {query.as_string()}")
-        cursor.execute(query)
-        rows = cursor.fetchall()
-        if len(rows) > 0:
-            return [row[0] for row in rows]
+            logger.debug(f"Running query: {_CATALOG_PRIMARY_KEYS_SQL.format(where=where).as_string()}")
+        primary_key = _primary_keys_from_catalog(cursor, where).get((schema, table_name))
+        if primary_key:
+            return primary_key
 
         if logger is not None:
             logger.warning(_no_primary_key_warning(cursor, schema, table_name, table_type))
