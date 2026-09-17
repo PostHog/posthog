@@ -10,6 +10,7 @@ from django.utils import timezone
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
+from ..bundled_skills import bundled_skill_names
 from ..marketplace.packaging import CODEX_METADATA_PATH, SPEC_DESCRIPTION_MAX_LENGTH, compute_plugin_version
 from ..models.skills import (
     CATEGORY_BY_NAME_PREFIX,
@@ -42,6 +43,24 @@ MAX_SKILL_NAME_LENGTH = 64
 # Bundled-file paths that would collide with generated artifacts in the exported skill
 # tree / plugin marketplace (the rendered SKILL.md). Compared case-insensitively.
 RESERVED_SKILL_FILE_PATHS = {"skill.md"}
+
+
+def bundled_skill_name_error(value: str) -> str | None:
+    """Why `value` cannot name a new store skill, or None when it can.
+
+    An agent host loads the skills PostHog bundles (products/*/skills, shipped as dist/skills.zip)
+    next to the team's store skills under one flat name space, so a store skill that repeats a
+    bundled name leaves two skills under one name and the host no way to tell which one an agent
+    asked for. The rule holds a name a team claims, not a name that points at a skill the project
+    already holds: the scout harness seeds the canonical `signals-scout-*` skills into every
+    project, so those bundled names are legitimately in use there.
+
+    Returns the message rather than raising it so the REST, MCP tool, community publish and
+    community sync paths can each raise their own error type from the one rule.
+    """
+    if value.lower() not in bundled_skill_names():
+        return None
+    return f"PostHog already ships a skill named '{value}'. Pick a different name."
 
 
 def skill_name_is_well_formed(value: str) -> bool:

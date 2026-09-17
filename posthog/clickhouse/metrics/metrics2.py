@@ -138,6 +138,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS2_TABLE_NAME}
     INDEX idx_trace_id_bf trace_id TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
+    INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
     PROJECTION projection_series_activity
     (
         SELECT
@@ -344,6 +345,13 @@ def METRICS2_DROP_SERIES_MINUTE_PROJECTION_SQL() -> str:
 
 def METRICS2_DROP_UUID_COLUMN_SQL() -> str:
     return f"ALTER TABLE {_db()}.{METRICS2_TABLE_NAME} DROP COLUMN IF EXISTS uuid"
+
+
+def METRICS2_ADD_TIMESTAMP_INDEX_SQL() -> str:
+    return (
+        f"ALTER TABLE {_db()}.{METRICS2_TABLE_NAME} "
+        "ADD INDEX IF NOT EXISTS idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1"
+    )
 
 
 def METRIC_SERIES2_ADD_LAST_SEEN_INDEX_SQL() -> str:

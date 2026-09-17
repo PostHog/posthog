@@ -582,7 +582,8 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             column = None
             direction: Literal["ASC", "DESC"] = "DESC"
             field = cast(WebAnalyticsOrderByFields, self.runner.query.orderBy[0])
-            direction = cast(WebAnalyticsOrderByDirection, self.runner.query.orderBy[1]).value
+            if len(self.runner.query.orderBy) > 1:
+                direction = cast(WebAnalyticsOrderByDirection, self.runner.query.orderBy[1]).value
 
             if field == WebAnalyticsOrderByFields.VISITORS:
                 column = "context.columns.visitors"

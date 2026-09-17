@@ -17,6 +17,8 @@ import {
     getFingerprintRecords,
     getRecordingStatus,
     getSessionId,
+    getSpanId,
+    getTraceId,
     isReleaseIdMissingFromSDK,
 } from 'lib/components/Errors/utils'
 import { dayjs } from 'lib/dayjs'
@@ -54,6 +56,8 @@ export interface errorPropertiesLogicValues {
     release: ErrorTrackingRelease | null | undefined
     releaseIdMissingFromSDK: boolean
     sessionId: string | undefined
+    spanId: string | undefined
+    traceId: string | undefined
     uuid: string
 }
 
@@ -79,6 +83,8 @@ export interface errorPropertiesLogicMeta {
         fingerprintRecords: (properties: Record<string, any>) => FingerprintRecordPart[]
         hasStacktrace: (exceptionList: ErrorTrackingException[]) => boolean
         sessionId: (properties: Record<string, any>) => string | undefined
+        traceId: (properties: Record<string, any>) => string | undefined
+        spanId: (properties: Record<string, any>) => string | undefined
         recordingStatus: (properties: Record<string, any>) => string | undefined
         getExceptionFingerprint: (
             fingerprintRecords: FingerprintRecordPart[]
@@ -154,6 +160,14 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
         sessionId: [
             (s) => [s.properties],
             (properties: ErrorEventProperties) => (properties ? getSessionId(properties) : undefined),
+        ],
+        traceId: [
+            (s) => [s.properties],
+            (properties: ErrorEventProperties) => (properties ? getTraceId(properties) : undefined),
+        ],
+        spanId: [
+            (s) => [s.properties],
+            (properties: ErrorEventProperties) => (properties ? getSpanId(properties) : undefined),
         ],
         recordingStatus: [
             (s) => [s.properties],

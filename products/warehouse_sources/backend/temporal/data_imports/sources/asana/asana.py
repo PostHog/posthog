@@ -94,6 +94,12 @@ _PARENTS: dict[FanOut, _ParentSpec] = {
     "task": _ParentSpec(name="tasks", param="task_gid", path="/tasks?project={project_gid}", fan_out="project"),
     "goal": _ParentSpec(name="goals", param="goal_gid", path="/goals?workspace={workspace_gid}", fan_out="workspace"),
     "user": _ParentSpec(name="users", param="user_gid", path="/users"),
+    "team": _ParentSpec(
+        name="teams", param="team_gid", path="/organizations/{workspace_gid}/teams", fan_out="organization"
+    ),
+    "portfolio": _ParentSpec(
+        name="portfolios", param="portfolio_gid", path="/portfolios?workspace={workspace_gid}", fan_out="workspace"
+    ),
 }
 
 

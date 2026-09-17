@@ -9,8 +9,14 @@ from rest_framework import status
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 
+from products.engineering_analytics.backend.logic.job_logs.coordinator import _query_failed_jobs
 from products.engineering_analytics.backend.logic.queries._test_spans import selector_from_nodeid
-from products.engineering_analytics.backend.tests._github_fixtures import connect_github_source_without_data
+from products.engineering_analytics.backend.logic.views.source_schema import WORKFLOW_JOBS_COLUMNS
+from products.engineering_analytics.backend.tests._github_fixtures import (
+    GITHUB_SOURCE_PREFIX,
+    connect_github_source_without_data,
+    create_github_warehouse_table,
+)
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 T_RERUN_RECOVERY = "posthog/api/test/test_rerun/TestRerun::test_green_on_attempt_2"
@@ -93,6 +99,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
                 pr="401",
                 branch="f1",
                 selector=T_IN_JOB_SELECTOR,
+                runner_name="runner-example",
             ),
             # Failures across 3 distinct PRs, no recovery: qualifies on blast radius alone.
             cls._span(11, T_THREE_PRS, "failed", ts=earlier, run="500", pr="501", branch="f1"),
@@ -115,9 +122,27 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             cls._span(19, T_TIE_B, "rerun_passed", ts=recent, run="1000", pr="1001", branch="tie"),
             cls._span(20, T_TIE_A, "rerun_passed", ts=recent, run="1001", pr="1002", branch="tie"),
             # Would qualify on signal alone, but a non-CI service must never reach the queue.
-            cls._span(21, T_FOREIGN, "rerun_passed", ts=recent, run="1100", pr="1101", service="other-service"),
+            cls._span(
+                21,
+                T_FOREIGN,
+                "rerun_passed",
+                ts=recent,
+                run="1100",
+                pr="1101",
+                service="other-service",
+                runner_name="runner-example",
+            ),
             # Would qualify on signal alone, but belongs to another connected repository.
-            cls._span(22, T_OTHER_REPO, "rerun_passed", ts=recent, run="1200", pr="1201", repo="PostHog/posthog.com"),
+            cls._span(
+                22,
+                T_OTHER_REPO,
+                "rerun_passed",
+                ts=recent,
+                run="1200",
+                pr="1201",
+                repo="PostHog/posthog.com",
+                runner_name="runner-example",
+            ),
             # A job-root span carries no test.outcome and must never become a row.
             cls._span(23, "Backend CI / core (1)", None, ts=recent, run="1300", branch="master"),
             # Main Jest spans share the same evidence model. Recovery only counts within the
@@ -183,6 +208,41 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
         super().tearDownClass()
 
+    def test_job_log_discovery_includes_recovered_jobs_without_collecting_unrelated_passes(self) -> None:
+        now = datetime.now(UTC).replace(microsecond=0)
+        jobs = [
+            (1, 400, 1, "runner-example", "success"),
+            (2, 400, 1, "another-runner", "success"),
+            (3, 400, 2, "runner-example", "success"),
+            (4, 999, 1, "runner-example", "success"),
+            (5, 999, 1, "another-runner", "failure"),
+            (6, 1100, 1, "runner-example", "success"),
+            (7, 1200, 1, "runner-example", "success"),
+            (8, 1000, 1, "", "success"),
+        ]
+        create_github_warehouse_table(
+            self,
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                dict.fromkeys(WORKFLOW_JOBS_COLUMNS)
+                | {
+                    "id": job_id,
+                    "run_id": run_id,
+                    "run_attempt": attempt,
+                    "runner_name": runner,
+                    "conclusion": conclusion,
+                    "started_at": (now - timedelta(days=2)).isoformat(),
+                    "completed_at": now.isoformat(),
+                }
+                for job_id, run_id, attempt, runner, conclusion in jobs
+            ],
+        )
+        rows = _query_failed_jobs(
+            self.team, GITHUB_SOURCE_PREFIX, (now - timedelta(hours=12)).isoformat(), "posthog/POSTHOG"
+        )
+        assert {row["job_id"] for row in rows} == {1, 5}
+
     @classmethod
     def _span(
         cls,
@@ -199,6 +259,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         service: str = "ci-backend",
         repo: str = "PostHog/posthog",
         job: str = "",
+        runner_name: str = "",
     ) -> str:
         # Physical attributes carry a type suffix ('test.outcome__str'); the `attributes` ALIAS
         # column strips it. Resource attributes are stored as-is; attempt="" drops the
@@ -208,6 +269,8 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         )
         if job:
             attr_pairs.append(f"'test.job_key__str', '{job}'")
+        if runner_name:
+            attr_pairs.append(f"'test.runner_name__str', '{runner_name}'")
         attrs = f"map({', '.join(attr_pairs)})" if attr_pairs else "map()"
         resource_pairs = [
             f"'{key}', '{value}'"

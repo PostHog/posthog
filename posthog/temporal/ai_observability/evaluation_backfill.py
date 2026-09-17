@@ -371,7 +371,8 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
         )
         # A page whose children mostly went out must not be re-dispatched because one start
         # raised: the retry would collide with every child already running. The unit that failed
-        # is left to a later backfill and counted as skipped, so the totals still add up.
+        # is left to a later backfill, and counted as neither dispatched nor skipped, because
+        # skipped means the live path already graded it.
         results = await asyncio.gather(
             *(self._start_child(inputs, tick, candidate) for candidate in found.candidates),
             return_exceptions=True,
@@ -383,7 +384,7 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
                 extra={"backfill_id": inputs.backfill_id, "error": str(error)},
             )
         dispatched = sum(1 for result in results if result is True)
-        skipped = len(results) - dispatched
+        skipped = sum(1 for result in results if result is False)
         advance = await temporalio.workflow.execute_activity(
             advance_evaluation_backfill_cursor_activity,
             AdvanceCursorInputs(
