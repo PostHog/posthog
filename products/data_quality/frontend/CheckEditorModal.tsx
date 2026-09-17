@@ -505,6 +505,10 @@ function RelationshipFields(): JSX.Element {
                             toSubjectUuid,
                             toSubjectType: relationshipSubjects.find((subject) => subject.id === toSubjectUuid)?.type,
                             toColumn: '',
+                            // The window belongs to the target it was set on, and the field hides
+                            // itself for a target with no time column. A kept value would reach
+                            // the request where nobody can see or clear it.
+                            toLookbackHours: null,
                         })
                     }}
                 />
