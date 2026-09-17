@@ -18,7 +18,7 @@
             "type": "array"
         },
         "detail_filters": {
-            "description": "JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.",
+            "description": "JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in, not_in. Use not_in to hide matching entries; entries without the field are kept.",
             "type": "string"
         },
         "end_date": {
@@ -26,6 +26,30 @@
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
             "type": "string"
+        },
+        "exclude_clients": {
+            "default": [],
+            "description": "Hide activity from these API clients (the x-posthog-client header, or 'scout:<skill_name>' for a scout run). Entries with no client are kept.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "exclude_ip_addresses": {
+            "default": [],
+            "description": "Hide activity from these client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Entries with no IP address are kept.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "exclude_users": {
+            "default": [],
+            "description": "Hide activity performed by these users (user UUIDs). Entries with no user, such as system activity, are kept.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
         },
         "fields": {
             "description": "Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.",
