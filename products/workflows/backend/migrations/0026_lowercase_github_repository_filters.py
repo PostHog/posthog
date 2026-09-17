@@ -1,4 +1,5 @@
 from django.db import migrations
+from django.utils import timezone
 
 BATCH_SIZE = 1000
 
@@ -34,9 +35,8 @@ def _lowercased_filters(filters: object) -> dict | None:
     The compiler ANDs the conditions on an event entry with the global ones, so a repository
     filter written on the entry decides whether the trigger fires too and needs the same rewrite.
 
-    The compiled bytecode holds the same strings as constants, so they are rewritten too rather
-    than recompiled; a value string reused by another filter on the same trigger is rare enough
-    to accept.
+    The compiled bytecode is rewritten in place rather than recompiled, touching only the operands
+    of a repository condition so a filter on another key that reuses the same string keeps it.
     """
     if not isinstance(filters, dict):
         return None
@@ -62,8 +62,29 @@ def _lowercased_filters(filters: object) -> dict | None:
         return None
     bytecode = filters.get("bytecode")
     if isinstance(bytecode, list):
-        rewritten["bytecode"] = [renamed.get(op, op) if isinstance(op, str) else op for op in bytecode]
+        rewritten["bytecode"] = _lowercased_bytecode(bytecode)
     return rewritten
+
+
+# The operand(s) of a property condition sit right before the field access that reads
+# `properties.repository`: `32, <value>` for one value, or `32, <v1>, 32, <v2>, 44, <n>` for a list.
+REPOSITORY_FIELD_ACCESS = [32, "repository", 32, "properties", 1, 2]
+
+
+def _lowercased_bytecode(bytecode: list) -> list:
+    result = list(bytecode)
+    width = len(REPOSITORY_FIELD_ACCESS)
+    for j in range(2, len(result) - width + 1):
+        if result[j : j + width] != REPOSITORY_FIELD_ACCESS:
+            continue
+        if result[j - 2] == 44 and isinstance(result[j - 1], int):
+            operands = [j - 1 - 2 * result[j - 1] + 2 * k for k in range(result[j - 1])]
+        else:
+            operands = [j - 1]
+        for i in operands:
+            if i > 0 and result[i - 1] == 32 and isinstance(result[i], str):
+                result[i] = result[i].lower()
+    return result
 
 
 def _lowercased_config(config: object) -> dict | None:
@@ -96,28 +117,24 @@ def lowercase_github_repository_filters(apps, schema_editor):
     so only the live trigger and its action need rewriting here."""
     HogFlow = apps.get_model("workflows", "HogFlow")
     db_alias = schema_editor.connection.alias
-    flows_to_update = []
 
     for row in (
         HogFlow.objects.using(db_alias)
         .filter(trigger__type="internal-event")
         .order_by("pk")
-        .values("pk", "trigger", "actions")
+        .values("pk", "updated_at", "trigger", "actions")
         .iterator(chunk_size=BATCH_SIZE)
     ):
         trigger = _lowercased_config(row["trigger"])
         actions = _lowercased_actions(row["actions"])
         if trigger is None and actions is None:
             continue
-        flows_to_update.append(
-            HogFlow(pk=row["pk"], trigger=trigger or row["trigger"], actions=actions or row["actions"])
+        # A row saved since the read went through the serializer, which lowercases on its own, so
+        # skipping it is correct and the stale snapshot never overwrites that edit. Bumping
+        # updated_at makes an editor tab opened before the rewrite fail its stale-write check.
+        HogFlow.objects.using(db_alias).filter(pk=row["pk"], updated_at=row["updated_at"]).update(
+            trigger=trigger or row["trigger"], actions=actions or row["actions"], updated_at=timezone.now()
         )
-        if len(flows_to_update) == BATCH_SIZE:
-            HogFlow.objects.using(db_alias).bulk_update(flows_to_update, ["trigger", "actions"], batch_size=BATCH_SIZE)
-            flows_to_update = []
-
-    if flows_to_update:
-        HogFlow.objects.using(db_alias).bulk_update(flows_to_update, ["trigger", "actions"], batch_size=BATCH_SIZE)
 
 
 class Migration(migrations.Migration):
