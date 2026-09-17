@@ -1,8 +1,8 @@
 """Dataclass model, parser, and validator for ``owners.yaml``.
 
-Also loads ``products/<name>/product.yaml`` as an *aliased* ownership file: only
-its ``owners:`` list is read (``@handles`` kept, a ``team-CHANGEME``-only list
-treated as empty), every other field ignored.
+Also loads an *alias* file as an ownership file: only its ``owners:`` list is read
+(``@handles`` kept, a ``team-CHANGEME``-only list treated as empty), every other field
+ignored. The root file names the alias files in ``alias_files``.
 """
 
 from __future__ import annotations
@@ -18,9 +18,10 @@ from .matcher import compile_pattern
 
 VALID_STATUSES = ("active", "deprecated", "generated", "vendored")
 CHANGEME_SLUG = "team-CHANGEME"
+OWNERS_FILENAME = "owners.yaml"
 
 # Keys that only the repo-root owners.yaml may carry. They describe the repo, not a directory.
-ROOT_ONLY_KEYS = {"teams", "github_org", "producers", "reserved_dirs", "codeowners"}
+ROOT_ONLY_KEYS = {"teams", "github_org", "producers", "reserved_dirs", "codeowners", "alias_files"}
 # Top-level keys allowed in owners.yaml. Rules allow the same set minus `version`
 # and `rules`, plus the required `match`.
 TOP_LEVEL_KEYS = {"version", "owners", "status", "inherit", "rules"} | ROOT_ONLY_KEYS
@@ -95,11 +96,14 @@ class RepoSettings:
     lists the automation names a team may address in ``notifications:``; ``None`` means the repo
     declared no list, so any name is accepted. ``reserved_dirs`` lists
     globs where an ``owners.yaml`` must not live, because other tooling reads every YAML file there.
+    ``alias_files`` lists the other file names that count as ownership files, in the order that
+    decides which one wins when a directory holds several.
     """
 
     github_org: str | None = None
     producers: frozenset[str] | None = None
     reserved_dirs: tuple[str, ...] = ()
+    alias_files: tuple[str, ...] = ()
     codeowners: CodeownersSettings = field(default_factory=CodeownersSettings)
 
 
@@ -115,7 +119,7 @@ class OwnersRule:
 
 @dataclass
 class OwnersFile:
-    """A parsed ownership file (real ``owners.yaml`` or an aliased ``product.yaml``)."""
+    """A parsed ownership file (a real ``owners.yaml`` or an alias file)."""
 
     path: Path
     directory: str  # repo-relative posix dir containing the file ("" for repo root)
@@ -131,10 +135,10 @@ class OwnersFile:
     settings: RepoSettings = field(default_factory=RepoSettings)
 
 
-def normalize_product_owners(owners: list[str]) -> list[str]:
+def normalize_owners(owners: list[str]) -> list[str]:
     """Drop the ``team-CHANGEME`` scaffold placeholder: it never carries ownership
-    signal, so a list consisting only of it is empty. Applied to both ``product.yaml``
-    aliases and ``owners.yaml`` owners lists — one CHANGEME semantics everywhere."""
+    signal, so a list consisting only of it is empty. Applied to both alias files
+    and ``owners.yaml`` owners lists — one CHANGEME semantics everywhere."""
     return [o for o in owners if o != CHANGEME_SLUG]
 
 
@@ -148,7 +152,7 @@ def _validate_owners_value(value: object, where: str, errors: list[str]) -> list
     if not isinstance(value, list) or not all(isinstance(x, str) and x for x in value):
         errors.append(f"{where}: 'owners' must be a non-empty string, a list of non-empty strings, or null")
         return UNSET
-    return normalize_product_owners([str(x) for x in value])
+    return normalize_owners([str(x) for x in value])
 
 
 def _is_valid_slack(raw: object) -> TypeGuard[str | bool]:
@@ -279,11 +283,22 @@ def _validate_settings(data: dict[object, object], errors: list[str]) -> RepoSet
             continue
         reserved_dirs.append(pattern)
 
+    alias_files: list[str] = []
+    for name in _validate_string_list(data["alias_files"], "alias_files", errors) if "alias_files" in data else []:
+        if "/" in name:
+            errors.append(f"alias_files: '{name}' must be a bare file name, without '/'")
+            continue
+        if name == OWNERS_FILENAME:
+            errors.append(f"alias_files: '{OWNERS_FILENAME}' is the ownership file, not an alias")
+            continue
+        alias_files.append(name)
+
     codeowners = _validate_codeowners(data["codeowners"], errors) if "codeowners" in data else CodeownersSettings()
     return RepoSettings(
         github_org=github_org,
         producers=producers,
         reserved_dirs=tuple(reserved_dirs),
+        alias_files=tuple(alias_files),
         codeowners=codeowners,
     )
 
@@ -418,8 +433,8 @@ def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersF
     return file, errors
 
 
-def parse_product_yaml_as_owners(text: str, *, path: Path, directory: str) -> OwnersFile | None:
-    """Load ``product.yaml`` as an aliased ownership file, or None if it has no
+def parse_alias_file_as_owners(text: str, *, path: Path, directory: str) -> OwnersFile | None:
+    """Load an alias file as an ownership file, or None if it has no
     usable ``owners:`` list."""
     try:
         data = yaml.safe_load(text)
@@ -430,7 +445,7 @@ def parse_product_yaml_as_owners(text: str, *, path: Path, directory: str) -> Ow
     raw = data["owners"]
     if not isinstance(raw, list) or not all(isinstance(x, str) and x for x in raw):
         return None
-    owners = normalize_product_owners(raw)
+    owners = normalize_owners(raw)
     return OwnersFile(path=path, directory=directory, owners=owners, is_alias=True)
 
 
@@ -443,8 +458,8 @@ def match_is_glob(match: str) -> bool:
 def is_simple_owners_file(parsed: OwnersFile | None, *, allow_anchored_rules: bool = False) -> bool:
     """Whether a file is "simple" — mechanically relocatable, nothing but ownership.
 
-    Both callers agree that status/``inherit: false`` (and being a
-    ``product.yaml`` alias) disqualify a file. So does a ``teams:`` registry:
+    Both callers agree that status/``inherit: false`` (and being an
+    alias file) disqualify a file. So does a ``teams:`` registry:
     it is root-only content relocation would strand. So does any rule carrying
     more than match+owners: relocation only preserves owners, so rule-level
     ``status``/``inherit`` must pin the file. They differ on rules:

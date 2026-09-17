@@ -90,12 +90,17 @@ version: 1
 owners: []
 github_org: acme
 producers: [review-bot]
+alias_files: [package.yaml]
 teams:
   team-billing:
     slack: '#billing'
     notifications:
       review-bot: '#billing-reviews'
 ```
+
+`alias_files` names the other files that count as ownership files, such as a package manifest that already lists owners.
+Only the `owners` field of such a file is read, and an `owners.yaml` next to it wins.
+Without the setting, only `owners.yaml` decides ownership.
 
 [SPEC.md](https://github.com/PostHog/posthog/blob/master/tools/owners/SPEC.md) lists every field and the full resolution algorithm.
 For editor completion, point your YAML language server at [`owners.schema.json`](https://github.com/PostHog/posthog/blob/master/tools/owners/owners.schema.json).

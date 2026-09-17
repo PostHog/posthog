@@ -6,6 +6,8 @@ github_org: PostHog
 producers: [stamphog, visual_review]
 # services/mcp generate-tools reads every YAML file in a product's mcp/ directory.
 reserved_dirs: ['products/**/mcp/**']
+# A product manifest already lists its owners, so it counts as an ownership file.
+alias_files: [product.yaml]
 # frontend/ runs the Jest suites of the product frontends, so their JUnit paths start from there.
 codeowners:
     jest_root: frontend

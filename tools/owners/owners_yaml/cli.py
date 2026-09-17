@@ -18,16 +18,8 @@ from .census import census
 from .codeowners import package_dirs_from, project
 from .github import GitHubLookupError, GitHubOrg
 from .matcher import compile_pattern, normalize_path
-from .resolver import (
-    OWNERS_FILENAME,
-    PRODUCT_FILENAME,
-    OwnersResolver,
-    Purpose,
-    RepoRootNotFound,
-    read_stdin_paths,
-    resolution_to_wire,
-)
-from .schema import RepoSettings, is_simple_owners_file, normalize_product_owners
+from .resolver import OWNERS_FILENAME, OwnersResolver, Purpose, RepoRootNotFound, read_stdin_paths, resolution_to_wire
+from .schema import RepoSettings, is_simple_owners_file, normalize_owners
 
 # GitHub Actions parses every YAML file under this directory as a workflow, in any repo.
 BUILTIN_RESERVED_DIRS = (".github/workflows/**",)
@@ -299,12 +291,12 @@ def cmd_lint(live: bool, org: str | None, repo_root: Path | None, paths: tuple[s
             if reserved_error is not None:
                 errors.append(reserved_error)
 
-        if entry.name == PRODUCT_FILENAME:
-            # Only flags a conflict. A host that scaffolds product.yaml validates its owners itself.
+        if entry.is_alias:
+            # Only flags a conflict. A host that scaffolds the alias file validates its owners itself.
             if directory in owners_yaml_dirs:
-                errors.append(f"{directory or '<root>'}: has both product.yaml (with owners) and owners.yaml")
+                errors.append(f"{directory or '<root>'}: has both {entry.name} (with owners) and owners.yaml")
             if parsed and parsed.owners:
-                owners_by_file[rel].update(normalize_product_owners(parsed.owners))
+                owners_by_file[rel].update(normalize_owners(parsed.owners))
             continue
 
         for err in entry.errors:

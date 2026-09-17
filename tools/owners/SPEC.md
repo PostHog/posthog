@@ -25,7 +25,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 1. An ownership file applies to the directory that contains it and to everything below that directory.
 2. A directory MUST NOT contain more than one ownership file.
-3. A tool MUST read only the file named `owners.yaml` and the alias files it declares. It MUST NOT read other file names as ownership files.
+3. A tool MUST read only the file named `owners.yaml` and the alias files the root file declares (section 6). It MUST NOT read other file names as ownership files.
 4. An `owners.yaml` MUST NOT be placed in a directory where other tooling reads every YAML file. `.github/workflows/` and its subdirectories are always reserved. The root file MAY reserve more locations with `reserved_dirs` (section 5).
 
 ## 3. Fields
@@ -176,6 +176,7 @@ Only the root file MAY carry these fields. A tool MUST report them as errors in 
 | `github_org`    | string           | The GitHub organization of the team slugs.                                                                |
 | `producers`     | list of strings  | The automation names a team can address in `notifications`.                                               |
 | `reserved_dirs` | list of patterns | Extra locations where `owners.yaml` MUST NOT be placed. The patterns are relative to the repository root. |
+| `alias_files`   | list of strings  | The other file names that count as ownership files (section 6).                                           |
 | `codeowners`    | mapping          | How a CODEOWNERS export spells test file paths. This field is specific to `owners-yaml` (section 8).      |
 
 ### 5.1 `github_org`
@@ -213,12 +214,19 @@ When the primary owner is a person handle, the path has no channel.
 
 ## 6. Alias files
 
-A tool MAY read other files as ownership files, such as a package manifest that already lists owners.
-For an alias file:
+An alias file is a file with another name that a tool reads as an ownership file, such as a package manifest that already lists owners.
+The root file declares the alias files in `alias_files` (section 5).
 
-1. The tool MUST read only its `owners` field. All other fields have no effect on ownership.
-2. The `owners` field MUST be a list of non-empty strings. Otherwise the file counts as absent.
-3. An `owners.yaml` in the same directory takes precedence. A linter SHOULD report a directory that has both.
+1. Each entry of `alias_files` MUST be a bare file name. It MUST NOT contain `/`.
+2. An entry MUST NOT be `owners.yaml`.
+3. A tool MUST NOT read a file as an ownership file unless the file is named `owners.yaml` or the root file declares its name in `alias_files`.
+4. A tool MUST read only the `owners` field of an alias file. All other fields have no effect on ownership.
+5. The `owners` field MUST be a list of non-empty strings. Otherwise the file counts as absent.
+6. An `owners.yaml` in the same directory takes precedence. A linter SHOULD report a directory that has both.
+7. When a directory holds more than one alias file, the first name in `alias_files` decides.
+8. An alias file in the repository root has no effect. The names come from the root `owners.yaml`, and that file takes precedence over any alias file next to it.
+
+A repository with no root file, or with no `alias_files`, has no alias files. Only `owners.yaml` decides ownership there.
 
 ## 7. Resolver interface
 
@@ -266,9 +274,9 @@ In `owners-yaml`, both `owners resolve --json` and `python -m owners_yaml` imple
 
 This section describes the reference implementation. It is not part of the format.
 
-- It reads `product.yaml` as an alias file.
+- It reads the alias files the root `owners.yaml` declares. PostHog's own repository declares `product.yaml`.
 - It removes the placeholder owner `team-CHANGEME` from every owners list.
-- Its linter reports schema errors, reserved locations, directories with both `owners.yaml` and `product.yaml`, rule patterns that match no tracked file, and the number of unowned files. With `--live`, it also checks team slugs and person handles against the GitHub organization.
+- Its linter reports schema errors, reserved locations, directories with both an `owners.yaml` and an alias file, rule patterns that match no tracked file, and the number of unowned files. With `--live`, it also checks team slugs and person handles against the GitHub organization.
 - Its CODEOWNERS export covers test files only: `test_*.py` and `*_test.py` for pytest, and `*.test.*` or `*.spec.*` with a `.js`, `.jsx`, `.ts`, or `.tsx` extension for Jest. The `codeowners` setting accepts these keys:
 
   | Key                  | Meaning                                                                                                                                          |
@@ -311,6 +319,7 @@ owners: []
 github_org: acme
 producers: [review-bot, deploy-bot]
 reserved_dirs: ['services/*/openapi/**']
+alias_files: [package.yaml]
 teams:
   team-billing:
     slack: '#billing'

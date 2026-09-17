@@ -81,7 +81,7 @@ Before a run, a runner can validate each case file against `case.schema.json`.
 
 ## Cases that apply only to some implementations
 
-- `aliases.yaml` applies only to an implementation that reads `product.yaml` as an alias file ([SPEC.md sections 6 and 8](https://github.com/PostHog/posthog/blob/master/tools/owners/SPEC.md#6-alias-files)).
+- `aliases.yaml` applies only to an implementation that supports alias files ([SPEC.md section 6](https://github.com/PostHog/posthog/blob/master/tools/owners/SPEC.md#6-alias-files)). Its cases declare `product.yaml` in `alias_files`.
 - `owners-yaml-extensions.yaml` is not part of the format. It tests the `team-CHANGEME` placeholder of `owners-yaml` ([SPEC.md section 8](https://github.com/PostHog/posthog/blob/master/tools/owners/SPEC.md#8-the-owners-yaml-reference-implementation)). Other implementations skip this file.
 - A case with a `producer` applies only to an implementation that accepts a producer.
 

@@ -131,11 +131,12 @@ def registry_repo(tmp_path: Path) -> Path:
 def test_teams_registry_and_settings_are_root_only(tmp_path: Path) -> None:
     text = (
         "version: 1\nowners: [team-a]\ngithub_org: acme\nproducers: [bot]\n"
-        "reserved_dirs: ['gen/**']\ncodeowners:\n  jest_root: web\n"
+        "reserved_dirs: ['gen/**']\nalias_files: [package.yaml]\ncodeowners:\n  jest_root: web\n"
         "teams:\n  team-a:\n    slack: '#a'\n"
     )
     _, sub_errors = parse_owners_file(text, path=tmp_path / "sub/owners.yaml", directory="sub")
     assert sorted(e.split("'")[1] for e in sub_errors if "only allowed in the repo-root" in e) == [
+        "alias_files",
         "codeowners",
         "github_org",
         "producers",
@@ -148,6 +149,7 @@ def test_teams_registry_and_settings_are_root_only(tmp_path: Path) -> None:
     assert root.settings.github_org == "acme"
     assert root.settings.producers == frozenset({"bot"})
     assert root.settings.reserved_dirs == ("gen/**",)
+    assert root.settings.alias_files == ("package.yaml",)
     assert root.settings.codeowners == CodeownersSettings(jest_root="web")
 
 
@@ -162,6 +164,8 @@ def test_json_schema_accepts_the_same_top_level_keys_as_the_parser() -> None:
         ("github_org: acme/repo\n", "'github_org' must be a GitHub organization name"),
         ("producers: bot\n", "'producers' must be a list"),
         ("reserved_dirs: ['a***b']\n", "reserved_dirs: invalid pattern"),
+        ("alias_files: ['pkg/product.yaml']\n", "must be a bare file name"),
+        ("alias_files: [owners.yaml]\n", "is the ownership file, not an alias"),
         ("codeowners:\n  jest_dir: web\n", "codeowners: unknown field 'jest_dir'"),
     ],
 )
@@ -394,6 +398,7 @@ def test_fmt_product_yaml_is_a_free_carrier(tmp_path: Path) -> None:
     plan = _fmt_plan(
         tmp_path,
         {
+            "owners.yaml": "version: 1\nowners: []\nalias_files: [product.yaml]\n",
             "products/foo/product.yaml": "name: Foo\nowners:\n  - team-foo\n",
             "products/foo/x.py": "x",
             "r1.py": "x",
@@ -411,6 +416,7 @@ def test_fmt_never_places_rules_on_a_product_yaml_dir(tmp_path: Path) -> None:
     plan = _fmt_plan(
         tmp_path,
         {
+            "owners.yaml": "version: 1\nowners: []\nalias_files: [product.yaml]\n",
             "products/foo/product.yaml": "name: Foo\nowners:\n  - team-foo\n",
             "products/foo/x.py": "x",
             "products/foo/sub/owners.yaml": "version: 1\nowners: [team-bar]\n",
@@ -526,7 +532,7 @@ def test_fmt_reports_stale_rule_removals(tmp_path: Path) -> None:
     plan = _fmt_plan(
         tmp_path,
         {
-            "owners.yaml": "version: 1\nowners: []\n",
+            "owners.yaml": "version: 1\nowners: []\nalias_files: [product.yaml]\n",
             "products/foo/product.yaml": "name: Foo\nowners:\n    - team-p\n",
             "products/foo/x.py": "x",
             "products/foo/backend/owners.yaml": (
@@ -668,13 +674,31 @@ def test_resolver_reads_through_an_injected_source() -> None:
     assert resolver.resolve("posthog/temporal/test_run.py").source == "posthog/temporal/owners.yaml"
 
 
-def test_map_prefetches_a_batch_through_read_all_before_any_read() -> None:
+@pytest.mark.parametrize(
+    "root_text,expected_prefetch",
+    [
+        ("version: 1\nowners: [team-root]\n", ["a/b/owners.yaml", "a/owners.yaml", "owners.yaml"]),
+        (
+            "version: 1\nowners: [team-root]\nalias_files: [product.yaml]\n",
+            [
+                "a/b/owners.yaml",
+                "a/b/product.yaml",
+                "a/owners.yaml",
+                "a/product.yaml",
+                "owners.yaml",
+            ],
+        ),
+    ],
+)
+def test_map_prefetches_a_batch_through_read_all_before_the_per_path_reads(
+    root_text: str, expected_prefetch: list[str]
+) -> None:
     calls: list[tuple[str, object]] = []
 
     class BatchDictSource:
         def read(self, path: str) -> str | None:
             calls.append(("read", path))
-            return "version: 1\nowners: [team-root]\n" if path == "owners.yaml" else None
+            return root_text if path == "owners.yaml" else None
 
         def read_all(self, paths: list[str]) -> None:
             calls.append(("read_all", list(paths)))
@@ -682,18 +706,10 @@ def test_map_prefetches_a_batch_through_read_all_before_any_read() -> None:
     resolver = OwnersResolver(source=BatchDictSource())
     resolver.map(["a/b/x.py"])
 
-    assert calls[0] == (
-        "read_all",
-        [
-            "a/b/owners.yaml",
-            "a/b/product.yaml",
-            "a/owners.yaml",
-            "a/product.yaml",
-            "owners.yaml",
-            "product.yaml",
-        ],
-    )
-    assert all(c[0] == "read" for c in calls[1:])
+    # The root file is read on its own first, because it names the alias files the batch needs.
+    assert calls[0] == ("read", "owners.yaml")
+    assert calls[1] == ("read_all", expected_prefetch)
+    assert all(c[0] == "read" for c in calls[2:])
 
 
 def test_census_counts_test_files_per_team_and_folds_gaps_into_unowned(tmp_path: Path) -> None:

@@ -1,10 +1,12 @@
-# These cases apply only to an implementation that reads product.yaml as an alias file (SPEC sections 6 and 8).
+# These cases apply only to an implementation that supports alias files (SPEC section 6).
+# They declare product.yaml as the alias file, which is what owners-yaml's host repository uses.
 cases:
     - name: a product.yaml owners list decides ownership
       files:
           owners.yaml: |
               version: 1
               owners: team-root
+              alias_files: [product.yaml]
           products/foo/product.yaml: |
               name: Foo
               owners:
@@ -23,6 +25,7 @@ cases:
               version: 1
               owners: team-root
               status: deprecated
+              alias_files: [product.yaml]
           products/foo/product.yaml: |
               name: Foo
               owners: [team-foo]
@@ -41,6 +44,10 @@ cases:
 
     - name: an owners.yaml in the same directory takes precedence over product.yaml
       files:
+          owners.yaml: |
+              version: 1
+              owners: []
+              alias_files: [product.yaml]
           products/foo/owners.yaml: |
               version: 1
               owners: team-owners-file
@@ -57,6 +64,10 @@ cases:
 
     - name: product.yaml applies when the owners.yaml next to it is invalid
       files:
+          owners.yaml: |
+              version: 1
+              owners: []
+              alias_files: [product.yaml]
           products/foo/owners.yaml: |
               owners: team-owners-file
           products/foo/product.yaml: |
@@ -75,6 +86,7 @@ cases:
           owners.yaml: |
               version: 1
               owners: team-root
+              alias_files: [product.yaml]
           products/string/product.yaml: |
               owners: team-foo
           products/null/product.yaml: |
@@ -114,6 +126,7 @@ cases:
           owners.yaml: |
               version: 1
               owners: team-root
+              alias_files: [product.yaml]
           products/foo/product.yaml: |
               owners: []
       expect:
@@ -123,3 +136,38 @@ cases:
               status: active
               source: owners.yaml
               slack: '#team-root'
+
+    - name: an undeclared product.yaml is not an ownership file
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+          products/foo/product.yaml: |
+              name: Foo
+              owners:
+                - team-foo
+      expect:
+          products/foo/backend/x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+
+    - name: the first declared alias file in a directory decides
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              alias_files: [product.yaml, package.yaml]
+          products/foo/package.yaml: |
+              owners: [team-package]
+          products/foo/product.yaml: |
+              owners: [team-product]
+      expect:
+          products/foo/x.py:
+              owners: [team-product]
+              unowned_by_design: false
+              status: active
+              source: products/foo/product.yaml
+              slack: '#team-product'

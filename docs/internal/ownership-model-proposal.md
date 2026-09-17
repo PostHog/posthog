@@ -114,7 +114,7 @@ owners: team-ingestion
 
 ### `product.yaml` as an accepted alias
 
-`products/<name>/product.yaml` with an `owners:` key is read by the resolver as an `owners.yaml` with that same `owners:` list. Every other field in `product.yaml` (`name:` today, anything added later) is ignored for ownership purposes — `product.yaml` remains free to grow product metadata without touching the ownership schema. Rules:
+`products/<name>/product.yaml` with an `owners:` key is read by the resolver as an `owners.yaml` with that same `owners:` list, because the root `owners.yaml` enables it with `alias_files: [product.yaml]`. Every other field in `product.yaml` (`name:` today, anything added later) is ignored for ownership purposes — `product.yaml` remains free to grow product metadata without touching the ownership schema. Rules:
 
 - A directory may have `product.yaml`-with-`owners` **or** `owners.yaml`, never both — lint error.
 - Sub-folder overrides inside a product use nested `owners.yaml` as anywhere else (e.g. `products/x/backend/migrations/owners.yaml`).

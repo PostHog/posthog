@@ -15,8 +15,8 @@ consumer that reads CODEOWNERS and cannot read ``owners.yaml``. The GitHub organ
 
 ``--repo-root`` names the directory holding the ownership files. Without it the
 resolver locates the repo with ``git rev-parse``, which needs a real worktree; a
-consumer that fetched only the ``owners.yaml`` / ``product.yaml`` files into a
-scratch directory passes the flag instead.
+consumer that fetched only the ownership files into a scratch directory passes
+the flag instead.
 
 Kept off click on purpose (stdlib + pyyaml only) so a workflow can run it with
 ``python -m owners_yaml`` after installing just pyyaml, with no project sync.

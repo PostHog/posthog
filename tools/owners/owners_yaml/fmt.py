@@ -16,7 +16,7 @@ split suggestions from ``owners:lint`` are the everyday incremental mechanism
 The cost model (module constants, tunable — "optimal" is relative to them):
 
 * ``ALPHA`` — the price of a dedicated simple ``owners.yaml`` existing at all.
-  Pinned carriers (``product.yaml`` manifests, non-simple ``owners.yaml``,
+  Pinned carriers (alias files, non-simple ``owners.yaml``,
   glob-bearing files, the repo root) cost nothing: they exist anyway.
 * ``GAMMA`` — the per-level price of carrying a statement as a rule in an
   ancestor instead of at its own directory (tree distance).
@@ -34,7 +34,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .matcher import compile_pattern
-from .resolver import OWNERS_FILENAME, PRODUCT_FILENAME, OwnersFile, OwnersResolver, ParsedOwnershipFile
+from .resolver import OWNERS_FILENAME, OwnersFile, OwnersResolver, ParsedOwnershipFile
 from .schema import OwnersRule, _Unset, is_simple_owners_file, match_is_glob
 
 # Cost model. "Canonical" is optimal only relative to these; tune to taste.
@@ -89,10 +89,10 @@ class _Node:
     label: OwnerSet = None  # canonical owner set for files directly in this dir
     # Statements that originate at this directory (dir-context flip + file flips).
     statements: list[_Statement] = field(default_factory=list)
-    pinned: bool = False  # a product.yaml / non-simple owners.yaml carrier lives here (absorbs rules)
+    pinned: bool = False  # an alias file / non-simple owners.yaml carrier lives here (absorbs rules)
     pinned_label: OwnerSet = None  # owners the pinned file already provides here
     frozen: bool = False  # a glob-bearing file lives here: untouched, never a carrier
-    alias: bool = False  # the pin is a product.yaml manifest: only its owners list is read,
+    alias: bool = False  # the pin is an alias file: only its owners list is read,
     # so it can never physically carry rules — placements must land elsewhere
 
 
@@ -173,7 +173,7 @@ class CanonicalPlacer:
         held by the most of its *immediate* children and direct files — each becomes a
         boundary only if it disagrees, so this is the local min-boundary choice.
 
-        Pinned and frozen dirs isolate: they carry their own owners (a ``product.yaml``
+        Pinned and frozen dirs isolate: they carry their own owners (an alias file
         manifest, a glob file) and do not vote in their parent, so a manifest at
         ``products/foo`` keeps ownership there instead of floating a rule up the tree."""
         for child in node.children.values():
@@ -235,10 +235,10 @@ class CanonicalPlacer:
         """Classify the parsed ownership files. Returns (pinned_carriers, frozen_dirs
         mapped to their file's own top-level owner set, alias_dirs).
 
-        Pinned carriers (``product.yaml`` with owners, or a non-simple owners.yaml
+        Pinned carriers (an alias file with owners, or a non-simple owners.yaml
         with status/inherit) absorb statements for free. Frozen dirs host a
         glob-bearing file — crosscutting, untouched, never a carrier. Alias dirs are
-        the product.yaml subset of pinned: the manifest provides its dir's owners but
+        the alias-file subset of pinned: the file provides its dir's owners but
         physically cannot hold rules (only its ``owners:`` list is read), so
         placements must land elsewhere."""
         pinned: dict[str, OwnerSet] = {}
@@ -246,7 +246,7 @@ class CanonicalPlacer:
         alias: set[str] = set()
         for entry in entries:
             parsed = entry.parsed
-            if entry.name == PRODUCT_FILENAME:
+            if entry.is_alias:
                 if parsed and parsed.owners:
                     pinned[entry.rel_dir] = tuple(parsed.owners)
                     alias.add(entry.rel_dir)
@@ -311,7 +311,7 @@ class CanonicalPlacer:
             # Option A: do not open here; carry own statements up ``d`` levels.
             carry_up = GAMMA * d * n_here + sum(cost(c, child_d)[0] for c in node.children.values())
             if (node.frozen or node.alias) and not forced_open:
-                # A glob file or product.yaml manifest lives here — it can never carry
+                # A glob file or alias file lives here — it can never carry
                 # new rules; statements pass through.
                 memo[key] = (carry_up, False)
                 return memo[key]
@@ -370,7 +370,7 @@ class CanonicalPlacer:
                 # statements that live under a real subdirectory can move to a child
                 # facility — a direct file (``/x.tsx``) has no subdir to hold it, the
                 # carrier's own top-level statement (empty head) stays put, and a dir
-                # hosting a glob file or product.yaml manifest cannot take new rules.
+                # hosting a glob file or alias file cannot take new rules.
                 # The cap is soft: a group of one is never exiled to a per-dir file
                 # (that recreates the single-purpose sprawl fmt exists to remove), so
                 # if no group has at least two statements the overflow is tolerated.
@@ -402,7 +402,8 @@ class CanonicalPlacer:
         pinned_dirs = set(pinned) | set(frozen)
 
         tracked = self.resolver.tracked_files()
-        code_files = [p for p in tracked if p.rsplit("/", 1)[-1] not in (OWNERS_FILENAME, PRODUCT_FILENAME)]
+        ownership_filenames = self.resolver.ownership_filenames()
+        code_files = [p for p in tracked if p.rsplit("/", 1)[-1] not in ownership_filenames]
         # Every file's (owners, status) — the proof compares both: placement only
         # models owners, so a fold that reorders past a status rule must fail the
         # proof rather than silently drop generated/vendored from a subtree.
@@ -453,7 +454,7 @@ class CanonicalPlacer:
         carry distance of every statement each file currently holds as a rule."""
         total = 0
         for entry in entries:
-            if entry.name == PRODUCT_FILENAME or entry.parsed is None:
+            if entry.is_alias or entry.parsed is None:
                 continue
             parsed = entry.parsed
             if _is_simple_file(parsed) and entry.rel_dir != "":
@@ -476,7 +477,7 @@ class CanonicalPlacer:
             parsed = entry.parsed
             if parsed is None:
                 continue
-            if entry.name == PRODUCT_FILENAME:
+            if entry.is_alias:
                 files[entry.rel_dir] = parsed  # aliases never receive placements
             elif not _is_simple_file(parsed):
                 # Copy: placements are appended, and the parsed entries are cached.

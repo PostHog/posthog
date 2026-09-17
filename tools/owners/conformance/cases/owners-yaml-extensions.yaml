@@ -49,6 +49,7 @@ cases:
           owners.yaml: |
               version: 1
               owners: null
+              alias_files: [product.yaml]
           products/bar/product.yaml: |
               name: Bar
               owners:

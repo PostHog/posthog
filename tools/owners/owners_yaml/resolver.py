@@ -1,8 +1,8 @@
 """Ownership resolution for a repo-relative path.
 
-Walks from the repo root toward the path, collecting ``owners.yaml`` (or aliased
-``product.yaml``) contributions, honoring ``inherit: false`` as a hard cut, and
-merges them nearest-file-wins per field. SPEC.md in this package defines the format.
+Walks from the repo root toward the path, collecting ``owners.yaml`` (or alias file)
+contributions, honoring ``inherit: false`` as a hard cut, and merges them nearest-file-wins
+per field. SPEC.md in this package defines the format.
 """
 
 from __future__ import annotations
@@ -16,18 +16,16 @@ from typing import Literal, Protocol, TypedDict, runtime_checkable
 
 from .matcher import compile_pattern, normalize_path
 from .schema import (
+    OWNERS_FILENAME,
     UNSET,
     OwnersFile,
     Producer,
     RepoSettings,
     TeamEntry,
     _Unset,
+    parse_alias_file_as_owners,
     parse_owners_file,
-    parse_product_yaml_as_owners,
 )
-
-OWNERS_FILENAME = "owners.yaml"
-PRODUCT_FILENAME = "product.yaml"
 
 
 @dataclass(frozen=True)
@@ -141,9 +139,13 @@ class ParsedOwnershipFile:
 
     path: Path  # absolute
     rel_dir: str  # repo-relative posix dir ("" = root)
-    name: str  # OWNERS_FILENAME or PRODUCT_FILENAME
+    name: str  # OWNERS_FILENAME or one of the configured alias file names
     parsed: OwnersFile | None
     errors: list[str] = field(default_factory=list)
+
+    @property
+    def is_alias(self) -> bool:
+        return self.name != OWNERS_FILENAME
 
 
 @dataclass
@@ -215,7 +217,7 @@ VIRTUAL_ROOT = Path("/")
 
 
 class OwnersResolver:
-    """Resolves ownership by reading ``owners.yaml`` / ``product.yaml`` through an ``OwnershipSource``.
+    """Resolves ownership by reading ``owners.yaml`` and alias files through an ``OwnershipSource``.
 
     Reads a worktree by default, locating the repo root via ``git rev-parse`` (override with
     ``repo_root`` for testing). Pass ``source`` to resolve without one. Parsed files are cached per
@@ -237,6 +239,14 @@ class OwnersResolver:
         self._parsed_ownership: list[ParsedOwnershipFile] | None = None
         self._teams_cache: dict[str, TeamEntry] | None = None
 
+    def alias_files(self) -> tuple[str, ...]:
+        """The alias file names the root file declares, in the order that decides a tie."""
+        return self.settings().alias_files
+
+    def ownership_filenames(self) -> tuple[str, ...]:
+        """Every file name that counts as an ownership file, ``owners.yaml`` first."""
+        return (OWNERS_FILENAME, *self.alias_files())
+
     def _load_dir_file(self, directory: str) -> OwnersFile | None:
         """Ownership file for a repo-relative directory ("" = root), or None."""
         if directory in self._dir_cache:
@@ -251,15 +261,18 @@ class OwnersResolver:
             parsed, _errors = parse_owners_file(owners_text, path=self.repo_root / owners_rel, directory=directory)
             result = parsed
 
-        # A product.yaml alias only applies when there is no owners.yaml (a
-        # directory with both is a lint error; resolve prefers owners.yaml).
-        if result is None:
-            product_rel = f"{prefix}{PRODUCT_FILENAME}"
-            product_text = self.source.read(product_rel)
-            if product_text is not None:
-                result = parse_product_yaml_as_owners(
-                    product_text, path=self.repo_root / product_rel, directory=directory
-                )
+        # An alias only applies when there is no owners.yaml (a directory with both is a lint
+        # error; resolve prefers owners.yaml). The root directory is skipped because the alias
+        # names come from the root owners.yaml, which is the file an alias there would replace.
+        if result is None and directory:
+            for name in self.alias_files():
+                alias_rel = f"{prefix}{name}"
+                alias_text = self.source.read(alias_rel)
+                if alias_text is None:
+                    continue
+                result = parse_alias_file_as_owners(alias_text, path=self.repo_root / alias_rel, directory=directory)
+                if result is not None:
+                    break
 
         self._dir_cache[directory] = result
         return result
@@ -317,13 +330,11 @@ class OwnersResolver:
     def ownership_file_paths(self, paths: list[str]) -> list[str]:
         """Every ownership file that could decide any of ``paths``. A source that fetches over the
         network reads this first, so it can fetch the batch's files together."""
+        directories = {d for path in paths for d in self._ancestor_dirs(normalize_path(path))}
+        # No alias applies in the root directory (see _load_dir_file), so none is listed there.
         return sorted(
-            {
-                f"{directory}/{name}" if directory else name
-                for path in paths
-                for directory in self._ancestor_dirs(normalize_path(path))
-                for name in (OWNERS_FILENAME, PRODUCT_FILENAME)
-            }
+            {OWNERS_FILENAME}
+            | {f"{directory}/{name}" for directory in directories if directory for name in self.ownership_filenames()}
         )
 
     def resolve(self, path: str) -> Resolution:
@@ -425,7 +436,7 @@ class OwnersResolver:
         return paths
 
     def ownership_files(self) -> list[Path]:
-        """Absolute paths of every tracked ownership file (owners.yaml + product.yaml)."""
+        """Absolute paths of every tracked ownership file (owners.yaml plus the alias files)."""
         return [entry.path for entry in self.parsed_ownership_files()]
 
     def parsed_ownership_files(self) -> list[ParsedOwnershipFile]:
@@ -435,14 +446,15 @@ class OwnersResolver:
         if self._parsed_ownership is not None:
             return self._parsed_ownership
         entries: list[ParsedOwnershipFile] = []
+        filenames = self.ownership_filenames()
         for rel in self.tracked_files():
             name = rel.rsplit("/", 1)[-1]
-            if name not in (OWNERS_FILENAME, PRODUCT_FILENAME):
+            if name not in filenames:
                 continue
             abs_path = self.repo_root / rel
             rel_dir = rel.rsplit("/", 1)[0] if "/" in rel else ""
-            if name == PRODUCT_FILENAME:
-                parsed = parse_product_yaml_as_owners(abs_path.read_text(), path=abs_path, directory=rel_dir)
+            if name != OWNERS_FILENAME:
+                parsed = parse_alias_file_as_owners(abs_path.read_text(), path=abs_path, directory=rel_dir)
                 errors: list[str] = []
             else:
                 parsed, errors = parse_owners_file(abs_path.read_text(), path=abs_path, directory=rel_dir)

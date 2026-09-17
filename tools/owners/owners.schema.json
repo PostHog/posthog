@@ -41,6 +41,11 @@
             "items": { "$ref": "#/$defs/pattern" },
             "description": "Repository settings: patterns where owners.yaml must not be placed."
         },
+        "alias_files": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1, "not": { "pattern": "/" } },
+            "description": "Repository settings: other bare file names that count as ownership files."
+        },
         "codeowners": {
             "type": "object",
             "description": "Repository settings: how the owners-yaml CODEOWNERS export spells test paths.",

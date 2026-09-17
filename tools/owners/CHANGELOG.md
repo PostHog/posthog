@@ -17,7 +17,8 @@ First release on PyPI, as `owners-yaml`. The package was developed in the monore
 - `SPEC.md` section 7 defines the resolver interface, and `resolution.schema.json` describes its JSON response.
 - `conformance/` holds language-neutral test cases for the resolution rules, which any implementation can run.
 - `publish-owners.yml` publishes the package to PyPI when an `owners-v*` tag is pushed.
-- Root-only repo settings in `owners.yaml`: `github_org`, `producers`, `reserved_dirs`, and `codeowners`.
+- Root-only repo settings in `owners.yaml`: `github_org`, `producers`, `reserved_dirs`, `alias_files`, and `codeowners`.
+- `alias_files` declares the file names, besides `owners.yaml`, that count as ownership files.
 - `--repo-root` on every CLI command, and `--org` on `lint` and `codeowners`.
 - A tree that is not a git worktree is read from disk, so the CLI works on an export or a scratch copy.
 - `owners_yaml.github.GitHubOrg` validates team slugs and handles without any host tooling.
@@ -34,6 +35,7 @@ First release on PyPI, as `owners-yaml`. The package was developed in the monore
 - The CODEOWNERS projection reads its Jest spelling rules from the `codeowners` settings instead of PostHog's layout.
 - Outside a git worktree and without `--repo-root`, the CLI prints an error instead of a traceback.
 - `version: true` and `version: 1.0` no longer count as `version: 1`, so such a file counts as absent.
+- `product.yaml` is no longer read as an ownership file unless the root `owners.yaml` lists it in `alias_files`. It was a PostHog convention baked into the code.
 
 ## 0.1.0
 
