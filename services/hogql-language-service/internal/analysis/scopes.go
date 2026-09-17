@@ -9,6 +9,7 @@ import (
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/propertyresolver"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/querylimits"
 )
 
 type Relation struct {
@@ -54,6 +55,8 @@ type queryScope struct {
 	cteRoot            bool
 	aliases            map[string]selectAlias
 	propertyNamespaces map[string]propertyNamespace
+	sourceNames        map[string]int
+	duplicateSources   []Source
 }
 
 type propertyNamespace struct {
@@ -67,7 +70,7 @@ var tableReferencePattern = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+([A-Za-z_]
 func queryScopes(statement clickhouse.Expr, budget *projectionBudget) []*queryScope {
 	var scopes []*queryScope
 	byQuery := map[*clickhouse.SelectQuery]*queryScope{}
-	clickhouse.Walk(statement, func(node clickhouse.Expr) bool {
+	walkIncludingExcept(statement, func(node clickhouse.Expr) bool {
 		if query, ok := node.(*clickhouse.SelectQuery); ok {
 			scope := &queryScope{query: query, bindings: map[string]Relation{}, budget: budget}
 			scopes = append(scopes, scope)
@@ -83,6 +86,9 @@ func queryScopes(statement clickhouse.Expr, budget *projectionBudget) []*querySc
 			if scope.parent == nil || span(candidate.query) < span(scope.parent.query) {
 				scope.parent = candidate
 			}
+		}
+		if scope.parent != nil && (scope.parent.query.UnionAll == scope.query || scope.parent.query.UnionDistinct == scope.query || scope.parent.query.Except == scope.query) {
+			scope.cteRoot = true
 		}
 	}
 	for _, scope := range scopes {
@@ -105,14 +111,55 @@ func queryScopes(statement clickhouse.Expr, budget *projectionBudget) []*querySc
 	return scopes
 }
 
-func addBinding(scope *queryScope, name, alias string, binding Relation) {
+func walkIncludingExcept(expr clickhouse.Expr, visit func(clickhouse.Expr) bool) {
+	var exceptBranches []*clickhouse.SelectQuery
+	seenExcept := map[*clickhouse.SelectQuery]bool{}
+	wrapper := func(node clickhouse.Expr) bool {
+		walkChildren := visit(node)
+		if query, ok := node.(*clickhouse.SelectQuery); ok && walkChildren && query.Except != nil && !seenExcept[query.Except] {
+			seenExcept[query.Except] = true
+			exceptBranches = append(exceptBranches, query.Except)
+		}
+		return walkChildren
+	}
+	clickhouse.Walk(expr, wrapper)
+	for len(exceptBranches) > 0 {
+		branch := exceptBranches[0]
+		exceptBranches = exceptBranches[1:]
+		clickhouse.Walk(branch, wrapper)
+	}
+}
+
+func addBinding(scope *queryScope, name, alias string, binding Relation, start, end int) {
 	scope.bindings[strings.ToLower(name)] = binding
-	source := Source{name: name, relation: binding}
+	source := Source{name: name, relation: binding, start: start, end: end}
 	if alias != "" {
 		scope.bindings[strings.ToLower(alias)] = binding
 		source.name = alias
 	}
 	scope.sources = append(scope.sources, source)
+	if scope.sourceNames == nil {
+		scope.sourceNames = map[string]int{}
+	}
+	scope.sourceNames[source.name]++
+	if scope.sourceNames[source.name] == 2 && len(scope.duplicateSources) < querylimits.MaxDiagnostics {
+		scope.duplicateSources = append(scope.duplicateSources, source)
+	}
+}
+
+func (s *queryScope) hasDuplicateSource(name string) bool {
+	for current := s; current != nil; current = current.parent {
+		if !s.budget.lookup(len(name) + 1) {
+			return true
+		}
+		if count, visible := current.sourceNames[name]; visible {
+			return count > 1
+		}
+		if current.cteRoot {
+			break
+		}
+	}
+	return false
 }
 
 func (s *queryScope) visibleCTEs(position int) []*cteBinding {
@@ -312,7 +359,7 @@ func bindSubquery(expr *clickhouse.TableExpr, scopes []*queryScope, budget *proj
 		inner.cteRoot = true
 		if alias != "" {
 			derived := &cteBinding{name: alias, query: subquery.Select, scope: inner, budget: budget}
-			addBinding(inner.parent, alias, "", Relation{name: alias, cte: derived})
+			addBinding(inner.parent, alias, "", Relation{name: alias, cte: derived}, int(expr.Pos()), int(expr.End()))
 		}
 	}
 	return true
@@ -465,7 +512,7 @@ func (c *cteBinding) appendFields(fields []projectedField) {
 func (c *cteBinding) appendWildcardFields(scope *queryScope, qualifier string) {
 	bindings := visibleBindings(scope)
 	if qualifier != "" {
-		c.appendBindingFields(bindings[strings.ToLower(qualifier)])
+		c.appendBindingFields(bindings[strings.ToLower(qualifier)], scope.hasDuplicateSource(qualifier))
 		return
 	}
 	seen := map[string]bool{}
@@ -476,7 +523,7 @@ func (c *cteBinding) appendWildcardFields(scope *queryScope, qualifier string) {
 				continue
 			}
 			seen[key] = true
-			c.appendBindingFields(source.relation)
+			c.appendBindingFields(source.relation, false)
 			if c.budget.exceeded {
 				return
 			}
@@ -487,18 +534,30 @@ func (c *cteBinding) appendWildcardFields(scope *queryScope, qualifier string) {
 	}
 }
 
-func (c *cteBinding) appendBindingFields(binding Relation) {
+func (c *cteBinding) appendBindingFields(binding Relation, suppressProvenance bool) {
 	if binding.table != nil {
 		fields := binding.table.Fields.Entries()
 		count := c.budget.take(len(fields))
 		for _, field := range fields[:count] {
 			namespace, _ := bindingPropertyNamespace(binding, field.Name)
+			if suppressProvenance {
+				namespace = ""
+			}
 			c.fields = append(c.fields, projectedField{entry: field, propertyNamespace: namespace})
 		}
 		return
 	}
 	if binding.cte != nil {
-		c.appendFields(binding.cte.projectedFields())
+		fields := binding.cte.projectedFields()
+		if !suppressProvenance {
+			c.appendFields(fields)
+			return
+		}
+		count := c.budget.take(len(fields))
+		for _, field := range fields[:count] {
+			field.propertyNamespace = ""
+			c.fields = append(c.fields, field)
+		}
 	}
 }
 
@@ -513,12 +572,18 @@ func projectedPropertyNamespace(scope *queryScope, expr clickhouse.Expr, positio
 		return namespace, ok
 	case *clickhouse.Path:
 		if len(typed.Fields) == 2 {
+			if scope.hasDuplicateSource(typed.Fields[0].Name) {
+				return "", false
+			}
 			if binding, ok := bindings[strings.ToLower(typed.Fields[0].Name)]; ok {
 				return bindingPropertyNamespace(binding, typed.Fields[1].Name)
 			}
 		}
 	case *clickhouse.NestedIdentifier:
 		if typed.DotIdent != nil {
+			if scope.hasDuplicateSource(typed.Ident.Name) {
+				return "", false
+			}
 			if binding, ok := bindings[strings.ToLower(typed.Ident.Name)]; ok {
 				return bindingPropertyNamespace(binding, typed.DotIdent.Name)
 			}

@@ -89,7 +89,7 @@ func (s *Statement) analyze() {
 	}
 	s.analyzed = true
 	s.scopes = queryScopes(s.expr, s.budget)
-	clickhouse.Walk(s.expr, func(node clickhouse.Expr) bool {
+	bindTables := func(node clickhouse.Expr) bool {
 		expr, ok := node.(*clickhouse.TableExpr)
 		if !ok {
 			return true
@@ -106,7 +106,7 @@ func (s *Statement) analyze() {
 			return true
 		}
 		if cte := resolveCTE(scope, name, start); cte != nil {
-			addBinding(scope, name, alias, Relation{name: cte.name, cte: cte})
+			addBinding(scope, name, alias, Relation{name: cte.name, cte: cte}, start, end)
 			return true
 		}
 		if original, exists := s.originalTableNames[strings.ToLower(name)]; exists {
@@ -120,23 +120,44 @@ func (s *Statement) analyze() {
 				// HogQL registers multi-part table paths under a double-underscore alias.
 				alias = implicitAlias
 			}
-			addBinding(scope, name, alias, Relation{name: name, table: table})
+			addBinding(scope, name, alias, Relation{name: name, table: table}, start, end)
 		}
 		return true
-	})
+	}
+	walkIncludingExcept(s.expr, bindTables)
 }
 
 // Walk borrows parser nodes for validation; callers must not mutate them or retain them across requests.
 func (s *Statement) Walk(visit func(clickhouse.Expr) bool) {
-	clickhouse.Walk(s.expr, visit)
+	walkIncludingExcept(s.expr, visit)
 }
 
 func (s *Statement) Tables() iter.Seq[TableReference] {
 	return slices.Values(s.tables)
 }
 
+func (s *Statement) DuplicateSources() iter.Seq[Source] {
+	return func(yield func(Source) bool) {
+		for _, scope := range s.scopes {
+			for _, source := range scope.duplicateSources {
+				if !yield(source) {
+					return
+				}
+			}
+		}
+	}
+}
+
 func (s *Statement) ContainsPosition(position int) bool {
-	return int(s.expr.Pos()) <= position && position <= int(s.expr.End())
+	if int(s.expr.Pos()) <= position && position <= int(s.expr.End()) {
+		return true
+	}
+	for _, scope := range s.scopes {
+		if contains(scope.query, position, position) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Statement) BindingsAt(start, end int) Bindings {
@@ -212,6 +233,9 @@ func (b Bindings) UniqueRelations() iter.Seq[Relation] {
 }
 
 func (b Bindings) PropertyNamespace(parts []string) (string, bool) {
+	if len(parts) > 2 && b.scope.hasDuplicateSource(parts[0]) {
+		return "", false
+	}
 	if len(parts) >= 2 {
 		ownerParts := parts[:len(parts)-1]
 		if len(ownerParts) == 1 {

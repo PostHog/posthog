@@ -10,11 +10,17 @@ import (
 type Source struct {
 	name     string
 	relation Relation
+	start    int
+	end      int
 }
 
 func (s Source) Qualifier() string {
 	return s.name
 }
+
+func (s Source) Start() int { return s.start }
+
+func (s Source) End() int { return s.end }
 
 func (b Bindings) sources() iter.Seq[Source] {
 	return func(yield func(Source) bool) {
