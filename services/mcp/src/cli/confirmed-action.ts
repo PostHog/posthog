@@ -63,8 +63,12 @@ export function registerCliConfirmedActionRuntime(env: NodeJS.ProcessEnv = proce
 
 function buildCliConfirmedActionRuntime(env: NodeJS.ProcessEnv): ConfirmedActionRuntime {
     const stateDir = resolveCliStateDir(env)
+    // A key from the environment fails for a reason of its own, so it resolves
+    // before the file setup. Inside the block below it would be reported with
+    // the state directory, which cannot change the key.
+    const envKey = env[SIGNING_KEY_ENV_VAR] ? loadEnvSigningKey(env) : undefined
     try {
-        const key = env[SIGNING_KEY_ENV_VAR] ? loadSigningKeyFromEnv(env) : loadOrCreateLocalKey(stateDir)
+        const key = envKey ?? loadOrCreateLocalKey(stateDir)
         const directory = path.join(stateDir, STORE_DIR_NAME)
         fs.mkdirSync(directory, { mode: 0o700, recursive: true })
         const store = new FileKeyValueStore(directory)
@@ -74,12 +78,24 @@ function buildCliConfirmedActionRuntime(env: NodeJS.ProcessEnv): ConfirmedAction
             stash: new PayloadStash(store),
         }
     } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error)
-        throw new Error(
-            `Two-step confirmation is unavailable on this CLI: ${detail}. ` +
-                `Its state directory is ${stateDir}, and ${STATE_DIR_ENV_VAR} moves it.`
+        throw unavailable(error, `Its state directory is ${stateDir}, and ${STATE_DIR_ENV_VAR} moves it.`)
+    }
+}
+
+function loadEnvSigningKey(env: NodeJS.ProcessEnv): Buffer {
+    try {
+        return loadSigningKeyFromEnv(env)
+    } catch (error) {
+        throw unavailable(
+            error,
+            `Set ${SIGNING_KEY_ENV_VAR} to a longer value, or remove it and the CLI generates its own key.`
         )
     }
+}
+
+function unavailable(error: unknown, remedy: string): Error {
+    const detail = error instanceof Error ? error.message : String(error)
+    return new Error(`Two-step confirmation is unavailable on this CLI: ${detail}. ${remedy}`)
 }
 
 function loadOrCreateLocalKey(stateDir: string): Buffer {

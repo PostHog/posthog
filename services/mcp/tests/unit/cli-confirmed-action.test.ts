@@ -9,6 +9,7 @@ import {
     resolveCliStateDir,
     STATE_DIR_ENV_VAR,
 } from '@/cli/confirmed-action'
+import { SIGNING_KEY_ENV_VAR } from '@/lib/signed-state'
 import { getConfirmedActionRuntime, setConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 import {
     CONFIRMATION_HASH_ARG,
@@ -118,6 +119,21 @@ describe('CLI confirmed-action runtime', () => {
         )
         expect(() => getConfirmedActionRuntime()).not.toThrowError(
             expect.objectContaining({ message: expect.stringContaining('MCP_SIGNED_STATE_KEY') })
+        )
+    })
+
+    it('reports a signing key that is too short without the state-directory remedy', () => {
+        setConfirmedActionRuntime(undefined)
+        registerCliConfirmedActionRuntime({
+            [STATE_DIR_ENV_VAR]: stateDir,
+            [SIGNING_KEY_ENV_VAR]: 'too-short-to-sign-with',
+        } as NodeJS.ProcessEnv)
+
+        expect(() => getConfirmedActionRuntime()).toThrowError(
+            expect.objectContaining({ message: expect.stringContaining(SIGNING_KEY_ENV_VAR) })
+        )
+        expect(() => getConfirmedActionRuntime()).not.toThrowError(
+            expect.objectContaining({ message: expect.stringContaining(STATE_DIR_ENV_VAR) })
         )
     })
 
