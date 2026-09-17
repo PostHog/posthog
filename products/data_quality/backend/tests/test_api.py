@@ -2101,6 +2101,24 @@ class TestDataQualityCheckAPI(APIBaseTest):
             status.HTTP_503_SERVICE_UNAVAILABLE,
         )
 
+    def test_running_a_posthog_table_subject_hands_the_worker_its_selector(self) -> None:
+        # Without the selector the worker reads the suite as naming nothing and runs none of the
+        # subject's checks, while still reporting the run as finished.
+        events = by_name("events")
+        assert events is not None
+
+        with patch(START_SUITE) as connect:
+            connect.return_value.start_workflow = AsyncMock()
+            suite = checks_logic.start_check_suite(
+                team=self.team,
+                user=self.user,
+                subject_type=SubjectType.POSTHOG_TABLE,
+                subject_uuids=[str(events.id)],
+            )
+
+        assert suite.subject_uuid == str(events.id)
+        assert connect.return_value.start_workflow.call_args.args[1]["posthog_table_ids"] == [str(events.id)]
+
     def test_a_window_is_refused_on_a_subject_with_no_time_column(self) -> None:
         response = self.client.post(f"{self.url}/", self._payload(config={"lookback_hours": 24}))
 
