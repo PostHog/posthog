@@ -2,11 +2,12 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
 
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
 from posthog.models.utils import UUIDModel
 
 
-class HeatmapCaptureConfigVersion(UUIDModel):
+class HeatmapCaptureConfigVersion(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     mode = models.CharField(max_length=20, choices=TeamHeatmapConfig.CaptureMode.choices)
     patterns = ArrayField(models.CharField(max_length=2000), default=list, blank=True, db_default=[])
