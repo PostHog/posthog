@@ -9,12 +9,15 @@ Requests over this limit return HTTP 429.
 
 ## Personal API keys
 
-Personal keys (`phx_...`) require the `project_id` query parameter:
+Personal keys require the `project_id` query parameter:
 
 ```http
 GET /api/customer_analytics/external/accounts?project_id=<project_id>
 Authorization: Bearer <personal_api_key>
 ```
+
+The endpoint accepts current `phx_` keys and legacy personal keys without a prefix.
+It uses the standard personal-key parser, which also accepts `personal_api_key` in the request body or query string.
 
 The key must permit access to the selected project and organization.
 The key owner must have project access and permission to read accounts.

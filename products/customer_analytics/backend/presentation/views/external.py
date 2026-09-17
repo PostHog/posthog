@@ -146,9 +146,6 @@ class ExternalAccountProjectSecretAPIKeyAuthentication(ProjectSecretAPIKeyAuthen
 
 class ExternalAccountPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
     def authenticate(self, request: HttpRequest | Request) -> tuple[Any, None] | None:
-        # Leave other credentials on the existing service-key and invalid-token paths.
-        if not request.headers.get("Authorization", "").startswith("Bearer phx_"):
-            return None
         try:
             return super().authenticate(request)
         except AuthenticationFailed:

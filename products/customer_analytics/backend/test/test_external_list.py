@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -281,7 +282,18 @@ class TestExternalAccountListAPI(APIBaseTest):
 
     # -- Listing ----------------------------------------------------------
 
-    @parameterized.expand([("project",), ("personal_read",), ("personal_write",), ("personal_all",)])
+    @parameterized.expand(
+        [
+            ("project",),
+            ("personal_read",),
+            ("personal_write",),
+            ("personal_all",),
+            ("personal_legacy",),
+            ("personal_whitespace",),
+            ("personal_query",),
+            ("personal_body",),
+        ]
+    )
     def test_lists_accounts_with_relationship_assignments(self, key_type: str) -> None:
         self.user.first_name = "Anna"
         self.user.last_name = "Exec"
@@ -301,9 +313,26 @@ class TestExternalAccountListAPI(APIBaseTest):
         if key_type == "project":
             response = self._get()
         else:
-            scope = {"personal_read": "account:read", "personal_write": "account:write", "personal_all": "*"}[key_type]
-            _, token = self._create_personal_token(scopes=[scope])
-            response = self._get(params={"project_id": self.team.id}, token=token)
+            scope = {"personal_write": "account:write", "personal_all": "*"}.get(key_type, "account:read")
+            key, token = self._create_personal_token(scopes=[scope])
+            if key_type == "personal_legacy":
+                token = token.removeprefix("phx_")
+                key.secure_value = hash_key_value(token)
+                key.save(update_fields=["secure_value"])
+            if key_type == "personal_query":
+                response = self.client.get(self.url, data={"project_id": self.team.id, "personal_api_key": token})
+            elif key_type == "personal_body":
+                response = self.client.generic(
+                    "GET",
+                    f"{self.url}?project_id={self.team.id}",
+                    data=json.dumps({"personal_api_key": token}),
+                    content_type="application/json",
+                )
+            else:
+                separator = "\t " if key_type == "personal_whitespace" else " "
+                response = self.client.get(
+                    self.url, data={"project_id": self.team.id}, HTTP_AUTHORIZATION=f"Bearer{separator}{token}"
+                )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
