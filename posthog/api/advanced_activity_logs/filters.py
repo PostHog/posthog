@@ -1,4 +1,6 @@
 import re
+from functools import reduce
+from operator import and_, or_
 from typing import Any
 
 from django.db.models import JSONField, Q, QuerySet
@@ -8,7 +10,9 @@ from rest_framework import serializers
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 
-_ALLOWED_DETAIL_FILTER_OPERATIONS = {"exact", "contains", "in"}
+_ALLOWED_DETAIL_FILTER_OPERATIONS = {"exact", "contains", "in", "not_in"}
+# Detail filter operations that select the rows a value does *not* match.
+_NEGATED_DETAIL_FILTER_OPERATIONS = {"not_in"}
 
 # Names Django resolves as a lookup instead of a JSON key. A field path segment matching one of
 # these turns the caller's key into the ORM operation: `regex` becomes `detail::text ~ <value>`
@@ -92,6 +96,15 @@ def _validate_detail_filter(field_path: Any, filter_config: Any) -> None:
             )
 
 
+def _negate(match: Q, is_absent: Q) -> Q:
+    """Everything the `match` condition does not select, including the rows where the column is null.
+
+    A row that has no value for the column is not one of the excluded values, but SQL evaluates
+    `NOT (col IN (...))` to NULL there and drops the row, so the absent case is spelled out.
+    """
+    return ~match | is_absent
+
+
 class AdvancedActivityLogFilterManager:
     def apply_filters(self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]) -> QuerySet[ActivityLog]:
         queryset = self._apply_date_filters(queryset, filters)
@@ -107,6 +120,9 @@ class AdvancedActivityLogFilterManager:
         queryset = self._apply_clients_filter(queryset, filters)
         queryset = self._apply_ip_addresses_filter(queryset, filters)
         queryset = self._apply_team_ids_filter(queryset, filters)
+        queryset = self._apply_exclude_users_filter(queryset, filters)
+        queryset = self._apply_exclude_clients_filter(queryset, filters)
+        queryset = self._apply_exclude_ip_addresses_filter(queryset, filters)
         return queryset
 
     def _apply_date_filters(self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]) -> QuerySet[ActivityLog]:
@@ -195,14 +211,13 @@ class AdvancedActivityLogFilterManager:
             query_condition = self._create_type_insensitive_query(f"detail__{django_path}", operation, value)
             query_conditions.append(query_condition)
 
-        # Combine all conditions with OR
-        if query_conditions:
-            combined_query = query_conditions[0]
-            for condition in query_conditions[1:]:
-                combined_query |= condition
-            return queryset.filter(combined_query)
+        if not query_conditions:
+            return queryset
 
-        return queryset
+        # An inclusive filter matches when any array element matches, so the per-index conditions
+        # are OR-combined. An exclusive one must hold for every element, so they are AND-combined.
+        combine = and_ if operation in _NEGATED_DETAIL_FILTER_OPERATIONS else or_
+        return queryset.filter(reduce(combine, query_conditions))
 
     def _generate_indexed_paths(
         self, parts: list[str], field_path: str, max_indices: int, current_indices: list[int] | None = None
@@ -277,9 +292,15 @@ class AdvancedActivityLogFilterManager:
     def _apply_ip_addresses_filter(
         self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]
     ) -> QuerySet[ActivityLog]:
-        ip_filters = [ip for ip in (filters.get("ip_addresses") or []) if ip]
-        if not ip_filters:
+        q = self._build_ip_addresses_query(filters.get("ip_addresses"))
+        if q is None:
             return queryset
+        return queryset.filter(q)
+
+    def _build_ip_addresses_query(self, ip_addresses: Any) -> Q | None:
+        ip_filters = [ip for ip in (ip_addresses or []) if ip]
+        if not ip_filters:
+            return None
 
         # Always go through __iregex so partial values (e.g. `192.168.1`) match no rows
         # instead of triggering Django's GenericIPAddressField validation on __in lookups.
@@ -292,12 +313,34 @@ class AdvancedActivityLogFilterManager:
         for value in wildcard_values:
             regex = "^" + "".join(".*" if c == "*" else re.escape(c) for c in value) + "$"
             q |= Q(ip_address__iregex=regex)
-        return queryset.filter(q)
+        return q
 
     def _apply_team_ids_filter(self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]) -> QuerySet[ActivityLog]:
         if filters.get("team_ids"):
             queryset = queryset.filter(team_id__in=filters["team_ids"])
         return queryset
+
+    def _apply_exclude_users_filter(
+        self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]
+    ) -> QuerySet[ActivityLog]:
+        if not filters.get("exclude_users"):
+            return queryset
+        return queryset.filter(_negate(Q(user__uuid__in=filters["exclude_users"]), Q(user__isnull=True)))
+
+    def _apply_exclude_clients_filter(
+        self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]
+    ) -> QuerySet[ActivityLog]:
+        if not filters.get("exclude_clients"):
+            return queryset
+        return queryset.filter(_negate(Q(client__in=filters["exclude_clients"]), Q(client__isnull=True)))
+
+    def _apply_exclude_ip_addresses_filter(
+        self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]
+    ) -> QuerySet[ActivityLog]:
+        q = self._build_ip_addresses_query(filters.get("exclude_ip_addresses"))
+        if q is None:
+            return queryset
+        return queryset.filter(_negate(q, Q(ip_address__isnull=True)))
 
     def _get_type_variants(self, value: Any) -> list[Any]:
         """
@@ -393,6 +436,10 @@ class AdvancedActivityLogFilterManager:
             unique_values = self._expand_values_with_type_variants(value)
             # nosemgrep: orm-field-injection -- field_path checked by validate_detail_filters (no `__`, no segment named after a Django lookup)
             return Q(**{f"{field_path}__in": unique_values})
+        elif operation == "not_in":
+            unique_values = self._expand_values_with_type_variants(value)
+            # nosemgrep: orm-field-injection -- field_path checked by validate_detail_filters (no `__`, no segment named after a Django lookup)
+            return _negate(Q(**{f"{field_path}__in": unique_values}), Q(**{f"{field_path}__isnull": True}))
         elif operation == "contains":
             # nosemgrep: orm-field-injection -- field_path checked by validate_detail_filters (no `__`, no segment named after a Django lookup)
             return Q(**{f"{field_path}__icontains": value})

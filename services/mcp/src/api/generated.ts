@@ -98178,13 +98178,25 @@ export namespace Schemas {
      */
     clients?: string[];
     /**
-     * JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.
+     * JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in, not_in. Use not_in to hide matching entries; entries without the field are kept.
      */
     detail_filters?: string;
     /**
      * Upper bound on `created_at` (inclusive), ISO-8601.
      */
     end_date?: string;
+    /**
+     * Hide activity from these API clients (the x-posthog-client header, or 'scout:<skill_name>' for a scout run). Entries with no client are kept.
+     */
+    exclude_clients?: string[];
+    /**
+     * Hide activity from these client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Entries with no IP address are kept.
+     */
+    exclude_ip_addresses?: string[];
+    /**
+     * Hide activity performed by these users (user UUIDs). Entries with no user, such as system activity, are kept.
+     */
+    exclude_users?: string[];
     /**
      * Keep the next link valid after the last entry, so the same cursor can be re-polled as new entries arrive. Only applies with oldest-first ordering. When following, stop on an empty results list rather than on a null next link.
      */
@@ -99432,13 +99444,25 @@ export namespace Schemas {
      */
     clients?: string[];
     /**
-     * JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.
+     * JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in, not_in. Use not_in to hide matching entries; entries without the field are kept.
      */
     detail_filters?: string;
     /**
      * Upper bound on `created_at` (inclusive), ISO-8601.
      */
     end_date?: string;
+    /**
+     * Hide activity from these API clients (the x-posthog-client header, or 'scout:<skill_name>' for a scout run). Entries with no client are kept.
+     */
+    exclude_clients?: string[];
+    /**
+     * Hide activity from these client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Entries with no IP address are kept.
+     */
+    exclude_ip_addresses?: string[];
+    /**
+     * Hide activity performed by these users (user UUIDs). Entries with no user, such as system activity, are kept.
+     */
+    exclude_users?: string[];
     /**
      * Keep the next link valid after the last entry, so the same cursor can be re-polled as new entries arrive. Only applies with oldest-first ordering. When following, stop on an empty results list rather than on a null next link.
      */

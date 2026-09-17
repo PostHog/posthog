@@ -23,7 +23,7 @@ import { userLogic } from '../userLogic'
 export type ActivityLogsView = 'project' | 'organization'
 
 export interface DetailFilter {
-    operation: 'exact' | 'contains' | 'in'
+    operation: 'exact' | 'contains' | 'in' | 'not_in'
     value: string | string[]
 }
 
@@ -41,6 +41,9 @@ export interface AdvancedActivityLogFilters {
     activities?: string[]
     clients?: string[]
     ip_addresses?: string[]
+    exclude_users?: string[]
+    exclude_clients?: string[]
+    exclude_ip_addresses?: string[]
     team_ids?: number[]
     detail_filters?: Record<string, DetailFilter>
     was_impersonated?: boolean
@@ -89,6 +92,9 @@ const DEFAULT_FILTERS: AdvancedActivityLogFilters = {
     activities: [],
     clients: [],
     ip_addresses: [],
+    exclude_users: [],
+    exclude_clients: [],
+    exclude_ip_addresses: [],
     team_ids: [],
     detail_filters: {},
     item_ids: [],
@@ -101,6 +107,9 @@ const ADVANCED_FILTERS = [
     'item_ids',
     'clients',
     'ip_addresses',
+    'exclude_users',
+    'exclude_clients',
+    'exclude_ip_addresses',
     'detail_filters',
 ] as const
 
@@ -171,6 +180,9 @@ export interface advancedActivityLogsLogicValues {
         clients: string | undefined
         detail_filters: string | undefined
         end_date: string | undefined
+        exclude_clients: string | undefined
+        exclude_ip_addresses: string | undefined
+        exclude_users: string | undefined
         ip_addresses: string | undefined
         is_system: string | undefined
         item_ids: string | undefined
@@ -303,6 +315,9 @@ export interface advancedActivityLogsLogicMeta {
             clients: string | undefined
             detail_filters: string | undefined
             end_date: string | undefined
+            exclude_clients: string | undefined
+            exclude_ip_addresses: string | undefined
+            exclude_users: string | undefined
             ip_addresses: string | undefined
             is_system: string | undefined
             item_ids: string | undefined
@@ -444,6 +459,9 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     values.filters.activities?.forEach((activity) => params.append('activities', activity))
                     values.filters.clients?.forEach((client) => params.append('clients', client))
                     values.filters.ip_addresses?.forEach((ip) => params.append('ip_addresses', ip))
+                    values.filters.exclude_users?.forEach((user) => params.append('exclude_users', user))
+                    values.filters.exclude_clients?.forEach((client) => params.append('exclude_clients', client))
+                    values.filters.exclude_ip_addresses?.forEach((ip) => params.append('exclude_ip_addresses', ip))
                     values.filters.item_ids?.forEach((item_id) => params.append('item_ids', item_id))
                     if (values.isOrganizationView) {
                         values.filters.team_ids?.forEach((team_id: number) =>
@@ -533,6 +551,9 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     filters.activities?.length ||
                     filters.clients?.length ||
                     filters.ip_addresses?.length ||
+                    filters.exclude_users?.length ||
+                    filters.exclude_clients?.length ||
+                    filters.exclude_ip_addresses?.length ||
                     filters.item_ids?.length ||
                     (isOrganizationView && filters.team_ids?.length) ||
                     filters.was_impersonated !== undefined ||
@@ -577,6 +598,15 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                 if (filters.ip_addresses && filters.ip_addresses.length > 0) {
                     count++
                 }
+                if (filters.exclude_users && filters.exclude_users.length > 0) {
+                    count++
+                }
+                if (filters.exclude_clients && filters.exclude_clients.length > 0) {
+                    count++
+                }
+                if (filters.exclude_ip_addresses && filters.exclude_ip_addresses.length > 0) {
+                    count++
+                }
                 if (filters.detail_filters && Object.keys(filters.detail_filters).length > 0) {
                     count++
                 }
@@ -598,6 +628,11 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     activities: filters.activities?.length ? filters.activities.join(',') : undefined,
                     clients: filters.clients?.length ? filters.clients.join(',') : undefined,
                     ip_addresses: filters.ip_addresses?.length ? filters.ip_addresses.join(',') : undefined,
+                    exclude_users: filters.exclude_users?.length ? filters.exclude_users.join(',') : undefined,
+                    exclude_clients: filters.exclude_clients?.length ? filters.exclude_clients.join(',') : undefined,
+                    exclude_ip_addresses: filters.exclude_ip_addresses?.length
+                        ? filters.exclude_ip_addresses.join(',')
+                        : undefined,
                     team_ids: isOrganizationView && filters.team_ids?.length ? filters.team_ids.join(',') : undefined,
                     item_ids: filters.item_ids?.length ? filters.item_ids.join(',') : undefined,
                     was_impersonated: filters.was_impersonated?.toString(),
@@ -773,6 +808,9 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     activities: values.filters.activities,
                     clients: values.filters.clients,
                     ip_addresses: values.filters.ip_addresses,
+                    exclude_users: values.filters.exclude_users,
+                    exclude_clients: values.filters.exclude_clients,
+                    exclude_ip_addresses: values.filters.exclude_ip_addresses,
                     detail_filters: values.filters.detail_filters,
                     was_impersonated: values.filters.was_impersonated,
                     is_system: values.filters.is_system,
@@ -852,6 +890,18 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             const ipAddresses = parseListSearchParam(searchParams.ip_addresses)
             if (ipAddresses.length) {
                 urlFilters.ip_addresses = ipAddresses
+            }
+            const excludeUsers = parseListSearchParam(searchParams.exclude_users)
+            if (excludeUsers.length) {
+                urlFilters.exclude_users = excludeUsers
+            }
+            const excludeClients = parseListSearchParam(searchParams.exclude_clients)
+            if (excludeClients.length) {
+                urlFilters.exclude_clients = excludeClients
+            }
+            const excludeIpAddresses = parseListSearchParam(searchParams.exclude_ip_addresses)
+            if (excludeIpAddresses.length) {
+                urlFilters.exclude_ip_addresses = excludeIpAddresses
             }
             const itemIds = parseListSearchParam(searchParams.item_ids)
             if (itemIds.length) {

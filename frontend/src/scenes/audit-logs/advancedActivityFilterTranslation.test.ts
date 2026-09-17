@@ -72,7 +72,7 @@ describe('advancedActivityFiltersToHogProperties', () => {
             baseFilter({
                 detail_filters: {
                     name: { operation: 'contains', value: 'foo' },
-                    changes: { operation: 'in', value: ['added', 'removed'] },
+                    changes: { operation: 'not_in', value: ['added', 'removed'] },
                 },
             })
         )
@@ -88,7 +88,7 @@ describe('advancedActivityFiltersToHogProperties', () => {
                     key: 'detail.changes',
                     type: PropertyFilterType.Event,
                     value: ['added', 'removed'],
-                    operator: PropertyOperator.In,
+                    operator: PropertyOperator.NotIn,
                 },
             ])
         )
@@ -99,6 +99,7 @@ describe('advancedActivityFiltersToHogProperties', () => {
         const result = advancedActivityFiltersToHogProperties(
             baseFilter({
                 users: ['u1'],
+                exclude_users: ['u2'],
                 start_date: DEFAULT_START_DATE,
                 end_date: '-1d',
                 detail_filters: {
@@ -115,7 +116,7 @@ describe('advancedActivityFiltersToHogProperties', () => {
                 operator: PropertyOperator.Exact,
             },
         ])
-        expect(result.droppedFields.sort()).toEqual(['date range', 'detail.foo.bar', 'users'].sort())
+        expect(result.droppedFields.sort()).toEqual(['date range', 'detail.foo.bar', 'excluded users', 'users'].sort())
     })
 
     it('returns an empty property list when no mappable filters are set', () => {

@@ -10,6 +10,7 @@ from parameterized import parameterized
 from rest_framework import serializers
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.user import User
 
 from .filters import AdvancedActivityLogFilterManager, validate_detail_filters
 from .viewset import AdvancedActivityLogFiltersSerializer
@@ -455,3 +456,70 @@ class TestOptionalBooleanFilters(BaseTest):
 
         filtered = self.filter_manager.apply_filters(queryset, {"was_impersonated": None, "is_system": None})
         self.assertEqual(filtered.count(), 2)
+
+
+class TestExclusionFilters(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.filter_manager = AdvancedActivityLogFilterManager()
+        self.other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
+
+    def _create_log(self, **kwargs: Any) -> ActivityLog:
+        return ActivityLog.objects.create(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            scope="TestScope",
+            activity="updated",
+            item_id="test-item",
+            detail=kwargs.pop("detail", {}),
+            **kwargs,
+        )
+
+    def _filtered_ids(self, filters: dict[str, Any]) -> set:
+        queryset = ActivityLog.objects.filter(team_id=self.team.id)
+        return set(self.filter_manager.apply_filters(queryset, filters).values_list("id", flat=True))
+
+    @parameterized.expand(
+        [
+            ("users", "user", "exclude_users"),
+            ("clients", "client", "exclude_clients"),
+            ("ip_addresses", "ip_address", "exclude_ip_addresses"),
+        ]
+    )
+    def test_exclusion_keeps_other_rows_and_rows_without_a_value(
+        self, _name: str, column: str, filter_key: str
+    ) -> None:
+        values = {
+            "user": (self.user, self.other_user, str(self.user.uuid)),
+            "client": ("posthog-python", "posthog-js", "posthog-python"),
+            "ip_address": ("203.0.113.42", "198.51.100.7", "203.0.113.42"),
+        }[column]
+        excluded_value, kept_value, filter_value = values
+
+        self._create_log(**{column: excluded_value})
+        kept = self._create_log(**{column: kept_value})
+        without_value = self._create_log()
+
+        self.assertEqual(self._filtered_ids({filter_key: [filter_value]}), {kept.id, without_value.id})
+
+    def test_exclude_ip_addresses_accepts_wildcards(self) -> None:
+        self._create_log(ip_address="203.0.113.42")
+        self._create_log(ip_address="203.0.113.99")
+        kept = self._create_log(ip_address="198.51.100.7")
+
+        self.assertEqual(self._filtered_ids({"exclude_ip_addresses": ["203.0.113.*"]}), {kept.id})
+
+    def test_detail_not_in_keeps_rows_without_the_field(self) -> None:
+        self._create_log(detail={"name": "local test"})
+        kept = self._create_log(detail={"name": "production"})
+        without_field = self._create_log(detail={"other": "value"})
+
+        filters = {"detail_filters": {"name": {"operation": "not_in", "value": ["local test"]}}}
+        self.assertEqual(self._filtered_ids(filters), {kept.id, without_field.id})
+
+    def test_detail_not_in_on_an_array_path_excludes_any_matching_element(self) -> None:
+        self._create_log(detail={"changes": [{"field": "name"}, {"field": "filters"}]})
+        kept = self._create_log(detail={"changes": [{"field": "name"}]})
+
+        filters = {"detail_filters": {"changes[].field": {"operation": "not_in", "value": ["filters"]}}}
+        self.assertEqual(self._filtered_ids(filters), {kept.id})

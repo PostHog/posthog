@@ -424,6 +424,33 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
             "ignored on the project-scoped endpoint."
         ),
     )
+    exclude_users = JSONTolerantListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=[],
+        help_text=(
+            "Hide activity performed by these users (user UUIDs). Entries with no user, such as "
+            "system activity, are kept."
+        ),
+    )
+    exclude_clients = JSONTolerantListField(
+        child=serializers.CharField(),
+        required=False,
+        default=[],
+        help_text=(
+            "Hide activity from these API clients (the x-posthog-client header, or "
+            "'scout:<skill_name>' for a scout run). Entries with no client are kept."
+        ),
+    )
+    exclude_ip_addresses = JSONTolerantListField(
+        child=serializers.CharField(validators=[_validate_ip_or_wildcard]),
+        required=False,
+        default=[],
+        help_text=(
+            "Hide activity from these client IP addresses. Accepts exact IPv4/IPv6 values or "
+            "wildcard patterns using `*` (e.g. `203.0.113.*`). Entries with no IP address are kept."
+        ),
+    )
     search_text = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -433,7 +460,8 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "JSON-encoded map of `detail` field paths to {operation, value} filters. "
-            "Allowed operations: exact, contains, in."
+            "Allowed operations: exact, contains, in, not_in. Use not_in to hide matching entries; "
+            "entries without the field are kept."
         ),
     )
     hogql_filter = serializers.CharField(

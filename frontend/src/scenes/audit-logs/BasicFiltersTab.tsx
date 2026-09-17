@@ -301,6 +301,95 @@ export const BasicFiltersTab = (): JSX.Element => {
                                 className="min-w-50"
                             />
                         </div>
+
+                        <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1 mb-1">
+                                <label className="block text-sm font-medium">Exclude users</label>
+                                <Tooltip title="Hide activity from these users. Entries with no user, such as system activity, are kept.">
+                                    <IconInfo className="w-4 h-4 text-muted-alt cursor-help" />
+                                </Tooltip>
+                            </div>
+                            <LemonInputSelect
+                                mode="multiple"
+                                displayMode="count"
+                                bulkActions="select-and-clear-all"
+                                value={filters.exclude_users || []}
+                                onChange={(exclude_users) => setFilters({ exclude_users })}
+                                options={
+                                    availableFilters?.static_filters?.users?.map((u: any) => ({
+                                        key: u.value,
+                                        label: u.label,
+                                    })) || []
+                                }
+                                loading={availableFiltersLoading}
+                                placeholder="No users excluded"
+                                allowCustomValues={false}
+                                data-attr="audit-logs-exclude-user-filter"
+                                size="small"
+                                className="min-w-50"
+                            />
+                        </div>
+
+                        {(availableFilters?.static_filters?.clients?.length ?? 0) > 0 && (
+                            <div className="flex flex-col gap-1">
+                                <div className="flex items-center gap-1 mb-1">
+                                    <label className="block text-sm font-medium">Exclude clients</label>
+                                    <Tooltip title="Hide activity from these clients, such as a local build you tested against this project. Entries with no client are kept.">
+                                        <IconInfo className="w-4 h-4 text-muted-alt cursor-help" />
+                                    </Tooltip>
+                                </div>
+                                <LemonInputSelect
+                                    mode="multiple"
+                                    displayMode="count"
+                                    bulkActions="select-and-clear-all"
+                                    value={filters.exclude_clients || []}
+                                    onChange={(exclude_clients) => setFilters({ exclude_clients })}
+                                    options={
+                                        availableFilters?.static_filters?.clients?.map((c: any) => ({
+                                            key: c.value,
+                                            label: activityClientLabel(c.value),
+                                        })) || []
+                                    }
+                                    loading={availableFiltersLoading}
+                                    placeholder="No clients excluded"
+                                    allowCustomValues={false}
+                                    data-attr="audit-logs-exclude-client-filter"
+                                    size="small"
+                                    className="min-w-50"
+                                />
+                            </div>
+                        )}
+
+                        <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1 mb-1">
+                                <label className="block text-sm font-medium">Exclude IP addresses</label>
+                                <Tooltip title="Hide activity from these IP addresses. Wildcards are supported, e.g. `203.0.113.*`. Entries with no IP address are kept.">
+                                    <IconInfo className="w-4 h-4 text-muted-alt cursor-help" />
+                                </Tooltip>
+                            </div>
+                            <LemonInputSelect
+                                mode="multiple"
+                                displayMode="count"
+                                bulkActions="select-and-clear-all"
+                                value={filters.exclude_ip_addresses || []}
+                                onChange={(exclude_ip_addresses) => {
+                                    const invalid = exclude_ip_addresses.filter((v) => !isValidIpFilterValue(v))
+                                    if (invalid.length) {
+                                        lemonToast.error(
+                                            `Invalid IP address format: ${invalid.join(', ')}. Use a full IPv4/IPv6 address or a wildcard like 192.168.1.*`
+                                        )
+                                        return
+                                    }
+                                    setFilters({ exclude_ip_addresses })
+                                }}
+                                options={[]}
+                                placeholder="Enter IPs or patterns to exclude"
+                                allowCustomValues={true}
+                                data-attr="audit-logs-exclude-ip-address-filter"
+                                size="small"
+                                className="min-w-50"
+                            />
+                        </div>
                     </div>
                     <div className="py-4">
                         <DetailFilters />

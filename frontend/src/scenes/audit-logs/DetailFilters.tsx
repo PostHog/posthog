@@ -15,6 +15,8 @@ import { midEllipsis } from 'lib/utils/strings'
 
 import { ActiveDetailFilter, advancedActivityLogsLogic } from './advancedActivityLogsLogic'
 
+const MULTI_VALUE_OPERATIONS = new Set<ActiveDetailFilter['operation']>(['in', 'not_in'])
+
 interface DetailFilterRowProps {
     filter: ActiveDetailFilter
 }
@@ -128,7 +130,7 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
 
     const handleOperationChange = (operation: ActiveDetailFilter['operation']): void => {
         let newValue = filter.value
-        if (operation === 'in' && !Array.isArray(filter.value)) {
+        if (MULTI_VALUE_OPERATIONS.has(operation) && !Array.isArray(filter.value)) {
             newValue = filter.value && (filter.value as string).trim() ? [filter.value as string] : []
         }
         setLocalValue(newValue)
@@ -217,12 +219,13 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
                     { value: 'exact', label: 'equals' },
                     { value: 'contains', label: 'contains' },
                     { value: 'in', label: 'is one of' },
+                    { value: 'not_in', label: 'is none of' },
                 ]}
                 size="small"
                 className="min-w-32"
             />
 
-            {filter.operation === 'in' ? (
+            {MULTI_VALUE_OPERATIONS.has(filter.operation) ? (
                 <LemonInputSelect
                     mode="multiple"
                     value={localValue as string[]}

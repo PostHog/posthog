@@ -8,6 +8,8 @@ const operationToOperator = (operation: DetailFilter['operation']): PropertyOper
     switch (operation) {
         case 'in':
             return PropertyOperator.In
+        case 'not_in':
+            return PropertyOperator.NotIn
         case 'contains':
             return PropertyOperator.IContains
         case 'exact':
@@ -89,6 +91,10 @@ export function advancedActivityFiltersToHogProperties(
 
     if (filters.users && filters.users.length > 0) {
         droppedFields.push('users')
+    }
+
+    if (filters.exclude_users && filters.exclude_users.length > 0) {
+        droppedFields.push('excluded users')
     }
 
     const hasCustomStart = !!filters.start_date && filters.start_date !== DEFAULT_START_DATE
