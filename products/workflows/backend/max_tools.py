@@ -15,10 +15,10 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
-from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.workflows.backend.api.hog_flow import HogFlowSerializer
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
