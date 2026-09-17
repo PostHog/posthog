@@ -63,6 +63,9 @@ function useSummarizeBlockedReason(
     const { disabledReason: quotaDisabledReason } = quotaUx(quota)
     return (scanner) =>
         getReplayVisionEditDisabledReason((scanner?.user_access_level as AccessControlLevel | null) ?? undefined) ??
+        // `observe` answers 402 for a scanner that has spent its own credit limit, so a capped one is
+        // refused here rather than by a failed request. The built-in prompt has no per-scanner limit.
+        (scanner?.limit_reached ? LIMIT_REACHED_TOOLTIP : null) ??
         scanBlock?.reason ??
         quotaDisabledReason
 }
@@ -81,10 +84,8 @@ function SummarizeButton({ sessionId, scanBlock }: { sessionId: string; scanBloc
     // without this a second summarizer is one click away mid-run, and it spends the quota again.
     const inFlightDisabledReason = summarizePending ? 'A summary is already running' : null
     const builtInDisabledReason = inFlightDisabledReason ?? blockedReason()
-    // `observe` answers 402 for a scanner that has spent its own credit limit, so a capped one is
-    // refused here rather than by a failed request.
     const scannerDisabledReason = (scanner: ReplayScannerApi): string | null | undefined =>
-        inFlightDisabledReason ?? (scanner.limit_reached ? LIMIT_REACHED_TOOLTIP : blockedReason(scanner))
+        inFlightDisabledReason ?? blockedReason(scanner)
     // Nobody could tell which summarizer the button used, so it says so. While a scan is running the
     // label is the only thing that says the click landed: the summary takes minutes to arrive.
     const idleLabel = defaultSummarizer ? `Summarize with ${defaultSummarizer.name}` : 'Summarize this recording'
