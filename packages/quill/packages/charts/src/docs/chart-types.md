@@ -76,6 +76,9 @@ A single-cell tooltip resolves from the cursor, `onCellClick` reports `{ xIndex,
 `config.cellLabel` prints a number in each cell, for a grid read as values rather than only as density (a retention table).
 It runs for every cell, empty ones included; return null to leave one blank.
 Each label takes light or dark text from the cell fill behind it, and is dropped when the cell is too small for the text, so a dense grid falls back to a plain density map.
+`config.cellStyle` overrides single cells: `color` ramps that cell from a second accent (a summary row), `outlined` draws a dashed outline and no fill (a period still in progress).
+`config.highlightedColumns` draws a band behind the named columns, for a column the consumer selected or is hovering.
+The consumer owns the column header, so it owns the click and hover that set those indices.
 
 ## Sparkline
 

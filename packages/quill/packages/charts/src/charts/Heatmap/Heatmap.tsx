@@ -21,6 +21,12 @@ import type {
 import { DefaultTooltip } from '../../overlays/DefaultTooltip'
 import { findClosestSeriesKey } from '../../overlays/tooltipUtils'
 import {
+    drawColumnHighlights,
+    drawOutlinedCell,
+    resolveCellStyles,
+    type HeatmapResolvedCellStyles,
+} from './heatmap-cells'
+import {
     cellRect,
     computeHeatmapLayout,
     createCellColorRamp,
@@ -54,7 +60,18 @@ interface HeatmapPrivate {
         accent: string
         maxValue: number
         colorScale: HeatmapColorScale
+        styles: HeatmapResolvedCellStyles
+        highlightedColumns: number[]
     }
+}
+
+/** Per-cell appearance override. */
+export interface HeatmapCellStyle {
+    /** Accent this cell's density fill ramps from, instead of the chart accent. Resolved for
+     *  `var(--…)` like `config.color` is. */
+    color?: string
+    /** Draw a dashed outline and no fill, for a cell whose value is not final yet. */
+    outlined?: boolean
 }
 
 export interface HeatmapConfig {
@@ -74,6 +91,13 @@ export interface HeatmapConfig {
      *  leave a cell unlabelled. A label is dropped when its cell is too small for the text, so a
      *  dense grid falls back to a plain density map. Should be referentially stable. */
     cellLabel?: HeatmapCellLabelFormatter
+    /** Overrides the appearance of single cells: a second accent for a summary row, a dashed
+     *  outline for a period still in progress. Called for every cell; return null for the
+     *  default fill. Should be referentially stable. */
+    cellStyle?: (cell: HeatmapCellDatum) => HeatmapCellStyle | null
+    /** Column indices drawn with a band behind their cells, for a column the consumer selected
+     *  or is hovering. */
+    highlightedColumns?: number[]
     /** Per-side margin overrides. Should be referentially stable. */
     margins?: Partial<ChartMargins>
     tooltip?: {
@@ -181,6 +205,13 @@ function HeatmapInner({
     const resolveColumnLabel = useCallback((key: string): string => xLabels[Number(key)] ?? key, [xLabels])
     const maxValue = useMemo(() => maxCellValue(grid), [grid])
 
+    const cellStyle = config?.cellStyle
+    const styles = useMemo<HeatmapResolvedCellStyles>(
+        () => resolveCellStyles({ cellStyle, grid, xLabels, yLabels }),
+        [cellStyle, grid, xLabels, yLabels]
+    )
+    const highlightedColumns = config?.highlightedColumns
+
     // One adapter series per row: `data` is that row's counts (tooltip values), `meta.rowIndex`
     // maps back to the grid. All rows share the accent so tooltip swatches stay consistent.
     const adaptedSeries = useMemo<Series<HeatmapRowMeta>[]>(
@@ -220,7 +251,15 @@ function HeatmapInner({
             const layout = computeHeatmapLayout(dimensions, scaleLabels.length, yLabels.length)
             const labelIndex = new Map(scaleLabels.map((label, i) => [label, i]))
             const priv: HeatmapPrivate = {
-                __heatmap: { layout, cells: grid, accent, maxValue, colorScale },
+                __heatmap: {
+                    layout,
+                    cells: grid,
+                    accent,
+                    maxValue,
+                    colorScale,
+                    styles,
+                    highlightedColumns: highlightedColumns ?? [],
+                },
             }
             return {
                 x: (label: string) => {
@@ -233,7 +272,7 @@ function HeatmapInner({
                 _private: priv,
             }
         },
-        [yLabels, grid, accent, maxValue, colorScale]
+        [yLabels, grid, accent, maxValue, colorScale, styles, highlightedColumns]
     )
 
     const drawStatic = useCallback(({ ctx, scales }: ChartDrawArgs) => {
@@ -242,7 +281,17 @@ function HeatmapInner({
             return
         }
         const { layout, cells: drawCells, accent: drawAccent, maxValue: max, colorScale: scale } = priv
-        const cellColor = createCellColorRamp(drawAccent)
+        drawColumnHighlights(ctx, layout, priv.highlightedColumns, drawAccent)
+        // One ramp per accent in play, because parsing the accent per cell is the expensive part.
+        const ramps = new Map<string, (t: number) => string>()
+        const rampFor = (color: string): ((t: number) => string) => {
+            let ramp = ramps.get(color)
+            if (!ramp) {
+                ramp = createCellColorRamp(color)
+                ramps.set(color, ramp)
+            }
+            return ramp
+        }
         // A 1px gutter keeps cells readable as discrete buckets; collapse it when cells are so
         // small the gap would dominate the fill.
         const gap = layout.colWidth > 3 && layout.rowHeight > 3 ? 1 : 0
@@ -252,12 +301,17 @@ function HeatmapInner({
                 continue
             }
             for (let c = 0; c < layout.cols; c++) {
+                const style = priv.styles[r]?.[c]
+                const rect = cellRect(layout, c, r)
+                if (style?.outlined) {
+                    drawOutlinedCell(ctx, rect, gap, drawAccent)
+                    continue
+                }
                 const value = row[c]
                 if (!(value > 0)) {
                     continue
                 }
-                const rect = cellRect(layout, c, r)
-                ctx.fillStyle = cellColor(normalizeCount(value, max, scale))
+                ctx.fillStyle = rampFor(style?.color ?? drawAccent)(normalizeCount(value, max, scale))
                 ctx.fillRect(rect.x + gap / 2, rect.y + gap / 2, rect.width - gap, rect.height - gap)
             }
         }
@@ -458,6 +512,7 @@ function HeatmapInner({
                     accent={accent}
                     maxValue={maxValue}
                     colorScale={colorScale}
+                    styles={styles}
                     formatter={config.cellLabel}
                 />
             )}

@@ -4,6 +4,7 @@ import { useChartLayout } from '../../core/chart-context'
 import { mixColors, perceivedLuminance } from '../../core/color-utils'
 import { FONT_FAMILY, measureLabelWidth } from '../../utils/text-measure'
 import type { HeatmapCellDatum } from './Heatmap'
+import type { HeatmapResolvedCellStyles } from './heatmap-cells'
 import { cellAlpha, cellRect, computeHeatmapLayout, normalizeCount, type HeatmapColorScale } from './heatmap-layout'
 
 /** Returning null or an empty string leaves the cell unlabelled. */
@@ -43,6 +44,8 @@ export interface HeatmapCellLabelsProps {
     accent: string
     maxValue: number
     colorScale: HeatmapColorScale
+    /** Resolved `config.cellStyle` output, so a label contrasts against the fill its own cell got. */
+    styles: HeatmapResolvedCellStyles
     formatter: HeatmapCellLabelFormatter
 }
 
@@ -55,6 +58,7 @@ export function HeatmapCellLabels({
     accent,
     maxValue,
     colorScale,
+    styles,
     formatter,
 }: HeatmapCellLabelsProps): React.ReactElement | null {
     const { dimensions, theme } = useChartLayout()
@@ -84,9 +88,15 @@ export function HeatmapCellLabels({
                 // The canvas paints the accent at `cellAlpha` over the plot background, and a
                 // linear mix by that alpha is exactly that composite, so the text contrasts
                 // against the color the reader sees instead of the accent at full strength.
+                // An outlined cell has no fill, so it contrasts against the background.
+                const style = styles[row]?.[col]
                 const fill =
-                    value > 0
-                        ? mixColors(background, accent, cellAlpha(normalizeCount(value, maxValue, colorScale)))
+                    value > 0 && !style?.outlined
+                        ? mixColors(
+                              background,
+                              style?.color ?? accent,
+                              cellAlpha(normalizeCount(value, maxValue, colorScale))
+                          )
                         : background
                 const rect = cellRect(layout, col, row)
                 out.push({
@@ -99,7 +109,7 @@ export function HeatmapCellLabels({
             }
         }
         return out
-    }, [dimensions, theme, xLabels, yLabels, cells, accent, maxValue, colorScale, formatter])
+    }, [dimensions, theme, xLabels, yLabels, cells, accent, maxValue, colorScale, styles, formatter])
 
     if (placed.length === 0) {
         return null
