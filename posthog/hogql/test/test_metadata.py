@@ -385,6 +385,10 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
     def test_metadata_does_not_warn_for_virtual_property(self, prop: str):
         # Virtual traffic properties are computed at query time and never stored as PropertyDefinition
         # rows, so the validator must treat them as known — read_taxonomy lists the same set.
+        # The unrelated definition is what makes this assertion mean anything: a project with no
+        # definitions at all never warns, so without a row here the case passes however the validator behaves.
+        PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
+
         metadata = self._select(f"SELECT properties.{prop} FROM events WHERE properties.{prop} = 'x'")
 
         taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
