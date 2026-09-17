@@ -493,10 +493,10 @@ class TestOrganizationBillingSpendForecastAndSeries(OrganizationBillingTestMixin
         sent = mock_get.call_args.kwargs["params"]
         token = mock_get.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
         claims = jwt.decode(token, options={"verify_signature": False})
-        # The token names the projects, because billing settles what a caller may see from the
-        # token and not from a parameter beside it. The filter names them too, so a project
-        # deleted since its usage was reported is never read.
-        self.assertEqual((claims["projects"], sent["team_ids"]), ([self.team.id], json.dumps([self.team.id])))
+        # The filter names the projects even when the member sees every one, so a project deleted
+        # since its usage was reported is never read. The token carries no list: its projects are
+        # the credential's own scope, which this credential does not have.
+        self.assertEqual((claims["projects"], sent["team_ids"]), (None, json.dumps([self.team.id])))
         with patch("ee.api.organization_billing.visible_team_ids", return_value=[]):
             response = self.client.get(self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -518,11 +518,6 @@ class TestOrganizationBillingSpendForecastAndSeries(OrganizationBillingTestMixin
             response = self.client.get(self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14"))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(mock_get.call_args.kwargs["params"]["team_ids"], json.dumps([other.id]))
-        signed = jwt.decode(
-            mock_get.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer "),
-            options={"verify_signature": False},
-        )
-        self.assertEqual(signed["projects"], [other.id], "the overlap is signed, not just sent")
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_a_credential_scoped_to_no_project_is_refused_rather_than_widened(self, mock_get):
@@ -556,33 +551,6 @@ class TestOrganizationBillingSpendForecastAndSeries(OrganizationBillingTestMixin
                 response = self.client.get(self._url(path))
                 self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, path)
         mock_get.assert_not_called()
-
-    @patch("ee.billing.billing_manager.http_session.get")
-    def test_the_projects_read_signs_what_the_caller_may_see(self, mock_get):
-        # Billing clips the list to the token, so the token has to carry the projects for a
-        # caller whose reads are narrowed. A full-access caller has no limit to name.
-        mock_get.return_value = _response({"results": [{"id": self.team.id}]})
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        self.member_read.return_value = True
-        with patch("ee.api.organization_billing.visible_team_ids", return_value=[self.team.id]):
-            response = self.client.get(self._url("projects/"))
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        claims = jwt.decode(
-            mock_get.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer "),
-            options={"verify_signature": False},
-        )
-        self.assertEqual(claims["projects"], [self.team.id])
-
-        self.organization_membership.level = OrganizationMembership.Level.OWNER
-        self.organization_membership.save()
-        response = self.client.get(self._url("projects/"))
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        claims = jwt.decode(
-            mock_get.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer "),
-            options={"verify_signature": False},
-        )
-        self.assertIsNone(claims["projects"])
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_a_whole_organization_caller_may_name_a_project_the_organization_no_longer_has(self, mock_get):

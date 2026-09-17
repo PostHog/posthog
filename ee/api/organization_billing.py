@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
-from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -561,18 +560,6 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             raise PermissionDenied(BILLING_ACCESS_DENIED)
         return visible
 
-    @staticmethod
-    def _grants_for_projects(grants: EffectiveBillingGrants, projects: Optional[list[int]]) -> EffectiveBillingGrants:
-        """The same grants, signed for the projects this request may cover.
-
-        Billing settles what a caller may see from the token, so the projects have to be in the
-        token and not only in a query parameter, which is the caller's to write. A read that
-        covers the whole organization carries no list, because it has no limit to name.
-        """
-        if projects is None:
-            return grants
-        return replace(grants, projects=sorted(projects))
-
     def _timeseries(self, request: Request, kind: str) -> Response:
         organization = self.organization
         grants = self._grants(request, organization)
@@ -614,9 +601,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             named = named.filter(id__in=scoped)
         teams_map = dict(named.values_list("id", "name"))
         params["teams_map"] = {str(team_id): name for team_id, name in teams_map.items()}
-        data = self._manager().get_organization_timeseries(
-            organization, self._grants_for_projects(grants, scoped), kind, params
-        )
+        data = self._manager().get_organization_timeseries(organization, grants, kind, params)
         results = data.get("results", [])
         # Names the folded "all other projects" row and any project deleted since it reported, as the root read does.
         _resolve_team_labels(results, teams_map)
@@ -881,12 +866,9 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         # Settled before billing is called, so a caller who may see nothing never costs a request.
         # A deleted project cannot be checked against what a member can see, so it is not listed for them.
         visible = self._visible_projects(request, grants, organization)
-        scoped = sorted(visible) if visible is not None else None
         reported = [
             int(item["id"])
-            for item in self._manager()
-            .get_organization_projects(organization, self._grants_for_projects(grants, scoped))
-            .get("results", [])
+            for item in self._manager().get_organization_projects(organization, grants).get("results", [])
         ]
         if visible is not None:
             reported = [team_id for team_id in reported if team_id in visible]
