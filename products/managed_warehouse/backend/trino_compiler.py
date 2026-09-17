@@ -189,7 +189,7 @@ def prepare_hogql_to_trino_compiler(
             *additional_tables,
         ),
         timezone=team.timezone,
-        week_start_day=team.week_start_day or WeekStartDay.SUNDAY,
+        week_start_day=WeekStartDay(team.week_start_day or WeekStartDay.SUNDAY),
     )
     return PreparedTrinoCompiler(
         team_id=team_id,

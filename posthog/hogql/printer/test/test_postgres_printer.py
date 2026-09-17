@@ -440,14 +440,28 @@ class TestPostgresPrinter(BaseTest):
             "(date_trunc('week', (events.timestamp + interval '1 day')) - interval '1 day')",
         )
 
-    def test_to_start_of_week_uses_project_week_start_day_in_postgres(self):
+    @parameterized.expand(
+        [
+            ("monday_enum", WeekStartDay.MONDAY, "date_trunc('week', events.timestamp)"),
+            ("monday_int", 1, "date_trunc('week', events.timestamp)"),
+            (
+                "sunday_int",
+                0,
+                "(date_trunc('week', (events.timestamp + interval '1 day')) - interval '1 day')",
+            ),
+        ]
+    )
+    def test_to_start_of_week_uses_project_week_start_day_in_postgres(
+        self, _name: str, week_start_day: WeekStartDay | int, expected: str
+    ):
+        # A Database built from a request carries the raw Team.week_start_day int, not the enum.
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
-            database=Database(week_start_day=WeekStartDay.MONDAY),
+            database=Database(week_start_day=cast(WeekStartDay, week_start_day)),
         )
 
-        self.assertEqual(self._expr("toStartOfWeek(timestamp)", context), "date_trunc('week', events.timestamp)")
+        self.assertEqual(self._expr("toStartOfWeek(timestamp)", context), expected)
 
     @parameterized.expand(
         [

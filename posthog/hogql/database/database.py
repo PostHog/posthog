@@ -860,7 +860,8 @@ class Database(BaseModel):
         return self._timezone or "UTC"
 
     def get_week_start_day(self) -> WeekStartDay:
-        return self._week_start_day or WeekStartDay.SUNDAY
+        # Callers build a Database from Team.week_start_day, which is a plain int column.
+        return WeekStartDay(self._week_start_day or WeekStartDay.SUNDAY)
 
     def get_serialization_errors(self) -> dict[str, str]:
         """Return any errors encountered during serialization."""
