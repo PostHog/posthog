@@ -1301,15 +1301,15 @@ Today (4): `destinations`, `sources`, `sync_runs`, `syncs`
 
 Diffed against: <https://fivetran.com/docs/activations/rest-api/api-reference/workspace-apis/syncs/get-syncs>
 
-- [ ] `workspace-apis/datasets/list-datasets` — lookup resolving the dataset/model IDs every sync points at - without it syncs reference opaque IDs (high)
+- [x] `workspace-apis/datasets/list-datasets` — lookup resolving the dataset/model IDs every sync points at - without it syncs reference opaque IDs (high)
 - [ ] `workspace-apis/sync-runs/fetch-records` — record-level sync results including rejected rows, the detail needed to diagnose why a sync partially failed (high)
 - [ ] `workspace-apis/sync-runs/fetch-records-count` — per-run record counts by status, the cheap aggregate for sync health dashboards (medium)
-- [ ] `organization-apis/workspaces/list-workspaces` — lookup naming the workspaces that scope every source, destination and sync (medium)
+- [x] `organization-apis/workspaces/list-workspaces` — lookup naming the workspaces that scope every source, destination and sync (medium)
 - [ ] `workspace-apis/source-types/list-source-types` — lookup expanding the source type codes on the sources table (low)
 - [ ] `workspace-apis/destination-types/list-connectors` — lookup expanding the destination connector codes on the destinations table (low)
 - [ ] `workspace-apis/destinations/objects/fetch-destination-object` — destination object schemas that sync field mappings target (low)
 
-Note: Census now lives under the Fivetran Activations docs; the docs are HTML-only (no llms.txt or OpenAPI export found at fivetran.com/docs/llms.txt). The reference sidebar is the authoritative resource list. Webhooks and source/destination connect links were excluded as plumbing.
+Note: Census now lives under the Fivetran Activations docs; the docs are HTML-only (no llms.txt or OpenAPI export found at fivetran.com/docs/llms.txt). The reference sidebar is the authoritative resource list. Webhooks and source/destination connect links were excluded as plumbing. The two sync-run record endpoints are left unticked deliberately: both are grandchildren of `syncs` (sync -> sync run -> records), and a chained fan-out carries no resume state, so on a source with no server-side time filter every sync would re-walk the record detail of every retained run from scratch. `fetch-records-count` also only returns one unfiltered count, which `sync_runs` already carries as `records_processed`/`records_updated`/`records_failed`/`records_invalid`.
 
 ## Chameleon — gaps
 
