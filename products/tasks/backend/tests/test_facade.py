@@ -816,6 +816,32 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(summaries["own pr"].pr_url, "https://x/pull/1")
         self.assertEqual(summaries["own pr"].pr_state, "closed")
 
+    def test_task_summaries_read_an_array_only_pr_url(self):
+        own = self._make_task(title="own array")
+        TaskRun.objects.create(
+            task=own,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_urls": ["https://x/pull/3"], "pr_state": "open"},
+        )
+        inherited = self._make_task(title="inherited array")
+        TaskRun.objects.create(
+            task=inherited, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_urls": ["https://x/pull/4"]}
+        )
+        TaskRun.objects.create(task=inherited, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        summaries = {
+            dto.title: dto.latest_run
+            for dto in facade.get_task_summaries(self.team.id, self.user.id, ids=[own.id, inherited.id])
+        }
+
+        # `pr_url` is the flat field clients read, so a run that recorded only the array still
+        # reports its first usable entry there — whether that run is the latest or an earlier one.
+        assert summaries["own array"] is not None and summaries["inherited array"] is not None
+        self.assertEqual(summaries["own array"].pr_url, "https://x/pull/3")
+        self.assertEqual(summaries["own array"].pr_state, "open")
+        self.assertEqual(summaries["inherited array"].pr_url, "https://x/pull/4")
+
     def test_task_summaries_report_no_pr_when_the_task_never_opened_one(self):
         task = self._make_task(title="no pr")
         TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)

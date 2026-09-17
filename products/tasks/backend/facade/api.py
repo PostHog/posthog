@@ -6125,6 +6125,7 @@ def get_task_summaries(
                 environment="environment",
                 mode="_mode",
                 pr_url=KeyTransform("pr_url", "output"),
+                pr_urls=KeyTransform("pr_urls", "output"),
                 pr_state=KeyTransform("pr_state", "output"),
                 pr_merged=KeyTransform("pr_merged", "output"),
                 task_summary="state__task_summary",
