@@ -114,12 +114,56 @@ describe("ElectronSettingsBackupFiles", () => {
       const files = new ElectronSettingsBackupFiles();
       await expect(
         files.save({ contents: "new backup", defaultName: "backup.json" }),
-      ).rejects.toThrow("attempt 2");
+      ).rejects.toThrow("(EBUSY)");
     } finally {
       Object.defineProperty(process, "platform", { value: originalPlatform });
       rename.mockImplementation(realRename);
     }
     expect(await readFile(filePath, "utf8")).toBe("old backup");
+  });
+
+  it("reports a read failure by its code, without the chosen path", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "posthog-backup-test-"));
+    directories.push(directory);
+    dialogs.showOpenDialog.mockResolvedValue({
+      canceled: false,
+      filePaths: [join(directory, "missing.json")],
+    });
+    const files = new ElectronSettingsBackupFiles();
+
+    const message = await files.open().then(
+      () => "",
+      (error: Error) => error.message,
+    );
+
+    expect(message).toContain("(ENOENT)");
+    expect(message).not.toContain(directory);
+  });
+
+  it("reports a save failure by its code, without the chosen path", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "posthog-backup-test-"));
+    directories.push(directory);
+    const filePath = join(directory, "settings.json");
+    dialogs.showSaveDialog.mockResolvedValue({ canceled: false, filePath });
+    vi.mocked(fsPromises.rename).mockImplementationOnce(async (from, to) => {
+      throw Object.assign(
+        new Error(
+          `EACCES: permission denied, rename '${String(from)}' -> '${String(to)}'`,
+        ),
+        { code: "EACCES", syscall: "rename" },
+      );
+    });
+    const files = new ElectronSettingsBackupFiles();
+
+    const message = await files
+      .save({ contents: "new backup", defaultName: "backup.json" })
+      .then(
+        () => "",
+        (error: Error) => error.message,
+      );
+
+    expect(message).toContain("(EACCES)");
+    expect(message).not.toContain(directory);
   });
 
   it("leaves an existing backup untouched when the save dialog is canceled", async () => {

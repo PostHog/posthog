@@ -6,6 +6,28 @@ import { app, dialog } from "electron";
 import { injectable } from "inversify";
 import { resolveDialogParent } from "./electron-dialog";
 
+/** A failure this adapter describes itself. The message carries no file path. */
+class BackupFileError extends Error {}
+
+/**
+ * Node file-system errors embed the operand paths, and a thrown message crosses
+ * the tRPC boundary into the error log that ships to log ingestion. Report the
+ * error code instead, so the path the user picked in the dialog stays on this
+ * machine. Failures this adapter describes itself already carry no path, so
+ * they pass through with their guidance intact.
+ */
+function describeFailure(
+  error: unknown,
+  action: string,
+  guidance: string,
+): Error {
+  if (error instanceof BackupFileError) return error;
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  return new BackupFileError(
+    `Could not ${action}${typeof code === "string" ? ` (${code})` : ""}. ${guidance}`,
+  );
+}
+
 @injectable()
 export class ElectronSettingsBackupFiles implements ISettingsBackupFiles {
   async getAppVersion(): Promise<string> {
@@ -23,11 +45,25 @@ export class ElectronSettingsBackupFiles implements ISettingsBackupFiles {
       ? await dialog.showOpenDialog(parent, options)
       : await dialog.showOpenDialog(options);
     if (result.canceled || !result.filePaths[0]) return null;
-    const file = await open(result.filePaths[0], "r");
+    try {
+      return await this.read(result.filePaths[0]);
+    } catch (error) {
+      throw describeFailure(
+        error,
+        "read the backup file",
+        "Check that the file still exists and try again.",
+      );
+    }
+  }
+
+  private async read(path: string): Promise<string> {
+    const file = await open(path, "r");
     try {
       const stat = await file.stat();
       if (!stat.isFile() || stat.size > MAX_SETTINGS_BACKUP_BYTES)
-        throw new Error("Choose a PostHog backup file of 64 MB or less.");
+        throw new BackupFileError(
+          "Choose a PostHog backup file of 64 MB or less.",
+        );
       // Bound the read even if another process grows the file after stat().
       const buffer = Buffer.alloc(stat.size + 1);
       let size = 0;
@@ -42,7 +78,7 @@ export class ElectronSettingsBackupFiles implements ISettingsBackupFiles {
         size += bytesRead;
       }
       if (size > stat.size)
-        throw new Error(
+        throw new BackupFileError(
           "The backup changed while it was being read. Choose the file again.",
         );
       return buffer.subarray(0, size).toString("utf8");
@@ -81,6 +117,12 @@ export class ElectronSettingsBackupFiles implements ISettingsBackupFiles {
         flush: true,
       });
       await this.replace(temporary, result.filePath);
+    } catch (error) {
+      throw describeFailure(
+        error,
+        "save the backup",
+        "Check available disk space and folder permissions, then try again.",
+      );
     } finally {
       await unlink(temporary).catch(() => {});
     }
