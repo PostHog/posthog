@@ -987,6 +987,16 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
             "account_group_type_index",
         ]
 
+    def update(
+        self, instance: TeamCustomerAnalyticsConfig, validated_data: dict[str, Any]
+    ) -> TeamCustomerAnalyticsConfig:
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        # The account track rules on this row are written by their own path, so a settings save must
+        # not carry a stale copy of them back to the database.
+        instance.save(update_fields=list(validated_data))
+        return instance
+
     @staticmethod
     def validate_account_group_type_index(value):
         return validate_group_type_index("account_group_type_index", value)

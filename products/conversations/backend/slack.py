@@ -14,7 +14,7 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal, NamedTuple
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlencode, urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from django.conf import settings
@@ -36,6 +36,8 @@ from posthog.models.comment import Comment
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.ph_client import ph_scoped_capture
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from .cache import (
     NUDGE_COOLDOWN_TTL,
@@ -149,7 +151,21 @@ def ticket_deep_link(ticket: "Ticket", team: Team) -> str:
     return f"{settings.SITE_URL}/project/{_get_team_id(team)}/support/tickets/{ticket.ticket_number}"
 
 
-def ticket_created_blocks(ticket: "Ticket | None", team: Team) -> list[dict]:
+def my_tickets_link(ticket: "Ticket") -> str:
+    """Deep link into the requester's own ticket list, opened on this ticket.
+
+    A Slack ticket is keyed by the author's Slack profile email and created
+    ``identity_verified``, which is what the widget's email bridge matches on
+    (``api/widget.py:_identity_ticket_filter``), so it reaches a requester whose verified
+    PostHog email is that same address. For anyone else the scene clears the unresolvable
+    id and renders their plain list, so the link degrades instead of erroring. The id is
+    not a capability: widget access is decided by the viewer's session and attested email,
+    never by knowing a ticket's UUID.
+    """
+    return f"{settings.SITE_URL}/my-tickets?{urlencode({'ticket': str(ticket.id)})}"
+
+
+def ticket_created_blocks(ticket: "Ticket | None") -> list[dict]:
     """Blocks for the ticket confirmation, carrying a "View ticket" button when there is a ticket.
 
     The button holds the ticket number rather than the link, so the channel never shows the URL.
@@ -632,7 +648,7 @@ def create_or_update_slack_ticket(
             "channel": slack_channel_id,
             "thread_ts": thread_ts,
             "text": f"Ticket #{ticket.ticket_number} created.",
-            "blocks": ticket_created_blocks(ticket, team),
+            "blocks": ticket_created_blocks(ticket),
         }
         bot_display_name = support_settings.get("slack_bot_display_name")
         bot_icon_url = support_settings.get("slack_bot_icon_url")
@@ -1519,6 +1535,184 @@ def _backfill_thread_replies(
         thread_ts=thread_ts,
         ticket_id=str(ticket.id),
         backfilled_count=len(comments_to_create),
+    )
+
+
+# Must stay in step with ticket_deep_link, which writes the URLs this matches. The digit bounds
+# are load-bearing: this runs on any pasted link before the gates below, and int() raises above
+# 4300 digits, so \d+ would let a crafted URL raise and leave a retried event behind. Ten digits
+# covers everything the ticket_number column can hold.
+_TICKET_URL_PATH_RE = re.compile(r"^/project/(?P<project_id>\d{1,10})/support/tickets/(?P<ticket_number>\d{1,10})/?$")
+
+# Anything that puts someone outside this workspace in the room: Slack Connect, an invitation
+# to it, Enterprise Grid cross-workspace sharing, and direct messages. A DM cannot reach us
+# today (link_shared needs im:history/mpim:history, which SupportHog does not request), but
+# the rule belongs in this gate rather than in the scope list, where a later feature could
+# widen it by accident.
+_NON_INTERNAL_CHANNEL_FLAGS = (
+    "is_ext_shared",
+    "is_pending_ext_shared",
+    "is_org_shared",
+    "is_shared",
+    "is_im",
+    "is_mpim",
+)
+
+MAX_UNFURLS_PER_MESSAGE = 5
+
+
+def ticket_number_from_url(url: str, team: Team) -> int | None:
+    """The ticket number in one of this install's own ticket URLs, else None.
+
+    Host and project both have to match. A link to another region or another project is a
+    different ticket, and its number would otherwise resolve against this team to a real but
+    unrelated ticket.
+    """
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
+    if parsed.netloc.lower() != urlparse(settings.SITE_URL).netloc.lower():
+        return None
+    match = _TICKET_URL_PATH_RE.match(parsed.path)
+    if not match:
+        return None
+    if int(match.group("project_id")) != _get_team_id(team):
+        return None
+    return int(match.group("ticket_number"))
+
+
+def _slack_date(value: datetime) -> str:
+    """Render a timestamp in each reader's own timezone, with an ISO fallback."""
+    return f"<!date^{int(value.timestamp())}^{{date_short_pretty}} at {{time}}|{value.isoformat()}>"
+
+
+def ticket_unfurl(ticket: "Ticket", team: Team) -> dict:
+    """The preview card for a pasted ticket link.
+
+    Status and timings only. No message text, requester or email: the reader is whoever is in
+    the channel, which is a wider audience than the people working the ticket, and a preview
+    nobody asked for is the wrong place to widen who sees a customer's words.
+    """
+    fields = [
+        {"type": "mrkdwn", "text": f"*Status*\n{ticket.get_status_display()}"},
+        {"type": "mrkdwn", "text": f"*Priority*\n{ticket.get_priority_display() if ticket.priority else 'Not set'}"},
+        {"type": "mrkdwn", "text": f"*Created*\n{_slack_date(ticket.created_at)}"},
+        {"type": "mrkdwn", "text": f"*Last updated*\n{_slack_date(ticket.updated_at)}"},
+    ]
+    return {
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*<{ticket_deep_link(ticket, team)}|Ticket #{ticket.ticket_number}>*",
+                },
+            },
+            {"type": "section", "fields": fields},
+        ]
+    }
+
+
+def _is_internal_channel(client: WebClient, channel: str) -> bool:
+    """Whether `channel` is an ordinary channel of this workspace alone.
+
+    Fails closed, twice over: a channel we cannot read is one we cannot prove is internal, and
+    only a payload that positively identifies itself as a channel or private group passes, so
+    an unfamiliar shape is rejected rather than read as "no external flags, so internal". An
+    unfurl is irreversible once it renders for someone outside the organization.
+
+    Known residual: a Slack guest invited straight into the workspace (single- or
+    multi-channel) is a workspace member as far as these flags go, so a channel holding one
+    still counts as internal. Slack offers no per-channel guest signal, and proving every
+    member belongs to the organization would mean paginating the member list on every pasted
+    link. The card carries metadata only and the link itself was already posted by a member,
+    so the incremental exposure is status and timings rather than a ticket.
+    """
+    try:
+        response = client.conversations_info(channel=channel)
+    except Exception:
+        logger.warning("slack_support_unfurl_channel_lookup_failed", slack_channel_id=channel)
+        return False
+    info = response.get("channel") or {}
+    if any(info.get(flag) for flag in _NON_INTERNAL_CHANNEL_FLAGS):
+        return False
+    return bool(info.get("is_channel") or info.get("is_group"))
+
+
+def handle_link_shared(event: dict, team: Team, slack_team_id: str) -> None:
+    """Preview a pasted ticket link, in internal channels only.
+
+    An unfurl is visible to the whole channel and cannot be made partial, so both gates have
+    to hold: the channel is not shared with another organization, and the person who pasted
+    the link is a member of this team's organization. Ticket status is our operational view,
+    not the customer's view of their own request.
+    """
+    settings_dict = team.conversations_settings or {}
+    if not settings_dict.get("slack_enabled"):
+        return
+
+    channel = event.get("channel") or ""
+    if not channel:
+        return
+
+    # Match the URLs before calling Slack. The app's whole host is registered for unfurling, so
+    # every PostHog link anyone pastes arrives here — an insight, a dashboard, a replay — and
+    # conversations_info below is uncached and rate limited per workspace. The cap counts ticket
+    # links, so one pasted after five unrelated links is still previewed.
+    candidates: dict[str, int] = {}
+    for link in event.get("links") or []:
+        if len(candidates) >= MAX_UNFURLS_PER_MESSAGE:
+            break
+        url = link.get("url", "")
+        if url in candidates:
+            continue
+        ticket_number = ticket_number_from_url(url, team)
+        if ticket_number is not None:
+            candidates[url] = ticket_number
+    if not candidates:
+        return
+
+    client = get_slack_client(team)
+    if not _is_internal_channel(client, channel):
+        return
+
+    sharer = resolve_slack_user(client, event.get("user") or "", workspace=slack_team_id)
+    if sharer.get("team_id") != slack_team_id:
+        return
+    sharer_user = resolve_posthog_user_for_slack(sharer.get("email"), team)
+    if sharer_user is None:
+        return
+
+    # Belonging to the organization is not access to the ticket: "ticket" is an access-controlled
+    # resource, so a member can be denied the resource or a single ticket. The card is rendered
+    # here instead of in the app, so nothing downstream would apply that rule, and pasting guessed
+    # URLs would otherwise read out status for tickets the person cannot open.
+    readable = UserAccessControl(sharer_user, team=team).filter_queryset_by_access_level(
+        Ticket.objects.filter(team=team, ticket_number__in=set(candidates.values())), resource="ticket"
+    )
+    tickets = {ticket.ticket_number: ticket for ticket in readable}
+    unfurls = {url: ticket_unfurl(tickets[number], team) for url, number in candidates.items() if number in tickets}
+    if not unfurls:
+        return
+
+    # unfurl_id/source works whether or not the bot is in the channel; channel/ts is the
+    # fallback for a payload that predates it.
+    target = (
+        {"unfurl_id": event["unfurl_id"], "source": event["source"]}
+        if event.get("unfurl_id") and event.get("source")
+        else {"channel": channel, "ts": event.get("message_ts", "")}
+    )
+    try:
+        client.chat_unfurl(unfurls=unfurls, **target)
+    except Exception:
+        logger.warning("slack_support_unfurl_failed", slack_channel_id=channel, count=len(unfurls))
+        return
+
+    capture_support_event(
+        team,
+        "support slack ticket unfurled",
+        {"slack_team_id": slack_team_id, "slack_channel_id": channel, "ticket_count": len(unfurls)},
     )
 
 

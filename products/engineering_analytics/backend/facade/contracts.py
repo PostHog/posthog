@@ -1714,6 +1714,13 @@ class PRTimelineSegment:
 
 
 @dataclass(frozen=True)
+class PRTimelinePush:
+    head_sha: str
+    # When the commit's first workflow run was created, which is when the commit arrived.
+    pushed_at: datetime
+
+
+@dataclass(frozen=True)
 class PRTimeline:
     """One pull request's delivery timeline, from the moment it was ready for review (or opened,
     for a draft) to its merge, its close, or now, as consecutive segments with no gaps."""
@@ -1728,8 +1735,8 @@ class PRTimeline:
     # Where the segments start: the last ready_for_review before the end, else created_at.
     started_at: datetime
     merged_at: datetime | None
-    # Distinct head commits that triggered CI, merge-queue gate runs excluded.
-    pushes: int
+    # Distinct head commits that triggered CI, oldest first, merge-queue gate runs excluded.
+    pushes: list[PRTimelinePush]
     estimated_cost_usd: float | None
     billable_minutes: float | None
     segments: list[PRTimelineSegment]

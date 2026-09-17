@@ -35,8 +35,11 @@ from products.autoresearch.backend.facade.access import has_autoresearch_access
 from products.autoresearch.backend.facade.contracts import AutoresearchConflict, PipelineNotFound
 
 from .serializers import (
+    AutoresearchModelSerializer,
     AutoresearchPipelineCreateSerializer,
     AutoresearchPipelineSerializer,
+    AutoresearchRunSerializer,
+    AutoresearchTrainingRunSerializer,
     ResolvedTemplateSerializer,
     ResolveTemplateRequestSerializer,
     TemplateInfoSerializer,
@@ -108,6 +111,12 @@ class _FacadePaginationMixin:
         paginator.count = count
         serializer = serializer_class(instance=page, many=True)
         return paginator.get_paginated_response(serializer.data)
+
+
+def _parent_pipeline_id(view: Any) -> str | None:
+    """The pipeline this nested route is scoped to, or None on the unscoped collection route."""
+    pipeline_id = view.kwargs.get("parent_lookup_pipeline_id")
+    return str(pipeline_id) if pipeline_id else None
 
 
 def _pipeline_write_fields(validated: Any) -> dict[str, Any]:
@@ -313,3 +322,112 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             user=cast(User, request.user),
         )
         return Response(ValidatePipelineResponseSerializer(instance=result).data)
+
+
+@extend_schema(tags=["autoresearch"])
+class AutoresearchModelViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.ReadOnlyModelViewSet):
+    """
+    List and retrieve champion/challenger models for a pipeline.
+
+    Models are the persisted artifacts produced by training runs. Each model
+    holds a portable recipe (feature SQL, transforms, model class, params) that
+    the daily inference workflow compiles to score users.
+    """
+
+    schema = FacadePathParamSchema()
+    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch model.", "pipeline_id": None}
+    scope_object = "autoresearch"
+    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions: list[str] = []
+    permission_classes = [AutoresearchAccessPermission]
+    serializer_class = AutoresearchModelSerializer
+    queryset = None  # data is reached through the facade; declared for router/schema only
+
+    def _should_skip_parents_filter(self) -> bool:
+        return True
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_models(
+                self.team_id, pipeline_id=_parent_pipeline_id(self), offset=offset, limit=limit
+            ),
+            AutoresearchModelSerializer,
+        )
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        model = api.get_model(self.team_id, self.kwargs["pk"], pipeline_id=_parent_pipeline_id(self))
+        if model is None:
+            raise NotFound("Model not found.")
+        return Response(AutoresearchModelSerializer(instance=model).data)
+
+
+@extend_schema(tags=["autoresearch"])
+class AutoresearchRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.ReadOnlyModelViewSet):
+    """
+    List and retrieve inference and validation runs for a pipeline.
+    """
+
+    schema = FacadePathParamSchema()
+    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch run.", "pipeline_id": None}
+    scope_object = "autoresearch"
+    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions: list[str] = []
+    permission_classes = [AutoresearchAccessPermission]
+    serializer_class = AutoresearchRunSerializer
+    queryset = None  # data is reached through the facade; declared for router/schema only
+
+    def _should_skip_parents_filter(self) -> bool:
+        return True
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_runs(
+                self.team_id, pipeline_id=_parent_pipeline_id(self), offset=offset, limit=limit
+            ),
+            AutoresearchRunSerializer,
+        )
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        run = api.get_run(self.team_id, self.kwargs["pk"], pipeline_id=_parent_pipeline_id(self))
+        if run is None:
+            raise NotFound("Run not found.")
+        return Response(AutoresearchRunSerializer(instance=run).data)
+
+
+@extend_schema(tags=["autoresearch"])
+class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.ReadOnlyModelViewSet):
+    """
+    List and retrieve training runs for a pipeline.
+
+    A training run records the agent's search for a model: each iteration's recipe and holdout
+    score, and the summary of the run once it completes.
+    """
+
+    schema = FacadePathParamSchema()
+    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch training run.", "pipeline_id": None}
+    scope_object = "autoresearch"
+    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions: list[str] = []
+    permission_classes = [AutoresearchAccessPermission]
+    serializer_class = AutoresearchTrainingRunSerializer
+    queryset = None  # data is reached through the facade; declared for router/schema only
+
+    def _should_skip_parents_filter(self) -> bool:
+        return True
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_training_runs(
+                self.team_id, pipeline_id=_parent_pipeline_id(self), offset=offset, limit=limit
+            ),
+            AutoresearchTrainingRunSerializer,
+        )
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        training_run = api.get_training_run(self.team_id, self.kwargs["pk"], pipeline_id=_parent_pipeline_id(self))
+        if training_run is None:
+            raise NotFound("Training run not found.")
+        return Response(AutoresearchTrainingRunSerializer(instance=training_run).data)

@@ -487,6 +487,9 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                             }}
                             availableColumns={schemaIncrementalFields.available_columns ?? []}
                             detectedPrimaryKeys={schemaIncrementalFields.detected_primary_keys ?? null}
+                            primaryKeyDetectionSupported={
+                                schemaIncrementalFields.primary_key_detection_supported ?? false
+                            }
                             primaryKeyLocked={!!schema.table && !!schema.primary_key_columns?.length}
                             onClose={() => {}}
                             onSave={persistSyncMethod}
