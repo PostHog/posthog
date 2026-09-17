@@ -94,9 +94,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         500
     )
     const { featureFlags } = useValues(featureFlagLogic)
-    // Suggestions read a live workflow's sends; a draft has none and an archived one is done.
-    const selfOptimisingEnabled =
-        !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS] && originalWorkflow?.status === 'active'
+    const selfOptimisingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
     const isSavedWorkflow = !!props.id && props.id !== 'new'
     const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
     const { aiComposerAvailable } = useValues(newWorkflowLogic)

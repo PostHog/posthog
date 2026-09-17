@@ -13,7 +13,13 @@ import { workflowProposalsLogic } from './workflowProposalsLogic'
 export function WorkflowSuggestionsSwitch({ id }: { id: string }): JSX.Element {
     const { optimisationEnabled, optimisationLoading } = useValues(workflowProposalsLogic({ id }))
     const { setOptimisationEnabled } = useActions(workflowProposalsLogic({ id }))
-    const { workflowUserAccessLevel } = useValues(workflowLogic({ id }))
+    const { workflowUserAccessLevel, originalWorkflow } = useValues(workflowLogic({ id }))
+    // A draft has no sends to judge and an archived workflow is done, so the switch stays visible
+    // but says why it cannot be turned on. The server refuses the opt-in for those states too.
+    const notLiveReason =
+        originalWorkflow && originalWorkflow.status !== 'active'
+            ? 'Suggestions need a live workflow. Enable it first.'
+            : undefined
 
     return (
         <AccessControlAction
@@ -26,8 +32,8 @@ export function WorkflowSuggestionsSwitch({ id }: { id: string }): JSX.Element {
                     bordered
                     label="Suggest improvements"
                     checked={optimisationEnabled}
-                    disabled={optimisationLoading || !!disabledReason}
-                    tooltip={disabledReason}
+                    disabled={optimisationLoading}
+                    disabledReason={disabledReason ?? notLiveReason}
                     onChange={(checked) => setOptimisationEnabled(checked)}
                     data-attr="workflow-suggestions-enable"
                 />
