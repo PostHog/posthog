@@ -1,9 +1,20 @@
-from personhog.types.v1 import common_pb2 as _common_pb2
+from collections.abc import (
+    Iterable as _Iterable,
+    Mapping as _Mapping,
+)
+from typing import (
+    ClassVar as _ClassVar,
+    Optional as _Optional,
+    Union as _Union,
+)
+
+from google.protobuf import (
+    descriptor as _descriptor,
+    message as _message,
+)
 from google.protobuf.internal import containers as _containers
-from google.protobuf import descriptor as _descriptor
-from google.protobuf import message as _message
-from collections.abc import Iterable as _Iterable, Mapping as _Mapping
-from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
+
+from personhog.types.v1 import common_pb2 as _common_pb2
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
@@ -25,7 +36,13 @@ class HashKeyOverrideContext(_message.Message):
     distinct_id: str
     overrides: _containers.RepeatedCompositeFieldContainer[HashKeyOverride]
     existing_feature_flag_keys: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, person_id: _Optional[int] = ..., distinct_id: _Optional[str] = ..., overrides: _Optional[_Iterable[_Union[HashKeyOverride, _Mapping]]] = ..., existing_feature_flag_keys: _Optional[_Iterable[str]] = ...) -> None: ...
+    def __init__(
+        self,
+        person_id: _Optional[int] = ...,
+        distinct_id: _Optional[str] = ...,
+        overrides: _Optional[_Iterable[_Union[HashKeyOverride, _Mapping]]] = ...,
+        existing_feature_flag_keys: _Optional[_Iterable[str]] = ...,
+    ) -> None: ...
 
 class GetHashKeyOverrideContextRequest(_message.Message):
     __slots__ = ("team_id", "distinct_ids", "check_person_exists", "read_options")
@@ -37,7 +54,13 @@ class GetHashKeyOverrideContextRequest(_message.Message):
     distinct_ids: _containers.RepeatedScalarFieldContainer[str]
     check_person_exists: bool
     read_options: _common_pb2.ReadOptions
-    def __init__(self, team_id: _Optional[int] = ..., distinct_ids: _Optional[_Iterable[str]] = ..., check_person_exists: bool = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        distinct_ids: _Optional[_Iterable[str]] = ...,
+        check_person_exists: bool = ...,
+        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
+    ) -> None: ...
 
 class GetHashKeyOverrideContextResponse(_message.Message):
     __slots__ = ("results",)
@@ -55,7 +78,13 @@ class UpsertHashKeyOverridesRequest(_message.Message):
     distinct_ids: _containers.RepeatedScalarFieldContainer[str]
     hash_key: str
     feature_flag_keys: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, team_id: _Optional[int] = ..., distinct_ids: _Optional[_Iterable[str]] = ..., hash_key: _Optional[str] = ..., feature_flag_keys: _Optional[_Iterable[str]] = ...) -> None: ...
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        distinct_ids: _Optional[_Iterable[str]] = ...,
+        hash_key: _Optional[str] = ...,
+        feature_flag_keys: _Optional[_Iterable[str]] = ...,
+    ) -> None: ...
 
 class UpsertHashKeyOverridesResponse(_message.Message):
     __slots__ = ("inserted_count",)

@@ -1,9 +1,20 @@
-from personhog.types.v1 import common_pb2 as _common_pb2
+from collections.abc import (
+    Iterable as _Iterable,
+    Mapping as _Mapping,
+)
+from typing import (
+    ClassVar as _ClassVar,
+    Optional as _Optional,
+    Union as _Union,
+)
+
+from google.protobuf import (
+    descriptor as _descriptor,
+    message as _message,
+)
 from google.protobuf.internal import containers as _containers
-from google.protobuf import descriptor as _descriptor
-from google.protobuf import message as _message
-from collections.abc import Iterable as _Iterable, Mapping as _Mapping
-from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
+
+from personhog.types.v1 import common_pb2 as _common_pb2
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
@@ -23,7 +34,12 @@ class CheckCohortMembershipRequest(_message.Message):
     person_id: int
     cohort_ids: _containers.RepeatedScalarFieldContainer[int]
     read_options: _common_pb2.ReadOptions
-    def __init__(self, person_id: _Optional[int] = ..., cohort_ids: _Optional[_Iterable[int]] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
+    def __init__(
+        self,
+        person_id: _Optional[int] = ...,
+        cohort_ids: _Optional[_Iterable[int]] = ...,
+        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
+    ) -> None: ...
 
 class CohortMembershipResponse(_message.Message):
     __slots__ = ("memberships",)
@@ -37,7 +53,11 @@ class CountCohortMembersRequest(_message.Message):
     READ_OPTIONS_FIELD_NUMBER: _ClassVar[int]
     cohort_ids: _containers.RepeatedScalarFieldContainer[int]
     read_options: _common_pb2.ReadOptions
-    def __init__(self, cohort_ids: _Optional[_Iterable[int]] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
+    def __init__(
+        self,
+        cohort_ids: _Optional[_Iterable[int]] = ...,
+        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
+    ) -> None: ...
 
 class CountCohortMembersResponse(_message.Message):
     __slots__ = ("count",)
@@ -81,7 +101,12 @@ class InsertCohortMembersRequest(_message.Message):
     cohort_id: int
     person_ids: _containers.RepeatedScalarFieldContainer[int]
     version: int
-    def __init__(self, cohort_id: _Optional[int] = ..., person_ids: _Optional[_Iterable[int]] = ..., version: _Optional[int] = ...) -> None: ...
+    def __init__(
+        self,
+        cohort_id: _Optional[int] = ...,
+        person_ids: _Optional[_Iterable[int]] = ...,
+        version: _Optional[int] = ...,
+    ) -> None: ...
 
 class InsertCohortMembersResponse(_message.Message):
     __slots__ = ("inserted_count",)
@@ -99,7 +124,13 @@ class ListCohortMemberIdsRequest(_message.Message):
     cursor: int
     limit: int
     read_options: _common_pb2.ReadOptions
-    def __init__(self, cohort_id: _Optional[int] = ..., cursor: _Optional[int] = ..., limit: _Optional[int] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
+    def __init__(
+        self,
+        cohort_id: _Optional[int] = ...,
+        cursor: _Optional[int] = ...,
+        limit: _Optional[int] = ...,
+        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
+    ) -> None: ...
 
 class ListCohortMemberIdsResponse(_message.Message):
     __slots__ = ("person_ids", "next_cursor")

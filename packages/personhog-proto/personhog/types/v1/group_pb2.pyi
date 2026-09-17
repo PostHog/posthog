@@ -1,14 +1,35 @@
-from personhog.types.v1 import common_pb2 as _common_pb2
+from collections.abc import (
+    Iterable as _Iterable,
+    Mapping as _Mapping,
+)
+from typing import (
+    ClassVar as _ClassVar,
+    Optional as _Optional,
+    Union as _Union,
+)
+
+from google.protobuf import (
+    descriptor as _descriptor,
+    message as _message,
+)
 from google.protobuf.internal import containers as _containers
-from google.protobuf import descriptor as _descriptor
-from google.protobuf import message as _message
-from collections.abc import Iterable as _Iterable, Mapping as _Mapping
-from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
+
+from personhog.types.v1 import common_pb2 as _common_pb2
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class Group(_message.Message):
-    __slots__ = ("id", "team_id", "group_type_index", "group_key", "group_properties", "created_at", "properties_last_updated_at", "properties_last_operation", "version")
+    __slots__ = (
+        "id",
+        "team_id",
+        "group_type_index",
+        "group_key",
+        "group_properties",
+        "created_at",
+        "properties_last_updated_at",
+        "properties_last_operation",
+        "version",
+    )
     ID_FIELD_NUMBER: _ClassVar[int]
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
     GROUP_TYPE_INDEX_FIELD_NUMBER: _ClassVar[int]
@@ -27,10 +48,32 @@ class Group(_message.Message):
     properties_last_updated_at: bytes
     properties_last_operation: bytes
     version: int
-    def __init__(self, id: _Optional[int] = ..., team_id: _Optional[int] = ..., group_type_index: _Optional[int] = ..., group_key: _Optional[str] = ..., group_properties: _Optional[bytes] = ..., created_at: _Optional[int] = ..., properties_last_updated_at: _Optional[bytes] = ..., properties_last_operation: _Optional[bytes] = ..., version: _Optional[int] = ...) -> None: ...
+    def __init__(
+        self,
+        id: _Optional[int] = ...,
+        team_id: _Optional[int] = ...,
+        group_type_index: _Optional[int] = ...,
+        group_key: _Optional[str] = ...,
+        group_properties: _Optional[bytes] = ...,
+        created_at: _Optional[int] = ...,
+        properties_last_updated_at: _Optional[bytes] = ...,
+        properties_last_operation: _Optional[bytes] = ...,
+        version: _Optional[int] = ...,
+    ) -> None: ...
 
 class GroupTypeMapping(_message.Message):
-    __slots__ = ("id", "team_id", "project_id", "group_type", "group_type_index", "name_singular", "name_plural", "default_columns", "detail_dashboard_id", "created_at")
+    __slots__ = (
+        "id",
+        "team_id",
+        "project_id",
+        "group_type",
+        "group_type_index",
+        "name_singular",
+        "name_plural",
+        "default_columns",
+        "detail_dashboard_id",
+        "created_at",
+    )
     ID_FIELD_NUMBER: _ClassVar[int]
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
     PROJECT_ID_FIELD_NUMBER: _ClassVar[int]
@@ -51,7 +94,19 @@ class GroupTypeMapping(_message.Message):
     default_columns: bytes
     detail_dashboard_id: int
     created_at: int
-    def __init__(self, id: _Optional[int] = ..., team_id: _Optional[int] = ..., project_id: _Optional[int] = ..., group_type: _Optional[str] = ..., group_type_index: _Optional[int] = ..., name_singular: _Optional[str] = ..., name_plural: _Optional[str] = ..., default_columns: _Optional[bytes] = ..., detail_dashboard_id: _Optional[int] = ..., created_at: _Optional[int] = ...) -> None: ...
+    def __init__(
+        self,
+        id: _Optional[int] = ...,
+        team_id: _Optional[int] = ...,
+        project_id: _Optional[int] = ...,
+        group_type: _Optional[str] = ...,
+        group_type_index: _Optional[int] = ...,
+        name_singular: _Optional[str] = ...,
+        name_plural: _Optional[str] = ...,
+        default_columns: _Optional[bytes] = ...,
+        detail_dashboard_id: _Optional[int] = ...,
+        created_at: _Optional[int] = ...,
+    ) -> None: ...
 
 class GroupWithKey(_message.Message):
     __slots__ = ("key", "group")
@@ -59,7 +114,11 @@ class GroupWithKey(_message.Message):
     GROUP_FIELD_NUMBER: _ClassVar[int]
     key: _common_pb2.GroupKey
     group: Group
-    def __init__(self, key: _Optional[_Union[_common_pb2.GroupKey, _Mapping]] = ..., group: _Optional[_Union[Group, _Mapping]] = ...) -> None: ...
+    def __init__(
+        self,
+        key: _Optional[_Union[_common_pb2.GroupKey, _Mapping]] = ...,
+        group: _Optional[_Union[Group, _Mapping]] = ...,
+    ) -> None: ...
 
 class GroupTypeMappingsByKey(_message.Message):
     __slots__ = ("key", "mappings")
@@ -67,10 +126,21 @@ class GroupTypeMappingsByKey(_message.Message):
     MAPPINGS_FIELD_NUMBER: _ClassVar[int]
     key: int
     mappings: _containers.RepeatedCompositeFieldContainer[GroupTypeMapping]
-    def __init__(self, key: _Optional[int] = ..., mappings: _Optional[_Iterable[_Union[GroupTypeMapping, _Mapping]]] = ...) -> None: ...
+    def __init__(
+        self, key: _Optional[int] = ..., mappings: _Optional[_Iterable[_Union[GroupTypeMapping, _Mapping]]] = ...
+    ) -> None: ...
 
 class ListGroupsRequest(_message.Message):
-    __slots__ = ("team_id", "group_type_index", "group_key_contains", "search", "cursor_created_at_ms", "cursor_id", "limit", "read_options")
+    __slots__ = (
+        "team_id",
+        "group_type_index",
+        "group_key_contains",
+        "search",
+        "cursor_created_at_ms",
+        "cursor_id",
+        "limit",
+        "read_options",
+    )
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
     GROUP_TYPE_INDEX_FIELD_NUMBER: _ClassVar[int]
     GROUP_KEY_CONTAINS_FIELD_NUMBER: _ClassVar[int]
@@ -87,7 +157,17 @@ class ListGroupsRequest(_message.Message):
     cursor_id: int
     limit: int
     read_options: _common_pb2.ReadOptions
-    def __init__(self, team_id: _Optional[int] = ..., group_type_index: _Optional[int] = ..., group_key_contains: _Optional[str] = ..., search: _Optional[str] = ..., cursor_created_at_ms: _Optional[int] = ..., cursor_id: _Optional[int] = ..., limit: _Optional[int] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        group_type_index: _Optional[int] = ...,
+        group_key_contains: _Optional[str] = ...,
+        search: _Optional[str] = ...,
+        cursor_created_at_ms: _Optional[int] = ...,
+        cursor_id: _Optional[int] = ...,
+        limit: _Optional[int] = ...,
+        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
+    ) -> None: ...
 
 class ListGroupsResponse(_message.Message):
     __slots__ = ("groups", "has_more")
@@ -107,7 +187,13 @@ class GetGroupRequest(_message.Message):
     group_type_index: int
     group_key: str
     read_options: _common_pb2.ReadOptions
-    def __init__(self, team_id: _Optional[int] = ..., group_type_index: _Optional[int] = ..., group_key: _Optional[str] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        group_type_index: _Optional[int] = ...,
+        group_key: _Optional[str] = ...,
+        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
+    ) -> None: ...
 
 class GetGroupResponse(_message.Message):
     __slots__ = ("group",)
@@ -123,7 +209,12 @@ class GetGroupsRequest(_message.Message):
     team_id: int
     group_identifiers: _containers.RepeatedCompositeFieldContainer[_common_pb2.GroupIdentifier]
     read_options: _common_pb2.ReadOptions
-    def __init__(self, team_id: _Optional[int] = ..., group_identifiers: _Optional[_Iterable[_Union[_common_pb2.GroupIdentifier, _Mapping]]] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        group_identifiers: _Optional[_Iterable[_Union[_common_pb2.GroupIdentifier, _Mapping]]] = ...,
+        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
+    ) -> None: ...
 
 class GroupsResponse(_message.Message):
     __slots__ = ("groups", "missing_groups")
@@ -131,7 +222,11 @@ class GroupsResponse(_message.Message):
     MISSING_GROUPS_FIELD_NUMBER: _ClassVar[int]
     groups: _containers.RepeatedCompositeFieldContainer[Group]
     missing_groups: _containers.RepeatedCompositeFieldContainer[_common_pb2.GroupIdentifier]
-    def __init__(self, groups: _Optional[_Iterable[_Union[Group, _Mapping]]] = ..., missing_groups: _Optional[_Iterable[_Union[_common_pb2.GroupIdentifier, _Mapping]]] = ...) -> None: ...
+    def __init__(
+        self,
+        groups: _Optional[_Iterable[_Union[Group, _Mapping]]] = ...,
+        missing_groups: _Optional[_Iterable[_Union[_common_pb2.GroupIdentifier, _Mapping]]] = ...,
+    ) -> None: ...
 
 class GetGroupsBatchRequest(_message.Message):
     __slots__ = ("keys", "read_options")
@@ -139,7 +234,11 @@ class GetGroupsBatchRequest(_message.Message):
     READ_OPTIONS_FIELD_NUMBER: _ClassVar[int]
     keys: _containers.RepeatedCompositeFieldContainer[_common_pb2.GroupKey]
     read_options: _common_pb2.ReadOptions
-    def __init__(self, keys: _Optional[_Iterable[_Union[_common_pb2.GroupKey, _Mapping]]] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
+    def __init__(
+        self,
+        keys: _Optional[_Iterable[_Union[_common_pb2.GroupKey, _Mapping]]] = ...,
+        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
+    ) -> None: ...
 
 class GetGroupsBatchResponse(_message.Message):
     __slots__ = ("results",)
@@ -153,7 +252,9 @@ class GetGroupTypeMappingsByTeamIdRequest(_message.Message):
     READ_OPTIONS_FIELD_NUMBER: _ClassVar[int]
     team_id: int
     read_options: _common_pb2.ReadOptions
-    def __init__(self, team_id: _Optional[int] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
+    def __init__(
+        self, team_id: _Optional[int] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...
+    ) -> None: ...
 
 class GetGroupTypeMappingsByTeamIdsRequest(_message.Message):
     __slots__ = ("team_ids", "read_options")
@@ -161,7 +262,11 @@ class GetGroupTypeMappingsByTeamIdsRequest(_message.Message):
     READ_OPTIONS_FIELD_NUMBER: _ClassVar[int]
     team_ids: _containers.RepeatedScalarFieldContainer[int]
     read_options: _common_pb2.ReadOptions
-    def __init__(self, team_ids: _Optional[_Iterable[int]] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
+    def __init__(
+        self,
+        team_ids: _Optional[_Iterable[int]] = ...,
+        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
+    ) -> None: ...
 
 class GetGroupTypeMappingsByProjectIdRequest(_message.Message):
     __slots__ = ("project_id", "read_options")
@@ -169,7 +274,9 @@ class GetGroupTypeMappingsByProjectIdRequest(_message.Message):
     READ_OPTIONS_FIELD_NUMBER: _ClassVar[int]
     project_id: int
     read_options: _common_pb2.ReadOptions
-    def __init__(self, project_id: _Optional[int] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
+    def __init__(
+        self, project_id: _Optional[int] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...
+    ) -> None: ...
 
 class GetGroupTypeMappingsByProjectIdsRequest(_message.Message):
     __slots__ = ("project_ids", "read_options")
@@ -177,7 +284,11 @@ class GetGroupTypeMappingsByProjectIdsRequest(_message.Message):
     READ_OPTIONS_FIELD_NUMBER: _ClassVar[int]
     project_ids: _containers.RepeatedScalarFieldContainer[int]
     read_options: _common_pb2.ReadOptions
-    def __init__(self, project_ids: _Optional[_Iterable[int]] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
+    def __init__(
+        self,
+        project_ids: _Optional[_Iterable[int]] = ...,
+        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
+    ) -> None: ...
 
 class GroupTypeMappingsResponse(_message.Message):
     __slots__ = ("mappings",)
@@ -223,7 +334,14 @@ class CreateGroupRequest(_message.Message):
     group_key: str
     group_properties: bytes
     created_at: int
-    def __init__(self, team_id: _Optional[int] = ..., group_type_index: _Optional[int] = ..., group_key: _Optional[str] = ..., group_properties: _Optional[bytes] = ..., created_at: _Optional[int] = ...) -> None: ...
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        group_type_index: _Optional[int] = ...,
+        group_key: _Optional[str] = ...,
+        group_properties: _Optional[bytes] = ...,
+        created_at: _Optional[int] = ...,
+    ) -> None: ...
 
 class CreateGroupResponse(_message.Message):
     __slots__ = ("group",)
@@ -232,7 +350,16 @@ class CreateGroupResponse(_message.Message):
     def __init__(self, group: _Optional[_Union[Group, _Mapping]] = ...) -> None: ...
 
 class UpdateGroupRequest(_message.Message):
-    __slots__ = ("team_id", "group_type_index", "group_key", "update_mask", "group_properties", "properties_last_updated_at", "properties_last_operation", "created_at")
+    __slots__ = (
+        "team_id",
+        "group_type_index",
+        "group_key",
+        "update_mask",
+        "group_properties",
+        "properties_last_updated_at",
+        "properties_last_operation",
+        "created_at",
+    )
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
     GROUP_TYPE_INDEX_FIELD_NUMBER: _ClassVar[int]
     GROUP_KEY_FIELD_NUMBER: _ClassVar[int]
@@ -249,7 +376,17 @@ class UpdateGroupRequest(_message.Message):
     properties_last_updated_at: bytes
     properties_last_operation: bytes
     created_at: int
-    def __init__(self, team_id: _Optional[int] = ..., group_type_index: _Optional[int] = ..., group_key: _Optional[str] = ..., update_mask: _Optional[_Iterable[str]] = ..., group_properties: _Optional[bytes] = ..., properties_last_updated_at: _Optional[bytes] = ..., properties_last_operation: _Optional[bytes] = ..., created_at: _Optional[int] = ...) -> None: ...
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        group_type_index: _Optional[int] = ...,
+        group_key: _Optional[str] = ...,
+        update_mask: _Optional[_Iterable[str]] = ...,
+        group_properties: _Optional[bytes] = ...,
+        properties_last_updated_at: _Optional[bytes] = ...,
+        properties_last_operation: _Optional[bytes] = ...,
+        created_at: _Optional[int] = ...,
+    ) -> None: ...
 
 class UpdateGroupResponse(_message.Message):
     __slots__ = ("group", "updated")
@@ -274,7 +411,16 @@ class DeleteGroupsBatchForTeamResponse(_message.Message):
     def __init__(self, deleted_count: _Optional[int] = ...) -> None: ...
 
 class UpdateGroupTypeMappingRequest(_message.Message):
-    __slots__ = ("project_id", "group_type_index", "update_mask", "name_singular", "name_plural", "detail_dashboard_id", "default_columns", "created_at")
+    __slots__ = (
+        "project_id",
+        "group_type_index",
+        "update_mask",
+        "name_singular",
+        "name_plural",
+        "detail_dashboard_id",
+        "default_columns",
+        "created_at",
+    )
     PROJECT_ID_FIELD_NUMBER: _ClassVar[int]
     GROUP_TYPE_INDEX_FIELD_NUMBER: _ClassVar[int]
     UPDATE_MASK_FIELD_NUMBER: _ClassVar[int]
@@ -291,7 +437,17 @@ class UpdateGroupTypeMappingRequest(_message.Message):
     detail_dashboard_id: int
     default_columns: bytes
     created_at: int
-    def __init__(self, project_id: _Optional[int] = ..., group_type_index: _Optional[int] = ..., update_mask: _Optional[_Iterable[str]] = ..., name_singular: _Optional[str] = ..., name_plural: _Optional[str] = ..., detail_dashboard_id: _Optional[int] = ..., default_columns: _Optional[bytes] = ..., created_at: _Optional[int] = ...) -> None: ...
+    def __init__(
+        self,
+        project_id: _Optional[int] = ...,
+        group_type_index: _Optional[int] = ...,
+        update_mask: _Optional[_Iterable[str]] = ...,
+        name_singular: _Optional[str] = ...,
+        name_plural: _Optional[str] = ...,
+        detail_dashboard_id: _Optional[int] = ...,
+        default_columns: _Optional[bytes] = ...,
+        created_at: _Optional[int] = ...,
+    ) -> None: ...
 
 class UpdateGroupTypeMappingResponse(_message.Message):
     __slots__ = ("mapping",)
@@ -307,7 +463,12 @@ class GetGroupTypeMappingByDashboardIdRequest(_message.Message):
     team_id: int
     dashboard_id: int
     read_options: _common_pb2.ReadOptions
-    def __init__(self, team_id: _Optional[int] = ..., dashboard_id: _Optional[int] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        dashboard_id: _Optional[int] = ...,
+        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
+    ) -> None: ...
 
 class GetGroupTypeMappingByDashboardIdResponse(_message.Message):
     __slots__ = ("mapping",)
