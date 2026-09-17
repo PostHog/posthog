@@ -44,4 +44,6 @@ Use `external_id` to match accounts to external records.
 
 Ignored accounts are excluded by default.
 Use `include_ignored=true` to include them or `assigned_only=true` to return accounts with active assignments.
+Use `managed_only=true` to return accounts with at least one controlled relationship.
+This filter includes ignored accounts and cleared roles, and personal-key access rules still apply.
 An account absent from the response can be filtered or inaccessible, so absence alone does not mean its ownership was cleared.

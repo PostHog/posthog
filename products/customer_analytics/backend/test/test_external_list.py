@@ -6,6 +6,8 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework import status
@@ -17,8 +19,9 @@ from posthog.models.utils import generate_random_token_personal, generate_random
 from posthog.test.api_keys import create_project_secret_api_key
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.customer_analytics.backend.facade import api as facade
 from products.customer_analytics.backend.models import AccountRelationship, AccountRelationshipDefinition
-from products.customer_analytics.backend.test.factories import create_account
+from products.customer_analytics.backend.test.factories import create_account, enroll_account
 
 ENDED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -57,6 +60,11 @@ class TestExternalAccountListAPI(APIBaseTest):
         return AccountRelationshipDefinition.objects.for_team(self.team.id).create(
             team_id=self.team.id, name=name, **kwargs
         )
+
+    def _enrolled_account(self, *, name, external_id, definition, **kwargs):
+        account = create_account(team_id=self.team.id, name=name, external_id=external_id, **kwargs)
+        enroll_account(account, definition, controlled_at=ENDED_AT)
+        return account
 
     def _assign(self, account, user, definition=None, ended_at=None):
         return AccountRelationship.objects.for_team(self.team.id).create(
@@ -162,7 +170,8 @@ class TestExternalAccountListAPI(APIBaseTest):
         response = self._get(params={"project_id": self.team.id}, token=token)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_personal_key_filters_account_access_before_pagination(self) -> None:
+    @parameterized.expand([("all", False), ("managed", True)])
+    def test_personal_key_filters_account_access_before_pagination(self, _name: str, managed_only: bool) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -173,6 +182,11 @@ class TestExternalAccountListAPI(APIBaseTest):
         membership.save()
         hidden = create_account(team_id=self.team.id, name="Hidden", external_id="hidden-account")
         visible = create_account(team_id=self.team.id, name="Visible", external_id="visible-account")
+        if managed_only:
+            self.csm_definition.is_controlled = True
+            self.csm_definition.save(update_fields=["is_controlled"])
+            enroll_account(hidden, self.csm_definition, controlled_at=ENDED_AT)
+            enroll_account(visible, self.csm_definition, controlled_at=ENDED_AT)
         AccessControl.objects.create(
             team=self.team,
             resource="account",
@@ -182,7 +196,9 @@ class TestExternalAccountListAPI(APIBaseTest):
         )
         _, token = self._create_personal_token(scopes=["account:read"])
 
-        response = self._get(params={"project_id": self.team.id, "limit": 1}, token=token)
+        response = self._get(
+            params={"project_id": self.team.id, "limit": 1, "managed_only": str(managed_only).lower()}, token=token
+        )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([row["external_id"] for row in response.json()["results"]], [visible.external_id])
@@ -321,18 +337,9 @@ class TestExternalAccountListAPI(APIBaseTest):
         response = self._get()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.json()["results"],
-            [
-                {
-                    "external_id": "org-1",
-                    "name": "Acme",
-                    "churned_at": None,
-                    "ignored_at": None,
-                    "relationships": {},
-                }
-            ],
-        )
+        (row,) = response.json()["results"]
+        self.assertEqual(row["external_id"], "org-1")
+        self.assertEqual(row["relationships"], {})
 
     def test_omits_ended_and_userless_assignments(self):
         account = create_account(team_id=self.team.id, name="Acme", external_id="org-1")
@@ -381,6 +388,52 @@ class TestExternalAccountListAPI(APIBaseTest):
 
         names = [row["name"] for row in response.json()["results"]]
         self.assertEqual(names, ["Listed"])
+
+    def test_managed_only_returns_managed_accounts_including_cleared_roles(self):
+        self.csm_definition.is_controlled = True
+        self.csm_definition.save(update_fields=["is_controlled"])
+        onboarding_definition = self._create_definition("Onboarding manager", is_controlled=True)
+        assigned = self._enrolled_account(name="Assigned", external_id="assigned", definition=self.csm_definition)
+        self._assign(assigned, self.user)
+        self._enrolled_account(name="Cleared", external_id="cleared", definition=self.csm_definition)
+        self._enrolled_account(
+            name="Ignored", external_id="ignored", definition=self.csm_definition, ignored_at=ENDED_AT
+        )
+        self._enrolled_account(name="Onboarding", external_id="onboarding", definition=onboarding_definition)
+        legacy = create_account(team_id=self.team.id, name="Legacy", external_id="legacy")
+        self._assign(legacy, self.user)
+
+        response = self._get({"managed_only": "true"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        by_external_id = {
+            row["external_id"]: {role["definition_name"]: role for role in row["ownership"]["roles"]}
+            for row in response.json()["results"]
+        }
+        self.assertEqual(set(by_external_id), {"assigned", "cleared", "ignored", "onboarding"})
+        self.assertEqual(by_external_id["assigned"]["CSM"]["state"], "assigned")
+        self.assertEqual(by_external_id["assigned"]["CSM"]["holder"]["email"], self.user.email)
+        self.assertEqual(by_external_id["assigned"]["Onboarding manager"]["state"], "unmanaged")
+        self.assertEqual(by_external_id["cleared"]["CSM"]["state"], "cleared")
+        self.assertIsNone(by_external_id["cleared"]["CSM"]["holder"])
+        self.assertEqual(by_external_id["onboarding"]["Onboarding manager"]["state"], "cleared")
+        self.assertEqual(by_external_id["onboarding"]["CSM"]["state"], "unmanaged")
+
+    def test_ownership_block_costs_a_fixed_number_of_queries(self):
+        definitions = [self._create_definition(name, is_controlled=True) for name in ("AE", "Onboarding", "Support")]
+        accounts = [create_account(team_id=self.team.id, name=f"Account {i}", external_id=f"org-{i}") for i in range(3)]
+        for account in accounts:
+            for definition in definitions:
+                enroll_account(account, definition, controlled_at=ENDED_AT)
+                self._assign(account, self.user, definition=definition)
+
+        with CaptureQueriesContext(connection) as one_account:
+            facade.list_external_accounts(self.team.id, organization_id=self.organization.id, limit=1)
+        with CaptureQueriesContext(connection) as three_accounts:
+            page = facade.list_external_accounts(self.team.id, organization_id=self.organization.id, limit=3)
+
+        self.assertEqual(len(three_accounts.captured_queries), len(one_account.captured_queries))
+        self.assertEqual({len(item.ownership.roles) for item in page.results}, {3})
 
     def test_assigned_only_filters_to_accounts_with_an_active_assignment(self):
         assigned = create_account(team_id=self.team.id, name="Assigned", external_id="org-1")
