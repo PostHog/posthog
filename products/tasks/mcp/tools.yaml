@@ -334,8 +334,8 @@ tools:
         redirect_hint:
             'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
             origin_product "loops". For run history, call tasks-list with the hog_flow_id of the loop and archived set
-            to all: it lists the tasks the loop created, newest first, each with the status and error of its latest
-            run. Then call tasks-runs-retrieve on a run for its branch and output, including any PR URL.
+            to all: it lists the tasks the loop created, newest first, each with the status and error of its latest run.
+            Then call tasks-runs-retrieve on a run for its branch and output, including any PR URL.
             workflows-list-invocations carries the engine outcome only, with no task output.'
     loops-skill-bundles-update:
         operation: loops_skill_bundles_update
