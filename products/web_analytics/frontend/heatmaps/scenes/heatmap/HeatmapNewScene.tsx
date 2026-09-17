@@ -216,7 +216,7 @@ function ChoosePageStep(): JSX.Element {
                                 </span>
                             ),
                         }))}
-                        title={topUrls?.length ? 'Most viewed pages' : undefined}
+                        title={topUrls?.length ? 'Pages with the most interactions' : undefined}
                         popoverClassName="max-w-0"
                         data-attr="heatmap-new-page-url"
                     />

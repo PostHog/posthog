@@ -78,7 +78,7 @@ export function HeatmapNewSceneLegacy(): JSX.Element {
                             </span>
                         ),
                     }))}
-                    title={topUrls && topUrls.length > 0 ? 'Most viewed pages' : undefined}
+                    title={topUrls && topUrls.length > 0 ? 'Pages with the most interactions' : undefined}
                     popoverClassName="max-w-0"
                     data-attr="heatmap-new-page-url"
                 />
