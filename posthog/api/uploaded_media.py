@@ -298,7 +298,7 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def safely_get_queryset(self, queryset):
         if self.action == "complete_upload":
             return queryset.filter(pending=True)
-        return queryset.filter(pending=False).order_by("-created_at")
+        return queryset.filter(pending=False).order_by("-created_at", "-id")
 
     @extend_schema(
         description="List images in the media library. Requires a `purpose` filter — the library is scoped per "
