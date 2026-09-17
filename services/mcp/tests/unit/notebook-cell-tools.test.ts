@@ -742,9 +742,15 @@ describe('notebook cell tools', () => {
 
         // Relocation used to accept any unique occurrence of the source, so a paragraph that
         // grew around the old text took the insert into its middle and split it in two.
-        it('refuses a source that survives only inside a longer paragraph', async () => {
-            const state = makeState('# Doc\n\n\nUpdated First paragraph. Now longer.\n')
+        it.each([
+            { label: 'moved offsets', doc: '# Doc\n\n\nUpdated First paragraph. Now longer.\n' },
+            // The text grew on the same line after the state read, so the old span still slices
+            // back to the source. Only the notebook version shows that the span is stale.
+            { label: 'the same offsets in a newer version', doc: '# Doc\n\n\nFirst paragraph. Now longer.\n' },
+        ])('refuses a source that survives only inside a longer paragraph, at $label', async ({ doc }) => {
+            const state = makeState(doc)
             state.stateCells = [FIRST]
+            state.stateVersion = state.version - 1
             const context = createMockContext(state)
 
             await expect(
