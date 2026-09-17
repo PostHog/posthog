@@ -11,7 +11,10 @@ from posthog.session_recordings.recordings.errors import (
     RecordingApiConfigurationError,
     RecordingDeletedError,
 )
-from posthog.session_recordings.recordings.recording_api_jwt import recording_api_auth_headers
+from posthog.session_recordings.recordings.recording_api_jwt import (
+    recording_api_auth_headers,
+    recording_api_jwt_enabled,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -132,6 +135,12 @@ async def recording_api_client() -> AsyncIterator[RecordingApiClient]:
     """
     if not settings.RECORDING_API_URL:
         raise RecordingApiConfigurationError("RECORDING_API_URL is not configured")
+
+    # Without a credential every request is sent unauthenticated and comes back 401, which the tolerant
+    # handlers flatten into an empty listing exactly as a missing URL used to. The delete-recordings
+    # activity already treats both settings as the same permanent fault.
+    if not settings.INTERNAL_API_SECRET and not recording_api_jwt_enabled():
+        raise RecordingApiConfigurationError("Neither INTERNAL_API_SECRET nor RECORDING_API_JWT_SECRET is configured")
 
     timeout = aiohttp.ClientTimeout(total=30, connect=5)
     # Authorization is per-request (a team + operation scoped JWT), so no session-level auth header.
