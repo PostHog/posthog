@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import React from 'react'
 
 import { ButtonTileCard } from 'lib/components/Cards/ButtonTileCard/ButtonTileCard'
@@ -44,11 +44,7 @@ function DashboardButtonTileItemInternal(
         dashboards: undefined,
         dashboard_tiles: tile.button_tile?.dashboard_tiles,
     }
-    const { copyToDestinations, destinationDashboardsLoaded, destinationPageLoading, hasMoreDestinationDashboards } =
-        useValues(dashboardWidgetMenusLogic(dashboardWidgetMenusLogicProps))
-    const { loadDestinationDashboardsIfNeeded, loadMoreDestinationDashboards } = useActions(
-        dashboardWidgetMenusLogic(dashboardWidgetMenusLogicProps)
-    )
+    const { copyToDestinations } = useValues(dashboardWidgetMenusLogic(dashboardWidgetMenusLogicProps))
 
     return (
         <ButtonTileCard
@@ -63,11 +59,6 @@ function DashboardButtonTileItemInternal(
 
                     <DashboardWidgetPlacementMenus
                         placementDestinations={copyToDestinations}
-                        onOpen={loadDestinationDashboardsIfNeeded}
-                        loaded={destinationDashboardsLoaded}
-                        loading={destinationPageLoading}
-                        hasMore={hasMoreDestinationDashboards}
-                        onLoadMore={loadMoreDestinationDashboards}
                         onMoveToDashboard={onMoveToDashboard}
                     />
 

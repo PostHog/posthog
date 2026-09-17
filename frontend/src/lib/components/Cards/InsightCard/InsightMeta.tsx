@@ -186,11 +186,7 @@ export function InsightMeta({
         dashboards: insight.dashboards,
         dashboard_tiles: insight.dashboard_tiles,
     }
-    const { copyToDestinations, destinationPageLoading, destinationDashboardsLoaded, hasMoreDestinationDashboards } =
-        useValues(dashboardWidgetMenusLogic(dashboardWidgetMenusLogicProps))
-    const { loadDestinationDashboardsIfNeeded, loadMoreDestinationDashboards } = useActions(
-        dashboardWidgetMenusLogic(dashboardWidgetMenusLogicProps)
-    )
+    const { copyToDestinations } = useValues(dashboardWidgetMenusLogic(dashboardWidgetMenusLogicProps))
     const { copyImage } = useActions(captureImageLogic)
     const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
     const { updateInsightDirect } = useActions(insightsModel)
@@ -569,11 +565,6 @@ export function InsightMeta({
                                 <h5 className="mx-2 my-1">Dashboard</h5>
                                 <DashboardWidgetPlacementMenus
                                     placementDestinations={copyToDestinations}
-                                    onOpen={loadDestinationDashboardsIfNeeded}
-                                    loading={destinationPageLoading}
-                                    loaded={destinationDashboardsLoaded}
-                                    hasMore={hasMoreDestinationDashboards}
-                                    onLoadMore={loadMoreDestinationDashboards}
                                     onCopyToDashboard={copyToDashboard}
                                 />
                             </>
@@ -622,11 +613,6 @@ export function InsightMeta({
                                         <h5 className="mx-2 my-1">Dashboard</h5>
                                         <DashboardWidgetPlacementMenus
                                             placementDestinations={copyToDestinations}
-                                            onOpen={loadDestinationDashboardsIfNeeded}
-                                            loading={destinationPageLoading}
-                                            loaded={destinationDashboardsLoaded}
-                                            hasMore={hasMoreDestinationDashboards}
-                                            onLoadMore={loadMoreDestinationDashboards}
                                             onMoveToDashboard={moveToDashboard}
                                             onCopyToDashboard={canShowCopyToDashboardTile ? copyToDashboard : undefined}
                                         />

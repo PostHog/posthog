@@ -1,11 +1,12 @@
-import { useCallback, useRef, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useCallback, useState } from 'react'
 
-import { useScrollObserver } from 'lib/hooks/useScrollObserver'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
+import { dashboardsModel } from '~/models/dashboardsModel'
 import type { DashboardBasicType } from '~/types'
 
 export interface DashboardWidgetPlacementDestination {
@@ -17,11 +18,6 @@ export interface DashboardWidgetPlacementDestination {
 interface DashboardWidgetPlacementMenuProps {
     destinations: DashboardWidgetPlacementDestination[]
     onSelect: (dashboard: DashboardBasicType) => void
-    onOpen?: () => void
-    loading?: boolean
-    loaded?: boolean
-    hasMore?: boolean
-    onLoadMore?: () => void
     /** Submenu trigger label (e.g. "Move to" vs "Copy to"). */
     label?: string
     /** When there are no destinations, the trigger stays visible but disabled (avoids hiding the action). */
@@ -31,30 +27,12 @@ interface DashboardWidgetPlacementMenuProps {
 export function DashboardWidgetPlacementMenu({
     destinations,
     onSelect,
-    onOpen,
-    loading = false,
-    loaded = false,
-    hasMore = false,
-    onLoadMore,
     label = 'Move to',
     emptyDisabledReason = 'No other dashboards',
 }: DashboardWidgetPlacementMenuProps): JSX.Element {
     const [searchTerm, setSearchTermState] = useState('')
-    const showInitialLoading = !loaded
-    const hasMoreRef = useRef(hasMore)
-    const onLoadMoreRef = useRef(onLoadMore)
-    hasMoreRef.current = hasMore
-    onLoadMoreRef.current = onLoadMore
-
-    const loadMoreDestinations = useCallback(() => {
-        if (hasMoreRef.current) {
-            onLoadMoreRef.current?.()
-        }
-    }, [])
-
-    const destinationsScrollRef = useScrollObserver({
-        onScrollBottom: loadMoreDestinations,
-    })
+    const { dashboardsLoading } = useValues(dashboardsModel)
+    const { loadDashboardsIfNeeded } = useActions(dashboardsModel)
 
     const handleSearchChange = useCallback((value: string) => {
         setSearchTermState(value)
@@ -67,77 +45,68 @@ export function DashboardWidgetPlacementMenu({
             : destinations.filter((entry) =>
                   (entry.dashboard.name || 'Untitled').toLowerCase().includes(searchTerm.toLowerCase())
               )
-    const destinationsStateRef = useRef({
-        filteredDestinations,
-        handleSearchChange,
-        hasMore,
-        loading,
-        onSelect,
-        searchTerm,
-        showInitialLoading,
-    })
-    destinationsStateRef.current = {
-        filteredDestinations,
-        handleSearchChange,
-        hasMore,
-        loading,
-        onSelect,
-        searchTerm,
-        showInitialLoading,
-    }
-
-    const DestinationsLabel = useCallback(() => {
-        const { filteredDestinations, handleSearchChange, hasMore, loading, onSelect, searchTerm, showInitialLoading } =
-            destinationsStateRef.current
+    const SearchInputLabel = useCallback(() => {
         return (
-            <div className="w-72 p-2">
-                {showInitialLoading ? (
-                    <div aria-label="Loading dashboards">
-                        <LemonSkeleton.Row className="h-8 mb-1" repeat={5} fade />
-                    </div>
-                ) : (
-                    <>
-                        <LemonInput
-                            type="search"
-                            placeholder="Search dashboards"
-                            value={searchTerm}
-                            onChange={handleSearchChange}
-                            size="small"
-                            fullWidth
-                            allowClear
-                            onClick={(event) => event.stopPropagation()}
-                            autoFocus
-                        />
-                        <div ref={destinationsScrollRef} className="mt-1 max-h-[60vh] overflow-y-auto">
-                            {filteredDestinations.map(({ dashboard, disabledReason }) => (
-                                <LemonButton
-                                    key={dashboard.id}
-                                    fullWidth
-                                    disabledReason={disabledReason}
-                                    onClick={() => {
-                                        if (!disabledReason) {
-                                            onSelect(dashboard)
-                                            setSearchTermState('')
-                                        }
-                                    }}
-                                >
-                                    {dashboard.name || <i>Untitled</i>}
-                                </LemonButton>
-                            ))}
-                            {!loading && filteredDestinations.length === 0 && (
-                                <div className="px-2 py-1 text-secondary">No dashboards match this search</div>
-                            )}
-                            {loading && hasMore && <LemonSkeleton.Row className="h-8 mb-1" repeat={2} fade />}
-                        </div>
-                    </>
-                )}
+            <div className="px-2 pt-2 pb-1">
+                <LemonInput
+                    type="search"
+                    placeholder="Search dashboards"
+                    value={searchTerm}
+                    onChange={handleSearchChange}
+                    size="small"
+                    fullWidth
+                    allowClear
+                    onClick={(event) => event.stopPropagation()}
+                    autoFocus
+                />
             </div>
         )
-    }, [destinationsScrollRef])
+    }, [handleSearchChange, searchTerm])
 
-    const items: LemonMenuItems = [{ custom: true, label: DestinationsLabel }]
+    const searchItem: LemonMenuItem = {
+        custom: true,
+        label: SearchInputLabel,
+    }
 
-    if (!destinations.length && !showInitialLoading && !onOpen) {
+    const items: LemonMenuItems = dashboardsLoading
+        ? [{ custom: true, label: () => <LemonSkeleton.Row className="m-2 h-8" repeat={5} fade /> }]
+        : filteredDestinations.length > 0
+          ? [
+                { items: [searchItem] },
+                {
+                    items: filteredDestinations.map(({ dashboard, disabledReason }) => ({
+                        label: disabledReason ? (
+                            <span className="flex flex-col items-start gap-0.5 text-left">
+                                <span>{dashboard.name || <i>Untitled</i>}</span>
+                                <span className="text-xs font-normal text-muted">{disabledReason}</span>
+                            </span>
+                        ) : (
+                            dashboard.name || <i>Untitled</i>
+                        ),
+                        key: dashboard.id,
+                        disabled: !!disabledReason,
+                        onClick: () => {
+                            if (!disabledReason) {
+                                onSelect(dashboard)
+                                setSearchTermState('')
+                            }
+                        },
+                    })),
+                },
+            ]
+          : [
+                {
+                    items: [
+                        searchItem,
+                        {
+                            label: 'No dashboards match this search',
+                            key: 'no-results',
+                        },
+                    ],
+                },
+            ]
+
+    if (!destinations.length && !dashboardsLoading) {
         return (
             <LemonButton fullWidth disabledReason={emptyDisabledReason}>
                 {label}
@@ -150,9 +119,10 @@ export function DashboardWidgetPlacementMenu({
             items={items}
             placement="right-start"
             fallbackPlacements={['left-start']}
+            closeParentPopoverOnClickInside
             onVisibilityChange={(visible) => {
                 if (visible) {
-                    onOpen?.()
+                    loadDashboardsIfNeeded()
                 } else {
                     setSearchTermState('')
                 }
