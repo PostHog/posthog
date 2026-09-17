@@ -1966,7 +1966,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 and resource.enabled
             )
             exported_data.update({"canvas": canvas_payload})
-            exported_data["viewer"] = self._shared_page_viewer_for(resource)
+            # An embedded document is framable by design, so it never carries who is looking or the
+            # switch that turns the link back on: a click inside someone else's frame must not reach
+            # them. `force_type` cannot put the chrome back, because the hints are simply absent.
+            if not embedded:
+                exported_data["viewer"] = self._shared_page_viewer_for(resource)
         elif isinstance(resource, SharingConfiguration) and resource.task_artifact_id:
             # The link serves the upload pinned when the file was shared or its changes were last
             # published, never a later upload on its own.
@@ -1975,7 +1979,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 raise NotFound("No resource found")
             asset_title = file.name
             exported_data.update({"task_artifact": _shared_task_artifact_payload(resource, file)})
-            exported_data["viewer"] = self._shared_page_viewer_for(resource)
+            if not embedded:
+                exported_data["viewer"] = self._shared_page_viewer_for(resource)
         else:
             raise NotFound("No resource found")
 
