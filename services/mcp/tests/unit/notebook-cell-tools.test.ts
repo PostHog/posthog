@@ -789,6 +789,14 @@ describe('notebook cell tools', () => {
                 expected: /no longer a block of its own/,
             },
             {
+                // The text grew on the same line after the state read, so the old span still
+                // slices back to the source. Only the notebook version shows that it is stale.
+                label: 'a derived id at the same offsets',
+                doc: '# Doc\n\n\nFirst paragraph. Now longer.\n',
+                cell: FIRST,
+                expected: /no longer a block of its own/,
+            },
+            {
                 label: 'a stored id',
                 doc: '# Doc\n\n\n<!--ph:phb-one-->\nFirst paragraph. Now longer.\n',
                 cell: { ...FIRST, node_id: 'phb-one' },
@@ -797,6 +805,7 @@ describe('notebook cell tools', () => {
         ])('refuses $label whose block outgrew the text that was read', async ({ doc, cell, expected }) => {
             const state = makeState(doc)
             state.stateCells = [cell]
+            state.stateVersion = state.version - 1
             const context = createMockContext(state)
 
             await expect(

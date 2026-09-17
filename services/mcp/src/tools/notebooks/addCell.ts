@@ -120,6 +120,8 @@ interface ProseAnchor {
     source: string
     start: number
     end: number
+    /** Notebook version the span was read at. The span is exact for that version only. */
+    version: number | null
 }
 
 // Notebook markdown keeps CRLF and lone-CR line endings, and the backend walk splits on all three.
@@ -151,8 +153,11 @@ function isWholeBlockAt(markdown: string, index: number, source: string): boolea
  * Refuses a source that now appears more than once rather than picking one: the insert would
  * land on a block the caller never saw. The same refusal guards a prose edit in updateCell.ts.
  */
-function locateProseAnchorEnd(markdown: string, anchor: ProseAnchor): number {
-    if (markdown.slice(anchor.start, anchor.end) === anchor.source) {
+function locateProseAnchorEnd(markdown: string, anchor: ProseAnchor, version: number): number {
+    // The backend's grammar set this span, so it is trusted only for the version it was read at.
+    // In a later version the same offsets can still hold the same text while the block has grown
+    // past them, and an insert at the old end would split the block.
+    if (version === anchor.version && markdown.slice(anchor.start, anchor.end) === anchor.source) {
         return anchor.end
     }
     // A stored id is written into the document above its block, so it names the block exactly.
@@ -224,11 +229,12 @@ function insertBlock(
     markdown: string,
     block: string,
     afterNodeId: string | undefined,
-    proseAnchor: ProseAnchor | undefined
+    proseAnchor: ProseAnchor | undefined,
+    version: number
 ): string {
     const trimmed = markdown.replace(/\s+$/, '')
     if (proseAnchor) {
-        const end = locateProseAnchorEnd(markdown, proseAnchor)
+        const end = locateProseAnchorEnd(markdown, proseAnchor, version)
         const rest = markdown.slice(end).replace(/^[\r\n]+/, '')
         const head = `${markdown.slice(0, end)}${BLOCK_SEPARATOR}${block}`
         return rest ? `${head}${BLOCK_SEPARATOR}${rest}` : `${head}\n`
@@ -287,7 +293,7 @@ async function resolveInsertAnchor(
             `Cell ${afterNodeId} is a ${block.cell_type} cell but carries no tag identity, so a cell cannot be placed after it. Insert at the end by omitting after_node_id.`
         )
     }
-    return { nodeId: afterNodeId, source: block.code, start: block.start, end: block.end }
+    return { nodeId: afterNodeId, source: block.code, start: block.start, end: block.end, version: state.version }
 }
 
 async function runAndWriteBack(
@@ -395,12 +401,13 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
             )
         }
         const proseNodeId = `${STORED_NODE_ID_PREFIX}${uuidv4()}`
-        await applyMarkdownEdit(context, params.notebook_id, (markdown) =>
+        await applyMarkdownEdit(context, params.notebook_id, (markdown, version) =>
             insertBlock(
                 markdown,
                 anchoredMarkdownBlock(proseNodeId, params.markdown!.trim()),
                 params.after_node_id,
-                proseAnchor
+                proseAnchor,
+                version
             )
         )
         return { node_id: proseNodeId }
@@ -414,8 +421,8 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
             title,
             query: { kind: 'SavedInsightNode', shortId: params.insight_short_id },
         })
-        await applyMarkdownEdit(context, params.notebook_id, (markdown) =>
-            insertBlock(markdown, tag, params.after_node_id, proseAnchor)
+        await applyMarkdownEdit(context, params.notebook_id, (markdown, version) =>
+            insertBlock(markdown, tag, params.after_node_id, proseAnchor, version)
         )
         return { node_id: nodeId }
     }
@@ -423,8 +430,8 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
     if (params.cell_type === 'component') {
         // `title` last only when set, so a component that carries its own title prop keeps it.
         const tag = buildCellTag(params.tag_name!, { ...params.props, nodeId, ...(title ? { title } : {}) })
-        await applyMarkdownEdit(context, params.notebook_id, (markdown) =>
-            insertBlock(markdown, tag, params.after_node_id, proseAnchor)
+        await applyMarkdownEdit(context, params.notebook_id, (markdown, version) =>
+            insertBlock(markdown, tag, params.after_node_id, proseAnchor, version)
         )
         return { node_id: nodeId }
     }
@@ -443,8 +450,8 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
     // The save response carries the notebook as it stood when the save committed, so it holds a
     // variable edit that landed after the read above. The run binds those values to stay in step
     // with what the notebook now declares.
-    const { notebook, markdown } = await applyMarkdownEdit(context, params.notebook_id, (current) =>
-        insertBlock(current, tag, params.after_node_id, proseAnchor)
+    const { notebook, markdown } = await applyMarkdownEdit(context, params.notebook_id, (current, version) =>
+        insertBlock(current, tag, params.after_node_id, proseAnchor, version)
     )
     const run = await runAndWriteBack(
         context,
