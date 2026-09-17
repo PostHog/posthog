@@ -598,6 +598,12 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 setRelatedTracesQuery: (_, { query }) => query,
             },
         ],
+        // Cleared on navigation so a stale resolution is never shown for the
+        // newly selected version while its own load is in flight.
+        resolvedPreview: {
+            loadPromptSuccess: () => null,
+            setMode: () => null,
+        },
         isShowingResolvedPreview: [
             false,
             {
@@ -711,16 +717,17 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         },
     })),
 
-    loaders(({ props, values }) => ({
+    loaders(({ props }) => ({
         resolvedPreview: {
             __default: null as LLMPromptPublicApi | null,
             loadResolvedPreview: async () => {
-                const viewedVersion =
-                    values.prompt && isPrompt(values.prompt) ? { version: values.prompt.version } : undefined
+                // Version from the router, like loadPrompt: values.prompt still holds
+                // the previous version while a back/forward navigation is loading.
+                const urlVersion = getSelectedVersionFromUrl()
                 return await llmPromptsNameRetrieve(
                     String(ApiConfig.getCurrentTeamId()),
                     props.promptName,
-                    viewedVersion
+                    urlVersion !== undefined ? { version: urlVersion } : undefined
                 )
             },
         },
