@@ -319,14 +319,19 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 actions.setDockOpen(true)
             }
         }
-        // The button stays pending for as long as the poll has reason to run: a summary row still
-        // running, or the grace period in which the row the scan will create has not landed yet. The
-        // cache flags hold it pending while the trigger request is still open, before either applies.
+        // The button stays pending for as long as the run it started has something left to report: a
+        // summary row still running, or the grace period in which the row the scan will create has not
+        // landed yet. The cache flags hold it pending while the trigger request is still open, before
+        // either applies. The grace period is only the wait for a missing row, so that row landing ends
+        // it early; a summary that finishes fast must not keep the button pending beside its result.
         const settleSummarizeIfDone = (): void => {
             if (cache.summarizeInFlight || cache.observeInFlight || !values.summarizing) {
                 return
             }
-            if (!shouldPollObservations(values.summaryInFlight, values.pollUntil)) {
+            const startedRowLanded =
+                !!cache.summarizeScannerId && values.observations.some((o) => o.scanner_id === cache.summarizeScannerId)
+            const graceUntil = startedRowLanded ? 0 : values.pollUntil
+            if (!shouldPollObservations(values.summaryInFlight, graceUntil)) {
                 actions.summarizeSettled()
             }
         }
@@ -413,6 +418,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 if (outcome === 'started' || outcome === 'already_running') {
                     // A scan is in flight either way — ours, or one this project already had running
                     // against the shared inline scanner — so the poll window has a row to wait for.
+                    cache.summarizeScannerId = response.scan_id
                     actions.summarizeSuccess()
                     actions.setDockOpen(true)
                     afterScanStarted()
@@ -508,6 +514,9 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 try {
                     await visionScannersObserveCreate(String(teamId), scannerId, { session_id: props.sessionId })
                     lemonToast.success('Observation started')
+                    if (forSummary) {
+                        cache.summarizeScannerId = scannerId
+                    }
                     actions.observeSuccess()
                     afterScanStarted()
                 } catch (error) {

@@ -312,6 +312,44 @@ describe('observationsDockLogic', () => {
         await expectLogic(logic).toMatchValues({ summarizePending: guardCase.stillPending })
     })
 
+    it('settles the button when a fast summary lands inside the grace window', async () => {
+        // The grace window covers the wait for a row that does not exist yet. A summary that finished
+        // inside it used to hold the button on "Summarizing…" for the rest of the window, right next
+        // to the finished summary the dock had already rendered.
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        logic.actions.summarize()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        releaseInlineScan()
+        await expectLogic(logic).toDispatchActions(['summarizeSuccess'])
+        await expectLogic(logic).toMatchValues({ summarizePending: true })
+
+        // The row this scan created, terminal while the grace window is still open.
+        observationResults = [summaryObservation()]
+        logic.actions.loadObservations()
+
+        await expectLogic(logic).toDispatchActions(['summarizeSettled'])
+        await expectLogic(logic).toMatchValues({ summarizePending: false })
+    })
+
+    it('keeps the button pending while the scanner it started has no row yet', async () => {
+        // The grace window ends on the row this run created, not on any summary row. A recording that
+        // already carries an older summary must not settle the button for a second summarizer whose
+        // own row is still on its way.
+        await loadScanners([scanner('s1', 'summarizer')])
+        observationResults = [summaryObservation()]
+        logic.actions.loadObservations()
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+
+        logic.actions.summarize()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        releaseObserve()
+        await expectLogic(logic).toDispatchActions(['observeSuccess'])
+
+        logic.actions.loadObservations()
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        await expectLogic(logic).toMatchValues({ summarizePending: true })
+    })
+
     it('stops showing the summary as pending once the reload keeps failing', async () => {
         // With no summary row ever loaded, the grace window is the only thing keeping the poll alive.
         // A run of failed reloads used to stop polling with nothing left to clear the pending state,
