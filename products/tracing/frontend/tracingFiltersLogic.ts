@@ -28,6 +28,8 @@ import {
 
 import { mergeSpanFilter } from 'products/tracing/frontend/spanFilterAdd'
 
+import type { TracingDateRangeSource } from './sparklineSelection'
+
 export const DEFAULT_DATE_RANGE: DateRange = { date_from: '-1h', date_to: null }
 export const DEFAULT_TIMEZONE: string = 'UTC'
 export const DEFAULT_SERVICE_NAMES: string[] = []
@@ -225,8 +227,12 @@ export interface tracingFiltersLogicActions {
     setComparison: (comparison: TracingComparison | null) => {
         comparison: TimeComparison | null
     }
-    setDateRange: (dateRange: DateRange) => {
+    setDateRange: (
+        dateRange: DateRange,
+        source?: TracingDateRangeSource
+    ) => {
         dateRange: DateRange
+        source: TracingDateRangeSource | undefined
     }
     setFilterGroup: (
         filterGroup: UniversalFiltersGroup,
@@ -316,7 +322,7 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
     path((key) => ['products', 'tracing', 'frontend', 'tracingFiltersLogic', key]),
 
     actions({
-        setDateRange: (dateRange: DateRange) => ({ dateRange }),
+        setDateRange: (dateRange: DateRange, source?: TracingDateRangeSource) => ({ dateRange, source }),
         setTimezone: (timezone: string) => ({ timezone }),
         setServiceNames: (serviceNames: string[]) => ({ serviceNames }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup, skipQuery: boolean = false) => ({

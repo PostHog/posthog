@@ -158,8 +158,12 @@ export interface tracingSceneLogicActions {
     setComparison: (comparison: TimeComparison | null) => {
         comparison: TimeComparison | null
     } // tracingFiltersLogic
-    setDateRange: (dateRange: DateRange) => {
+    setDateRange: (
+        dateRange: DateRange,
+        source?: import('./sparklineSelection').TracingDateRangeSource
+    ) => {
         dateRange: DateRange
+        source: import('./sparklineSelection').TracingDateRangeSource | undefined
     } // tracingFiltersLogic
     setFilterGroup: (
         filterGroup: UniversalFiltersGroup,
