@@ -138,6 +138,7 @@ from products.signals.backend.report_claims import (
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerPayloadIndex,
+    bounded_reviewer_commits,
     bounded_reviewer_reason,
     get_org_member_github_logins_by_user_uuid,
     get_org_member_users_by_uuid,
@@ -4110,16 +4111,7 @@ def append_suggested_reviewers(
             effective_reason = resolved.reason if resolved.explicit_reason else bounded_reviewer_reason(prior_reason)
             if not resolved.explicit_reason and prior is None:
                 effective_reason = manual_add_reason
-            safe_commits = (
-                [
-                    {**commit, "reason": bounded_reviewer_reason(commit.get("reason")) or ""}
-                    if isinstance(commit, dict)
-                    else commit
-                    for commit in prior_commits
-                ]
-                if isinstance(prior_commits, list)
-                else []
-            )
+            safe_commits = bounded_reviewer_commits(prior_commits)
             new_content.append(
                 {
                     "github_login": resolved.github_login,
