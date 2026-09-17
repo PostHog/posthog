@@ -263,12 +263,6 @@ class TestUpdateFeatureFlagActionExtractIntent(APIBaseTest):
 
 @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
 class TestRelatedFieldsInIntent(APIBaseTest):
-    """A gated write can carry a related field alongside the gated one. `analytics_dashboards` is
-    a TeamScopedPrimaryKeyRelatedField, so it arrives in validated_data as Dashboard instances.
-    The gate has to store the primary keys: it replays `full_request_data` through the serializer,
-    which rejects an instance where it expects a primary key, and `intent` is a JSONField that
-    cannot hold a model object."""
-
     def test_gated_update_stores_related_field_as_primary_keys_then_applies(self, _mock_enabled):
         ApprovalPolicy.objects.create(
             organization=self.organization,
@@ -302,8 +296,7 @@ class TestRelatedFieldsInIntent(APIBaseTest):
         flag.refresh_from_db()
         assert flag.active is False
 
-        # Apply replays the stored intent through the serializer, so the round trip has to land
-        # both the gated change and the related field it carried.
+        # Apply replays the stored intent through the serializer, so the related field has to survive the round trip.
         result = ChangeRequestService(change_request, self.user).approve()
         assert result.status == "applied"
 
