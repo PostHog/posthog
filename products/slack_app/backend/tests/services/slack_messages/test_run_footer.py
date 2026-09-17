@@ -47,8 +47,9 @@ class TestRunFooter(SimpleTestCase):
                 "*Claude Opus 5* · Cost: *$2.67*",
             ),
             # Rounding to the cent would render a real charge as `$0.00`, which reads as free.
-            # Zero itself must stay on the other side of that boundary.
-            ("sub_cent_cost", RunFooter(spend_usd=Decimal("0.004")), None, "Cost: *<$0.01*"),
+            # Zero itself must stay on the other side of that boundary. `&lt;` is the wire
+            # form Slack renders as `<`; a bare `<` would open a link token instead.
+            ("sub_cent_cost", RunFooter(spend_usd=Decimal("0.004")), None, "Cost: *&lt;$0.01*"),
             ("free_cost", RunFooter(spend_usd=Decimal(0)), None, "Cost: *$0.00*"),
             (
                 "configure_only",

@@ -834,9 +834,12 @@ def _describe_spend(spend_usd: Decimal) -> str:
 
     Rounding a fraction of a cent to ``$0.00`` would read as free, which is the one
     thing the segment must never say by accident.
+
+    The less-than sign goes out as ``&lt;``: Slack reads a bare ``<`` in message text as
+    the start of a link token, and the footer puts a real one right after this segment.
     """
     if Decimal(0) < spend_usd < Decimal("0.01"):
-        return "<$0.01"
+        return "&lt;$0.01"
     return f"${spend_usd:.2f}"
 
 
