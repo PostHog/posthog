@@ -5820,6 +5820,34 @@ snapshots:
         hash: v1.k794b7964.20c015c66f2a8df4b13180fe46f6ad7d23c008014120d2333305338bfd473eaa.jN29SgNagj6AhlrI5b50krX4pQlMrOA5O7iYLuVMai4
     products-dashboards-tiles-image-tile-modal--existing-image--light:
         hash: v1.k794b7964.a6f0232a7044b1a581e4beb9105ee9c00bbed9748fdfcd1c3c1a232acfa0333c.D40_QysPPcg1v2fjLF3-6qPyFXkBZ9rrdYat6l6djGU
+    products-data-catalog-metric-lineage--being-prepared--dark:
+        hash: v1.k794b7964.9b3dd08fa1426e0715daefdf347f20d3e251483c787dd3a9f3ad02fca88ae00b.N85-92zGL68U5fyXpoWHYbbTGLRVTOw42k7LxJ3HZHw
+    products-data-catalog-metric-lineage--being-prepared--light:
+        hash: v1.k794b7964.1d9442bec79157ff586c1e1baefa06a6af93faf873f16f0b1d145aad2f94b330.AkvoCIqxZnaGvJ-bwA5Wxrs6uAmv4WJOugLfPcxxTvo
+    products-data-catalog-metric-lineage--graph--dark:
+        hash: v1.k794b7964.28436b8e236653de8ff4f9ed90b223616a0f74c5fa0768eaa89cb8d2efabbc4c.rU1yb72_zYisx__hS1s9oPU1bvoHE5VRsK_LlGubsy8
+    products-data-catalog-metric-lineage--graph--light:
+        hash: v1.k794b7964.fd9cb0d75def206101cdbe40b202ce816664338aadc3cedd55d8e0c04988fbb2.pZoiwDKsy0mK_UUcYDxBU4XXhG4zBy30CPbNAREX-0o
+    products-data-catalog-metric-lineage--lineage-issue--dark:
+        hash: v1.k794b7964.860d27733af3926c8bb4ebcbc5a687b149ab482f097e67af410450ecc90d21d9.n7Othr89yht04LnSFImmVTHCL4HFXOOY8uZMv8Tw8yw
+    products-data-catalog-metric-lineage--lineage-issue--light:
+        hash: v1.k794b7964.6bbe1a96007edab5e52972199fd7ba58eb0931e882094e407e2021884ce7c389.vC05kGuAQq00QGnj-QKpGRfLXCETP75jDc00YDpn-Nw
+    products-data-catalog-metric-lineage--load-failed--dark:
+        hash: v1.k794b7964.dbaf9c756de48bf854da4200cd90a2a6f9eb1c9dd579c41313ea106fc952d014.EJZNZnR7SS9VqjxWGF2ewZNdCXKG7n3iCC_muZiwZng
+    products-data-catalog-metric-lineage--load-failed--light:
+        hash: v1.k794b7964.1b9c3b1720e0444a2f33b4ba6dc972f6a56a114c94be10cc77fa455b8441fbca.LUvQPwM50s6A-ZDh32zDhqhWWm5KAPgEFK2qa8ffmWs
+    products-data-catalog-metric-lineage--loading--dark:
+        hash: v1.k794b7964.10e5f42c7d9feef174fbf84585f42b3c023795a750dbbea10febeec15966f0d9.WQdI3QUiM3MPqu2jUswGuIkHtAjQlM-XV8dAV1Qpbmg
+    products-data-catalog-metric-lineage--loading--light:
+        hash: v1.k794b7964.5290922c579080221a18b00e7855f14d4fd4bdba8158fcb2acb0dcc1fcd1fb6c.N5PeHfKZdzMTWuAgku68dGntKgBb3tE0dqZbO6orPrY
+    products-data-catalog-metric-lineage--no-definition--dark:
+        hash: v1.k794b7964.0a67016ff06498b8f16e83dcbd01d03ced850f02935d9cfc555c5d321a6dc21e.SYouGVS4FM4aPQFE51xlJG_1LPN79L4zsp_xwt4mRJI
+    products-data-catalog-metric-lineage--no-definition--light:
+        hash: v1.k794b7964.e7ff182b23bf3b58fd4d549d50eecdd66b463ae280613b216e5f42f274cc54f5.xjRrews6K2nCNVBsfBUcesCDttL2Jw9qJ52C6IwHiQc
+    products-data-catalog-metric-lineage--no-warehouse-access--dark:
+        hash: v1.k794b7964.813ee6fa8c0a5d7f47883c875a17acf297b9862e9e42414ced9f0a7add680faa.2Zjf5z5DUlOijGyDJtgDa1_D52Th6qvsI1Am1FslNI0
+    products-data-catalog-metric-lineage--no-warehouse-access--light:
+        hash: v1.k794b7964.d24fc4898fd69d316912802e328f3a6e2e94cee4cf106d8893597da97dbf73af.UOfef0QXupztuN6lJ1r5vYH5FiYFRHx_eqHRlY-34CQ
     products-data-modeling-lineage-graph--canvas--dark:
         hash: v1.k794b7964.c7f0f98e0d7ea29f9bc5abcdd62b882a202d35e5b62af26f363b9c1a1323a99f.EaAJ28EK8wdDcmRGmBf0dkfiuQROQE2QUkFShyE8JgU
     products-data-modeling-lineage-graph--canvas--light:
