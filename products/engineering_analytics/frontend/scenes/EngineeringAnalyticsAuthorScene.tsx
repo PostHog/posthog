@@ -108,7 +108,8 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                     scope={deliveryScope}
                     scopeLabel="This author"
                     sourceId={sourceId}
-                    comparison={comparison}
+                    // A reload keeps the previous window's comparison, which must not sit beside the new summary.
+                    comparison={comparisonLoading ? null : comparison}
                     comparisonFailed={comparisonFailed}
                 />
 

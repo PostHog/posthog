@@ -612,8 +612,10 @@ export function PullRequestDetailScene(): JSX.Element {
                 ) : timeline ? (
                     <div className="flex flex-col gap-2">
                         <PullRequestDeliveryTimeline pr={timeline} />
-                        {/* Only a merged or ready pull request has a ready-to-merge time. A bot has no pace to compare. */}
-                        {!timeline.author.is_bot &&
+                        {/* Only a merged or ready pull request has a ready-to-merge time. A bot, or a deleted account
+                            with no handle, has no pace to compare. */}
+                        {!!timeline.author.handle &&
+                            !timeline.author.is_bot &&
                             (timeline.merged_at || (timeline.state === 'open' && !timeline.is_draft)) && (
                                 <div className="max-w-3xl">
                                     <PullRequestComparisonCard pr={timeline} sourceId={sourceId} />
