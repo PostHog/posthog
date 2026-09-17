@@ -6,6 +6,7 @@ import { IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
 
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
 import { DataModelingNode } from '~/types'
@@ -54,7 +55,11 @@ function UpstreamTable({ nodes }: { nodes: DataModelingNode[] }): JSX.Element {
             size="small"
             emptyState={NOTHING_UPSTREAM}
             columns={[
-                { key: 'name', title: 'Name', render: (_, node) => node.name },
+                {
+                    key: 'name',
+                    title: 'Name',
+                    render: (_, node) => <LemonTableLink to={lineageNodeUrl(node)} title={node.name} />,
+                },
                 { key: 'type', title: 'Type', render: (_, node) => NODE_TYPE_TAG_SETTINGS[node.type].label },
             ]}
             dataSource={nodes}
@@ -129,8 +134,9 @@ export function MetricLineagePanel({
 
     return (
         <div className="@container flex flex-col gap-2">
-            <div className="hidden @[40rem]:flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-end @[40rem]:justify-between gap-2">
                 <LemonSegmentedButton
+                    className="hidden @[40rem]:block"
                     value={view}
                     onChange={setView}
                     options={[
