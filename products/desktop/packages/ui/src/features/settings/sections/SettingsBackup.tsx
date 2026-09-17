@@ -64,6 +64,16 @@ export function SettingsBackupView({
       Object.keys(review.settings).some(
         (key) => scope === "all" || SOUND_SETTINGS.has(key),
       ));
+  // A sounds-only import reads no other setting, so a warning about one does
+  // not describe the operation the user chose. Sound and selection warnings
+  // apply to both scopes, because both scopes import sounds.
+  const warnings = (review?.warnings ?? []).filter(
+    (warning) =>
+      scope === "all" ||
+      warning.reason === "sound" ||
+      warning.reason === "selection" ||
+      SOUND_SETTINGS.has(warning.key),
+  );
   return (
     <SettingsSection
       label="Back up settings and sounds"
@@ -180,14 +190,14 @@ export function SettingsBackupView({
                 </ul>
               </details>
             )}
-            {review.warnings.length > 0 && (
+            {warnings.length > 0 && (
               <details open className="text-[12px]">
                 <summary className="cursor-pointer font-medium">
-                  {review.warnings.length} compatibility{" "}
-                  {review.warnings.length === 1 ? "warning" : "warnings"}
+                  {warnings.length} compatibility{" "}
+                  {warnings.length === 1 ? "warning" : "warnings"}
                 </summary>
                 <ul className="mt-2 mb-0 max-h-40 list-disc space-y-1 overflow-y-auto pl-4">
-                  {review.warnings.map((warning, index) => (
+                  {warnings.map((warning, index) => (
                     <li key={`${warning.key}-${index}`} className="break-words">
                       <span className="font-medium">
                         {warning.key
