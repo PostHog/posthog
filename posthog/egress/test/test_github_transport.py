@@ -98,6 +98,23 @@ class TestGitHubTransport(SimpleTestCase):
         assert attributes is not None
         assert attributes["server.address"] == "raw.githubusercontent.com"
 
+    def test_span_uses_the_final_response_host_after_redirects(self) -> None:
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        response = _response()
+        response.url = "https://uploads.github.com/repos/example/repo/archive.zip"
+
+        with (
+            patch("posthog.egress.github.transport.tracer", provider.get_tracer("test")),
+            patch("requests.request", return_value=response),
+        ):
+            github_request("GET", "https://api.github.com/repos/example/repo/archive", source="test")
+
+        attributes = exporter.get_finished_spans()[0].attributes
+        assert attributes is not None
+        assert attributes["server.address"] == "uploads.github.com"
+
     def test_span_matches_identity_blind_request_without_explicit_endpoint(self) -> None:
         exporter = InMemorySpanExporter()
         provider = TracerProvider()
