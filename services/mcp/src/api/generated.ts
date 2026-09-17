@@ -39403,6 +39403,11 @@ export namespace Schemas {
 
     export interface ExternalDataSourceConnectionOption {
       readonly id: string;
+      /**
+         * Default database schema used to group tables in the SQL editor.
+         * @nullable
+         */
+      readonly schema_name: string | null;
       /** @nullable */
       readonly prefix: string | null;
       /** Backend engine detected for the direct connection.
@@ -42424,7 +42429,7 @@ export namespace Schemas {
       /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
       archived?: boolean;
       readonly created_by: UserBasic;
-      created_at?: string;
+      readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
       version?: number;
@@ -42480,7 +42485,7 @@ export namespace Schemas {
          * Last time this feature flag was called (from $feature_flag_called events)
          * @nullable
          */
-      last_called_at?: string | null;
+      readonly last_called_at: string | null;
       _create_in_folder?: string;
       /** Check if any team gates session recording on this flag, by linked flag or trigger group. */
       readonly is_used_in_replay_settings: boolean;
@@ -109716,6 +109721,10 @@ export namespace Schemas {
     };
 
     export type WarehouseSavedQueriesListParams = {
+    /**
+     * Include column definitions. Set to false for table-only lists.
+     */
+    include_columns?: boolean;
     /**
      * A page number within the paginated result set.
      */
