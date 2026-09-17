@@ -461,21 +461,21 @@ The activity log shows PR references as title links with repository, number, and
 
 **Artefact types** (`SignalReportArtefact.ArtefactType` enum):
 
-| Type                     | Content                                                                                                                                                                                                         |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `video_segment`          | Video segment data from session clustering                                                                                                                                                                      |
-| `safety_judgment`        | `{"choice": bool, "explanation": "..."}` — true = safe                                                                                                                                                          |
-| `actionability_judgment` | `{"actionability": "immediately_actionable" \| "requires_human_input" \| "not_actionable", "explanation": "...", "already_addressed": bool}`                                                                    |
-| `priority_judgment`      | `{"priority": "P0"\|"P1"\|"P2"\|"P3"\|"P4", "explanation": "..."}`                                                                                                                                              |
-| `signal_finding`         | `{"signal_id": "...", "relevant_code_paths": [...], "relevant_commit_hashes": {"abc1234": "reason"}, "data_queried": "...", "verified": bool}`                                                                  |
-| `repo_selection`         | `{"repository": "owner/repo" \| null, "reason": "...", "task_id"?: "..."}`                                                                                                                                      |
-| `suggested_reviewers`    | `[{"github_login": "...", "github_name": "...", "relevant_commits": [...]}]` — enriched with current PostHog user data at serializer read time                                                                  |
-| `dismissal`              | `{"reason"?, "note"?, "selected_repository"?, "corrected_repository"?, "user_id"?, "user_uuid"?, "slack_user_id"?}` — stacking dismissal entries; the repository fields are set on `wrong_repo` dismissals      |
-| `code_reference`         | `{"file_path": "...", "start_line": int, "end_line": int, "contents": "...", "relevance_note": "..."}` — a span of source lines (single line = equal start/end)                                                 |
-| `commit`                 | `{"repository": "owner/repo", "branch": "...", "commit_sha": "...", "message": "...", "note"?: "..."}` — one pushed commit                                                                                      |
-| `task_run`               | `{"task_id": "...", "run_id"?: "...", "product": "...", "type": "..."}` — a task run associated with the report (see below)                                                                                     |
-| `note`                   | `{"note": "...", "author"?: "..."}` — free-form note (markdown allowed)                                                                                                                                         |
-| `check_result`           | `{"check_id": "...", "kind": "...", "title": "...", "outcome": "passed"\|"failed"\|"errored", "explanation": "...", "observed_value"?, "baseline_value"?, "threshold"?, "run_id"?}` — one run of a report check |
+| Type                     | Content                                                                                                                                                                                                                                                                                                        |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `video_segment`          | Video segment data from session clustering                                                                                                                                                                                                                                                                     |
+| `safety_judgment`        | `{"choice": bool, "explanation": "..."}` — true = safe                                                                                                                                                                                                                                                         |
+| `actionability_judgment` | `{"actionability": "immediately_actionable" \| "requires_human_input" \| "not_actionable", "explanation": "...", "already_addressed": bool}`                                                                                                                                                                   |
+| `priority_judgment`      | `{"priority": "P0"\|"P1"\|"P2"\|"P3"\|"P4", "explanation": "..."}`                                                                                                                                                                                                                                             |
+| `signal_finding`         | `{"signal_id": "...", "relevant_code_paths": [...], "relevant_commit_hashes": {"abc1234": "reason"}, "data_queried": "...", "verified": bool}`                                                                                                                                                                 |
+| `repo_selection`         | `{"repository": "owner/repo" \| null, "reason": "...", "task_id"?: "..."}`                                                                                                                                                                                                                                     |
+| `suggested_reviewers`    | `[{"github_login": "..." \| null, "user_uuid": "..." \| null, "github_name": "...", "relevant_commits": [...], "reason"?: "...", "source_skill"?: "...", "is_skill_owner"?: bool}]` — stored reviewers can use either identity and gain current PostHog user data and display metadata at serializer read time |
+| `dismissal`              | `{"reason"?, "note"?, "selected_repository"?, "corrected_repository"?, "user_id"?, "user_uuid"?, "slack_user_id"?}` — stacking dismissal entries; the repository fields are set on `wrong_repo` dismissals                                                                                                     |
+| `code_reference`         | `{"file_path": "...", "start_line": int, "end_line": int, "contents": "...", "relevance_note": "..."}` — a span of source lines (single line = equal start/end)                                                                                                                                                |
+| `commit`                 | `{"repository": "owner/repo", "branch": "...", "commit_sha": "...", "message": "...", "note"?: "..."}` — one pushed commit                                                                                                                                                                                     |
+| `task_run`               | `{"task_id": "...", "run_id"?: "...", "product": "...", "type": "..."}` — a task run associated with the report (see below)                                                                                                                                                                                    |
+| `note`                   | `{"note": "...", "author"?: "..."}` — free-form note (markdown allowed)                                                                                                                                                                                                                                        |
+| `check_result`           | `{"check_id": "...", "kind": "...", "title": "...", "outcome": "passed"\|"failed"\|"errored", "explanation": "...", "observed_value"?, "baseline_value"?, "threshold"?, "run_id"?}` — one run of a report check                                                                                                |
 
 **Content schemas.** `artefact_schemas.py` is the canonical, pydantic-only home of every content shape, collected in `ARTEFACT_CONTENT_SCHEMAS` (one model per type; a test asserts exact coverage). Raw payloads become typed models once, at the boundaries (`parse_artefact_content`); the model helpers derive a row's type from the content model's class (`artefact_type_for`), so a type can never mismatch its content. `repo_selection` reuses the tasks product's `RepoSelectionResult` DTO directly (kept in the dependency-light leaf module `repo_selection/types.py` so importing the schema registry doesn't pull in the sandbox runtime). Reads of legacy rows stay tolerant — parse failures are skipped or degraded, never raised.
 
@@ -1086,7 +1086,8 @@ Generated MCP tool names:
 - **`SignalReportArtefactSerializer`**
   - Exposes `id`, `type`, `content`, `created_at`
   - Parses JSON text into structured content
-  - For `suggested_reviewers`, enriches the stored GitHub-only payload with fresh PostHog org-member data at read time
+  - For `suggested_reviewers`, enriches the stored payload with fresh PostHog org-member data, a source label, and a concise explanation
+  - The inbox groups reviewers only when their displayed explanations match exactly, then shows the explanation once below the grouped people
 
 ---
 
@@ -1180,6 +1181,14 @@ Returns:
 - `{"safe": false, "threat_type": "...", "explanation": "..."}`
 
 If the provider returns an empty response, the signal is treated as unsafe with threat type `provider_safety_filter`.
+
+A block fires a `signal_blocked_by_safety_filter` event in the internal project, carrying the threat type and the explanation, but not the full signal text.
+The explanation quotes the fragment that caused the block, so the event holds a short excerpt of the signal.
+Product analytics keeps that excerpt indefinitely.
+For this reason the prompt tells the classifier to describe a secret value instead of quoting it.
+The full text of a blocked signal goes to the LLM analytics store for the safety-filter judge scout: the activity captures an `$ai_span` named `safety_filter_block` (`BLOCKED_SIGNAL_SPAN_NAME`) through the SDK's AI capture lane, with the description and source in `$ai_input_state` and the verdict in `$ai_output_state`.
+That lands in `posthog.ai_events`, which drops content after its retention period (30 days by default), and the block event links to it through `$ai_trace_id`.
+The pipeline keeps this copy itself because the LLM gateway that served the call is not a reliable source: the Go gateway's mirrored generation events carry no input or output.
 
 This is the first line of defense; it prevents adversarial signals from consuming embedding / search / matching work.
 
