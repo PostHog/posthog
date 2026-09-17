@@ -93,6 +93,7 @@ A consumer that wants asynchronous work enqueues its own task and answers immedi
 The HTTP response is a transport receipt: the verification result, the method, and the payload decide the status, and consumer return values are ignored.
 If a provider's protocol needs the response body to say something, the incarnation answers that handshake before dispatch.
 A verification that could not run is its own answer rather than a verdict: a scheme with a network step returns `UNAVAILABLE` when that step fails on transport, and the view answers 503 with outcome `verify_unavailable`, so a sender that retries a server error sends the delivery again.
+`BearerJwt` answers it when the JWKS could not be fetched, and `SnsSignature` when its verifier raises `VerifierUnavailable` because the signing certificate could not be fetched.
 
 What the transport does decide is whether it can vouch that the delivery was taken.
 It cannot when an ownership lookup failed, when the forward to the owning region failed, when a consumer raised, or when the budget skipped a consumer — in each case some of the work never ran, or ingress cannot tell whether it ran in the right region.

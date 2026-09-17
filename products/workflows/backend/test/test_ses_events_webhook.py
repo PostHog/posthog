@@ -6,6 +6,8 @@ from unittest.mock import patch
 from django.http.response import HttpResponseBase
 from django.test import Client, TestCase, override_settings
 
+from posthog.ingress.verify.errors import VerifierUnavailable
+
 TOPIC = "arn:aws:sns:us-east-1:123456789012:ses-tenant-events"
 WEBHOOK_PATH = "/webhooks/workflows/ses-events"
 
@@ -81,6 +83,14 @@ class TestSesTenantEventsWebhook(TestCase):
         response = self._post(_sns_notification(_eventbridge_event()))
 
         assert response.status_code == 403
+        assert not self.sync_mock.delay.called
+
+    def test_asks_sns_to_deliver_again_when_the_signing_certificate_is_unavailable(self) -> None:
+        self.verify_mock.side_effect = VerifierUnavailable("no certificate")
+
+        response = self._post(_sns_notification(_eventbridge_event()))
+
+        assert response.status_code == 503
         assert not self.sync_mock.delay.called
 
     @override_settings(WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS=[])

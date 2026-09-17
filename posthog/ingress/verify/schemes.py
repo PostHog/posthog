@@ -2,7 +2,8 @@
 
 A scheme with a network step answers `UNAVAILABLE` when that step fails on transport rather than
 on the signature, because a fetch that never completed proves nothing about the caller. `BearerJwt`
-does this for a JWKS fetch failure, and `SnsSignature` owes the same for its certificate fetch.
+does this for a JWKS fetch failure, and `SnsSignature` for a signing certificate its verifier
+could not fetch.
 """
 
 import re
@@ -18,6 +19,7 @@ from typing import Any, Literal, Protocol
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.ingress.verify.errors import VerifierUnavailable
 
 logger = structlog.get_logger(__name__)
 
@@ -155,7 +157,9 @@ class SnsSignature:
 
     The signature proves "from AWS SNS" and the allowlist proves "from our topic", so
     neither half is optional. The RSA work stays with the caller-supplied verifier, which
-    owns the certificate fetch and its own cache.
+    owns the certificate fetch and its own cache. A verifier that could not obtain the
+    certificate raises `VerifierUnavailable` rather than answering False, because the two
+    need different answers to the sender.
     """
 
     verify_message: Callable[[Mapping[str, Any]], bool]
@@ -175,7 +179,15 @@ class SnsSignature:
         if message.get("TopicArn") not in allowed:
             logger.warning("ingress_sns_unknown_topic", topic=message.get("TopicArn"))
             return VerificationOutcome.INVALID
-        if not self.verify_message(message):
+        try:
+            verified = self.verify_message(message)
+        except VerifierUnavailable:
+            # The certificate never arrived, so the signature was never checked. INVALID here
+            # answers SNS with the invalid-signature status, which SNS reads as a verdict and
+            # does not retry, so a certificate-host outage would lose the delivery for good.
+            logger.warning("ingress_sns_signing_certificate_unavailable", message_id=message.get("MessageId"))
+            return VerificationOutcome.UNAVAILABLE
+        if not verified:
             logger.warning("ingress_sns_invalid_signature", message_id=message.get("MessageId"))
             return VerificationOutcome.INVALID
         return VerificationOutcome.VERIFIED

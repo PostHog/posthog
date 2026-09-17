@@ -2,7 +2,9 @@ import re
 import hmac
 import time
 import base64
+from collections.abc import Mapping
 from types import SimpleNamespace
+from typing import Any
 
 from unittest.mock import patch
 
@@ -12,6 +14,7 @@ import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
+from posthog.ingress.verify.errors import VerifierUnavailable
 from posthog.ingress.verify.jwt import _JWKS_CLIENTS, BearerJwt, _jwks_client
 from posthog.ingress.verify.schemes import HmacSha256, SnsSignature, Verification, VerificationOutcome
 
@@ -177,6 +180,15 @@ class TestSnsSignature(SimpleTestCase):
 
     def test_unparseable_body_is_invalid_rather_than_raising(self) -> None:
         self.assertEqual(self._scheme().verify(body=b"not json", headers={}).outcome, VerificationOutcome.INVALID)
+
+    def test_a_verifier_that_could_not_fetch_the_certificate_is_unavailable(self) -> None:
+        def verify_message(message: Mapping[str, Any]) -> bool:
+            raise VerifierUnavailable("no certificate")
+
+        scheme = SnsSignature(verify_message=verify_message, allowed_topic_arns=lambda: self.allowed)
+        body = b'{"TopicArn": "arn:aws:sns:eu-west-1:1:ses-events", "MessageId": "m1"}'
+
+        self.assertEqual(scheme.verify(body=body, headers={}).outcome, VerificationOutcome.UNAVAILABLE)
 
 
 JWKS_URI = "https://login.example.com/v1/.well-known/keys"

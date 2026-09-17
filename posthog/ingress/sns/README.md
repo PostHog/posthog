@@ -13,6 +13,8 @@ The envelope fields `Type`, `MessageId` and `TopicArn` all come from the JSON bo
 Not HMAC.
 `SnsSignature` checks two things and needs both.
 The message signature proves the message is from SNS, through a verifier the caller supplies, which owns the certificate fetch and its own cache.
+A verifier that could not fetch the certificate raises `VerifierUnavailable`, and the scheme answers `UNAVAILABLE`, so the view replies 503 and SNS delivers again.
+The certificate URL is checked against the SNS host and path shape before any fetch, and a URL that fails that check is a bad signature rather than an unavailable verification.
 The `TopicArn` allowlist proves the message is from our topic.
 An empty allowlist reads as unconfigured.
 A body that is not a JSON object is invalid, and there is no replay window.
