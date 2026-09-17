@@ -153,7 +153,7 @@ export function MetricsClauseRow({
                 rootKey={`metrics-viewer-filters-${clause.name}`}
                 group={clause.filterGroup.values[0] as UniversalFiltersGroup}
                 taxonomicGroupTypes={[TaxonomicFilterGroupType.MetricAttributes]}
-                endpointFilters={attributeEndpointFilters}
+                endpointFilters={{ ...attributeEndpointFilters, metricName: clause.metricName.trim() }}
                 onChange={(group) => {
                     if (!disabledReason) {
                         withSelect(setFilterGroup)({ type: FilterLogicalOperator.And, values: [group] })

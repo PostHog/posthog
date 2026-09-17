@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DANGEROUS_NoTeamIdCheckTable,
@@ -12,6 +14,9 @@ from posthog.hogql.database.models import (
 )
 
 from posthog.clickhouse.workload import Workload
+
+if TYPE_CHECKING:
+    from posthog.hogql.context import HogQLContext
 
 # 50GB - limit for user-provided HogQL queries on metrics tables to prevent expensive full scans
 HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES = 50_000_000_000
@@ -107,7 +112,7 @@ class MetricsTable(Table):
 
 
 class MetricSeriesTable(Table):
-    description: str = "One row per unique metric series (metric + label set), keyed by `series_fingerprint`. Labels are stored here once and joined to `metrics` at query time."
+    description: str = "Metric series labels, keyed by `series_fingerprint` within each expiry day. Rows can repeat across parts and expiry days. Join to `metrics` for samples."
     workload: Workload | None = Workload.LOGS
 
     fields: dict[str, FieldOrTable] = {
@@ -150,7 +155,7 @@ class MetricSeriesTable(Table):
     }
 
     def to_printed_clickhouse(self, context):
-        return "metric_series_distributed"
+        return "metric_series3"
 
     def to_printed_hogql(self):
         return "metric_series"
@@ -162,6 +167,9 @@ class MetricAttributesTable(Table):
 
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+        "metric_name": StringDatabaseField(
+            name="metric_name", nullable=False, description="Name of the metric that supplied the attribute."
+        ),
         "time_bucket": DateTimeDatabaseField(
             name="time_bucket",
             nullable=False,
@@ -192,10 +200,37 @@ class MetricAttributesTable(Table):
     }
 
     def to_printed_clickhouse(self, context):
-        return "metric_attributes_distributed"
+        return "metric_attributes3"
 
     def to_printed_hogql(self):
         return "metric_attributes"
+
+
+class MetricNamesTable(Table):
+    description: str = "Metric names from labelled samples, grouped into hourly activity and expiry buckets."
+    workload: Workload | None = Workload.LOGS
+
+    fields: dict[str, FieldOrTable] = {
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+        "metric_name": StringDatabaseField(name="metric_name", nullable=False),
+        "time_bucket": DateTimeDatabaseField(
+            name="time_bucket", nullable=False, description="Start of the hour when a labelled sample was recorded."
+        ),
+        "original_expiry_time_bucket": DateTimeDatabaseField(
+            name="original_expiry_time_bucket",
+            nullable=False,
+            description="Source expiry time rounded down to the hour.",
+        ),
+        "original_expiry_timestamp": DateTimeDatabaseField(
+            name="original_expiry_timestamp", nullable=False, description="Latest source expiry time in this group."
+        ),
+    }
+
+    def to_printed_clickhouse(self, context: "HogQLContext") -> str:
+        return "metric_names3"
+
+    def to_printed_hogql(self) -> str:
+        return "metric_names"
 
 
 class MetricsKafkaMetricsTable(DANGEROUS_NoTeamIdCheckTable):

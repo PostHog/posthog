@@ -105,6 +105,7 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         runner = MetricNamesQueryRunner(team=self.team, search=search)
         self.assertEqual([row["name"] for row in runner.run()], expected)
+        self.assertEqual([row["name"] for row in list_metric_picker_names(team=self.team, search=search)], expected)
 
     def test_collapses_unmerged_series_parts_without_final(self):
         # Seeding twice lands two unmerged ReplacingMergeTree parts for one
@@ -182,6 +183,7 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = MetricNamesQueryRunner(team=self.team, search="bar")
         results = runner.run()
         self.assertEqual(results[0]["name"], "bar")
+        self.assertEqual(list_metric_picker_names(team=self.team, search="bar", limit=1)[0]["name"], "bar")
 
     def test_respects_team_isolation(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
@@ -189,6 +191,7 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         runner = MetricNamesQueryRunner(team=self.team)
         self.assertEqual(runner.run(), [])
+        self.assertEqual(list_metric_picker_names(team=self.team), [])
 
     def test_lookback_excludes_old_data(self):
         old = timezone.now().replace(microsecond=0) - dt.timedelta(days=14)
@@ -200,6 +203,7 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         names = [row["name"] for row in runner.run()]
         self.assertIn("recent.metric", names)
         self.assertNotIn("old.metric", names)
+        self.assertEqual([row["name"] for row in list_metric_picker_names(team=self.team)], ["recent.metric"])
 
     def test_rejects_more_services_than_the_cap(self):
         with self.assertRaises(ValueError):

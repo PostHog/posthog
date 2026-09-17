@@ -71,11 +71,11 @@ describe('MetricsViewer', () => {
         logic?.unmount()
     })
 
-    it('shows series counts in the group-by dropdown and selects the attribute key', async () => {
+    it('shows attribute counts in the group-by dropdown and selects the attribute key', async () => {
         jest.mocked(metricsAttributesRetrieve).mockResolvedValue({
             results: [
-                { name: 'service_name', series_count: 20 },
-                { name: 'env', series_count: 2 },
+                { name: 'service_name', attribute_count: null },
+                { name: 'env', attribute_count: 2 },
             ],
             count: 2,
         })
@@ -84,9 +84,11 @@ describe('MetricsViewer', () => {
         fireEvent.click(screen.getByText('Group by'))
         const serviceOption = await screen.findByText('service_name')
         const envOption = screen.getByText('env')
+        expect(metricsAttributesRetrieve).toHaveBeenCalledTimes(1)
         expect(serviceOption.compareDocumentPosition(envOption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-        await userEvent.hover(screen.getByText('20'))
-        expect(await screen.findByText('Number of series with this attribute')).toBeInTheDocument()
+        expect(serviceOption.parentElement?.querySelector('.tabular-nums')).toBeNull()
+        await userEvent.hover(screen.getByText('2'))
+        expect(await screen.findByText('Attribute occurrences')).toBeInTheDocument()
         fireEvent.change(screen.getByPlaceholderText('Group by attribute…'), { target: { value: 'e' } })
         expect(serviceOption.compareDocumentPosition(envOption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
         fireEvent.click(envOption)

@@ -291,7 +291,7 @@ def type_filter_expr(metric_type: str | None) -> ast.Expr:
 def _active_since_expr(date_from: dt.datetime | None) -> ast.Expr:
     """Bound a `metric_series` read to series that could have later samples.
 
-    Keep a one-hour buffer for delayed series updates. `metric_series2` indexes
+    Keep a one-hour buffer for delayed series updates. `metric_series3` indexes
     `last_seen`, so the bound skips old parts.
 
     TRUE when `date_from` is None, for callers (the bucket decomposition) that
