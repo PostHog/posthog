@@ -1,6 +1,7 @@
 """Tests for the GitHub App integration."""
 
 import time
+import uuid
 import base64
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -18,6 +19,7 @@ from django.utils import timezone
 
 import requests
 from django_redis.cache import RedisCache
+from django_redis.exceptions import ConnectionInterrupted
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from redis.exceptions import RedisError
@@ -45,6 +47,7 @@ from posthog.models.integration import (
 )
 from posthog.models.integration.github import _MAX_FILE_CONTENTS_BYTES
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+from posthog.redis import get_client
 
 
 class TestExtractFailingChecks(SimpleTestCase):
@@ -157,6 +160,34 @@ class TestGitHubBranchCachePublication(SimpleTestCase):
         assert owner_token == "owner-token"
         assert encoded_snapshot == b"encoded-snapshot"
         assert timeout == GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS * 1000
+
+    def test_publish_snapshot_fences_owner_and_round_trips_through_redis(self) -> None:
+        github = GitHubIntegrationBase()
+        github.integration = SimpleNamespace(integration_id=f"test-{uuid.uuid4().hex}", id=1)
+        repo = "posthog/posthog"
+        snapshot = {"branches": ["main"], "default_branch": "main", "updated_at": 1.0}
+        successor = {"branches": ["successor"], "default_branch": "successor", "updated_at": 2.0}
+        cache_backend = RedisCache("redis://unused/0", {"OPTIONS": {}})
+        redis_connection = get_client()
+        claim_key = cache_backend.make_key(github._get_branch_cache_refresh_claim_key(repo))
+        snapshot_key = cache_backend.make_key(github._get_branch_cache_key(repo))
+
+        try:
+            with (
+                patch("posthog.models.github_integration_base.caches", {"default": cache_backend}),
+                patch("posthog.models.github_integration_base.get_redis_connection", return_value=redis_connection),
+            ):
+                redis_connection.set(claim_key, "owner-token", ex=60)
+                assert github._publish_branch_cache_snapshot(repo, snapshot, "owner-token") is True
+                assert github._get_branch_cache(repo, from_writer=True) == snapshot
+                assert 0 < redis_connection.pttl(snapshot_key) <= GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS * 1000
+
+                cache_backend.client.set(github._get_branch_cache_key(repo), successor, client=redis_connection)
+                redis_connection.set(claim_key, "successor-token", ex=60)
+                assert github._publish_branch_cache_snapshot(repo, snapshot, "owner-token") is False
+                assert github._get_branch_cache(repo, from_writer=True) == successor
+        finally:
+            redis_connection.delete(claim_key, snapshot_key)
 
 
 class TestGitHubIntegrationModel(BaseTest):
@@ -2169,6 +2200,33 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_list_branches.assert_not_called()
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
+    def test_list_cached_branches_cold_follower_reads_snapshot_published_before_lock_release(self, mock_list_branches):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        repo = "posthog/posthog"
+        github = GitHubIntegration(integration)
+
+        def publish_while_still_locked(*, blocking: bool, token: str, blocking_timeout: float | None = None) -> bool:
+            if blocking:
+                cache.set(
+                    github._get_branch_cache_key(repo),
+                    {"branches": ["main", "develop"], "default_branch": "main", "updated_at": time.time()},
+                )
+            return False
+
+        self.branch_refresh_lock.acquire.side_effect = publish_while_still_locked
+
+        branches, default_branch, has_more = github.list_cached_branches(repo, limit=10)
+
+        assert branches == ["main", "develop"]
+        assert default_branch == "main"
+        assert has_more is False
+        self.branch_refresh_lock.release.assert_not_called()
+        mock_list_branches.assert_not_called()
+
+    @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
     @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch")
     def test_list_cached_branches_refreshes_without_publishing_when_redis_is_unavailable(
         self, mock_default_branch, mock_list_branches
@@ -2188,6 +2246,29 @@ class TestGitHubIntegrationModel(BaseTest):
         assert default_branch == "main"
         assert has_more is False
         assert cache.get(github._get_branch_cache_key("posthog/posthog")) is None
+        self.branch_refresh_lock.release.assert_not_called()
+
+    @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
+    @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch")
+    def test_list_cached_branches_refreshes_when_cache_read_and_lock_are_unavailable(
+        self, mock_default_branch, mock_list_branches
+    ):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        self.branch_refresh_lock.acquire.side_effect = RedisError("unavailable")
+        mock_list_branches.return_value = (["main", "develop"], False)
+        mock_default_branch.return_value = "main"
+
+        with patch.object(cache, "get", side_effect=ConnectionInterrupted(connection=None)):
+            branches, default_branch, has_more = GitHubIntegration(integration).list_cached_branches(
+                "posthog/posthog", limit=10
+            )
+
+        assert branches == ["main", "develop"]
+        assert default_branch == "main"
+        assert has_more is False
         self.branch_refresh_lock.release.assert_not_called()
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_branches")

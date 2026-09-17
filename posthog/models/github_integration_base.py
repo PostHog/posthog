@@ -25,6 +25,7 @@ import requests
 import structlog
 from django_redis import get_redis_connection
 from django_redis.cache import RedisCache
+from django_redis.exceptions import ConnectionInterrupted
 from opentelemetry import trace
 from prometheus_client import Counter
 from redis.exceptions import RedisError
@@ -2638,13 +2639,17 @@ class GitHubIntegrationBase:
 
     def _get_branch_cache(self, repo: str, *, from_writer: bool = False) -> dict[str, Any] | None:
         cache_backend = caches["default"]
-        if from_writer and isinstance(cache_backend, RedisCache):
-            cached = cache_backend.client.get(
-                self._get_branch_cache_key(repo),
-                client=get_redis_connection("default"),
-            )
-        else:
-            cached = cache.get(self._get_branch_cache_key(repo))
+        try:
+            if from_writer and isinstance(cache_backend, RedisCache):
+                cached = cache_backend.client.get(
+                    self._get_branch_cache_key(repo),
+                    client=get_redis_connection("default"),
+                )
+            else:
+                cached = cache.get(self._get_branch_cache_key(repo))
+        except (ConnectionInterrupted, RedisError):
+            logger.warning("GitHubIntegration: failed to read branch cache", exc_info=True)
+            return None
         if not isinstance(cached, dict):
             return None
 
@@ -2764,6 +2769,10 @@ class GitHubIntegrationBase:
                 blocking_timeout=GITHUB_BRANCH_CACHE_COLD_WAIT_SECONDS,
             )
             if claim_result == "contended":
+                filled_during_wait = self._get_branch_cache(repo, from_writer=True)
+                if filled_during_wait is not None:
+                    trace.get_current_span().set_attribute("github.branch_cache.refresh", "filled_during_wait")
+                    return filled_during_wait
                 trace.get_current_span().set_attribute("github.branch_cache.refresh", "cold_wait_timeout")
                 raise GitHubIntegrationError("GitHub branch cache refresh already in progress")
 
