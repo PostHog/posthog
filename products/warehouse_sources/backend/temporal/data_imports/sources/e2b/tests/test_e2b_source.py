@@ -2,6 +2,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.e2b import (
+    INVALID_CREDENTIALS_ERROR,
+    NO_ACCESS_ERROR,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.source import E2BSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.e2b import E2BSourceConfig
@@ -26,14 +30,33 @@ class TestE2BSource:
         schemas = self.source.get_schemas(MagicMock(spec=E2BSourceConfig), team_id=self.team_id, names=["templates"])
         assert [s.name for s in schemas] == ["templates"]
 
-    @parameterized.expand([("valid", True, (True, None)), ("invalid", False, (False, "Invalid E2B API key"))])
-    def test_validate_credentials_delegates_to_transport(self, _name: str, transport_ok: bool, expected) -> None:
+    @parameterized.expand(
+        [
+            ("valid", (True, None)),
+            ("invalid", (False, INVALID_CREDENTIALS_ERROR)),
+            ("no_access", (False, NO_ACCESS_ERROR)),
+        ]
+    )
+    def test_validate_credentials_delegates_to_transport(self, _name: str, transport_result) -> None:
         config = E2BSourceConfig(api_key="e2b_test")
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.e2b.source.validate_e2b_credentials",
-            return_value=transport_ok,
+            return_value=transport_result,
         ):
-            assert self.source.validate_credentials(config, self.team_id) == expected
+            assert self.source.validate_credentials(config, self.team_id) == transport_result
+
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.e2b.app", INVALID_CREDENTIALS_ERROR),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.e2b.app", NO_ACCESS_ERROR),
+        ]
+    )
+    def test_a_rejected_key_reads_the_same_during_setup_and_during_a_sync(
+        self, _name: str, error_key: str, expected: str
+    ) -> None:
+        # Setup and sync reach the message by different routes, so a divergence between them is
+        # invisible unless the two are compared.
+        assert self.source.get_non_retryable_errors()[error_key] == expected
 
     def test_validate_credentials_transient_error_is_not_reported_as_invalid(self) -> None:
         # A probe that can't reach E2B must not brand a possibly-valid key "invalid" and send the user

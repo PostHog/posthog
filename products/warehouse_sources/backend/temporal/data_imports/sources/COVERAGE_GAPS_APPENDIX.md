@@ -1313,27 +1313,27 @@ Note: Census now lives under the Fivetran Activations docs; the docs are HTML-on
 
 ## Chameleon — gaps
 
-Today (8): `companies`, `event_names`, `launchers`, `profiles`, `responses`, `segments`, `surveys`, `tours`
+Today (12): `companies`, `event_names`, `interactions`, `launchers`, `profiles`, `properties`, `responses`, `segments`, `surveys`, `tags`, `tooltips`, `tours`
 
 Diffed against: <https://developers.chameleon.io/apis/overview.md>
 
-- [ ] `GET /v3/analyze/interactions (Tour Interactions)` — per-user tour state (displayed/started/completed/exited) - the headline engagement metric and the only way to measure tour performance (high)
-- [ ] `GET /v3/edit/tooltips` — a whole experience type missing alongside tours, launchers and surveys (medium)
-- [ ] `GET /v3/edit/tags` — lookup resolving the tag IDs used to organize experiences (medium)
-- [ ] `GET /v3/edit/properties (Data Properties)` — lookup of the property definitions sent on profiles and companies, needed to interpret their semi-arbitrary property blobs (medium)
+- [x] `GET /v3/analyze/interactions (Tour Interactions)` — per-user tour state (displayed/started/completed/exited) - the headline engagement metric and the only way to measure tour performance (high)
+- [x] `GET /v3/edit/tooltips` — a whole experience type missing alongside tours, launchers and surveys (medium)
+- [x] `GET /v3/edit/tags` — lookup resolving the tag IDs used to organize experiences (medium)
+- [x] `GET /v3/edit/properties (Data Properties)` — lookup of the property definitions sent on profiles and companies, needed to interpret their semi-arbitrary property blobs (medium)
 - [ ] `GET /v3/edit/deliveries (Experience Deliveries)` — records of experiences targeted at specific users, the delivery side of the interaction funnel (medium)
 
 Note: Chameleon's published OpenAPI at developers.chameleon.io/api-reference/openapi.json is a stub (it documents a /plants toy API), so the authoritative endpoint table is the markdown overview page. Alert groups, rate limit groups, webhooks, domains and data imports were excluded as config/plumbing. Embeddables, Product Demos and Changes have doc pages in llms.txt but do not appear in the overview endpoint table, so no list endpoint could be confirmed for them - they are not reported as gaps.
 
 ## Chargedesk — gaps
 
-Today (4): `charges`, `customers`, `products`, `subscriptions`
+Today (7): `activity_log`, `charge_items`, `charges`, `customers`, `products`, `subscription_cancellations`, `subscriptions`
 
 Diffed against: <https://chargedesk.com/api-docs>
 
-- [ ] `GET /v1/charges/{CHARGE_ID}/items` — charge line items - the product/quantity breakdown behind every charge we already sync (high)
-- [ ] `GET /v1/log/cancellations` — subscription cancellation log with reasons and timestamps, the core churn dataset (high)
-- [ ] `GET /v1/log/activity` — the account-wide activity/state-change history across charges, customers and subscriptions (high)
+- [x] `GET /v1/charges/{CHARGE_ID}/items` — charge line items - the product/quantity breakdown behind every charge we already sync (high)
+- [x] `GET /v1/log/cancellations` — subscription cancellation log with reasons and timestamps, the core churn dataset (high)
+- [x] `GET /v1/log/activity` — the account-wide activity/state-change history across charges, customers and subscriptions (high)
 
 Note: Full endpoint list extracted from the single-page api-docs HTML. Only three additional GET-listable analytical resources exist; agents are POST/DELETE only (no list endpoint), /v1/customers/grouped is just an aggregated view of customers we already sync, and gateway/\* plus webhooks are actions and plumbing.
 
@@ -1381,31 +1381,31 @@ Note: Full OpenAPI 3 spec (2 MB, 541 paths) is served unauthenticated at api.cha
 
 ## ChartMogul — gaps
 
-Today (6): `activities`, `customers`, `data_sources`, `invoices`, `plan_groups`, `plans`
+Today (11): `activities`, `customer_subscriptions`, `customers`, `data_sources`, `invoices`, `metrics`, `metrics_mrr`, `opportunities`, `plan_groups`, `plans`, `subscription_events`
 
 Diffed against: <https://dev.chartmogul.com/sitemap.xml>
 
-- [ ] `/v1/customers/{customer_uuid}/subscriptions` — subscriptions are the core SaaS object and currently unreachable - plans and invoices cannot be joined into a subscription lifecycle (high)
-- [ ] `/v1/subscription_events` — subscription state transition stream (started, updated, cancelled) - the movement history behind churn analysis (high)
-- [ ] `/v1/metrics/all (plus /metrics/mrr, /arr, /arpa, /asp, /ltv, /customer-count, /churn-rate, /mrr-churn-rate)` — ChartMogul's headline metrics; today none of the product's actual output is syncable (high)
-- [ ] `/v1/opportunities` — CRM pipeline deals with value and stage - the main revenue-forecasting object (high)
+- [x] `/v1/customers/{customer_uuid}/subscriptions` — subscriptions are the core SaaS object and currently unreachable - plans and invoices cannot be joined into a subscription lifecycle (high)
+- [x] `/v1/subscription_events` — subscription state transition stream (started, updated, cancelled) - the movement history behind churn analysis (high)
+- [x] `/v1/metrics/all (plus /metrics/mrr)` — ChartMogul's headline metrics; today none of the product's actual output is syncable (high). `/arr`, `/arpa`, `/asp`, `/ltv`, `/customer-count`, `/churn-rate` and `/mrr-churn-rate` are intentionally not synced: each returns one metric `/v1/metrics/all` already carries as a column.
+- [x] `/v1/opportunities` — CRM pipeline deals with value and stage - the main revenue-forecasting object (high)
 - [ ] `/v1/contacts` — person-level contacts under each customer, needed to join CRM activity to accounts (medium)
 - [ ] `/v1/plan_groups/{plan_group_uuid}/plans` — lookup mapping the already-synced plans to the already-synced plan_groups (medium)
 - [ ] `/v1/customers/{customer_uuid}/attributes (custom attributes and tags)` — the segmentation dimensions customers are actually sliced by (medium)
 - [ ] `/v1/tasks` — CRM tasks per customer for CS workload and follow-up analysis (medium)
 - [ ] `/v1/customer_notes (notes and call logs)` — logged calls and notes per customer, joinable to churn outcomes (low)
 
-Note: No machine-readable spec is published; I enumerated the full /reference/\* resource tree from the sitemap (182 URLs) and then fetched the individual reference pages to confirm the concrete api.chartmogul.com paths (e.g. /v1/subscription_events, /v1/opportunities, /v1/customers/{uuid}/subscriptions, /v1/plan_groups/{uuid}/plans). Notably the entire ChartMogul CRM surface (opportunities, contacts, tasks, notes) and every metrics endpoint are absent.
+Note: No machine-readable spec is published; I enumerated the full /reference/\* resource tree from the sitemap (182 URLs) and then fetched the individual reference pages to confirm the concrete api.chartmogul.com paths (e.g. /v1/subscription_events, /v1/opportunities, /v1/customers/{uuid}/subscriptions, /v1/plan_groups/{uuid}/plans). The entire ChartMogul CRM surface and every metrics endpoint were absent at audit time; opportunities, subscription events, customer subscriptions and the metrics timeseries are now synced, and contacts, tasks and notes remain.
 
 ## Chatwoot — gaps
 
-Today (8): `agents`, `contacts`, `conversations`, `custom_attribute_definitions`, `inboxes`, `labels`, `messages`, `teams`
+Today (11): `agents`, `contacts`, `conversations`, `custom_attribute_definitions`, `inbox_members`, `inboxes`, `labels`, `messages`, `reporting_events`, `team_members`, `teams`
 
 Diffed against: <https://raw.githubusercontent.com/chatwoot/chatwoot/develop/swagger/swagger.json>
 
-- [ ] `/api/v1/accounts/{account_id}/reporting_events (and .../conversations/{conversation_id}/reporting_events)` — the per-conversation event stream (first_response, conversation_resolved, reply_time) that every support SLA metric is computed from (high)
-- [ ] `/api/v1/accounts/{account_id}/teams/{team_id}/team_members` — lookup join table resolving which agents belong to which of the already-synced teams (high)
-- [ ] `/api/v1/accounts/{account_id}/inbox_members/{inbox_id}` — lookup join table resolving agent-to-inbox assignment for routing and load analysis (high)
+- [x] `/api/v1/accounts/{account_id}/reporting_events (and .../conversations/{conversation_id}/reporting_events)` — the per-conversation event stream (first_response, conversation_resolved, reply_time) that every support SLA metric is computed from (high)
+- [x] `/api/v1/accounts/{account_id}/teams/{team_id}/team_members` — lookup join table resolving which agents belong to which of the already-synced teams (high)
+- [x] `/api/v1/accounts/{account_id}/inbox_members/{inbox_id}` — lookup join table resolving agent-to-inbox assignment for routing and load analysis (high)
 - [ ] `/api/v2/accounts/{account_id}/summary_reports/agent | inbox | team | channel` — vendor-computed agent/inbox/team performance rollups (resolution counts, response times) (medium)
 - [ ] `/api/v2/accounts/{account_id}/reports/conversations and /reports/summary` — conversation volume and first-response-time timeseries, the product's headline dashboard numbers (medium)
 - [ ] `/api/v1/accounts/{account_id}/conversations/{conversation_id}/labels and /contacts/{id}/labels` — the label-to-conversation and label-to-contact join tables; the labels table alone cannot be joined to anything (medium)
@@ -1415,14 +1415,14 @@ Note: Vendor's own swagger.json in the chatwoot/chatwoot repo, 90 paths. Coverag
 
 ## Checkmarx — gaps
 
-Today (5): `applications`, `projects`, `scan_results`, `scan_results_summary`, `scans`
+Today (11): `application_rules`, `applications`, `custom_states`, `projects`, `result_severities`, `result_states`, `result_statuses`, `sast_predicates_changelog`, `scan_results`, `scan_results_summary`, `scans`
 
 Diffed against: <https://checkmarx.stoplight.io/docs/checkmarx-one-api-reference-guide>
 
-- [ ] `sast-results-predicates (Retrieve SAST predicates, Retrieve predicates changelog)` — per-result triage state/severity transition history - the only way to measure remediation and time-to-triage (high)
-- [ ] `Lists API (Retrieve list of states / statuses / severities)` — lookup tables that decode the state, status and severity ids already present on scan_results (high)
-- [ ] `Custom States (Retrieve custom states)` — lookup for tenant-defined triage states; without it custom-state results are unreadable ids (high)
-- [ ] `Applications - Retrieve list of application rules` — lookup resolving which projects roll into which application; today the applications-to-projects edge is missing (high)
+- [x] `sast-results-predicates (Retrieve SAST predicates, Retrieve predicates changelog)` — per-result triage state/severity transition history - the only way to measure remediation and time-to-triage (high)
+- [x] `Lists API (Retrieve list of states / statuses / severities)` — lookup tables that decode the state, status and severity ids already present on scan_results (high)
+- [x] `Custom States (Retrieve custom states)` — lookup for tenant-defined triage states; without it custom-state results are unreadable ids (high)
+- [x] `Applications - Retrieve list of application rules` — lookup resolving which projects roll into which application; today the applications-to-projects edge is missing (high)
 - [ ] `Projects - Retrieve list of branches (and Retrieve last scan)` — branch dimension for scans; per-branch vulnerability trend is a core use case (medium)
 - [ ] `SAST Metadata (Retrieve scans metadata, Retrieve scan metrics)` — LOC scanned, engine config and scan metrics - the denominators for density metrics (medium)
 - [ ] `Policy Management (Retrieve all policies, policy violation details, policy violation summary)` — policy breaches per scan, the compliance-reporting object (medium)
@@ -1431,6 +1431,15 @@ Diffed against: <https://checkmarx.stoplight.io/docs/checkmarx-one-api-reference
 - [ ] `DAST Scans and DAST Results` — an entire scanner's scans and findings are unreachable today (medium)
 - [ ] `API Security Scan Results (Retrieve API Security risks, Get all api scan Metadata)` — API risk findings and the sensitive/undocumented API counts (medium)
 - [ ] `Risk Orchestration (Retrieve risks, Retrieve aggregated risks)` — cross-scanner aggregated risk view used for posture reporting (low)
+
+Note: `sast_predicates_changelog` is ticked against the bulk route
+(`GET /api/sast-results-predicates/changelog?entityType=projectID&history=true`), fanned out over
+projects. That route returns each change as `{change, date, user, origin}` with no similarity id, so
+the table carries the triage trail per project, not per result. Per-result attribution only exists on
+`GET /api/sast-results-predicates/{similarityID}`, which takes one request per finding and so is left
+out on cost. `Applications - Retrieve list of application rules` is ticked for the flat rules table it
+gives; the applications-to-projects edge it was filed for is already synced, as `applications.projectIds`
+and `projects.applicationIds`.
 
 Note: docs.checkmarx.com now redirects the API reference to Stoplight; I pulled the full operation tree from https://checkmarx.stoplight.io/api/v1/projects/cHJqOjE5ODM2OQ==/table-of-contents (project 198369) and read every GET operation from it. The gap concentration is in triage state history and the small lookup tables that decode the ids on scan_results.
 

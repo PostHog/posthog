@@ -234,15 +234,21 @@ class TestCalendarSync(BaseTest):
         assert str(participants["jane@acme.com"].person_id) == person_uuid
         assert participants["csm@posthog.com"].person_id is None
 
-    def test_ambiguous_email_domain_matches_nothing(self):
-        for name in ("Acme US", "Acme EU"):
-            account = Account.objects.for_team(self.team.id).create(
-                team=self.team, name=name, external_id=name.lower().replace(" ", "-")
-            )
-            account.properties = {"email_domains": ["acme.com"]}
+    @patch("products.customer_analytics.backend.logic.email_account_matching.resolve_group_keys_by_email")
+    def test_ambiguous_email_domain_does_not_fall_through_to_person_group(self, mock_group_keys: MagicMock) -> None:
+        self.team.customer_analytics_config.account_group_type_index = 0
+        self.team.customer_analytics_config.save(update_fields=["account_group_type_index"])
+        Account.objects.for_team(self.team.id).create(team=self.team, name="Grouped", external_id="group-account")
+        mock_group_keys.side_effect = lambda _team_id, emails, _index: {
+            email: "group-account" for email in emails if email == "member@example.com"
+        }
+        for name in ("First", "Second"):
+            account = Account.objects.for_team(self.team.id).create(team=self.team, name=name, external_id=name.lower())
+            account.properties = {"email_domains": ["example.com"]}
             account.save()
 
-        self._sync([_pages_response([_event()])])
+        event = _event(attendees=[{"email": "member@example.com", "responseStatus": "accepted"}])
+        self._sync([_pages_response([event])])
         assert Meeting.objects.for_team(self.team.id).get().account_id is None
 
     @parameterized.expand(
