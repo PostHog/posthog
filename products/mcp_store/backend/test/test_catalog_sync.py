@@ -69,7 +69,20 @@ def _dcr_refused_probe() -> ProbeResult:
         speaks_mcp=True,
         auth_flavor="oauth_shared",
         oauth_metadata={"issuer": "https://auth.linear.app"},
+        dcr_rejection_status=403,
         errors=["Dynamic Client Registration was rejected"],
+    )
+
+
+def _dcr_faulted_probe(status_code: int | None) -> ProbeResult:
+    """Discovery worked, and then the registration request faulted or never answered."""
+    return ProbeResult(
+        reachable=True,
+        speaks_mcp=True,
+        auth_flavor="oauth_shared",
+        oauth_metadata={"issuer": "https://auth.linear.app"},
+        dcr_rejection_status=status_code,
+        errors=["Dynamic Client Registration failed"],
     )
 
 
@@ -300,6 +313,12 @@ class TestSyncMCPCatalog(TestCase):
             # An unreachable server says nothing about whether it would register a client,
             # so a timeout or a provider fault must not take a working tile down.
             ("unreachable", None, ProbeResult(reachable=False), True),
+            # Discovery can work while the registration request alone fails. That reaches the
+            # refusal branch with no refusal behind it, and the entry never recovers on its
+            # own, because an inactive row is not re-probed.
+            ("registration_faulted", None, _dcr_faulted_probe(503), True),
+            ("registration_throttled", None, _dcr_faulted_probe(429), True),
+            ("registration_never_answered", None, _dcr_faulted_probe(None), True),
             ("still_registers", None, _dcr_pass_probe(), True),
         ]
     )

@@ -27,8 +27,9 @@ Semantics, chosen so the sync can run unattended at every app startup:
   hand-provisioned ``oauth_credentials`` client is a shared-client entry, not a DCR one,
   so no interval re-probe reaches it. A DCR probe mints a real client with the provider,
   so ``last_probed_at`` keeps it to one probe per entry per ``DCR_REPROBE_INTERVAL``. A
-  re-probe only ever deactivates on refused registration, never on an unreachable server:
-  the entry must not flap on a timeout or a provider fault.
+  re-probe only ever deactivates when the provider refused to register the client. A
+  fault, a throttle, or a request that never got an answer leaves the entry alone: an
+  inactive row is not re-probed, so a flap would not heal itself.
 
   The probe is a liveness and protocol check, not a security control: it catches a dead
   url or a mis-declared auth model, but a malicious server passes it trivially. Vendor
