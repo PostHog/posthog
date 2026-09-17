@@ -363,11 +363,12 @@ def _post_ticket_link(
                 link = ticket_deep_link(ticket, team)
                 text = f"<{link}|Ticket #{ticket.ticket_number}>. Only you can see this message."
             else:
-                # Not "no access": the requester can follow the same ticket from their own list,
-                # and replying in the thread always works even when the email doesn't line up.
+                # Not "no access". The clicker is usually the requester, whose own list carries
+                # this ticket, but a bystander in the channel gets the same answer and only sees
+                # their own list, so the copy stays true either way. Replying always works.
                 text = (
                     f"Ticket #{ticket.ticket_number} is with our support team. "
-                    f"Follow it at <{my_tickets_link()}|your tickets in PostHog>, "
+                    f"If you raised it, follow it in <{my_tickets_link(ticket)}|your PostHog tickets>, "
                     "or just reply in this thread."
                 )
         client.chat_postEphemeral(channel=channel, user=clicker, thread_ts=thread_ts or None, text=text)
@@ -502,7 +503,7 @@ def _handle_supporthog_interactivity(
                 prompt_channel,
                 prompt_ts,
                 text,
-                blocks=ticket_created_blocks(ticket, team) if ticket else None,
+                blocks=ticket_created_blocks(ticket) if ticket else None,
             )
             prompt_can_be_updated = bool(prompt_channel and prompt_ts)
             if final_update == "transient" and prompt_can_be_updated:
