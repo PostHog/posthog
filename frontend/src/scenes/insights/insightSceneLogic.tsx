@@ -285,7 +285,8 @@ export interface insightSceneLogicMeta {
             dashboardId: number | null,
             dashboardName: string | null,
             sceneSource: InsightSceneSource | null,
-            dashboardBackPath: string | null
+            dashboardBackPath: string | null,
+            arg: string | undefined
         ) => Breadcrumb[]
         projectTreeRef: (insightId: InsightId) => ProjectTreeRef
         sidePanelContext: (
