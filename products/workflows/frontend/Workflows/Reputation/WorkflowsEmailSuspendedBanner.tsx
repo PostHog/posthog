@@ -42,8 +42,10 @@ export function WorkflowsEmailSuspendedBanner(): JSX.Element | null {
                 <li>Remove old or bought addresses from your audiences, and stop new ones getting in.</li>
             </ul>
             <p className="mb-0">
-                Then request a review. We check the current state and ask our email provider to re-enable sending. The
-                provider makes the final decision, so we cannot promise a date.
+                Then request a review.{' '}
+                {suspensionCause === 'staff'
+                    ? 'We check the current state and lift the suspension if it is safe to send again. A person reviews each request, so we cannot promise a date.'
+                    : 'We check the current state and ask our email provider to re-enable sending. The provider makes the final decision, so we cannot promise a date.'}
                 {sendingAllowance?.enforced
                     ? ' Once sending is back, your allowance starts at a low tier and grows again as your workflows send cleanly.'
                     : null}
