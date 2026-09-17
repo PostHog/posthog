@@ -30,6 +30,7 @@ import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
 import { OptOutScene } from './OptOuts/OptOutScene'
 import { SuppressionScene } from './Suppression/SuppressionScene'
 import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
+import { newTemplateAgentLogic } from './TemplateLibrary/newTemplateAgentLogic'
 import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { WorkflowsReputation } from './Workflows/Reputation/WorkflowsReputation'
@@ -140,6 +141,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
     const { startNewWorkflow } = useActions(newWorkflowLogic)
+    const { startNewTemplate } = useActions(newTemplateAgentLogic)
     const newChannelRestrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -285,7 +287,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                             >
                                 <LemonButton
                                     data-attr="new-message-button"
-                                    to={urls.workflowsLibraryTemplateNew()}
+                                    onClick={startNewTemplate}
                                     type="primary"
                                     size="small"
                                 >

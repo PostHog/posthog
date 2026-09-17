@@ -15,6 +15,11 @@ export interface AttachedContextItem {
     key?: string | number
     /** Optional human-readable label. */
     label?: string
+    /**
+     * Self-contained HTML the composer chip shows as a thumbnail, in a sandboxed iframe. Display only:
+     * it never enters the context blocks, so the agent still fetches the resource by `key`.
+     */
+    previewHtml?: string
     /** Free-text payload (used when there's no keyed resource, e.g. type 'text'). */
     value?: string
     /** Rendered into the context blocks as usual but never shown as a composer chip (so not dismissable either). */

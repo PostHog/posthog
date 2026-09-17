@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconAtSign, IconBug, IconDashboard, IconGraph, IconNotebook } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { EmailPreviewThumbnail } from 'lib/components/EmailPreviewThumbnail/EmailPreviewThumbnail'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { IconAction, IconEvent } from 'lib/lemon-ui/icons'
@@ -106,8 +107,16 @@ export function AttachedContextBar(): JSX.Element {
                                 }
                                 closable={dismissible}
                                 closeOnClick={dismissible}
-                                className="flex items-center text-secondary max-w-48"
+                                className="flex items-center gap-1 text-secondary max-w-48"
                             >
+                                {item.previewHtml && (
+                                    <EmailPreviewThumbnail
+                                        html={item.previewHtml}
+                                        title={`${label} preview`}
+                                        size="chip"
+                                        className="rounded-sm border"
+                                    />
+                                )}
                                 <span className="truncate min-w-0 flex-1">{label}</span>
                             </LemonTag>
                         </Tooltip>

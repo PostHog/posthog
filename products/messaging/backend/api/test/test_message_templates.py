@@ -103,7 +103,8 @@ class TestMessageTemplatesAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_create_email_template_with_subject_succeeds(self):
+    @patch("products.messaging.backend.api.message_templates.report_user_action")
+    def test_create_email_template_with_subject_succeeds(self, mock_report):
         response = self.client.post(
             f"/api/environments/{self.team.id}/messaging_templates/",
             data={
@@ -116,6 +117,12 @@ class TestMessageTemplatesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["name"] == "Valid Template"
         assert response.json()["content"]["email"]["subject"] == "Hello"
+        # The AI-first experiment counts creations from the editor and the agent with this one event.
+        mock_report.assert_called_once()
+        assert mock_report.call_args.args[1] == "message_template_created"
+        assert mock_report.call_args.args[2]["template_id"] == response.json()["id"]
+        assert mock_report.call_args.kwargs["team"] == self.team
+        assert mock_report.call_args.kwargs["organization"] == self.organization
 
     def test_create_with_html_only_wraps_design_without_rerendering(self):
         response = self.client.post(
