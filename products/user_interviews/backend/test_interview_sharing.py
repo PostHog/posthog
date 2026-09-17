@@ -741,8 +741,31 @@ class TestVapiWebhook(APIBaseTest):
         payload = self._end_of_call_payload(share.access_token)
         response = self._signed_post("topsecret", payload)
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
-        mock_delay.assert_called_once_with(payload=payload, event_type="end-of-call-report")
+        mock_delay.assert_called_once_with(
+            payload=payload, event_type="end-of-call-report", sharing_configuration_id=share.pk
+        )
         self.assertEqual(UserInterview.objects.count(), 0)
+
+    @parameterized.expand(
+        [
+            ("share_disabled", {"enabled": False}),
+            ("token_past_its_grace_period", {"expires_at": timezone.now() - datetime.timedelta(minutes=1)}),
+        ]
+    )
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    @patch("products.user_interviews.backend.tasks.tasks.handle_vapi_webhook.delay")
+    def test_report_is_stored_when_the_share_stops_answering_after_the_endpoint_accepted_it(
+        self, _name: str, revocation: dict[str, Any], mock_delay
+    ):
+        share = self._create_share()
+        self.client.logout()
+        accepted = self._signed_post("topsecret", self._end_of_call_payload(share.access_token))
+        self.assertEqual(accepted.status_code, status.HTTP_202_ACCEPTED, accepted.content)
+
+        SharingConfiguration.objects.filter(pk=share.pk).update(**revocation)
+        handle_vapi_webhook(**mock_delay.call_args.kwargs)
+
+        self.assertEqual(UserInterview.objects.filter(team=self.team).count(), 1)
 
     def test_report_task_survives_a_database_error_and_a_lost_worker(self):
         # Both settings are silently inert when missing: max_retries without autoretry_for never
@@ -781,12 +804,14 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(UserInterview.objects.count(), 0)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    def test_webhook_rejects_unknown_token(self):
+    @patch("products.user_interviews.backend.tasks.tasks.handle_vapi_webhook.delay")
+    def test_webhook_rejects_unknown_token(self, mock_delay):
         self.client.logout()
         response = self._signed_post("topsecret", self._end_of_call_payload("does-not-exist"))
         # The receipt is the transport's, so an unknown token is only observable as nothing stored.
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(UserInterview.objects.count(), 0)
+        mock_delay.assert_not_called()
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
     def test_webhook_requires_valid_signature(self):

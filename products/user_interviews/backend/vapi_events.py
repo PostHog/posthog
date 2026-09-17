@@ -26,7 +26,7 @@ from products.user_interviews.backend.logic import (
     RESPONDENT_NAME_MAX_CHARS,
     clean_field,
     is_shared_interviewee_context,
-    resolve_share,
+    share_by_id,
     shared_interviewee_identifier,
     valid_distinct_id,
     valid_session_id,
@@ -181,8 +181,12 @@ def _capture_user_interview_event(
         )
 
 
-def handle_vapi_webhook_delivery(payload: Mapping[str, Any], event_type: str) -> None:
+def handle_vapi_webhook_delivery(payload: Mapping[str, Any], event_type: str, *, sharing_configuration_id: int) -> None:
     """Act on one verified Vapi delivery: the lifecycle event, and the end-of-call report.
+
+    The share comes in by id because ``accept_vapi_event`` resolved the token in the request,
+    before the endpoint accepted the delivery. That keeps a share the team disables while this
+    waits in the queue from turning an accepted report into nothing.
 
     Idempotent on ``call.id`` (stored in ``call_metadata.id``). Vapi repeats that id across the
     status update and the end-of-call report, so ingress cannot dedup on it and this does
@@ -197,14 +201,8 @@ def handle_vapi_webhook_delivery(payload: Mapping[str, Any], event_type: str) ->
     # through with the nested form, so try both.
     overrides_metadata: dict[str, Any] = (call.get("assistantOverrides") or {}).get("metadata") or {}
     top_metadata: dict[str, Any] = call.get("metadata") or {}
-    access_token = (
-        top_metadata.get("sharing_access_token")
-        or top_metadata.get("access_token")
-        or overrides_metadata.get("sharing_access_token")
-        or overrides_metadata.get("access_token")
-    )
     # Shared-link respondent fields (set in start_call's metadata, echoed back by Vapi). Merge with
-    # top-level precedence, mirroring the access_token resolution above.
+    # top-level precedence, mirroring how the access token is resolved when the delivery arrives.
     merged_metadata: dict[str, Any] = {**overrides_metadata, **top_metadata}
     call_id = call.get("id")
     if event_type == "end-of-call-report" and not call_id:
@@ -213,20 +211,27 @@ def handle_vapi_webhook_delivery(payload: Mapping[str, Any], event_type: str) ->
         logger.warning("user_interviews_vapi_webhook_missing_call_id", team_id=team_id, topic_id=topic_id)
         return
 
+    sharing_config = share_by_id(sharing_configuration_id)
+    if sharing_config is None:
+        logger.warning(
+            "user_interviews_vapi_webhook_share_gone",
+            sharing_configuration_id=sharing_configuration_id,
+            call_id=call_id,
+        )
+        return
+
     if event_type == "status-update":
         # Lifecycle ping. We only act on `in-progress` (call started) — the `ended` status
         # is followed by a separate `end-of-call-report` with the full transcript, so we
         # capture the ended event from that branch where we already have the interview row.
         call_status = message.get("status")
-        if call_status == "in-progress" and access_token:
-            sharing_config = resolve_share(access_token)
-            if sharing_config is not None and sharing_config.interviewee_context is not None:
-                _capture_user_interview_event(
-                    "user_interview_conversation_started",
-                    sharing_config=sharing_config,
-                    call_id=call_id,
-                    session_id=valid_session_id(merged_metadata.get("session_id")),
-                )
+        if call_status == "in-progress" and sharing_config.interviewee_context is not None:
+            _capture_user_interview_event(
+                "user_interview_conversation_started",
+                sharing_config=sharing_config,
+                call_id=call_id,
+                session_id=valid_session_id(merged_metadata.get("session_id")),
+            )
         logger.info(
             "user_interviews_vapi_webhook_status_update",
             call_status=call_status,
@@ -236,21 +241,6 @@ def handle_vapi_webhook_delivery(payload: Mapping[str, Any], event_type: str) ->
 
     # The consumer registers for status-update and end-of-call-report only, so the registry
     # drops every other message type before this runs and the rest is the end-of-call report.
-    if not access_token:
-        logger.warning(
-            "user_interviews_vapi_webhook_missing_access_token",
-            call_id=call_id,
-        )
-        return
-
-    sharing_config = resolve_share(access_token)
-    if sharing_config is None:
-        logger.warning(
-            "user_interviews_vapi_webhook_unknown_access_token",
-            call_id=call_id,
-        )
-        return
-
     interviewee_context = sharing_config.interviewee_context
     if interviewee_context is None:
         logger.warning(

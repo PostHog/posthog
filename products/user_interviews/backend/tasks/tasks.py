@@ -28,9 +28,9 @@ from celery import shared_task
     acks_late=True,
     reject_on_worker_lost=True,
 )
-def handle_vapi_webhook(payload: dict[str, Any], event_type: str) -> None:
+def handle_vapi_webhook(payload: dict[str, Any], event_type: str, sharing_configuration_id: int) -> None:
     from products.user_interviews.backend import (  # noqa: PLC0415 - keeps posthog.schema and the embedding worker off the task module's import path
         vapi_events,
     )
 
-    vapi_events.handle_vapi_webhook_delivery(payload, event_type)
+    vapi_events.handle_vapi_webhook_delivery(payload, event_type, sharing_configuration_id=sharing_configuration_id)

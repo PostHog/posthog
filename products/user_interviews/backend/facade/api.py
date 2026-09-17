@@ -17,11 +17,15 @@ Do NOT:
 
 from uuid import UUID
 
+import structlog
+
 from posthog.ingress.contracts import WebhookDelivery
 
 from products.user_interviews.backend import logic
 from products.user_interviews.backend.classification import derive_auto_classifications
 from products.user_interviews.backend.facade.contracts import IntervieweeIdentity
+
+logger = structlog.get_logger(__name__)
 
 __all__ = [
     "SHARED_INTERVIEWEE_IDENTIFIER",
@@ -63,8 +67,42 @@ def has_replied(*, team_id: int, topic_id: UUID, interviewee_identifier: str) ->
 
 
 def accept_vapi_event(delivery: WebhookDelivery) -> None:
+    """Resolve the share this delivery belongs to, and hand the work to a queue.
+
+    The token is resolved here, in the request, because the answer expires: a share that the
+    team disables, or a token that leaves its rotation grace period, while the work waits in
+    the queue would make the worker find nothing and drop a report the endpoint has already
+    accepted. What crosses the broker is the share's identity, which does not expire.
+
+    A token nothing answers enqueues nothing. ingress ignores what a consumer returns, so there
+    is no status to refuse the delivery with, and queueing work for a share nobody can name only
+    moves the dead end into a worker. A database failure raises instead, which costs the request
+    its receipt and makes Vapi send the report again.
+    """
     # Deferred: keeps the Celery app off the facade import path.
     from products.user_interviews.backend.tasks.tasks import handle_vapi_webhook  # noqa: PLC0415
 
-    # Enqueued, not run here, so a failed persist gets retried. The task module says why.
-    handle_vapi_webhook.delay(payload=dict(delivery.payload), event_type=delivery.event_type)
+    call_id = delivery.context.get("call_id")
+    access_token = logic.vapi_access_token(delivery.payload)
+    if not access_token:
+        logger.warning(
+            "user_interviews_vapi_webhook_missing_access_token",
+            event_type=delivery.event_type,
+            call_id=call_id,
+        )
+        return
+
+    sharing_configuration_id = logic.active_share_id(access_token)
+    if sharing_configuration_id is None:
+        logger.warning(
+            "user_interviews_vapi_webhook_unknown_access_token",
+            event_type=delivery.event_type,
+            call_id=call_id,
+        )
+        return
+
+    handle_vapi_webhook.delay(
+        payload=dict(delivery.payload),
+        event_type=delivery.event_type,
+        sharing_configuration_id=sharing_configuration_id,
+    )
