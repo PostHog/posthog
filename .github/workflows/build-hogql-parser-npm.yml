@@ -62,19 +62,21 @@ jobs:
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   COMMITTED_VERSION: ${{ steps.check-package-version.outputs.committed-version }}
-                  IS_FORK: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   message_body="It looks like the code of \`@posthog/hogql-parser\` (npm) changed in this PR, but its version stayed the same at $COMMITTED_VERSION. 👀"
                   message_body+=$'\n'"Make sure to resolve this in \`common/hogql_parser/package.json\` before merging!"
-                  if [[ "$IS_FORK" == 'true' ]]; then
-                    message_body+=$'\n'"This needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member will assist with this."
-                  fi
                   if [ -f .github/scripts/post-reminder-section.mjs ]; then
                     BODY="$message_body" GITHUB_TOKEN="$GH_TOKEN" node .github/scripts/post-reminder-section.mjs hogql-parser-npm warn "version bump needed"
                   else
                     echo "Skipping hogql-parser-npm section — script not present on this checkout"
                   fi
+
+            - name: Warn fork PR if version not bumped
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && steps.changed-files.outputs.parser_any_changed == 'true' && steps.check-package-version.outputs.is-new-version == 'false'
+              env:
+                  COMMITTED_VERSION: ${{ steps.check-package-version.outputs.committed-version }}
+              run: echo "::warning::@posthog/hogql-parser $COMMITTED_VERSION is already on npm. Bump the version in common/hogql_parser/package.json before merging."
 
             # Version was bumped — mark any reminder from an earlier push resolved.
             - name: Clear version reminder
@@ -163,9 +165,6 @@ jobs:
               with:
                   node-version-file: .nvmrc
                   registry-url: https://registry.npmjs.org
-
-            - name: Ensure modern npm (OIDC support)
-              run: npm install -g npm@11.6.4
 
             - name: Publish package to npm
               run: cd common/hogql_parser && npm publish --access public

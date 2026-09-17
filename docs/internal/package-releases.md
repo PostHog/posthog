@@ -28,6 +28,11 @@ The release workflows do not push commits or tags.
    For the npm parser, use `pnpm --filter=@posthog/frontend add '@posthog/hogql-parser@<version>'`.
    Run the relevant CI checks and merge this PR through the queue too.
 
+Hog CI runs each master commit independently, so waiting for HogVM approval does not block later test runs.
+The HogVM publish job serializes releases and checks the registry again after approval to avoid publishing the same version twice.
+
+Fork PRs receive a warning annotation when their package version already exists in the registry.
+Python registry lookups retry transient failures with bounded timeouts and exponential backoff.
 A registry lookup failure stops the Python release rather than treating an unknown response as an unpublished version.
 Re-run failed jobs on the same master run after resolving a transient failure.
 PyPI publishing uses `skip-existing` so a retry can complete a partially uploaded release.

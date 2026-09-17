@@ -62,7 +62,7 @@ jobs:
                   echo "local-version=$local" >> "$GITHUB_OUTPUT"
                   if [[ "$DELTALITE_CHANGED" == 'true' ]]; then
                       # 200 = version already on PyPI, 404 = needs release.
-                      http_code=$(curl -o /dev/null -sSL -w '%{http_code}' "https://pypi.org/pypi/deltalite/$local/json")
+                      http_code=$(curl --retry 3 --retry-all-errors --retry-max-time 90 --connect-timeout 10 --max-time 30 -o /dev/null -sSL -w '%{http_code}' "https://pypi.org/pypi/deltalite/$local/json")
                       if [[ "$http_code" == '404' ]]; then
                           deltalite_release_needed='true'
                           # Version was bumped — mark any reminder from an earlier push resolved.
@@ -72,13 +72,12 @@ jobs:
                       elif [[ "$http_code" == '200' ]]; then
                           message_body="It looks like the code of \`deltalite\` changed in this PR, but its version stayed the same at $local. 👀"
                           message_body+=$'\n'"Bump the version in \`rust/deltalite/python/Cargo.toml\` AND \`rust/deltalite/python/pyproject.toml\` (the two must match) before merging."
-                          if [[ "$IS_FORK" == 'true' ]]; then
-                              message_body+=$'\n'"This needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member can assist with this."
-                          fi
                           if [[ "$GITHUB_EVENT_NAME" == 'pull_request' && "$IS_FORK" == 'false' ]] && [ -f .github/scripts/post-reminder-section.mjs ]; then
                               BODY="$message_body" GITHUB_TOKEN="$GH_TOKEN" node .github/scripts/post-reminder-section.mjs deltalite warn "version bump needed"
+                          elif [[ "$GITHUB_EVENT_NAME" == 'pull_request' && "$IS_FORK" == 'true' ]]; then
+                              echo "::warning::deltalite $local is already on PyPI. Bump the version in rust/deltalite/python/Cargo.toml and rust/deltalite/python/pyproject.toml before merging."
                           else
-                              echo "Skipping deltalite section — script not present on this checkout"
+                              echo "Skipping deltalite reminder: not a same-repository PR, or reminder script is missing."
                           fi
                       else
                           echo "::error::Unexpected HTTP $http_code from PyPI for deltalite $local. Retry the workflow."

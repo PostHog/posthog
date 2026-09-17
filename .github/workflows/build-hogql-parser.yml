@@ -66,7 +66,7 @@ jobs:
                   if [[ "$PARSER_CHANGED" == 'true' ]]; then
                     local=$(cd common/hogql_parser && python setup.py --version)
                     # 200 = version already on PyPI, 404 = needs release.
-                    http_code=$(curl -o /dev/null -sSL -w '%{http_code}' "https://pypi.org/pypi/hogql-parser/$local/json")
+                    http_code=$(curl --retry 3 --retry-all-errors --retry-max-time 90 --connect-timeout 10 --max-time 30 -o /dev/null -sSL -w '%{http_code}' "https://pypi.org/pypi/hogql-parser/$local/json")
                     if [[ "$http_code" == '404' ]]; then
                       parser_release_needed='true'
                       # Version was bumped — mark any reminder from an earlier push resolved.
@@ -76,13 +76,12 @@ jobs:
                     elif [[ "$http_code" == '200' ]]; then
                       message_body="It looks like the code of \`hogql-parser\` changed in this PR, but its version stayed the same at $local. 👀"
                       message_body+=$'\n'"Make sure to resolve this in \`common/hogql_parser/setup.py\` before merging!"
-                      if [[ "$IS_FORK" == 'true' ]]; then
-                        message_body+=$'\n'"This needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member can assist with this."
-                      fi
                       if [[ "$GITHUB_EVENT_NAME" == 'pull_request' && "$IS_FORK" == 'false' ]] && [ -f .github/scripts/post-reminder-section.mjs ]; then
                         BODY="$message_body" GITHUB_TOKEN="$GH_TOKEN" node .github/scripts/post-reminder-section.mjs hogql-parser-py warn "version bump needed"
+                      elif [[ "$GITHUB_EVENT_NAME" == 'pull_request' && "$IS_FORK" == 'true' ]]; then
+                        echo "::warning::hogql-parser $local is already on PyPI. Bump the version in common/hogql_parser/setup.py before merging."
                       else
-                        echo "Skipping hogql-parser-py section — script not present on this checkout"
+                        echo "Skipping hogql-parser reminder: not a same-repository PR, or reminder script is missing."
                       fi
                     else
                       echo "::error::Unexpected HTTP $http_code from PyPI for hogql-parser $local. Retry the workflow."

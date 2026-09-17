@@ -4,6 +4,7 @@ import { readdirSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+import { evaluateTemplate } from '../src/expressions.ts'
 import {
     type Outcome,
     type Scenario,
@@ -411,6 +412,44 @@ const namedJobs = (file: string): Set<string> =>
     )
 
 describe('.github/workflows run plans', () => {
+    it('lets master Hog CI runs proceed while serializing HogVM publishing', () => {
+        const wf = workflow('ci-hog.yml') as Workflow & { concurrency: { group: string } }
+        const publish = wf.jobs['release-hogvm'] as { concurrency?: { group: string } }
+        const first = { ...push(), sha: 'a'.repeat(40) }
+        const second = { ...push(), sha: 'b'.repeat(40) }
+        const group = (expression: unknown, github: Scenario['github']): string =>
+            evaluateTemplate(expression, { github }, new Map())
+
+        expect(group(wf.concurrency.group, first)).not.toBe(group(wf.concurrency.group, second))
+        expect(publish.concurrency?.group).toBeDefined()
+        expect(group(publish.concurrency?.group, first)).toBe(group(publish.concurrency?.group, second))
+        expect(group(wf.concurrency.group, { ...pullRequest(), sha: first.sha })).toBe(
+            group(wf.concurrency.group, { ...pullRequest(), sha: second.sha })
+        )
+    })
+
+    it.each(['true', 'false'])(
+        'HogVM publishes only if the approved version is still unpublished (%s)',
+        (isNewVersion) => {
+            const wf = workflow('ci-hog.yml')
+            const plan = planWorkflow(wf, {
+                name: 'master push after approval',
+                github: push(),
+                steps: {
+                    ...allFiltersChanged(wf),
+                    'hog-tests': { 'check-package-version': { outputs: { 'is-new-version': 'true' } } },
+                    'release-hogvm': { 'recheck-package-version': { outputs: { 'is-new-version': isNewVersion } } },
+                },
+            })
+            expect(plan.errors).toEqual([])
+            expect(
+                plan.jobs['release-hogvm']?.steps.find(
+                    (step) => step.name === 'Publish the package in the npm registry'
+                )?.runs
+            ).toBe(isNewVersion === 'true')
+        }
+    )
+
     it.each(PACKAGE_RELEASES)('$file requires release approval for registry authentication', ({ file, publish }) => {
         expect(workflow(file).jobs[publish]).toMatchObject({
             environment: 'Release SDK',

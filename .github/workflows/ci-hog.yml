@@ -16,7 +16,7 @@ permissions:
     contents: read
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -205,6 +205,9 @@ jobs:
         needs: [hog-tests, notify-approval-needed]
         if: github.repository == 'PostHog/posthog' && github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.hog-tests.outputs.is-new-version == 'true'
         environment: Release SDK
+        concurrency:
+            group: release-hogvm
+            cancel-in-progress: false
         permissions:
             contents: read
             id-token: write
@@ -254,9 +257,13 @@ jobs:
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             - name: Install package.json dependencies
               run: pnpm --filter=@posthog/hogvm install --frozen-lockfile
-            - name: Ensure modern npm (OIDC support)
-              run: npm install -g npm@11.6.4
+            - name: Check whether the version still needs publishing
+              id: recheck-package-version
+              uses: PostHog/check-package-version@f540540cb12d45ec3c58d42dbf1d60070ed2d268 # v2.1.1
+              with:
+                  path: common/hogvm/typescript
             - name: Publish the package in the npm registry
+              if: steps.recheck-package-version.outputs.is-new-version == 'true'
               run: cd common/hogvm/typescript && npm publish --access public
               env:
                   NODE_AUTH_TOKEN: ''
