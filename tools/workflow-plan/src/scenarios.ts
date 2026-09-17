@@ -194,6 +194,8 @@ export const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url))
 type ScriptStubs = Pick<Scenario, 'vars' | 'jobOutputs'>
 
 // Values only a script produces at runtime, without which a workflow's gates cannot be planned.
+const DEPOT_BACKEND = '.depot/workflows/ci-backend.yml'
+
 const SCRIPT_STUBS: Record<string, ScriptStubs> = {
     '.github/workflows/release.yml': {
         jobOutputs: {
@@ -204,14 +206,13 @@ const SCRIPT_STUBS: Record<string, ScriptStubs> = {
     },
     // The Depot graph hangs off a hand-off check the planner cannot read; plan it as handed
     // off, which is the only case where its jobs do any work.
-    '.depot/workflows/ci-backend.yml': {
+    [DEPOT_BACKEND]: {
         jobOutputs: { 'wait-for-handoff': { handed_off: 'true' } },
     },
 }
 
 // The router keeps forks, pushes and the schedule on GitHub Actions, so Depot's wait job
 // declines those events; only same-repo pull requests and manual dispatches run there.
-const DEPOT_BACKEND = '.depot/workflows/ci-backend.yml'
 const NOT_HANDED_OFF: ScriptStubs = { jobOutputs: { 'wait-for-handoff': { handed_off: 'false' } } }
 
 export function defaultScenarios(workflow: Workflow, workflowPath: string): Scenario[] {

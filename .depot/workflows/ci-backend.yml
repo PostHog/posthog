@@ -1,6 +1,6 @@
-# Depot CI shadow of .github/workflows/ci-backend.yml. Lives under .depot/ so
-# GitHub Actions ignores it; only Depot CI parses this file. Statuses posted
-# from here are non-blocking; canonical is the authoritative signal.
+# Depot CI copy of .github/workflows/ci-backend.yml. Lives under .depot/ so
+# GitHub Actions ignores it; only Depot CI parses this file. Canonical's required
+# `Django Tests Pass` relays this workflow's gate for the events routed here.
 #
 # Apples-to-apples is the whole point — keep action pins, env vars, runner
 # sizes, and pytest flags in sync with the canonical workflow. A drift-check
@@ -74,9 +74,8 @@
 #   so shared keys with canonical (schema, uv, pnpm) do not collide
 # - hypothesis constants cache: the restore and save steps mirror canonical verbatim, but the
 #   save only fires on master test-matrix runs and the shadow skips those, so the Depot Cache
-#   entry only exists after a master workflow_dispatch. Sampled PR shards run cold (they rebuild
-#   the pool, as canonical did before this cache existed) until then: bounded, documented, and
-#   harmless because the shadow never gates merges.
+#   entry only exists after a master workflow_dispatch. Routed PR shards run cold (they rebuild
+#   the pool, as canonical did before this cache existed) until then: bounded and documented.
 # - GITHUB_TOKEN / OTEL_SERVICE_NAME neutralized (ambient on Depot, not on GHA)
 # - GitHub App tokens: the mint steps' vars.* / secrets.* resolve from Depot's store, not
 #   GitHub's. A name missing there makes the setup-action mints (continue-on-error) fall
@@ -107,9 +106,8 @@
 # - Test durations restored from Depot Cache (posthog-test-durations- prefix), refreshed by
 #   .depot/workflows/ci-backend-update-test-timing.yml, so shard counts match GitHub Actions.
 #   Committed .test_durations is the fallback.
-# - master (push) runs only check-migrations to prime the shared schema cache; the
-#   test matrices are skipped on master (canonical runs them). Sampled source PRs and
-#   dispatches run the full graph — that is where the apples-to-apples comparison happens.
+# - No push trigger: canonical primes the shared schema cache on master, and Depot Cache
+#   serves both engines. The `github.event_name != 'push'` guards stay to mirror canonical.
 #   Trunk merge-queue PRs are excluded because they would repeat a source PR's trial run.
 # - Fresh-master cache waiting is canonical-only: it waits on the GitHub Actions
 #   warmer, which cannot signal readiness for Depot's separate cache channel.
@@ -124,14 +122,10 @@ name: Backend CI on Depot
 # exactly one engine, and GitHub Actions picks it. The `wait-for-handoff` job waits for the
 # `Hand off backend tests to Depot CI` check from .github/workflows/ci-backend.yml and
 # `changes` (root of the needs graph) only runs when that check succeeded, so the whole
-# workflow cascades off otherwise. A manual run needs that check on its commit too, and
-# push events never run here.
+# workflow cascades off otherwise. A manual run needs that check on its commit too.
 # The drift check (.github/workflows/ci-backend-shadow-drift.yml) keeps this file in sync
 # with canonical; it runs whenever either file changes, independent of the percent.
 on:
-    push:
-        branches:
-            - master
     workflow_dispatch:
         inputs:
             clickhouseServerVersion:
@@ -235,8 +229,8 @@ jobs:
                   # check is still on the commit. Only a check that started after this event counts.
                   EVENT_AT: ${{ github.event.pull_request.updated_at }}
                   # Two open PRs can share a head SHA, so only this PR's hand-off counts.
-                  # A manual run has no PR: 0 accepts the newest hand-off from any PR.
-                  PR_NUMBER: ${{ github.event.pull_request.number || 0 }}
+                  # A manual run has no PR and accepts the newest hand-off from any PR.
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
                   # Must match the job name in .github/workflows/ci-backend.yml.
                   HANDOFF_CHECK: Hand off backend tests to Depot CI
                   GITHUB_ACTIONS_APP_ID: '15368'
@@ -244,7 +238,10 @@ jobs:
                   set -uo pipefail
                   handed_off=false
                   state=absent
-                  attempts=60
+                  # A person's run does not wait: it runs only when GitHub Actions already handed
+                  # this commit off, so the tests never run on both engines.
+                  attempts=30
+                  [ "$EVENT" = pull_request ] || attempts=1
                   if [ "$IS_FORK" = true ]; then
                       # The fork controls its own copy of the GitHub Actions workflow, so its hand-off is not trusted.
                       echo "::notice::Fork pull requests never run on Depot CI."
@@ -253,11 +250,6 @@ jobs:
                       # runs every non-PR event itself.
                       echo "::notice::$EVENT events never run on Depot CI."
                   else
-                      if [ "$EVENT" != pull_request ]; then
-                          # A person started this run. It runs only when GitHub Actions already handed
-                          # this commit off, so the tests never run on both engines.
-                          attempts=1
-                      fi
                       url="https://api.github.com/repos/$REPO/commits/$SHA/check-runs?check_name=$(jq -rn --arg n "$HANDOFF_CHECK" '$n | @uri')&app_id=$GITHUB_ACTIONS_APP_ID"
                       for attempt in $(seq 1 "$attempts"); do
                           # curl rewrites the saved ETag empty on a 304, so promote it only after a 200.
@@ -266,7 +258,7 @@ jobs:
                           case "$code" in
                               200)
                                   mv /tmp/handoff-etag.new /tmp/handoff-etag
-                                  state=$(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" '[.check_runs[] | select((.started_at // "") >= $since and ($pr == 0 or any(.pull_requests[]?; .number == $pr)))] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' /tmp/handoff-body)
+                                  state=$(jq -r --arg since "$EVENT_AT" --argjson pr "${PR_NUMBER:-null}" '[.check_runs[] | select((.started_at // "") >= $since and ($pr == null or any(.pull_requests[]?; .number == $pr)))] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' /tmp/handoff-body)
                                   ;;
                               304) ;;
                               401|403) echo "::warning::check-runs API returned $code; cannot read the hand-off"; break ;;
@@ -277,7 +269,7 @@ jobs:
                               absent|queued|in_progress|pending|waiting|requested) ;;
                               *) break ;;
                           esac
-                          [ "$attempt" -lt "$attempts" ] && sleep 10
+                          [ "$attempt" -lt "$attempts" ] && sleep 20
                       done
                       if [ "$handed_off" = true ]; then
                           echo "::notice::GitHub Actions handed the backend tests to Depot CI."
@@ -1728,15 +1720,7 @@ jobs:
               if: github.event_name == 'pull_request'
               # A hang fails this step, which the publish below still reports as a verdict.
               timeout-minutes: 5
-              run: |
-                  set +e
-                  RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked --output-json migration_analysis.json 2>/dev/null)
-                  EXIT_CODE=$?
-                  set -e
-                  if [ -n "$RISK_ANALYSIS" ]; then
-                    echo "$RISK_ANALYSIS" > migration_analysis.md
-                  fi
-                  exit $EXIT_CODE
+              run: python manage.py analyze_migration_risk --fail-on-blocked --output-json migration_analysis.json > migration_analysis.md 2>/dev/null
 
             - name: Get app token for Migration risk check
               # The posthog-tests app owns the check, so it lands in that app's own check
@@ -1795,7 +1779,7 @@ jobs:
                   # classified, so the marker stays first and survives truncation.
                   ANALYZED_PATHS=$(jq -c '[.migrations[].file_path | select(. != null)]' migration_analysis.json 2>/dev/null || echo '[]')
                   MARKER="<!-- stamphog:v1 ${ANALYZED_PATHS} -->"
-                  REPORT_BODY=$(head -c 59000 migration_analysis.md 2>/dev/null || echo "See the workflow log")
+                  REPORT_BODY=$([ -s migration_analysis.md ] && head -c 59000 migration_analysis.md || echo "See the workflow log")
                   SUMMARY=$(printf '%s\n%s' "$MARKER" "$REPORT_BODY")
 
                   jq -n \
@@ -2347,7 +2331,7 @@ jobs:
              needs.turbo-discover.outputs.run_legacy == 'true' ||
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
         # increase for tmate testing
-        # 45 to match canonical; the shadow is non-blocking so no deploy-gate coupling.
+        # 45 to match canonical.
         timeout-minutes: 45
         name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ (matrix.segment == 'Core' && !matrix.person-on-events && !matrix.compat) && 'on' || 'off' }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         # Match canonical's runner size. The shadow restores the same master-primed
@@ -3222,10 +3206,7 @@ jobs:
                   done
 
             - name: Check dependency results
-              env:
-                  SIDE_EFFECTS: ${{ needs.wait-for-handoff.outputs.handed_off }}
               run: |
-                  if [ "$SIDE_EFFECTS" = "true" ]; then
                   # Per-test failure rollup, emitted from THIS step because GitHub only
                   # auto-expands the failed step in the log view. Best-effort via `|| true`
                   # so a parser hiccup never changes the verdict computed below.
@@ -3289,8 +3270,6 @@ jobs:
                           print(f"::error {loc}title={title}::{body}")
                   PY
 
-                  fi
-
                   check_required_result() {
                     local label="$1"
                     local result="$2"
@@ -3319,4 +3298,4 @@ jobs:
                   check_required_result "Snapshot mode detection" "${{ needs.detect-snapshot-mode.result }}"
 
                   echo "All backend and product checks passed."
-    # Depot shadow: calculate-running-time is omitted so shadow runs are not recorded as canonical CI data.
+    # calculate-running-time is omitted so Depot runs are not recorded as canonical CI data.

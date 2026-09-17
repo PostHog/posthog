@@ -4029,9 +4029,9 @@ jobs:
                   wait_url="$api$(jq -rn --arg n "$DEPOT_WAIT_CHECK" '$n | @uri')"
                   # Reads one Depot check run into the named variable: absent, a status, or a
                   # conclusion. A 304 leaves it as it was.
+                  # shellcheck disable=SC2034 # the nameref writes the caller's variable
                   read_check() {
                       local url=$1
-                      # shellcheck disable=SC2034 # the nameref writes the caller's variable
                       local -n slot=$2
                       local code
                       # curl rewrites the saved ETag empty on a 304, so promote it only after a 200.
