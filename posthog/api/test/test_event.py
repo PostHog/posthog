@@ -3,7 +3,7 @@ from datetime import datetime
 from urllib.parse import unquote, urlencode
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -108,7 +108,8 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # personhog, not Postgres, so it's not in this count. Was 16 before passing team=team
         # into get_restricted_properties_for_team, which lets is_property_access_control_enabled
         # skip its per-call Team+organization lookup. +1 for the saved-expressions fetch in the
-        # HogQL database build.
+        # HogQL database build. +1 for the flag-cache TTL instance setting, cold-cache here but
+        # TTL-cached per worker in production.
         with self.assertNumQueries(16):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
             assert response["results"][0]["event"] == "event_name"
@@ -140,7 +141,8 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # Group-type-mapping is read via personhog, not Postgres, so it's not in this count.
         # Was 24 before passing team=team into get_restricted_properties_for_team, which lets
         # is_property_access_control_enabled skip its per-call Team+organization lookup.
-        # +1 for the saved-expressions fetch in the HogQL database build.
+        # +1 for the saved-expressions fetch in the HogQL database build. +1 for the flag-cache
+        # TTL instance setting, cold-cache here but TTL-cached per worker in production.
         expected_queries = 23 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 24
 
         with self.assertNumQueries(expected_queries):
@@ -217,7 +219,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         cohort1.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
-            with freeze_time("2020-01-04T13:01:01Z"):
+            with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
                 response = self.client.get(
                     f"/api/projects/{self.team.id}/events/?properties=%s"
                     % (json.dumps([{"key": "id", "value": cohort1.id, "type": "cohort"}]))
@@ -277,7 +279,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         assert nonexistent_uuid.status_code == 200
         assert len(nonexistent_uuid.json()["results"]) == 0
 
-    @freeze_time("2020-01-10")
+    @time_machine.travel("2020-01-10", tick=False)
     def test_event_column_values(self):
         person1 = _create_person(
             properties={"email": "joe@posthog.com"},
@@ -362,7 +364,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(["random_prop"])
     @snapshot_clickhouse_queries
     def test_event_property_values(self):
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             _create_event(
                 distinct_id="bla",
                 event="random event",
@@ -373,7 +375,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-        with freeze_time("2020-01-20 20:00:00"):
+        with time_machine.travel("2020-01-20 20:00:00", tick=False):
             _create_event(
                 distinct_id="bla",
                 event="random event",
@@ -490,7 +492,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             ("refresh_async", "refresh=async", "RECENT_CACHE_CALCULATE_ASYNC_IF_STALE"),
         ]
     )
-    @freeze_time("2020-01-10")
+    @time_machine.travel("2020-01-10", tick=False)
     def test_event_property_values_refresh(self, _name, param, expected_mode_name):
         from posthog.hogql_queries.property_values_query_runner import PropertyValuesQueryResponse
         from posthog.hogql_queries.query_runner import ExecutionMode
@@ -513,7 +515,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             assert "analytics_props" in kwargs
 
     @also_test_with_materialized_columns(["test_prop"])
-    @freeze_time("2020-01-20 20:00:00")
+    @time_machine.travel("2020-01-20 20:00:00", tick=False)
     @snapshot_clickhouse_queries
     def test_event_property_values_without_hidden_properties(self):
         # Create events with properties first
@@ -546,7 +548,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         assert len(response["results"]) == 3
 
     @also_test_with_materialized_columns(["hidden_prop", "visible_prop"])
-    @freeze_time("2020-01-20 20:00:00")
+    @time_machine.travel("2020-01-20 20:00:00", tick=False)
     @snapshot_clickhouse_queries
     def test_event_property_values_with_hidden_properties(self):
         # Create events with both hidden and visible properties
@@ -587,7 +589,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         assert "also_visible" in visible_keys
 
     def test_property_values_with_property_filters(self):
-        with freeze_time("2020-01-20 20:00:00"):
+        with time_machine.travel("2020-01-20 20:00:00", tick=False):
             _create_event(
                 distinct_id="bla",
                 event="random event",
@@ -633,7 +635,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             assert response["results"][0]["name"] == "both filters"
 
     def test_property_values_with_property_filters_error_handling(self):
-        with freeze_time("2020-01-20 20:00:00"):
+        with time_machine.travel("2020-01-20 20:00:00", tick=False):
             _create_event(
                 distinct_id="bla",
                 event="random event",
@@ -693,15 +695,15 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["2", "some-random-uid"],
         )
 
-        with freeze_time("2020-01-10"):
+        with time_machine.travel("2020-01-10", tick=False):
             event1_uuid = _create_event(team=self.team, event="sign up", distinct_id="2")
-        with freeze_time("2020-01-8"):
+        with time_machine.travel("2020-01-8", tick=False):
             event2_uuid = _create_event(team=self.team, event="sign up", distinct_id="2")
-        with freeze_time("2020-01-7"):
+        with time_machine.travel("2020-01-7", tick=False):
             event3_uuid = _create_event(team=self.team, event="random other event", distinct_id="2")
 
         # with relative values
-        with freeze_time("2020-01-11T12:03:03.829294Z"):
+        with time_machine.travel("2020-01-11T12:03:03.829294Z", tick=False):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?after=4d&before=1d").json()
             assert len(response["results"]) == 2
 
@@ -736,7 +738,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         assert response["results"][1]["id"] == event3_uuid
 
     def test_pagination(self):
-        with freeze_time("2021-10-10T12:03:03.829294Z"):
+        with time_machine.travel("2021-10-10T12:03:03.829294Z", tick=False):
             _create_person(team=self.team, distinct_ids=["1"])
             for idx in range(0, 250):
                 _create_event(
@@ -779,7 +781,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             assert page3["next"] is None
 
     def test_pagination_bounded_date_range(self):
-        with freeze_time("2021-10-10T12:03:03.829294Z"):
+        with time_machine.travel("2021-10-10T12:03:03.829294Z", tick=False):
             _create_person(team=self.team, distinct_ids=["1"])
             now = timezone.now() - relativedelta(months=11)
             after = (now).astimezone(ZoneInfo("UTC")).isoformat()
@@ -890,7 +892,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
     def test_list_events_returns_utc_timestamp_when_project_timezone_is_not_utc(self):
         self.team.timezone = "Africa/Algiers"
         self.team.save()
-        with freeze_time("2026-06-30T20:45:00Z"):
+        with time_machine.travel("2026-06-30T20:45:00Z", tick=False):
             _create_event(
                 team=self.team,
                 event="watched movie",
@@ -923,7 +925,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         assert response.json()["properties"] == {"key": "test_val"}
 
     def test_events_in_future(self):
-        with freeze_time("2012-01-15T04:01:34.000Z"):
+        with time_machine.travel("2012-01-15T04:01:34.000Z", tick=False):
             _create_event(
                 team=self.team,
                 event="5th action",
@@ -931,14 +933,14 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 properties={"$os": "Windows 95"},
             )
         # Don't show events more than 5 seconds in the future
-        with freeze_time("2012-01-15T04:01:44.000Z"):
+        with time_machine.travel("2012-01-15T04:01:44.000Z", tick=False):
             _create_event(
                 team=self.team,
                 event="5th action",
                 distinct_id="2",
                 properties={"$os": "Windows 95"},
             )
-        with freeze_time("2012-01-15T04:01:34.000Z"):
+        with time_machine.travel("2012-01-15T04:01:34.000Z", tick=False):
             response = self.client.get(f"/api/projects/{self.team.id}/events/").json()
         assert len(response["results"]) == 1
 

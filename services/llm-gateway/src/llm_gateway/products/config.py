@@ -52,11 +52,15 @@ class ProductConfig:
     # unaffected (they reach the gateway only with an explicit, feature-gated
     # llm_gateway:read scope, not the wildcard a consent token uses).
     requires_server_credential: bool = False
+    # Set on a retired product: every caller is refused with this message, whatever
+    # the auth method, so the entry can stay (aliases, cost keys) while nothing routes.
+    denial_message: str | None = None
 
 
 BEDROCK_MODELS = BEDROCK_MODEL_IDS
 
 # OAuth application IDs per region
+POSTHOG_CODE_PRODUCT = "posthog_code"
 POSTHOG_CODE_US_APP_ID = "019a3066-4aa2-0000-ca70-48ecdcc519cf"
 POSTHOG_CODE_EU_APP_ID = "019a3067-5be7-0000-33c7-c6743eb59a79"
 POSTHOG_CODE_DEV_APP_ID = "019ebb47-c750-0000-e1ea-723a6ff112d3"
@@ -64,6 +68,8 @@ TWIG_US_APP_ID = POSTHOG_CODE_US_APP_ID
 TWIG_EU_APP_ID = POSTHOG_CODE_EU_APP_ID
 WIZARD_US_APP_ID = "019a0c79-b69d-0000-f31b-b41345208c9d"
 WIZARD_EU_APP_ID = "019a12d0-6edd-0000-0458-86616af3a3db"
+# What a retired wizard product answers every caller with.
+WIZARD_RETIRED_MESSAGE = "The wizard now runs on the PostHog AI gateway. Upgrade with: npx @posthog/wizard@latest"
 POSTHOG_AI_US_APP_ID = "019ee060-3a0e-0000-7e9c-4e6b48dfae66"
 POSTHOG_AI_EU_APP_ID = "019ee061-5620-0000-1a0d-ab1160fceeb1"
 POSTHOG_AI_DEV_APP_ID = "019edb1a-cce4-0000-1f6d-682061862da9"
@@ -77,6 +83,7 @@ SIGNALS_DEV_APP_ID = "019fb2ee-9d54-0000-61d9-faf825230d44"
 _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
     {
         "claude-fable-5",
+        "claude-fable-5-1",
         "claude-opus-4-5",
         "claude-opus-4-6",
         "claude-opus-4-7",
@@ -94,6 +101,7 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "gpt-5.3-codex",
         "gpt-5.2",
         "gpt-5-mini",
+        "gpt-6-astra",
         "@cf/zai-org/glm-5.2",
         "zai-org/glm-5.3",
         "zai-org/glm-5.3-flash",
@@ -144,6 +152,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=frozenset(
             {
                 "claude-fable-5",
+                "claude-fable-5-1",
                 "claude-opus-4-5",
                 "claude-opus-4-6",
                 "claude-opus-4-7",
@@ -157,9 +166,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "gpt-5.2",
                 "gpt-5-mini",
                 "gpt-5.6-luna",
-                # ReviewHog sandbox runs route here (no review_hog entry in the agent's
-                # origin→product map), so its reviewer-experiment arms must be allowed.
+                # ReviewHog sandbox runs route here: the agent's legacy leg maps
+                # review_hog to this slug (LEGACY_PRODUCT_OVERRIDES in the desktop
+                # agent's gateway.ts), so its reviewer-experiment arms must be allowed.
                 "gpt-5.6-sol",
+                "gpt-6-astra",
             }
             | BEDROCK_MODELS
         ),
@@ -187,6 +198,15 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         credit_bucket=CreditBucket.AI_CREDITS,
         requires_server_credential=True,
     ),
+    # Workflow task runs authenticate with a server-minted credential, share the Slack app's
+    # model policy, and bill into PostHog AI credits rather than PostHog Code credits.
+    "workflows": ProductConfig(
+        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
+        allowed_models=_POSTHOG_CODE_AGENT_MODELS | BEDROCK_MODELS,
+        allow_api_keys=False,
+        credit_bucket=CreditBucket.AI_CREDITS,
+        requires_server_credential=True,
+    ),
     # SherlockHog (https://github.com/PostHog/SherlockHog) — the internal SRE
     # bot. Authenticates with a personal API key (not OAuth), so no application
     # IDs are needed. It pins claude-opus-4-8 but can be repointed via
@@ -198,10 +218,13 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
         credit_bucket=None,
     ),
+    # Retired: the wizard mints per-run scoped tokens on the ai-gateway instead. The
+    # entry stays so the product name still resolves and answers with the upgrade path.
     "wizard": ProductConfig(
-        allowed_application_ids=frozenset({WIZARD_US_APP_ID, WIZARD_EU_APP_ID}),
+        allowed_application_ids=frozenset(),
         allowed_models=None,
-        allow_api_keys=True,
+        allow_api_keys=False,
+        denial_message=WIZARD_RETIRED_MESSAGE,
     ),
     "llma_labeling": ProductConfig(
         allowed_application_ids=None,
@@ -231,7 +254,9 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "llma_summarization": ProductConfig(
         allowed_application_ids=None,
-        allowed_models=frozenset({"gpt-4.1-nano", "gpt-4.1-mini"}),
+        # Every value LLMA_SUMMARIZATION_MODEL realistically takes (rollback: gpt-4.1-nano,
+        # escalation: gpt-5-mini) must be servable here, or the fallback path 403s.
+        allowed_models=frozenset({"gpt-4.1-nano", "gpt-4.1-mini", "gpt-5-nano", "gpt-5-mini"}),
         allow_api_keys=True,
     ),
     "llma_eval_summary": ProductConfig(
@@ -261,7 +286,8 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     "review_hog": ProductConfig(
         allowed_application_ids=None,
         # The models the review pipeline pins: sonnet-5 (perspectives + one-shots), opus-4-8
-        # (validation), opus-5 (outcome judge), gpt-5.5 / gpt-5.6 sol+luna+terra (Codex reviewers),
+        # (validation), opus-5 (outcome judge), gpt-5.5 / gpt-5.6 sol+luna+terra / gpt-6-astra
+        # (Codex reviewers),
         # GLM 5.2/5.3 and DeepSeek V4 Flash (evaluated as reviewers).
         allowed_models=frozenset(
             {
@@ -276,6 +302,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "gpt-5.6-sol",
                 "gpt-5.6-luna",
                 "gpt-5.6-terra",
+                "gpt-6-astra",
             }
         ),
         allow_api_keys=True,
@@ -342,27 +369,6 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         exact_model_match=True,
         allow_api_keys=True,
         credit_bucket=None,
-    ),
-    # Stamphog: the sandboxed PR reviewer (Sonnet, OAuth-only in practice) and the daily merged-PR
-    # digest summarization (Haiku, server-side via the shared key). Low volume, internal infra.
-    # The reviewer runs inside a sandbox over untrusted PR content, so it authenticates with a
-    # short-lived server-minted OAuth token under the shared sandbox app — hence the app allowlist.
-    # allow_api_keys stays True only for the digest's server-side calls (the shared key never
-    # enters a sandbox); it can flip off once the digest mints tokens too.
-    # Deliberately unbilled, same posture as review_hog/conversations: reviews and digests are work
-    # done by PostHog, not customer-billable usage, and the worker attributes spend per customer team
-    # via the team_id header — a credit_bucket here would silently charge customer AI credits for it.
-    # The trade-off (any personal API key can reach an unbilled route) is shared by every
-    # key-accessible unbilled product in this table and is bounded by the model pins.
-    # requires_server_credential closes the OAuth side of that class: reviewer tokens are minted
-    # server-side with the internal marker, so a user's own Desktop OAuth token can't ride this route
-    # around the posthog_code free-tier gate.
-    "stamphog": ProductConfig(
-        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
-        allowed_models=frozenset({"claude-haiku-4-5", "claude-sonnet-5"}),
-        allow_api_keys=True,
-        credit_bucket=None,
-        requires_server_credential=True,
     ),
 }
 
@@ -434,6 +440,10 @@ INTERNAL_RUN_SCOPE: Final[str] = "internal_run:read"
 # it can't be self-granted. Used to pick the budget, never to grant access.
 INTERACTIVE_RUN_SCOPE: Final[str] = "interactive_run:read"
 
+# Server-minted Slack task marker. Used to keep its cost key fixed when the sandbox selects
+# another product route that accepts the same OAuth application.
+SLACK_RUN_SCOPE: Final[str] = "slack_run:read"
+
 # Not a product: no caller can declare it, and it never appears in PRODUCTS. It only names a
 # budget in product_cost_limits / user_cost_limits, resolved from the token by resolve_cost_key.
 SIGNALS_INTERACTIVE_COST_KEY: Final[str] = "signals_interactive"
@@ -503,17 +513,17 @@ def is_model_restricted_for_product(model: str, product: str) -> bool:
 def resolve_cost_key(product: str, scopes: list[str] | None) -> str:
     """The budget a request meters against, which is not always its product.
 
-    Signals runs a scheduled pipeline and a set of buttons in the Inbox through one product.
-    Their volume has different owners — ours and the customer's — so they get separate budgets,
-    resolved from the token's own provenance marker rather than from the product the caller
-    declared, which a sandbox is free to choose.
+    Provenance markers pin budgets that cannot safely depend on the product the caller declares,
+    which a sandbox is free to choose. Slack tokens always resolve to `slack_app`; Signals uses a
+    separate key only for runs a person started.
 
-    The marker decides alone, without also requiring the declared product to be `signals`: a run
-    whose token still comes from the Array app (the fallback while a region has no Signals app
-    row) can declare `posthog_code` or `background_agents` instead, and pairing the two would let
-    that choice move the run off the interactive budget and out of the per-run spend ceiling.
-    Only interactive Signals runs are ever minted with the scope, so keying on it is sufficient.
+    Each marker decides alone, without also requiring its matching declared product. Pairing the
+    two would let a sandbox choose another allowed route and leave its per-run spend limit. Only
+    Slack tasks receive `slack_run`, and only interactive Signals runs receive `interactive_run`,
+    so either scope is sufficient provenance for its budget.
     """
+    if SLACK_RUN_SCOPE in (scopes or []):
+        return "slack_app"
     if INTERACTIVE_RUN_SCOPE in (scopes or []):
         return SIGNALS_INTERACTIVE_COST_KEY
     return resolve_product_alias(product)
@@ -535,6 +545,10 @@ def check_product_access(
     config = PRODUCTS.get(resolved_product)
     if config is None:
         return False, f"Unknown product: {product}"
+    # Before the auth-method checks: debug mode skips the application-id check, and
+    # a retired product must refuse there too.
+    if config.denial_message is not None:
+        return False, config.denial_message
 
     settings = get_settings()
     is_api_key = auth_method == "personal_api_key"

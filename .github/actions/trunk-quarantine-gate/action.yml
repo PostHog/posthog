@@ -19,6 +19,19 @@ inputs:
 runs:
     using: 'composite'
     steps:
+        # Exports TRUNK_CODEOWNERS_PATH for the uploader steps below, so Trunk attributes each test
+        # to the team that owns its file. Exports nothing when it cannot, which leaves the uploader
+        # on .github/CODEOWNERS as before, and the script reads the reports to skip the work for a
+        # suite whose reporter writes no file attribute. The existence guard covers a checkout that
+        # predates the script, the way an unrebased branch does.
+        - name: Build the Trunk ownership map
+          shell: bash
+          env:
+              JUNIT_PATHS: ${{ inputs.junit-paths }}
+          run: |
+              script="${{ github.action_path }}/../../scripts/trunk-codeowners.sh"
+              if [ -x "$script" ]; then "$script" "$RUNNER_TEMP/trunk-codeowners" "$JUNIT_PATHS"; fi
+
         - name: Upload to Trunk
           id: upload
           continue-on-error: true
@@ -28,7 +41,7 @@ runs:
               org-slug: posthog-inc
               variant: ${{ inputs.variant }}
               # Pinned rather than 'latest', which costs an extra github.com request to follow the release redirect.
-              cli-version: '0.13.7'
+              cli-version: '0.15.4'
               quarantine: true
               previous-step-outcome: ${{ inputs.previous-step-outcome }}
               token: ${{ inputs.token }}
@@ -52,7 +65,7 @@ runs:
               junit-paths: ${{ inputs.junit-paths }}
               org-slug: posthog-inc
               variant: ${{ inputs.variant }}
-              cli-version: '0.13.7'
+              cli-version: '0.15.4'
               quarantine: true
               previous-step-outcome: ${{ inputs.previous-step-outcome }}
               token: ${{ inputs.token }}

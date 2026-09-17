@@ -19,6 +19,7 @@ export const SIDEBAR_TOOLS_WITHOUT_DOCS = new Set<string>([
     'Pulse',
     'User research',
     'Visual review',
+    'Wizard',
 ])
 
 export interface SidebarToolMeta {

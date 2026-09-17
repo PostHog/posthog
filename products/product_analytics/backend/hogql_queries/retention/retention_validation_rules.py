@@ -5,8 +5,8 @@ from posthog.schema import AggregationType, EntityType, RetentionQuery
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, DateTimeDatabaseField
 
-from posthog.hogql_queries.insights.utils.breakdowns import has_breakdown_filter
-from posthog.hogql_queries.insights.utils.data_warehouse_schema_mixin import resolve_warehouse_field
+from posthog.hogql_queries.utils.breakdowns import has_breakdown_filter
+from posthog.hogql_queries.utils.data_warehouse_schema_mixin import resolve_warehouse_field
 from posthog.hogql_queries.validation.validation import QueryValidationContext
 
 

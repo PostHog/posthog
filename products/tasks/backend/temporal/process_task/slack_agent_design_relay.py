@@ -76,6 +76,10 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         # Length of a narrative held back whole (an unfinished tag); a flush waits for it to grow.
         self._held_length: int = 0
         self._turn_complete: bool = False
+        # Gateway trace id of the turn this relay is streaming, as ``complete_turn``
+        # reports it. The closing reply carries the thumbs, so this is what a rating on
+        # them names.
+        self._trace_id: Optional[str] = None
 
     @workflow.signal
     async def agent_status_update(self, payload: dict[str, Any] | str) -> None:
@@ -110,8 +114,9 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
             self._current_narrative += text
 
     @workflow.signal
-    async def complete_turn(self) -> None:
+    async def complete_turn(self, trace_id: str | None = None) -> None:
         self._turn_complete = True
+        self._trace_id = trace_id
 
     def _build_transition_chunks(self, steps: list[PendingStep]) -> list[TaskUpdateChunk]:
         """Previous step → complete, intermediates → complete, last → in_progress.
@@ -318,6 +323,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                         complete_task_details=self._current_task_details,
                         final_markdown=final_for_stop,
                         run_id=input.run_id,
+                        trace_id=self._trace_id,
                     ),
                     start_to_close_timeout=timedelta(seconds=10),
                     retry_policy=RetryPolicy(maximum_attempts=3),

@@ -56,12 +56,12 @@ function createTask(overrides: Partial<Task> = {}): Task {
 
 type TaskFeedResults = { tasks: Task[]; isComplete: boolean };
 
-function createSummary(overrides: Partial<Schemas.TaskSummary> = {}) {
+function createSummary(overrides: Partial<Schemas.TaskSummaryDTO> = {}) {
   return {
     id: TASK_ID,
     title: "Original title",
     ...overrides,
-  } as Schemas.TaskSummary;
+  } as Schemas.TaskSummaryDTO;
 }
 
 function renderRenameHook() {
@@ -93,7 +93,7 @@ describe("useRenameTask", () => {
       createTask(),
       createTask({ id: OTHER_TASK_ID, title: "Other" }),
     ]);
-    queryClient.setQueryData<Schemas.TaskSummary[]>(summaryKey, [
+    queryClient.setQueryData<Schemas.TaskSummaryDTO[]>(summaryKey, [
       createSummary(),
       createSummary({ id: OTHER_TASK_ID, title: "Other" }),
     ]);
@@ -126,7 +126,7 @@ describe("useRenameTask", () => {
     });
 
     const summaries =
-      queryClient.getQueryData<Schemas.TaskSummary[]>(summaryKey);
+      queryClient.getQueryData<Schemas.TaskSummaryDTO[]>(summaryKey);
     expect(summaries?.find((t) => t.id === TASK_ID)?.title).toBe("Renamed");
     expect(summaries?.find((t) => t.id === OTHER_TASK_ID)?.title).toBe("Other");
 
@@ -172,7 +172,7 @@ describe("useRenameTask", () => {
     const channelFeedKey = channelFeedQueryKey("channel-1");
     const taskFeedKey = taskFeedResultsQueryKey("created-by:@me");
     queryClient.setQueryData<Task[]>(listKey, [createTask()]);
-    queryClient.setQueryData<Schemas.TaskSummary[]>(summaryKey, [
+    queryClient.setQueryData<Schemas.TaskSummaryDTO[]>(summaryKey, [
       createSummary(),
     ]);
     queryClient.setQueryData<Task>(detailKey, createTask());
@@ -207,7 +207,7 @@ describe("useRenameTask", () => {
       queryClient.getQueryData<Task[]>(listKey)?.[0].title_manually_set,
     ).toBeUndefined();
     expect(
-      queryClient.getQueryData<Schemas.TaskSummary[]>(summaryKey)?.[0].title,
+      queryClient.getQueryData<Schemas.TaskSummaryDTO[]>(summaryKey)?.[0].title,
     ).toBe("Original title");
     expect(queryClient.getQueryData<Task>(detailKey)?.title).toBe(
       "Original title",
@@ -248,7 +248,7 @@ describe("useRenameTask", () => {
     const summaryKey = taskKeys.summaries([TASK_ID]);
     const detailKey = taskKeys.detail(TASK_ID);
     queryClient.setQueryData<Task[]>(listKey, [createTask()]);
-    queryClient.setQueryData<Schemas.TaskSummary[]>(summaryKey, [
+    queryClient.setQueryData<Schemas.TaskSummaryDTO[]>(summaryKey, [
       createSummary(),
     ]);
     queryClient.setQueryData<Task>(detailKey, createTask());
@@ -274,7 +274,7 @@ describe("useRenameTask", () => {
     queryClient.setQueryData<Task[]>(listKey, [
       createTask({ title: "Second rename", title_manually_set: true }),
     ]);
-    queryClient.setQueryData<Schemas.TaskSummary[]>(summaryKey, [
+    queryClient.setQueryData<Schemas.TaskSummaryDTO[]>(summaryKey, [
       createSummary({ title: "Second rename" }),
     ]);
     queryClient.setQueryData<Task>(
@@ -301,7 +301,7 @@ describe("useRenameTask", () => {
       "Second rename",
     );
     expect(
-      queryClient.getQueryData<Schemas.TaskSummary[]>(summaryKey)?.[0].title,
+      queryClient.getQueryData<Schemas.TaskSummaryDTO[]>(summaryKey)?.[0].title,
     ).toBe("Second rename");
     expect(queryClient.getQueryData<Task>(detailKey)?.title).toBe(
       "Second rename",

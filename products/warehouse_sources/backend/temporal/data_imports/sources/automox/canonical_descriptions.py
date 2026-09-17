@@ -4,6 +4,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 
 # Sourced from the official Automox Console API reference (https://console.automox.com/api/docs).
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "device_inventory": {
+        "description": "One collected inventory reading for a device, flattened out of Automox's per-device category tree. Covers hardware, health, network, security, services, system and user detail beyond the base device record.",
+        "docs_url": "https://console.automox.com/api/docs#console-api",
+        "columns": {
+            "device_uuid": "UUID of the device the reading was collected from.",
+            "device_id": "ID of the device the reading was collected from, joining to the devices table.",
+            "category": "Inventory category the reading belongs to (Hardware, Health, Network, Security, Services, Summary, System, or Users).",
+            "sub_category": "Sub-category the reading belongs to within its category.",
+            "name": "Machine name of the reading (e.g. board_serial, cpu_info).",
+            "friendly_name": "Display name of the reading shown in the Automox console.",
+            "description": "What the reading measures.",
+            "type": "Type Automox reports for the reading's value (e.g. string, data_records).",
+            "value": "The collected value, stored as text. Readings that carry a list of records are stored as JSON.",
+            "tags": "Tags Automox assigns to the reading.",
+            "collected_at": "Date and time when the agent collected the reading.",
+        },
+    },
     "devices": {
         "description": "A device (server, workstation, or endpoint) managed by the Automox agent, with OS details, connection state, and patch/compliance status.",
         "docs_url": "https://console.automox.com/api/docs#console-api",
@@ -137,6 +154,29 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "pending": "Number of devices where the run is still pending.",
             "not_included": "Number of devices not included in the run.",
             "remediation_not_applicable": "Number of devices where remediation was not applicable.",
+        },
+    },
+    "policy_stats": {
+        "description": "Device compliance counts for a policy: how many devices are compliant, non-compliant, or still pending.",
+        "docs_url": "https://console.automox.com/api/docs#console-api",
+        "columns": {
+            "organization_id": "ID of the organization the policy belongs to.",
+            "policy_id": "ID of the policy these counts describe, joining to the policies table.",
+            "policy_name": "Name of the policy.",
+            "policy_type_name": "Type of the policy (patch, custom for a worklet policy, or required_software).",
+            "compliant": "Number of devices compliant with the policy.",
+            "noncompliant": "Number of devices not compliant with the policy.",
+            "pending": "Number of devices whose compliance with the policy is still pending.",
+        },
+    },
+    "remediation_issues": {
+        "description": "A problem Automox hit while ingesting an uploaded vulnerability report into a remediation action set, such as a hostname in the report that matches no managed device.",
+        "docs_url": "https://console.automox.com/api/docs#console-api",
+        "columns": {
+            "action_set_id": "ID of the remediation action set the issue was found in.",
+            "id": "Unique identifier for the issue within its action set.",
+            "issue_type": "Type of problem found (currently unknown-host).",
+            "issue_details": "Details of the problem, such as the hostname that could not be matched.",
         },
     },
     "server_groups": {

@@ -1,13 +1,11 @@
 from typing import cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldOauthConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -82,7 +80,7 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.INTERCOM,
+            name=ExternalDataSourceType.INTERCOM,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             caption="Select an existing Intercom workspace to link to PostHog or create a new connection",
             iconPath="/static/services/intercom.png",
@@ -132,8 +130,10 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
     ) -> tuple[bool, str | None]:
         try:
             integration = self.get_oauth_integration(config.intercom_integration_id, team_id)
-        except ValueError as e:
-            return False, str(e)
+        except ValueError:
+            # get_oauth_integration raises ValueError("Integration not found: <id>") for an
+            # integration that was deleted or disconnected while the source still references it.
+            return False, "Intercom integration not found. Please reconnect your Intercom integration."
 
         if not integration.access_token:
             return False, "Intercom integration has no access token. Please reconnect."

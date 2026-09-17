@@ -21,7 +21,6 @@ const testCfg = {
     recordingApiBaseUrl: 'http://localhost:6738',
     recordingApiSecret: 'test-secret',
     blockListingTimeoutMs: 30_000,
-    blockFetchTimeoutMs: 60_000,
 }
 
 const mockLog = {
@@ -179,7 +178,7 @@ describe('BlockProxy', () => {
 
             expect(mockInternalFetch).toHaveBeenCalledWith(
                 expect.stringContaining('/api/projects/1/recordings/test-session-123/block?'),
-                { headers: { 'X-Internal-Api-Secret': 'test-secret' }, timeoutMs: 60_000 }
+                { headers: { 'X-Internal-Api-Secret': 'test-secret' } }
             )
             const fetchUrl = mockInternalFetch.mock.calls[0][0] as string
             expect(fetchUrl).toContain('key=recordings%2Fblock-0')
@@ -204,7 +203,6 @@ describe('BlockProxy', () => {
 
             expect(mockInternalFetch).toHaveBeenCalledWith(expect.stringContaining('/block?'), {
                 headers: { 'X-Internal-Api-Secret': 'test-secret', Authorization: 'Bearer minted-token' },
-                timeoutMs: 60_000,
             })
         })
 

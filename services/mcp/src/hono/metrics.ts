@@ -159,6 +159,38 @@ export const contextMillBodyReadsTotal = new Counter({
     labelNames: ['status'] as const,
 })
 
+// Product skill archive. `phase` is `warmup` (blocking boot load) or `poll` (the
+// background timer); `result` is the cache outcome, `reloaded` when a pod adopted
+// a newer shared archive, or `error`. Request handling never touches the archive,
+// so a rising `poll` rate with no `reloaded` is the shape of a healthy fleet.
+export const skillArchiveEventsTotal = new Counter({
+    name: 'mcp_skill_archive_events_total',
+    help: 'Product skill archive load and refresh outcomes by phase.',
+    labelNames: ['phase', 'result'] as const,
+})
+
+export const skillCatalogSkills = new Gauge({
+    name: 'mcp_skill_catalog_skills',
+    help: 'Skills in the product skill catalog this pod serves.',
+})
+
+export const skillCatalogAgeSeconds = new Gauge({
+    name: 'mcp_skill_catalog_age_seconds',
+    help: 'Seconds since this pod last parsed a product skill archive.',
+})
+
+export const skillArchiveLastValidatedTimestampSeconds = new Gauge({
+    name: 'mcp_skill_archive_last_validated_timestamp_seconds',
+    help: 'Last successful upstream validation of the shared skill archive, observed by this pod. Zero until observed.',
+})
+
+export const skillCatalogLoadDurationSeconds = new Histogram({
+    name: 'mcp_skill_catalog_load_duration_seconds',
+    help: 'Time to parse a product skill archive into the in-memory catalog.',
+    labelNames: ['phase'] as const,
+    buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5],
+})
+
 export function routeLabel(pathname: string): string {
     if (pathname === '/mcp' || pathname.startsWith('/mcp/')) {
         return '/mcp'

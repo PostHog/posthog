@@ -3,7 +3,7 @@
 import hmac
 import time
 import hashlib
-from typing import Any
+from typing import Any, TypedDict
 
 import requests
 import structlog
@@ -19,6 +19,17 @@ WEBHOOK_TIMESTAMP_MAX_AGE_SECONDS = 300  # 5 minutes
 MAILGUN_SEND_TIMEOUT = 30  # seconds
 
 
+class MailgunDnsRecord(TypedDict, total=False):
+    record_type: str
+    name: str
+    value: str
+    valid: str
+
+
+class MailgunDnsRecords(TypedDict, total=False):
+    sending_dns_records: list[MailgunDnsRecord]
+
+
 class MailgunError(Exception):
     """Base class for Mailgun integration errors that callers need to distinguish."""
 
@@ -29,6 +40,17 @@ class MailgunNotConfigured(MailgunError):
 
 class MailgunDomainConflict(MailgunError):
     """Mailgun refuses to register the domain because it already exists (in our account or another)."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        provider_message: str | None = None,
+        status_code: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.provider_message = provider_message or message
+        self.status_code = status_code
 
 
 class MailgunDomainNotRegistered(MailgunError):
@@ -89,12 +111,12 @@ def _get_api_key() -> str:
     return key
 
 
-def _filter_sending_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _filter_sending_records(records: list[MailgunDnsRecord]) -> list[MailgunDnsRecord]:
     """Strip tracking CNAME records — we don't use open/click tracking."""
     return [r for r in records if r.get("record_type", "").upper() != "CNAME"]
 
 
-def add_domain(domain: str) -> dict[str, Any]:
+def add_domain(domain: str) -> MailgunDnsRecords:
     """Register a sending domain with Mailgun. Returns DNS records to configure."""
     resp = requests.post(
         f"{MAILGUN_API_BASE}/domains",
@@ -111,16 +133,27 @@ def add_domain(domain: str) -> dict[str, Any]:
 
     if resp.status_code == 400:
         try:
-            error_msg = resp.json().get("message", "").lower()
+            provider_message = resp.json().get("message", "")
         except Exception:
-            error_msg = ""
+            provider_message = ""
+        provider_message = provider_message if isinstance(provider_message, str) else ""
+        normalized_message = provider_message.lower()
+        provider_message = provider_message[:500]
         # Never silently adopt a pre-existing Mailgun domain — the shared
         # account may hold domains we don't own. Fail loud so operators
         # can reconcile manually.
-        if "already exists" in error_msg:
-            raise MailgunDomainConflict(f"Domain {domain} already exists")
-        if "already taken" in error_msg:
-            raise MailgunDomainConflict(f"Domain {domain} is already registered by another Mailgun account")
+        if "already exists" in normalized_message:
+            raise MailgunDomainConflict(
+                f"Domain {domain} already exists",
+                provider_message=provider_message,
+                status_code=resp.status_code,
+            )
+        if "already taken" in normalized_message:
+            raise MailgunDomainConflict(
+                f"Domain {domain} is already registered by another Mailgun account",
+                provider_message=provider_message,
+                status_code=resp.status_code,
+            )
 
     resp.raise_for_status()
     return {}
@@ -129,8 +162,7 @@ def add_domain(domain: str) -> dict[str, Any]:
 def get_domain(domain: str) -> dict[str, Any] | None:
     """Fetch a domain's info from our Mailgun account.
 
-    Returns None when the domain isn't registered here — or when the response
-    carries no domain object, so bad Mailgun data never looks like a registration.
+    Returns None only when the domain isn't registered in this account.
     """
     resp = requests.get(
         f"{MAILGUN_API_BASE}/domains/{domain}",
@@ -140,10 +172,13 @@ def get_domain(domain: str) -> dict[str, Any] | None:
     if resp.status_code == 404:
         return None
     resp.raise_for_status()
-    return resp.json().get("domain") or None
+    domain_info = resp.json().get("domain")
+    if not isinstance(domain_info, dict) or not domain_info:
+        raise MailgunError(f"Mailgun returned no domain data for {domain}")
+    return domain_info
 
 
-def get_domain_dns_records(domain: str) -> dict[str, Any]:
+def get_domain_dns_records(domain: str) -> MailgunDnsRecords:
     """Fetch DNS records for an existing Mailgun domain."""
     resp = requests.get(
         f"{MAILGUN_API_BASE}/domains/{domain}",

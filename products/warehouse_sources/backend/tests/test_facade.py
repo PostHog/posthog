@@ -2,8 +2,14 @@ import uuid
 
 from posthog.test.base import BaseTest
 
-from posthog.models import Team
+from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
+from posthog.models import Team
+from posthog.models.organization import OrganizationMembership
+
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
 from products.warehouse_sources.backend.facade import api, contracts, hogql, hooks, sources, temporal
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -176,6 +182,72 @@ class TestWarehouseSourcesFacade(BaseTest):
         assert isinstance(result, contracts.DataWarehouseTable)
         assert result.name == "my_table"
         assert result.external_data_source_id == self.source.id
+
+    @parameterized.expand(
+        [
+            ("legacy_viewer", False, "viewer"),
+            ("legacy_editor", False, "editor"),
+            ("most_specific_viewer", True, "viewer"),
+            ("most_specific_editor", True, "editor"),
+        ]
+    )
+    def test_allowed_table_ids_preserves_object_and_source_grants(
+        self, _name: str, most_specific: bool, required_level: AccessControlLevel
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.uses_most_specific_access_resolution = most_specific
+        self.organization.save(update_fields=["available_product_features", "uses_most_specific_access_resolution"])
+        member = self._create_user("member@example.com")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(self.source.id),
+            organization_member=membership,
+            access_level="viewer",
+        )
+        granted = DataWarehouseTable.objects.create(team=self.team, name="granted", format="Parquet")
+        overridden = DataWarehouseTable.objects.create(
+            team=self.team, name="overridden", format="Parquet", external_data_source=self.source
+        )
+        ungranted = DataWarehouseTable.objects.create(team=self.team, name="ungranted", format="Parquet")
+        owned = DataWarehouseTable.objects.create(team=self.team, name="owned", format="Parquet", created_by=member)
+        DataWarehouseTable.objects.create(
+            team=self.team, name="deleted", format="Parquet", created_by=member, deleted=True
+        )
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        DataWarehouseTable.objects.create(team=other_team, name="other", format="Parquet", created_by=member)
+        for table, level in [(granted, "editor"), (overridden, "none")]:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="warehouse_table",
+                resource_id=str(table.id),
+                organization_member=membership,
+                access_level=level,
+            )
+
+        access = UserAccessControl(member, team=self.team)
+        expected = frozenset({granted.id, owned.id} | ({self.table.id} if required_level == "viewer" else set()))
+        assert api.allowed_table_ids(self.team.id, access, required_level=required_level) == expected
+        with self.assertNumQueries(0):
+            assert api.allowed_table_ids(self.team.id, access, required_level=required_level) == expected
+
+        narrowed = api.allowed_table_ids(
+            self.team.id, access, required_level=required_level, ids=[granted.id, ungranted.id]
+        )
+        assert narrowed == frozenset({granted.id})
+        with self.assertNumQueries(0):
+            assert api.allowed_table_ids(self.team.id, access, required_level=required_level, ids=[]) == frozenset()
+
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save(update_fields=["level"])
+        admin = UserAccessControl(member, team=self.team)
+        assert api.allowed_table_ids(self.team.id, admin, required_level=required_level) == frozenset(
+            {self.table.id, granted.id, overridden.id, ungranted.id, owned.id}
+        )
 
     def test_list_jobs_for_source_carries_source_fields(self) -> None:
         job = ExternalDataJob.objects.create(

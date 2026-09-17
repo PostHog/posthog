@@ -3,6 +3,7 @@ import {
   SPEECH_QUEUE_SERVICE,
 } from "@posthog/core/speech/identifiers";
 import type { NotificationTarget } from "@posthog/platform/notifications";
+import { logger } from "@posthog/ui/shell/logger";
 import { inject, injectable } from "inversify";
 import {
   ACTIVE_VIEW_PROVIDER,
@@ -10,12 +11,14 @@ import {
   type ISpeechNotifySettings,
   SPEECH_NOTIFY_SETTINGS,
 } from "./identifiers";
-import { routeNotification } from "./routeNotification";
+import { describeTarget, routeNotification } from "./routeNotification";
 import {
   type SpeechKind,
   type SpeechSource,
   shouldSpeak,
 } from "./speechRouting";
+
+const log = logger.scope("notifications");
 
 export interface SpeakRequest {
   text: string;
@@ -49,16 +52,36 @@ export class SpeechNotifier {
     const target: NotificationTarget | undefined = request.taskId
       ? { kind: "task", taskId: request.taskId }
       : undefined;
+    // Read focus and route once: a focus change between the decision and the
+    // log line would otherwise leave the two contradicting each other.
+    const appFocused = this.view.hasFocus();
+    const viewingTarget = this.view.getActiveTarget();
     const channel = routeNotification({
-      appFocused: this.view.hasFocus(),
-      viewingTarget: this.view.getActiveTarget(),
+      appFocused,
+      viewingTarget,
       notificationTarget: target,
     });
 
-    if (
-      !shouldSpeak(request.kind, request.source, channel, this.settings.get())
-    )
-      return;
+    const speaks = shouldSpeak(
+      request.kind,
+      request.source,
+      channel,
+      this.settings.get(),
+    );
+
+    // Speech is the other way the app makes a noise, so it logs the same
+    // decision shape as the notification bus.
+    log.info("Speech notification", {
+      kind: request.kind,
+      source: request.source,
+      channel,
+      spoke: speaks,
+      target: describeTarget(target),
+      viewingTarget: describeTarget(viewingTarget),
+      appFocused,
+    });
+
+    if (!speaks) return;
 
     this.queue.enqueue({
       text: request.text,

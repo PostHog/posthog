@@ -65,3 +65,8 @@ extension is loaded everywhere with no further wiring:
 The CLI path shows each extension's directory name in Pi's startup banner. The runtime path uses
 named `InlineExtension` values, so those extensions appear as `<inline:name>` rather than anonymous
 `<inline:N>` entries. Both paths use Pi's native extension loader.
+
+## Current work
+
+The `current-work` extension lets the agent update the generating indicator with the current task
+phase. It does not add a conversation-history entry.

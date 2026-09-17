@@ -1480,6 +1480,34 @@ class TestFailRun:
         mock_fail_run.assert_called_once()  # queue batches still marked failed
 
     @pytest.mark.asyncio
+    async def test_aborting_destinations_gets_a_parsed_export_signal(self):
+        # `to_export_signal()` returns a dict. Handing that straight to the abort path made every
+        # field access raise, so a destination that failed reported an AttributeError instead of
+        # the real error, and its scratch tables were never dropped.
+        consumer = _make_consumer()
+        batch = _make_batch(destination_ids=["11111111-1111-1111-1111-111111111111"])
+        seen: list[Any] = []
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.fail_run",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._update_job_status_to_failed",
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.delivery.abort_destinations",
+                side_effect=lambda signal: seen.append(signal),
+            ),
+        ):
+            await consumer._fail_run(batch, reason="boom", conn=consumer._poll_conn)
+
+        assert len(seen) == 1
+        assert seen[0].destination_ids == ["11111111-1111-1111-1111-111111111111"]
+        assert seen[0].team_id == 1
+
+    @pytest.mark.asyncio
     async def test_attempts_job_status_update_even_when_queue_update_fails(self):
         consumer = _make_consumer()
         batch = _make_batch()
@@ -2135,6 +2163,65 @@ class TestReconcileFailedRuns:
                 f"{consumer_module.__name__}.BatchQueue.get_stale_stranded_runs",
                 new_callable=AsyncMock,
                 side_effect=raise_with_maybe_closed_conn,
+            ),
+            patch(f"{consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            await consumer._reconcile_failed_runs()
+
+        assert mock_capture.called is expect_capture
+
+    @pytest.mark.parametrize(
+        "conn_closed,expect_capture",
+        [(True, False), (False, True)],
+        ids=["closed_conn_suppresses_capture", "open_conn_still_captured"],
+    )
+    @pytest.mark.asyncio
+    async def test_straggler_sweep_closed_connection_not_captured(self, conn_closed, expect_capture):
+        # Reproduces the reported issue: BatchQueue.fail_run for a straggler batch raised
+        # psycopg.OperationalError("consuming input failed: server closed the connection
+        # unexpectedly") because the queue-db connection died mid-query. That's the same
+        # transient network drop already handled for the stranded-run sweep above; the
+        # straggler sweep must treat it the same way instead of always capturing it.
+        consumer = _make_consumer()
+        ref = _make_failed_run_ref()
+
+        async def raise_with_maybe_closed_conn(*args: object, **kwargs: object) -> None:
+            if conn_closed:
+                cast(Any, consumer._recovery_conn).closed = True
+            raise psycopg.OperationalError("consuming input failed: server closed the connection unexpectedly")
+
+        with (
+            patch(
+                f"{consumer_module.__name__}.BatchQueue.get_oldest_unclaimed_batch_age_seconds",
+                new_callable=AsyncMock,
+                return_value=0.0,
+            ),
+            patch(
+                f"{consumer_module.__name__}.BatchQueue.get_claimable_batch_count",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                f"{consumer_module.__name__}.BatchQueue.get_failed_runs",
+                new_callable=AsyncMock,
+                return_value=[ref],
+            ),
+            patch(
+                f"{consumer_module.__name__}.BatchQueue.fail_run",
+                new_callable=AsyncMock,
+                side_effect=raise_with_maybe_closed_conn,
+            ),
+            patch(
+                f"{consumer_module.__name__}.BatchQueue.get_stale_stranded_runs",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                f"{consumer_module.__name__}.mark_job_failed_if_not_terminal",
+                return_value=False,
+            ),
+            patch(
+                f"{consumer_module.__name__}.release_v3_pipeline_lock",
             ),
             patch(f"{consumer_module.__name__}.capture_exception") as mock_capture,
         ):

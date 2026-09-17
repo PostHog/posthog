@@ -1,6 +1,6 @@
 from typing import cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 
 from django.test import override_settings
@@ -38,7 +38,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_basic_ratio_metric(self, name, use_precomputation):
         """Test basic ratio metric functionality with revenue per purchase event"""
@@ -185,7 +185,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_ratio_metric_different_math_types(self, name, use_precomputation):
         """Test ratio metric with different math types for numerator and denominator"""
@@ -298,7 +298,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_ratio_metric_with_conversion_window(self, name, use_precomputation):
         """Test ratio metric with conversion window"""
@@ -502,12 +502,12 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        with freeze_time("2020-01-04T00:00:00Z"):
+        with time_machine.travel("2020-01-04T00:00:00Z", tick=False):
             early = cast(
                 ExperimentQueryResponse,
                 ExperimentQueryRunner(query=experiment_query, team=self.team).calculate(),
             )
-        with freeze_time("2020-01-07T00:00:00Z"):
+        with time_machine.travel("2020-01-07T00:00:00Z", tick=False):
             late = cast(
                 ExperimentQueryResponse,
                 ExperimentQueryRunner(query=experiment_query, team=self.team).calculate(),
@@ -526,7 +526,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_ratio_metric_zero_denominator(self, name, use_precomputation):
         """Test ratio metric behavior when denominator is zero"""
@@ -635,7 +635,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_ratio_metric_same_event_different_properties(self, name, use_precomputation):
         """Test ratio metric using the same event with different math properties"""
@@ -761,7 +761,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_ratio_metric_action_and_event_sources(self, name, use_precomputation):
         """Test ratio metric with action source numerator and event source denominator"""
@@ -962,7 +962,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -993,7 +993,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_ratio_metric_with_parametric_aggregation(self, name, use_precomputation):
         """Test parametric aggregations in ratio metrics.
@@ -1099,7 +1099,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-15T12:00:00Z")
+    @time_machine.travel("2020-01-15T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_only_count_matured_users(self, name, use_precomputation):
         from datetime import datetime
@@ -1301,7 +1301,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_outlier_handling_numerator_only(self, name, use_precomputation):
         """Capping only the numerator leaves the denominator untouched."""
@@ -1361,7 +1361,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_outlier_handling_numerator_and_denominator_independent(self, name, use_precomputation):
         """Numerator and denominator are capped independently, each at its own threshold."""
@@ -1416,7 +1416,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.denominator_sum, 26)
         self.assertEqual(test_variant.denominator_sum, 20)
 
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_outlier_handling_with_breakdown(self):
         """Winsorization computes per-breakdown thresholds for ratio metrics, not global ones."""

@@ -26,11 +26,21 @@ from posthog.event_usage import get_event_source
 from posthog.models.user import User
 from posthog.renderers import SafeJSONRenderer
 
-from ee.hogai.mcp_tool import mcp_tool_registry
+from ee.hogai.mcp_tool import MCPToolResult, mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.tools.search import format_inkeep_docs_response
 
 logger = get_logger(__name__)
+
+
+class MCPToolRequest(pydantic.BaseModel):
+    args: dict[str, pydantic.JsonValue] = pydantic.Field(
+        default_factory=dict, description="Arguments validated against the selected tool's schema."
+    )
+
+
+class MCPToolResponse(MCPToolResult):
+    success: bool = pydantic.Field(description="Whether the tool completed successfully.")
 
 
 class DocsSearchRequestSerializer(serializers.Serializer):
@@ -110,7 +120,8 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
     @extend_schema(
         parameters=[OpenApiParameter("tool_name", OpenApiTypes.STR, OpenApiParameter.PATH)],
-        responses={200: OpenApiTypes.OBJECT},
+        request=MCPToolRequest,
+        responses={200: MCPToolResponse},
     )
     @action(
         detail=False,
@@ -150,11 +161,11 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         try:
 
-            async def execute_tool() -> str:
+            async def execute_tool() -> str | MCPToolResult:
                 with tags_context(feature=Feature.MCP, team_id=self.team.pk, org_id=self.team.organization_id):
                     return await tool.execute(validated_args)
 
-            content = async_to_sync(execute_tool)()
+            result = async_to_sync(execute_tool)()
         except MaxToolError as e:
             return Response(
                 {
@@ -172,7 +183,9 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 }
             )
 
-        return Response({"success": True, "content": content})
+        if isinstance(result, str):
+            result = MCPToolResult(content=result)
+        return Response({"success": True, **result.model_dump(exclude_none=True)})
 
 
 async def _run_inkeep_docs_search(client: AsyncOpenAI, query: str) -> str:

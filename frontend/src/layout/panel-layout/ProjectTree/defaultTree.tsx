@@ -113,7 +113,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     marketing_analytics: {
         icon: <IconMegaphone />,
-        iconColor: ['var(--color-product-marketing-analytics-light)'],
+        iconColor: ['var(--color-product-marketing-analytics-light)', 'var(--color-product-marketing-analytics-dark)'],
     },
     managed_viewsets: {
         icon: <IconDatabase />,
@@ -207,7 +207,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     data_warehouse: {
         icon: <IconDatabase />,
-        iconColor: ['var(--color-product-data-warehouse-light)'],
+        iconColor: ['var(--color-product-data-warehouse-light)', 'var(--color-product-data-warehouse-dark)'],
     },
     link: {
         icon: <IconExternal />,
@@ -215,7 +215,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     workflows: {
         icon: <IconDecisionTree />,
-        iconColor: ['var(--color-product-workflows-light)'],
+        iconColor: ['var(--color-product-workflows-light)', 'var(--color-product-workflows-dark)'],
     },
     broadcasts: {
         icon: <IconSend />,
@@ -223,6 +223,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     notebook: {
         icon: <IconNotebook />,
+        iconColor: ['var(--color-product-notebooks-light)', 'var(--color-product-notebooks-dark)'],
     },
     live_debugger: {
         icon: <IconBug />,

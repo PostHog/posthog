@@ -14,7 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { TargetTypeEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import { SubscriptionTargetEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { subscriptionsSceneLogic, SubscriptionsTab } from './subscriptionsSceneLogic'
 
@@ -208,12 +208,28 @@ describe('subscriptionsSceneLogic', () => {
             subscriptionRequestUrls.length = 0
 
             await expectLogic(logic, () => {
-                logic.actions.setTargetTypeFilter(TargetTypeEnumApi.Slack)
+                logic.actions.setTargetTypeFilter(SubscriptionTargetEnumApi.Slack)
             }).toDispatchActions(['setTargetTypeFilter', 'loadSubscriptions', 'loadSubscriptionsSuccess'])
 
             expect(subscriptionRequestUrls).toHaveLength(1)
             const params = subscriptionListParamsFromUrl(subscriptionRequestUrls[0])
             expect(params.get('target_type')).toBe('slack')
+        })
+
+        it('keeps URL filters when changing page', async () => {
+            await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
+            router.actions.push('/project/2/subscriptions')
+
+            await expectLogic(logic, () => {
+                logic.actions.setTargetTypeFilter(SubscriptionTargetEnumApi.Slack)
+            }).toDispatchActions(['setTargetTypeFilter', 'loadSubscriptions', 'loadSubscriptionsSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.setPage(2)
+            }).toDispatchActions(['setPage', 'loadSubscriptions', 'loadSubscriptionsSuccess'])
+
+            expect(router.values.location.pathname).toBe('/project/2/subscriptions')
+            expect(router.values.searchParams).toMatchObject({ target_type: 'slack', page: 2 })
         })
     })
 

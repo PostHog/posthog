@@ -2,9 +2,11 @@ import re
 
 import pytest
 
-from posthog.schema import SourceFieldInputConfig
+from django.test import override_settings
 
 import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 
 ALL_SOURCES = SourceRegistry.get_all_sources()
@@ -38,7 +40,7 @@ DESCRIPTIONS_NOT_IN_SCHEMAS = {
 
 # Static-catalog sources with no curated descriptions at all: every table falls back to LLM
 # enrichment. Adding descriptions is an improvement, so drop the entry when one does.
-SOURCES_WITHOUT_CURATED_DESCRIPTIONS = {"ActiveCampaign", "Airtable", "ApifyDataset", "PgAnalyze"}
+SOURCES_WITHOUT_CURATED_DESCRIPTIONS = {"ActiveCampaign", "Airtable", "PgAnalyze"}
 
 CREDENTIAL_FIELD = re.compile(r"api[_-]?key|access[_-]?key|token|secret|password|passphrase|private[_-]?key", re.I)
 
@@ -51,6 +53,42 @@ PUBLIC_CREDENTIAL_HALVES = {
     "Gong.access_key",
     "Imagga.api_key",
 }
+
+# Sources that take a host but do not inherit ValidateDatabaseHostMixin. Each one reaches its host
+# only over HTTP, where the egress proxy refuses an internal address on every request, so the mixin
+# is not required. Most still check the host themselves, with `_is_host_safe` or a vendor domain
+# allowlist. A source that opens a raw socket, such as a database wire protocol or gRPC, has no
+# proxy in its path, so it must inherit the mixin and check the host where it connects.
+HTTP_SOURCES_WITHOUT_THE_HOST_MIXIN = {
+    "Appdynamics",
+    "Argocd",
+    "Bigeye",
+    "Chatwoot",
+    "Formbricks",
+    "Gerrit",
+    "Grafana",
+    "Hatchet",
+    "LangSmith",
+    "Langfuse",
+    "Metabase",
+    "OctopusDeploy",
+    "Omni",
+    "SigNoz",
+    "Sourcegraph",
+    "Teamcity",
+    "WeightsAndBiases",
+    "Windmill",
+    "Wrike",
+}
+
+HOST_FIELD_SOURCES = sorted(
+    (
+        source_type
+        for source_type, source in ALL_SOURCES.items()
+        if any(getattr(field, "name", None) == "host" for field in source.get_source_config.fields)
+    ),
+    key=str,
+)
 
 
 def _schema_names(source) -> set[str]:
@@ -135,3 +173,25 @@ def test_credential_fields_are_marked_secret(source_type):
             f"stays readable after the source is connected. Set secret=True, or record it in "
             f"PUBLIC_CREDENTIAL_HALVES if it is the public half of a keypair."
         )
+
+
+@pytest.mark.parametrize("source_type", HOST_FIELD_SOURCES, ids=str)
+def test_sources_with_a_host_field_refuse_an_internal_host(source_type):
+    source = ALL_SOURCES[source_type]
+    listed = str(source_type) in HTTP_SOURCES_WITHOUT_THE_HOST_MIXIN
+
+    if not isinstance(source, ValidateDatabaseHostMixin):
+        assert listed, (
+            f"{source_type} takes a host but does not inherit ValidateDatabaseHostMixin. Inherit it "
+            f"and check the host where the source connects. If the source reaches its host only over "
+            f"HTTP, where the egress proxy covers it, record it in HTTP_SOURCES_WITHOUT_THE_HOST_MIXIN."
+        )
+        return
+
+    assert not listed, (
+        f"{source_type} now inherits ValidateDatabaseHostMixin. Remove it from HTTP_SOURCES_WITHOUT_THE_HOST_MIXIN."
+    )
+    with override_settings(CLOUD_DEPLOYMENT="US"):
+        is_valid, _ = source.is_database_host_valid("169.254.169.254", team_id=999)
+
+    assert not is_valid, f"{source_type} accepts a link-local host."

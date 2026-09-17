@@ -7,7 +7,6 @@ import {
     type TimeSeriesBarChartConfig,
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
-    createXAxisTickCallback,
 } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
@@ -19,7 +18,7 @@ import type { MetricsDisplaySettings } from '~/queries/schema/schema-general'
 
 import { buildMetricsChartConfig } from './metricsChartConfig'
 import { MetricsExemplarMarkers, type MetricsExemplar } from './MetricsExemplarMarkers'
-import { formatSeriesName, type MetricsChartSeries, seriesColor } from './metricsSeries'
+import { formatSeriesNames, type MetricsChartSeries, seriesColor } from './metricsSeries'
 
 const AREA_FILL_OPACITY = 0.2
 
@@ -44,29 +43,31 @@ export function MetricsSeriesChart({
     const isBar = display?.type === 'bar'
     const isArea = display?.type === 'area'
 
-    const chartSeries = useMemo<Series[]>(
-        () =>
-            series.map((s, index) => ({
-                key: `${index}`,
-                label: formatSeriesName({ labels: s.labels, metric_name: s.metricName ?? undefined }, fallbackName),
-                // A null value is a gap (non-representable aggregate); charted as 0 for now.
-                data: s.points.map((p) => p.value ?? 0),
-                color: getColorVar(seriesColor(index)),
-                ...(isArea ? { fill: { opacity: AREA_FILL_OPACITY } } : {}),
-            })),
-        [series, fallbackName, isArea]
-    )
+    const chartSeries = useMemo<Series[]>(() => {
+        const names = formatSeriesNames(
+            series.map((s) => ({ labels: s.labels, metric_name: s.metricName ?? undefined, clause: s.clause })),
+            fallbackName
+        )
+        return series.map((s, index) => ({
+            key: `${index}`,
+            label: names[index],
+            // A null value is a gap (non-representable aggregate); charted as 0 for now.
+            data: s.points.map((p) => p.value ?? 0),
+            color: getColorVar(seriesColor(index)),
+            ...(isArea ? { fill: { opacity: AREA_FILL_OPACITY } } : {}),
+        }))
+    }, [series, fallbackName, isArea])
     const labels = useMemo(() => (series[0]?.points ?? []).map((p) => p.time), [series])
 
     const sharedConfig = useChartConfig<TimeSeriesLineChartConfig>(
         () =>
             buildMetricsChartConfig({
                 display,
-                xAxis: { tickFormatter: createXAxisTickCallback({ allDays: labels, timezone }) },
+                xAxis: { timezone },
                 seriesCount: chartSeries.length,
                 labelFormatter: (label: string) => dayjs(label).tz(timezone).format('D MMM YYYY HH:mm:ss'),
             }),
-        [labels, timezone, chartSeries.length, display]
+        [timezone, chartSeries.length, display]
     )
 
     const markers = exemplars?.length ? <MetricsExemplarMarkers exemplars={exemplars} /> : null

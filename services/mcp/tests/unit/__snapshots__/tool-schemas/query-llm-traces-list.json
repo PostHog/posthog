@@ -18,7 +18,7 @@
                                     "type": "null"
                                 }
                             ],
-                            "description": "ISO8601 date string."
+                            "description": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day."
                         }
                     },
                     "required": ["date_from"],
@@ -36,6 +36,12 @@
                 }
             ],
             "description": "Date range for the query."
+        },
+        "detail": {
+            "default": "full",
+            "description": "How much of each event to return. \"full\" (default) returns complete event properties, subject to response size limits, preserving existing behavior when detail is omitted. Set \"summary\" to browse trace and event metadata (IDs, timestamps, model, latency, tokens, cost, tools called, errors) with short previews of prompts and outputs.",
+            "enum": ["summary", "full"],
+            "type": "string"
         },
         "filterSupportTraces": {
             "default": false,

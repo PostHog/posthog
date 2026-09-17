@@ -8,6 +8,553 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `published` - published
+ * * `deprecated` - deprecated
+ */
+export type PublicationStatusEnumApi = (typeof PublicationStatusEnumApi)[keyof typeof PublicationStatusEnumApi]
+
+export const PublicationStatusEnumApi = {
+    Published: 'published',
+    Deprecated: 'deprecated',
+} as const
+
+export interface ReusableWidgetSummaryApi {
+    /** Stable reusable widget identifier. */
+    id: string
+    /** Catalog name of the reusable widget. */
+    name: string
+    /** Description of the reusable widget. */
+    description: string
+    /** Searchable widget labels. */
+    tags: string[]
+    /** Catalog lifecycle of the reusable widget.
+     *
+     * * `published` - published
+     * * `deprecated` - deprecated */
+    publication_status: PublicationStatusEnumApi
+    /** Current immutable version used by unpinned instances. */
+    current_version_id: string
+    /** Number of immutable versions in this widget's history. */
+    version_count: number
+    /** Number of notebook placements using this widget. */
+    instance_count: number
+    /** When the widget identity was created. */
+    created_at: string
+    /** When the widget became reusable. */
+    published_at: string
+    /** When the reusable widget was last changed. */
+    updated_at: string
+}
+
+export interface ReusableWidgetPageApi {
+    /** Reusable widgets in this page. */
+    results: ReusableWidgetSummaryApi[]
+    /** Total reusable widgets matching the search. */
+    count: number
+    /**
+     * Offset for the next page, or null when this is the final page.
+     * @nullable
+     */
+    next_offset: number | null
+}
+
+/**
+ * * `initial` - initial
+ * * `regenerate` - regenerate
+ * * `improve` - improve
+ * * `revert` - revert
+ */
+export type GeneratedWidgetVersionOperationEnumApi =
+    (typeof GeneratedWidgetVersionOperationEnumApi)[keyof typeof GeneratedWidgetVersionOperationEnumApi]
+
+export const GeneratedWidgetVersionOperationEnumApi = {
+    Initial: 'initial',
+    Regenerate: 'regenerate',
+    Improve: 'improve',
+    Revert: 'revert',
+} as const
+
+/**
+ * * `queued` - queued
+ * * `building` - building
+ * * `ready` - ready
+ * * `failed` - failed
+ */
+export type BuildStatusEnumApi = (typeof BuildStatusEnumApi)[keyof typeof BuildStatusEnumApi]
+
+export const BuildStatusEnumApi = {
+    Queued: 'queued',
+    Building: 'building',
+    Ready: 'ready',
+    Failed: 'failed',
+} as const
+
+export interface WidgetInputContractColumnApi {
+    /** Column name expected by the reusable widget. */
+    name: string
+    /** Column type expected by the reusable widget. */
+    type: string
+}
+
+export interface WidgetInputContractItemApi {
+    /** Stable logical input name used by the reusable widget. */
+    slot: string
+    /** Original dataframe name when the widget was published. */
+    sourceName: string
+    /** Columns the notebook-local binding must produce after its optional Hog mapping. */
+    columns?: WidgetInputContractColumnApi[]
+    /** Hash of the expected column schema. */
+    schemaHash: string
+}
+
+/**
+ * * `none` - none
+ * * `low` - low
+ * * `medium` - medium
+ * * `high` - high
+ * * `critical` - critical
+ */
+export type GeneratedWidgetVersionSecurityReviewSeverityEnumApi =
+    (typeof GeneratedWidgetVersionSecurityReviewSeverityEnumApi)[keyof typeof GeneratedWidgetVersionSecurityReviewSeverityEnumApi]
+
+export const GeneratedWidgetVersionSecurityReviewSeverityEnumApi = {
+    None: 'none',
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Critical: 'critical',
+} as const
+
+/**
+ * * `low` - low
+ * * `medium` - medium
+ * * `high` - high
+ * * `critical` - critical
+ */
+export type ErrorTrackingIssueSeverityRuleEnumApi =
+    (typeof ErrorTrackingIssueSeverityRuleEnumApi)[keyof typeof ErrorTrackingIssueSeverityRuleEnumApi]
+
+export const ErrorTrackingIssueSeverityRuleEnumApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Critical: 'critical',
+} as const
+
+export interface WidgetSecurityFindingApi {
+    /** Severity of this potential security issue.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `critical` - critical */
+    severity: ErrorTrackingIssueSeverityRuleEnumApi
+    /** Short description of the potential security issue. */
+    title: string
+    /** Why the source may be unsafe and what it could do. */
+    details: string
+}
+
+export interface WidgetSecurityReviewApi {
+    /** Highest severity found, or none when the review found no issues.
+     *
+     * * `none` - none
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `critical` - critical */
+    severity: GeneratedWidgetVersionSecurityReviewSeverityEnumApi
+    /** Concise result from the automated security review. */
+    summary: string
+    /** Potential security issues found in the source. */
+    findings: WidgetSecurityFindingApi[]
+    /** Fast AI model used for the security review. */
+    model: string
+    /** Version of the security review instructions and parser. */
+    review_version: string
+    /** When this exact widget source was reviewed. */
+    reviewed_at: string
+}
+
+export interface ReusableWidgetVersionDetailApi {
+    /** Immutable widget version identifier. */
+    id: string
+    /** Title stored with this version. */
+    title: string
+    /** One-based version number. */
+    version: number
+    /** Action that created this version.
+     *
+     * * `initial` - initial
+     * * `regenerate` - regenerate
+     * * `improve` - improve
+     * * `revert` - revert */
+    operation: GeneratedWidgetVersionOperationEnumApi
+    /**
+     * AI model that created this version, or null when none was recorded.
+     * @nullable
+     */
+    model: string | null
+    /**
+     * Short-lived URL for the current widget preview.
+     * @nullable
+     */
+    artifact_url: string | null
+    /** Preview build state.
+     *
+     * * `queued` - queued
+     * * `building` - building
+     * * `ready` - ready
+     * * `failed` - failed */
+    build_status: BuildStatusEnumApi | null
+    /**
+     * SHA-256 integrity hash for the immutable preview artifact.
+     * @nullable
+     */
+    build_hash: string | null
+    /** Logical dataframe slots accepted by this widget version. */
+    frame_names: string[]
+    /** Dataframe slots and schemas expected by this widget version. */
+    input_contract: WidgetInputContractItemApi[]
+    /** Automated source review for this version, if available. */
+    security_review: WidgetSecurityReviewApi | null
+    /** Whether this version has saved demo data. */
+    has_demo_data: boolean
+    /** When this immutable version was created. */
+    created_at: string
+}
+
+export interface ReusableWidgetDetailApi {
+    /** Stable reusable widget identifier. */
+    id: string
+    /** Catalog name of the reusable widget. */
+    name: string
+    /** Description of the reusable widget. */
+    description: string
+    /** Searchable widget labels. */
+    tags: string[]
+    /** Catalog lifecycle of the reusable widget.
+     *
+     * * `published` - published
+     * * `deprecated` - deprecated */
+    publication_status: PublicationStatusEnumApi
+    /** Current reusable widget version. */
+    current_version: ReusableWidgetVersionDetailApi
+    /** Generated draft waiting for manual review, or null when no review is pending. */
+    pending_version: ReusableWidgetVersionDetailApi | null
+    /** Number of immutable versions in this widget's history. */
+    version_count: number
+    /** Number of notebook placements using this widget. */
+    instance_count: number
+    /** When the widget identity was created. */
+    created_at: string
+    /** When the widget became reusable. */
+    published_at: string
+    /** When the reusable widget was last changed. */
+    updated_at: string
+}
+
+export interface WidgetErrorApi {
+    /** Stable machine-readable error code. */
+    code: string
+    /** Actionable error detail. */
+    detail: string
+}
+
+export interface ReusableWidgetDemoDataRequestApi {
+    /** Current or draft version whose demo data should be edited. */
+    version_id: string
+    /**
+     * Logical input slot whose saved rows should be replaced.
+     * @maxLength 200
+     */
+    frame_name: string
+    /**
+     * Saved demo rows in input-contract column order. Replaces this slot's entire sample, up to 20 rows.
+     * @maxItems 20
+     */
+    rows: unknown[][]
+}
+
+export interface WidgetFrameColumnApi {
+    /** Column name. */
+    name: string
+    /** Column type reported by the completed notebook run. */
+    type: string
+}
+
+export interface WidgetFrameApi {
+    /** Logical dataframe name. */
+    name: string
+    /** Completed notebook run used for every page in this iframe load. */
+    runId: string
+    /** Dataframe columns in display order. */
+    columns: WidgetFrameColumnApi[]
+    /** Requested page of dataframe rows. */
+    rows: unknown[][]
+    /**
+     * Rows available in the completed run.
+     * @minimum 0
+     */
+    totalRowCount: number
+    /**
+     * Rows returned in this response.
+     * @minimum 0
+     */
+    includedRowCount: number
+    /**
+     * Zero-based offset of this page.
+     * @minimum 0
+     */
+    offset: number
+    /**
+     * Offset for the next page, if any.
+     * @minimum 0
+     * @nullable
+     */
+    nextOffset: number | null
+    /** Whether more rows exist after this page. */
+    truncated: boolean
+}
+
+export interface ReusableWidgetReviewRequestApi {
+    /** Draft version being reviewed. */
+    pending_version_id: string
+    /** Published version observed when the review action started. */
+    expected_current_version_id: string
+}
+
+/**
+ * * `claude-haiku-4-5` - claude-haiku-4-5
+ * * `claude-sonnet-4-6` - claude-sonnet-4-6
+ * * `claude-sonnet-5` - claude-sonnet-5
+ * * `claude-opus-5` - claude-opus-5
+ */
+export type WidgetGenerateRequestModelEnumApi =
+    (typeof WidgetGenerateRequestModelEnumApi)[keyof typeof WidgetGenerateRequestModelEnumApi]
+
+export const WidgetGenerateRequestModelEnumApi = {
+    ClaudeHaiku45: 'claude-haiku-4-5',
+    ClaudeSonnet46: 'claude-sonnet-4-6',
+    ClaudeSonnet5: 'claude-sonnet-5',
+    ClaudeOpus5: 'claude-opus-5',
+} as const
+
+/**
+ * * `initial` - initial
+ * * `regenerate` - regenerate
+ * * `improve` - improve
+ */
+export type GenerationOperationEnumApi = (typeof GenerationOperationEnumApi)[keyof typeof GenerationOperationEnumApi]
+
+export const GenerationOperationEnumApi = {
+    Initial: 'initial',
+    Regenerate: 'regenerate',
+    Improve: 'improve',
+} as const
+
+export interface WidgetGenerateRequestApi {
+    /**
+     * Instructions for the generated widget. Initial and improvement instructions accept up to 20,000 characters; regeneration accepts complete instructions up to 50,000 characters.
+     * @maxLength 50000
+     */
+    prompt: string
+    /** Idempotency key for this generation job. */
+    generation_id: string
+    /** AI model used to generate the widget.
+     *
+     * * `claude-haiku-4-5` - claude-haiku-4-5
+     * * `claude-sonnet-4-6` - claude-sonnet-4-6
+     * * `claude-sonnet-5` - claude-sonnet-5
+     * * `claude-opus-5` - claude-opus-5 */
+    model?: WidgetGenerateRequestModelEnumApi
+    /** Whether to generate from scratch or improve the current source.
+     *
+     * * `initial` - initial
+     * * `regenerate` - regenerate
+     * * `improve` - improve */
+    generation_operation?: GenerationOperationEnumApi
+    /** Current widget version the improvement is based on. Required for improve operations. */
+    expected_current_version_id?: string
+}
+
+/**
+ * Notebook-local mapping from each logical widget input slot to a dataframe and optional Hog transform.
+ */
+export type WidgetStatusApiInputBindings = {
+    [key: string]: {
+        source: string
+        hog?: string
+    }
+}
+
+/**
+ * * `awaiting_generation` - awaiting_generation
+ * * `generating` - generating
+ * * `building` - building
+ * * `ready` - ready
+ * * `failed` - failed
+ * * `incompatible` - incompatible
+ */
+export type LifecycleStatusEnumApi = (typeof LifecycleStatusEnumApi)[keyof typeof LifecycleStatusEnumApi]
+
+export const LifecycleStatusEnumApi = {
+    AwaitingGeneration: 'awaiting_generation',
+    Generating: 'generating',
+    Building: 'building',
+    Ready: 'ready',
+    Failed: 'failed',
+    Incompatible: 'incompatible',
+} as const
+
+/**
+ * * `generating_source` - generating_source
+ * * `reviewing_source` - reviewing_source
+ * * `publishing_source` - publishing_source
+ * * `unknown` - unknown
+ */
+export type FailurePhaseEnumApi = (typeof FailurePhaseEnumApi)[keyof typeof FailurePhaseEnumApi]
+
+export const FailurePhaseEnumApi = {
+    GeneratingSource: 'generating_source',
+    ReviewingSource: 'reviewing_source',
+    PublishingSource: 'publishing_source',
+    Unknown: 'unknown',
+} as const
+
+/**
+ * * `queued` - queued
+ * * `generating` - generating
+ * * `publishing` - publishing
+ */
+export type WidgetJobStatusEnumApi = (typeof WidgetJobStatusEnumApi)[keyof typeof WidgetJobStatusEnumApi]
+
+export const WidgetJobStatusEnumApi = {
+    Queued: 'queued',
+    Generating: 'generating',
+    Publishing: 'publishing',
+} as const
+
+export interface WidgetJobApi {
+    /** Generation job identifier. */
+    id: string
+    /** Current durable job state.
+     *
+     * * `queued` - queued
+     * * `generating` - generating
+     * * `publishing` - publishing */
+    status: WidgetJobStatusEnumApi
+    /** Current generation phase. */
+    phase: string
+    /** AI model processing the job. */
+    model: string
+    /** When the job was queued. */
+    created_at: string
+    /**
+     * When a worker started the job.
+     * @nullable
+     */
+    started_at: string | null
+}
+
+export interface WidgetStatusApi {
+    /** Current widget and preview state.
+     *
+     * * `awaiting_generation` - awaiting_generation
+     * * `generating` - generating
+     * * `building` - building
+     * * `ready` - ready
+     * * `failed` - failed
+     * * `incompatible` - incompatible */
+    lifecycle_status: LifecycleStatusEnumApi
+    /**
+     * Actionable failure detail.
+     * @nullable
+     */
+    error_detail?: string | null
+    /**
+     * Stable failure code for support and diagnostics.
+     * @nullable
+     */
+    error_code?: string | null
+    /** Generation step that failed, if a generation job failed.
+     *
+     * * `generating_source` - generating_source
+     * * `reviewing_source` - reviewing_source
+     * * `publishing_source` - publishing_source
+     * * `unknown` - unknown */
+    failure_phase?: FailurePhaseEnumApi | null
+    /**
+     * Short-lived URL for the selected widget version's preview.
+     * @nullable
+     */
+    artifact_url?: string | null
+    /** Logical dataframe slots available to the selected version. */
+    frame_names: string[]
+    /** Notebook-local mapping from each logical widget input slot to a dataframe and optional Hog transform. */
+    input_bindings: WidgetStatusApiInputBindings
+    /** Logical dataframe slots and output schemas required by the selected widget version. */
+    input_contract: WidgetInputContractItemApi[]
+    /**
+     * Selected immutable widget version.
+     * @nullable
+     */
+    current_version_id: string | null
+    /**
+     * Version explicitly pinned for this notebook placement, or null when it follows the latest version.
+     * @nullable
+     */
+    pinned_version_id: string | null
+    /**
+     * Reusable widget identity.
+     * @nullable
+     */
+    widget_id: string | null
+    /**
+     * Placement in this notebook.
+     * @nullable
+     */
+    instance_id: string | null
+    /** Whether the widget has generated history. */
+    has_versions: boolean
+    /** Active generation job, if any. */
+    active_job: WidgetJobApi | null
+    /** Automated review for the selected source, or null for a legacy unreviewed version. */
+    security_review: WidgetSecurityReviewApi | null
+    /** Whether this widget identity is published in the reusable widget catalog. */
+    is_reusable: boolean
+    /**
+     * Hex SHA-256 over the exact immutable artifact manifest selected for display.
+     * @nullable
+     */
+    build_hash: string | null
+}
+
+export interface ReusableWidgetRestoreRequestApi {
+    /** Published version to copy into a new latest version. */
+    version_id: string
+    /** Latest version observed before restoring. */
+    expected_current_version_id: string
+}
+
+export interface WidgetSourceApi {
+    /** Read-only source code for the current widget version. */
+    source: string
+}
+
+export interface ReusableWidgetVersionPageApi {
+    /** Published versions, newest first. */
+    results: ReusableWidgetVersionDetailApi[]
+    /** Total number of published versions. */
+    count: number
+    /**
+     * Next page offset, or null on the final page.
+     * @nullable
+     */
+    next_offset: number | null
+}
+
+/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -117,7 +664,7 @@ export interface NotebookVariableApi {
     name: string
     /** How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'. */
     type: string
-    /** The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone. */
+    /** The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected. */
     value?: unknown
 }
 
@@ -132,7 +679,7 @@ export interface NotebookApi {
      * @nullable
      */
     title?: string | null
-    /** Notebook content as a ProseMirror JSON document structure. */
+    /** Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown. */
     content?: unknown
     /**
      * Plain text representation of the notebook content for search.
@@ -186,7 +733,7 @@ export interface PatchedNotebookApi {
      * @nullable
      */
     title?: string | null
-    /** Notebook content as a ProseMirror JSON document structure. */
+    /** Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown. */
     content?: unknown
     /**
      * Plain text representation of the notebook content for search.
@@ -298,7 +845,7 @@ export interface NotebookKernelConfigApi {
     cpu_cores?: number
     /** Memory in GB for the notebook's sandbox kernel; must be a supported option. */
     memory_gb?: number
-    /** Seconds of inactivity before the sandbox kernel shuts down. */
+    /** Maximum lifetime of the sandbox kernel in seconds. It shuts down this long after it starts, even while in use. A running kernel keeps its current lifetime until it restarts. */
     idle_timeout_seconds?: number
 }
 
@@ -314,12 +861,21 @@ export interface NotebookKernelConfigResponseApi {
      */
     memory_gb?: number | null
     /**
-     * Configured idle timeout in seconds; null means the default.
+     * Configured maximum sandbox lifetime in seconds; null means the default.
      * @nullable
      */
     idle_timeout_seconds?: number | null
-    /** True when a kernel is currently active: config applies at sandbox provision time, so the running kernel keeps its old resources until restarted (restarting loses materialized dataframes). */
+    /** True when this call restarted a live kernel to apply a new size. Restarting discards every materialized dataframe, so cells that referenced one must run again. */
+    restarted: boolean
+    /** True when a kernel is live and this call did not restart it, so the running sandbox may not match the saved config. A resize restarts the kernel and reports False on success, or True if that restart fails. An idle-timeout change and a no-op on a live kernel also report True. */
     restart_required: boolean
+    /** What this sandbox shape costs per hour in USD while it is alive, at this region's rates. It tracks the running sandbox while a kernel is live, otherwise the configured shape. After a failed resize this stays the running sandbox's rate, not the size that failed to apply. */
+    hourly_price: number
+    /**
+     * Compute preset the configured shape matches, or null when it was tuned by hand.
+     * @nullable
+     */
+    preset_key?: string | null
 }
 
 export interface NotebookSQLV2FrameApi {
@@ -388,10 +944,17 @@ export interface NotebookKernelStatusResponseApi {
      */
     disk_size_gb?: number | null
     /**
-     * Seconds of inactivity before the sandbox shuts down.
+     * Maximum lifetime of the sandbox in seconds. It shuts down this long after it starts, even while in use.
      * @nullable
      */
     idle_timeout_seconds?: number | null
+    /** What this sandbox shape costs per hour in USD while it is alive, at this region's rates. Charged on the sandbox's lifetime, not on how much of it a cell uses. Resizing through the kernel config endpoint restarts a live kernel, so this tracks the running sandbox. */
+    hourly_price: number
+    /**
+     * Compute preset for the shape hourly_price describes: the running sandbox while a kernel is live, otherwise the configured shape. Null when that shape was tuned by hand and matches no preset.
+     * @nullable
+     */
+    preset_key?: string | null
 }
 
 /**
@@ -433,6 +996,8 @@ export const NotebookSQLV2NodeTypeEnumApi = {
 } as const
 
 export interface NotebookSQLV2RunRequestApi {
+    /** Reuse the requesting user's running or completed HogQL run with the same cell and resolved query from the last hour. Does not apply to token-only callers, kernel runs, or connection runs. */
+    reuse_results?: boolean
     /** ProseMirror node id of the SQLV2 node being run. */
     node_id: string
     /** Execution kind. 'hogql' is a SQL node — pushed to ClickHouse, or rerouted to the sandbox's DuckDB when it references a local frame; 'python' runs the code in the sandbox kernel, materializing referenced upstream nodes as pandas frames first.
@@ -460,6 +1025,13 @@ export interface NotebookSQLV2RunRequestApi {
 export interface NotebookSQLV2RunResponseApi {
     /** Identifier of the dispatched run. Poll the run result endpoint with it until the status is terminal. */
     run_id: string
+    /** True when this run has to provision a sandbox because none is live for the caller, checked here rather than inferred from a client's cached kernel status. Tell the user what that costs. */
+    starts_sandbox: boolean
+    /**
+     * What the sandbox this run provisions costs per hour in USD. Null when the run needs no new sandbox, or when the backend is not charged.
+     * @nullable
+     */
+    sandbox_hourly_price?: number | null
 }
 
 export interface NotebookSQLV2MediaApi {
@@ -544,7 +1116,7 @@ export interface NotebookKernelStateApi {
      */
     memory_gb?: number | null
     /**
-     * Seconds of inactivity before the sandbox shuts down.
+     * Maximum lifetime of the sandbox in seconds. It shuts down this long after it starts, even while in use.
      * @nullable
      */
     idle_timeout_seconds?: number | null
@@ -577,12 +1149,16 @@ export interface NotebookCellLastRunApi {
 export interface NotebookCellStateApi {
     /** Durable cell identity, used by the cell run and edit endpoints. */
     node_id: string
-    /** Cell kind: 'sql', 'python', or 'saved_insight' (embedded insight, never runs). */
+    /** Cell kind: 'sql', 'python', 'saved_insight' (an insight with an optional prepared dataframe), or 'markdown' (prose, a heading, or a fenced block; never runs and joins no dependency graph). */
     cell_type: string
     /** Name other cells reference this cell's result by; blank means display-only. */
     dataframe_name: string
-    /** The cell's source, truncated with a marker past 8KB. */
+    /** The cell's source, truncated with a marker past 8KB. For a markdown cell this is the block's markdown. */
     code: string
+    /** Offset where the cell's source starts in the notebook's markdown, in UTF-16 code units, the same unit the collaboration diffs use. */
+    start: number
+    /** Offset just past the cell's source, in UTF-16 code units, excluding the blank lines that separate it from the next cell. */
+    end: number
     /** Derived cell state: 'never_run', 'running', 'done', 'failed', 'interrupted', or 'stale' — stale means re-running now would execute different code than the last completed run (the cell or an upstream dependency changed). */
     status: string
     /** node_ids of cells whose dataframes this cell's code references. */
@@ -615,8 +1191,32 @@ export interface NotebookSQLV2StateResponseApi {
     content?: unknown
     /** The notebook's kernel runtime state and compute config. */
     kernel: NotebookKernelStateApi
+    /** The notebook's declared variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global; a cell that reads an undeclared name fails to run. */
+    variables: NotebookVariableApi[]
     /** Every cell in document order, with its dependency edges and derived run state. */
     cells: NotebookCellStateApi[]
+}
+
+/**
+ * Notebook-local input mappings keyed by contract slot. Each value names a source dataframe and may include pure Hog source for reshaping its rows.
+ */
+export type ReusableWidgetAttachRequestApiInputBindings = {
+    [key: string]: {
+        source: string
+        hog?: string
+    }
+}
+
+export interface ReusableWidgetAttachRequestApi {
+    /** Reusable widget to place in this notebook node. */
+    widget_id: string
+    /**
+     * Version to pin, or null to follow the reusable widget's latest version.
+     * @nullable
+     */
+    version_id?: string | null
+    /** Notebook-local input mappings keyed by contract slot. Each value names a source dataframe and may include pure Hog source for reshaping its rows. */
+    input_bindings?: ReusableWidgetAttachRequestApiInputBindings
 }
 
 export interface WidgetCancelRequestApi {
@@ -624,277 +1224,39 @@ export interface WidgetCancelRequestApi {
     generation_id: string
 }
 
-export interface WidgetErrorApi {
-    /** Stable machine-readable error code. */
-    code: string
-    /** Actionable error detail. */
-    detail: string
+export interface ReusableWidgetForkRequestApi {
+    /**
+     * Immutable version to fork, or null to copy the placement's pinned or latest version.
+     * @nullable
+     */
+    version_id?: string | null
 }
 
-export interface WidgetFrameColumnApi {
-    /** Column name. */
+export interface WidgetPinRequestApi {
+    /**
+     * Immutable version to pin, or null to follow the reusable widget's latest version.
+     * @nullable
+     */
+    version_id: string | null
+}
+
+export interface ReusableWidgetPublishRequestApi {
+    /**
+     * Name shown in the reusable widget catalog.
+     * @maxLength 400
+     */
     name: string
-    /** Column type reported by the completed notebook run. */
-    type: string
-}
-
-export interface WidgetFrameApi {
-    /** Logical dataframe name. */
-    name: string
-    /** Completed notebook run used for every page in this iframe load. */
-    runId: string
-    /** Dataframe columns in display order. */
-    columns: WidgetFrameColumnApi[]
-    /** Requested page of dataframe rows. */
-    rows: unknown[][]
     /**
-     * Rows available in the completed run.
-     * @minimum 0
+     * Short explanation of what the reusable widget shows and when to use it.
+     * @maxLength 2000
      */
-    totalRowCount: number
+    description?: string
     /**
-     * Rows returned in this response.
-     * @minimum 0
+     * Searchable labels attached to the reusable widget.
+     * @maxItems 10
+     * @items.maxLength 50
      */
-    includedRowCount: number
-    /**
-     * Zero-based offset of this page.
-     * @minimum 0
-     */
-    offset: number
-    /**
-     * Offset for the next page, if any.
-     * @minimum 0
-     * @nullable
-     */
-    nextOffset: number | null
-    /** Whether more rows exist after this page. */
-    truncated: boolean
-}
-
-/**
- * * `claude-haiku-4-5` - claude-haiku-4-5
- * * `claude-sonnet-4-6` - claude-sonnet-4-6
- * * `claude-sonnet-5` - claude-sonnet-5
- * * `claude-opus-5` - claude-opus-5
- */
-export type WidgetGenerateRequestModelEnumApi =
-    (typeof WidgetGenerateRequestModelEnumApi)[keyof typeof WidgetGenerateRequestModelEnumApi]
-
-export const WidgetGenerateRequestModelEnumApi = {
-    ClaudeHaiku45: 'claude-haiku-4-5',
-    ClaudeSonnet46: 'claude-sonnet-4-6',
-    ClaudeSonnet5: 'claude-sonnet-5',
-    ClaudeOpus5: 'claude-opus-5',
-} as const
-
-/**
- * * `initial` - initial
- * * `regenerate` - regenerate
- * * `improve` - improve
- */
-export type GenerationOperationEnumApi = (typeof GenerationOperationEnumApi)[keyof typeof GenerationOperationEnumApi]
-
-export const GenerationOperationEnumApi = {
-    Initial: 'initial',
-    Regenerate: 'regenerate',
-    Improve: 'improve',
-} as const
-
-export interface WidgetGenerateRequestApi {
-    /**
-     * Instructions for the generated widget.
-     * @maxLength 20000
-     */
-    prompt: string
-    /** Idempotency key for this generation job. */
-    generation_id: string
-    /** AI model used to generate the widget.
-     *
-     * * `claude-haiku-4-5` - claude-haiku-4-5
-     * * `claude-sonnet-4-6` - claude-sonnet-4-6
-     * * `claude-sonnet-5` - claude-sonnet-5
-     * * `claude-opus-5` - claude-opus-5 */
-    model?: WidgetGenerateRequestModelEnumApi
-    /** Whether to generate from scratch or improve the current source.
-     *
-     * * `initial` - initial
-     * * `regenerate` - regenerate
-     * * `improve` - improve */
-    generation_operation?: GenerationOperationEnumApi
-}
-
-/**
- * * `awaiting_generation` - awaiting_generation
- * * `generating` - generating
- * * `building` - building
- * * `ready` - ready
- * * `failed` - failed
- * * `incompatible` - incompatible
- */
-export type LifecycleStatusEnumApi = (typeof LifecycleStatusEnumApi)[keyof typeof LifecycleStatusEnumApi]
-
-export const LifecycleStatusEnumApi = {
-    AwaitingGeneration: 'awaiting_generation',
-    Generating: 'generating',
-    Building: 'building',
-    Ready: 'ready',
-    Failed: 'failed',
-    Incompatible: 'incompatible',
-} as const
-
-/**
- * * `queued` - queued
- * * `generating` - generating
- * * `publishing` - publishing
- */
-export type WidgetJobStatusEnumApi = (typeof WidgetJobStatusEnumApi)[keyof typeof WidgetJobStatusEnumApi]
-
-export const WidgetJobStatusEnumApi = {
-    Queued: 'queued',
-    Generating: 'generating',
-    Publishing: 'publishing',
-} as const
-
-export interface WidgetJobApi {
-    /** Generation job identifier. */
-    id: string
-    /** Current durable job state.
-     *
-     * * `queued` - queued
-     * * `generating` - generating
-     * * `publishing` - publishing */
-    status: WidgetJobStatusEnumApi
-    /** Current generation phase. */
-    phase: string
-    /** AI model processing the job. */
-    model: string
-    /** When the job was queued. */
-    created_at: string
-    /**
-     * When a worker started the job.
-     * @nullable
-     */
-    started_at: string | null
-}
-
-/**
- * * `none` - none
- * * `low` - low
- * * `medium` - medium
- * * `high` - high
- * * `critical` - critical
- */
-export type WidgetSecurityReviewSeverityEnumApi =
-    (typeof WidgetSecurityReviewSeverityEnumApi)[keyof typeof WidgetSecurityReviewSeverityEnumApi]
-
-export const WidgetSecurityReviewSeverityEnumApi = {
-    None: 'none',
-    Low: 'low',
-    Medium: 'medium',
-    High: 'high',
-    Critical: 'critical',
-} as const
-
-/**
- * * `low` - low
- * * `medium` - medium
- * * `high` - high
- * * `critical` - critical
- */
-export type ErrorTrackingIssueSeverityRuleEnumApi =
-    (typeof ErrorTrackingIssueSeverityRuleEnumApi)[keyof typeof ErrorTrackingIssueSeverityRuleEnumApi]
-
-export const ErrorTrackingIssueSeverityRuleEnumApi = {
-    Low: 'low',
-    Medium: 'medium',
-    High: 'high',
-    Critical: 'critical',
-} as const
-
-export interface WidgetSecurityFindingApi {
-    /** Severity of this potential security issue.
-     *
-     * * `low` - low
-     * * `medium` - medium
-     * * `high` - high
-     * * `critical` - critical */
-    severity: ErrorTrackingIssueSeverityRuleEnumApi
-    /** Short description of the potential security issue. */
-    title: string
-    /** Why the source may be unsafe and what it could do. */
-    details: string
-}
-
-export interface WidgetSecurityReviewApi {
-    /** Highest severity found, or none when the review found no issues.
-     *
-     * * `none` - none
-     * * `low` - low
-     * * `medium` - medium
-     * * `high` - high
-     * * `critical` - critical */
-    severity: WidgetSecurityReviewSeverityEnumApi
-    /** Concise result from the automated security review. */
-    summary: string
-    /** Potential security issues found in the source. */
-    findings: WidgetSecurityFindingApi[]
-    /** Fast AI model used for the security review. */
-    model: string
-    /** Version of the security review instructions and parser. */
-    review_version: string
-    /** When this exact widget source was reviewed. */
-    reviewed_at: string
-}
-
-export interface WidgetStatusApi {
-    /** Current widget and preview state.
-     *
-     * * `awaiting_generation` - awaiting_generation
-     * * `generating` - generating
-     * * `building` - building
-     * * `ready` - ready
-     * * `failed` - failed
-     * * `incompatible` - incompatible */
-    lifecycle_status: LifecycleStatusEnumApi
-    /**
-     * Actionable failure detail.
-     * @nullable
-     */
-    error_detail?: string | null
-    /**
-     * Short-lived URL for the selected widget version's preview.
-     * @nullable
-     */
-    artifact_url?: string | null
-    /** Logical dataframe slots available to the selected version. */
-    frame_names: string[]
-    /**
-     * Selected immutable widget version.
-     * @nullable
-     */
-    current_version_id: string | null
-    /**
-     * Reusable widget identity.
-     * @nullable
-     */
-    widget_id: string | null
-    /**
-     * Placement in this notebook.
-     * @nullable
-     */
-    instance_id: string | null
-    /** Whether the widget has generated history. */
-    has_versions: boolean
-    /** Active generation job, if any. */
-    active_job: WidgetJobApi | null
-    /** Automated review for the selected source, or null for a legacy unreviewed version. */
-    security_review: WidgetSecurityReviewApi | null
-    /**
-     * Hex SHA-256 over the exact immutable artifact manifest selected for display.
-     * @nullable
-     */
-    build_hash: string | null
+    tags?: string[]
 }
 
 export interface WidgetRevertRequestApi {
@@ -903,41 +1265,6 @@ export interface WidgetRevertRequestApi {
     /** Current version used for optimistic concurrency. */
     expected_current_version_id: string
 }
-
-export interface WidgetSourceApi {
-    /** Read-only source code for the current widget version. */
-    source: string
-}
-
-/**
- * * `initial` - initial
- * * `regenerate` - regenerate
- * * `improve` - improve
- * * `revert` - revert
- */
-export type VersionOperationEnumApi = (typeof VersionOperationEnumApi)[keyof typeof VersionOperationEnumApi]
-
-export const VersionOperationEnumApi = {
-    Initial: 'initial',
-    Regenerate: 'regenerate',
-    Improve: 'improve',
-    Revert: 'revert',
-} as const
-
-/**
- * * `queued` - queued
- * * `building` - building
- * * `ready` - ready
- * * `failed` - failed
- */
-export type BuildStatusEnumApi = (typeof BuildStatusEnumApi)[keyof typeof BuildStatusEnumApi]
-
-export const BuildStatusEnumApi = {
-    Queued: 'queued',
-    Building: 'building',
-    Ready: 'ready',
-    Failed: 'failed',
-} as const
 
 export interface WidgetVersionApi {
     /** Immutable widget version identifier. */
@@ -958,10 +1285,13 @@ export interface WidgetVersionApi {
      * * `regenerate` - regenerate
      * * `improve` - improve
      * * `revert` - revert */
-    version_operation: VersionOperationEnumApi
+    version_operation: GeneratedWidgetVersionOperationEnumApi
     /** Instructions added by this version. */
     prompt_delta: string
-    /** Complete instructions represented by this version. */
+    /**
+     * Complete instructions represented by this version, up to 50,000 characters.
+     * @maxLength 50000
+     */
     effective_prompt: string
     /**
      * AI model, or null when this version did not run a model.
@@ -1008,6 +1338,74 @@ export interface WidgetVersionPageApi {
      * @nullable
      */
     next_offset: number | null
+}
+
+export interface NotebookComputePresetApi {
+    /** Stable identifier for the preset, e.g. 'balanced'. */
+    key: string
+    /** Preset name as a person reads it, e.g. 'Balanced'. */
+    name: string
+    /** What this preset suits, in one sentence. */
+    description: string
+    /** CPU cores the preset provisions. */
+    cpu_cores: number
+    /** Memory in GB the preset provisions. */
+    memory_gb: number
+    /** What this preset costs per hour in USD while it is alive. */
+    hourly_price: number
+}
+
+export interface NotebookComputeOptionsResponseApi {
+    /** Currency of every price in this response. Always 'USD'. */
+    currency: string
+    /** Price of one CPU core for one hour, in USD. */
+    cpu_rate_per_core_hour: number
+    /** Price of one GB of memory for one hour, in USD. */
+    memory_rate_per_gb_hour: number
+    /** Preset a sandbox starts with when the notebook sets no compute config. */
+    default_preset_key: string
+    /** Sandbox shapes offered as one-click options. */
+    presets: NotebookComputePresetApi[]
+    /** CPU core counts the kernel config endpoint accepts. */
+    allowed_cpu_cores: number[]
+    /** Memory sizes in GB the kernel config endpoint accepts. */
+    allowed_memory_gb: number[]
+    /** Maximum sandbox lifetimes in seconds that the kernel config endpoint accepts. */
+    allowed_idle_timeout_seconds: number[]
+}
+
+export type ReusableWidgetsListParams = {
+    limit?: number
+    offset?: number
+    search?: string
+}
+
+export type ReusableWidgetsDemoFrameParams = {
+    /**
+     * Immutable version whose saved demo data should be returned.
+     */
+    version_id?: string
+}
+
+export type ReusableWidgetsSourceParams = {
+    /**
+     * Immutable reusable widget version whose source should be returned.
+     */
+    version_id?: string
+}
+
+export type ReusableWidgetsVersionsParams = {
+    /**
+     * Maximum versions to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Zero-based version offset.
+     * @minimum 0
+     */
+    offset?: number
 }
 
 export type NotebooksListParams = {

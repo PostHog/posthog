@@ -9,6 +9,12 @@ import { captureException } from '~/common/utils/posthog'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
 import { CdpInternalEventSchema } from '../schema'
+import {
+    GITHUB_EVENT_RECEIVED_EVENT,
+    SLACK_MESSAGE_RECEIVED_EVENT,
+    getInternalEventFilterEventIds,
+    hasMatchingInternalEventFilter,
+} from '../schema/hogflow'
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
@@ -16,37 +22,6 @@ import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeTy
 import { convertInternalEventToHogFunctionInvocationGlobals } from '../utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
-
-const SLACK_MESSAGE_RECEIVED_EVENT = '$slack_message_received'
-const GITHUB_EVENT_RECEIVED_EVENT = '$github_event_received'
-
-function getInternalEventFilterEventIds(filters: unknown): string[] | null {
-    if (!filters || typeof filters !== 'object') {
-        return null
-    }
-
-    const { source, events, actions, data_warehouse } = filters as {
-        source?: unknown
-        events?: unknown
-        actions?: unknown
-        data_warehouse?: unknown
-    }
-    const hasUnsupportedFilters =
-        (actions !== undefined && (!Array.isArray(actions) || actions.length > 0)) ||
-        (data_warehouse !== undefined && (!Array.isArray(data_warehouse) || data_warehouse.length > 0))
-    if (source !== 'internal-events' || !Array.isArray(events) || !events.length || hasUnsupportedFilters) {
-        return null
-    }
-
-    const eventIds = events.map((event) => (event && typeof event === 'object' ? (event as { id?: unknown }).id : null))
-    return eventIds.every((eventId): eventId is string => typeof eventId === 'string' && eventId.trim().length > 0)
-        ? eventIds
-        : null
-}
-
-function hasMatchingInternalEventFilter(filters: unknown, eventName: string): boolean {
-    return getInternalEventFilterEventIds(filters)?.includes(eventName) ?? false
-}
 
 /**
  * Whether a GitHub delivery is a write PostHog's own GitHub App made, resolved from the `own_app`
@@ -224,6 +199,12 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
 
                     events.push(convertInternalEventToHogFunctionInvocationGlobals(event, team, this.config.SITE_URL))
                 } catch (e) {
+                    // A dependency outage is not a poison message. Rethrowing fails the batch, so the
+                    // offsets stay put and the consumer retries, instead of dropping every event of a
+                    // team for the length of a Postgres blip.
+                    if (e?.isRetriable === true) {
+                        throw e
+                    }
                     logger.error('Error parsing message', e)
                     counterParseError.labels({ error: e.message }).inc()
                 }

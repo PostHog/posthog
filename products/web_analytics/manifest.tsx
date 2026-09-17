@@ -6,6 +6,13 @@ import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Web Analytics',
+    // Boot-time approximation of webVitalsSetupLogic - this gates only the web
+    // vitals tab, not the analytics tabs. The in-scene check stays the source of
+    // truth (it also reads the autocapture opt-in for the waiting state).
+    setupProbe: {
+        productKey: ProductKey.WEB_ANALYTICS,
+        hasDataEvents: ['$web_vitals'],
+    },
     urls: {
         webAnalytics: (): string => `/web`,
         webAnalyticsWebVitals: (): string => `/web/web-vitals`,
@@ -14,6 +21,7 @@ export const manifest: ProductManifest = {
         webAnalyticsHealth: (): string => `/web/health`,
         webAnalyticsLive: (): string => `/web/live`,
         webAnalyticsBotAnalytics: (): string => `/web/bot-analytics`,
+        webAnalyticsContentAutopilot: (): string => `/web/content-autopilot`,
         heatmaps: (params?: string): string =>
             `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
         heatmapNew: (params?: string): string =>
@@ -51,6 +59,7 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
+        '/web/content-autopilot': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
         '/heatmaps': ['Heatmaps', 'heatmaps'],
         '/heatmaps/new': ['HeatmapNew', 'heatmapNew'],
         '/heatmaps/recording': ['HeatmapRecording', 'heatmapRecording'],

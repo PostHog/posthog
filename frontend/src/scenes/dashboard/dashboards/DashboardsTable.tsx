@@ -24,13 +24,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    DashboardBasicType,
-    DashboardMode,
-    DashboardType,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, DashboardBasicType, DashboardType } from '~/types'
 
 import { UNFILED_DASHBOARDS_FOLDER } from '../dashboardConstants'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
@@ -178,7 +172,13 @@ export function DashboardsTable({
             dataIndex: 'tags' as keyof DashboardType,
             render: function Render(tags: DashboardType['tags']) {
                 return tags ? (
-                    <ObjectTags tags={[...tags].sort()} staticOnly onTagClick={(tag) => setFilters({ tags: [tag] })} />
+                    <ObjectTags
+                        tags={[...tags].sort()}
+                        staticOnly
+                        maxVisibleTags={5}
+                        data-attr="dashboard-tags"
+                        onTagClick={(tag) => setFilters({ tags: [tag] })}
+                    />
                 ) : null
             },
         } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
@@ -249,8 +249,8 @@ export function DashboardsTable({
                                               to={urls.dashboard(id)}
                                               onClick={() => {
                                                   dashboardLogic({ id }).mount()
-                                                  dashboardLogic({ id }).actions.setDashboardMode(
-                                                      DashboardMode.Edit,
+                                                  dashboardLogic({ id }).actions.setDashboardEditing(
+                                                      { filters: true, layout: true },
                                                       DashboardEventSource.DashboardsList
                                                   )
                                               }}
@@ -330,7 +330,7 @@ export function DashboardsTable({
             <DashboardsFiltersBar extraActions={extraActions} />
             <LemonTable
                 data-attr="dashboards-table"
-                pagination={{ pageSize: 100 }}
+                pagination={{ pageSize: 50 }}
                 dataSource={dashboards as DashboardType[]}
                 rowKey="id"
                 rowClassName={(record) => (record._highlight ? 'highlighted' : null)}

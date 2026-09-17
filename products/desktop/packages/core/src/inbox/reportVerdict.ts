@@ -42,16 +42,32 @@ export function deriveReportVerdict(
       return {
         tone: "danger",
         title: "Run failed",
-        body: "The agent couldn't finish this report. Archive it, or start a chat to dig into what happened.",
+        body: "The agent couldn't finish this report. Dismiss it, or start a chat to dig into what happened.",
       };
     case "pending_input":
       return {
         tone: "decision",
         title: "Waiting on you",
-        body: "The agent needs your input before it can continue.",
+        body: "Review the recommendation. Start an implementation task to add direction and choose a model, or ask for more context.",
       };
     case "potential":
+      return report.dismissal_reason === "already_fixed"
+        ? {
+            tone: "info",
+            title: "Dismissed until new signals",
+            body: "This report was dismissed as already fixed. It can return when another matching signal arrives.",
+          }
+        : {
+            tone: "info",
+            title: "Waiting for new signals",
+            body: "This report is waiting for more matching signals. No investigation is running.",
+          };
     case "candidate":
+      return {
+        tone: "info",
+        title: "Waiting to investigate",
+        body: "No investigation is running yet.",
+      };
     case "in_progress":
       return {
         tone: "progress",
@@ -73,7 +89,7 @@ export function deriveReportVerdict(
     return {
       tone: "info",
       title: "Likely already fixed",
-      body: "The evidence suggests this was already addressed. Skim the summary and archive the report if you agree.",
+      body: "The evidence suggests this was already addressed. Skim the summary and dismiss the report if you agree.",
     };
   }
   switch (report.actionability) {
@@ -93,7 +109,7 @@ export function deriveReportVerdict(
       return {
         tone: "info",
         title: "For your awareness",
-        body: "No code change follows from this report. Read it, then archive it.",
+        body: "No code change follows from this report. Read it, then dismiss it.",
       };
     default:
       return {

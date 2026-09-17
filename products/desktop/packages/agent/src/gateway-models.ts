@@ -5,9 +5,12 @@ import {
 import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 
 export {
+  adapterForModelId,
   BLOCKED_GATEWAY_MODEL_IDS,
   buildCloudTaskConfigOptions,
+  buildProviderModelGroups,
   type CloudTaskConfigOption,
+  type CloudTaskConfigSelectGroup,
   type CloudTaskConfigSelectOption,
   compareModelsForPicker,
   DEFAULT_CODEX_MODEL,

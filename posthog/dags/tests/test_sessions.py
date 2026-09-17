@@ -69,7 +69,7 @@ def _patch_experimental_backfill_deps(redis_get_return=None):
     mock_redis.get.return_value = redis_get_return
 
     with (
-        patch("posthog.dags.sessions.get_kwargs_for_client", return_value={}),
+        patch("posthog.dags.sessions.get_http_kwargs", return_value={}),
         patch("posthog.dags.sessions.get_http_client") as mock_get_http_client,
         patch("posthog.dags.sessions.sync_execute") as mock_sync_execute,
         patch("posthog.dags.sessions.wait_for_parts_to_merge"),

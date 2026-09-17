@@ -1,4 +1,5 @@
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -14,12 +15,19 @@ sys.path.insert(0, str(_ENGINE_DIR))
 import gates  # noqa: E402
 import policy  # noqa: E402
 
-from products.stamphog.backend.temporal.activities import _effective_policy_files, _inject_policy_files  # noqa: E402
+from products.stamphog.backend.temporal.activities import (  # noqa: E402
+    _blame_paths,
+    _clone_pr,
+    _effective_policy_files,
+    _inject_policy_files,
+    _prefetch_review_blobs,
+)
 from products.stamphog.backend.temporal.constants import (  # noqa: E402
     STAMPHOG_POLICY_ENTRYPOINT,
     STAMPHOG_REVIEW_GUIDANCE_PATH,
     STAMPHOG_STEERING_PATH,
 )
+from products.stamphog.backend.tests.fakes import FakeExecResult  # noqa: E402
 
 _DEFAULT_POLICY = Path(__file__).resolve().parents[1] / "logic" / "policy_defaults" / "policy.yml"
 
@@ -116,3 +124,63 @@ def test_inject_policy_files_wipes_optional_paths_from_pr_head() -> None:
     wipes = [cmd for cmd in executed if cmd.startswith("rm -f")]
     assert any(".stamphog/steering.md" in cmd for cmd in wipes)
     assert any(".stamphog/policy.yml" in cmd for cmd in wipes)
+
+
+def test_clone_is_blobless_and_blame_blobs_are_prefetched_in_one_fetch() -> None:
+    executed: list[str] = []
+
+    class _RecordingSandbox:
+        def execute(self, command: str, timeout_seconds: int | None = None) -> FakeExecResult:
+            executed.append(command)
+            return FakeExecResult(stdout="", stderr="", exit_code=0)
+
+    deadline = time.monotonic() + 600
+    sandbox = _RecordingSandbox()
+    _clone_pr(sandbox, "acme/widgets", "basesha", "headsha", 7, "tok", deadline)  # type: ignore[arg-type]
+    _prefetch_review_blobs(sandbox, "basesha", "headsha", "tok", ["src/old_name.py"], deadline)  # type: ignore[arg-type]
+
+    clone = next(cmd for cmd in executed if " clone " in cmd)
+    assert "--filter=blob:none" in clone
+    assert "--depth" not in clone
+
+    # The checkout materializes the head tree, so its promisor fetch needs the credential that
+    # every other GitHub-facing command in the clone carries.
+    checkout = next(cmd for cmd in executed if " checkout " in cmd)
+    assert "http.extraheader" in checkout.split(" checkout ")[0]
+
+    prefetch = next(cmd for cmd in executed if "rev-list" in cmd)
+    assert "--missing=print" in prefetch
+    assert "src/old_name.py" in prefetch
+    # One fetch for the whole set, driven by the enumerated object ids.
+    assert "fetch origin" in prefetch and "--stdin" in prefetch
+    # The enumeration must not fetch the objects it is reporting as missing.
+    assert "GIT_NO_LAZY_FETCH=1" in prefetch
+    # The diff reads the old side of every changed file, so the diff set comes from git rather
+    # than the API file list, which pages out on a large PR.
+    assert "diff --raw --no-renames" in prefetch
+    # A submodule's commit belongs to another repository; batching it makes origin reject the lot.
+    assert "grep -v '^:160000'" in prefetch
+
+
+def test_blame_paths_uses_the_base_side_path_and_skips_binaries() -> None:
+    files = [
+        {"filename": "src/new_name.py", "previous_filename": "src/old_name.py", "patch": "@@", "changes": 4},
+        {"filename": "src/plain.py", "patch": "@@", "changes": 2},
+        # GitHub reports a binary as zero added and zero deleted, and renders no patch for it.
+        {"filename": "static/logo.png", "additions": 0, "deletions": 0, "changes": 0},
+    ]
+    assert _blame_paths(files) == ["src/old_name.py", "src/plain.py"]
+
+    # The engine blames the largest files, so the bounded list has to be ordered the same way: a
+    # large file late in the API order must not be blamed with nothing prefetched for it.
+    ordered = _blame_paths(
+        [
+            {"filename": "src/small.py", "patch": "@@", "changes": 3},
+            {"filename": "src/large.py", "patch": "@@", "changes": 900},
+        ]
+    )
+    assert ordered == ["src/large.py", "src/small.py"]
+
+    # GitHub omits the patch of a large text file too, but reports its real line counts. The engine
+    # parses the local diff and blames it, so it has to be prefetched.
+    assert _blame_paths([{"filename": "src/huge.py", "changes": 1800}]) == ["src/huge.py"]

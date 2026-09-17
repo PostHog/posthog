@@ -9,6 +9,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -22,9 +23,9 @@ from products.tasks.backend.logic.services.living_artifacts import (
     DEFAULT_DOCUMENT_CONTENT_TYPE,
     ArtifactCommit,
     DocumentConnectorUnavailable,
+    _answer_text_blocks,
     _chart_card_blocks,
     _post_composed_answer_message,
-    _section_blocks,
     _SlackImageCard,
     create_living_artifact,
     edit_living_artifact,
@@ -708,31 +709,32 @@ class TestChartCardBlockBuilders(SimpleTestCase):
         blocks = _chart_card_blocks(_SlackImageCard(artifact, {}, file_id="F123"))
         self.assertEqual([b["type"] for b in blocks], expected_block_types)
 
-    def test_oversized_sections_split_below_block_char_cap(self):
-        blocks = _section_blocks(["a" * 6500, "short"])
-        self.assertEqual([len(b["text"]["text"]) for b in blocks], [3000, 3000, 500, 5])
-        self.assertEqual(blocks[-1]["text"]["text"], "short")
+    def test_sections_split_below_the_markdown_block_cap(self):
+        blocks = _answer_text_blocks(["a" * 14000, "short"])
+        self.assertEqual([b["type"] for b in blocks], ["markdown"] * 3)
+        self.assertEqual([len(b["text"]) for b in blocks], [SLACK_MARKDOWN_TEXT_MAX_LEN, 2500, 5])
+        self.assertEqual(blocks[-1]["text"], "short")
 
-    def test_oversized_sections_split_at_whitespace_so_mrkdwn_entities_survive(self):
-        # A hard character slice can cut a converted entity like `<url|text>` in half;
-        # the split must land on whitespace when any is available in the window.
-        words = "word " * 1300  # 6500 chars of 5-char words
-        blocks = _section_blocks([words.strip()])
+    def test_oversized_sections_split_at_whitespace_so_slack_entities_survive(self):
+        # A hard character slice can cut an entity like `<url|text>` in half; the split must
+        # land on whitespace when any is available in the window.
+        words = "word " * 3000  # 15,000 chars of 5-char words
+        blocks = _answer_text_blocks([words.strip()])
         self.assertGreater(len(blocks), 1)
         for block in blocks:
-            text = block["text"]["text"]
-            self.assertLessEqual(len(text), 3000)
+            text = block["text"]
+            self.assertLessEqual(len(text), SLACK_MARKDOWN_TEXT_MAX_LEN)
             self.assertEqual(set(text.split(" ")), {"word"})
 
     def test_oversized_fenced_section_is_closed_and_reopened_around_the_split(self):
-        # Tables convert to fenced blocks before this re-split, so a cut inside one would
-        # leave an unclosed fence in one block and a stray closer in the next.
-        table = "| cell | cell |\n" * 250
-        blocks = _section_blocks([f"{_SLACK_CODE_FENCE}\n{table}{_SLACK_CODE_FENCE}"])
+        # A cut inside a fenced block would leave it unclosed in one block and drop a stray
+        # closer in the next.
+        table = "| cell | cell |\n" * 1000
+        blocks = _answer_text_blocks([f"{_SLACK_CODE_FENCE}\n{table}{_SLACK_CODE_FENCE}"])
         self.assertGreater(len(blocks), 1)
         for block in blocks:
-            text = block["text"]["text"]
-            self.assertLessEqual(len(text), 3000)
+            text = block["text"]
+            self.assertLessEqual(len(text), SLACK_MARKDOWN_TEXT_MAX_LEN)
             self.assertEqual(text.count(_SLACK_CODE_FENCE) % 2, 0)
             self.assertTrue(text.startswith(_SLACK_CODE_FENCE))
             self.assertTrue(text.endswith(_SLACK_CODE_FENCE))
@@ -740,16 +742,16 @@ class TestChartCardBlockBuilders(SimpleTestCase):
     def test_fenced_whitespace_free_content_terminates_and_stays_balanced(self):
         # After a fence is closed and reopened, the only whitespace in the window can be
         # the reopen prefix's own newline — cutting there consumes nothing of the content.
-        section = f"{_SLACK_CODE_FENCE}\n{'x' * 8000}\n{_SLACK_CODE_FENCE}"
-        blocks = _section_blocks([section])
+        section = f"{_SLACK_CODE_FENCE}\n{'x' * 30000}\n{_SLACK_CODE_FENCE}"
+        blocks = _answer_text_blocks([section])
         self.assertGreater(len(blocks), 1)
         for block in blocks:
-            text = block["text"]["text"]
-            self.assertLessEqual(len(text), 3000)
+            text = block["text"]
+            self.assertLessEqual(len(text), SLACK_MARKDOWN_TEXT_MAX_LEN)
             self.assertEqual(text.count(_SLACK_CODE_FENCE) % 2, 0)
         self.assertIn(
-            "x" * 8000,
-            "".join(b["text"]["text"] for b in blocks)
+            "x" * 30000,
+            "".join(b["text"] for b in blocks)
             .replace(f"\n{_SLACK_CODE_FENCE}", "")
             .replace(f"{_SLACK_CODE_FENCE}\n", ""),
         )
@@ -794,6 +796,55 @@ class TestChartCardBlockBuilders(SimpleTestCase):
         self.assertEqual(slack.chat_postMessage.call_count, 1 if card_count == 1 else card_count)
         for call in slack.chat_postMessage.call_args_list:
             self.assertEqual(call.kwargs["text"], "&lt;!channel&gt; spike")
+
+    def test_a_composed_message_carries_one_markdown_block_and_spills_the_rest(self):
+        # Slack budgets 12,000 characters across every markdown block in one payload, so
+        # keeping several of them would fail the composed message and lose both the answer
+        # and the charts it was carrying.
+        slack = MagicMock()
+        slack.chat_postMessage.return_value = {"ok": True, "ts": "1111.2"}
+        cards = [_SlackImageCard(TaskArtifact(name="Chart"), {}, file_id="F0")]
+
+        answer_posted = _post_composed_answer_message(
+            slack,
+            mapping=MagicMock(channel="C123", thread_ts="1111.1"),
+            image_cards=cards,
+            answer_sections=["## First", "## Second", "## Third"],
+            mark_delivered=lambda card: None,
+            deadline=time.monotonic() + 30,
+        )
+
+        self.assertTrue(answer_posted)
+        posted = [call.kwargs.get("blocks") or [] for call in slack.chat_postMessage.call_args_list]
+        # Every message renders its own Markdown, so a spilled section reads like an unspilled one.
+        self.assertEqual([[b["type"] for b in blocks] for blocks in posted[:2]], [["markdown"], ["markdown"]])
+        self.assertEqual([blocks[0]["text"] for blocks in posted[:2]], ["## First", "## Second"])
+        # The last section rides with the cards, and it is the only markdown block there.
+        composed = posted[-1]
+        self.assertEqual([b["type"] for b in composed if b["type"] == "markdown"], ["markdown"])
+        self.assertEqual(composed[0]["text"], "## Third")
+        # Slack reads the top-level text for the notification, the screen reader, and the
+        # mentions it pings, so it has to name the block this message shows.
+        self.assertEqual(slack.chat_postMessage.call_args_list[-1].kwargs["text"], "## Third")
+
+    def test_an_exhausted_budget_stops_before_the_composed_message(self):
+        # A partial spill already makes the caller repost the whole answer, so posting the
+        # composed message too would duplicate it in the thread and burn the chart delivery.
+        slack = MagicMock()
+        slack.chat_postMessage.return_value = {"ok": True, "ts": "1111.2"}
+        cards = [_SlackImageCard(TaskArtifact(name="Chart"), {}, file_id="F0")]
+
+        answer_posted = _post_composed_answer_message(
+            slack,
+            mapping=MagicMock(channel="C123", thread_ts="1111.1"),
+            image_cards=cards,
+            answer_sections=["## First", "## Second", "## Third"],
+            mark_delivered=lambda card: None,
+            deadline=time.monotonic() - 1,  # already spent
+        )
+
+        self.assertFalse(answer_posted)
+        slack.chat_postMessage.assert_not_called()
 
     @parameterized.expand(
         [

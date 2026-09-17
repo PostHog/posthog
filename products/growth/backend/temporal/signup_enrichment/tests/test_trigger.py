@@ -25,12 +25,12 @@ def _run_dispatch_pool_inline():
 
 @pytest.fixture(autouse=True)
 def _enrichment_enabled():
-    with patch("products.growth.backend.temporal.signup_enrichment.trigger.get_instance_setting", return_value=True):
+    with patch("products.growth.backend.enrichment.gates.get_instance_setting", return_value=True):
         yield
 
 
 def _kill_switch_off():
-    return patch("products.growth.backend.temporal.signup_enrichment.trigger.get_instance_setting", return_value=False)
+    return patch("products.growth.backend.enrichment.gates.get_instance_setting", return_value=False)
 
 
 def _dispatch_mocks(region="US"):
@@ -42,7 +42,7 @@ def _dispatch_mocks(region="US"):
         ),
         patch("products.growth.backend.temporal.signup_enrichment.trigger.sync_connect"),
         patch("products.growth.backend.temporal.signup_enrichment.trigger.asyncio.run"),
-        patch("products.growth.backend.temporal.signup_enrichment.trigger.get_instance_region", return_value=region),
+        patch("products.growth.backend.enrichment.gates.get_instance_region", return_value=region),
         patch("products.growth.backend.temporal.signup_enrichment.trigger.record_signup_work_email"),
     )
 
@@ -81,7 +81,7 @@ def test_kill_switch_off_never_dispatches_or_writes():
 def test_kill_switch_read_failure_never_reaches_signup():
     on_commit, connect, run, region, record = _dispatch_mocks()
     setting_read_fails = patch(
-        "products.growth.backend.temporal.signup_enrichment.trigger.get_instance_setting",
+        "products.growth.backend.enrichment.gates.get_instance_setting",
         side_effect=RuntimeError("db down"),
     )
     with on_commit, connect as connect_mock, run, region, record as record_mock, setting_read_fails:

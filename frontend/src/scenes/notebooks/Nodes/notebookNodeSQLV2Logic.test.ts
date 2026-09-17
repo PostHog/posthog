@@ -1,9 +1,12 @@
+import { render } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -16,6 +19,9 @@ import {
     pollIntervalMs,
     sqlV2RunErrorMessage,
 } from './notebookNodeSQLV2Logic'
+
+const renderToastText = (message: string | JSX.Element): string =>
+    typeof message === 'string' ? message : (render(message).container.textContent ?? '')
 
 describe('notebookNodeSQLV2Logic', () => {
     let logic: ReturnType<typeof notebookNodeSQLV2Logic.build>
@@ -217,23 +223,51 @@ describe('notebookNodeSQLV2Logic', () => {
             })
         })
 
-        it('opens the kernel panel and notifies for a kernel-lane run, and not for a direct one', async () => {
+        it('opens the kernel panel for a kernel-lane run, and not for a direct one', async () => {
             // Scenario B: a run that needs the sandbox must surface the provisioning wait;
-            // a pure-SQL run must never pop the panel or toast (it needs no sandbox at all).
-            const toastSpy = jest.spyOn(lemonToast, 'info')
+            // a pure-SQL run must never pop the panel (it needs no sandbox at all).
             mount()
             logic.actions.runQuery('select 1')
             await expectLogic(logic).toFinishAllListeners()
             expect(notebookSettingsLogic.findMounted()?.values.showKernelInfo).toBe(false)
             expect(logic.values.pendingKernelStart).toBe(false)
-            expect(toastSpy).not.toHaveBeenCalled()
 
             logic.actions.runQuery('select * from new_events', { new_events: { node_id: 'py', kind: 'local' } })
             await expectLogic(logic).toFinishAllListeners()
             expect(notebookSettingsLogic.findMounted()?.values.showKernelInfo).toBe(true)
             expect(logic.values.pendingKernelStart).toBe(true)
-            expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('Starting a compute sandbox'))
         })
+    })
+
+    // The run response is the only source that knows whether this run provisions, because the
+    // backend decides it at dispatch. A client that guesses from a kernel poll either bills a
+    // user twice for one sandbox or starts a paid one in silence.
+    test.each([
+        ['names the rate when the run starts a paid sandbox', true, 0.25, false, ['compute sandbox at $0.25 / h']],
+        [
+            'strikes the rate through to $0.00 when the free compute flag is on',
+            true,
+            0.25,
+            true,
+            ['compute sandbox at $0.25 / h $0.00 / h while it runs'],
+        ],
+        // The unpriced branch is the only one that ends the sentence here, so matching it also
+        // proves no rate was quoted.
+        ['announces without a rate when the run reports no price', true, null, false, ['compute sandbox. The cell']],
+        ['stays quiet when the run reuses a running sandbox', false, null, false, []],
+    ])('%s', async (_name, startsSandbox, price, freeCompute, expected) => {
+        featureFlagLogic.actions.setFeatureFlags(freeCompute ? [FEATURE_FLAGS.NOTEBOOK_SANDBOX_FREE_COMPUTE] : [], {
+            [FEATURE_FLAGS.NOTEBOOK_SANDBOX_FREE_COMPUTE]: freeCompute,
+        })
+        runSpy.mockResolvedValue({ run_id: 'r1', starts_sandbox: startsSandbox, sandbox_hourly_price: price })
+        const toastSpy = jest.spyOn(lemonToast, 'info')
+        mount()
+        logic.actions.runQuery('select * from new_events', { new_events: { node_id: 'py', kind: 'local' } })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toastSpy.mock.calls.map(([message]) => renderToastText(message))).toEqual(
+            expected.map((fragment) => expect.stringContaining(fragment))
+        )
     })
 
     it('rejects blank code before dispatching a run', async () => {
@@ -296,29 +330,70 @@ describe('notebookNodeSQLV2Logic', () => {
         })
     })
 
-    it('maps a done envelope into the node result and stops the spinner', async () => {
+    it.each([false, true])('loads a completed result (restoring metadata: %s)', async (hasResultMetadata) => {
         resultSpy.mockResolvedValue({
             status: 'done',
             result: { columns: ['a'], first_page: [[1]], row_count: 1, has_more: false },
             error: null,
         })
-        mount({ runId: 'r1', hasResult: false })
+        mount({ runId: 'r1', hasResult: false, hasResultMetadata })
         await expectLogic(logic).toFinishAllListeners()
-        expect(updateAttributes).toHaveBeenCalledWith({
-            result: {
-                columns: ['a'],
-                types: [],
-                row_count: 1,
-                first_page: [[1]],
-                has_more: false,
-                stdout: '',
-                stderr: '',
-                media: [],
-            },
-            runStatus: 'done',
+        expect(logic.values.result).toEqual({
+            columns: ['a'],
+            types: [],
+            row_count: 1,
+            first_page: [[1]],
+            has_more: false,
+            stdout: '',
+            stderr: '',
+            media: [],
         })
+        if (hasResultMetadata) {
+            expect(updateAttributes).not.toHaveBeenCalled()
+            expect(logic.values.lastRunNodeId).toBeNull()
+        } else {
+            expect(updateAttributes).toHaveBeenCalledWith({
+                result: {
+                    columns: ['a'],
+                    types: [],
+                    row_count: 1,
+                    has_more: false,
+                    first_page: [[1]],
+                    stdout: '',
+                    stderr: '',
+                    previewOnly: true,
+                },
+                runStatus: 'done',
+            })
+        }
         expect(logic.values.isRunning).toBe(false)
     })
+
+    it.each(['failed', 'interrupted', 'unavailable'] as const)(
+        'keeps a %s saved-result load separate from execution',
+        async (status) => {
+            if (status === 'unavailable') {
+                resultSpy.mockRejectedValue(new ApiError('Result not found', 404))
+            } else {
+                resultSpy.mockResolvedValue({ status, result: null, error: 'Old run failed' })
+            }
+            mount({ runId: 'saved', hasResultMetadata: true, hasResult: false })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.runError).toBeNull()
+            expect(logic.values.lastRunNodeId).toBeNull()
+            expect(logic.values.isRunning).toBe(false)
+            expect(logic.values.isRestoringResult).toBe(false)
+            expect(updateAttributes).not.toHaveBeenCalled()
+            resultSpy.mockResolvedValue({
+                status: 'done',
+                result: { columns: ['a'], first_page: [[1]], row_count: 1 },
+                error: null,
+            })
+            await logic.asyncActions.runQuery('select 1', {})
+            await expectLogic(logic).toFinishAllListeners()
+            expect(updateAttributes).toHaveBeenCalledWith(expect.objectContaining({ runStatus: 'done' }))
+        }
+    )
 
     it('surfaces a failed run as an error', async () => {
         resultSpy.mockResolvedValue({ status: 'failed', result: null, error: 'no such table' })
@@ -338,10 +413,18 @@ describe('notebookNodeSQLV2Logic', () => {
         })
         mount({ runId: 'r1', hasResult: false })
         await expectLogic(logic).toFinishAllListeners()
-        // The outcome is persisted with the partial result: without it a reload can't tell this
-        // apart from a completed run, since both leave a result behind.
+        expect(logic.values.result).toEqual(expect.objectContaining({ stdout: 'partial output' }))
         expect(updateAttributes).toHaveBeenCalledWith({
-            result: expect.objectContaining({ stdout: 'partial output' }),
+            result: {
+                columns: [],
+                types: [],
+                row_count: 0,
+                has_more: false,
+                first_page: [],
+                stdout: 'partial output',
+                stderr: '',
+                previewOnly: true,
+            },
             runStatus: 'interrupted',
         })
         expect(logic.values.runError).toBe('Run interrupted.')
@@ -416,8 +499,7 @@ describe('notebookNodeSQLV2Logic', () => {
         runSpy.mockResolvedValueOnce({ run_id: 'r2' })
         logic.actions.runQuery('select 2')
         await expectLogic(logic).toFinishAllListeners()
-        const resultWrites = updateAttributes.mock.calls.map((c) => c[0]).filter((a) => a.result)
-        expect(resultWrites.at(-1).result).toEqual(expect.objectContaining({ columns: ['b'], first_page: [[2]] }))
+        expect(logic.values.result).toEqual(expect.objectContaining({ columns: ['b'], first_page: [[2]] }))
     })
 
     it('ignores a stale poll from a previous run', async () => {
@@ -448,6 +530,7 @@ describe('notebookNodeSQLV2Logic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         // The stale result must not overwrite the node, and r2's run must keep polling (not stopped).
+        expect(logic.values.result).toBeNull()
         expect(updateAttributes).not.toHaveBeenCalledWith(
             expect.objectContaining({ result: expect.objectContaining({ columns: ['old'] }) })
         )

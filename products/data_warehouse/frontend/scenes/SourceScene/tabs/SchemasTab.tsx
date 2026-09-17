@@ -49,6 +49,7 @@ import {
 } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 import {
+    IncrementalSyncBlockedMessageMap,
     SYNC_FREQUENCY_ORDER,
     StatusTagSetting,
     SyncFrequencyLabelMap,
@@ -57,7 +58,7 @@ import {
 } from 'products/data_warehouse/frontend/utils'
 
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
-import { sourceSettingsLogic } from './sourceSettingsLogic'
+import { BulkSyncMethod, bulkSyncMethodDisabledReason, sourceSettingsLogic } from './sourceSettingsLogic'
 
 const frequencyRank = (frequency: DataWarehouseSyncInterval | null | undefined): number =>
     frequency ? SYNC_FREQUENCY_ORDER.indexOf(frequency) : -1
@@ -128,7 +129,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
     } = useActions(sourceSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    // Load (and poll) jobs so the Rows synced column can show live progress for in-progress
+    // Load (and poll) jobs so the Row count column can show live progress for in-progress
     // syncs, before the warehouse table exists. loadJobsSuccess reschedules itself.
     useEffect(() => {
         if (source && source.access_method !== 'direct') {
@@ -453,12 +454,20 @@ function ManagedSchemaTable({
                 {
                     title: 'Sync method',
                     key: 'sync_type',
-                    render: (_, schema) =>
-                        schema.sync_type ? (
-                            <LemonTag type="primary">{SyncTypeLabelMap[schema.sync_type]}</LemonTag>
-                        ) : (
-                            <span className="text-muted">Not set up</span>
-                        ),
+                    render: (_, schema) => {
+                        if (!schema.sync_type) {
+                            return <span className="text-muted">Not set up</span>
+                        }
+                        const blockedReason = schema.incremental_sync_blocked
+                        if (!blockedReason) {
+                            return <LemonTag type="primary">{SyncTypeLabelMap[schema.sync_type]}</LemonTag>
+                        }
+                        return (
+                            <Tooltip title={IncrementalSyncBlockedMessageMap[blockedReason]} interactive>
+                                <LemonTag type="warning">{SyncTypeLabelMap[schema.sync_type]}</LemonTag>
+                            </Tooltip>
+                        )
+                    },
                 },
                 {
                     title: 'Frequency',
@@ -480,7 +489,7 @@ function ManagedSchemaTable({
                         ),
                 },
                 {
-                    title: 'Rows synced',
+                    title: 'Row count',
                     key: 'rows_synced',
                     align: 'right',
                     sorter: (a, b) => (a.table?.row_count ?? 0) - (b.table?.row_count ?? 0),
@@ -549,9 +558,12 @@ function ManagedSchemaTable({
                                 <LemonSwitch
                                     checked={schema.should_sync}
                                     onChange={(active) => {
-                                        if (active && !schema.sync_type) {
+                                        if (active && (!schema.sync_type || schema.incremental_sync_blocked)) {
                                             // No sync method saved yet — send the user to set one up
-                                            // before the schema can be enabled.
+                                            // before the schema can be enabled. A schema whose sync
+                                            // method a run proved unusable goes to the same place,
+                                            // because the sync settings hold every resolution and
+                                            // re-enabling here would only repeat the failure.
                                             router.actions.push(
                                                 urls.dataWarehouseSourceSchema(
                                                     prefixedSourceId,
@@ -657,6 +669,7 @@ function SchemaBulkActions({
         bulkEnable,
         bulkDisable,
         bulkSetFrequency,
+        bulkSetSyncMethod,
         bulkSyncNow,
         bulkResync,
         bulkDeleteData,
@@ -698,6 +711,22 @@ function SchemaBulkActions({
         })
     }
 
+    const onSetSyncMethod = (syncType: BulkSyncMethod): void => {
+        LemonDialog.open({
+            title: `Set ${pluralize(count, 'table', 'tables')} to ${SyncTypeLabelMap[syncType]}?`,
+            description:
+                syncType === 'full_refresh'
+                    ? 'Every sync re-reads the whole table, and every row counts towards your bill. Best for tables that are small, or that have no unique primary key to sync incrementally on.'
+                    : 'New rows are added without matching them against what is already synced. Rows that change in the source arrive again as duplicates, so this suits tables that are only ever inserted into.',
+            primaryButton: {
+                children: 'Set sync method',
+                type: 'primary',
+                onClick: () => run(() => bulkSetSyncMethod(selected, syncType)),
+            },
+            secondaryButton: { children: 'Cancel', type: 'tertiary' },
+        })
+    }
+
     const onDisable = (): void => {
         const hasDataLossType = selected.some((schema) => schema.sync_type === 'cdc' || schema.sync_type === 'webhook')
         if (!hasDataLossType) {
@@ -733,6 +762,24 @@ function SchemaBulkActions({
             >
                 <LemonButton type="secondary" size="small">
                     Set frequency
+                </LemonButton>
+            </LemonMenu>
+            <LemonMenu
+                items={[
+                    {
+                        label: SyncTypeLabelMap.full_refresh,
+                        disabledReason: bulkSyncMethodDisabledReason(selected, 'full_refresh'),
+                        onClick: () => onSetSyncMethod('full_refresh'),
+                    },
+                    {
+                        label: SyncTypeLabelMap.append,
+                        disabledReason: bulkSyncMethodDisabledReason(selected, 'append'),
+                        onClick: () => onSetSyncMethod('append'),
+                    },
+                ]}
+            >
+                <LemonButton type="secondary" size="small">
+                    Set sync method
                 </LemonButton>
             </LemonMenu>
             <LemonButton type="secondary" size="small" onClick={() => run(() => bulkSyncNow(selected))}>

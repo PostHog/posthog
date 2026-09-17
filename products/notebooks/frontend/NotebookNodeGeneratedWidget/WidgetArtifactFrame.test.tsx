@@ -58,7 +58,8 @@ describe('WidgetArtifactFrame', () => {
             />
         )
         const iframe = screen.getByTitle('Widget') as HTMLIFrameElement
-        expect(iframe).toHaveAttribute('src', 'https://example.com/globe.html#theme=light')
+        expect(iframe).toHaveAttribute('src', 'https://example.com/globe.html?sandbox=allow-pointer-lock#theme=light')
+        expect(iframe).toHaveAttribute('sandbox', 'allow-scripts allow-pointer-lock')
         expect(iframe).not.toHaveAttribute('srcdoc')
         sendNotebookPort(iframe, port)
 

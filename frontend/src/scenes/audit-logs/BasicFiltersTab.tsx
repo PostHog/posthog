@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconCollapse, IconExpand, IconInfo } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
+import { activityClientLabel } from 'lib/components/ActivityLog/activityClientLabel'
 import { humanizeActivity, humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -244,7 +245,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                             <div className="flex flex-col gap-1">
                                 <div className="flex items-center gap-1 mb-1">
                                     <label className="block text-sm font-medium">Client</label>
-                                    <Tooltip title="The SDK or integration that triggered the action (e.g. MCP).">
+                                    <Tooltip title="The SDK, integration, or agent that made the change, such as MCP or a scout.">
                                         <IconInfo className="w-4 h-4 text-muted-alt cursor-help" />
                                     </Tooltip>
                                 </div>
@@ -257,7 +258,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                                     options={
                                         availableFilters?.static_filters?.clients?.map((c: any) => ({
                                             key: c.value,
-                                            label: c.value,
+                                            label: activityClientLabel(c.value),
                                         })) || []
                                     }
                                     loading={availableFiltersLoading}

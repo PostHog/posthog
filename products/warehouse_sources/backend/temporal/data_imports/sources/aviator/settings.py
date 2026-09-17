@@ -1,10 +1,12 @@
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import field
+from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@frozen
 class AviatorEndpointConfig:
     name: str
     path: str
@@ -18,6 +20,10 @@ class AviatorEndpointConfig:
     # When True the endpoint is called once per repository discovered via GET /repo, injecting
     # the repo's org/name into the request. When False it is a single top-level request.
     fan_out_over_repos: bool = False
+    # Order rows arrive in. Fan-out endpoints report "desc" so the incremental watermark persists
+    # only at successful job end — a partial run's max value says nothing about repos it never
+    # reached. Top-level endpoints declare whatever the API actually returns.
+    sort_mode: Literal["asc", "desc"] = "asc"
     default_incremental_field: Optional[str] = None
     # First-sync window (days) for date-windowed incremental endpoints, so the initial sync
     # doesn't try to pull the entire history at once.
@@ -35,7 +41,8 @@ class AviatorEndpointConfig:
 # list with no reliable server-side timestamp filter, so it ships as full refresh. GET /config/history
 # documents optional `start`/`end` params, but we could not curl-verify that they actually filter
 # server-side (no test credentials), so it stays full refresh conservatively — config changes are
-# low volume, so re-reading them each sync is cheap.
+# low volume, so re-reading them each sync is cheap. GET /user_actions carries a `timestamp` but only
+# filters on `entity`, `action` and `page`, so it is full refresh too.
 AVIATOR_ENDPOINTS: dict[str, AviatorEndpointConfig] = {
     "repositories": AviatorEndpointConfig(
         name="repositories",
@@ -50,6 +57,7 @@ AVIATOR_ENDPOINTS: dict[str, AviatorEndpointConfig] = {
         primary_keys=["repo", "date"],
         partition_key="date",
         fan_out_over_repos=True,
+        sort_mode="desc",
         default_incremental_field="date",
         # Merge-queue analytics are daily aggregates; a year of history is a reasonable first sync.
         default_lookback_days=365,
@@ -69,6 +77,7 @@ AVIATOR_ENDPOINTS: dict[str, AviatorEndpointConfig] = {
         primary_keys=["org", "repo", "number"],
         partition_key="created_at",
         fan_out_over_repos=True,
+        sort_mode="desc",
     ),
     "queue_stats": AviatorEndpointConfig(
         name="queue_stats",
@@ -76,6 +85,38 @@ AVIATOR_ENDPOINTS: dict[str, AviatorEndpointConfig] = {
         # Live queue depth: a single current-state row per repository.
         primary_keys=["org", "repo"],
         fan_out_over_repos=True,
+        sort_mode="desc",
+    ),
+    "branches": AviatorEndpointConfig(
+        name="branches",
+        path="/branches",
+        # GET /branches returns one entry per base-branch glob configured on the repo; the pattern
+        # is unique within a repository, so (org, repo, pattern) is the key.
+        primary_keys=["org", "repo", "pattern"],
+        fan_out_over_repos=True,
+        sort_mode="desc",
+    ),
+    "bot_pull_requests": AviatorEndpointConfig(
+        name="bot_pull_requests",
+        path="/bot_pull_request",
+        # The batch PR's own number, unique within a repository.
+        primary_keys=["org", "repo", "number"],
+        fan_out_over_repos=True,
+        sort_mode="desc",
+        # Aviator only creates bot PRs in parallel mode, and the endpoint is a per-PR lookup, so the
+        # table costs one request per queued PR. Off by default: repos on serial mode sync nothing.
+        should_sync_default=False,
+    ),
+    "user_actions": AviatorEndpointConfig(
+        name="user_actions",
+        path="/user_actions",
+        # The audit log carries no id, so the whole record is the key.
+        primary_keys=["timestamp", "actor", "action", "entity", "target"],
+        partition_key="timestamp",
+        # The endpoint documents it returns actions newest-first.
+        sort_mode="desc",
+        # Audit logs are an Aviator Enterprise feature, so the endpoint is unavailable on other plans.
+        should_sync_default=False,
     ),
     "config_history": AviatorEndpointConfig(
         name="config_history",
@@ -84,6 +125,7 @@ AVIATOR_ENDPOINTS: dict[str, AviatorEndpointConfig] = {
         primary_keys=["org", "repo", "applied_at"],
         partition_key="applied_at",
         fan_out_over_repos=True,
+        sort_mode="desc",
     ),
 }
 

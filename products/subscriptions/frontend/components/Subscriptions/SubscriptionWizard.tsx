@@ -38,9 +38,11 @@ import { InsightSelector } from './InsightSelector'
 import { SubscriptionDayPicker } from './SubscriptionDayPicker'
 import { subscriptionLogic } from './subscriptionLogic'
 import type { SubscriptionLogicProps } from './subscriptionLogic'
+import { SubscriptionTimePicker } from './SubscriptionTimePicker'
 import {
     frequencyOptionsPlural,
     frequencyOptionsSingular,
+    getAiSubscriptionDisplaySummary,
     getAiSubscriptionGate,
     intervalOptions,
     bysetposOptions,
@@ -51,7 +53,6 @@ import {
     shouldShowDayPicker,
     requestSubscriptionWizardCancellation,
     targetTypeOptions,
-    timeOptions,
     WEEKDAYS,
     weekdayOptions,
 } from './utils'
@@ -472,6 +473,7 @@ function SubscriptionContentStep({
                 <AiPromptFields
                     compactAnalysisWindow
                     prompt={subscription.prompt}
+                    targetType={subscription.target_type}
                     windowMode={subscription.ai_prompt_config?.window?.mode}
                     onSelectAnalysisWindow={selectAiAnalysisWindow}
                     onSelectExample={selectAiExamplePrompt}
@@ -565,21 +567,7 @@ function SubscriptionScheduleStep({ logicProps }: { logicProps: SubscriptionLogi
                 ) : null}
                 <span>at</span>
                 <LemonField name="start_date">
-                    {({ value, onChange }) => (
-                        <LemonSelect
-                            options={timeOptions}
-                            value={dayjs(value).hour().toString()}
-                            onChange={(hour) =>
-                                onChange(
-                                    dayjs()
-                                        .hour(Number(hour ?? 0))
-                                        .minute(0)
-                                        .second(0)
-                                        .toISOString()
-                                )
-                            }
-                        />
-                    )}
+                    {({ value, onChange }) => <SubscriptionTimePicker value={value} onChange={onChange} />}
                 </LemonField>
             </div>
             {nextDeliveryDate ? (
@@ -723,6 +711,10 @@ function SubscriptionReviewStep({
             ? [
                   { label: 'Prompt', value: subscription.prompt ?? '' },
                   { label: 'Analysis window', value: formatAiAnalysisWindow(subscription) },
+                  {
+                      label: 'Report contents',
+                      value: getAiSubscriptionDisplaySummary(subscription.delivery_config, subscription.target_type),
+                  },
               ]
             : []),
         { label: 'Sends to', value: subscription.target_value },
