@@ -1,3 +1,4 @@
+import time
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -10,7 +11,7 @@ from parameterized import parameterized
 
 from posthog.ingress.contracts import DeliveryOwnership, ProviderSpec, WebhookConsumer, WebhookDelivery
 from posthog.ingress.dispatch.budget import DEFAULT_DELIVERY_BUDGET_SECONDS, DeliveryBudget, delivery_budget_seconds
-from posthog.ingress.dispatch.dedup import DeliveryClaim, DeliveryDedup
+from posthog.ingress.dispatch.dedup import DeliveryClaim, DeliveryDedup, delivery_claim_lease_seconds
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
 from posthog.ingress.dispatch.registry import ConsumerRegistry
 
@@ -218,6 +219,28 @@ class TestDeliveryDedup(SimpleTestCase):
         # Marks live for 24 hours, so a rollout meets the old ones. Reading one as in flight would
         # cost a receipt for every delivery still holding it.
         self.assertEqual(DeliveryDedup().claim(**self.mark), DeliveryClaim.DONE)
+
+    @parameterized.expand(
+        [
+            ("an_unsettled_claim_expires_with_its_lease", False, DeliveryClaim.CLAIMED),
+            ("a_settled_mark_outlives_the_lease", True, DeliveryClaim.DONE),
+        ]
+    )
+    def test_a_claim_only_outlives_its_lease_once_it_is_settled(
+        self, _name: str, settle: bool, expected: DeliveryClaim
+    ) -> None:
+        start = time.time()
+
+        with patch("time.time", lambda: start):
+            DeliveryDedup().claim(**self.mark)
+            if settle:
+                DeliveryDedup().complete(**self.mark)
+
+        # An in-progress mark nobody settled is what a killed process leaves behind. A provider
+        # that redelivers reads it as in flight and is answered a retry status, so a mark that
+        # outlived its run would refuse every redelivery until the provider gave up.
+        with patch("time.time", lambda: start + delivery_claim_lease_seconds() + 1):
+            self.assertEqual(DeliveryDedup().claim(**self.mark), expected)
 
 
 class TestDeliveryOwnership(SimpleTestCase):

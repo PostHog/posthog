@@ -6,12 +6,30 @@ from django.core.cache import cache
 
 import structlog
 
+from posthog.ingress.dispatch.budget import delivery_budget_seconds
+
 logger = structlog.get_logger(__name__)
 
 DELIVERY_DEDUP_TTL_SECONDS = 24 * 60 * 60
 
+# What the lease adds to the request's delivery budget. The budget is checked between consumers
+# and never inside one, so a consumer that starts just under the deadline overruns it, and the
+# margin has to cover that overrun plus the rest of the request. A minute is long enough that a
+# slow run keeps its claim, and short enough that a claim nobody settled costs one redelivery
+# rather than the provider's whole retry window.
+DELIVERY_CLAIM_LEASE_MARGIN_SECONDS = 60
+
 _IN_PROGRESS = "in_progress"
 _DONE = "done"
+
+
+def delivery_claim_lease_seconds() -> float:
+    """How long an unsettled claim keeps a redelivery out.
+
+    Read per claim, like the budget it is built on, so tuning the budget live carries into the
+    lease.
+    """
+    return delivery_budget_seconds() + DELIVERY_CLAIM_LEASE_MARGIN_SECONDS
 
 
 class DeliveryClaim(Enum):
@@ -33,6 +51,14 @@ class DeliveryDedup:
     redelivery that arrives while the first run is still going reads the mark as work already
     done and earns a receipt, which stops the provider from retrying a delivery the first run
     can still fail.
+
+    The in-progress mark is a lease, not a fact. The process holding it can die before it settles,
+    on a deploy or an OOM kill, and nothing settles it afterwards. A provider that redelivers reads
+    an unsettled mark as in flight and is answered a retry status, so a mark that outlived its run
+    would refuse every redelivery until the provider gave up and the delivery was lost. The lease
+    therefore runs out on its own after `delivery_claim_lease_seconds()`, which means a redelivery
+    can run beside a first attempt that overran the budget. That is the exposure a provider without
+    dedup has on every retry, and consumers are required to be idempotent underneath this.
     """
 
     @staticmethod
@@ -47,7 +73,7 @@ class DeliveryDedup:
         """
         key = self.key(provider=provider, consumer=consumer, delivery_id=delivery_id)
         try:
-            if cache.add(key, _IN_PROGRESS, timeout=DELIVERY_DEDUP_TTL_SECONDS):
+            if cache.add(key, _IN_PROGRESS, timeout=delivery_claim_lease_seconds()):
                 return DeliveryClaim.CLAIMED
             held = cache.get(key)
         except Exception:
