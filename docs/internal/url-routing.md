@@ -39,7 +39,7 @@ The prefix holds by construction: a route inside the mount cannot address anythi
 A routes module that still declares the old flat `urlpatterns` raises `ImproperlyConfigured` when the URL conf loads, rather than having its routes dropped silently.
 
 `register_routes(routers)` stays the way to add DRF routes.
-Use `urlpatterns` only for a plain Django path that no router can carry, such as an inbound webhook endpoint.
+Use these two lists only for a plain Django path that no router can carry, such as an inbound webhook endpoint.
 
 ### Who owns a webhook route
 
