@@ -168,11 +168,9 @@ export function SubscriptionSubmenu({
           )}
         </DropdownMenuRadioGroup>
         {!cloudTask && wantsOwnSubscription && !subscription.loggedIn && (
-          // A quiet inline note rather than a permanent menu row: it appears
-          // only once the provider option is picked without a confirmed
-          // login, and sessions keep running on PostHog until the login
-          // completes. Unknown status counts as not logged in, so the note
-          // stays reachable when the status check cannot run or is pending.
+          // Inline note rather than a menu row: it shows only after the provider
+          // is picked without a confirmed login. Unknown status counts as not
+          // logged in, so the note still shows when the check is pending or failed.
           <div className="px-2 py-1.5 text-muted-foreground text-xs">
             <button
               type="button"

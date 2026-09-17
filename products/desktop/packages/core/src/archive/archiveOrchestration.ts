@@ -122,10 +122,9 @@ export async function archiveTask(
     // bootstrap, so the task comes back asking a question from a list it has
     // been removed from, with nothing anywhere pointing at it.
     await deps.cancelPendingPermissions(taskId);
-    // Archive can be undone, and the same run resumes. Keep the run's resume
-    // state (billing, adapter, config) so a restore does not silently fall back
-    // to the global defaults. Deleting a task drops it through the same call
-    // without this flag.
+    // Archive can be undone and the same run resumes, so keep its resume state
+    // (billing, adapter, config); a restore must not fall back to the global
+    // defaults. Delete goes through the same call without the flag, dropping them.
     await deps.disconnectFromTask(taskId, { preserveResumeState: true });
     await deps.archive(taskId);
     deps.clearTerminalStates(taskId);

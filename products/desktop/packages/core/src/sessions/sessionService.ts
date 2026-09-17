@@ -693,10 +693,9 @@ type DerivedPermissionRequest = Pick<
 >;
 
 /**
- * Whether the running local agent's billing (model access) no longer matches
- * the conversation's chosen billing, so the next send must respawn to apply it.
- * Billing is a spawn-time credential choice. Cloud runs always bill PostHog. A
- * run whose adapter has no chosen billing is left on what it spawned with.
+ * Billing is a spawn-time credential choice, so the running agent only applies a
+ * switch when it respawns. Cloud runs always bill PostHog. A run whose adapter
+ * has no chosen billing stays on what it spawned with.
  */
 export function billingRespawnNeeded(
   run: Pick<
@@ -2529,9 +2528,9 @@ export class SessionService {
       this.sessionLastUsedAt.delete(session.taskId);
     }
     if (!opts?.preserveResumeState) {
-      // Reconnect restores the model, billing and permission mode from these,
-      // so only a delete or a fresh session drops them. Archive keeps them
-      // (it passes preserveResumeState) because an undo resumes the same run.
+      // Reconnect restores the model, billing and permission mode from these, so
+      // only a delete or a fresh session drops them. Archive keeps them because
+      // an undo resumes the same run.
       this.d.adapterStore.removeAdapter(taskRunId);
       this.d.billingStore.removeBilling(taskRunId);
       this.d.removePersistedConfigOptions(taskRunId);
@@ -4207,12 +4206,9 @@ export class SessionService {
   }
 
   /**
-   * Set this conversation's billing (model access) for the run. The running
-   * agent keeps its old credentials until the next send respawns it (see
-   * localBillingRespawnNeeded), and the session's own fields still hold the live
-   * value. A per-run choice, so it never changes another conversation or the
-   * default for new tasks. Queued messages survive the switch: the respawn
-   * preserves the queue and re-sends it under the new billing.
+   * Record this run's billing choice. The running agent keeps its old credentials
+   * until the next send respawns it (see localBillingRespawnNeeded). The choice is
+   * per-run, so it never changes another conversation or the default for new tasks.
    */
   setSessionModelAccess(
     taskId: string,
@@ -4401,10 +4397,9 @@ export class SessionService {
   }
 
   /**
-   * Respawn the local agent in place to apply a spawn-time change (an added
-   * folder or switched billing), then return the refreshed session. A missing
-   * repo path leaves the session untouched. Throws when the reconnect fails,
-   * which already left the session in an error state.
+   * Respawn to apply a spawn-time change (an added folder or switched billing).
+   * A missing repo path leaves the session untouched. Throws on reconnect
+   * failure, which has already put the session in an error state.
    */
   private async respawnInPlaceOrThrow(
     taskId: string,
@@ -4601,10 +4596,9 @@ export class SessionService {
     });
 
     try {
-      // Billing is fixed at agent spawn, so a message queued after a billing
-      // switch must respawn to run under the new billing rather than the old
-      // credentials. reconnectInPlace preserves the rest of the queue. On
-      // failure the catch below re-enqueues this message.
+      // A message queued after a billing switch respawns first so it runs under
+      // the new billing. reconnectInPlace keeps the rest of the queue; on failure
+      // the catch below re-enqueues this message.
       const activeSession = this.localBillingRespawnNeeded(session)
         ? await this.respawnInPlaceOrThrow(taskId, session)
         : session;
