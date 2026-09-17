@@ -76,6 +76,8 @@ PERSON_PROPERTIES_ADAPTED_FROM_EVENT: set[str] = {
     "$app_version",
     "$browser",
     "$browser_version",
+    "$webview_app",
+    "$webview_app_version",
     "$device_type",
     "$current_url",
     "$pathname",
@@ -1618,6 +1620,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Browser",
             "description": "Name of the browser the user has used.",
             "examples": ["Chrome", "Firefox"],
+        },
+        "$webview_app": {
+            "label": "In-app browser",
+            "description": "Name of the host app whose in-app browser the event came from, such as an event opened inside the LinkedIn or Instagram app. Set from the user agent when the SDK can identify the host app.",
+            "examples": ["LinkedIn", "Instagram", "TikTok"],
+        },
+        "$webview_app_version": {
+            "label": "In-app browser version",
+            "description": "Version of the host app whose in-app browser the event came from.",
+            "examples": ["309.1.0", "375.0.0"],
         },
         "$os": {
             "label": "OS",
