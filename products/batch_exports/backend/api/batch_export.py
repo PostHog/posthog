@@ -1909,6 +1909,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
     def update(self, batch_export: BatchExport, validated_data: dict) -> BatchExport:
         """Update a BatchExport."""
         destination_data = validated_data.pop("destination", None)
+        hogql_query_provided = "hogql_query" in validated_data
         hogql_query = validated_data.pop("hogql_query", None)
 
         with transaction.atomic():
@@ -1931,6 +1932,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     batch_export.source = source
             elif hogql_query is not None:
                 validated_data["schema"] = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
+            elif hogql_query_provided:
+                validated_data["schema"] = None
 
             batch_export.destination.save()
             batch_export = super().update(batch_export, validated_data)

@@ -709,6 +709,18 @@ def test_can_patch_hogql_query(
         "hogql_query": None,
     }
 
+    for patch_data, expected_schema in [
+        ({"name": "renamed"}, response_data["schema"]),
+        ({"hogql_query": None}, None),
+    ]:
+        response = patch_batch_export(client, team.pk, batch_export["id"], patch_data)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert get_batch_export_ok(client, team.pk, batch_export["id"])["schema"] == expected_schema
+        schedule = describe_schedule(temporal, batch_export["id"])
+        decoded_payload = async_to_sync(encryption_codec.decode)(schedule.schedule.action.args)
+        args = json.loads(decoded_payload[0].data)
+        assert args["batch_export_model"]["schema"] == expected_schema
+
 
 def test_patch_returns_error_on_unsupported_hogql_query(
     client: HttpClient, temporal, organization, team, user, aws_s3_integration
@@ -805,15 +817,14 @@ def test_patch_hogql_model_batch_export(
 
 
 @pytest.mark.usefixtures("hogql_batch_exports_enabled")
+@pytest.mark.parametrize("hogql_query", ["SELECT does_not_exist AS does_not_exist FROM events", None])
 def test_patch_hogql_model_batch_export_validates_new_query(
-    client: HttpClient, temporal, organization, team, user, hogql_batch_export_data
+    client: HttpClient, temporal, organization, team, user, hogql_batch_export_data, hogql_query: str | None
 ):
     client.force_login(user)
     batch_export = create_batch_export_ok(client, team.pk, hogql_batch_export_data)
 
-    response = patch_batch_export(
-        client, team.pk, batch_export["id"], {"hogql_query": "SELECT does_not_exist AS does_not_exist FROM events"}
-    )
+    response = patch_batch_export(client, team.pk, batch_export["id"], {"hogql_query": hogql_query})
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
     assert response.json()["attr"] == "hogql_query"
