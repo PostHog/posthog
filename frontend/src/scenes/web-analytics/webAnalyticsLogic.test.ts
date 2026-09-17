@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -328,43 +328,48 @@ describe('webAnalyticsLogic precompute payload', () => {
 describe('webAnalyticsLogic restricted UI gating', () => {
     let logic: ReturnType<typeof webAnalyticsLogic.build>
 
-    const setFlags = (flags: string[]): void => {
-        featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
-    }
-
-    beforeEach(() => {
+    const mountWithTeamModifier = (legacyEngineModifier: boolean): void => {
         localStorage.clear()
-        initKeaTests()
+        initKeaTests(true, {
+            ...MOCK_DEFAULT_TEAM,
+            modifiers: { useWebAnalyticsPreAggregatedTables: legacyEngineModifier },
+        })
         jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
         jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
         jest.spyOn(api, 'update').mockResolvedValue({} as any)
         featureFlagLogic.mount()
         logic = webAnalyticsLogic()
         logic.mount()
-    })
+    }
 
     afterEach(() => {
         logic.unmount()
         jest.restoreAllMocks()
     })
 
-    it('the restricted-ui flag alone restricts, with no team modifier involved', async () => {
-        // Regression guard for the legacy-tables retirement: when the settings
-        // flag and team modifier go away, this flag must keep restricting heavy
-        // teams' UI on its own — a collapse of the OR re-exposes tiles that run
-        // unservable live queries on billion-event teams.
-        setFlags([FEATURE_FLAGS.WEB_ANALYTICS_RESTRICTED_UI])
-        await expectLogic(logic).toMatchValues({ preAggregatedEnabled: true })
-    })
-
-    it('no flags means no restriction', async () => {
-        setFlags([])
-        await expectLogic(logic).toMatchValues({ preAggregatedEnabled: false })
-    })
-
-    it('the legacy settings flag alone does not restrict without the team modifier', async () => {
-        setFlags([FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES])
-        await expectLogic(logic).toMatchValues({ preAggregatedEnabled: false })
+    // Regression guard for the legacy-tables retirement: the restricted-ui flag
+    // must restrict on its own with no team modifier involved — a collapse of
+    // the OR re-exposes tiles that run unservable live queries on billion-event
+    // teams — while the legacy pair must keep working until it is removed, and
+    // neither half of the pair may restrict alone.
+    it.each([
+        ['restricted-ui flag alone', [FEATURE_FLAGS.WEB_ANALYTICS_RESTRICTED_UI], false, true],
+        ['no flags, no modifier', [], false, false],
+        [
+            'legacy flag without the modifier',
+            [FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES],
+            false,
+            false,
+        ],
+        ['modifier without the legacy flag', [], true, false],
+        ['legacy flag and modifier', [FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES], true, true],
+    ])('%s → restricted %s', async (_name, flags, legacyEngineModifier, expected) => {
+        mountWithTeamModifier(legacyEngineModifier as boolean)
+        featureFlagLogic.actions.setFeatureFlags(
+            flags as string[],
+            Object.fromEntries((flags as string[]).map((flag) => [flag, true]))
+        )
+        await expectLogic(logic).toMatchValues({ restrictedUiEnabled: expected })
     })
 })
 

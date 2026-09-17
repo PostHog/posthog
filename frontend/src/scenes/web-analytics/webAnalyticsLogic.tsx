@@ -223,7 +223,7 @@ export interface webAnalyticsLogicValues {
     isGreaterThanMd: boolean
     isPathCleaningEnabled: boolean
     pathTab: string
-    preAggregatedEnabled: boolean | undefined
+    restrictedUiEnabled: boolean | undefined
     preZoomDateFilter: {
         dateFrom: string | null
         dateTo: string | null
@@ -530,13 +530,13 @@ export interface webAnalyticsLogicMeta {
     key: 'page-visibility' | 'web-analytics'
     __keaTypeGenInternalSelectorTypes: {
         compareFilter: (rawCompareFilter: CompareFilter, dateFilter: DateFilterState) => CompareFilter
-        preAggregatedEnabled: (
+        restrictedUiEnabled: (
             featureFlags: FeatureFlagsSet,
             currentTeam: TeamPublicType | TeamType | null
         ) => boolean | undefined
         incompatibleFilters: (
             rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
-            preAggregatedEnabled: boolean | undefined
+            restrictedUiEnabled: boolean | undefined
         ) => WebAnalyticsPropertyFilters
         hasIncompatibleFilters: (incompatibleFilters: WebAnalyticsPropertyFilters) => boolean
         graphsTab: (_graphsTab: string | null) => string
@@ -679,7 +679,7 @@ export interface webAnalyticsLogicMeta {
             featureFlags: FeatureFlagsSet,
             isGreaterThanMd: boolean,
             tileVisualizations: Record<TileId, TileVisualizationOption>,
-            preAggregatedEnabled: boolean | undefined,
+            restrictedUiEnabled: boolean | undefined,
             hiddenTiles: TileId[]
         ) => WebAnalyticsTile[]
         getNewInsightUrl: (
@@ -1164,7 +1164,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 // again as soon as the range becomes a bounded one.
                 dateFilter.dateFrom === 'all' ? { compare: false } : rawCompareFilter,
         ],
-        preAggregatedEnabled: [
+        restrictedUiEnabled: [
             (s) => [s.featureFlags, s.currentTeam],
             (featureFlags: Record<string, boolean>, currentTeam: TeamPublicType | TeamType | null) => {
                 // Two independent levers restrict the UI to the precompute-servable
@@ -1183,12 +1183,12 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
             },
         ],
         incompatibleFilters: [
-            (s) => [s.rawWebAnalyticsFilters, s.preAggregatedEnabled],
+            (s) => [s.rawWebAnalyticsFilters, s.restrictedUiEnabled],
             (
                 rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
-                preAggregatedEnabled: boolean
+                restrictedUiEnabled: boolean
             ): WebAnalyticsPropertyFilters => {
-                if (!preAggregatedEnabled) {
+                if (!restrictedUiEnabled) {
                     return []
                 }
 
@@ -1640,7 +1640,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 s.featureFlags,
                 s.isGreaterThanMd,
                 s.tileVisualizations,
-                s.preAggregatedEnabled,
+                s.restrictedUiEnabled,
                 s.hiddenTiles,
             ],
             (
@@ -1666,7 +1666,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 isGreaterThanMd: boolean,
                 tileVisualizations: Record<TileId, TileVisualizationOption>,
-                preAggregatedEnabled: boolean | undefined,
+                restrictedUiEnabled: boolean | undefined,
                 hiddenTiles: TileId[]
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
@@ -3081,7 +3081,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 return allTiles
                     .filter(isNotNil)
                     .filter((tile) =>
-                        preAggregatedEnabled ? TILES_ALLOWED_ON_PRE_AGGREGATED.includes(tile.tileId) : true
+                        restrictedUiEnabled ? TILES_ALLOWED_ON_PRE_AGGREGATED.includes(tile.tileId) : true
                     )
                     .filter((tile) => !hiddenTiles.includes(tile.tileId))
             },
