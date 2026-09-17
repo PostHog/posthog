@@ -224,6 +224,22 @@ export interface ErrorResponseApi {
     error: string
 }
 
+export interface ExternalAccountListPermissionErrorApi {
+    /** Error category. */
+    type: string
+    /** Machine-readable error code. */
+    code: string
+    /** Error message. */
+    detail: string
+    /**
+     * Request field associated with the error, if any.
+     * @nullable
+     */
+    attr: string | null
+}
+
+export type ExternalAccountListAuthErrorApi = ErrorResponseApi | ExternalAccountListPermissionErrorApi
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -1814,6 +1830,8 @@ export interface AccountsTableSortApi {
 export interface QueryLogTagsApi {
     /** Name of the query, preferably unique. For example web_analytics_vitals */
     name?: string | null
+    /** Short id of the saved Web analytics filter preset this query was run under, if any. */
+    presetId?: string | null
     /** Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product * */
     productKey?: string | null
     /** Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene * */
@@ -4260,6 +4278,11 @@ export type CustomerAnalyticsExternalAccountsRetrieveParams = {
      * When true, return only accounts where customer analytics holds authority over at least one controlled relationship, including accounts whose managed relationships are cleared and accounts that are ignored. Authority does not end when an account is ignored, so `include_ignored` is implied.
      */
     managed_only?: boolean
+    /**
+     * Project ID. Required for personal API keys. Project secret API keys use their bound project.
+     * @minimum 1
+     */
+    project_id?: number
 }
 
 export type AccountNotesListParams = {

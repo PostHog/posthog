@@ -11,6 +11,12 @@ Source-local notes for the Factorial (HRIS) connector. See the official referenc
   base URL in `factorial.py`. Resources occasionally move between groups across versions, but the resource
   paths and the `{"meta": ..., "data": [...]}` envelope our reads use are identical across all three labels
   (newer versions only add/remove response fields, which the auto-inferred schema absorbs).
+- **Version lifecycle:** Factorial ships a version at the start of each quarter and serves each for one
+  year. A request on a retired version is not rejected — it is served "using the oldest version schema" —
+  so a stale pin drifts silently instead of failing. `2025-04-01` passed its window on 2026-04-01 and is
+  marked deprecated in `source.py`; migration `0164_repin_factorial_api_version` repins source-level pins
+  to `2026-07-01`. Because the vendor falls forward rather than erroring, there is no version-rejection
+  status to add to `get_non_retryable_errors`.
 - **Identifier serialization:** `2026-07-01` ("Bessel") serializes every resource id as an opaque string
   instead of an integer (ids outgrew the safe 64-bit range) — in request params, responses, and webhooks.
   Our reads tolerate this without a version branch: the primary key stays the `id` column (type-agnostic,
@@ -64,8 +70,10 @@ Source-local notes for the Factorial (HRIS) connector. See the official referenc
 | job_postings          | `/resources/ats/job_postings`                         | —             |
 | applications          | `/resources/ats/applications`                         | created_at    |
 
-Primary key is the integer `id` on every list resource. Partition keys are `created_at` where the field is
-reliably present on every row (transactional records); lookup/config resources are left unpartitioned.
+Primary key is the `id` column on every list resource. It is serialized as an integer on `2025-04-01` and
+`2026-04-01`, and as an opaque string on `2026-07-01` (see Identifier serialization above), so the column type is
+left to inference. Partition keys are `created_at` where the field is reliably present on every row
+(transactional records); lookup/config resources are left unpartitioned.
 
 ## Rate limits
 
