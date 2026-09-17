@@ -1381,21 +1381,21 @@ Note: Full OpenAPI 3 spec (2 MB, 541 paths) is served unauthenticated at api.cha
 
 ## ChartMogul — gaps
 
-Today (6): `activities`, `customers`, `data_sources`, `invoices`, `plan_groups`, `plans`
+Today (11): `activities`, `customer_subscriptions`, `customers`, `data_sources`, `invoices`, `metrics`, `metrics_mrr`, `opportunities`, `plan_groups`, `plans`, `subscription_events`
 
 Diffed against: <https://dev.chartmogul.com/sitemap.xml>
 
-- [ ] `/v1/customers/{customer_uuid}/subscriptions` — subscriptions are the core SaaS object and currently unreachable - plans and invoices cannot be joined into a subscription lifecycle (high)
-- [ ] `/v1/subscription_events` — subscription state transition stream (started, updated, cancelled) - the movement history behind churn analysis (high)
-- [ ] `/v1/metrics/all (plus /metrics/mrr, /arr, /arpa, /asp, /ltv, /customer-count, /churn-rate, /mrr-churn-rate)` — ChartMogul's headline metrics; today none of the product's actual output is syncable (high)
-- [ ] `/v1/opportunities` — CRM pipeline deals with value and stage - the main revenue-forecasting object (high)
+- [x] `/v1/customers/{customer_uuid}/subscriptions` — subscriptions are the core SaaS object and currently unreachable - plans and invoices cannot be joined into a subscription lifecycle (high)
+- [x] `/v1/subscription_events` — subscription state transition stream (started, updated, cancelled) - the movement history behind churn analysis (high)
+- [x] `/v1/metrics/all (plus /metrics/mrr)` — ChartMogul's headline metrics; today none of the product's actual output is syncable (high). `/arr`, `/arpa`, `/asp`, `/ltv`, `/customer-count`, `/churn-rate` and `/mrr-churn-rate` are intentionally not synced: each returns one metric `/v1/metrics/all` already carries as a column.
+- [x] `/v1/opportunities` — CRM pipeline deals with value and stage - the main revenue-forecasting object (high)
 - [ ] `/v1/contacts` — person-level contacts under each customer, needed to join CRM activity to accounts (medium)
 - [ ] `/v1/plan_groups/{plan_group_uuid}/plans` — lookup mapping the already-synced plans to the already-synced plan_groups (medium)
 - [ ] `/v1/customers/{customer_uuid}/attributes (custom attributes and tags)` — the segmentation dimensions customers are actually sliced by (medium)
 - [ ] `/v1/tasks` — CRM tasks per customer for CS workload and follow-up analysis (medium)
 - [ ] `/v1/customer_notes (notes and call logs)` — logged calls and notes per customer, joinable to churn outcomes (low)
 
-Note: No machine-readable spec is published; I enumerated the full /reference/\* resource tree from the sitemap (182 URLs) and then fetched the individual reference pages to confirm the concrete api.chartmogul.com paths (e.g. /v1/subscription_events, /v1/opportunities, /v1/customers/{uuid}/subscriptions, /v1/plan_groups/{uuid}/plans). Notably the entire ChartMogul CRM surface (opportunities, contacts, tasks, notes) and every metrics endpoint are absent.
+Note: No machine-readable spec is published; I enumerated the full /reference/\* resource tree from the sitemap (182 URLs) and then fetched the individual reference pages to confirm the concrete api.chartmogul.com paths (e.g. /v1/subscription_events, /v1/opportunities, /v1/customers/{uuid}/subscriptions, /v1/plan_groups/{uuid}/plans). The entire ChartMogul CRM surface and every metrics endpoint were absent at audit time; opportunities, subscription events, customer subscriptions and the metrics timeseries are now synced, and contacts, tasks and notes remain.
 
 ## Chatwoot — gaps
 
