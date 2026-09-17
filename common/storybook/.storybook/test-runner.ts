@@ -550,14 +550,11 @@ async function takeSnapshotWithTheme(
                 if (i.classList.contains('ProseMirror-separator')) {
                     return true
                 }
-                // An image with no layout box cannot appear in the screenshot, and a
-                // `loading="lazy"` one has nothing to intersect, so the browser can leave it
-                // unfetched for the whole run. Its naturalWidth then stays 0 and this wait can only
-                // time out. Responsive layouts hit this whenever they render the same image twice
-                // and let a media or container query display one of the pair. getClientRects() is
-                // empty only for display:none (the element's own or an ancestor's), so a visible
-                // image that is still downloading is still waited for. A story that reveals a
-                // hidden image from script after this point is not covered.
+                // A `loading="lazy"` image with no layout box has nothing to intersect, so the
+                // browser can leave it unfetched and this wait can only time out. It is safe to
+                // skip because such an image cannot appear in the screenshot either.
+                // getClientRects() is empty only for display:none, so this still waits for a
+                // visible image that is downloading.
                 return i.getClientRects().length === 0
             }
 
