@@ -18,11 +18,13 @@ value to `$ai_cache_reporting_exclusive` (boolean) on every
 
 ## Cache-hit rate, branching on the per-event flag
 
-The flag is per event, so it must be in the `GROUP BY`. A model can mix
-exclusive, inclusive and unset events on the same day, and the flag is often
-unset. Never collapse the group with `any()` — that picks one event's flag and
-applies its formula to every event in the group, which can report a cache-hit
-rate above 1. Keep the unset events in their own row with no rate.
+The flag is per event, so each reporting style needs its own rate. Put the flag
+in the `GROUP BY`, as the query below does, or sum each branch conditionally. A
+model can mix exclusive, inclusive and unset events on the same day, and the
+flag is often unset. Never collapse the group with `any()` — that picks one
+event's flag and applies its formula to every event in the group, which can
+report a cache-hit rate above 1. Keep the unset events in their own row with no
+rate.
 
 ```sql
 posthog:execute-sql
@@ -58,6 +60,9 @@ A `cache_reporting = 'unavailable'` row has no valid denominator, so
 `cache_hit_rate` is null there. Report it as unavailable and read the token
 columns instead of guessing a formula.
 
-The same flag-grouped formula powers `cache_hit_rate` in the [breakdown
-patterns](./breakdown-patterns.md) "input vs output vs cache economics" recipe
-and in [regression debugging](./regression-debugging.md) step 4.
+[Regression debugging](./regression-debugging.md) step 4 groups the same way
+with `day` added, so its `cache_hit_rate` column reads like this one. The
+[breakdown patterns](./breakdown-patterns.md) "input vs output vs cache
+economics" recipe needs one row per model for its `total_cost` ranking, so it
+runs these two formulas as conditional sums and reports them side by side as
+`cache_hit_rate_exclusive` and `cache_hit_rate_inclusive`.
