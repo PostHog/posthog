@@ -218,7 +218,7 @@ An alias file is a file with another name that a tool reads as an ownership file
 The root file declares the alias files in `alias_files` (section 5).
 
 1. Each entry of `alias_files` MUST be a bare file name. It MUST NOT contain `/` or `\`, and it MUST NOT be `.` or `..`.
-2. An entry MUST NOT be `owners.yaml`.
+2. An entry MUST NOT be `owners.yaml`. An entry MUST NOT appear twice.
 3. `alias_files` MUST NOT hold more than 8 entries. A tool MUST ignore the whole list when it does.
 4. A tool MUST NOT read a file as an ownership file unless the file is named `owners.yaml` or the root file declares its name in `alias_files`.
 5. A tool MUST read only the `owners` field of an alias file. All other fields have no effect on ownership.

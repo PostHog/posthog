@@ -301,6 +301,9 @@ def _validate_settings(data: dict[object, object], errors: list[str]) -> RepoSet
         if name == OWNERS_FILENAME:
             errors.append(f"alias_files: '{OWNERS_FILENAME}' is the ownership file, not an alias")
             continue
+        if name in alias_files:
+            errors.append(f"alias_files: '{name}' is listed twice")
+            continue
         alias_files.append(name)
     if len(alias_files) > MAX_ALIAS_FILES:
         errors.append(f"alias_files: at most {MAX_ALIAS_FILES} names are allowed")
