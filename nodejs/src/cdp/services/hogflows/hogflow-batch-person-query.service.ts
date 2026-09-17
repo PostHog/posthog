@@ -1,3 +1,5 @@
+import { Counter } from 'prom-client'
+
 import { InternalFetchService } from '~/common/services/internal-fetch'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger, serializeError } from '~/common/utils/logger'
@@ -23,6 +25,45 @@ export interface AccountAudienceResponse {
     group_type: string
 }
 
+const counterAudienceFetchTimeout = new Counter({
+    name: 'cdp_batch_hog_flow_audience_fetch_timeout',
+    help: 'An audience fetch for a batch hog flow exceeded its client-side timeout budget',
+    labelNames: ['endpoint'],
+})
+
+export type AudienceFetchEndpoint = 'user_blast_radius' | 'user_blast_radius_persons' | 'account_audience'
+
+/**
+ * An audience fetch used its full CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS budget.
+ * The client aborted the request. The query behind the endpoint keeps running server-side
+ * until the HogQL execution cap, so a timeout means the query is too slow, and not that
+ * Django is unreachable. The two failures need different operator action, so they get
+ * different error types.
+ */
+export class AudienceFetchTimeoutError extends Error {
+    override name = 'AudienceFetchTimeoutError'
+
+    constructor(
+        public readonly endpoint: AudienceFetchEndpoint,
+        public readonly timeoutMs: number
+    ) {
+        super(
+            `Audience fetch to ${endpoint} timed out after ${timeoutMs}ms. The audience query did not finish ` +
+                `inside CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS.`
+        )
+    }
+}
+
+// AbortSignal.timeout rejects with a TimeoutError. undici reports some aborts as an
+// AbortError, and can wrap either one in `cause`.
+const TIMEOUT_ERROR_NAMES = ['TimeoutError', 'AbortError']
+
+const isTimeoutError = (error: unknown): boolean => {
+    const name = (error as { name?: string } | null)?.name
+    const causeName = (error as { cause?: { name?: string } } | null)?.cause?.name
+    return TIMEOUT_ERROR_NAMES.includes(name ?? '') || TIMEOUT_ERROR_NAMES.includes(causeName ?? '')
+}
+
 /**
  * Service for querying persons via Django internal API for batch HogFlow processing.
  * Calls internal endpoints authenticated with INTERNAL_API_SECRET.
@@ -33,6 +74,31 @@ export class HogFlowBatchPersonQueryService {
         private internalFetchService: InternalFetchService,
         private audienceFetchTimeoutMs: number
     ) {}
+
+    /**
+     * Raise the error the caller sees for a transport failure. A timeout gets its own error
+     * type and its own counter, because the audience query is too slow for the budget. Any
+     * other transport error keeps its original type.
+     */
+    private failFetch(endpoint: AudienceFetchEndpoint, urlPath: string, fetchError: Error | null): never {
+        if (isTimeoutError(fetchError)) {
+            counterAudienceFetchTimeout.labels({ endpoint }).inc()
+            logger.error('Audience fetch timed out', {
+                endpoint,
+                urlPath,
+                timeoutMs: this.audienceFetchTimeoutMs,
+                error: serializeError(fetchError),
+            })
+            throw new AudienceFetchTimeoutError(endpoint, this.audienceFetchTimeoutMs)
+        }
+
+        logger.error('Error fetching audience from Django', {
+            endpoint,
+            urlPath,
+            error: serializeError(fetchError),
+        })
+        throw fetchError ?? new Error(`Audience fetch to ${endpoint} returned no response`)
+    }
 
     /**
      * Get count of users affected by filters
@@ -59,11 +125,7 @@ export class HogFlowBatchPersonQueryService {
             })
 
             if (!fetchResponse || fetchError) {
-                logger.error('Error fetching blast radius from Django', {
-                    error: serializeError(fetchError),
-                    urlPath,
-                })
-                throw fetchError
+                this.failFetch('user_blast_radius', urlPath, fetchError)
             }
 
             if (fetchResponse.status !== 200) {
@@ -116,11 +178,7 @@ export class HogFlowBatchPersonQueryService {
             })
 
             if (!fetchResponse || fetchError) {
-                logger.error('Error fetching blast radius persons from Django', {
-                    error: serializeError(fetchError),
-                    urlPath,
-                })
-                throw fetchError
+                this.failFetch('user_blast_radius_persons', urlPath, fetchError)
             }
 
             if (fetchResponse.status !== 200) {
@@ -166,11 +224,7 @@ export class HogFlowBatchPersonQueryService {
             })
 
             if (!fetchResponse || fetchError) {
-                logger.error('Error fetching account audience from Django', {
-                    error: serializeError(fetchError),
-                    urlPath,
-                })
-                throw fetchError
+                this.failFetch('account_audience', urlPath, fetchError)
             }
 
             if (fetchResponse.status !== 200) {
