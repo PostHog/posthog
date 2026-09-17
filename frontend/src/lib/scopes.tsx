@@ -392,8 +392,7 @@ export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePrese
 
 export const OTHER_SCOPE_GROUP_LABEL = 'Other'
 
-// Unfiled objects fall back to OTHER_SCOPE_GROUP_LABEL, so a scope the generated map lags
-// behind still renders.
+// An object that is not in the generated map gets OTHER_SCOPE_GROUP_LABEL, so it still renders.
 const SCOPE_GROUP_LABEL_BY_OBJECT: Record<string, string> = Object.fromEntries(
     API_SCOPE_GROUPS.flatMap(({ label, objects }) => objects.map((object) => [object, label]))
 )

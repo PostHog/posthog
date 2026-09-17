@@ -72,7 +72,8 @@ export type OAuthScopeGroup = {
 
 const WILDCARD_LABEL = 'All PostHog data'
 
-// Below this many adjustable rows the flat alphabetical list reads faster than group headers.
+// A request with this many adjustable rows or fewer shows a flat alphabetical list. Group
+// headers only help when the list is long.
 export const SCOPE_GROUPING_MIN_ROWS = 10
 
 // Fallback for scopes absent from API_SCOPES (e.g. server-side scopes the local list lags
@@ -879,8 +880,8 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             (s) => [s.adjustableScopeRows],
             (adjustableScopeRows: OAuthScopeRow[]): boolean => adjustableScopeRows.length > SCOPE_GROUPING_MIN_ROWS,
         ],
-        // Adjustable rows bucketed by product area in API_SCOPE_GROUPS order. Unfiled objects
-        // gather under "Other" at the end, so a scope the generated map lags behind still shows.
+        // The adjustable rows, grouped by product area in API_SCOPE_GROUPS order. An object that is
+        // not in the map goes in the "Other" group at the end, so it still shows.
         scopeGroups: [
             (s) => [s.adjustableScopeRows],
             (adjustableScopeRows: OAuthScopeRow[]): OAuthScopeGroup[] => {

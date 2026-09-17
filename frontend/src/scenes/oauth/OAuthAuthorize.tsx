@@ -279,8 +279,8 @@ export const OAuthAuthorize = (): JSX.Element => {
                         {/* Everything the person reads and adjusts scrolls in here. The action row
                             below sits outside, so Authorize stays reachable however many
                             permissions the application asks for. */}
-                        {/* The gutter stays reserved, so expanding a group cannot shift the whole
-                            column left when the scrollbar appears. */}
+                        {/* The scrollbar gutter is always reserved. When a group opens and the scrollbar
+                            appears, the column does not move. */}
                         <div
                             className="flex flex-col min-h-0 overflow-y-auto [scrollbar-gutter:stable]"
                             data-attr="oauth-permissions-scroll"

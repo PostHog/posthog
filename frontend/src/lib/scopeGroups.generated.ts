@@ -3,11 +3,11 @@
 
 export type APIScopeGroup = {
     label: string
-    // Plain strings: the backend registry can carry objects the frontend type lags behind.
+    // Plain strings, because the backend registry can have objects that the frontend type does not have yet.
     objects: string[]
 }
 
-// Product areas the scope pickers group objects under, in display order.
+// The product areas that the scope pickers use to group objects, in display order.
 export const API_SCOPE_GROUPS: APIScopeGroup[] = [
     {
         label: 'Product analytics',
@@ -22,9 +22,18 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'subscription',
             'alert',
             'annotation',
-            'heatmap',
             'export',
             'sharing_configuration',
+        ],
+    },
+    {
+        label: 'Web, marketing & revenue analytics',
+        objects: [
+            'web_analytics',
+            'marketing_analytics',
+            'revenue_analytics',
+            'heatmap',
+            'link',
         ],
     },
     {
@@ -38,23 +47,17 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'property_definition',
             'event_filter',
             'element',
-            'ingestion_warning',
-            'live_debugger',
-            'business_knowledge',
-            'field_note',
         ],
     },
     {
-        label: 'Web, marketing & product usage',
+        label: 'Session replay',
         objects: [
-            'web_analytics',
-            'marketing_analytics',
-            'revenue_analytics',
-            'engineering_analytics',
-            'mcp_analytics',
-            'usage_metric',
-            'product_enablement',
-            'link',
+            'session_recording',
+            'session_recording_playlist',
+            'replay_scanner',
+            'vision_action',
+            'vision_alert',
+            'visual_review',
         ],
     },
     {
@@ -71,29 +74,16 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
         ],
     },
     {
-        label: 'Session replay',
-        objects: [
-            'session_recording',
-            'session_recording_playlist',
-            'replay_scanner',
-            'vision_action',
-            'vision_alert',
-            'visual_review',
-            'toolbar',
-        ],
-    },
-    {
         label: 'Error tracking, logs & tracing',
         objects: [
             'error_tracking',
             'logs',
             'tracing',
             'metrics',
-            'health_issue',
         ],
     },
     {
-        label: 'LLM analytics',
+        label: 'LLM & MCP analytics',
         objects: [
             'llm_analytics',
             'llm_prompt',
@@ -105,6 +95,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'evaluation',
             'tagger',
             'ai_observability_clusters',
+            'mcp_analytics',
         ],
     },
     {
@@ -119,20 +110,22 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'data_catalog_approval',
             'batch_export',
             'batch_import',
-            'batch_import_support',
             'hog_function',
             'hog_flow',
             'endpoint',
             'streamlit_app',
             'webhook',
             'plugin',
-            'query_performance',
-            'clickhouse_test_cluster_perf',
         ],
     },
     {
-        label: 'AI agents & automation',
+        label: 'PostHog AI, agents & knowledge',
         objects: [
+            'conversation',
+            'business_knowledge',
+            'context_layer_internal',
+            'mcp_builtin_agent',
+            'mcp_registry',
             'task',
             'loop',
             'loop_context_internal',
@@ -142,16 +135,11 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'signal_scratchpad_internal',
             'internal_run',
             'interactive_run',
-            'review_hog',
-            'context_layer_internal',
-            'approvals',
-            'stamphog',
-            'autoresearch',
-            'conversation',
-            'mcp_builtin_agent',
-            'mcp_registry',
             'slack_run',
-            'wizard_session',
+            'review_hog',
+            'approvals',
+            'autoresearch',
+            'field_note',
         ],
     },
     {
@@ -162,7 +150,24 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'customer_journey',
             'customer_task',
             'customer_profile_config',
+            'usage_metric',
             'ticket',
+        ],
+    },
+    {
+        label: 'Setup & data management',
+        objects: [
+            'toolbar',
+            'live_debugger',
+            'ingestion_warning',
+            'health_issue',
+            'product_enablement',
+            'wizard_session',
+            'integration',
+            'organization_integration',
+            'uploaded_media',
+            'file_system',
+            'file_system_shortcut',
         ],
     },
     {
@@ -170,18 +175,23 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
         objects: [
             'organization',
             'organization_member',
-            'organization_integration',
             'project',
             'user',
             'billing',
             'access_control',
             'activity_log',
-            'integration',
-            'uploaded_media',
             'comment',
-            'file_system',
-            'file_system_shortcut',
             'legal_document',
+        ],
+    },
+    {
+        label: 'Internal tools',
+        objects: [
+            'engineering_analytics',
+            'stamphog',
+            'query_performance',
+            'clickhouse_test_cluster_perf',
+            'batch_import_support',
         ],
     },
 ]

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Project `API_SCOPE_GROUPS` from posthog/scopes.py into the frontend.
+"""Write `API_SCOPE_GROUPS` from posthog/scopes.py to the frontend.
 
-Emits `frontend/src/lib/scopeGroups.generated.ts`, which the scope pickers read to bucket
-scope objects by product area. Generating it keeps `posthog/scopes.py` the single authority
-for how scopes are classified; the TS side is a projection of it.
+The script writes `frontend/src/lib/scopeGroups.generated.ts`. The scope pickers read this
+file to group scope objects by product area. `posthog/scopes.py` is the only source of the
+groups. The TypeScript file is a copy that this script makes.
 
-Run via hogli: `hogli build:openapi-scope-groups` (also runs as part of `build:openapi`).
+Run with hogli: `hogli build:openapi-scope-groups`. It also runs as part of `build:openapi`.
 """
 # ruff: noqa: T201
 
@@ -21,10 +21,11 @@ OUTPUT_TS = REPO_ROOT / "frontend" / "src" / "lib" / "scopeGroups.generated.ts"
 
 
 def main() -> int:
-    # runpy loads the file by path, bypassing posthog/__init__.py and its Django imports.
+    # runpy loads the file by path. This does not run posthog/__init__.py, which imports Django.
     groups = runpy.run_path(str(SCOPES_PY))["API_SCOPE_GROUPS"]
 
-    # oxfmt enforces single quotes; format by hand so the output is byte-stable.
+    # oxfmt requires single quotes. The script formats the text itself, so the output is the
+    # same on each run.
     for label, objects in groups:
         for text in (label, *objects):
             if "'" in text or "\\" in text:
@@ -40,11 +41,11 @@ def main() -> int:
         "\n"
         "export type APIScopeGroup = {\n"
         "    label: string\n"
-        "    // Plain strings: the backend registry can carry objects the frontend type lags behind.\n"
+        "    // Plain strings, because the backend registry can have objects that the frontend type does not have yet.\n"
         "    objects: string[]\n"
         "}\n"
         "\n"
-        "// Product areas the scope pickers group objects under, in display order.\n"
+        "// The product areas that the scope pickers use to group objects, in display order.\n"
         "export const API_SCOPE_GROUPS: APIScopeGroup[] = [\n"
         f"{body},\n"
         "]\n"

@@ -10,9 +10,9 @@ from typing import Literal, get_args
 # - frontend/src/lib/scopes.tsx
 # - frontend/src/types.ts (`export type APIScopeObject`)
 #
-# `API_SCOPE_GROUPS` below is projected into `frontend/src/lib/scopeGroups.generated.ts`
-# by `bin/build-scope-groups.py` (part of `hogli build:openapi`), so the consent screen
-# groups scopes without a second copy of the map.
+# `bin/build-scope-groups.py` writes `API_SCOPE_GROUPS` (below) to
+# `frontend/src/lib/scopeGroups.generated.ts`. It runs as part of `hogli build:openapi`.
+# The frontend reads that file. It does not keep a copy of the map.
 #
 # The MCP `OAUTH_SCOPES_SUPPORTED` list at
 # `services/mcp/src/lib/oauth-scopes.generated.ts` is generated from
@@ -221,9 +221,10 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     }
 )
 
-# Product areas the scope pickers group objects under, in display order. Every object in
-# `API_SCOPE_OBJECTS` belongs to exactly one group (test_scopes.py checks), internal and
-# hidden ones included, so a picker never has to special-case an unfiled object.
+# The product areas that the scope pickers use to group objects, in display order. Each
+# object in `API_SCOPE_OBJECTS` is in exactly one group. This includes internal and hidden
+# objects, so a picker does not have to handle an object that has no group. A test in
+# test_scopes.py checks this.
 API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
     (
         "Product analytics",
@@ -238,9 +239,18 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
             "subscription",
             "alert",
             "annotation",
-            "heatmap",
             "export",
             "sharing_configuration",
+        ),
+    ),
+    (
+        "Web, marketing & revenue analytics",
+        (
+            "web_analytics",
+            "marketing_analytics",
+            "revenue_analytics",
+            "heatmap",
+            "link",
         ),
     ),
     (
@@ -254,23 +264,17 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
             "property_definition",
             "event_filter",
             "element",
-            "ingestion_warning",
-            "live_debugger",
-            "business_knowledge",
-            "field_note",
         ),
     ),
     (
-        "Web, marketing & product usage",
+        "Session replay",
         (
-            "web_analytics",
-            "marketing_analytics",
-            "revenue_analytics",
-            "engineering_analytics",
-            "mcp_analytics",
-            "usage_metric",
-            "product_enablement",
-            "link",
+            "session_recording",
+            "session_recording_playlist",
+            "replay_scanner",
+            "vision_action",
+            "vision_alert",
+            "visual_review",
         ),
     ),
     (
@@ -287,20 +291,16 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
         ),
     ),
     (
-        "Session replay",
+        "Error tracking, logs & tracing",
         (
-            "session_recording",
-            "session_recording_playlist",
-            "replay_scanner",
-            "vision_action",
-            "vision_alert",
-            "visual_review",
-            "toolbar",
+            "error_tracking",
+            "logs",
+            "tracing",
+            "metrics",
         ),
     ),
-    ("Error tracking, logs & tracing", ("error_tracking", "logs", "tracing", "metrics", "health_issue")),
     (
-        "LLM analytics",
+        "LLM & MCP analytics",
         (
             "llm_analytics",
             "llm_prompt",
@@ -312,6 +312,7 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
             "evaluation",
             "tagger",
             "ai_observability_clusters",
+            "mcp_analytics",
         ),
     ),
     (
@@ -326,20 +327,22 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
             "data_catalog_approval",
             "batch_export",
             "batch_import",
-            "batch_import_support",
             "hog_function",
             "hog_flow",
             "endpoint",
             "streamlit_app",
             "webhook",
             "plugin",
-            "query_performance",
-            "clickhouse_test_cluster_perf",
         ),
     ),
     (
-        "AI agents & automation",
+        "PostHog AI, agents & knowledge",
         (
+            "conversation",
+            "business_knowledge",
+            "context_layer_internal",
+            "mcp_builtin_agent",
+            "mcp_registry",
             "task",
             "loop",
             "loop_context_internal",
@@ -349,39 +352,63 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
             "signal_scratchpad_internal",
             "internal_run",
             "interactive_run",
-            "review_hog",
-            "context_layer_internal",
-            "approvals",
-            "stamphog",
-            "autoresearch",
-            "conversation",
-            "mcp_builtin_agent",
-            "mcp_registry",
             "slack_run",
-            "wizard_session",
+            "review_hog",
+            "approvals",
+            "autoresearch",
+            "field_note",
         ),
     ),
     (
         "Customers & support",
-        ("customer_analytics", "account", "customer_journey", "customer_task", "customer_profile_config", "ticket"),
+        (
+            "customer_analytics",
+            "account",
+            "customer_journey",
+            "customer_task",
+            "customer_profile_config",
+            "usage_metric",
+            "ticket",
+        ),
+    ),
+    (
+        "Setup & data management",
+        (
+            "toolbar",
+            "live_debugger",
+            "ingestion_warning",
+            "health_issue",
+            "product_enablement",
+            "wizard_session",
+            "integration",
+            "organization_integration",
+            "uploaded_media",
+            "file_system",
+            "file_system_shortcut",
+        ),
     ),
     (
         "Organization & account",
         (
             "organization",
             "organization_member",
-            "organization_integration",
             "project",
             "user",
             "billing",
             "access_control",
             "activity_log",
-            "integration",
-            "uploaded_media",
             "comment",
-            "file_system",
-            "file_system_shortcut",
             "legal_document",
+        ),
+    ),
+    (
+        "Internal tools",
+        (
+            "engineering_analytics",
+            "stamphog",
+            "query_performance",
+            "clickhouse_test_cluster_perf",
+            "batch_import_support",
         ),
     ),
 )
