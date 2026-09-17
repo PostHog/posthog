@@ -66,10 +66,9 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     resolve_ai_query_plan_status,
 )
 from products.exports.backend.temporal.subscriptions.types import safe_query_error_details
-
-from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
-from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.tool_errors import MaxToolRetryableError
+from products.posthog_ai.backend.hogai.context.insight.query_executor import AssistantQueryExecutor
+from products.posthog_ai.backend.hogai.llm import MaxChatOpenAI
+from products.posthog_ai.backend.hogai.tool_errors import MaxToolRetryableError
 
 logger = structlog.get_logger(__name__)
 

@@ -13,12 +13,11 @@ from posthog.schema import (
 )
 
 from products.posthog_ai.backend.context_wrapper import AttachedContext, ContextService
+from products.posthog_ai.backend.hogai.api.serializers import ConversationStateResult
+from products.posthog_ai.backend.hogai.utils.types import AssistantState
 from products.posthog_ai.backend.models.assistant import Conversation
 
-from ee.hogai.api.serializers import ConversationStateResult
-from ee.hogai.utils.types import AssistantState
-
-SERIALIZERS = "ee.hogai.api.serializers"
+SERIALIZERS = "products.posthog_ai.backend.hogai.api.serializers"
 WRAPPER = "products.posthog_ai.backend.context_wrapper"
 
 

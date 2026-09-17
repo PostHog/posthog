@@ -17,7 +17,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 
-from ee.hogai.llm_traces_summaries.summarize_traces import LLMTracesSummarizer
+from products.posthog_ai.backend.hogai.llm_traces_summaries.summarize_traces import LLMTracesSummarizer
 
 logger = structlog.get_logger(__name__)
 

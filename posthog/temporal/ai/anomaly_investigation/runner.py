@@ -81,7 +81,7 @@ async def run_investigation(
     """
     # Imported here so the workflow module does not require the ee package at import time
     # (Temporal workflow sandbox restrictions).
-    from ee.hogai.llm import MaxChatAnthropic
+    from products.posthog_ai.backend.hogai.llm import MaxChatAnthropic
 
     toolkit = InvestigationToolkit(team=team, alert=alert)
     handlers: dict[str, ToolHandler] = {

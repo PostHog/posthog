@@ -3,14 +3,13 @@ from unittest.mock import AsyncMock, patch
 
 from django.test import SimpleTestCase
 
+from products.posthog_ai.backend.hogai.utils.types import AssistantState
 from products.web_analytics.backend.heatmap_screenshot_grounding import GroundingResult
 from products.web_analytics.backend.max_tools import (
     SummarizeWebsiteInteractionsTool,
     _format_website_interactions_report,
     _resolve_page_session_ids,
 )
-
-from ee.hogai.utils.types import AssistantState
 
 _MODULE = "products.web_analytics.backend.max_tools"
 

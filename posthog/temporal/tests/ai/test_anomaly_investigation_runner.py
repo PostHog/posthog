@@ -364,7 +364,7 @@ async def test_finalize_turn_retries_then_salvages_invalid_report(
     )
 
     with (
-        patch("ee.hogai.llm.MaxChatAnthropic", return_value=llm),
+        patch("products.posthog_ai.backend.hogai.llm.MaxChatAnthropic", return_value=llm),
         patch("posthog.temporal.ai.anomaly_investigation.runner.posthoganalytics") as mock_module,
     ):
         mock_module.default_client = None

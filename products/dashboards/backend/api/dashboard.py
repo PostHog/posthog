@@ -161,6 +161,7 @@ from products.notifications.backend.facade.api import (
     create_notification,
     has_been_dispatched,
 )
+from products.posthog_ai.backend.hogai.utils.aio import async_to_sync
 from products.product_analytics.backend.facade.api import insight_variables_for_team
 from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight import (
@@ -170,8 +171,6 @@ from products.product_analytics.backend.presentation.insight import (
     InsightViewSet,
     get_insight_type,
 )
-
-from ee.hogai.utils.aio import async_to_sync
 
 
 def _normalize_dashboard_customization(customization: Any) -> dict[str, Any]:
@@ -3649,7 +3648,7 @@ class DashboardsViewSet(
         if not settings.EE_AVAILABLE:
             return None
         try:
-            from ee.hogai.context.insight.format import format_query_results_for_llm
+            from products.posthog_ai.backend.hogai.context.insight.format import format_query_results_for_llm
 
             query_dict = insight.query
             if not query_dict:

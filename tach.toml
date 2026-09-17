@@ -184,6 +184,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.cdp",
+    "products.posthog_ai",
     "products.product_analytics", "products.access_control",
 ]
 layer = "modules"
@@ -249,6 +250,7 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.batch_exports",
+    "products.posthog_ai",
 ]
 layer = "modules"
 
@@ -288,6 +290,7 @@ depends_on = [
     "products.logs",
     "products.mcp_analytics",
     "products.notifications",
+    "products.posthog_ai",
     "products.product_analytics",
     "products.conversations",
     "products.surveys", "products.access_control",
@@ -387,6 +390,7 @@ depends_on = [
     "products.cdp",
     "products.data_quality",
     "products.data_modeling",
+    "products.posthog_ai",
     "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
     "products.warehouse_sources_queue",
     "products.managed_warehouse", "products.access_control",
@@ -440,6 +444,7 @@ depends_on = [
     "posthog",
     "products.cdp",
     "products.notifications",
+    "products.posthog_ai",
     "products.signals",
     "products.warehouse_sources", "products.access_control",
 ]
@@ -467,6 +472,7 @@ depends_on = [
     "products.event_definitions",
     "products.feature_flags",
     "products.notifications",
+    "products.posthog_ai",
     # An experiment with a funnel metric runs the funnel through product analytics.
     "products.product_analytics",
     "products.product_tours",
@@ -488,6 +494,7 @@ depends_on = [
     "products.early_access_features",
     "products.experiments",
     "products.exports",
+    "products.posthog_ai",
     "products.product_analytics",
     "products.product_tours",
     "products.surveys", "products.access_control",
@@ -526,6 +533,7 @@ depends_on = [
     "posthog",
     "products.dashboards",
     "products.exports",
+    "products.posthog_ai",
     "products.workflows", "products.access_control",
 ]
 layer = "modules"
@@ -611,6 +619,7 @@ path = "products.mcp_store"
 depends_on = [
     "ee",
     "posthog", "products.access_control",
+    "products.posthog_ai",
 ]
 layer = "modules"
 
@@ -641,6 +650,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.canvas",
+    "products.posthog_ai",
     "products.product_analytics",
     "products.tasks", "products.access_control",
 ]
@@ -657,6 +667,7 @@ depends_on = [
     "products.dashboards",
     "products.experiments",
     "products.exports",
+    "products.posthog_ai",
     "products.product_analytics", "products.access_control",
 ]
 layer = "modules"
@@ -682,6 +693,7 @@ path = "products.platform_features"
 depends_on = [
     "ee",
     "posthog",
+    "products.posthog_ai",
 ]
 layer = "modules"
 
@@ -690,15 +702,35 @@ path = "products.posthog_ai"
 depends_on = [
     "ee",
     "posthog",
+    "products.access_control",
+    "products.actions",
+    "products.ai_observability",
+    "products.alerts",
+    "products.business_knowledge",
+    "products.cohorts",
+    "products.customer_analytics",
+    "products.dashboards",
+    "products.data_modeling",
     "products.error_tracking",
     "products.event_definitions",
-    "products.ai_observability",
+    "products.experiments",
+    "products.exports",
+    "products.feature_flags",
     "products.logs",
+    "products.mcp_store",
+    "products.notebooks",
+    "products.product_analytics",
+    "products.replay",
+    "products.replay_vision",
     # The skill build reads the bundled-skill names the skills store validates against, so the
     # two sides share one definition. The skills product has no facade, so this matches how
     # review_hog, signals and tasks reach it.
     "products.skills",
+    "products.slack_app",
+    "products.surveys",
     "products.tasks",
+    "products.user_interviews",
+    "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -768,6 +800,7 @@ path = "products.replay"
 depends_on = [
     "ee",
     "posthog", "products.access_control",
+    "products.posthog_ai",
 ]
 layer = "modules"
 
@@ -785,6 +818,7 @@ depends_on = [
     "products.exports",
     "products.feature_flags",
     "products.notifications",
+    "products.posthog_ai",
     "products.signals",
     "products.tasks", "products.access_control",
 ]
@@ -860,6 +894,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.ai_observability", "products.access_control",
+    "products.posthog_ai",
 ]
 layer = "modules"
 
@@ -884,6 +919,7 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.feature_flags",
+    "products.posthog_ai",
     "products.product_analytics",
     "products.product_tours", "products.access_control",
 ]
@@ -900,6 +936,7 @@ depends_on = [
     "products.data_warehouse",
     "products.notebooks",
     "products.notifications",
+    "products.posthog_ai",
     "products.product_analytics",
     "products.warehouse_sources",
     "products.workflows", "products.access_control",
@@ -926,6 +963,7 @@ depends_on = [
     "products.actions",
     "products.analytics_platform", "products.warehouse_sources",
     "products.feature_flags",
+    "products.posthog_ai",
 ]
 layer = "modules"
 
@@ -1034,6 +1072,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.ai_observability", "products.access_control",
+    "products.posthog_ai",
 ]
 layer = "modules"
 
@@ -1062,6 +1101,7 @@ depends_on = [
     "products.actions",
     "products.analytics_platform",
     "products.notifications",
+    "products.posthog_ai",
     # The web trends, web vitals and calendar heatmap runners subclass product analytics' trends runners.
     "products.product_analytics",
     "products.replay_vision",
@@ -1079,6 +1119,7 @@ depends_on = [
     "products.feature_flags",
     "products.messaging",
     "products.notifications",
+    "products.posthog_ai",
     # Facade-only: the Run scout action's endpoint starts a scout run through
     # products.signals.backend.facade.api.
     "products.signals",
@@ -1373,7 +1414,7 @@ from = [
 
 [[modules]]
 path = "products.business_knowledge"
-depends_on = ["posthog", "ee", "products.access_control"]
+depends_on = ["posthog", "ee", "products.access_control", "products.posthog_ai"]
 layer = "modules"
 
 [[interfaces]]

@@ -11,9 +11,9 @@ from pathlib import Path
 # of widening this budget. See logs/startup-profile and the PRs that introduced these cuts.
 FORBIDDEN_AT_SETUP = [
     "posthog.api.rest_router",  # the 160-route DRF aggregator — builds lazily on first request
-    "posthog.temporal.ai",  # AI temporal workflows -> ee.hogai chat-agent core
-    "ee.hogai.chat_agent.graph",  # the assistant graph
-    "ee.hogai.tools",  # the agent tool registry
+    "posthog.temporal.ai",  # AI temporal workflows -> products.posthog_ai.backend.hogai chat-agent core
+    "products.posthog_ai.backend.hogai.chat_agent.graph",  # the assistant graph
+    "products.posthog_ai.backend.hogai.tools",  # the agent tool registry
     "chdb",  # embedded ClickHouse
     "posthog.temporal.ai_observability",  # eval/clustering workers (pulls scipy, etc.)
     "scipy",  # only reached via ai_observability clustering — must not be at startup
@@ -299,8 +299,8 @@ def test_setup_receivers_match_baseline() -> None:
 # Cold-start trap the lazy router introduced and the whole pytest suite is blind to. With the AI agent
 # core off the startup path, a fresh process no longer pre-imports it — so the FIRST reader of the MCP
 # tool registry (the first MCP-tools API request in a new worker) becomes the first importer of the
-# ee.hogai.tools -> chat_agent chain. A latent cycle in that chain (.task -> core.executor ->
-# posthog.temporal.ai -> chat_agent.toolkit -> back into ee.hogai.tools) used to resolve only by
+# products.posthog_ai.backend.hogai.tools -> chat_agent chain. A latent cycle in that chain (.task -> core.executor ->
+# posthog.temporal.ai -> chat_agent.toolkit -> back into products.posthog_ai.backend.hogai.tools) used to resolve only by
 # import-order luck: the eager router imported the chain at setup, so by the time anything read the
 # registry the modules were already complete. Remove that luck and the first request 500s on a
 # half-initialized import. Every in-process test misses it because hundreds of test modules import the
@@ -311,7 +311,7 @@ import os
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 import django
 django.setup()
-from ee.hogai.mcp_tool import mcp_tool_registry
+from products.posthog_ai.backend.hogai.mcp_tool import mcp_tool_registry
 names = mcp_tool_registry.get_names()
 assert names, "registry returned no tools"
 print(len(names))
@@ -327,7 +327,7 @@ def test_mcp_tool_registry_loads_cold_without_import_cycle() -> None:
     )
     assert result.returncode == 0, (
         "Reading the MCP tool registry in a cold process (mirrors the first MCP-tools request in a fresh "
-        "worker) crashed. A module-level import in a tool submodule reaches back into ee.hogai.tools through "
+        "worker) crashed. A module-level import in a tool submodule reaches back into products.posthog_ai.backend.hogai.tools through "
         "the chat_agent chain, forming a cycle that only resolves when something imported the agent core "
         f"first — which no longer happens at django.setup(). Defer the offending import. Subprocess stderr:\n"
         f"{result.stderr[-2000:]}"

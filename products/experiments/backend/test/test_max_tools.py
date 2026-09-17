@@ -13,9 +13,8 @@ from products.experiments.backend.experiment_summary_data_service import Experim
 from products.experiments.backend.max_tools import CreateExperimentTool, ExperimentSummaryTool
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-
-from ee.hogai.tool_errors import MaxToolAccessDeniedError
-from ee.hogai.utils.types import AssistantState
+from products.posthog_ai.backend.hogai.tool_errors import MaxToolAccessDeniedError
+from products.posthog_ai.backend.hogai.utils.types import AssistantState
 
 
 class TestCreateExperimentTool(APIBaseTest):

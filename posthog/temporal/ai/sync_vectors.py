@@ -24,9 +24,8 @@ from posthog.temporal.common.clickhouse import ClickHouseClient, get_client
 from posthog.temporal.common.utils import get_scheduled_start_time
 
 from products.actions.backend.models.action import Action
-
-from ee.hogai.summarizers.chains import abatch_summarize_actions
-from ee.hogai.utils.embeddings import aembed_documents, get_async_azure_embeddings_client
+from products.posthog_ai.backend.hogai.summarizers.chains import abatch_summarize_actions
+from products.posthog_ai.backend.hogai.utils.embeddings import aembed_documents, get_async_azure_embeddings_client
 
 logger = structlog.get_logger(__name__)
 

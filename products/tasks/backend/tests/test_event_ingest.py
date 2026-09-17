@@ -16,6 +16,7 @@ from prometheus_client import REGISTRY
 from posthog.models import Organization, Team, User
 from posthog.redis import TEST_clear_clients
 
+from products.posthog_ai.backend.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_EVENT_INGEST_TOKEN_TTL,
     create_sandbox_connection_token,
@@ -39,8 +40,6 @@ from products.tasks.backend.logic.stream.redis_stream import (
 )
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.tests.test_api import TEST_RSA_PRIVATE_KEY
-
-from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE
 
 SKIP_COUNTER_SAMPLE = "posthog_tasks_task_run_stream_write_skipped_total"
 

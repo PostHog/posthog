@@ -8,8 +8,7 @@ from posthog.schema import PropertyOperator
 from posthog.taxonomy.taxonomy import CoreFilterDefinition, visible_definitions
 
 from products.cdp.backend.models.hog_functions.hog_function import TYPES_WITH_TRANSPILED_FILTERS, HogFunctionType
-
-from ee.hogai.summarizers.property_filters import PROPERTY_FILTER_VERBOSE_NAME
+from products.posthog_ai.backend.hogai.summarizers.property_filters import PROPERTY_FILTER_VERBOSE_NAME
 
 # `flag_evaluates_to` compiles only on a `type: "flag"` filter. Hog function filters are only ever
 # event, person, or group, and `property_to_expr` raises `NotImplementedError` for those.

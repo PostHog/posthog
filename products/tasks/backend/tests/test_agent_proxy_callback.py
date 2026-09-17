@@ -9,14 +9,13 @@ from parameterized import parameterized
 
 from posthog.models import Organization, Team
 
+from products.posthog_ai.backend.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE
 from products.tasks.backend.logic.services.connection_token import (
     create_sandbox_event_ingest_token,
     reset_sandbox_jwt_key_cache,
 )
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.tests.test_api import TEST_RSA_PRIVATE_KEY
-
-from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE
 
 
 @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)

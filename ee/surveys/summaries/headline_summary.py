@@ -13,11 +13,10 @@ from posthog.api.utils import ServerTimingsGathered
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.models import Team, User
 
+from products.posthog_ai.backend.hogai.llm import MaxChatOpenAI
 from products.surveys.backend.models import Survey
 from products.surveys.backend.responses.fetch_rows import RESPONSE_EVENT_FILTER, SUBMISSION_GROUPING_KEY
 from products.surveys.backend.util import get_archived_response_uuids, get_survey_response_clickhouse_query
-
-from ee.hogai.llm import MaxChatOpenAI
 
 logger = structlog.get_logger(__name__)
 

@@ -4,7 +4,7 @@ description: >
   Teaches how to write and run evals on the `products/posthog_ai/eval_harness/` harness — sandboxed agent suites that execute the real coding agent in a Docker or Modal sandbox against a seeded Hedgebox project, and one-shot suites that score a single in-process model invocation per case.
   Use when adding or changing eval suites, cases, scorers, seeders, or synthesizers under `products/posthog_ai/evals/` or `products/*/evals/`, when touching the harness under `products/posthog_ai/eval_harness/`, or when running or debugging those evals (`hogli evals`).
   Covers suite kinds and discovery, case anatomy, the seeder/synthesizer split, the one-branch scorer patterns, and how to read results.
-  Not for `ee/hogai/eval/ci/` pytest evals, and not for the LLM Analytics product's evaluation features.
+  Not for `products/posthog_ai/backend/hogai/eval/ci/` pytest evals, and not for the LLM Analytics product's evaluation features.
 ---
 
 # Writing and running evals

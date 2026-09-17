@@ -33,8 +33,7 @@ from products.marketing_analytics.backend.services.event_suggestions import sugg
 from products.marketing_analytics.backend.services.mapping_suggester import suggest_utm_mappings
 from products.marketing_analytics.backend.services.marketing_diagnostic import get_marketing_diagnostic
 from products.marketing_analytics.backend.services.utm_audit import run_utm_audit
-
-from ee.hogai.tool import MaxTool
+from products.posthog_ai.backend.hogai.tool import MaxTool
 
 logger = structlog.get_logger(__name__)
 

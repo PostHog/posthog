@@ -18,6 +18,7 @@ from posthog.event_usage import EventSource
 from posthog.models.team import Team
 
 import products.replay_vision.backend.max_tools as max_tools_module
+from products.posthog_ai.backend.hogai.tool import ApprovalResumePayload, MaxTool
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.max_tools import (
     AnalyzeReplayVisionImpactTool,
@@ -44,8 +45,6 @@ from products.replay_vision.backend.scanner_config import MAX_PROMPT_LENGTH
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN
 from products.replay_vision.backend.tags import slugify_tag
 from products.replay_vision.backend.tests.helpers import seed_scanner_spend
-
-from ee.hogai.tool import ApprovalResumePayload, MaxTool
 
 _SCANNER_LOOKUP_PATH = "products.replay_vision.backend.max_tools.scanner_for_reading_observations"
 # The estimate refresh runs a ClickHouse query; these tests are about the tool, not the query.
@@ -795,7 +794,10 @@ class TestReplayVisionApprovalFlowEndToEnd(BaseTest):
         with (
             patch("products.replay_vision.backend.api.trigger.sync_connect", MagicMock()),
             patch("products.replay_vision.backend.api.trigger.async_to_sync", return_value=start),
-            patch("ee.hogai.tool.interrupt", return_value=self._resume("reject", feedback="too expensive")),
+            patch(
+                "products.posthog_ai.backend.hogai.tool.interrupt",
+                return_value=self._resume("reject", feedback="too expensive"),
+            ),
         ):
             content, _ = await self._tool(ScanReplayVisionSessionsTool)._arun_with_context(
                 session_ids=["s1", "s2"], prompt="did the user rage click?"
@@ -817,7 +819,7 @@ class TestReplayVisionApprovalFlowEndToEnd(BaseTest):
             seen["preview"] = request.preview if hasattr(request, "preview") else request.get("preview")
             return self._resume("reject")
 
-        with patch("ee.hogai.tool.interrupt", side_effect=_capture):
+        with patch("products.posthog_ai.backend.hogai.tool.interrupt", side_effect=_capture):
             await self._tool(ScanReplayVisionSessionsTool)._arun_with_context(
                 session_ids=["s1", "s2"], prompt="did the user rage click?"
             )
@@ -836,7 +838,7 @@ class TestReplayVisionApprovalFlowEndToEnd(BaseTest):
             patch("products.replay_vision.backend.api.trigger.sync_connect", MagicMock()),
             patch("products.replay_vision.backend.api.trigger.async_to_sync", return_value=start),
             patch(
-                "ee.hogai.tool.interrupt",
+                "products.posthog_ai.backend.hogai.tool.interrupt",
                 return_value=self._resume("approve", payload={"session_ids": ["s1"], "scanner_id": str(scanner.id)}),
             ),
         ):
@@ -852,7 +854,7 @@ class TestReplayVisionApprovalFlowEndToEnd(BaseTest):
     async def test_reading_the_quota_never_interrupts(self):
         # A prompt for a free action trains people to click through the ones that cost money.
         interrupt = MagicMock()
-        with patch("ee.hogai.tool.interrupt", interrupt):
+        with patch("products.posthog_ai.backend.hogai.tool.interrupt", interrupt):
             content, artifact = await self._tool(GetReplayVisionQuotaTool)._arun_with_context()
 
         interrupt.assert_not_called()

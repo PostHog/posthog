@@ -22,9 +22,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 from posthog.sync import database_sync_to_async
 
+from products.posthog_ai.backend.hogai.llm import MaxChatAnthropic
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
-
-from ee.hogai.llm import MaxChatAnthropic
 
 if TYPE_CHECKING:
     from posthog.models import Team, User

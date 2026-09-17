@@ -11,7 +11,7 @@ from posthog.schema import CachedTeamTaxonomyQueryResponse
 from posthog.event_usage import EventSource
 from posthog.models import Organization, Team
 
-from ee.hogai.mcp_tool import MCPToolResult
+from products.posthog_ai.backend.hogai.mcp_tool import MCPToolResult
 
 
 class TestMCPToolsAPI(APIBaseTest):
@@ -60,7 +60,9 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertIn("validation error", data["content"].lower())
 
     @parameterized.expand([("text_only", False), ("structured_query", True)])
-    @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
+    @patch(
+        "products.posthog_ai.backend.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock
+    )
     def test_invoke_execute_sql_success(self, _name: str, structured: bool, mock_execute: AsyncMock) -> None:
         content = "event | cnt\ntest_event | 5"
         query = {
@@ -88,7 +90,7 @@ class TestMCPToolsAPI(APIBaseTest):
             self.assertNotIn("structured_content", data)
         mock_execute.assert_called_once()
 
-    @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
+    @patch("products.posthog_ai.backend.hogai.utils.helpers.TeamTaxonomyQueryRunner")
     def test_invoke_read_taxonomy_attributes_query_executed_to_user_and_mcp_source(self, mock_runner_cls):
         now = datetime(2026, 1, 1, tzinfo=UTC)
         mock_runner_cls.return_value.run.return_value = CachedTeamTaxonomyQueryResponse(
@@ -113,9 +115,11 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertEqual(run_kwargs["user"], self.user)
         self.assertEqual(run_kwargs["analytics_props"], {"source": EventSource.MCP})
 
-    @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
+    @patch(
+        "products.posthog_ai.backend.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock
+    )
     def test_invoke_tool_error_returns_error_response(self, mock_execute):
-        from ee.hogai.tool_errors import MaxToolRetryableError
+        from products.posthog_ai.backend.hogai.tool_errors import MaxToolRetryableError
 
         mock_execute.side_effect = MaxToolRetryableError("Query validation failed: syntax error")
 
@@ -130,7 +134,9 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertFalse(data["success"])
         self.assertIn("Tool failed", data["content"])
 
-    @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
+    @patch(
+        "products.posthog_ai.backend.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock
+    )
     def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute):
         mock_execute.side_effect = RuntimeError("unexpected")
 

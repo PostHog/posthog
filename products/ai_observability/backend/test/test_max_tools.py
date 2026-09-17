@@ -4,9 +4,8 @@ from unittest.mock import patch
 from langgraph.errors import GraphInterrupt
 
 from products.ai_observability.backend.max_tools import CONTEXT_PROMPT_TEMPLATE, DSL_REFERENCE, CreateParserRecipeTool
-
-from ee.hogai.tool import ClientToolCallRequest
-from ee.hogai.utils.types.base import NodePath
+from products.posthog_ai.backend.hogai.tool import ClientToolCallRequest
+from products.posthog_ai.backend.hogai.utils.types.base import NodePath
 
 VALID_RECIPE = """
 rules:
@@ -29,7 +28,7 @@ class TestCreateParserRecipeTool(BaseTest):
     async def test_invalid_yaml_returns_error_without_client_round_trip(self):
         tool = self._create_tool()
 
-        with patch("ee.hogai.tool.interrupt") as mock_interrupt:
+        with patch("products.posthog_ai.backend.hogai.tool.interrupt") as mock_interrupt:
             content, artifact = await tool._arun_impl(
                 name="My SDK", yaml_source="rules: [unclosed", event_uuid="event-1"
             )
@@ -41,7 +40,7 @@ class TestCreateParserRecipeTool(BaseTest):
     async def test_valid_yaml_interrupts_for_client_validation(self):
         tool = self._create_tool()
 
-        with patch("ee.hogai.tool.interrupt") as mock_interrupt:
+        with patch("products.posthog_ai.backend.hogai.tool.interrupt") as mock_interrupt:
             mock_interrupt.side_effect = GraphInterrupt()
 
             with self.assertRaises(GraphInterrupt):
@@ -55,7 +54,7 @@ class TestCreateParserRecipeTool(BaseTest):
     async def test_valid_verdict_returns_success_with_artifact(self):
         tool = self._create_tool()
 
-        with patch("ee.hogai.tool.interrupt") as mock_interrupt:
+        with patch("products.posthog_ai.backend.hogai.tool.interrupt") as mock_interrupt:
             mock_interrupt.return_value = {
                 "action": "client_tool_result",
                 "result": {"valid": True, "recipe_id": "r1"},
@@ -69,7 +68,7 @@ class TestCreateParserRecipeTool(BaseTest):
     async def test_invalid_verdict_returns_error_for_iteration(self):
         tool = self._create_tool()
 
-        with patch("ee.hogai.tool.interrupt") as mock_interrupt:
+        with patch("products.posthog_ai.backend.hogai.tool.interrupt") as mock_interrupt:
             mock_interrupt.return_value = {
                 "action": "client_tool_result",
                 "result": {"valid": False, "error": "no rule matched the sample input"},
@@ -84,7 +83,7 @@ class TestCreateParserRecipeTool(BaseTest):
     async def test_save_failure_tells_agent_not_to_rewrite(self):
         tool = self._create_tool()
 
-        with patch("ee.hogai.tool.interrupt") as mock_interrupt:
+        with patch("products.posthog_ai.backend.hogai.tool.interrupt") as mock_interrupt:
             mock_interrupt.return_value = {
                 "action": "client_tool_result",
                 "result": {"valid": True, "saved": False, "error": "500 from API"},
@@ -99,7 +98,7 @@ class TestCreateParserRecipeTool(BaseTest):
     async def test_wrong_event_refusal_does_not_ask_for_a_rewrite(self):
         tool = self._create_tool()
 
-        with patch("ee.hogai.tool.interrupt") as mock_interrupt:
+        with patch("products.posthog_ai.backend.hogai.tool.interrupt") as mock_interrupt:
             mock_interrupt.return_value = {
                 "action": "client_tool_result",
                 "result": {"valid": False, "wrong_event": True, "error": "the user is now viewing a different event"},
@@ -114,7 +113,7 @@ class TestCreateParserRecipeTool(BaseTest):
     async def test_client_execution_error_is_reported_without_retrying(self):
         tool = self._create_tool()
 
-        with patch("ee.hogai.tool.interrupt") as mock_interrupt:
+        with patch("products.posthog_ai.backend.hogai.tool.interrupt") as mock_interrupt:
             mock_interrupt.return_value = {
                 "action": "client_tool_result",
                 "result": {"client_execution_error": "The PostHog view that executes this tool is no longer open."},

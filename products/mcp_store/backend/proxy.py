@@ -16,7 +16,7 @@ from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import is_url_allowed
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
-from ee.hogai.utils.asgi import SyncIterableToAsync
+from products.posthog_ai.backend.hogai.utils.asgi import SyncIterableToAsync
 
 from .models import MCPAuditEvent, MCPGatewayServer, MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, TokenRefreshRejectedError, is_token_expiring, refresh_installation_token

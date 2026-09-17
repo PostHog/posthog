@@ -62,9 +62,15 @@ class TestDetectTestType:
         assert config.command == ["pytest", "-s", "posthog/api/test/test_user.py::TestUserAPI::test_retrieve"]
 
     def test_python_eval_uses_special_config(self) -> None:
-        config = detect_test_type("ee/hogai/eval/eval_router.py")
+        config = detect_test_type("products/posthog_ai/backend/hogai/eval/eval_router.py")
         assert config.test_type == "python-eval"
-        assert config.command == ["pytest", "-c", "ee/hogai/eval/pytest.ini", "-s", "ee/hogai/eval/eval_router.py"]
+        assert config.command == [
+            "pytest",
+            "-c",
+            "products/posthog_ai/backend/hogai/eval/pytest.ini",
+            "-s",
+            "products/posthog_ai/backend/hogai/eval/eval_router.py",
+        ]
         assert "REDIS_URL" in config.env
 
     # -- Jest tests: these hit real package.json files on disk --
@@ -252,7 +258,7 @@ class TestDetectTestType:
     @parameterized.expand(
         [
             ("posthog/api/test", "python", ["pytest", "-s", "posthog/api/test"]),
-            ("ee/hogai", "python", ["pytest", "-s", "ee/hogai"]),
+            ("products/posthog_ai/backend/hogai", "python", ["pytest", "-s", "products/posthog_ai/backend/hogai"]),
             (
                 "tools/hogli-commands/hogli_commands/tests",
                 "python",
@@ -358,10 +364,10 @@ class TestIsTestFile:
     @parameterized.expand(
         [
             ("posthog/api/test/test_user.py", True),
-            ("ee/hogai/eval/eval_router.py", True),
-            ("ee/hogai/eval_router.py", False),
+            ("products/posthog_ai/backend/hogai/eval/eval_router.py", True),
+            ("products/posthog_ai/backend/hogai/eval_router.py", False),
             ("posthog/eval_something.py", False),
-            ("ee/hogai/router.py", False),
+            ("products/posthog_ai/backend/hogai/router.py", False),
             ("posthog/models/team.py", False),
             ("frontend/src/scenes/dashboard/Dashboard.test.tsx", True),
             ("frontend/src/scenes/dashboard/Dashboard.tsx", False),

@@ -6,7 +6,7 @@ offline scoring can never drift from them), and emits `$ai_evaluation` events ta
 `$ai_experiment_id` so runs land in the offline experiments view
 (/ai-evals/evaluations/offline/experiments) and are comparable run over run.
 
-Dataset item shape (same conventions as ee/hogai/eval/offline):
+Dataset item shape (same conventions as products/posthog_ai/backend/hogai/eval/offline):
     input:           {"prompt": "<the metric-shaped task>"}
     expected_output: {"behavior": "<the governed behavior the judges should see>"}
 

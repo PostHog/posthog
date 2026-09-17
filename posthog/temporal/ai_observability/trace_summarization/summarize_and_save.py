@@ -23,9 +23,11 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from products.ai_observability.backend.summarization.llm import summarize
 from products.ai_observability.backend.summarization.llm.schema import SummarizationResponse
 from products.ai_observability.backend.summarization.models import OpenAIModel, SummarizationMode
-
-from ee.hogai.llm_traces_summaries.constants import LLM_TRACES_SUMMARIES_DOCUMENT_TYPE, LLM_TRACES_SUMMARIES_PRODUCT
-from ee.hogai.llm_traces_summaries.tools.embed_summaries import LLMTracesSummarizerEmbedder
+from products.posthog_ai.backend.hogai.llm_traces_summaries.constants import (
+    LLM_TRACES_SUMMARIES_DOCUMENT_TYPE,
+    LLM_TRACES_SUMMARIES_PRODUCT,
+)
+from products.posthog_ai.backend.hogai.llm_traces_summaries.tools.embed_summaries import LLMTracesSummarizerEmbedder
 
 logger = structlog.get_logger(__name__)
 

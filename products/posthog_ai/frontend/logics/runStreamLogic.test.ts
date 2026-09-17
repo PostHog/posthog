@@ -4133,7 +4133,7 @@ describe('runStreamLogic', () => {
         })
 
         it('keeps a reject_once option and parses _meta.customInput (the previously-dropped decline)', () => {
-            // Exact shape the agent adapter emits (see ee/hogai/sandbox/log.jsonl): the decline option
+            // Exact shape the agent adapter emits (see products/posthog_ai/backend/hogai/sandbox/log.jsonl): the decline option
             // is `reject_once` carrying `_meta.customInput`, which the old exact-match allowlist dropped.
             const frame = {
                 type: 'permission_request',

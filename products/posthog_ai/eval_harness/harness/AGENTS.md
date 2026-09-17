@@ -138,4 +138,4 @@ Required variables are then validated by `env_preflight.validate_eval_env()` at 
 This tree is not pytest: do not add a `conftest.py` here and do not import `pytest` in harness or eval modules.
 The harness's own unit tests live in [`../test/`](../test/), which is ordinary pytest.
 Suite files under the `evals/` trees are never collected by pytest either — its default `python_files` only matches `test_*.py`.
-`ee/hogai/eval/ci/` and `ee/hogai/eval/offline/` are still pytest and still import `data_setup` from this package, so keep that module's pytest-independence intact.
+`products/posthog_ai/backend/hogai/eval/ci/` and `products/posthog_ai/backend/hogai/eval/offline/` are still pytest and still import `data_setup` from this package, so keep that module's pytest-independence intact.

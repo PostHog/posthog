@@ -13,13 +13,12 @@ from posthog.security.llm_prompt_sanitization import (
 )
 from posthog.sync import database_sync_to_async
 
+from products.posthog_ai.backend.hogai.llm import MaxChatOpenAI
 from products.pulse.backend.config import LLM_MAX_RETRIES, LLM_TIMEOUT_SECONDS, SYNTHESIS_MODEL, BriefSettings
 from products.pulse.backend.generation.prompts import PULSE_SYNTHESIS_PROMPT_KEY, SYNTHESIZE_PROMPT, _get_managed_prompt
 from products.pulse.backend.generation.schemas import KIND_DESCRIPTIONS, BriefOut
 from products.pulse.backend.models import BriefConfig
 from products.pulse.backend.sources.base import SourceItem, build_evidence_index
-
-from ee.hogai.llm import MaxChatOpenAI
 
 logger = structlog.get_logger(__name__)
 

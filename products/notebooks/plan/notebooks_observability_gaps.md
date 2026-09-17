@@ -55,14 +55,14 @@ Choke points: the four helpers in `products/notebooks/backend/logic.py`
 (`create_notebook`, `aupsert_notebook`, `create_group_notebook`, `create_account_notebook`)
 and `NotebookSerializer.create` (`products/notebooks/backend/presentation/views/notebook.py:173`).
 
-| Path | Trigger                       | Location                                                                 | Analytics | Activity log                              |
-| ---- | ----------------------------- | ------------------------------------------------------------------------ | --------- | ----------------------------------------- |
-| 1    | Human UI / REST               | `notebook.py:173-206`                                                    | none      | `log_notebook_activity("created")` `:197` |
-| 2    | MCP `notebooks-create`        | same as 1 (`mcp/tools.yaml:33`)                                          | none      | same as 1                                 |
-| 3    | Max `create_notebook` tool    | `ee/hogai/tools/create_notebook/helpers.py:105-192` (`aupsert_notebook`) | **none**  | **none**                                  |
-| 4    | Max `upsert_account_notebook` | `products/customer_analytics/backend/max_tools.py:403`                   | none      | none                                      |
-| 5    | Anomaly investigation agent   | `posthog/temporal/ai/anomaly_investigation/workflow.py:149`              | none      | none                                      |
-| 6    | Group notebook auto-create    | `ee/clickhouse/views/groups.py:873`                                      | none      | none                                      |
+| Path | Trigger                       | Location                                                                                          | Analytics | Activity log                              |
+| ---- | ----------------------------- | ------------------------------------------------------------------------------------------------- | --------- | ----------------------------------------- |
+| 1    | Human UI / REST               | `notebook.py:173-206`                                                                             | none      | `log_notebook_activity("created")` `:197` |
+| 2    | MCP `notebooks-create`        | same as 1 (`mcp/tools.yaml:33`)                                                                   | none      | same as 1                                 |
+| 3    | Max `create_notebook` tool    | `products/posthog_ai/backend/hogai/tools/create_notebook/helpers.py:105-192` (`aupsert_notebook`) | **none**  | **none**                                  |
+| 4    | Max `upsert_account_notebook` | `products/customer_analytics/backend/max_tools.py:403`                                            | none      | none                                      |
+| 5    | Anomaly investigation agent   | `posthog/temporal/ai/anomaly_investigation/workflow.py:149`                                       | none      | none                                      |
+| 6    | Group notebook auto-create    | `ee/clickhouse/views/groups.py:873`                                                               | none      | none                                      |
 
 The `Notebook` model (`products/notebooks/backend/models.py:19-64`) has **no origin/source
 field**. AI-created notebooks are attributed to the human user Max acts for and are
@@ -78,7 +78,7 @@ indistinguishable from hand-created ones.
 
 ### AI → notebook linkage (structural, not in event stream)
 
-`Notebook.short_id` → `AgentArtifact.short_id` (`ee/hogai/tools/create_notebook/helpers.py:124,181`)
+`Notebook.short_id` → `AgentArtifact.short_id` (`products/posthog_ai/backend/hogai/tools/create_notebook/helpers.py:124,181`)
 → `AgentArtifact.conversation` FK (`products/posthog_ai/backend/models/assistant.py:340`)
 → `Conversation.topic` (classified from first question, `assistant.py:57-88`).
 Breaks if the artifact/conversation is deleted. MCP path has no conversation at all.
@@ -305,7 +305,7 @@ them:
    the entire body via the query engine — reachable from Max's SQL tool, the MCP query tool, or any
    query API. **This bypasses the REST endpoint entirely** and 2e does **not** see it (see gap
    below).
-3. **Max artifact handler** — `NotebookHandler.alist` (`ee/hogai/artifacts/handlers/notebook.py:47`)
+3. **Max artifact handler** — `NotebookHandler.alist` (`products/posthog_ai/backend/hogai/artifacts/handlers/notebook.py:47`)
    reads from the **`AgentArtifact` table, not `posthog_notebook`** (docstring: "Notebooks are only
    stored in the ARTIFACT source"). This is Max re-reading its _own artifact snapshot_, not the live
    product notebook — a different signal, intentionally **out of scope** for `notebook read`.
@@ -323,7 +323,7 @@ Instrumentation:
       if list usage becomes a question).
 - [ ] **Do not** capture at the facade `get_notebook` / `aget_notebook` — those are called for
       permission checks (`logic.acan_user_edit_notebook`) and Max's dedup existence-check
-      (`ee/hogai/tools/create_notebook/helpers.py:124`), so capturing there would fire constantly
+      (`products/posthog_ai/backend/hogai/tools/create_notebook/helpers.py:124`), so capturing there would fire constantly
       on internal machinery, not intentful reads.
 
 **Known gap — the SQL read path is not covered.** An agent that pulls a notebook via

@@ -19,4 +19,4 @@ Ordinary PostHog SDK clients and trace clients retain their existing `TEST` and 
 
 Each event contains the existing experiment, case, and metric properties, including input, output, and expected values when available.
 Result reporting uses the existing event schema.
-The legacy SQL evaluation path in `ee/hogai/eval/offline/` has a separate reporter and is outside this behavior.
+The legacy SQL evaluation path in `products/posthog_ai/backend/hogai/eval/offline/` has a separate reporter and is outside this behavior.

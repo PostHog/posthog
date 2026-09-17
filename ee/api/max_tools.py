@@ -18,9 +18,8 @@ from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
 
+from products.posthog_ai.backend.hogai.utils.types import AssistantState
 from products.posthog_ai.backend.models.assistant import Conversation
-
-from ee.hogai.utils.types import AssistantState
 
 
 class InsightsToolCallSerializer(serializers.Serializer):
@@ -58,7 +57,7 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         required_scopes=["insight:read", "query:read"],
     )
     def create_and_query_insight(self, request: Request, *args, **kwargs):
-        from ee.hogai.insights_assistant import InsightsAssistant
+        from products.posthog_ai.backend.hogai.insights_assistant import InsightsAssistant
 
         serializer = InsightsToolCallSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

@@ -19,6 +19,12 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.utils import close_db_connections
 
+from products.posthog_ai.backend.hogai.sandbox import (
+    PI_RUNTIME_ERROR_MESSAGE,
+    is_turn_complete,
+    pi_turn_error,
+    turn_complete_trace_id,
+)
 from products.tasks.backend.feature_flags import run_stream_presence_gated, run_stream_thin_tail
 from products.tasks.backend.logic.services.agent_command import (
     is_hogland_sandbox_url,
@@ -45,8 +51,6 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_task_run_credential_user,
     is_slack_interaction_state,
 )
-
-from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE, is_turn_complete, pi_turn_error, turn_complete_trace_id
 
 logger = structlog.get_logger(__name__)
 

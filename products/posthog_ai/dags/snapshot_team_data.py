@@ -29,14 +29,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from products.posthog_ai.dags.utils import (
-    check_dump_exists,
-    compose_clickhouse_dump_path,
-    compose_postgres_dump_path,
-    dump_model,
-)
-
-from ee.hogai.eval.schema import (
+from products.posthog_ai.backend.hogai.eval.schema import (
     ActorsPropertyTaxonomySnapshot,
     BaseSnapshot,
     ClickhouseTeamDataSnapshot,
@@ -47,6 +40,12 @@ from ee.hogai.eval.schema import (
     PropertyTaxonomySnapshot,
     TeamSnapshot,
     TeamTaxonomyItemSnapshot,
+)
+from products.posthog_ai.dags.utils import (
+    check_dump_exists,
+    compose_clickhouse_dump_path,
+    compose_postgres_dump_path,
+    dump_model,
 )
 
 DEFAULT_RETRY_POLICY = dagster.RetryPolicy(

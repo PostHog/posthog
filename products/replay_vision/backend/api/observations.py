@@ -41,6 +41,7 @@ from posthog.permissions import is_scout_sandbox_request
 from posthog.rate_limit import ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle
 from posthog.renderers import ServerSentEventRenderer
 
+from products.posthog_ai.backend.hogai.utils.untrusted import as_untrusted_data
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum, split_csv
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
@@ -88,8 +89,6 @@ from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerd
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
 from products.signals.backend.facade.api import get_reports_for_signal_source_slice
 from products.tasks.backend.facade import api as tasks_facade
-
-from ee.hogai.utils.untrusted import as_untrusted_data
 
 logger = structlog.get_logger(__name__)
 

@@ -3,12 +3,11 @@ from typing import TYPE_CHECKING
 from django.db.models import Case, When
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.posthog_ai.backend.hogai.utils.untrusted import as_untrusted_data
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.observation_formatting import format_line, read_output
 from products.replay_vision.backend.scanner_access import accessible_observations, readable_observation_scanner_ids
-
-from ee.hogai.utils.untrusted import as_untrusted_data
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team

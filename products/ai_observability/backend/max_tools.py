@@ -7,9 +7,8 @@ from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.ai_observability.backend.models.parser_recipe import MAX_SOURCE_LENGTH
-
-from ee.hogai.tool import MaxTool
-from ee.hogai.tool_errors import MaxToolRetryableError
+from products.posthog_ai.backend.hogai.tool import MaxTool
+from products.posthog_ai.backend.hogai.tool_errors import MaxToolRetryableError
 
 
 def _load_dsl_reference() -> str:

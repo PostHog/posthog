@@ -39,6 +39,8 @@ from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.experiments.backend.facade.replay import targetable_experiments
+from products.posthog_ai.backend.hogai.utils.feature_flags import is_core_memory_disabled
+from products.posthog_ai.backend.hogai.utils.untrusted import as_untrusted_data
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
@@ -58,9 +60,6 @@ from products.replay_vision.backend.queries.visited_paths import VisitedPath, fe
 from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.tag_suggestions import _product_taxonomy
 from products.replay_vision.backend.tags import slugify_tag
-
-from ee.hogai.utils.feature_flags import is_core_memory_disabled
-from ee.hogai.utils.untrusted import as_untrusted_data
 
 logger = structlog.get_logger(__name__)
 

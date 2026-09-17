@@ -196,7 +196,7 @@ jobs:
                         # --- ee modules that DAGs import ---
                         - 'ee/billing/**'
                         - 'ee/clickhouse/**'
-                        - 'ee/hogai/**'
+                        - 'products/posthog_ai/backend/hogai/**'
                         # --- Only the products that DAGs actually import from ---
                         - 'products/access_control/backend/facade/**/*.py'
                         - 'products/analytics_platform/backend/**/*.py'

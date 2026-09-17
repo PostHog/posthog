@@ -30,6 +30,23 @@ from posthog.temporal.health_checks.processing import run_check_for_team
 from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
+from products.posthog_ai.backend.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
+from products.posthog_ai.backend.hogai.chat_agent.taxonomy.format import (
+    enrich_props_with_descriptions,
+    format_properties_xml,
+)
+from products.posthog_ai.backend.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from products.posthog_ai.backend.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyErrorMessages
+from products.posthog_ai.backend.hogai.chat_agent.taxonomy.tools import (
+    TaxonomyTool,
+    ask_user_for_help,
+    base_final_answer,
+)
+from products.posthog_ai.backend.hogai.chat_agent.taxonomy.types import TaxonomyAgentState
+from products.posthog_ai.backend.hogai.tool import MaxTool
+from products.posthog_ai.backend.hogai.utils.types.base import AssistantNodeName
+from products.posthog_ai.backend.hogai.utils.types.composed import MaxNodeName
+from products.posthog_ai.backend.hogai.utils.untrusted import as_untrusted_data
 from products.replay_vision.backend.facade.api import fetch_page_session_observations
 from products.web_analytics.backend.api.heatmaps_api import (
     DEFAULT_QUERY,
@@ -40,17 +57,6 @@ from products.web_analytics.backend.api.heatmaps_api import (
     parse_fold_summary_row,
 )
 from products.web_analytics.backend.heatmap_screenshot_grounding import GroundingResult, ground_heatmap_hotspots
-
-from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
-from ee.hogai.chat_agent.taxonomy.format import enrich_props_with_descriptions, format_properties_xml
-from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
-from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyErrorMessages
-from ee.hogai.chat_agent.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
-from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState
-from ee.hogai.tool import MaxTool
-from ee.hogai.utils.types.base import AssistantNodeName
-from ee.hogai.utils.types.composed import MaxNodeName
-from ee.hogai.utils.untrusted import as_untrusted_data
 
 from .prompts import (
     COMPARE_FILTER_PROMPT,

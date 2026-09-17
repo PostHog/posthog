@@ -39,7 +39,7 @@ from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.security.url_validation import is_url_allowed
 
-from ee.hogai.llm import MaxChatAnthropic
+from products.posthog_ai.backend.hogai.llm import MaxChatAnthropic
 
 from . import crawl, discover, file_parse, html_parse, url_fetch
 from .constants import (
@@ -2092,7 +2092,7 @@ def get_always_on_context(team_id: int) -> "list[KnowledgeSearchResult]":
 
 def has_feature_flag(team: Team) -> bool:
     """The `product-business-knowledge` flag check, org-keyed. Canonical home for the
-    check — `ee/hogai/utils/feature_flags.py` delegates here."""
+    check — `products/posthog_ai/backend/hogai/utils/feature_flags.py` delegates here."""
     if settings.DEBUG:
         return True
     return feature_enabled_or_false(

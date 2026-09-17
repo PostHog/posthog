@@ -5,9 +5,9 @@
 1 ee/billing/salesforce_enrichment/usage_signals.py
 1 ee/clickhouse/models/test/test_action.py
 1 ee/clickhouse/views/test/funnel/util.py
-1 ee/hogai/artifacts/handlers/base.py
-1 ee/hogai/core/agent_modes/factory.py
-1 ee/hogai/queue.py
+1 products/posthog_ai/backend/hogai/artifacts/handlers/base.py
+1 products/posthog_ai/backend/hogai/core/agent_modes/factory.py
+1 products/posthog_ai/backend/hogai/queue.py
 1 posthog/api/capture.py
 1 posthog/api/oauth/toolbar_service.py
 1 posthog/api/test/test_event_definition.py

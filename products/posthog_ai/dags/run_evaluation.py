@@ -16,6 +16,7 @@ from posthog.dags.common import JobOwners
 
 from products.ai_observability.backend.dataset_queries import dataset_item_versions_at_revision, latest_dataset_revision
 from products.ai_observability.backend.models import Dataset
+from products.posthog_ai.backend.hogai.eval.schema import DatasetInput, EvalsDockerImageConfig, TeamEvaluationSnapshot
 from products.posthog_ai.dags.snapshot_team_data import (
     ClickhouseTeamDataSnapshot,
     PostgresTeamDataSnapshot,
@@ -23,8 +24,6 @@ from products.posthog_ai.dags.snapshot_team_data import (
     snapshot_postgres_team_data,
 )
 from products.posthog_ai.dags.utils import EvaluationResults, format_results
-
-from ee.hogai.eval.schema import DatasetInput, EvalsDockerImageConfig, TeamEvaluationSnapshot
 
 
 def get_object_storage_endpoint() -> str:
@@ -199,8 +198,10 @@ def spawn_evaluation_container(
     # Validate the evaluation module
     if not config.evaluation_module.endswith(".py"):
         raise ValueError("Evaluation module must be a Python file")
-    if not config.evaluation_module.startswith("ee/hogai/eval/"):
-        raise ValueError(f"Evaluation module {config.evaluation_module} must start with 'ee/hogai/eval/'")
+    if not config.evaluation_module.startswith("products/posthog_ai/backend/hogai/eval/"):
+        raise ValueError(
+            f"Evaluation module {config.evaluation_module} must start with 'products/posthog_ai/backend/hogai/eval/'"
+        )
 
     asset_key = _evaluation_asset_key(prepared_dataset)
     revision_label = prepared_dataset.dataset_revision if prepared_dataset.dataset_revision is not None else "empty"
@@ -286,7 +287,7 @@ def spawn_evaluation_container(
         ops={
             "prepare_dataset": PrepareDatasetConfig(dataset_id=""),
             "spawn_evaluation_container": EvaluationConfig(
-                evaluation_module="ee/hogai/eval/offline/",
+                evaluation_module="products/posthog_ai/backend/hogai/eval/offline/",
                 image_name="posthog-ai-evals",
                 image_tag="master",
             ),

@@ -14,6 +14,7 @@ from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.utils import close_db_connections
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.posthog_ai.backend.hogai.sandbox import STOP_REASON_END_TURN, TURN_COMPLETE_METHOD
 from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.feature_flags import run_stream_presence_gated
 from products.tasks.backend.logic.services.agent_command import (
@@ -58,8 +59,6 @@ from products.tasks.backend.temporal.process_task.utils import (
     sandbox_identity_scope,
     upgrade_run_to_user_authorship,
 )
-
-from ee.hogai.sandbox import STOP_REASON_END_TURN, TURN_COMPLETE_METHOD
 
 logger = structlog.get_logger(__name__)
 

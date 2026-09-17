@@ -3,7 +3,7 @@ Facade API for customer_analytics.
 
 This is the data surface other apps import. Registry/wiring couplings live in
 sibling submodules (``queries``, ``max_tools``, ``team_extension``, ``constants``)
-to keep this module free of heavy imports (HogQL, ``ee.hogai.tool``) so config-only
+to keep this module free of heavy imports (HogQL, ``products.posthog_ai.backend.hogai.tool``) so config-only
 consumers don't drag them onto the ``django.setup()`` path.
 
 Responsibilities:
@@ -4460,7 +4460,7 @@ def create_account_notebook(
 ) -> contracts.AccountNotebookView | None:
     """Create an internal notebook and link it to an accessible account. None when the
     parent account isn't accessible (→ 404). The view supplies ``synthesized_content``
-    (markdown→tiptap) so the ``ee.hogai`` helper stays off the facade import path."""
+    (markdown→tiptap) so the ``products.posthog_ai.backend.hogai`` helper stays off the facade import path."""
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
     content = input.synthesized_content if input.synthesized_content is not None else input.content

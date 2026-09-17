@@ -13,7 +13,7 @@ from posthog.models.user_integration import UserIntegration
 def invalidate_repo_list_on_user_github_change(sender: Any, instance: UserIntegration, **kwargs) -> None:
     if instance.kind != UserIntegration.IntegrationKind.GITHUB:
         return
-    # Deferred: api.py imports the temporal.ai workflows (the whole ee.hogai core) at module scope.
+    # Deferred: api.py imports the temporal.ai workflows (the whole products.posthog_ai.backend.hogai core) at module scope.
     # This receiver is wired from AppConfig.ready(), so a module-level import would drag that onto
     # every process's startup path.
     from products.slack_app.backend.api import _invalidate_user_repo_list_cache  # noqa: PLC0415

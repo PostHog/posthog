@@ -7,7 +7,10 @@ from posthog.models import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
-from ee.hogai.chat_agent.sql.prompts import CORE_MEMORY_USAGE_INSTRUCTION, HOGQL_QUERY_WRITING_RULES
+from products.posthog_ai.backend.hogai.chat_agent.sql.prompts import (
+    CORE_MEMORY_USAGE_INSTRUCTION,
+    HOGQL_QUERY_WRITING_RULES,
+)
 
 logger = structlog.get_logger(__name__)
 

@@ -6,7 +6,7 @@ Each eval case gets its own isolated org/team/user, so cases never see each othe
 The harness builds product skills from the current checkout and uses native bundled skills by default.
 `--skill-delivery exec` instead packages those skills for MCP distribution, enables the exec skill prompt, and removes native skills from every sandbox so the two paths cannot satisfy the same case.
 
-Unlike `ee/hogai/eval/ci/`, this tree does **not** run under pytest.
+Unlike `products/posthog_ai/backend/hogai/eval/ci/`, this tree does **not** run under pytest.
 It runs on a standalone harness that boots the shared infrastructure once (test database, Django live server, LLM gateway, MCP server, Temporal) and then runs every selected suite concurrently.
 See [`harness/README.md`](harness/README.md) for how that works internally.
 

@@ -1,6 +1,6 @@
 """Product analytics funnel eval cases for the sandboxed coding agent.
 
-Intent mirrors ``ee/hogai/eval/ci/eval_funnel.py`` — the CI version asserts
+Intent mirrors ``products/posthog_ai/backend/hogai/eval/ci/eval_funnel.py`` — the CI version asserts
 on the exact ``AssistantFunnelsQuery`` Max produces, this version exercises
 the same intents end-to-end through the sandboxed agent + PostHog MCP tools
 and judges the funnel query the agent ran via the ``query-funnel`` MCP tool.

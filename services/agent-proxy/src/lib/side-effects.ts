@@ -17,7 +17,7 @@ import { logger } from './logging.js'
 import type { TaskRunRedisStream } from './redis-stream.js'
 import type { SideEffectKind } from './types.js'
 
-// ACP event field values (byte-identical to ee/hogai/sandbox/types.py)
+// ACP event field values (byte-identical to products/posthog_ai/backend/hogai/sandbox/types.py)
 const ACP_NOTIFICATION_TYPE = 'notification'
 const TURN_COMPLETE_METHOD = '_posthog/turn_complete'
 const STOP_REASON_END_TURN = 'end_turn'
@@ -37,7 +37,7 @@ const PI_GENERATION_EVENTS = new Set([
     'tool_call_updated',
 ])
 
-// pi agent event shapes (byte-identical to ee/hogai/sandbox/types.py)
+// pi agent event shapes (byte-identical to products/posthog_ai/backend/hogai/sandbox/types.py)
 const PI_EVENT_TYPE = 'pi_event'
 const PI_TURN_COMPLETED_TYPE = 'turn_completed'
 const PI_STOP_REASON_ERROR = 'error'
@@ -54,7 +54,7 @@ function asPiTurnCompletedEvent(event: Record<string, unknown>): Record<string, 
     return inner['type'] === PI_TURN_COMPLETED_TYPE ? inner : null
 }
 
-// isTurnComplete mirrors ee/hogai/sandbox/types.py:is_turn_complete exactly.
+// isTurnComplete mirrors products/posthog_ai/backend/hogai/sandbox/types.py:is_turn_complete exactly.
 // Matches the raw ACP prompt response (result.stopReason == "end_turn"), the synthetic
 // _posthog/turn_complete notification, and the pi-shaped turn_completed event.
 //
@@ -83,7 +83,7 @@ export function isTurnComplete(event: Record<string, unknown>): boolean {
     )
 }
 
-// isPiTurnError mirrors ee/hogai/sandbox/types.py:pi_turn_error exactly.
+// isPiTurnError mirrors products/posthog_ai/backend/hogai/sandbox/types.py:pi_turn_error exactly.
 // True when a pi turn_completed event reports a terminal runtime failure, so the caller
 // can route it to a failed run instead of a successful turn completion.
 export function isPiTurnError(event: Record<string, unknown>): boolean {

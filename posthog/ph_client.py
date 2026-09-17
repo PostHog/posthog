@@ -68,7 +68,7 @@ def get_feature_flag_or_none(
     result diverges from what /flags gives the browser for the same person."""
     try:
         # The library annotates the return as Optional[FeatureFlag], but at runtime a plain
-        # variant string or bool comes back, so cast like ee/hogai/utils/feature_flags.py does.
+        # variant string or bool comes back, so cast like products/posthog_ai/backend/hogai/utils/feature_flags.py does.
         return cast(
             "str | bool | None",
             posthoganalytics.get_feature_flag(

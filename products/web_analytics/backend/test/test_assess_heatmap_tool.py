@@ -5,9 +5,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.posthog_ai.backend.hogai.utils.types import AssistantState
 from products.web_analytics.backend.max_tools import AssessHeatmapTool, _scroll_reach, _viewport_band
-
-from ee.hogai.utils.types import AssistantState
 
 
 class _FakeResult:

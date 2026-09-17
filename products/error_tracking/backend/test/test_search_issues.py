@@ -28,10 +28,9 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueFingerprintV2,
     sync_issues_to_clickhouse,
 )
-
-from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.utils.types import AssistantState
-from ee.hogai.utils.types.base import NodePath
+from products.posthog_ai.backend.hogai.context.context import AssistantContextManager
+from products.posthog_ai.backend.hogai.utils.types import AssistantState
+from products.posthog_ai.backend.hogai.utils.types.base import NodePath
 
 
 @time_machine.travel("2025-01-15T12:00:00Z", tick=False)
@@ -203,7 +202,7 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
         self.assertEqual(len(artifact.issues), 3)
 
-    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    @patch("products.posthog_ai.backend.hogai.context.insight.query_executor.process_query_dict")
     async def test_search_query_filters_by_text(self, mock_process_query):
         mock_process_query.return_value = {
             "results": [
@@ -232,7 +231,7 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         query_dict = call_args[0][1]
         self.assertEqual(query_dict["searchQuery"], "TypeError")
 
-    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    @patch("products.posthog_ai.backend.hogai.context.insight.query_executor.process_query_dict")
     async def test_respects_limit(self, mock_process_query):
         mock_process_query.return_value = {
             "results": [

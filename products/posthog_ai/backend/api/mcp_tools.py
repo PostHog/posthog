@@ -26,9 +26,9 @@ from posthog.event_usage import get_event_source
 from posthog.models.user import User
 from posthog.renderers import SafeJSONRenderer
 
-from ee.hogai.mcp_tool import MCPToolResult, mcp_tool_registry
-from ee.hogai.tool_errors import MaxToolError
-from ee.hogai.tools.search import format_inkeep_docs_response
+from products.posthog_ai.backend.hogai.mcp_tool import MCPToolResult, mcp_tool_registry
+from products.posthog_ai.backend.hogai.tool_errors import MaxToolError
+from products.posthog_ai.backend.hogai.tools.search import format_inkeep_docs_response
 
 logger = get_logger(__name__)
 

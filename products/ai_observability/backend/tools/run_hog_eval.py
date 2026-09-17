@@ -21,8 +21,7 @@ from products.ai_observability.backend.models.evaluation_configs import (
     TRACE_EVAL_MAX_WINDOW_SECONDS,
     TRACE_EVAL_MIN_WINDOW_SECONDS,
 )
-
-from ee.hogai.tool import MaxTool
+from products.posthog_ai.backend.hogai.tool import MaxTool
 
 TOOL_DESCRIPTION = f"""Test Hog evaluation code against sample data from the last {EVALUATION_TEST_LOOKBACK_DAYS} days.
 

@@ -522,7 +522,7 @@ export const QueryWrapperToolConfigSchema = z
         exclude_properties: z.array(z.string()).optional(),
         /**
          * Set to `true` when the wrapper's `schema_ref` has a matching formatter in
-         * `ee/hogai/context/insight/format/`. Enabling this:
+         * `products/posthog_ai/backend/hogai/context/insight/format/`. Enabling this:
          *   - surfaces the formatter's LLM-friendly text output (via the backend's `formatted_results`)
          *     as the default response text;
          *   - adds an `output_format: 'optimized' | 'json'` per-call input to the generated tool schema,

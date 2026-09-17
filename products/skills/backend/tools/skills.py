@@ -11,6 +11,8 @@ from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
+from products.posthog_ai.backend.hogai.tool import MaxTool
+from products.posthog_ai.backend.hogai.tool_errors import MaxToolFatalError
 from products.skills.backend.api.skill_serializers import RESERVED_SKILL_NAMES, SPEC_DESCRIPTION_MAX_LENGTH
 from products.skills.backend.api.skill_services import (
     LLMSkillDescriptionTooLongError,
@@ -29,9 +31,6 @@ from products.skills.backend.api.skill_services import (
     publish_skill_version,
 )
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
-
-from ee.hogai.tool import MaxTool
-from ee.hogai.tool_errors import MaxToolFatalError
 
 MAX_LIST_RESULTS = 50
 

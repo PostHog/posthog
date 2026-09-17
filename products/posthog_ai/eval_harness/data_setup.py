@@ -1,6 +1,6 @@
 """Shared data setup functions for eval harnesses.
 
-Extracted from ``ee/hogai/eval/ci/conftest.py`` so both CI evals and sandboxed
+Extracted from ``products/posthog_ai/backend/hogai/eval/ci/conftest.py`` so both CI evals and sandboxed
 agent evals can reuse the same demo data creation logic.
 """
 

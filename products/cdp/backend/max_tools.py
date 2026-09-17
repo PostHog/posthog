@@ -25,10 +25,9 @@ from products.cdp.backend.prompts import (
     TRANSFORMATION_STRUCTURE_MESSAGE,
     render_filters_system_prompt,
 )
-
-from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
-from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.tool import MaxTool
+from products.posthog_ai.backend.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
+from products.posthog_ai.backend.hogai.llm import MaxChatOpenAI
+from products.posthog_ai.backend.hogai.tool import MaxTool
 
 
 class CreateHogTransformationFunctionArgs(BaseModel):

@@ -3,9 +3,8 @@ from unittest.mock import patch
 
 from posthog.models.health_issue import HealthIssue
 
+from products.posthog_ai.backend.hogai.utils.types import AssistantState
 from products.web_analytics.backend.max_tools import WebAnalyticsDoctorTool
-
-from ee.hogai.utils.types import AssistantState
 
 
 class TestWebAnalyticsDoctorTool(APIBaseTest):

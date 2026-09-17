@@ -13,10 +13,9 @@ from products.experiments.backend.experiment_summary_data_service import Experim
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
-
-from ee.hogai.context.experiment.context import ExperimentContext
-from ee.hogai.tool import MaxTool
-from ee.hogai.tool_errors import MaxToolAccessDeniedError
+from products.posthog_ai.backend.hogai.context.experiment.context import ExperimentContext
+from products.posthog_ai.backend.hogai.tool import MaxTool
+from products.posthog_ai.backend.hogai.tool_errors import MaxToolAccessDeniedError
 
 CREATE_EXPERIMENT_TOOL_DESCRIPTION = dedent("""
     Use this tool to create A/B test experiments that measure the impact of changes.

@@ -16,8 +16,7 @@ from products.feature_flags.backend.max_tools import (
 )
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, TeamDefaultEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-
-from ee.hogai.utils.types import AssistantState
+from products.posthog_ai.backend.hogai.utils.types import AssistantState
 
 ALL_USERS_GROUP = FeatureFlagGroupType(properties=[], rollout_percentage=None)
 

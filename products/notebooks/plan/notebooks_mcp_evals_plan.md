@@ -25,7 +25,7 @@ Facts that shape the design:
 - Case fields: `name`, `prompt`, `expected` (keyed by scorer `_name()`), `metadata`, `setup` (the seeder).
 - Whatever the seeder returns lands in `output["seed"]`, which is the only channel scorers have for seeded IDs.
 - The harness adds `ExitCodeZero` to every experiment; suites must not declare it.
-- Sandboxed evals are **not** in CI. `.github/workflows/ci-ai.yml` only runs the older `ee/hogai/eval/ci` pytest tree behind an `evals-ready` label. These run on demand, locally or on Modal.
+- Sandboxed evals are **not** in CI. `.github/workflows/ci-ai.yml` only runs the older `products/posthog_ai/backend/hogai/eval/ci` pytest tree behind an `evals-ready` label. These run on demand, locally or on Modal.
 
 ## 2. The surface under test
 

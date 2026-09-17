@@ -50,8 +50,7 @@ from products.ai_observability.backend.llm import (
 )
 from products.ai_observability.backend.llm.errors import UnsupportedProviderError
 from products.ai_observability.backend.models.provider_keys import LLMProvider, LLMProviderKey
-
-from ee.hogai.utils.asgi import SyncIterableToAsync
+from products.posthog_ai.backend.hogai.utils.asgi import SyncIterableToAsync
 
 logger = structlog.get_logger(__name__)
 

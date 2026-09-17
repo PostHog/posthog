@@ -1,6 +1,6 @@
 from rest_framework import decorators, exceptions
 
-# Preload to work around circular imports in `ee.hogai.{core.agent_modes,chat_agent,tools}`.
+# Preload to work around circular imports in `products.posthog_ai.backend.hogai.{core.agent_modes,chat_agent,tools}`.
 import posthog.temporal.ai  # noqa: F401
 from posthog.api import data_color_theme, metalytics, my_notifications, project, user_integration, user_push_token
 from posthog.api.csp_reporting import CSPReportingViewSet

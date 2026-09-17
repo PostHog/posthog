@@ -63,4 +63,4 @@ printf 'prose, typos, error IDs, and order of events are still the customer'"'"'
 printf 'Write sample data by listing the properties a case has to exercise, then writing the\n' >&2
 printf 'case from that list with the real material closed. Do not claim "written fresh" in a\n' >&2
 printf 'commit message unless that is what you did.\n\n' >&2
-printf 'See ee/hogai/eval/AGENTS.md and AGENTS.md "Public open source repo guidance".\033[0m\n\n' >&2
+printf 'See products/posthog_ai/backend/hogai/eval/AGENTS.md and AGENTS.md "Public open source repo guidance".\033[0m\n\n' >&2

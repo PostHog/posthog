@@ -23,8 +23,7 @@ from products.business_knowledge.backend.constants import BK_EMBEDDING_MODEL, BK
 from products.business_knowledge.backend.learning.contracts import EvidenceBundle, EvidenceRef
 from products.business_knowledge.backend.learning.providers import get_learning_provider
 from products.business_knowledge.backend.models import KnowledgeLearningRun, LearningRunResult, LearningRunStatus
-
-from ee.hogai.llm import MaxChatAnthropic
+from products.posthog_ai.backend.hogai.llm import MaxChatAnthropic
 
 from ..constants import (
     ANALYSIS_VERSION,

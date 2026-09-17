@@ -203,6 +203,6 @@ Caveat: we currently support these types of insights: trends, funnels, retention
 This means that if you expose a dashboard with custom queries, these will show up in the frontend logic,
 but won't be actually available to Max in the backend.
 
-To add support for **reading** custom queries, refer to the README in ee/hogai
+To add support for **reading** custom queries, refer to the README in products/posthog_ai/backend/hogai
 
 To add support for **generating** insights with custom queries, talk to the Max AI team

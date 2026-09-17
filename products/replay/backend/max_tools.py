@@ -11,13 +11,12 @@ from posthog.models import Team, User
 from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
-
-from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
-from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
-from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.chat_agent.taxonomy.tools import base_final_answer
-from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState
-from ee.hogai.tool import MaxTool
+from products.posthog_ai.backend.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
+from products.posthog_ai.backend.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from products.posthog_ai.backend.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit
+from products.posthog_ai.backend.hogai.chat_agent.taxonomy.tools import base_final_answer
+from products.posthog_ai.backend.hogai.chat_agent.taxonomy.types import TaxonomyAgentState
+from products.posthog_ai.backend.hogai.tool import MaxTool
 
 from .prompts import (
     DATE_FIELDS_PROMPT,

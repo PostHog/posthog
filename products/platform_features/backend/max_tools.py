@@ -8,7 +8,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
 from posthog.models.organization import OrganizationMembership
 
-from ee.hogai.tool import MaxTool
+from products.posthog_ai.backend.hogai.tool import MaxTool
 
 DIAGNOSE_PROXY_TOOL_DESCRIPTION = """
 Run a deep diagnostic on a managed reverse proxy that's stuck or erroring.

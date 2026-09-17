@@ -17,6 +17,7 @@ from jwt import PyJWTError
 
 from posthog.ph_client import ph_scoped_capture
 
+from products.posthog_ai.backend.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE, is_turn_complete, pi_turn_error
 from products.tasks.backend.facade.api import signal_workflow_completion
 from products.tasks.backend.logic.services.connection_token import (
     SandboxEventIngestTokenPayload,
@@ -33,8 +34,6 @@ from products.tasks.backend.logic.stream.redis_stream import (
 from products.tasks.backend.metrics import observe_stream_write_skipped
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
-
-from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE, is_turn_complete, pi_turn_error
 
 logger = structlog.get_logger(__name__)
 

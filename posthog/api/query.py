@@ -633,7 +633,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         if not settings.EE_AVAILABLE:
             return None
         try:
-            from ee.hogai.context.insight.format import format_query_results_for_llm
+            from products.posthog_ai.backend.hogai.context.insight.format import format_query_results_for_llm
 
             return format_query_results_for_llm(query, result, self.team)
         except Exception:

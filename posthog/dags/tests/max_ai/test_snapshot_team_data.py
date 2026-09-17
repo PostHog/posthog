@@ -17,6 +17,7 @@ from posthog.models import Organization, Project, Team
 from posthog.test.persons import create_group_type_mapping
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.posthog_ai.backend.hogai.eval.schema import PostgresTeamDataSnapshot, TeamSnapshot
 from products.posthog_ai.dags.snapshot_team_data import (
     SnapshotUnrecoverableError,
     snapshot_actors_property_taxonomy,
@@ -26,8 +27,6 @@ from products.posthog_ai.dags.snapshot_team_data import (
     snapshot_postgres_team_data,
     snapshot_properties_taxonomy,
 )
-
-from ee.hogai.eval.schema import PostgresTeamDataSnapshot, TeamSnapshot
 
 
 @pytest.fixture

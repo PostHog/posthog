@@ -12,11 +12,14 @@ from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 
-from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
-from ee.hogai.chat_agent.schema_generator.utils import SchemaGeneratorOutput
-from ee.hogai.chat_agent.sql.toolkit import SQL_SCHEMA
-from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.tool import MaxTool
+from products.posthog_ai.backend.hogai.chat_agent.schema_generator.parsers import (
+    PydanticOutputParserException,
+    parse_pydantic_structured_output,
+)
+from products.posthog_ai.backend.hogai.chat_agent.schema_generator.utils import SchemaGeneratorOutput
+from products.posthog_ai.backend.hogai.chat_agent.sql.toolkit import SQL_SCHEMA
+from products.posthog_ai.backend.hogai.llm import MaxChatOpenAI
+from products.posthog_ai.backend.hogai.tool import MaxTool
 
 _hogql_functions: str | None = None
 

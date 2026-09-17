@@ -158,18 +158,20 @@ class ContextService:
         Called once, on the conversion event, while the conversation is still on the LangGraph
         runtime: it reads the legacy state via the shared serializer path and limits it to the
         current conversation window — the same window the agent runs on (see
-        `ee/hogai/core/agent_modes/executables.py`). Returns None when there's no readable state or
+        `products/posthog_ai/backend/hogai/core/agent_modes/executables.py`). Returns None when there's no readable state or
         no renderable turns, so the caller just forwards the user's message without an empty block.
         """
         # Deferred: keeps the LangGraph graph-compile + compaction (heavy) off the sandbox
         # message-routing import path — only the conversion event pays for them.
-        from ee.hogai.api.serializers import (
+        from products.posthog_ai.backend.hogai.api.serializers import (
             aget_conversation_state,  # noqa: PLC0415 — keeps LangGraph off the sandbox import path
         )
-        from ee.hogai.core.agent_modes.compaction_manager import (  # noqa: PLC0415 — heavy compaction dep
+        from products.posthog_ai.backend.hogai.core.agent_modes.compaction_manager import (  # noqa: PLC0415 — heavy compaction dep
             AnthropicConversationCompactionManager,
         )
-        from ee.hogai.utils.types import AssistantState  # noqa: PLC0415 — keeps LangGraph off the sandbox import path
+        from products.posthog_ai.backend.hogai.utils.types import (
+            AssistantState,  # noqa: PLC0415 — keeps LangGraph off the sandbox import path
+        )
 
         started_at = time.monotonic()
         state_result = await aget_conversation_state(conversation, team, user)

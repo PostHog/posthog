@@ -47,9 +47,8 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     StoredPlanInvalidError,
 )
 from products.exports.backend.temporal.subscriptions.types import safe_error_message, safe_query_error_details
-
-from ee.hogai.context.insight.query_executor import FormattedQueryResult
-from ee.hogai.tool_errors import MaxToolRetryableError
+from products.posthog_ai.backend.hogai.context.insight.query_executor import FormattedQueryResult
+from products.posthog_ai.backend.hogai.tool_errors import MaxToolRetryableError
 
 _RP = "products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline"
 _SG = "products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator"

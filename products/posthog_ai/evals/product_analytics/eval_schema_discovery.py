@@ -8,7 +8,7 @@ verify the event exists in the team's data, and (3) only then invoke
 ``query-trends`` to build the insight.
 
 Correctness of the produced trends query itself is not scored here — that
-is ``ee/hogai/eval/ci/eval_trends.py``'s job. This eval grades ordering
+is ``products/posthog_ai/backend/hogai/eval/ci/eval_trends.py``'s job. This eval grades ordering
 and discovery hygiene.
 
 To run:

@@ -56,6 +56,20 @@ from products.posthog_ai.backend.context_wrapper import (
     ALLOWED_TYPES as ALLOWED_ATTACHED_CONTEXT_TYPES,
     ContextService,
 )
+from products.posthog_ai.backend.hogai.api.serializers import ConversationMinimalSerializer, ConversationSerializer
+from products.posthog_ai.backend.hogai.chat_agent import AssistantGraph
+from products.posthog_ai.backend.hogai.core.executor import AgentExecutor
+from products.posthog_ai.backend.hogai.queue import (
+    ConversationQueueMessage,
+    ConversationQueueStore,
+    QueueFullError,
+    build_queue_message,
+)
+from products.posthog_ai.backend.hogai.stream.redis_stream import get_conversation_stream_key
+from products.posthog_ai.backend.hogai.utils.aio import async_to_sync
+from products.posthog_ai.backend.hogai.utils.feature_flags import has_sandbox_mode_feature_flag
+from products.posthog_ai.backend.hogai.utils.sse import AssistantSSESerializer
+from products.posthog_ai.backend.hogai.utils.types import PartialAssistantState
 from products.posthog_ai.backend.message_routing import SandboxSession
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.facade import api as tasks_facade
@@ -63,15 +77,6 @@ from products.tasks.backend.facade.contracts import TaskDetailDTO
 from products.tasks.backend.facade.run_config import INITIAL_PERMISSION_MODE_CHOICES
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
-from ee.hogai.api.serializers import ConversationMinimalSerializer, ConversationSerializer
-from ee.hogai.chat_agent import AssistantGraph
-from ee.hogai.core.executor import AgentExecutor
-from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore, QueueFullError, build_queue_message
-from ee.hogai.stream.redis_stream import get_conversation_stream_key
-from ee.hogai.utils.aio import async_to_sync
-from ee.hogai.utils.feature_flags import has_sandbox_mode_feature_flag
-from ee.hogai.utils.sse import AssistantSSESerializer
-from ee.hogai.utils.types import PartialAssistantState
 
 logger = structlog.get_logger(__name__)
 

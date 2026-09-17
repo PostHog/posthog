@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from posthog.storage import object_storage
 
-from ee.hogai.tool import MaxTool
+from products.posthog_ai.backend.hogai.tool import MaxTool
 
 from .facade import api as tasks_facade
 from .logic.services.workflow_dispatch import WorkflowDispatchOptions, enqueue_or_start_workflow

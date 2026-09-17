@@ -25,11 +25,10 @@ from pydantic import BaseModel, Field
 
 from posthog.utils import safe_cache_add
 
+from products.posthog_ai.backend.hogai.utils.untrusted import neutralize_markup
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.observation_formatting import explanation_text, read_output
-
-from ee.hogai.utils.untrusted import neutralize_markup
 
 logger = structlog.get_logger(__name__)
 

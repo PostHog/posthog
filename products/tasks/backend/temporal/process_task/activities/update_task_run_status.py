@@ -170,7 +170,7 @@ def _capture_posthog_ai_chat_analytics(
     """Emit the PostHog AI chat outcome events, the sandbox counterpart to legacy `chat with ai`.
 
     PostHog AI usage series are built on `chat with ai`, which only the LangGraph runner emits
-    (`ee/hogai/chat_agent/runner.py`). A sandbox conversation never reaches that runner, so without
+    (`products/posthog_ai/backend/hogai/chat_agent/runner.py`). A sandbox conversation never reaches that runner, so without
     this the series decay to zero as conversations move over.
 
     This sits on the run transition rather than on each turn, so it fires only once the outcome is

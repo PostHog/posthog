@@ -15,8 +15,7 @@ from products.cdp.backend.prompts import (
     render_filters_system_prompt,
     render_person_property_taxonomy,
 )
-
-from ee.hogai.summarizers.property_filters import PROPERTY_FILTER_VERBOSE_NAME
+from products.posthog_ai.backend.hogai.summarizers.property_filters import PROPERTY_FILTER_VERBOSE_NAME
 
 
 def _texts(xml: str, tag: str) -> set[str]:

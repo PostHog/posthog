@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from posthog.models import Team
 
+from products.posthog_ai.backend.hogai.tool_errors import MaxToolFatalError
 from products.skills.backend.api.skill_serializers import SPEC_DESCRIPTION_MAX_LENGTH
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 from products.skills.backend.tools.skills import (
@@ -19,8 +20,6 @@ from products.skills.backend.tools.skills import (
     UpdateLLMSkillTool,
     UpdateSkillArgs,
 )
-
-from ee.hogai.tool_errors import MaxToolFatalError
 
 
 def _run(tool, **kwargs):

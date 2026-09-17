@@ -105,7 +105,7 @@ Pickle can also appear without the word `pickle`: Django's default cache backend
 
 **Use JSON instead.**
 For plain data, use `json`.
-For typed objects, use a schema-validated (de)serializer that constructs only declared types — Pydantic `model.model_dump_json()` / `Model.model_validate_json(...)` is the house default (the AI conversation stream in `ee/hogai/stream/redis_stream.py` uses exactly this).
+For typed objects, use a schema-validated (de)serializer that constructs only declared types — Pydantic `model.model_dump_json()` / `Model.model_validate_json(...)` is the house default (the AI conversation stream in `products/posthog_ai/backend/hogai/stream/redis_stream.py` uses exactly this).
 Anything that crosses a process, cache, queue, or the wire must be JSON-shaped, not pickle-shaped.
 
 **If pickle is genuinely unavoidable** — almost always an existing cross-language or cross-version format contract you can't change unilaterally (e.g. Django's cache backend and the Rust services both wrap JSON in pickle) — it must satisfy all of:

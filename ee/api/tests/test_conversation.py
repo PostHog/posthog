@@ -116,7 +116,7 @@ class TestConversation(APIBaseTest):
         conversation_id = str(uuid.uuid4())
 
         with patch(
-            "ee.hogai.core.executor.AgentExecutor.astream",
+            "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
             with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -144,7 +144,7 @@ class TestConversation(APIBaseTest):
 
     def test_add_message_to_existing_conversation(self):
         with patch(
-            "ee.hogai.core.executor.AgentExecutor.astream",
+            "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
             with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -175,7 +175,7 @@ class TestConversation(APIBaseTest):
         conversation_id = str(uuid.uuid4())
 
         with patch(
-            "ee.hogai.core.executor.AgentExecutor.astream",
+            "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
             with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -233,7 +233,7 @@ class TestConversation(APIBaseTest):
     def test_rate_limit_burst(self):
         # Create multiple requests to trigger burst rate limit
         with patch(
-            "ee.hogai.core.executor.AgentExecutor.astream",
+            "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ):
             with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -265,7 +265,7 @@ class TestConversation(APIBaseTest):
             user=self.user, team=self.team, status=Conversation.Status.IN_PROGRESS
         )
         with patch(
-            "ee.hogai.core.executor.AgentExecutor.astream",
+            "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_stream_conversation:
             with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -301,7 +301,7 @@ class TestConversation(APIBaseTest):
 
     def test_nonexistent_conversation(self):
         with patch(
-            "ee.hogai.core.executor.AgentExecutor.astream",
+            "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ):
             with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -334,7 +334,7 @@ class TestConversation(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch("ee.hogai.core.executor.AgentExecutor.cancel_workflow")
+    @patch("products.posthog_ai.backend.hogai.core.executor.AgentExecutor.cancel_workflow")
     def test_cancel_conversation(self, mock_cancel):
         conversation = Conversation.objects.create(
             user=self.user,
@@ -378,7 +378,7 @@ class TestConversation(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("ee.hogai.core.executor.AgentExecutor.cancel_workflow")
+    @patch("products.posthog_ai.backend.hogai.core.executor.AgentExecutor.cancel_workflow")
     def test_cancel_conversation_with_async_cleanup(self, mock_cancel):
         """Test that cancel endpoint properly handles async cleanup."""
         conversation = Conversation.objects.create(
@@ -398,7 +398,7 @@ class TestConversation(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-    @patch("ee.hogai.core.executor.AgentExecutor.cancel_workflow")
+    @patch("products.posthog_ai.backend.hogai.core.executor.AgentExecutor.cancel_workflow")
     def test_cancel_conversation_async_cleanup_failure(self, mock_cancel):
         """Test cancel endpoint behavior when async cleanup fails."""
         conversation = Conversation.objects.create(
@@ -421,7 +421,7 @@ class TestConversation(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-    @patch("ee.hogai.core.executor.AgentExecutor.cancel_workflow")
+    @patch("products.posthog_ai.backend.hogai.core.executor.AgentExecutor.cancel_workflow")
     def test_cancel_idle_conversation_still_cleans_up(self, mock_cancel):
         """Test that canceling an idle conversation still attempts cleanup,
         because queued workflows may be running even when status is IDLE
@@ -467,7 +467,7 @@ class TestConversation(APIBaseTest):
             user=self.user, team=self.team, status=Conversation.Status.IN_PROGRESS
         )
         with patch(
-            "ee.hogai.core.executor.AgentExecutor.astream",
+            "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_stream_conversation:
             with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -653,7 +653,7 @@ class TestConversation(APIBaseTest):
     def test_research_rate_limit_burst(self):
         """Test that research conversations have more aggressive burst rate limits."""
         with patch(
-            "ee.hogai.core.executor.AgentExecutor.astream",
+            "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ):
             with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -690,7 +690,7 @@ class TestConversation(APIBaseTest):
     def test_research_rate_limit_applies_to_new_research_conversations(self):
         """Test that research rate limits apply to new DEEP_RESEARCH conversations (before conversion)."""
         with patch(
-            "ee.hogai.core.executor.AgentExecutor.astream",
+            "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ):
             with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -730,7 +730,7 @@ class TestConversation(APIBaseTest):
             return_value={"US": [self.team.id]},
         ):
             with patch(
-                "ee.hogai.core.executor.AgentExecutor.astream",
+                "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
                 return_value=_async_generator(),
             ):
                 with patch(
@@ -753,7 +753,7 @@ class TestConversation(APIBaseTest):
     def test_normal_ai_has_standard_rate_limits(self):
         """Test that normal AI conversations have standard rate limits (10/minute)."""
         with patch(
-            "ee.hogai.core.executor.AgentExecutor.astream",
+            "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ):
             with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -789,7 +789,7 @@ class TestConversation(APIBaseTest):
         conversation = Conversation.objects.create(user=self.user, team=self.team)
 
         with patch(
-            "ee.hogai.core.executor.AgentExecutor.astream",
+            "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
             with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -813,7 +813,7 @@ class TestConversation(APIBaseTest):
         conversation = Conversation.objects.create(user=self.user, team=self.team)
 
         with patch(
-            "ee.hogai.core.executor.AgentExecutor.astream",
+            "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
             with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -859,7 +859,7 @@ class TestConversation(APIBaseTest):
         mock_is_team_limited.return_value = False
 
         with patch(
-            "ee.hogai.core.executor.AgentExecutor.astream",
+            "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ):
             with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -881,7 +881,7 @@ class TestConversation(APIBaseTest):
         conversation_id = str(uuid.uuid4())
 
         with patch(
-            "ee.hogai.core.executor.AgentExecutor.astream",
+            "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
             with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -921,7 +921,7 @@ class TestConversation(APIBaseTest):
         """Test that research mode is always non-billable, even when not impersonated."""
 
         with patch(
-            "ee.hogai.core.executor.AgentExecutor.astream",
+            "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
             with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -952,7 +952,7 @@ class TestConversation(APIBaseTest):
         )
 
         with patch(
-            "ee.hogai.core.executor.AgentExecutor.astream",
+            "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_astream:
             with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -987,7 +987,7 @@ class TestConversation(APIBaseTest):
         )
 
         with patch(
-            "ee.hogai.core.executor.AgentExecutor.astream",
+            "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_astream:
             with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -1018,7 +1018,7 @@ class TestConversation(APIBaseTest):
         )
 
         with patch(
-            "ee.hogai.core.executor.AgentExecutor.astream",
+            "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_astream:
             with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -1051,7 +1051,7 @@ class TestConversation(APIBaseTest):
         )
 
         with patch(
-            "ee.hogai.core.executor.AgentExecutor.astream",
+            "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ):
             with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -1080,7 +1080,7 @@ class TestConversation(APIBaseTest):
         conversation_id = str(uuid.uuid4())
 
         with patch(
-            "ee.hogai.core.executor.AgentExecutor.astream",
+            "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
             with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -1121,7 +1121,7 @@ class TestConversation(APIBaseTest):
 
     def test_billing_context_strips_large_spend_history(self):
         with patch(
-            "ee.hogai.core.executor.AgentExecutor.astream",
+            "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_astream:
             with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -1142,7 +1142,7 @@ class TestConversation(APIBaseTest):
 
     def test_billing_context_keeps_small_spend_history(self):
         with patch(
-            "ee.hogai.core.executor.AgentExecutor.astream",
+            "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_astream:
             with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -2060,7 +2060,9 @@ class TestConversationCreateRuntime(APIBaseTest):
         with (
             patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
             patch("ee.api.conversation.SandboxSession") as m_routing,
-            patch("ee.hogai.core.executor.AgentExecutor.astream", return_value=_async_generator()),
+            patch(
+                "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream", return_value=_async_generator()
+            ),
             patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._mock_streaming_response),
         ):
             response = self.client.post(
@@ -2108,7 +2110,9 @@ class TestConversationCreateRuntime(APIBaseTest):
         with (
             patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=False),
             patch("ee.api.conversation.SandboxSession") as m_routing,
-            patch("ee.hogai.core.executor.AgentExecutor.astream", return_value=_async_generator()),
+            patch(
+                "products.posthog_ai.backend.hogai.core.executor.AgentExecutor.astream", return_value=_async_generator()
+            ),
             patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._mock_streaming_response),
         ):
             response = self._send(conversation, content="keep me on langgraph")

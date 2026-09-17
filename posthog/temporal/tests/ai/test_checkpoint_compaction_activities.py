@@ -13,9 +13,8 @@ from posthog.temporal.ai.checkpoint_compaction.activities import (
 )
 from posthog.temporal.ai.checkpoint_compaction.types import CompactionBatch, SelectBatchInput
 
+from products.posthog_ai.backend.hogai.django_checkpoint import compaction
 from products.posthog_ai.backend.models.assistant import Conversation, ConversationCheckpoint
-
-from ee.hogai.django_checkpoint import compaction
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
 

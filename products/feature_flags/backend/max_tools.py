@@ -16,8 +16,7 @@ from products.access_control.backend.facade.user_access_control import AccessCon
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.models.evaluation_context import TeamDefaultEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-
-from ee.hogai.tool import MaxTool
+from products.posthog_ai.backend.hogai.tool import MaxTool
 
 
 class MultivariateVariant(BaseModel):

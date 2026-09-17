@@ -27,10 +27,9 @@ from products.access_control.backend.facade.user_access_control import AccessCon
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
+from products.posthog_ai.backend.hogai.artifacts.types import ModelArtifactResult
+from products.posthog_ai.backend.hogai.tool import MaxTool
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
-
-from ee.hogai.artifacts.types import ModelArtifactResult
-from ee.hogai.tool import MaxTool
 
 UPSERT_ALERT_CONTEXT_PROMPT_TEMPLATE = """
 The user is currently viewing an insight that supports alerts. Here are the insight's details for use with the `upsert_alert` tool:

@@ -26,11 +26,10 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.posthog_ai.backend.hogai.utils.untrusted import neutralize_markup
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.tags import slugify_tag
-
-from ee.hogai.utils.untrusted import neutralize_markup
 
 logger = structlog.get_logger(__name__)
 

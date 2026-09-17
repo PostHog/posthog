@@ -13,8 +13,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
-
-from ee.hogai.tool import MaxTool
+from products.posthog_ai.backend.hogai.tool import MaxTool
 
 from .invite_email import validate_invite_message, validate_invite_subject
 from .models import EmailWithDisplayNameValidator, UserInterview, UserInterviewTopic

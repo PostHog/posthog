@@ -19,11 +19,10 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.posthog_ai.backend.hogai.tool import MaxTool
 from products.surveys.backend.api.survey import SurveySerializerCreateUpdateOnly
 from products.surveys.backend.models import Survey
 from products.surveys.backend.summarization.fetch import fetch_responses
-
-from ee.hogai.tool import MaxTool
 
 SEMANTIC_QUESTION_TYPE = Literal[
     "open",

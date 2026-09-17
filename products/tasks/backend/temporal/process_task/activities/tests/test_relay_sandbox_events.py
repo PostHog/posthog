@@ -14,6 +14,12 @@ import temporalio.client
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
+from products.posthog_ai.backend.hogai.sandbox import (
+    PI_RUNTIME_ERROR_MESSAGE,
+    TURN_COMPLETE_METHOD,
+    is_turn_complete,
+    pi_turn_error,
+)
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_DEFAULT_SECONDS
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
@@ -42,8 +48,6 @@ from products.tasks.backend.temporal.process_task.workflow import (
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
     ProcessTaskWorkflow,
 )
-
-from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE, TURN_COMPLETE_METHOD, is_turn_complete, pi_turn_error
 
 relay_sandbox_events_module = importlib.import_module(
     "products.tasks.backend.temporal.process_task.activities.relay_sandbox_events"

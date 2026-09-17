@@ -838,7 +838,7 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
     ),
     (
         "team-ai-research",  # recovered small
-        "ee/hogai/test",
+        "products/posthog_ai/backend/hogai/test",
         [
             ("TestMemoryCompaction", "test_context_window_eviction", 1, 0),
         ],

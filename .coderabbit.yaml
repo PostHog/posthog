@@ -180,7 +180,7 @@ knowledge_base:
 
             # Eval suites, cases, scorers, and harness code.
             - files: '.agents/skills/writing-evals/SKILL.md'
-              applyTo: 'products/posthog_ai/evals/**,products/**/evals/**,ee/hogai/eval/**'
+              applyTo: 'products/posthog_ai/evals/**,products/**/evals/**,products/posthog_ai/backend/hogai/eval/**'
 
             # Skill authoring.
             - files: '.agents/skills/writing-skills/SKILL.md'

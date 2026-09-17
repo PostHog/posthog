@@ -6,7 +6,7 @@ from parameterized import parameterized
 
 from posthog.event_usage import EventSource
 
-from ee.hogai.insights_assistant import InsightsAssistant
+from products.posthog_ai.backend.hogai.insights_assistant import InsightsAssistant
 
 
 class TestMaxToolsAPI(APIBaseTest):
@@ -39,7 +39,7 @@ class TestMaxToolsAPI(APIBaseTest):
             ),
         ]
     )
-    @patch("ee.hogai.insights_assistant.InsightsAssistant")
+    @patch("products.posthog_ai.backend.hogai.insights_assistant.InsightsAssistant")
     def test_create_and_query_insight_attributes_to_the_calling_surface(
         self, _name, headers, expected_source, mock_assistant
     ):

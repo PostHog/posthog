@@ -4721,8 +4721,8 @@ class ExperimentService:
             "recalculation_status": active_recalculation.status if active_recalculation else None,
             "recalculation_created_at": active_recalculation.created_at.isoformat() if active_recalculation else None,
         }
-        from ee.hogai.context.experiment.format import (
-            ExperimentTimeseriesFormatter,  # noqa: PLC0415 — keeps the heavy ee.hogai/langgraph chain off the import path
+        from products.posthog_ai.backend.hogai.context.experiment.format import (
+            ExperimentTimeseriesFormatter,  # noqa: PLC0415 — keeps the heavy products.posthog_ai.backend.hogai/langgraph chain off the import path
         )
 
         response["formatted_results"] = ExperimentTimeseriesFormatter(response).format()

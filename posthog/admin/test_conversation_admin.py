@@ -12,9 +12,8 @@ from parameterized import parameterized
 
 from posthog.admin.admins.conversation_admin import ConversationAdmin
 
+from products.posthog_ai.backend.hogai.django_checkpoint.compaction import CompactionResult
 from products.posthog_ai.backend.models.assistant import Conversation
-
-from ee.hogai.django_checkpoint.compaction import CompactionResult
 
 
 def _attach_messages(request) -> None:

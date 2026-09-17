@@ -24,9 +24,8 @@ from products.customer_analytics.backend.logic import relationships as relations
 from products.customer_analytics.backend.models import Account, AccountRelationshipDefinition
 from products.notebooks.backend.facade.content import build_markdown_notebook_content, is_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
-
-from ee.hogai.tool import MaxTool
-from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
+from products.posthog_ai.backend.hogai.tool import MaxTool
+from products.posthog_ai.backend.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
 
 if TYPE_CHECKING:
     from posthog.models import Team

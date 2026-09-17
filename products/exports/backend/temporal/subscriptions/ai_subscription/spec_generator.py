@@ -34,10 +34,9 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.schemas imp
     QueryPlan,
     RelevantEvents,
 )
+from products.posthog_ai.backend.hogai.llm import MaxChatOpenAI
+from products.posthog_ai.backend.hogai.utils.feature_flags import is_core_memory_disabled
 from products.posthog_ai.backend.models.assistant import CoreMemory
-
-from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.utils.feature_flags import is_core_memory_disabled
 
 logger = structlog.get_logger(__name__)
 

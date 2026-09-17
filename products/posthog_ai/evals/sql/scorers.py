@@ -7,7 +7,7 @@ because ``execute-sql`` is a general-purpose tool, not a product-analytics
 one.
 
 The judge prompt is forked from the CI ``SQL_SEMANTICS_CORRECTNESS_PROMPT``
-in ``ee/hogai/eval/scorers/sql.py`` — same HogQL guidance, but graded on
+in ``products/posthog_ai/backend/hogai/eval/scorers/sql.py`` — same HogQL guidance, but graded on
 the six-bucket ``GRADED_ALIGNMENT_*`` scale used by the rest of the
 sandboxed evals instead of binary Pass/Fail. The ``database_schema``
 placeholder is dropped: the sandboxed run doesn't surface a schema dump

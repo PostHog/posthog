@@ -23,11 +23,11 @@ from posthog.schema import (
     PropertyGroupFilterValue,
 )
 
-from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
-from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
-from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.tool import MaxTool
-from ee.hogai.tool_errors import MaxToolRetryableError
+from products.posthog_ai.backend.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
+from products.posthog_ai.backend.hogai.context.insight.query_executor import AssistantQueryExecutor
+from products.posthog_ai.backend.hogai.llm import MaxChatOpenAI
+from products.posthog_ai.backend.hogai.tool import MaxTool
+from products.posthog_ai.backend.hogai.tool_errors import MaxToolRetryableError
 
 from .prompts import (
     ERROR_TRACKING_FILTER_INITIAL_PROMPT,

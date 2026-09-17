@@ -26,34 +26,34 @@ jobs:
                     - group: insights
                       ignore_paths: ''
                       test_paths: >-
-                          ee/hogai/eval/ci/eval_funnel.py
-                          ee/hogai/eval/ci/eval_trends.py
-                          ee/hogai/eval/ci/eval_retention.py
-                          ee/hogai/eval/ci/eval_sql.py
-                          ee/hogai/eval/ci/eval_survey_analysis.py
+                          products/posthog_ai/backend/hogai/eval/ci/eval_funnel.py
+                          products/posthog_ai/backend/hogai/eval/ci/eval_trends.py
+                          products/posthog_ai/backend/hogai/eval/ci/eval_retention.py
+                          products/posthog_ai/backend/hogai/eval/ci/eval_sql.py
+                          products/posthog_ai/backend/hogai/eval/ci/eval_survey_analysis.py
                     - group: features
                       ignore_paths: ''
                       test_paths: >-
-                          ee/hogai/eval/ci/eval_surveys.py
-                          ee/hogai/eval/ci/eval_memory.py
-                          ee/hogai/eval/ci/eval_memory_onboarding.py
-                          ee/hogai/eval/ci/eval_ticket_summary.py
-                          ee/hogai/eval/ci/eval_insight_search.py
-                          ee/hogai/eval/ci/eval_ui_context.py
+                          products/posthog_ai/backend/hogai/eval/ci/eval_surveys.py
+                          products/posthog_ai/backend/hogai/eval/ci/eval_memory.py
+                          products/posthog_ai/backend/hogai/eval/ci/eval_memory_onboarding.py
+                          products/posthog_ai/backend/hogai/eval/ci/eval_ticket_summary.py
+                          products/posthog_ai/backend/hogai/eval/ci/eval_insight_search.py
+                          products/posthog_ai/backend/hogai/eval/ci/eval_ui_context.py
                     - group: root-and-tools
-                      test_paths: ee/hogai/eval/ci
+                      test_paths: products/posthog_ai/backend/hogai/eval/ci
                       ignore_paths: >-
-                          --ignore=ee/hogai/eval/ci/eval_funnel.py
-                          --ignore=ee/hogai/eval/ci/eval_trends.py
-                          --ignore=ee/hogai/eval/ci/eval_retention.py
-                          --ignore=ee/hogai/eval/ci/eval_sql.py
-                          --ignore=ee/hogai/eval/ci/eval_survey_analysis.py
-                          --ignore=ee/hogai/eval/ci/eval_surveys.py
-                          --ignore=ee/hogai/eval/ci/eval_memory.py
-                          --ignore=ee/hogai/eval/ci/eval_memory_onboarding.py
-                          --ignore=ee/hogai/eval/ci/eval_ticket_summary.py
-                          --ignore=ee/hogai/eval/ci/eval_insight_search.py
-                          --ignore=ee/hogai/eval/ci/eval_ui_context.py
+                          --ignore=products/posthog_ai/backend/hogai/eval/ci/eval_funnel.py
+                          --ignore=products/posthog_ai/backend/hogai/eval/ci/eval_trends.py
+                          --ignore=products/posthog_ai/backend/hogai/eval/ci/eval_retention.py
+                          --ignore=products/posthog_ai/backend/hogai/eval/ci/eval_sql.py
+                          --ignore=products/posthog_ai/backend/hogai/eval/ci/eval_survey_analysis.py
+                          --ignore=products/posthog_ai/backend/hogai/eval/ci/eval_surveys.py
+                          --ignore=products/posthog_ai/backend/hogai/eval/ci/eval_memory.py
+                          --ignore=products/posthog_ai/backend/hogai/eval/ci/eval_memory_onboarding.py
+                          --ignore=products/posthog_ai/backend/hogai/eval/ci/eval_ticket_summary.py
+                          --ignore=products/posthog_ai/backend/hogai/eval/ci/eval_insight_search.py
+                          --ignore=products/posthog_ai/backend/hogai/eval/ci/eval_ui_context.py
 
         permissions:
             contents: read

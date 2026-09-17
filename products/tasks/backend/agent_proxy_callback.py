@@ -8,6 +8,7 @@ from django.http import JsonResponse
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from jwt import PyJWTError
 
+from products.posthog_ai.backend.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE
 from products.tasks.backend.facade.api import signal_workflow_completion
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.presentation.serializers import (
@@ -16,8 +17,6 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunErrorResponseSerializer,
 )
 from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
-
-from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE
 
 logger = logging.getLogger(__name__)
 

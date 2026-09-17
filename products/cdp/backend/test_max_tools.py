@@ -3,8 +3,7 @@ import pytest
 from parameterized import parameterized
 
 from products.cdp.backend.max_tools import CreateHogTransformationFunctionTool
-
-from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
+from products.posthog_ai.backend.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 
 
 class TestParseOutput:

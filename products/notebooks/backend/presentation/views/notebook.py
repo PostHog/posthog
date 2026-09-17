@@ -170,10 +170,9 @@ from products.notebooks.backend.sql_v2_variables import (
 )
 from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
+from products.posthog_ai.backend.hogai.utils.aio import async_to_sync
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
 from products.tasks.backend.facade.sandbox import SandboxStatus
-
-from ee.hogai.utils.aio import async_to_sync
 
 logger = structlog.get_logger(__name__)
 

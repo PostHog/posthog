@@ -26,8 +26,8 @@ from posthog.temporal.ai_observability.evaluation_clustering.constants import (
 from posthog.temporal.ai_observability.evaluation_clustering.models import SamplerActivityInputs, SamplerActivityResult
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from ee.hogai.llm_traces_summaries.constants import LLM_TRACES_SUMMARIES_PRODUCT
-from ee.hogai.llm_traces_summaries.tools.embed_summaries import LLMTracesSummarizerEmbedder
+from products.posthog_ai.backend.hogai.llm_traces_summaries.constants import LLM_TRACES_SUMMARIES_PRODUCT
+from products.posthog_ai.backend.hogai.llm_traces_summaries.tools.embed_summaries import LLMTracesSummarizerEmbedder
 
 logger = structlog.get_logger(__name__)
 

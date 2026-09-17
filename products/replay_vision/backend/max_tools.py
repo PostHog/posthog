@@ -18,6 +18,8 @@ from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+from products.posthog_ai.backend.hogai.tool import MaxTool
+from products.posthog_ai.backend.hogai.utils.untrusted import as_untrusted_data, neutralize_markup
 from products.replay_vision.backend.api.scanners import ReplayScannerSerializer
 from products.replay_vision.backend.billing import CREDITS_PER_DOLLAR, observation_credits_for_model
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
@@ -57,9 +59,6 @@ from products.replay_vision.backend.search import (
 )
 from products.replay_vision.backend.tag_suggestions import suggest_classifier_tags
 from products.replay_vision.backend.temporal.metrics import record_scanner_limit_reached
-
-from ee.hogai.tool import MaxTool
-from ee.hogai.utils.untrusted import as_untrusted_data, neutralize_markup
 
 logger = structlog.get_logger(__name__)
 

@@ -9,7 +9,10 @@ from posthog.temporal.ai.checkpoint_compaction.types import (
 )
 from posthog.temporal.common.logger import get_write_only_logger
 
-from ee.hogai.django_checkpoint.compaction import compact_conversation, select_compactable_conversation_ids
+from products.posthog_ai.backend.hogai.django_checkpoint.compaction import (
+    compact_conversation,
+    select_compactable_conversation_ids,
+)
 
 LOGGER = get_write_only_logger()
 

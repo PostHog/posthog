@@ -172,7 +172,7 @@ export const POSTHOG_INFORMATIONAL_RESPONSE_KEY = '__informational_response' as 
 export type PostHogToolMeta = {
     /**
      * Output format for the tool response.
-     * `'optimized'` surfaces the LLM-friendly formatter output (from `ee/hogai/context/insight/format/`)
+     * `'optimized'` surfaces the LLM-friendly formatter output (from `products/posthog_ai/backend/hogai/context/insight/format/`)
      * via `formatted_results` when available; `'json'` returns raw JSON-stringified content. When unset,
      * the text content is TOON-encoded by default.
      */

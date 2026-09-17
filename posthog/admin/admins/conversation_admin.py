@@ -10,9 +10,8 @@ from django.utils.html import format_html
 
 from structlog import get_logger
 
+from products.posthog_ai.backend.hogai.django_checkpoint.compaction import compact_conversation
 from products.posthog_ai.backend.models.assistant import Conversation
-
-from ee.hogai.django_checkpoint.compaction import compact_conversation
 
 logger = get_logger()
 
