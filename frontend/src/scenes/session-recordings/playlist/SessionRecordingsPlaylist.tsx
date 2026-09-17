@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import * as directorPng from '@posthog/brand/hoggies/png/director'
 
@@ -59,11 +59,22 @@ export function SessionRecordingsPlaylist({ ...props }: SessionRecordingsPlaylis
         return () => observer.disconnect()
     }, [])
 
+    // Fullscreen has to be state rather than a live `document.fullscreenElement` read. Leaving fullscreen
+    // schedules no render of its own, so the guard below would hold a stale layout until something else
+    // happened to re-render.
+    const [isFullscreen, setIsFullscreen] = useState(() => !!document.fullscreenElement)
+
+    useEffect(() => {
+        const onFullscreenChange = (): void => setIsFullscreen(!!document.fullscreenElement)
+        document.addEventListener('fullscreenchange', onFullscreenChange)
+        return () => document.removeEventListener('fullscreenchange', onFullscreenChange)
+    }, [])
+
     const containerSaysVertical = containerWidth !== null && containerWidth < HORIZONTAL_LAYOUT_MIN_WIDTH
 
     // Don't switch layout while in fullscreen — it would unmount the fullscreen element
     const layoutRef = useRef(containerSaysVertical)
-    if (!document.fullscreenElement) {
+    if (!isFullscreen) {
         layoutRef.current = containerSaysVertical
     }
     const isVerticalLayout = layoutRef.current
