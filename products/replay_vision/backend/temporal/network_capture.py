@@ -151,13 +151,26 @@ def _iter_captured_requests(lines: Iterable[str]) -> Iterator[tuple[dict[str, An
             parsed = json.loads(line)
         except (ValueError, TypeError):
             continue
-        if not isinstance(parsed, dict):
-            continue
-        events = parsed.get("data")
-        if not isinstance(events, list):
-            continue
-        for event in events:
+        for event in _events_from_line(parsed):
             yield from _iter_event_requests(event)
+
+
+def _events_from_line(parsed: Any) -> list[Any]:
+    """The rrweb events on one snapshot line.
+
+    A recording block stores one event per line as `[window_id, event]`. The snapshots API serves the same
+    events wrapped as `{"window_id": ..., "data": [event, ...]}`, so both are read rather than tying the
+    decoder to whichever source a caller happened to fetch from.
+    """
+    if isinstance(parsed, list):
+        if len(parsed) == 2 and isinstance(parsed[1], dict):
+            return [parsed[1]]
+        return [event for event in parsed if isinstance(event, dict)]
+    if isinstance(parsed, dict):
+        events = parsed.get("data")
+        if isinstance(events, list):
+            return events
+    return []
 
 
 def _iter_event_requests(event: Any) -> Iterator[tuple[dict[str, Any], int]]:
