@@ -12,7 +12,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
 from posthog.hogql.resolver import resolve_types
 
-from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
+from products.metrics.backend.facade.testing import seed_metric, truncate_metrics_tables
 
 METRICS_TABLE = "posthog.metrics"
 
