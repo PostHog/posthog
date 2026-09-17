@@ -1,4 +1,4 @@
-import { Counter, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { MlWireVersion } from './keys/schema'
 
@@ -136,6 +136,19 @@ export class MlMirrorMetrics {
      * observing each one puts the size of the payload on the mirror's hot path.
      */
     private static urlBytesSeen = 0
+    private static readonly mlKeyRowCacheLookups = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_key_row_cache_lookups_total',
+        help: 'Lookups of a stored ML key row in the per-process cache, by outcome. A hit costs neither a DynamoDB read nor a KMS decrypt, so the hit share is what the row cache is worth; it is also how long a deleted key can still be served, because a hit does not see a tombstone written since the row was read. Note that dynamodb_read on ml_key_request_duration counts misses only, so read that rate against this one rather than as total key traffic',
+        labelNames: ['outcome'],
+    })
+    private static readonly mlKeyRowCacheEntries = new Gauge({
+        name: 'recording_blob_ingestion_v2_ml_key_row_cache_entries',
+        help: 'Stored ML key rows held in the per-process cache. Reaching the configured maximum means rows are evicted before they expire, so the hit share falls and the lane reads DynamoDB more often',
+    })
+    private static readonly mlKeyReadRetries = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_key_read_retries_total',
+        help: 'Retries of a throttled or otherwise transient ML key read. Commits log ml_key_commit_retry for the write path; reads have no equivalent log, so this counter is the only signal that a lane is riding out a DynamoDB throttle rather than failing on it',
+    })
     private static readonly mlKeyPhaseDuration = new Histogram({
         name: 'recording_blob_ingestion_v2_ml_key_phase_duration_ms',
         help: 'Wall time of one ML key phase per Kafka batch. The consumer handles one batch at a time, so these phases plus anonymization are the batch wall time; a phase that dominates while pod CPU stays low is the lane waiting on KMS, DynamoDB or Kafka rather than working',
@@ -165,6 +178,18 @@ export class MlMirrorMetrics {
 
     public static observeMlKeyRequest(request: MlKeyRequest, ms: number): void {
         this.mlKeyRequestDuration.labels(request).observe(ms)
+    }
+
+    public static incrementMlKeyRowCacheLookup(outcome: 'hit' | 'miss'): void {
+        this.mlKeyRowCacheLookups.labels(outcome).inc()
+    }
+
+    public static setMlKeyRowCacheEntries(entries: number): void {
+        this.mlKeyRowCacheEntries.set(entries)
+    }
+
+    public static incrementMlKeyReadRetry(): void {
+        this.mlKeyReadRetries.inc()
     }
 
     public static observeMlAnonymizeDuration(impl: MlAnonymizeImpl, ms: number, route: MlAnonymizeRoute = ''): void {

@@ -11,6 +11,8 @@ export type MlMirrorConfig = {
     AI_RESEARCH_REPLAY_KMS_REQUESTS_PER_SECOND: number
     AI_RESEARCH_REPLAY_KEY_CACHE_MAX: number
     AI_RESEARCH_REPLAY_KEY_CACHE_LIFETIME_MS: number
+    AI_RESEARCH_REPLAY_ROW_CACHE_MAX: number
+    AI_RESEARCH_REPLAY_ROW_CACHE_LIFETIME_MS: number
     AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE: string
     AI_RESEARCH_REPLAY_S3_PREFIX: string
     /** S3 key prefix under the bucket for the block-metadata Parquet dataset (used by the sink). */
@@ -224,6 +226,9 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         AI_RESEARCH_REPLAY_KMS_REQUESTS_PER_SECOND: 150,
         AI_RESEARCH_REPLAY_KEY_CACHE_MAX: 100_000,
         AI_RESEARCH_REPLAY_KEY_CACHE_LIFETIME_MS: 1_800_000,
+        // Sized apart from the KMS cache above because a row is far larger than a key, and this lifetime carries the deletion lease.
+        AI_RESEARCH_REPLAY_ROW_CACHE_MAX: 100_000,
+        AI_RESEARCH_REPLAY_ROW_CACHE_LIFETIME_MS: 300_000,
         AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE: '',
         AI_RESEARCH_REPLAY_S3_PREFIX: 'rrweb_2',
         SESSION_RECORDING_ML_METADATA_PREFIX: 'block-metadata',

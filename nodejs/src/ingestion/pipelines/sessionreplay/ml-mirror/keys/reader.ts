@@ -1,6 +1,6 @@
 import { MlDataKey, MlKeyEncryption } from './crypto'
 import { MlKeyDynamoDB } from './dynamodb'
-import { MlKeyIdentity, TableKey, tableKeyString, teamBlockId } from './schema'
+import { MlKeyIdentity, TableKey, storedSessionId, tableKeyString, teamBlockId } from './schema'
 
 export class MlKeyReader {
     constructor(
@@ -19,7 +19,7 @@ export class MlKeyReader {
             if (!Number.isSafeInteger(teamId)) {
                 throw new Error('Invalid ML key record')
             }
-            const sessionId = item.sk.S?.startsWith('session:') ? item.sk.S.slice('session:'.length) : undefined
+            const sessionId = item.sk.S ? storedSessionId(item.sk.S) : undefined
             const organizationId = item.organization_id?.S
             identities.set(id, {
                 teamId,

@@ -10,7 +10,7 @@ import pLimit from 'p-limit'
 
 import { MlKeyRequest, MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 
-import { TableKey, tableKeyString } from './schema'
+import { TableKey, holdsStoredKey, tableKeyString } from './schema'
 import { isTransientError } from './transient'
 
 // KEY_READ_LEASE_SECONDS in products/ai_training/backend/privacy/store.py. Deletion reports itself complete once that
@@ -59,7 +59,7 @@ export class MlKeyDynamoDB {
     // Only a usable key row is stable enough to cache, because putIfAbsent writes it once. A team block row decides
     // whether a batch may mint new keys, so a stale absent one would write durable keys for a team that asked to be blocked.
     private cacheable(key: TableKey): boolean {
-        return key.sk.startsWith('session:') || key.sk.startsWith('image:')
+        return holdsStoredKey(key)
     }
 
     public async read(keys: TableKey[], callerDeadline?: AbortSignal): Promise<Map<string, DynamoItem>> {
@@ -71,8 +71,12 @@ export class MlKeyDynamoDB {
             const id = tableKeyString(key)
             const cached = this.cacheable(key) ? this.rows.get(id) : undefined
             if (cached) {
+                MlMirrorMetrics.incrementMlKeyRowCacheLookup('hit')
                 result.set(id, cached)
             } else {
+                if (this.cacheable(key)) {
+                    MlMirrorMetrics.incrementMlKeyRowCacheLookup('miss')
+                }
                 missing.push(key)
             }
         }
@@ -103,6 +107,7 @@ export class MlKeyDynamoDB {
                             if (!isTransientError(error) || deadline.aborted || attempt === this.attempts - 1) {
                                 throw error
                             }
+                            MlMirrorMetrics.incrementMlKeyReadRetry()
                             await this.backoff(attempt, deadline)
                             if (deadline.aborted) {
                                 throw error
@@ -117,7 +122,8 @@ export class MlKeyDynamoDB {
                                 continue
                             }
                             if (item.wrapped_key?.B && item.deleted?.BOOL !== true) {
-                                this.rows.set(id, item)
+                                // Every caller receives this instance, so a mutation would reach every later session.
+                                this.rows.set(id, Object.freeze(item))
                             } else {
                                 this.rows.delete(id)
                             }
@@ -136,7 +142,13 @@ export class MlKeyDynamoDB {
                 })
             )
         )
+        MlMirrorMetrics.setMlKeyRowCacheEntries(this.rows.size)
         return result
+    }
+
+    public clear(): void {
+        this.rows.clear()
+        MlMirrorMetrics.setMlKeyRowCacheEntries(0)
     }
 
     public async putIfAbsent(key: TableKey, attributes: DynamoItem, deadline?: AbortSignal): Promise<boolean> {

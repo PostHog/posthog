@@ -14,6 +14,8 @@ export interface MlKeyManagerConfig {
     AI_RESEARCH_REPLAY_AWS_REGION: string
     AI_RESEARCH_REPLAY_KEY_CACHE_MAX: number
     AI_RESEARCH_REPLAY_KEY_CACHE_LIFETIME_MS: number
+    AI_RESEARCH_REPLAY_ROW_CACHE_MAX: number
+    AI_RESEARCH_REPLAY_ROW_CACHE_LIFETIME_MS: number
     AI_RESEARCH_REPLAY_KMS_REQUESTS_PER_SECOND: number
     SESSION_RECORDING_DYNAMODB_ENDPOINT?: string
 }
@@ -41,8 +43,8 @@ export class MlKeyManager {
             config.AI_RESEARCH_REPLAY_KEY_TABLE,
             undefined,
             undefined,
-            config.AI_RESEARCH_REPLAY_KEY_CACHE_MAX,
-            config.AI_RESEARCH_REPLAY_KEY_CACHE_LIFETIME_MS
+            config.AI_RESEARCH_REPLAY_ROW_CACHE_MAX,
+            config.AI_RESEARCH_REPLAY_ROW_CACHE_LIFETIME_MS
         )
         this.encryption = new MlKeyEncryption(
             this.kms,
