@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
@@ -252,7 +253,53 @@ class TestCDCBufferWriter:
         trimmed = f"{prefix}/{build_buffer_file_name(200, 250, 1)}"
         assert set(files) == {settled, trimmed}
         assert pq.read_table(io.BytesIO(files[trimmed].getvalue())).column(CDC_SEQ_COLUMN).to_pylist() == [200, 250]
-        assert [c.args[0] for c in writer._s3.rm.call_args_list] == [straddling, superseded]
+        assert [c.args[0] for c in writer._s3.rm.call_args_list] == [straddling, f"{trimmed}.staging", superseded]
+
+    def test_no_listing_ever_holds_both_a_straddling_file_and_its_replacement(self):
+        writer, files = self._writer_with_captured_files()
+        prefix = strip_s3_protocol(get_buffer_prefix(1, "abc"))
+        straddling = f"{prefix}/{build_buffer_file_name(200, 300, 1)}"
+        trimmed = f"{prefix}/{build_buffer_file_name(200, 250, 1)}"
+        self._seed_file(files, straddling, [200, 250, 300])
+        listings: list[set[str]] = []
+        real_open = writer._s3.open
+
+        @contextmanager
+        def observed_open(path, mode):
+            with real_open(path, mode) as f:
+                yield f
+            listings.append({k for k in files if parse_buffer_file_name(k.rsplit("/", 1)[-1]) is not None})
+
+        def observed_rm(key):
+            files.pop(key)
+            listings.append({k for k in files if parse_buffer_file_name(k.rsplit("/", 1)[-1]) is not None})
+
+        writer._s3.open = observed_open
+        writer._s3.ls = MagicMock(return_value=[straddling])
+        writer._s3.rm = MagicMock(side_effect=observed_rm)
+
+        writer.cleanup_superseded_files(team_id=1, schema_id="abc", restart_seq=300)
+
+        assert all(not {straddling, trimmed} <= seen for seen in listings)
+        assert set(files) == {trimmed}
+
+    @parameterized.expand([("original_still_there", True), ("original_already_gone", False)])
+    def test_cleanup_finishes_a_trim_a_crash_interrupted(self, _name, original_present):
+        writer, files = self._writer_with_captured_files()
+        prefix = strip_s3_protocol(get_buffer_prefix(1, "abc"))
+        straddling = f"{prefix}/{build_buffer_file_name(200, 300, 1)}"
+        trimmed = f"{prefix}/{build_buffer_file_name(200, 250, 1)}"
+        staged = f"{trimmed}.staging"
+        self._seed_file(files, staged, [200, 250])
+        if original_present:
+            self._seed_file(files, straddling, [200, 250, 300])
+        writer._s3.ls = MagicMock(return_value=sorted(files))
+        writer._s3.rm = MagicMock(side_effect=files.pop)
+
+        writer.cleanup_superseded_files(team_id=1, schema_id="abc", restart_seq=400)
+
+        assert set(files) == {trimmed}
+        assert pq.read_table(io.BytesIO(files[trimmed].getvalue())).column(CDC_SEQ_COLUMN).to_pylist() == [200, 250]
 
     def test_cleanup_keeps_a_straddling_file_it_could_not_rewrite(self):
         writer, files = self._writer_with_captured_files()

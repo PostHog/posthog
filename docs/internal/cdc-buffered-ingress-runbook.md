@@ -291,9 +291,11 @@ has beside the head the retry re-emits. Deleting it loses the settled rows. Keep
 `_cdc` table a second copy of the head: the replay filter matches a batch row against what the
 table already holds, and when both files are read in one run the table holds neither copy yet, so
 both are appended. So the retry rewrites the file with its settled rows only, under the narrowed
-range and the same index, then removes the original. The rewrite lands before the delete: a crash
-between the two leaves both files, and the next attempt's cleanup trims the original again into the
-same file.
+range and the same index. The replacement is staged under a `.staging` suffix the consumer never
+parses, the original is removed, and only then is the staged file promoted to its final name, so no
+listing ever holds both. A crash anywhere in that sequence is finished by the next attempt's
+cleanup: a staged file always holds settled rows, so it removes the original if it is still there
+and promotes the staged file.
 
 A cleanup failure fails the attempt. A superseded file that survives is a second copy of every
 position it holds once the retry writes them again, so the run retries rather than write beside it.
