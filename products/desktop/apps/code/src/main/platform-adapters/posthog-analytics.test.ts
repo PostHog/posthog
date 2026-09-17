@@ -103,6 +103,16 @@ describe("posthog-analytics", () => {
     expect(props.$session_id).toBe(posthogNodeAnalytics.getOrCreateSessionId());
   });
 
+  it("leaves the session id off an exception from an earlier run", () => {
+    posthogNodeAnalytics.captureDeferredException(new Error("boom"), {
+      type: "native-crash",
+    });
+
+    const [, , props] = mockCaptureException.mock.calls.at(-1) ?? [];
+    expect(props).not.toHaveProperty("$session_id");
+    expect(props.type).toBe("native-crash");
+  });
+
   it("mints a stable valid uuidv7 session id", () => {
     const first = posthogNodeAnalytics.getOrCreateSessionId();
 

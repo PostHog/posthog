@@ -289,7 +289,7 @@ function reportCrashDumpsFromPreviousRun(): void {
     const report = reportCrashDumps(
       app.getPath("crashDumps"),
       (error, properties) =>
-        posthogNodeAnalytics.captureException(error, properties),
+        posthogNodeAnalytics.captureDeferredException(error, properties),
     );
     if (report.found === 0) return;
     log.info("Reported native crash dumps from a previous run", report);
