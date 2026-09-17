@@ -26,7 +26,7 @@ import {
 } from '../../../shared/components/forms/WebhookSetupForm'
 import type { WebhookCreateResult } from '../../../shared/components/forms/WebhookSetupForm'
 import { WebhookLogsSection } from './WebhookLogsSection'
-import { WEBHOOK_SECTIONS, WebhookSection, webhookTabLogic } from './webhookTabLogic'
+import { MissingWebhookCredential, WEBHOOK_SECTIONS, WebhookSection, webhookTabLogic } from './webhookTabLogic'
 
 const SECTION_LABELS: Record<WebhookSection, string> = {
     overview: 'Overview',
@@ -68,7 +68,7 @@ export function WebhookTab({ id }: { id: string }): JSX.Element {
         canDeleteWebhook,
         webhookDeleting,
         currentSection,
-        missingCredentialFields,
+        missingCredentials,
     } = useValues(webhookTabLogic({ id }))
     const { createWebhook, loadWebhookInfo, deleteWebhook, setCurrentSection } = useActions(webhookTabLogic({ id }))
 
@@ -134,9 +134,9 @@ export function WebhookTab({ id }: { id: string }): JSX.Element {
                         externalStateLabel={externalStateLabel}
                         onRefresh={loadWebhookInfo}
                     />
-                    {missingCredentialFields.length > 0 && (
+                    {missingCredentials.length > 0 && (
                         <WebhookMissingCredentialsSection
-                            missingFields={missingCredentialFields}
+                            missingCredentials={missingCredentials}
                             sourceName={sourceConfig?.label ?? source?.source_type ?? 'source'}
                             onGoToConfiguration={() => setCurrentSection('configuration')}
                         />
@@ -349,15 +349,15 @@ function WebhookRecreateSection({
 }
 
 function WebhookMissingCredentialsSection({
-    missingFields,
+    missingCredentials,
     sourceName,
     onGoToConfiguration,
 }: {
-    missingFields: SourceFieldConfig[]
+    missingCredentials: MissingWebhookCredential[]
     sourceName: string
     onGoToConfiguration: () => void
 }): JSX.Element {
-    const fieldLabels = missingFields.map((field) => field.label).join(', ')
+    const fieldLabels = missingCredentials.map((credential) => credential.label).join(', ')
 
     return (
         <LemonBanner

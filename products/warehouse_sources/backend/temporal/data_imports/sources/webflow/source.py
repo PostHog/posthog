@@ -195,8 +195,17 @@ class WebflowSource(
     # anything missing afterwards is surfaced to the user by `get_desired_webhook_events`.
 
     def missing_webhook_inputs(self, inputs: dict[str, Any]) -> list[str]:
-        # Webflow returns one secret per registered trigger, stored in the hidden `signing_secrets`.
-        if inputs.get("signing_secrets", {}).get("secret"):
+        # Webflow issues one secret per trigger, at creation only, and keeps them in the hidden
+        # `signing_secrets`. A partial capture still needs a manual secret for the triggers whose
+        # secret we never saw, so completeness decides rather than the presence of the list.
+        # `create_webhook` records completeness separately, because a set secret serializes to a
+        # masked marker that cannot be counted here.
+        complete = inputs.get("signing_secrets_complete", {}).get("value")
+        if complete:
+            return []
+        # Registered before PostHog recorded completeness. Keep the earlier reading, so a webhook
+        # the provider fully provisioned is not now reported as needing setup.
+        if complete is None and inputs.get("signing_secrets", {}).get("secret"):
             return []
         return super().missing_webhook_inputs(inputs)
 

@@ -162,6 +162,19 @@ produceToWarehouseWebhooks(
         },
         {
             "type": "boolean",
+            "key": "signing_secrets_complete",
+            "label": "Signing secrets complete",
+            "description": (
+                "Whether PostHog captured a secret for every trigger type it registered. False means some "
+                "deliveries cannot be verified until a signing secret is entered by hand."
+            ),
+            "default": False,
+            "required": False,
+            "secret": False,
+            "hidden": True,
+        },
+        {
+            "type": "boolean",
             "key": "bypass_signature_check",
             "label": "Bypass signature check",
             "description": "If set, the x-webflow-signature header will not be checked. This is not recommended.",

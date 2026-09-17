@@ -347,7 +347,7 @@ class TestCreateWebhook:
             result = create_webhook("token", "site-1", "https://webhooks.example/dwh/1")
 
         assert result.success is True
-        assert result.extra_inputs == {"signing_secrets": ["s1", "s2"]}
+        assert result.extra_inputs == {"signing_secrets": ["s1", "s2"], "signing_secrets_complete": True}
         assert result.pending_inputs == []
         assert [call.kwargs["json"]["triggerType"] for call in session.post.call_args_list] == list(ALL_WEBHOOK_EVENTS)
         assert {call.kwargs["json"]["url"] for call in session.post.call_args_list} == {
@@ -372,6 +372,10 @@ class TestCreateWebhook:
         assert result.success is True
         # One trigger's secret was issued before we asked, so it can't be recovered.
         assert result.pending_inputs == ["signing_secret"]
+        # A non-empty secret list does not mean setup is done. Without this flag the webhook tab
+        # reads the list as complete and hides the warning, while the triggers whose secret we
+        # never saw keep failing the signature check.
+        assert result.extra_inputs == {"signing_secrets": ["s2"], "signing_secrets_complete": False}
 
     def test_registration_without_a_secret_asks_the_user_for_one(self) -> None:
         # Site tokens predating Webflow's per-webhook secrets return no secretKey; silently
