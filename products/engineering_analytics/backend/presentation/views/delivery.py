@@ -1,4 +1,5 @@
-"""Delivery reads: a scope's delivery summary and its pull request timelines."""
+"""Delivery reads: a scope's delivery summary, its pull request timelines, and an author's comparison with
+their team."""
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -8,6 +9,7 @@ from rest_framework.response import Response
 
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.presentation.serializers.delivery import (
+    DeliveryComparisonSerializer,
     DeliverySummarySerializer,
     PullRequestTimelinesSerializer,
 )
@@ -55,8 +57,26 @@ _REPO = OpenApiParameter(
 )
 
 
+_COMPARISON_AUTHOR = OpenApiParameter(
+    name="author",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
+    required=True,
+    description="GitHub login of the author to compare with their team and the repository.",
+)
+
+_FOCUS_PR_NUMBER = OpenApiParameter(
+    name="pr_number",
+    type=OpenApiTypes.INT,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="A pull request by the author. A team of the author's that this pull request asked to review is "
+    "the team to compare with.",
+)
+
+
 class DeliveryActionsMixin(EngineeringAnalyticsViewSetBase):
-    READ_ACTIONS = ["delivery_summary", "pull_request_timelines"]
+    READ_ACTIONS = ["delivery_summary", "delivery_comparison", "pull_request_timelines"]
 
     @extend_schema(
         operation_id="engineering_analytics_delivery_summary",
@@ -88,6 +108,38 @@ class DeliveryActionsMixin(EngineeringAnalyticsViewSetBase):
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid scope, date, or source_id")
         return Response(DeliverySummarySerializer(instance=summary).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_delivery_comparison",
+        parameters=[_COMPARISON_AUTHOR, _FOCUS_PR_NUMBER, _DATE_FROM, _DATE_TO, _SOURCE_ID, _REPO],
+        responses={
+            200: DeliveryComparisonSerializer,
+            400: OpenApiResponse(description="Missing author, or invalid pr_number, date or source_id."),
+        },
+        description=(
+            "One author's median ready to merged time, split at the first approval, next to the same medians for "
+            "the author's own team and for the whole repository, over pull requests merged in the window "
+            "(date_from default -30d). The team is picked from the author's GitHub teams that own code: a team "
+            "that pr_number asked to review, else the team the author's pull requests asked to review most often, "
+            "else every team. Bots and drafts are excluded."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def delivery_comparison(self, request: Request, **kwargs) -> Response:
+        try:
+            comparison = api.get_delivery_comparison(
+                team=self.team,
+                author=request.query_params.get("author") or None,
+                pr_number=_optional_int_param(request, "pr_number"),
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid author, pull request, date, or source_id")
+        return Response(DeliveryComparisonSerializer(instance=comparison).data)
 
     @extend_schema(
         operation_id="engineering_analytics_pull_request_timelines",

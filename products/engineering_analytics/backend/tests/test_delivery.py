@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 
 from django.test import SimpleTestCase
 
@@ -13,6 +13,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PRTimelineSegmentKind as Kind,
     ScopeRepoFigure,
 )
+from products.engineering_analytics.backend.logic.census import CENSUS_EVENT
 from products.engineering_analytics.backend.logic.comparison_teams import choose_comparison_teams
 from products.engineering_analytics.backend.logic.delivery_scope import DeliveryScope
 from products.engineering_analytics.backend.logic.pr_timeline import (
@@ -24,6 +25,7 @@ from products.engineering_analytics.backend.logic.pr_timeline import (
     RunAttempt,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries.delivery_comparison import query_delivery_comparison
 from products.engineering_analytics.backend.logic.queries.delivery_summary import (
     CI_LOOKBACK,
     DeliverySummaryAggregator,
@@ -46,6 +48,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     _pr_row,
     _run_row,
     _status_row,
+    create_github_source,
 )
 from products.engineering_analytics.backend.tests._logic_helpers import (
     _ago,
@@ -584,6 +587,115 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         assert old_open is None or old_open.started_at == date_from - CI_LOOKBACK
 
 
+_ISSUE_EVENTS_WITH_TEAM_REQUESTS = {
+    **ISSUE_EVENTS_COLUMNS,
+    "requested_team": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+}
+
+
+def _team_request_row(event_id: int, pr_number: int, team_slug: str, created_at: str) -> dict:
+    return {
+        **_issue_event_row(event_id, "review_requested", pr_number, created_at, login="assigner[bot]"),
+        "requested_team": f'{{"slug": "{team_slug}"}}',
+    }
+
+
+class TestDeliveryComparisonOnWarehouse(_WarehouseMixin):
+    def _seed(self, *, with_team_requests: bool) -> None:
+        # The census is keyed by repository, so the source has to name one.
+        self._github_source = create_github_source(self.team, repository="PostHog/posthog")
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(21, "alice", "closed", 0, _ago(3), merged_at=_ago(1)),
+                _pr_row(27, "alice", "closed", 0, _ago(3), merged_at=_ago(2)),
+                _pr_row(23, "alice", "closed", 0, _ago(2), merged_at=_ago(1)),
+                _pr_row(22, "bob", "closed", 0, _ago(4), merged_at=_ago(1)),
+                _pr_row(28, "carol", "closed", 0, _ago(4), merged_at=_ago(2)),
+            ],
+        )
+        self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [])
+        # Alice is in two teams that own code and in an approver group that owns none.
+        self._create_table(
+            "github_team_members",
+            TEAM_MEMBERS_COLUMNS,
+            [
+                _member_row(1, "alice", "team-replay"),
+                _member_row(2, "alice", "team-ingestion"),
+                _member_row(3, "alice", "client-libraries-approvers"),
+                _member_row(4, "bob", "team-replay"),
+                _member_row(5, "carol", "team-ingestion"),
+            ],
+        )
+        if with_team_requests:
+            # Other authors' pull requests ask team-ingestion more often, and must not count for alice.
+            self._create_table(
+                "github_issue_events",
+                _ISSUE_EVENTS_WITH_TEAM_REQUESTS,
+                [
+                    _team_request_row(1, 21, "team-replay", _ago(2)),
+                    _team_request_row(2, 27, "team-replay", _ago(3)),
+                    _team_request_row(3, 23, "team-ingestion", _ago(1)),
+                    _team_request_row(4, 22, "team-ingestion", _ago(3)),
+                    _team_request_row(5, 28, "team-ingestion", _ago(3)),
+                ],
+            )
+        else:
+            self._create_table(
+                "github_issue_events", ISSUE_EVENTS_COLUMNS, [_issue_event_row(1, "labeled", 21, _ago(2))]
+            )
+        for owner_team in ("team-replay", "team-ingestion"):
+            _create_event(
+                event=CENSUS_EVENT,
+                team=self.team,
+                distinct_id="census",
+                properties={"repository": "PostHog/posthog", "owner_team": owner_team, "test_file_count": 10},
+                timestamp=datetime.now(tz=UTC) - timedelta(days=1),
+            )
+        flush_persons_and_events()
+
+    @parameterized.expand(
+        [
+            ("the_most_requested_team", True, None, Basis.REVIEW_REQUESTS, {"team-replay": 4}, None),
+            ("the_team_the_focus_pr_asked", True, 23, Basis.PULL_REQUEST, {"team-ingestion": 4}, 86400),
+            (
+                "every_code_team_without_requests",
+                False,
+                None,
+                Basis.ALL_TEAMS,
+                {"team-ingestion": 4, "team-replay": 4},
+                None,
+            ),
+        ]
+    )
+    def test_compares_the_author_with_their_team(
+        self,
+        _name: str,
+        with_team_requests: bool,
+        focus_pr: int | None,
+        basis: Basis,
+        team_merged_counts: dict[str, int],
+        focus_ready_seconds: int | None,
+    ) -> None:
+        self._seed(with_team_requests=with_team_requests)
+        curated = CuratedGitHubSource.for_team(self.team)
+
+        comparison = query_delivery_comparison(
+            curated=curated,
+            author="alice",
+            focus_pr=focus_pr,
+            date_from=datetime.now(tz=UTC) - timedelta(days=7),
+            date_to=None,
+        )
+
+        assert comparison.team_basis == basis
+        assert {team.github_team: team.medians.merged_pr_count for team in comparison.teams} == team_merged_counts
+        assert (comparison.author_medians.merged_pr_count, comparison.repo_medians.merged_pr_count) == (3, 5)
+        focus = comparison.pull_request
+        assert (focus.ready_to_merge_seconds if focus else None) == focus_ready_seconds
+
+
 class TestDeliveryDeployWindow(_WarehouseMixin):
     def _seed(self) -> None:
         # Two merges inside the window, each heading its own production deploy: one deploy lands
@@ -659,6 +771,7 @@ class TestDeliveryEndpoints(APIBaseTest):
         [
             ("delivery_summary", "exactly one of author, github_team"),
             ("pull_request_timelines", "exactly one of author, github_team"),
+            ("delivery_comparison", "author is required"),
         ]
     )
     def test_rejects_a_missing_scope(self, action: str, message: str) -> None:
