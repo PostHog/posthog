@@ -21,7 +21,8 @@ function PickerWithNotice(): JSX.Element {
     const { providerModelGroups, hasByokKeys, byokModelsLoading, providerKeysLoading } = useValues(modelPickerLogic)
 
     return (
-        <div className="w-full max-w-2xl">
+        // The story root has no width of its own, so the picker column is sized here to match the form it sits in.
+        <div className="w-[560px]">
             <ModelPicker
                 model=""
                 selectedProviderKeyId={null}
