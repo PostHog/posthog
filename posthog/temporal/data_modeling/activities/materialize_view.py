@@ -172,6 +172,7 @@ DELTA_TABLE_RETENTION_HOURS = 24
 # The only gate. Incremental is also the only path that writes through deltalite, so turning this
 # off falls back to full refresh on delta-rs and takes the engine with it.
 INCREMENTAL_FLAG = "data-modeling-incremental-views"
+SNAPSHOT_FLAG = "data-modeling-snapshot-views"
 
 # Above this many files, the per-run compaction is worth its full-table rewrite. Below it, skipping
 # keeps an incremental run's cost proportional to the rows it changed rather than the table's size.
@@ -229,6 +230,26 @@ def _incremental_enabled(team_id: int) -> bool:
         return False
 
 
+def _snapshot_enabled(team_id: int) -> bool:
+    """Fail closed while snapshot materialization is being rolled out."""
+    try:
+        team = Team.objects.only("organization_id").get(id=team_id)
+        return feature_enabled_or_false(
+            SNAPSHOT_FLAG,
+            str(team_id),
+            groups={"organization": str(team.organization_id), "project": str(team_id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team_id)},
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        LOGGER.warning("Failed to evaluate snapshot flag; keeping snapshot disabled", team_id=team_id)
+        return False
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class WritePlan:
     """Whether this run rebuilds the table or updates it, and why. The reason is surfaced on the
@@ -248,6 +269,8 @@ def _resolve_write_plan(saved_query: DataWarehouseSavedQuery, team_id: int) -> W
     if snapshot is not None:
         if not isinstance(snapshot, dict) or not snapshot.get("unique_key"):
             raise SnapshotValidationError("Snapshot configuration must include a non-empty unique_key.")
+        if not _snapshot_enabled(team_id):
+            raise SnapshotValidationError("Snapshot materialization is not enabled for this project.")
         return WritePlan(snapshot=True, incremental=False, reason="snapshot materialization")
     config = get_incremental_config(saved_query)
     if config is None:
