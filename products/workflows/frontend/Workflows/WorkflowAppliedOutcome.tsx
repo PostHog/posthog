@@ -16,14 +16,10 @@ export function WorkflowAppliedOutcome({
                 <span className="font-semibold">{proposal.title}</span>
                 <LemonTag type="success">Applied as version {proposal.applied_version}</LemonTag>
             </div>
-            {/* Two windows side by side, not a controlled comparison. Said plainly so nobody reads a
-                difference here as proof the change caused it. */}
             <p className="mb-0 text-secondary text-sm">
                 Measured over {outcome.window}, before and after. Different periods, so treat a difference as a signal
                 to look closer, not as proof.
             </p>
-            {/* One column until there is room for two: at side-panel widths the pair would clip, and
-                the scene hides horizontal overflow. */}
             <div className="grid grid-cols-1 @md:grid-cols-2 gap-3 text-sm">
                 {(['before', 'after'] as const).map((side) => {
                     const reading = outcome[side]

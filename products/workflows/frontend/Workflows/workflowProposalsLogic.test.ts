@@ -10,7 +10,6 @@ import { workflowProposalsLogic } from './workflowProposalsLogic'
 
 jest.mock('lib/lemon-ui/LemonDialog', () => ({ LemonDialog: { open: jest.fn() } }))
 
-// Approve opens a confirm dialog, so the test has to click its primary button to get any further.
 const confirmTheDialog = (): void => {
     const call = (LemonDialog.open as jest.Mock).mock.calls.at(-1)
     call[0].primaryButton.onClick()
@@ -94,8 +93,6 @@ describe('workflowProposalsLogic', () => {
         expect(logic.values.pendingProposals.map((p) => p.id)).toEqual([PROPOSAL_ID])
     })
 
-    // A failed reload (approve/reject re-dispatches loadProposals) must not blank the queue the
-    // person is reading. Only the flag-off 404 is an empty queue; a 5xx keeps the last list.
     it('keeps the pending queue and reports failure when a reload hits a server error', async () => {
         await expectLogic(logic).toDispatchActions(['loadProposalsSuccess'])
         expect(logic.values.pendingProposals.map((p) => p.id)).toEqual([PROPOSAL_ID])
@@ -120,9 +117,6 @@ describe('workflowProposalsLogic', () => {
         expect(logic.values.pendingProposals).toEqual([])
     })
 
-    // Publishing resolves through the workflow, not this panel, so without this the person who just
-    // published keeps reading the queue as it was: no applied card, and a suggestion written against
-    // the old version still offered for approval.
     it('reloads the queue when the workflow version moves', async () => {
         const flowLogic = workflowLogic({ id: WORKFLOW_ID })
         flowLogic.mount()
@@ -136,8 +130,6 @@ describe('workflowProposalsLogic', () => {
         expect(logic.values.lastSeenVersion).toBe(4)
     })
 
-    // The fence is the whole point: approve must carry the draft stamp the human confirmed against,
-    // so a draft staged in another tab meanwhile is rejected by the server instead of overwritten.
     it('approving sends the draft stamp it saw as the overwrite fence', async () => {
         const flowLogic = workflowLogic({ id: WORKFLOW_ID })
         flowLogic.mount()

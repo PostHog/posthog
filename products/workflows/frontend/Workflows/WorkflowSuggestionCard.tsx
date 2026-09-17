@@ -15,8 +15,7 @@ import { workflowProposalsLogic } from './workflowProposalsLogic'
 import { WorkflowSuggestionDetails } from './WorkflowSuggestionDetails'
 import { WorkflowSuggestionEvidence } from './WorkflowSuggestionEvidence'
 
-// The label reads `created_via`, which the server derives from the request, so a caller cannot
-// label its own suggestion as a person's.
+// `created_via` is server-derived, so a caller cannot label its own suggestion as a person's.
 const ARRIVED_VIA_LABELS: Record<WorkflowProposalCreatedViaEnumApi, string> = {
     self_driving: 'Suggested by PostHog',
     mcp: 'Suggested by an agent',

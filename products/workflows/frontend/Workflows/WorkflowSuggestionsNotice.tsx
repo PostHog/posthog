@@ -6,7 +6,6 @@ import { urls } from 'scenes/urls'
 
 import { workflowProposalsLogic } from './workflowProposalsLogic'
 
-/** One line above the tabs, so a suggestion is noticed without taking the editor's space. */
 export function WorkflowSuggestionsNotice({ id }: { id: string }): JSX.Element | null {
     const { pendingProposals } = useValues(workflowProposalsLogic({ id }))
 

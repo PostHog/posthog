@@ -20,9 +20,7 @@ import type {
 import type { HogFlow } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
 
-// Each applied suggestion costs its own outcome request, and two ClickHouse reads behind it. Applied
-// is terminal, so an unbounded list grows with every publish and pays for itself again on every page
-// view. The newest few are the ones anyone reads.
+// Applied is terminal and each one costs an outcome request, so only the newest few load.
 const APPLIED_OUTCOME_LIMIT = 3
 
 export interface WorkflowProposalsLogicProps {
@@ -180,8 +178,6 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                 setResolvingId: (_, { proposalId }) => proposalId,
             },
         ],
-        // Which action is in flight, so each button shows its own spinner rather than both reading
-        // the same id.
         resolvingAction: [
             null as 'approve' | 'reject' | null,
             {
@@ -215,9 +211,7 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                             limit: APPLIED_OUTCOME_LIMIT,
                         })
                     } catch (error) {
-                        // Only the flag-off 404 is an empty queue. Let a 5xx or a dropped connection reject
-                        // so the loader keeps the last known list and surfaces the failure, rather than
-                        // blanking the panel and staying silent.
+                        // Only the flag-off 404 is an empty queue; anything else rejects so the loader keeps the last list.
                         if (error instanceof ApiError && error.status === 404) {
                             return { count: 0, results: [] }
                         }
@@ -235,8 +229,7 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                             status: 'suggested',
                         })
                     } catch (error) {
-                        // A 404 is the flag being off, which must not toast at every user the rollout
-                        // has not reached. Anything else rejects, so the loader keeps the last known list.
+                        // 404 is the flag being off; anything else rejects so the loader keeps the last list.
                         if (error instanceof ApiError && error.status === 404) {
                             return { count: 0, results: [] }
                         }
@@ -284,8 +277,6 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
             }
             actions.setResolvingId(proposalId, 'approve')
             try {
-                // overwrite only replaces the draft the dialog warned about: the expected stamp fences
-                // the write, so a draft that changed since returns 409 below.
                 await hogFlowsProposalsApproveCreate(String(values.currentTeamIdStrict), props.id, proposalId, {
                     overwrite: true,
                     expected_draft_updated_at: expectedDraftUpdatedAt,
@@ -296,8 +287,6 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                 actions.loadProposals()
             } catch (error) {
                 if (error instanceof ApiError && error.status === 409) {
-                    // The backend refuses a suggestion whose step list predates the live workflow, and
-                    // says why. Its wording is more useful here than a generic draft-changed message.
                     if (error.code === 'proposal_already_resolved') {
                         lemonToast.info('This suggestion was already resolved.')
                         actions.removeResolvedProposal(proposalId)
@@ -346,8 +335,7 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                 actions.loadProposals()
             } catch (error) {
                 if (error instanceof ApiError && error.code === 'proposal_already_resolved') {
-                    // Someone else answered it, or an earlier attempt landed and its reload did not.
-                    // Saying "try again" would send the person back to a button that cannot work.
+                    // Already resolved elsewhere, so "try again" would point at a button that cannot work.
                     lemonToast.info('This suggestion was already resolved.')
                     actions.removeResolvedProposal(proposalId)
                     actions.loadProposals()
@@ -375,15 +363,11 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                     proposalId
                 )
                 actions.setOutcome(proposalId, outcome)
-            } catch {
-                // A read-only retrospective card: a failed load just leaves it unrendered, no toast.
-            }
+            } catch {}
         },
     })),
     listeners(({ actions, values, props }) => ({
-        // Publishing, discarding and restoring happen outside this panel and each one changes what it
-        // should say, so a version move reloads the queue. The version moving is the one signal that covers all three, and it
-        // keeps an ordinary reload from refetching the queue.
+        // Publish, discard and restore happen outside this panel; the version and the draft stamp cover all three.
         [workflowLogic({ id: props.id }).actionTypes.loadWorkflowSuccess]: () => {
             const version = values.originalWorkflow?.version ?? null
             if (version === null || version === values.lastSeenVersion) {
