@@ -235,7 +235,7 @@ export const DataQualityChecksCheckTypesListQueryParams = () => zod.object({
     subject_type: zod
         .enum(['metric', 'posthog_table', 'table', 'view'])
         .optional()
-        .describe("Kind of catalog object: 'table', 'view', or 'metric'."),
+        .describe("Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'."),
 })
 
 /**

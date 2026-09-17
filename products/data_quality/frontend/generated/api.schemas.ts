@@ -879,11 +879,11 @@ export type DataQualityChecksListParams = {
      */
     offset?: number
     /**
-     * Kind of catalog object: 'table', 'view', or 'metric'.
+     * Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.
      */
     subject_type?: DataQualityChecksListSubjectType
     /**
-     * Id of the table, view, or metric.
+     * Id of the table, view, metric, or PostHog table.
      */
     subject_uuid?: string
 }
@@ -913,7 +913,7 @@ export const DataQualityChecksListSubjectType = {
 
 export type DataQualityChecksCheckTypesListParams = {
     /**
-     * Kind of catalog object: 'table', 'view', or 'metric'.
+     * Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.
      */
     subject_type?: DataQualityChecksCheckTypesListSubjectType
 }
@@ -930,11 +930,11 @@ export const DataQualityChecksCheckTypesListSubjectType = {
 
 export type DataQualityChecksHealthListParams = {
     /**
-     * Kind of catalog object: 'table', 'view', or 'metric'.
+     * Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.
      */
     subject_type?: DataQualityChecksHealthListSubjectType
     /**
-     * Id of the table, view, or metric.
+     * Id of the table, view, metric, or PostHog table.
      */
     subject_uuid?: string
 }
@@ -951,11 +951,11 @@ export const DataQualityChecksHealthListSubjectType = {
 
 export type DataQualityChecksOutputSchemaRetrieveParams = {
     /**
-     * Kind of catalog object: 'table', 'view', or 'metric'.
+     * Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.
      */
     subject_type?: DataQualityChecksOutputSchemaRetrieveSubjectType
     /**
-     * Id of the table, view, or metric.
+     * Id of the table, view, metric, or PostHog table.
      */
     subject_uuid?: string
 }
@@ -972,11 +972,11 @@ export const DataQualityChecksOutputSchemaRetrieveSubjectType = {
 
 export type DataQualityChecksScheduleRetrieveParams = {
     /**
-     * Kind of catalog object: 'table', 'view', or 'metric'.
+     * Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.
      */
     subject_type?: DataQualityChecksScheduleRetrieveSubjectType
     /**
-     * Id of the table, view, or metric.
+     * Id of the table, view, metric, or PostHog table.
      */
     subject_uuid?: string
 }
