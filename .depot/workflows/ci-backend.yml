@@ -82,8 +82,9 @@
 #   GitHub's. A name missing there makes the setup-action mints (continue-on-error) fall
 #   back to the ambient GITHUB_TOKEN, the Depot Code Access installation token that every
 #   Depot CI job across repos shares, and fails the paths-filter mint outright. Mints whose
-#   only consumer is a stripped side effect (migration-risk check run, OpenAPI auto-commit,
-#   snapshot commit, telemetry) are stripped with it.
+#   only consumer is a stripped side effect (OpenAPI auto-commit, snapshot commit,
+#   telemetry) are stripped with it. The migration-risk check run is published here
+#   because stamphog waits for it on every pull request.
 # - `depot ci run` fires with event_name `api`; the hand-off wait treats it like
 #   workflow_dispatch: it runs only when GitHub Actions already handed the commit off.
 #   Depot caps an inline workflow at 64 KiB, which this file exceeds, so
@@ -1720,11 +1721,93 @@ jobs:
             - name: Install python dependencies for this PR
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-            # Depot shadow: migration SQL-comment + risk-analysis-comment steps stripped.
-            # Keep the risk check itself so blocked migrations still fail the job.
+            # The migration SQL preview and the CI report section stay stripped (see the
+            # header). The check run is published, because stamphog waits for it on every
+            # pull request and a routed PR would otherwise never get a verdict.
             - name: Run migration risk analysis
               if: github.event_name == 'pull_request'
-              run: python manage.py analyze_migration_risk --fail-on-blocked
+              # A hang fails this step, which the publish below still reports as a verdict.
+              timeout-minutes: 5
+              run: |
+                  set +e
+                  RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked --output-json migration_analysis.json 2>/dev/null)
+                  EXIT_CODE=$?
+                  set -e
+                  if [ -n "$RISK_ANALYSIS" ]; then
+                    echo "$RISK_ANALYSIS" > migration_analysis.md
+                  fi
+                  exit $EXIT_CODE
+
+            - name: Get app token for Migration risk check
+              # The posthog-tests app owns the check, so it lands in that app's own check
+              # suite instead of under an arbitrary run. continue-on-error: a mint failure
+              # must not redden migration validation; the publish step skips on an empty token.
+              # !cancelled(): a superseded run leaves the verdict to the run that replaced it.
+              if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false }}
+              id: migration-risk-app-token
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
+            - name: Publish Migration risk check
+              # Same contract as canonical: one completed `Migration risk` check on the head
+              # commit for every pull request, with the stamphog marker first in the summary.
+              # An analyzer crash publishes a failure, so consumers never wait forever.
+              if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && steps.migration-risk-app-token.outputs.token != '' }}
+              env:
+                  GITHUB_TOKEN: ${{ steps.migration-risk-app-token.outputs.token }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  if [ ! -f migration_analysis.json ]; then
+                    echo "No migration_analysis.json — analyzer didn't run; publishing failure check"
+                    jq -n \
+                      --arg name "Migration risk" \
+                      --arg head_sha "$HEAD_SHA" \
+                      '{name: $name, head_sha: $head_sha, status: "completed",
+                        conclusion: "failure",
+                        output: {title: "❌ Analyzer failed",
+                                 summary: "<!-- stamphog:v1 [] -->\nMigration analyzer did not produce migration_analysis.json. Re-run the Backend CI job; if it keeps failing, inspect the analyzer step logs."}}' \
+                      | gh api "repos/$REPO/check-runs" --method POST --input -
+                    exit 0
+                  fi
+
+                  MAX_LEVEL=$(jq -r '.max_level // "none"' migration_analysis.json)
+
+                  case "$MAX_LEVEL" in
+                    "Safe")          CONCLUSION=success; TITLE="✅ All migrations safe" ;;
+                    "Needs Review")  CONCLUSION=neutral; TITLE="⚠️ Needs review" ;;
+                    "Blocked")       CONCLUSION=failure; TITLE="❌ Blocked migrations" ;;
+                    "none"|"null")
+                      CONCLUSION=success
+                      TITLE="✅ No Django migrations to analyze"
+                      ;;
+                    *)
+                      echo "Unknown max_level '$MAX_LEVEL' — publishing failure"
+                      CONCLUSION=failure
+                      TITLE="❌ Unknown analyzer output"
+                      ;;
+                  esac
+
+                  # Stamphog scopes its deny-list bypass to exactly the files the analyzer
+                  # classified, so the marker stays first and survives truncation.
+                  ANALYZED_PATHS=$(jq -c '[.migrations[].file_path | select(. != null)]' migration_analysis.json 2>/dev/null || echo '[]')
+                  MARKER="<!-- stamphog:v1 ${ANALYZED_PATHS} -->"
+                  REPORT_BODY=$(head -c 59000 migration_analysis.md 2>/dev/null || echo "See the workflow log")
+                  SUMMARY=$(printf '%s\n%s' "$MARKER" "$REPORT_BODY")
+
+                  jq -n \
+                    --arg name "Migration risk" \
+                    --arg head_sha "$HEAD_SHA" \
+                    --arg conclusion "$CONCLUSION" \
+                    --arg title "$TITLE" \
+                    --arg summary "$SUMMARY" \
+                    '{name: $name, head_sha: $head_sha, status: "completed",
+                      conclusion: $conclusion,
+                      output: {title: $title, summary: $summary}}' \
+                    | gh api "repos/$REPO/check-runs" --method POST --input -
             - name: Run migrations for this PR
               run: |
                   # Run Django migrations first (excluding managed=False models)
