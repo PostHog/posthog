@@ -26,14 +26,14 @@ describe('Generated llma-prompt-* tools', () => {
         const tool = getToolByName(GENERATED_TOOLS, 'llma-prompt-get')
 
         const parsed = tool.schema.parse({ prompt_name: 'checkout_prompt', version: 2 })
-        expect(parsed).toEqual({ prompt_name: 'checkout_prompt', version: 2, content: 'full' })
+        expect(parsed).toEqual({ prompt_name: 'checkout_prompt', version: 2, content: 'full', resolve: true })
     })
 
     it('exposes content mode on the prompt-get schema so agents can fetch outline-only', () => {
         const tool = getToolByName(GENERATED_TOOLS, 'llma-prompt-get')
 
         const parsed = tool.schema.parse({ prompt_name: 'checkout_prompt', content: 'none' })
-        expect(parsed).toEqual({ prompt_name: 'checkout_prompt', content: 'none' })
+        expect(parsed).toEqual({ prompt_name: 'checkout_prompt', content: 'none', resolve: true })
         expect(() => tool.schema.parse({ prompt_name: 'checkout_prompt', content: 'bogus' })).toThrow()
     })
 
