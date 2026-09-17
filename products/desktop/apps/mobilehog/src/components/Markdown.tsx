@@ -45,7 +45,7 @@ function Inline({ line, color }: { line: string; color: string }) {
         switch (segment.kind) {
           case "bold":
             return (
-              <Text key={key} style={{ fontWeight: "600", color }}>
+              <Text key={key} style={{ fontFamily: fonts.sansSemi, color }}>
                 {segment.value}
               </Text>
             );
@@ -181,7 +181,11 @@ export function Markdown({ text, color = colors.ink }: MarkdownProps) {
                 key={key}
                 style={[
                   styles.heading,
-                  { fontSize: node.level <= 2 ? 19 : 16, color },
+                  {
+                    fontFamily: fonts.sans,
+                    fontSize: node.level <= 2 ? 19 : 16,
+                    color,
+                  },
                 ]}
               >
                 <Inline line={node.text} color={color} />
@@ -225,10 +229,15 @@ export function Markdown({ text, color = colors.ink }: MarkdownProps) {
 
 const styles = StyleSheet.create({
   root: { gap: 8 },
-  body: { fontSize: 16, lineHeight: 24 },
-  heading: { fontWeight: "600", lineHeight: 26, marginTop: 4 },
+  body: { fontFamily: fonts.sans, fontSize: 16, lineHeight: 24 },
+  heading: { fontFamily: fonts.sansSemi, lineHeight: 26, marginTop: 4 },
   bulletRow: { flexDirection: "row", gap: 8, paddingLeft: 4 },
-  bulletMark: { fontSize: 16, lineHeight: 24, minWidth: 14 },
+  bulletMark: {
+    fontFamily: fonts.sans,
+    fontSize: 16,
+    lineHeight: 24,
+    minWidth: 14,
+  },
   bulletText: { flex: 1 },
   quote: {
     borderLeftWidth: 2,

@@ -5,7 +5,7 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "scheme": "mobilehog",
+    "scheme": ["mobilehog", "posthog"],
     "icon": "./assets/app-icon.png",
     "newArchEnabled": true,
     "ios": {
@@ -51,7 +51,8 @@
           "imageWidth": 160
         }
       ],
-      "expo-status-bar"
+      "expo-status-bar",
+      "expo-web-browser"
     ],
     "extra": {
       "router": {}

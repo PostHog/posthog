@@ -1,7 +1,12 @@
 import type { FetchImplementation } from "@posthog/api-client/fetcher";
 import { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import { fetch } from "expo/fetch";
-import { getAccessToken, getBaseUrl, getProjectId } from "@/lib/api";
+import {
+  getAccessToken,
+  getBaseUrl,
+  getProjectId,
+  refreshAccessTokenOnce,
+} from "@/lib/api";
 
 const nativeFetch: FetchImplementation = (input, init) =>
   fetch(
@@ -14,15 +19,17 @@ const nativeFetch: FetchImplementation = (input, init) =>
   );
 
 let client: PostHogAPIClient | null = null;
+let clientHost: string | null = null;
 let clientProjectId: number | null = null;
 
 export function getClient(): PostHogAPIClient {
   const projectId = getProjectId();
-  if (!client) {
+  const host = getBaseUrl();
+  if (!client || clientHost !== host) {
     client = new PostHogAPIClient(
-      getBaseUrl(),
+      host,
       async () => getAccessToken(),
-      async () => getAccessToken(),
+      () => refreshAccessTokenOnce(),
       projectId,
       {
         appVersion: "0.1.0",
@@ -31,6 +38,7 @@ export function getClient(): PostHogAPIClient {
         userAgent: "posthog/mobilehog; version: 0.1.0",
       },
     );
+    clientHost = host;
     clientProjectId = projectId;
   } else if (clientProjectId !== projectId) {
     client.setTeamId(projectId);
@@ -41,5 +49,6 @@ export function getClient(): PostHogAPIClient {
 
 export function resetClient(): void {
   client = null;
+  clientHost = null;
   clientProjectId = null;
 }

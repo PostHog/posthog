@@ -11,23 +11,33 @@ import {
 } from "react-native";
 import { Glass } from "@/components/Glass";
 import { Logomark } from "@/components/Icons";
-import { DEV_EMAIL, DEV_PASSWORD, POSTHOG_HOST } from "@/config";
-import { useAuth } from "@/lib/auth";
+import { DEV_EMAIL, DEV_PASSWORD } from "@/config";
+import { type Region, useAuth } from "@/lib/auth";
 import { colors, fonts, radius } from "@/lib/theme";
+
+const REGIONS: Array<{ key: Region; label: string }> = [
+  ...(__DEV__ ? [{ key: "local" as const, label: "Local" }] : []),
+  { key: "us", label: "US Cloud" },
+  { key: "eu", label: "EU Cloud" },
+];
 
 export default function LoginScreen() {
   const login = useAuth((s) => s.login);
+  const loginWithOAuth = useAuth((s) => s.loginWithOAuth);
+  const [region, setRegion] = useState<Region>(__DEV__ ? "local" : "us");
   const [email, setEmail] = useState(__DEV__ ? DEV_EMAIL : "");
   const [password, setPassword] = useState(__DEV__ ? DEV_PASSWORD : "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const canSubmit = region !== "local" || (!!email && !!password);
 
   const submit = async (): Promise<void> => {
     if (busy) return;
     setBusy(true);
     setError(null);
     try {
-      await login(email.trim(), password);
+      if (region === "local") await login(email.trim(), password);
+      else await loginWithOAuth(region);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -40,54 +50,75 @@ export default function LoginScreen() {
       style={styles.root}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <View style={styles.blobA} />
-      <View style={styles.blobB} />
       <View style={styles.hero}>
         <Logomark size={72} />
         <Text style={styles.wordmark}>PostHog</Text>
-        <Text style={styles.tagline}>
-          {POSTHOG_HOST.replace(/^https?:\/\//, "")}
-        </Text>
       </View>
-      <Glass style={styles.card}>
-        <TextInput
-          value={email}
-          onChangeText={setEmail}
-          placeholder="Email"
-          placeholderTextColor={colors.inkMute}
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="email-address"
-          textContentType="username"
-          style={styles.input}
-        />
-        <View style={styles.divider} />
-        <TextInput
-          value={password}
-          onChangeText={setPassword}
-          placeholder="Password"
-          placeholderTextColor={colors.inkMute}
-          secureTextEntry
-          textContentType="password"
-          onSubmitEditing={submit}
-          style={styles.input}
-        />
+      <Glass style={styles.segment}>
+        {REGIONS.map((option) => {
+          const active = option.key === region;
+          return (
+            <Pressable
+              key={option.key}
+              onPress={() => {
+                setRegion(option.key);
+                setError(null);
+              }}
+              style={[styles.segmentItem, active && styles.segmentActive]}
+            >
+              <Text
+                style={[styles.segmentText, active && styles.segmentTextActive]}
+              >
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
       </Glass>
+      {region === "local" ? (
+        <Glass style={styles.card}>
+          <TextInput
+            value={email}
+            onChangeText={setEmail}
+            placeholder="Email"
+            placeholderTextColor={colors.inkMute}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="email-address"
+            textContentType="username"
+            style={styles.input}
+          />
+          <View style={styles.divider} />
+          <TextInput
+            value={password}
+            onChangeText={setPassword}
+            placeholder="Password"
+            placeholderTextColor={colors.inkMute}
+            secureTextEntry
+            textContentType="password"
+            onSubmitEditing={submit}
+            style={styles.input}
+          />
+        </Glass>
+      ) : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <Pressable
         onPress={submit}
-        disabled={busy || !email || !password}
+        disabled={busy || !canSubmit}
         style={({ pressed }) => [
-          styles.button,
-          (busy || !email || !password) && { opacity: 0.4 },
+          (busy || !canSubmit) && { opacity: 0.4 },
           pressed && { opacity: 0.7 },
         ]}
       >
-        {busy ? (
-          <ActivityIndicator color={colors.darkText} />
-        ) : (
-          <Text style={styles.buttonText}>Sign in</Text>
-        )}
+        <Glass interactive tint="rgba(255,92,28,0.9)" style={styles.button}>
+          {busy ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={styles.buttonText}>
+              {region === "local" ? "Sign in" : "Sign in with PostHog"}
+            </Text>
+          )}
+        </Glass>
       </Pressable>
     </KeyboardAvoidingView>
   );
@@ -101,29 +132,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     gap: 18,
   },
-  blobA: {
-    position: "absolute",
-    top: -120,
-    right: -80,
-    width: 320,
-    height: 320,
-    borderRadius: 160,
-    backgroundColor: "rgba(217,117,91,0.16)",
-  },
-  blobB: {
-    position: "absolute",
-    bottom: -140,
-    left: -100,
-    width: 360,
-    height: 360,
-    borderRadius: 180,
-    backgroundColor: "rgba(28,27,24,0.05)",
-  },
   hero: { alignItems: "center", gap: 6, marginBottom: 14 },
   wordmark: { fontFamily: fonts.serif, fontSize: 36, color: colors.ink },
-  tagline: { fontFamily: fonts.mono, fontSize: 12, color: colors.inkMute },
   card: { borderRadius: radius.card, overflow: "hidden" },
+  segment: {
+    flexDirection: "row",
+    borderRadius: radius.pill,
+    padding: 4,
+    overflow: "hidden",
+  },
+  segmentItem: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: radius.pill,
+    alignItems: "center",
+  },
+  segmentActive: { backgroundColor: colors.dark },
+  segmentText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 14,
+    color: colors.inkSoft,
+  },
+  segmentTextActive: { color: colors.darkText },
   input: {
+    fontFamily: fonts.sans,
     fontSize: 17,
     color: colors.ink,
     paddingHorizontal: 18,
@@ -136,15 +168,20 @@ const styles = StyleSheet.create({
   },
   error: {
     color: colors.danger,
+    fontFamily: fonts.sans,
     fontSize: 13,
     lineHeight: 18,
     textAlign: "center",
   },
   button: {
-    backgroundColor: colors.dark,
     borderRadius: radius.pill,
     paddingVertical: 16,
     alignItems: "center",
+    overflow: "hidden",
   },
-  buttonText: { color: colors.darkText, fontSize: 16, fontWeight: "600" },
+  buttonText: {
+    color: colors.darkText,
+    fontSize: 16,
+    fontFamily: fonts.sansSemi,
+  },
 });

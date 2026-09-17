@@ -1,5 +1,5 @@
 import { Image, StyleSheet, Text, View } from "react-native";
-import { colors } from "@/lib/theme";
+import { colors, fonts } from "@/lib/theme";
 
 // Tiny hand-drawn glyphs so the app has no icon dependency.
 
@@ -53,6 +53,6 @@ export function Dot({
 const styles = StyleSheet.create({
   menu: { gap: 3.5, alignItems: "flex-start" },
   bar: { height: 2, borderRadius: 1 },
-  glyph: { fontSize: 20, fontWeight: "700", marginTop: -1 },
+  glyph: { fontSize: 20, fontFamily: fonts.sansBold, marginTop: -1 },
   stop: { width: 14, height: 14, borderRadius: 3 },
 });

@@ -16,7 +16,7 @@ import { Transcript } from "@/components/Transcript";
 import { DEFAULT_MODEL } from "@/config";
 import { useTask } from "@/lib/queries";
 import { useSessions } from "@/lib/session";
-import { colors } from "@/lib/theme";
+import { colors, fonts } from "@/lib/theme";
 
 function statusLine(
   runStatus: string | null,
@@ -160,10 +160,11 @@ export default function TaskScreen() {
 
 const styles = StyleSheet.create({
   loading: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10 },
-  loadingText: { color: colors.inkMute, fontSize: 13 },
+  loadingText: { color: colors.inkMute, fontFamily: fonts.sans, fontSize: 13 },
   scroll: { gap: 14 },
   error: {
     color: colors.danger,
+    fontFamily: fonts.sans,
     fontSize: 13,
     paddingHorizontal: 18,
     marginTop: 8,

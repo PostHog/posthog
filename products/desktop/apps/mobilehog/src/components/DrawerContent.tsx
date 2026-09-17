@@ -1,9 +1,17 @@
 import type { Task, TaskChannel } from "@posthog/shared/domain-types";
-import { useNavigation, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DrawerEdgeShadow } from "@/components/DrawerEdgeShadow";
+import { GlassCircleButton } from "@/components/Glass";
 import { Dot } from "@/components/Icons";
 import { useAuth } from "@/lib/auth";
 import { useChannels, useTasks } from "@/lib/queries";
@@ -54,10 +62,9 @@ function groupTasks(tasks: Task[], channels: TaskChannel[]): Section[] {
   return sections;
 }
 
-export function DrawerContent() {
+export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const navigation = useNavigation<{ closeDrawer: () => void }>();
   const tasks = useTasks();
   const channels = useChannels();
   const logout = useAuth((s) => s.logout);
@@ -82,7 +89,7 @@ export function DrawerContent() {
   );
 
   const open = (taskId: string): void => {
-    navigation.closeDrawer();
+    closeDrawer();
     router.push({ pathname: "/(drawer)/task/[id]", params: { id: taskId } });
   };
 
@@ -176,16 +183,27 @@ export function DrawerContent() {
         })}
       </ScrollView>
       <View style={styles.footer}>
-        <Pressable onPress={() => logout()} hitSlop={8}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {userName.slice(0, 2).toUpperCase()}
-            </Text>
-          </View>
-        </Pressable>
+        <GlassCircleButton
+          size={44}
+          tint="rgba(255,92,28,0.18)"
+          onPress={() =>
+            Alert.alert("Sign out?", undefined, [
+              { text: "Cancel", style: "cancel" },
+              {
+                text: "Sign out",
+                style: "destructive",
+                onPress: () => logout(),
+              },
+            ])
+          }
+        >
+          <Text style={styles.avatarText}>
+            {userName.slice(0, 2).toUpperCase()}
+          </Text>
+        </GlassCircleButton>
         <Pressable
           onPress={() => {
-            navigation.closeDrawer();
+            closeDrawer();
             router.replace("/(drawer)");
           }}
           style={({ pressed }) => [styles.newChat, pressed && { opacity: 0.8 }]}
@@ -219,39 +237,49 @@ const styles = StyleSheet.create({
     gap: 6,
     marginBottom: 8,
   },
-  sectionTitle: { fontSize: 15, color: colors.inkMute },
-  sectionChevron: { fontSize: 18, lineHeight: 20, color: colors.inkMute },
+  sectionTitle: { fontFamily: fonts.sans, fontSize: 15, color: colors.inkMute },
+  sectionChevron: {
+    fontFamily: fonts.sans,
+    fontSize: 18,
+    lineHeight: 20,
+    color: colors.inkMute,
+  },
   sectionChevronOpen: { transform: [{ rotate: "90deg" }] },
   moreDot: { width: 7, height: 7 },
-  moreText: { fontSize: 15, color: colors.inkMute },
-  empty: { fontSize: 14, color: colors.inkMute, paddingVertical: 6 },
+  moreText: { fontFamily: fonts.sans, fontSize: 15, color: colors.inkMute },
+  empty: {
+    fontFamily: fonts.sans,
+    fontSize: 14,
+    color: colors.inkMute,
+    paddingVertical: 6,
+  },
   row: {
     flexDirection: "row",
     alignItems: "center",
     gap: 16,
     paddingVertical: 11,
   },
-  rowText: { flex: 1, fontSize: 17, color: colors.ink },
+  rowText: { flex: 1, fontFamily: fonts.sans, fontSize: 17, color: colors.ink },
   footer: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingTop: 8,
   },
-  avatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
+  avatarText: {
+    fontSize: 13,
+    fontFamily: fonts.sansBold,
+    color: colors.accent,
   },
-  avatarText: { fontSize: 13, fontWeight: "700", color: colors.ink },
   newChat: {
     backgroundColor: colors.dark,
     paddingHorizontal: 22,
     paddingVertical: 14,
     borderRadius: radius.pill,
   },
-  newChatText: { color: colors.darkText, fontSize: 16, fontWeight: "600" },
+  newChatText: {
+    color: colors.darkText,
+    fontSize: 16,
+    fontFamily: fonts.sansSemi,
+  },
 });
