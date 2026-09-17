@@ -15,7 +15,7 @@ import { userLogic } from 'scenes/userLogic'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { PreflightStatus } from '~/types'
+import { InsightShortId, PreflightStatus } from '~/types'
 
 import { SubscriptionTargetEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
@@ -276,6 +276,24 @@ describe('subscriptionsSceneLogic', () => {
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true })
 
             expect(targetLogic.values.target).toEqual({ kind: 'ai' })
+            targetLogic.unmount()
+        })
+
+        it('keeps a target picked by hand when AI availability resolves after the deep link', async () => {
+            await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
+            const targetLogic = newSubscriptionTargetLogic()
+            targetLogic.mount()
+
+            router.actions.push(`${urls.subscriptionNew()}?resource_type=ai_prompt`)
+            targetLogic.actions.chooseInsight('abc123' as InsightShortId, 'Weekly signups')
+
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: true,
+            })
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true })
+
+            expect(targetLogic.values.target).toEqual({ kind: 'insight', shortId: 'abc123', name: 'Weekly signups' })
             targetLogic.unmount()
         })
 

@@ -593,7 +593,11 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
                 return
             }
             if (values.aiSubscriptionsAvailable) {
-                actions.chooseAiPrompt()
+                // Availability can resolve after the person already picked an insight or dashboard
+                // in the chooser; the deep link must not overwrite that choice.
+                if (values.newSubscriptionTarget === null) {
+                    actions.chooseAiPrompt()
+                }
             } else if (values.newSubscriptionTarget?.kind === 'ai') {
                 // Access was revoked while the deep-linked form was open, so fall back to the chooser.
                 actions.resetNewSubscriptionTarget()
