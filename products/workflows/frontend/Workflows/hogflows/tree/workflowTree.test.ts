@@ -1,5 +1,11 @@
 import type { HogFlow, HogFlowAction, HogFlowEdge } from '../types'
-import { buildWorkflowTree, computeMoveTreeBranchEdges, isWorkflowTreeComplete } from './workflowTree'
+import {
+    buildWorkflowTree,
+    computeMoveTreeBranchEdges,
+    getWorkflowBranchLabel,
+    isWorkflowTreeComplete,
+} from './workflowTree'
+import { findWorkflowTreePath, getWorkflowTreeBranchSummary } from './workflowTreePresentation'
 
 const action = (id: string, type: HogFlowAction['type'] = 'function'): HogFlowAction =>
     ({ id, type, name: id, description: '', config: {} }) as HogFlowAction
@@ -57,6 +63,9 @@ describe('buildWorkflowTree', () => {
         ])
         expect(tree.nodes[1].joinActionId).toBe('shared')
         expect(tree.nodes[1].joinAction?.id).toBe('shared')
+        expect(getWorkflowTreeBranchSummary(tree.nodes[1], tree.nodes[1].branches[0])).toBe(
+            '1 step · Continue to: shared'
+        )
     })
 
     it('keeps immediate routes empty and exposes their insertion edges', () => {
@@ -73,6 +82,9 @@ describe('buildWorkflowTree', () => {
             edge('condition', 'exit', 'branch', 0),
             edge('condition', 'exit'),
         ])
+        expect(getWorkflowTreeBranchSummary(tree.nodes[1], tree.nodes[1].branches[0])).toBe(
+            '0 steps · Continue to: exit'
+        )
     })
 
     it('leaves routes terminal when they have no shared continuation', () => {
@@ -98,6 +110,7 @@ describe('buildWorkflowTree', () => {
             ['left-exit'],
             ['right-exit'],
         ])
+        expect(getWorkflowTreeBranchSummary(tree.nodes[1], tree.nodes[1].branches[0])).toBe('1 step · End workflow')
     })
 
     it('scopes a nested branch join to its own routes', () => {
@@ -139,6 +152,35 @@ describe('buildWorkflowTree', () => {
             edge('self-serve', 'shared'),
             edge('onboarding', 'shared'),
         ])
+        expect(getWorkflowTreeBranchSummary(tree.nodes[1], tree.nodes[1].branches[1])).toBe(
+            '4 steps · Continue to: shared'
+        )
+        expect(
+            findWorkflowTreePath(tree, edge('onboarding', 'guided', 'branch', 0)).map(({ node, branch }) => [
+                node.action.id,
+                branch.edge.index,
+            ])
+        ).toEqual([
+            ['outer', 1],
+            ['onboarding', 0],
+        ])
+        expect(findWorkflowTreePath(tree, edge('deleted-branch', 'guided', 'branch', 0))).toEqual([])
+    })
+
+    it.each([
+        [false, 'branch', 'Condition matched'],
+        [true, 'branch', 'Event received'],
+        [false, 'continue', 'No match within 2d'],
+        [true, 'continue', 'No match within 2d'],
+    ] as const)('labels wait outcomes for events=%s and edge=%s', (hasEvents, edgeType, label) => {
+        const waitAction: HogFlowAction = {
+            id: 'wait',
+            type: 'wait_until_condition',
+            name: 'Wait for activation',
+            description: '',
+            config: { condition: {}, max_wait_duration: '2d', events: hasEvents ? [{ name: 'activated' }] : [] },
+        }
+        expect(getWorkflowBranchLabel(waitAction, edge('wait', 'next', edgeType, 0))).toBe(label)
     })
 
     it('moves a branching action with all of its paths', () => {

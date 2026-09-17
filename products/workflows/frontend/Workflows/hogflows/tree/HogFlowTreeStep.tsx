@@ -114,7 +114,7 @@ export function HogFlowTreeStep({
             </ItemMedia>
             <ItemContent className="pointer-events-none relative z-10 min-w-0 gap-0.5">
                 <div className="flex min-w-0 items-center gap-1">
-                    <ItemTitle className="pointer-events-none min-w-0 flex-1 max-w-full truncate leading-tight">
+                    <ItemTitle className="pointer-events-none min-w-0 flex-1 max-w-full break-words whitespace-normal leading-tight">
                         {action.name}
                     </ItemTitle>
                     {canHaveActions && (
@@ -157,19 +157,19 @@ export function HogFlowTreeStep({
                     )}
                 </div>
                 {hasFooterContent && (
-                    <div className="flex min-w-0 items-center gap-2">
+                    <div className="flex min-w-0 flex-col items-start gap-1">
                         {action.description && (
-                            <ItemDescription className="pointer-events-none min-w-0 flex-1 truncate leading-tight">
+                            <ItemDescription className="pointer-events-none min-w-0 whitespace-normal break-words leading-tight">
                                 {action.description}
                             </ItemDescription>
                         )}
                         {!!step?.previews.length && (
-                            <div className="pointer-events-none ms-auto flex min-w-0 shrink-0 items-center gap-1 overflow-hidden">
+                            <div className="pointer-events-none flex min-w-0 max-w-full flex-wrap items-center gap-1">
                                 {step.previews.slice(0, 3).map((preview, index) => (
                                     <Badge
                                         key={`${preview.label}-${index}`}
                                         variant="default"
-                                        className="max-w-36 truncate"
+                                        className="max-w-full whitespace-normal break-words h-auto"
                                     >
                                         {preview.icon}
                                         {preview.label}

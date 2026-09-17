@@ -1,17 +1,27 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
 
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { ScrollArea, ScrollBar } from 'lib/ui/quill'
 
 import { setHogFlowDragImage } from '../dragPreview'
+import { useHogFlowBranchSelection } from '../HogFlowBranchSelection'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import type { HogFlowEdge } from '../types'
+import { HogFlowTreeDropzone } from './HogFlowTreeDropzone'
 import { HogFlowTreeFeaturePreview } from './HogFlowTreeFeaturePreview'
 import { HogFlowTreeNode } from './HogFlowTreeNode'
 import { buildWorkflowTree } from './workflowTree'
+import { findWorkflowTreePath, getWorkflowTreeBranchSummary } from './workflowTreePresentation'
 
 export function HogFlowTreeEditor(): JSX.Element {
     const { nodeToBeAdded, workflow } = useValues(hogFlowEditorLogic)
+    const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
+    const { setSelectedBranch } = useHogFlowBranchSelection()
+    const [focusedEdge, setFocusedEdge] = useState<HogFlowEdge | null>(null)
+    const [scrollTarget, setScrollTarget] = useState<string | null>(null)
     const treeRef = useRef<HTMLDivElement>(null)
     const draggedActionIdRef = useRef<string | null>(null)
     const [draggedActionId, setDraggedActionId] = useState<string | null>(null)
@@ -19,7 +29,27 @@ export function HogFlowTreeEditor(): JSX.Element {
     const closestDropzoneRef = useRef<HTMLElement | null>(null)
     const dragStartYRef = useRef<number | null>(null)
     const tree = useMemo(() => buildWorkflowTree(workflow), [workflow])
+    const focusedPath = useMemo(() => (focusedEdge ? findWorkflowTreePath(tree, focusedEdge) : []), [tree, focusedEdge])
+    const focused = focusedPath.at(-1)
     const activeDropzones = !!nodeToBeAdded
+
+    const focusBranch = (edge: HogFlowEdge): void => {
+        setSelectedBranch(null)
+        setSelectedNodeId(null)
+        setFocusedEdge(edge)
+    }
+
+    const returnToWorkflow = (actionId: string): void => {
+        setFocusedEdge(null)
+        setScrollTarget(actionId)
+    }
+
+    useEffect(() => {
+        if (scrollTarget) {
+            document.getElementById(`workflow-tree-step-${scrollTarget}`)?.scrollIntoView({ block: 'center' })
+            setScrollTarget(null)
+        }
+    }, [scrollTarget])
 
     const clearClosestDropzone = (): void => {
         closestDropzoneRef.current?.removeAttribute('data-workflow-tree-dropzone-closest')
@@ -145,7 +175,28 @@ export function HogFlowTreeEditor(): JSX.Element {
                     onDragOver={onTreeDragOver}
                     onDropCapture={onTreeDropCapture}
                 >
-                    {tree.nodes.map((node) => (
+                    {focused && (
+                        <LemonCard hoverEffect={false} className="mb-3 p-3">
+                            <LemonButton
+                                type="tertiary"
+                                size="small"
+                                onClick={() => returnToWorkflow(focused.node.action.id)}
+                                data-attr="workflow-tree-exit-focus"
+                            >
+                                Back to workflow
+                            </LemonButton>
+                            <p className="my-2 break-words text-xs text-secondary">
+                                {focusedPath
+                                    .map(({ node, branch }) => `${node.action.name} › ${branch.label}`)
+                                    .join(' › ')}
+                            </p>
+                            <h3 className="mb-1">{focused.branch.label}</h3>
+                            <p className="mb-0 break-words text-xs text-secondary">
+                                {getWorkflowTreeBranchSummary(focused.node, focused.branch)}
+                            </p>
+                        </LemonCard>
+                    )}
+                    {(focused?.branch.sequence ?? tree).nodes.map((node) => (
                         <HogFlowTreeNode
                             key={node.action.id}
                             node={node}
@@ -154,8 +205,31 @@ export function HogFlowTreeEditor(): JSX.Element {
                             draggedActionIdRef={draggedActionIdRef}
                             onDragStart={onDragStart}
                             onDragEnd={onDragEnd}
+                            onFocusBranch={focusBranch}
+                            onSelectContinuation={focused ? returnToWorkflow : undefined}
                         />
                     ))}
+                    {focused?.branch.sequence.trailingEdge && (
+                        <HogFlowTreeDropzone
+                            active={activeDropzones}
+                            draggedActionId={draggedActionId}
+                            draggedActionIdRef={draggedActionIdRef}
+                            onDragEnd={onDragEnd}
+                            edge={focused.branch.sequence.trailingEdge}
+                            insertionLabel={`Add step to ${focused.branch.label}`}
+                        />
+                    )}
+                    {focused?.node.joinAction && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            className="self-start max-w-full mt-3"
+                            onClick={() => returnToWorkflow(focused.node.joinAction!.id)}
+                            data-attr="workflow-tree-focus-continuation"
+                        >
+                            <span className="break-words whitespace-normal">{`Continue to: ${focused.node.joinAction.name}`}</span>
+                        </LemonButton>
+                    )}
                 </div>
                 <ScrollBar orientation="vertical" />
             </ScrollArea>

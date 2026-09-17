@@ -27,6 +27,11 @@ export function isBranchingAction(action: Pick<HogFlowAction, 'type'>): boolean 
 }
 
 export function getWorkflowBranchLabel(action: HogFlowAction | undefined, edge: HogFlowEdge): string {
+    if (action?.type === 'wait_until_condition') {
+        return edge.type === 'continue'
+            ? `No match within ${action.config.max_wait_duration}`
+            : action.config.condition?.name || (action.config.events?.length ? 'Event received' : 'Condition matched')
+    }
     if (edge.type === 'continue') {
         return 'No match'
     }
@@ -36,8 +41,6 @@ export function getWorkflowBranchLabel(action: HogFlowAction | undefined, edge: 
     }
 
     switch (action.type) {
-        case 'wait_until_condition':
-            return action.config.condition?.name || 'If condition matches'
         case 'random_cohort_branch':
             return action.config.cohorts?.[edge.index ?? 0]?.name || `If cohort #${(edge.index ?? 0) + 1} matches`
         case 'conditional_branch':
