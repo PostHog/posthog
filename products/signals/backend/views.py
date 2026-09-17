@@ -4282,7 +4282,9 @@ def _record_reviewer_edit(
         summary="Create a check on a report",
         description=(
             "Schedule a re-measurement of the report's claim. A `metric_threshold` check runs one "
-            "bounded Trends query and compares the result, so it needs no agent run."
+            "bounded Trends query and compares the result, so it needs no agent run. An `agent` check "
+            "runs a scout instead, for a claim no single number settles; it runs on the scout its "
+            "config names, or on the fleet's follow-up scout when it names none."
         ),
         parameters=[_REPORT_ID_PARAMETER],
         request=SignalReportCheckWriteSerializer,

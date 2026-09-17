@@ -47,6 +47,8 @@ AI_TRIAGE_FILTER_VALUES = [
     "skipped_unactionable",
     "blocked_unsafe",
     "blocked_unsafe_reply",
+    "clarified",
+    "suggested_clarification",
     "in_progress",
 ]
 
@@ -186,7 +188,8 @@ class TicketViewFiltersSerializer(serializers.Serializer):
         required=False,
         help_text="AI triage outcomes to include. 'in_progress' matches tickets still being triaged. "
         "Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, "
-        "escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, in_progress.",
+        "escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, "
+        "clarified, suggested_clarification, in_progress.",
     )
     assignee = TicketViewAssigneeFilterField(
         required=False,
