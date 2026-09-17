@@ -40,7 +40,7 @@ hogli unsync:skill -- --name <skill-name>
 
 Distribution is automatic after merge — CI publishes to [PostHog/skills](https://github.com/PostHog/skills).
 
-This repo is not the only source. [`PostHog/context-mill`](https://github.com/PostHog/context-mill) publishes the omnibus skills — `instrument-integration`, `instrument-product-analytics`, `instrument-feature-flags`, `instrument-error-tracking`, `instrument-llm-analytics`, `instrument-logs` — and **every shipping consumer overlays them on top of this repo's**, so context-mill wins on a same-named skill. `hogli lint:skills` fails if you add one of those names under `products/*/skills/`; change the context-mill source instead. Local builds are the opposite case: they carry no omnibus skills at all, so anything that depends on one has to overlay it or fail loudly. See [Context-mill skills override this repo's](../../../docs/published/handbook/engineering/ai/writing-skills.md#context-mill-skills-override-this-repos) for the merge sites.
+This repo is not the only source. [`PostHog/context-mill`](https://github.com/PostHog/context-mill) publishes the omnibus skills — `instrument-integration`, `instrument-product-analytics`, `instrument-feature-flags`, `instrument-error-tracking`, `instrument-llm-analytics`, `instrument-logs`, `instrument-metrics` — and **every shipping consumer overlays them on top of this repo's**, so context-mill wins on a same-named skill. `hogli lint:skills` fails if you add one of those names under `products/*/skills/`; change the context-mill source instead. Local builds are the opposite case: they carry no omnibus skills at all, so anything that depends on one has to overlay it or fail loudly. See [Context-mill skills override this repo's](../../../docs/published/handbook/engineering/ai/writing-skills.md#context-mill-skills-override-this-repos) for the merge sites.
 
 ## When to write a skill
 
@@ -87,7 +87,7 @@ Only `references/` and `scripts/` subdirectories are collected. Others are ignor
 ## Template functions
 
 Files ending in `.j2` are rendered with Jinja2 at build time
-by [`products/posthog_ai/scripts/build_skills.py`](../../../products/posthog_ai/scripts/build_skills.py).
+by [`products/posthog_ai/scripts/build_skills/`](../../../products/posthog_ai/scripts/build_skills/).
 Extend the build pipeline so the monorepo stays the source of truth —
 when domain knowledge lives in code (Pydantic models, query runners, function registries),
 add a template function rather than duplicating it as static markdown that drifts.
