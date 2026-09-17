@@ -1,6 +1,7 @@
 import re
 import json
 import secrets
+import contextlib
 from datetime import timedelta
 from functools import cached_property
 from typing import Any, Literal, cast
@@ -118,6 +119,11 @@ from products.access_control.backend.presentation.access_control_settings import
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
+from products.feature_flags.backend.session_recording_links import (
+    REPLAY_GATE_COLUMNS,
+    lock_team_for_replay_gate_write,
+    unusable_gate_flag_errors,
+)
 from products.logs.backend.models import TeamLogsConfig
 from products.tasks.backend.facade.workflow_tasks import (
     MAX_SELF_SERVE_WORKFLOW_TASK_RATE_CAP_PER_DAY,
@@ -1010,6 +1016,23 @@ _VALID_TRIGGER_PROPERTY_TYPES = {
 }
 
 
+def _normalized_replay_gate_flag_id(flag_id: object, error: str) -> int:
+    """A stored replay gate reference's flag id, as the integer the jsonb probes match on.
+
+    The `__contains={"id": <int>}` lookup that the flag-delete guard and
+    `repair_replay_linked_flag_keys` run is type-sensitive, so a string id makes both miss the
+    row and the team keeps a gate nobody defends. A numeric string is normalized rather than
+    rejected, so a client sending "123" stores a usable row. Bools and floats are excluded
+    because `isinstance(True, int)` is True, and `int(12.5)` would silently link flag 12.
+    """
+    if isinstance(flag_id, bool) or not isinstance(flag_id, int | str):
+        raise exceptions.ValidationError(error)
+    try:
+        return int(flag_id)
+    except ValueError:
+        raise exceptions.ValidationError(error)
+
+
 def _validate_trigger_property_filters(properties: object, context: str) -> None:
     """Validate property filters on trigger conditions (events, URLs)."""
     if not isinstance(properties, list):
@@ -1419,18 +1442,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys."
             )
 
-        # jsonb containment (`__contains={"id": <int>}`) is type-sensitive, so a non-integer id
-        # makes the flag-delete guard miss this row and delete a flag the team still advertises.
-        # A numeric string is normalized instead of rejected, so a client sending "123" stores a
-        # usable row rather than a broken one. Bools and floats are excluded because
-        # isinstance(True, int) is True, and int(12.5) would silently link flag 12.
-        flag_id = value["id"]
-        if isinstance(flag_id, bool) or not isinstance(flag_id, int | str):
-            raise exceptions.ValidationError("Must provide an integer 'id'.")
-        try:
-            return {**value, "id": int(flag_id)}
-        except ValueError:
-            raise exceptions.ValidationError("Must provide an integer 'id'.")
+        # Whether the flag is one this project can record on is checked in `validate_team_attrs`,
+        # which knows the project this write lands in.
+        return {**value, "id": _normalized_replay_gate_flag_id(value["id"], "Must provide an integer 'id'.")}
 
     @staticmethod
     def validate_session_recording_trigger_match_type_config(value) -> Literal["all", "any"] | None:
@@ -1583,7 +1597,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                         raise exceptions.ValidationError(f"Group {idx}: flag object must have 'key' field.")
                     if not isinstance(flag_config["key"], str):
                         raise exceptions.ValidationError(f"Group {idx}: flag 'key' must be a string.")
-                    # id and variant are optional
+                    # id and variant are optional. An id that is present is normalized the same way
+                    # the linked flag column's is, because the same jsonb probes read it.
+                    if flag_config.get("id") is not None:
+                        conditions["flag"] = {
+                            **flag_config,
+                            "id": _normalized_replay_gate_flag_id(
+                                flag_config["id"], f"Group {idx}: flag 'id' must be an integer."
+                            ),
+                        }
                 elif flag_config is not None:
                     raise exceptions.ValidationError(
                         f"Group {idx}: 'flag' must be a string (flag key), object (LinkedFeatureFlag), or null."
@@ -2163,8 +2185,19 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         if validated_data:
-            # auto_now fields only refresh when included in update_fields
-            instance.save(update_fields=[*validated_data.keys(), "updated_at"])
+            gate_columns = {
+                column: validated_data[column] for column in REPLAY_GATE_COLUMNS if column in validated_data
+            }
+            # The row this request read carries no lock, so a flag rename that relinks the team
+            # between the read and the save would be undone by writing the client's key back.
+            # `lock_team_for_replay_gate_write` orders the two and resolves the keys under the
+            # lock it takes, so the save has to sit in the same transaction.
+            with transaction.atomic() if gate_columns else contextlib.nullcontext():
+                if gate_columns:
+                    for column, value in lock_team_for_replay_gate_write(instance, gate_columns).items():
+                        setattr(instance, column, value)
+                # auto_now fields only refresh when included in update_fields
+                instance.save(update_fields=[*validated_data.keys(), "updated_at"])
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         after_update = instance.__dict__.copy()
@@ -3079,7 +3112,40 @@ def validate_team_attrs(
             raise exceptions.ValidationError(
                 "Field autocapture_exceptions_errors_to_ignore must be less than 300 characters. Complex config should be provided in posthog-js initialization."
             )
+
+    _validate_replay_gate_flags(attrs, view, instance)
+
     return attrs
+
+
+def _validate_replay_gate_flags(
+    attrs: dict[str, Any], view: TeamAndOrgViewSetMixin, instance: Team | Project | None
+) -> None:
+    """Refuse a replay gate that names a flag this project cannot record on.
+
+    The SDKs resolve a gate by key and treat a flag they cannot resolve as "do not record", so a
+    reference to a missing, soft-deleted, or foreign flag turns replay off for the team without
+    an error anywhere. A write is the last point where the caller can still be told, which is why
+    this is a 400 rather than a warning.
+    """
+    gate_columns = {column: attrs[column] for column in REPLAY_GATE_COLUMNS if column in attrs}
+    if not gate_columns:
+        return
+
+    if isinstance(instance, Team):
+        project_id = instance.project_id
+    elif instance is not None:
+        project_id = instance.pk
+    else:
+        try:
+            project_id = view.project_id
+        except KeyError:
+            # A project being created holds no flags yet, and has no id for a flag to belong to,
+            # so there is nothing to resolve a reference against.
+            return
+
+    if errors := unusable_gate_flag_errors(project_id, gate_columns):
+        raise exceptions.ValidationError(errors)
 
 
 class PremiumMultiEnvironmentPermission(BasePermission):

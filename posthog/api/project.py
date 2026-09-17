@@ -1,4 +1,5 @@
 import math
+import contextlib
 from datetime import timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
@@ -128,6 +129,7 @@ from products.feature_flags.backend.models.evaluation_context import (
     TeamDefaultEvaluationContext,
     normalize_context_name,
 )
+from products.feature_flags.backend.session_recording_links import REPLAY_GATE_COLUMNS, lock_team_for_replay_gate_write
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -1309,8 +1311,18 @@ class ProjectBackwardCompatSerializer(
         if updated_project_fields:
             instance.save(update_fields=updated_project_fields)
         if updated_team_fields:
-            # auto_now fields only refresh when included in update_fields
-            team.save(update_fields=[*updated_team_fields, "updated_at"])
+            gate_columns = {
+                column: validated_data[column] for column in REPLAY_GATE_COLUMNS if column in validated_data
+            }
+            # Same ordering problem, and the same fix, as TeamSerializer.update: a flag rename
+            # relinking this team between the read and the save would be undone by writing the
+            # client's key back, so the save sits in the transaction that holds the gate lock.
+            with transaction.atomic() if gate_columns else contextlib.nullcontext():
+                if gate_columns:
+                    for column, value in lock_team_for_replay_gate_write(team, gate_columns).items():
+                        setattr(team, column, value)
+                # auto_now fields only refresh when included in update_fields
+                team.save(update_fields=[*updated_team_fields, "updated_at"])
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         team_after_update = team.__dict__.copy()

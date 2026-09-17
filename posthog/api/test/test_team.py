@@ -47,6 +47,7 @@ from posthog.utils import get_instance_realm
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
 
@@ -1039,18 +1040,110 @@ def team_api_test_factory():
             }
 
         def test_can_set_and_unset_session_recording_linked_flag(self) -> None:
-            self._patch_linked_flag_config({"id": 1, "key": "provided_value"})
-            self._assert_linked_flag_config({"id": 1, "key": "provided_value"})
+            flag = self._create_replay_gate_flag("provided_value")
+
+            self._patch_linked_flag_config({"id": flag.id, "key": "provided_value"})
+            self._assert_linked_flag_config({"id": flag.id, "key": "provided_value"})
 
             self._patch_linked_flag_config(None)
             self._assert_linked_flag_config(None)
 
         def test_can_set_and_unset_session_recording_linked_flag_variant(self) -> None:
-            self._patch_linked_flag_config({"id": 1, "key": "provided_value", "variant": "test"})
-            self._assert_linked_flag_config({"id": 1, "key": "provided_value", "variant": "test"})
+            flag = self._create_replay_gate_flag("provided_value")
+
+            self._patch_linked_flag_config({"id": flag.id, "key": "provided_value", "variant": "test"})
+            self._assert_linked_flag_config({"id": flag.id, "key": "provided_value", "variant": "test"})
 
             self._patch_linked_flag_config(None)
             self._assert_linked_flag_config(None)
+
+        @parameterized.expand(
+            [
+                ["missing", "missing"],
+                ["soft_deleted", "soft_deleted"],
+                ["other_project", "other_project"],
+            ]
+        )
+        def test_cannot_link_a_flag_this_project_cannot_record_on(self, _name: str, unusable: str) -> None:
+            flag = self._unusable_replay_gate_flag(unusable)
+
+            response = self._patch_linked_flag_config(
+                {"id": flag.id, "key": flag.key}, expected_status=status.HTTP_400_BAD_REQUEST
+            )
+
+            assert response.json()["attr"] == "session_recording_linked_flag"
+            assert "not available in this project" in response.json()["detail"]
+            self._assert_linked_flag_config(None)
+
+        @parameterized.expand(
+            [
+                ["missing", "missing"],
+                ["soft_deleted", "soft_deleted"],
+                ["other_project", "other_project"],
+            ]
+        )
+        def test_cannot_gate_a_trigger_group_on_a_flag_this_project_cannot_record_on(
+            self, _name: str, unusable: str
+        ) -> None:
+            flag = self._unusable_replay_gate_flag(unusable)
+
+            response = self._patch_config(
+                "session_recording_trigger_groups",
+                self._trigger_groups_gated_on(flag.key),
+                expected_status=status.HTTP_400_BAD_REQUEST,
+            )
+
+            assert response.json()["attr"] == "session_recording_trigger_groups"
+            assert "not available in this project" in response.json()["detail"]
+
+        def test_a_rename_that_lands_before_the_patch_keeps_its_key(self) -> None:
+            # The settings page holds the key the flag had when it loaded. A rename committing
+            # between that load and the PATCH would otherwise be undone by storing the stale key,
+            # which the SDKs read as "do not record" because no flag holds it.
+            flag = self._create_replay_gate_flag("gate-old")
+            self._patch_linked_flag_config({"id": flag.id, "key": "gate-old"})
+            self._patch_config("session_recording_trigger_groups", self._trigger_groups_gated_on_id(flag))
+
+            flag.key = "gate-new"
+            with self.captureOnCommitCallbacks(execute=True):
+                flag.save()
+
+            self._patch_linked_flag_config({"id": flag.id, "key": "gate-old", "variant": "control"})
+            self._patch_config("session_recording_trigger_groups", self._trigger_groups_gated_on_id(flag, key="gate-old"))
+
+            self.team.refresh_from_db()
+            assert self.team.session_recording_linked_flag == {"id": flag.id, "key": "gate-new", "variant": "control"}
+            assert self.team.session_recording_trigger_groups["groups"][0]["conditions"]["flag"] == {
+                "id": flag.id,
+                "key": "gate-new",
+            }
+
+        def _create_replay_gate_flag(self, key: str, team: Team | None = None) -> FeatureFlag:
+            return FeatureFlag.objects.create(team=team or self.team, created_by=self.user, key=key)
+
+        def _unusable_replay_gate_flag(self, unusable: str) -> FeatureFlag:
+            if unusable == "other_project":
+                other_team = Team.objects.create(organization=self.organization, name="other")
+                return self._create_replay_gate_flag("elsewhere", team=other_team)
+
+            flag = self._create_replay_gate_flag("gone")
+            if unusable == "soft_deleted":
+                flag.deleted = True
+                flag.save()
+            else:
+                FeatureFlag.objects.filter(pk=flag.pk).delete()
+            return flag
+
+        def _trigger_groups_gated_on(self, key: str) -> dict[str, Any]:
+            return {
+                "version": 2,
+                "groups": [{"id": "gate", "sampleRate": 1, "conditions": {"matchType": "any", "flag": key}}],
+            }
+
+        def _trigger_groups_gated_on_id(self, flag: FeatureFlag, key: str | None = None) -> dict[str, Any]:
+            groups = self._trigger_groups_gated_on(key or flag.key)
+            groups["groups"][0]["conditions"]["flag"] = {"id": flag.id, "key": key or flag.key}
+            return groups
 
         def test_can_set_and_unset_session_recording_network_payload_capture_config(self) -> None:
             # can set just one
@@ -2264,6 +2357,7 @@ def team_api_test_factory():
 
         def test_can_set_session_recording_trigger_groups(self):
             """Test that we can create and update session_recording_trigger_groups field"""
+            self._create_replay_gate_flag("test-flag-key")
             trigger_groups = {
                 "version": 2,
                 "groups": [
@@ -2596,6 +2690,8 @@ def team_api_test_factory():
 
         def test_session_recording_trigger_groups_complex_valid_config(self):
             """Test that complex valid configurations pass validation"""
+            self._create_replay_gate_flag("variant-test")
+            self._create_replay_gate_flag("simple-feature-flag")
             trigger_groups = {
                 "version": 2,
                 "groups": [

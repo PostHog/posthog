@@ -169,6 +169,58 @@ class TestReplayGateWritesUseTheLockedRow(BaseTest):
         assert groups[1]["conditions"]["flag"] == "gate-new"
 
 
+class TestAHardDeleteTakesTheReferenceWithIt(BaseTest):
+    def _delete(self, flag: FeatureFlag) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            FeatureFlag.objects.filter(pk=flag.pk).delete()
+
+    def test_the_linked_flag_column_is_cleared(self) -> None:
+        # The API serializer refuses this delete, so the flag goes through a management command,
+        # a cascade, or the admin. Left alone, the column names a flag no lookup resolves and
+        # only `repair_replay_linked_flag_keys` reports it, as flag_missing.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        set_linked_flag(self.team, {"id": flag.id, "key": "replay-gate"})
+
+        self._delete(flag)
+
+        self.team.refresh_from_db()
+        assert self.team.session_recording_linked_flag is None
+
+    def test_the_group_gating_on_the_flag_goes_and_the_others_stay(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        other = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="other-gate")
+        set_trigger_groups(self.team, {"flag": "replay-gate"}, {"flag": other.key}, {"events": ["signup"]})
+
+        self._delete(flag)
+
+        self.team.refresh_from_db()
+        assert [group["id"] for group in self.team.session_recording_trigger_groups["groups"]] == [
+            "group-1",
+            "group-2",
+        ]
+
+    def test_the_trigger_groups_column_is_cleared_when_its_last_group_gated_on_the_flag(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        # By id and a key the flag no longer holds, which is the reference the repair command
+        # cannot read at all.
+        set_trigger_groups(self.team, {"flag": {"id": flag.id, "key": "stale"}})
+
+        self._delete(flag)
+
+        self.team.refresh_from_db()
+        assert self.team.session_recording_trigger_groups is None
+
+    def test_another_projects_team_keeps_its_own_flag(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        other_team = Team.objects.create(organization=self.organization)
+        set_trigger_groups(other_team, {"flag": "replay-gate"})
+
+        self._delete(flag)
+
+        other_team.refresh_from_db()
+        assert other_team.session_recording_trigger_groups["groups"][0]["conditions"]["flag"] == "replay-gate"
+
+
 class TestRelinkTeamsConvergesOnTheStoredKey(BaseTest):
     def test_a_stale_callback_does_not_put_back_the_key_it_captured(self) -> None:
         # Renames serialize on the flag row. Their post-commit callbacks do not, so the callback
