@@ -7,8 +7,6 @@ import { DashboardTile, InsightShortId, QueryBasedInsightModel } from '~/types'
 export interface QueryScanState {
     summary: QueryScanSummary
     findings: QueryScanWarning[]
-    /** Whether the person can act on at least one finding. Without one, surfaces show a quiet note instead of the banner. */
-    actionable: boolean
     cacheKey: string | null
     /** The message "Fix with AI" sends, built by the backend. Null when nothing in the query can be fixed. */
     assistantPrompt: string | null
@@ -65,7 +63,6 @@ export function resolveQueryScan(
     return {
         summary,
         findings,
-        actionable: queryScanHasActionableFinding(findings),
         cacheKey,
         assistantPrompt: summary.analysis?.assistant_prompt ?? null,
     }

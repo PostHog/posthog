@@ -48002,7 +48002,7 @@
                     "type": "string"
                 },
                 "findings": {
-                    "description": "Empty when the analysis found nothing to fix.",
+                    "description": "Every finding, fixable or not. Empty when the analysis found none.",
                     "items": {
                         "$ref": "#/definitions/QueryScanWarning"
                     },

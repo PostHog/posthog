@@ -146,13 +146,8 @@ def maybe_trigger_query_scan(
     dashboard_id: int | None = None,
     killed: bool = False,
     error_type: str | None = None,
-    dashboard_all_time: bool = False,
 ) -> SkipReason | None:
-    """Enqueue the analysis for this run. Returns why it was skipped, or None once the job is enqueued.
-
-    ``dashboard_all_time`` says the dashboard's date filter, not the insight's own range, chose
-    All time, so the advice can name the dashboard.
-    """
+    """Enqueue the analysis for this run. Returns why it was skipped, or None once the job is enqueued."""
     if flag is None or stats is None:
         return "flag_off"
 
@@ -222,7 +217,7 @@ def maybe_trigger_query_scan(
             query_kind=query_kind,
             open_filters_placeholder=_open_filters_placeholder(query),
             all_time=_all_time(query),
-            dashboard_all_time=dashboard_all_time,
+            dashboard_all_time=get_query_tag_value("dashboard_all_time") is True,
             all_history_by_design=_reads_all_history_by_design(query),
             all_events_by_design=_reads_all_events_by_design(query),
         )
@@ -372,9 +367,11 @@ def _reads_all_events_by_design(query: BaseModel) -> bool:
     source = _source(query)
     series = getattr(source, "series", None) or []
     all_events = [item for item in series if isinstance(item, EventsNode) and item.event is None]
+    if not all_events:
+        return False
     if any(getattr(item, "math", None) in _ANY_EVENT_MATHS for item in all_events):
         return True
-    if all_events and isinstance(source, LifecycleQuery):
+    if isinstance(source, LifecycleQuery):
         return True
     breakdown_filter = getattr(source, "breakdownFilter", None)
     if breakdown_filter is None:

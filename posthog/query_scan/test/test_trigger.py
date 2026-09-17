@@ -396,10 +396,9 @@ class TestQueryScanTrigger(SimpleTestCase):
         self.redis.set.assert_any_call("query_scan:enqueues:1", 0, nx=True, ex=60)
 
     def test_the_payload_says_whether_all_time_was_chosen_and_by_which_picker(self) -> None:
-        self._trigger(
-            query=TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=DateRange(date_from="all")),
-            dashboard_all_time=True,
-        )
+        tag_queries(dashboard_all_time=True)
+
+        self._trigger(query=TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=DateRange(date_from="all")))
 
         assert self.delay.call_args.kwargs["all_time"] is True
         assert self.delay.call_args.kwargs["dashboard_all_time"] is True
@@ -465,6 +464,14 @@ class TestQueryScanTrigger(SimpleTestCase):
             (
                 "active users on a named event",
                 TrendsQuery(series=[EventsNode(event="a", math=BaseMathType.DAU)]),
+                False,
+            ),
+            (
+                "a breakdown by event name on a named event",
+                TrendsQuery(
+                    series=[EventsNode(event="a")],
+                    breakdownFilter=BreakdownFilter(breakdown="event", breakdown_type=BreakdownType.EVENT_METADATA),
+                ),
                 False,
             ),
             ("a total on all events", TrendsQuery(series=[EventsNode(math=BaseMathType.TOTAL)]), False),

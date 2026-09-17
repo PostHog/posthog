@@ -69,19 +69,6 @@ describe('queryScan', () => {
     })
 
     it.each([
-        ['nothing', [], false],
-        ['only a by-design finding', [BY_DESIGN_FINDING], false],
-        ['a by-design finding beside one to act on', [BY_DESIGN_FINDING, FINDING], true],
-    ] as [string, QueryScanWarning[], boolean][])(
-        'says whether the person can act when the analysis found %s',
-        (_label, findings, actionable) => {
-            const response = { query_scan: { ...SUMMARY, analysis: { findings } }, cache_key: 'cache-key' }
-
-            expect(resolveQueryScan(response, null, null)?.actionable).toBe(actionable)
-        }
-    )
-
-    it.each([
         ['a run that finished', {}, 'Read 8,400,000,000 rows in 19.0 s.'],
         [
             'a run whose analysis measured the share of the date range it read',

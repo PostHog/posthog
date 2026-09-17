@@ -6793,7 +6793,10 @@ class QueryScanAnalysis(BaseModel):
             " finding can be fixed in the query."
         ),
     )
-    findings: list[QueryScanWarning] = Field(..., description="Empty when the analysis found nothing to fix.")
+    findings: list[QueryScanWarning] = Field(
+        ...,
+        description=("Every finding, fixable or not. Empty when the analysis found none."),
+    )
     project_share: float | None = Field(
         default=None,
         description="How much of all the project's events the query read, 0 to 1.",

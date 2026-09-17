@@ -619,7 +619,7 @@ export interface QueryScanWarning {
 
 /** The stored analysis of one query, kept for 30 days by cache key and put on every response for that query. */
 export interface QueryScanAnalysis {
-    /** Empty when the analysis found nothing to fix. */
+    /** Every finding, fixable or not. Empty when the analysis found none. */
     findings: QueryScanWarning[]
     /** How much of the project's events in the query's date range the query read, 0 to 1. */
     range_share?: number
