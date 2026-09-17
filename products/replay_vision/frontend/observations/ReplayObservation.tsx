@@ -5,7 +5,6 @@ import { Suspense, useEffect, useState } from 'react'
 import {
     IconArrowLeft,
     IconArrowRight,
-    IconChevronRight,
     IconClock,
     IconCollapse,
     IconExpand,
@@ -24,7 +23,6 @@ import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration, humanFriendlyMilliseconds } from 'lib/utils/durations'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -42,6 +40,7 @@ import {
     ObservationConfidence,
     ObservationPrimaryOutput,
     ObservationStatusTag,
+    PromptRow,
     readResult,
 } from '../components/ObservationCard'
 import { ObservationProgressBar } from '../components/ObservationProgressBar'
@@ -86,34 +85,6 @@ export const scene: SceneExport = {
     component: ReplayObservationSceneComponent,
     logic: replayObservationSceneLogic,
     productKey: ProductKey.REPLAY_VISION,
-}
-
-// A reader opens an observation for the result, not the prompt they configured. Collapse the prompt to one
-// peek line so the verdict and reasoning stay above the fold.
-function PromptRow({ prompt }: { prompt: string }): JSX.Element {
-    const [expanded, setExpanded] = useState(false)
-    return (
-        <div>
-            <button
-                type="button"
-                className="flex items-center gap-0.5 text-xs text-muted mb-0.5 hover:text-default"
-                onClick={() => setExpanded(!expanded)}
-                aria-expanded={expanded}
-                data-attr="vision-observation-prompt-toggle"
-            >
-                <IconChevronRight className={cn('transition-transform', expanded && 'rotate-90')} />
-                Prompt
-            </button>
-            <p
-                className={cn(
-                    'text-sm m-0 leading-snug',
-                    expanded ? 'text-default whitespace-pre-wrap' : 'text-muted line-clamp-1'
-                )}
-            >
-                {prompt}
-            </p>
-        </div>
-    )
 }
 
 /** Rating happens here, not in the Calibration tab, so a rater never sees the recommendation it feeds. */
