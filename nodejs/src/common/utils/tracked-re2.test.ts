@@ -23,16 +23,13 @@ describe('createTrackedRE2', () => {
         ['foo', 'is', 'isfoo', undefined],
         ['foo', 'i', 'ifoo', undefined],
         ['bar', 'si', 'sibar', undefined],
-    ])(
-        'does not alias (%s, %p) with (%s, %p) in the cache key',
-        (patternA, flagsA, patternB, flagsB) => {
-            const a = createTrackedRE2(patternA, flagsA, 'test-cache')
-            const b = createTrackedRE2(patternB, flagsB, 'test-cache')
-            expect(b).not.toBe(a)
-            expect(b.source).toBe(patternB)
-            expect(a.source).toBe(patternA)
-        }
-    )
+    ])('does not alias (%s, %p) with (%s, %p) in the cache key', (patternA, flagsA, patternB, flagsB) => {
+        const a = createTrackedRE2(patternA, flagsA, 'test-cache')
+        const b = createTrackedRE2(patternB, flagsB, 'test-cache')
+        expect(b).not.toBe(a)
+        expect(b.source).toBe(patternB)
+        expect(a.source).toBe(patternA)
+    })
 
     it('cached instances remain usable across repeated exec/test calls', () => {
         const re = createTrackedRE2('sk_(?:live|test)_([A-Za-z0-9]{10,})', undefined, 'test-cache')
