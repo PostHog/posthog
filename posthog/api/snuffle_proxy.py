@@ -30,8 +30,8 @@ from posthog.security.outbound_proxy import internal_requests
 
 logger = structlog.get_logger(__name__)
 
-# Shared private-alpha gate for every Snuffle-backed proxy endpoint (PromQL and LogQL alike), so a
-# new subclass is gated by default instead of needing to remember to add its own check.
+# This private-alpha flag gates all Snuffle proxy endpoints.
+# New subclasses use the flag by default.
 SNUFFLE_API_FEATURE_FLAG = "logs-metrics-snuffle-api"
 
 TEAM_ID_HEADER = "X-Team-ID"

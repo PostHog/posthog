@@ -34,9 +34,8 @@ class TestLokiQueryApi(APIBaseTest):
         patcher = patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=_upstream())
         self.request_mock = patcher.start()
         self.addCleanup(patcher.stop)
-        # LokiQueryViewSet is gated behind the shared Snuffle feature flag; enable it here so
-        # every other test in this file matches production for teams on the alpha, and let the
-        # dedicated gate test below override it to assert the 403.
+        # Enable the Snuffle flag for the Loki proxy tests.
+        # The gate test sets the flag to False.
         ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
         ff_patcher.start()
         self.addCleanup(ff_patcher.stop)
