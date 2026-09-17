@@ -10,6 +10,8 @@ HTTP Basic auth and never exposed to the API caller.
 
 import re
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import ClassVar
 
 from django.conf import settings
@@ -38,6 +40,12 @@ SNUFFLE_API_FEATURE_FLAG = "logs-metrics-snuffle-api"
 
 TEAM_ID_HEADER = "X-Team-ID"
 SNUFFLE_READ_BYTES_HEADER = "X-Snuffle-ClickHouse-Read-Bytes"
+# Debit outside the response-critical path. The bound limits work retained in a web process if
+# Redis is slow or unavailable; a skipped debit is safe because the budget deliberately fails open.
+SNUFFLE_BUDGET_DEBIT_MAX_PENDING = 8
+_snuffle_budget_debit_slots = threading.BoundedSemaphore(SNUFFLE_BUDGET_DEBIT_MAX_PENDING)
+_snuffle_budget_debit_executor: ThreadPoolExecutor | None = None
+_snuffle_budget_debit_executor_lock = threading.Lock()
 # Snuffle also accepts the tenant as a `team_id` parameter, with lower precedence than the header;
 # strip it so the forwarded request only ever names the team from the URL. PostHog accepts the
 # caller's personal API key as a parameter too, and that must never leave PostHog.
@@ -73,6 +81,37 @@ def _read_bytes_from(upstream: requests.Response) -> int | None:
         logger.warning("snuffle_proxy_invalid_read_bytes", value=value)
         return None
     return bytes_read if bytes_read >= 0 else None
+
+
+def _get_snuffle_budget_debit_executor() -> ThreadPoolExecutor:
+    # Start the threads in the serving worker rather than in a pre-fork parent process.
+    global _snuffle_budget_debit_executor
+    if _snuffle_budget_debit_executor is None:
+        with _snuffle_budget_debit_executor_lock:
+            if _snuffle_budget_debit_executor is None:
+                _snuffle_budget_debit_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="snuffle-budget")
+    return _snuffle_budget_debit_executor
+
+
+def schedule_snuffle_budget_debit(team_id: str, bytes_read: int) -> None:
+    """Debit the query budget without delaying a completed Snuffle response."""
+    if not _snuffle_budget_debit_slots.acquire(blocking=False):
+        logger.warning("snuffle_proxy_budget_debit_skipped", team_id=team_id, reason="saturated")
+        return
+
+    def _debit() -> None:
+        try:
+            debit(team_id, bytes_read)
+        except Exception:
+            logger.exception("snuffle_proxy_budget_debit_failed", team_id=team_id)
+        finally:
+            _snuffle_budget_debit_slots.release()
+
+    try:
+        _get_snuffle_budget_debit_executor().submit(_debit)
+    except Exception:
+        _snuffle_budget_debit_slots.release()
+        logger.exception("snuffle_proxy_budget_debit_submit_failed", team_id=team_id)
 
 
 class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -170,8 +209,6 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
         bytes_read = _read_bytes_from(upstream)
         if bytes_read is not None:
-            remaining = debit(str(team_id), bytes_read)
+            schedule_snuffle_budget_debit(str(team_id), bytes_read)
             response["X-PostHog-Query-Bytes-Read"] = str(bytes_read)
-            if remaining is not None:
-                response["X-PostHog-Query-Budget-Remaining-Bytes"] = str(int(remaining))
         return response
