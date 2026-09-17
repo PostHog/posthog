@@ -112,6 +112,87 @@ tools:
             Replace the `content` of an existing artefact, addressed by its id, when new information supersedes it. The
             new content is validated against the artefact type's schema. Editing the latest row of a status type changes
             the report's canonical status; to re-assess while keeping history, append a new artefact instead.
+    inbox-report-checks-create:
+        operation: signals_report_checks_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{params.report_id}'
+        title: Schedule a follow-up check on a report
+        description: >
+            Schedule a re-measurement of what a report claimed, so "did the fix hold?" becomes a verdict stored on the
+            report instead of something a person re-derives weeks later. A check carries one expectation, one time to
+            look, and how many times to look. The coordinator runs it when it comes due and appends the verdict to the
+            report as a `check_result` entry people read in the inbox. Write one whenever the outcome is measurable;
+            skip one for an observation with no "fixed" state to measure.
+
+            Choose the `kind` by what settles the claim. A `metric_threshold` check measures one number and compares
+            it, so it costs one query and no agent run. Its config takes a `comparison` (`lte`, `gte`, or `between`)
+            plus either a `metric_id` the report already shows or your own `query` — never both. A supplied query is a
+            bounded live InsightVizNode/TrendsQuery with one output series, the same shape a report metric carries. A
+            named metric's query is copied onto the check as you create it, so the check keeps measuring what you saw.
+            Pass the value you measured today as `baseline_value` to give the verdict context. An `agent` check runs a
+            scout instead, for a claim no single number settles: "did the exception stop?" needs the issue looked up
+            and its recent events read. Its config takes `instructions`
+            saying what the run must establish, optional `probe_hints` naming where to look (an issue id, a service
+            name, a query to repeat), and an optional `skill_name` for the scout that runs it — omit the name and the
+            fleet's follow-up scout takes it.
+
+            Allow for deploy and soak time, because unchanged numbers prove nothing before the fix is live.
+            `next_run_at` defaults to a week out, and a recurring check may not re-measure more often than every 6
+            hours; anything faster is an alert and belongs in the alerts product. Leave `run_interval_minutes` out for
+            a one-shot check. A report carries at most 5 active checks, so list them first and extend what is already
+            watching the claim rather than adding a duplicate.
+    inbox-report-checks-delete:
+        operation: signals_report_checks_destroy
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Cancel a check
+        description: >
+            Stop one active check by its id, freeing a slot against the report's limit of 5. Verdicts it already
+            recorded stay on the report. There is no update: a check is a claim about the future, and moving its
+            threshold after a result would make the recorded verdict unreadable, so cancel the check and write a new
+            one. A check that already finished cannot be cancelled.
+    inbox-report-checks-list:
+        operation: signals_report_checks_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List a report's checks
+        description: >
+            List the follow-up checks on one report, newest first. Each row carries the expectation and why it was
+            written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status`
+            (`active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. Read this
+            before you write a check, so you extend or replace what already watches the claim. `query` and
+            `baseline_value` read as null when you cannot read the data they describe.
+    inbox-report-checks-retrieve:
+        operation: signals_report_checks_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.report_id}'
+        title: Get a single check
+        description: >
+            Get one check on a report by its id, with its full config, schedule, status, and last outcome. The verdicts
+            themselves are `check_result` artefacts on the report, so read those through the artefact list.
     inbox-reports-bulk-set-state:
         operation: signals_reports_bulk_state_create
         enabled: true
@@ -1014,18 +1095,6 @@ tools:
             returning every entry's full prose. Results capped at 1000.
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff
-        enabled: false
-    signals-report-checks-create:
-        operation: signals_report_checks_create
-        enabled: false
-    signals-report-checks-destroy:
-        operation: signals_report_checks_destroy
-        enabled: false
-    signals-report-checks-list:
-        operation: signals_report_checks_list
-        enabled: false
-    signals-report-checks-retrieve:
-        operation: signals_report_checks_retrieve
         enabled: false
     signals-report-pr-checks:
         operation: signals_report_pr_checks

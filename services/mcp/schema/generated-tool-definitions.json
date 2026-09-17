@@ -6018,6 +6018,62 @@
             "readOnlyHint": false
         }
     },
+    "inbox-report-checks-create": {
+        "description": "Schedule a re-measurement of what a report claimed, so \"did the fix hold?\" becomes a verdict stored on the report instead of something a person re-derives weeks later. A check carries one expectation, one time to look, and how many times to look. The coordinator runs it when it comes due and appends the verdict to the report as a `check_result` entry people read in the inbox. Write one whenever the outcome is measurable; skip one for an observation with no \"fixed\" state to measure.\nChoose the `kind` by what settles the claim. A `metric_threshold` check measures one number and compares it, so it costs one query and no agent run. Its config takes a `comparison` (`lte`, `gte`, or `between`) plus either a `metric_id` the report already shows or your own `query` — never both. A supplied query is a bounded live InsightVizNode/TrendsQuery with one output series, the same shape a report metric carries. A named metric's query is copied onto the check as you create it, so the check keeps measuring what you saw. Pass the value you measured today as `baseline_value` to give the verdict context. An `agent` check runs a scout instead, for a claim no single number settles: \"did the exception stop?\" needs the issue looked up and its recent events read. Its config takes `instructions` saying what the run must establish, optional `probe_hints` naming where to look (an issue id, a service name, a query to repeat), and an optional `skill_name` for the scout that runs it — omit the name and the fleet's follow-up scout takes it.\nAllow for deploy and soak time, because unchanged numbers prove nothing before the fix is live. `next_run_at` defaults to a week out, and a recurring check may not re-measure more often than every 6 hours; anything faster is an alert and belongs in the alerts product. Leave `run_interval_minutes` out for a one-shot check. A report carries at most 5 active checks, so list them first and extend what is already watching the claim rather than adding a duplicate.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Schedule a follow-up check on a report",
+        "title": "Schedule a follow-up check on a report",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "inbox-report-checks-delete": {
+        "description": "Stop one active check by its id, freeing a slot against the report's limit of 5. Verdicts it already recorded stay on the report. There is no update: a check is a claim about the future, and moving its threshold after a result would make the recorded verdict unreadable, so cancel the check and write a new one. A check that already finished cannot be cancelled.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Cancel a check",
+        "title": "Cancel a check",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "inbox-report-checks-list": {
+        "description": "List the follow-up checks on one report, newest first. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. Read this before you write a check, so you extend or replace what already watches the claim. `query` and `baseline_value` read as null when you cannot read the data they describe.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List a report's checks",
+        "title": "List a report's checks",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "inbox-report-checks-retrieve": {
+        "description": "Get one check on a report by its id, with its full config, schedule, status, and last outcome. The verdicts themselves are `check_result` artefacts on the report, so read those through the artefact list.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get a single check",
+        "title": "Get a single check",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "inbox-reports-bulk-set-state": {
         "description": "Transition many signal reports to the same state in one call — the bulk form of `inbox-reports-set-state`, for clearing, snoozing, or resolving a batch of inbox reports without one request per report. Pass `ids` (1–100 report ids) and a `state` ('resolved' when the requested work is done, 'suppressed' to dismiss, 'potential' to snooze/restore); the optional `dismissal_reason` (same canonical codes as the single-report tool, including `wrong_repo`), `dismissal_note`, `corrected_repository` (only with `wrong_repo`), and `snooze_for` apply to every id. Dismissing or resolving closes each report's open implementation PR, if it has one. Each id is processed independently, so the whole call returns 200 even on partial failure: inspect `results` (one entry per id, in request order) and the `transitioned_count` / `skipped_count` / `failed_count` / `not_found_count` summary. An id whose transition isn't allowed from its current status comes back as `skipped` (the single-report 409) while the rest still go through.",
         "category": "Signals",
