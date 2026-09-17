@@ -82,6 +82,7 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
+import type { CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
 import type { NodeApiSuspended, NodeEndpointApi } from 'products/data_modeling/frontend/generated/api.schemas'
 import type {
     DataWarehouseSavedQueryApi,
@@ -613,6 +614,7 @@ export interface OrganizationType extends OrganizationBasicType {
     default_experiment_stats_method: ExperimentStatsMethod
     default_anonymize_ips?: boolean
     default_role_id?: string | null
+    uses_most_specific_access_resolution?: boolean | null
 }
 
 export interface OrganizationDomainType {
@@ -1923,6 +1925,9 @@ export interface CohortType {
         filterTestAccounts?: boolean
     }
     experiment_set?: number[]
+    /** Whether feature flags can target this cohort, and the progress of the history build that
+     * gets it there. Null on projects the realtime pipeline does not cover. */
+    realtime?: CohortRealtimeReadinessApi | null
     _create_in_folder?: string | null
     _create_static_person_ids?: string[]
 }
@@ -6835,18 +6840,13 @@ export type BatchExportServicePostgres = {
     }
 }
 
+// Credentials live on the linked `snowflake` integration, not in the config.
 export type BatchExportServiceSnowflake = {
     type: 'Snowflake'
-    integration?: number
+    integration: number
     config: {
-        account: string
         database: string
         warehouse: string
-        user: string
-        authentication_type: 'password' | 'keypair'
-        password: string | null
-        private_key: string | null
-        private_key_passphrase: string | null
         schema: string
         table_name: string
         role: string | null
