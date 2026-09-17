@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import OperationalError
 from django.http import HttpRequest
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
@@ -316,6 +317,23 @@ class TestWebhookView(SimpleTestCase):
             response = build_webhook_view(_UnavailableVerifyGitHubProvider("posthog"))(request)
 
         # 403 would tell a sender that retries server errors only to drop a valid delivery.
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual([call.kwargs["outcome"] for call in observe.call_args_list], ["verify_unavailable"])
+        self.dispatcher.dispatch.assert_not_called()
+
+    def test_a_database_failure_reading_the_secret_is_503_rather_than_an_unhandled_500(self) -> None:
+        body = json.dumps({"action": "opened"}).encode()
+        request = self._post(body, {"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "issues"})
+
+        with (
+            patch(
+                "posthog.ingress.github.provider.get_instance_setting",
+                side_effect=OperationalError("server closed the connection unexpectedly"),
+            ),
+            patch("posthog.ingress.views.observe_delivery") as observe,
+        ):
+            response = build_webhook_view(build_github_provider("posthog"))(request)
+
         self.assertEqual(response.status_code, 503)
         self.assertEqual([call.kwargs["outcome"] for call in observe.call_args_list], ["verify_unavailable"])
         self.dispatcher.dispatch.assert_not_called()

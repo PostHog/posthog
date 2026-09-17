@@ -1,8 +1,9 @@
 """Signature schemes: the part of a provider incarnation that decides "this is really them".
 
-A scheme with a network step answers `UNAVAILABLE` when that step fails on transport rather than
-on the signature, because a fetch that never completed proves nothing about the caller. `BearerJwt`
-does this for a JWKS fetch failure, and `SnsSignature` owes the same for its certificate fetch.
+A scheme whose lookup step fails answers `UNAVAILABLE` rather than judging the signature, because
+a step that never completed proves nothing about the caller. `BearerJwt` does this for a JWKS
+fetch failure, `HmacSha256` for a secret read that the database refuses, and `SnsSignature` owes
+the same for its certificate fetch.
 """
 
 import re
@@ -14,6 +15,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import field
 from enum import StrEnum
 from typing import Any, Literal, Protocol
+
+from django.db import DatabaseError, InterfaceError
 
 import structlog
 
@@ -122,7 +125,18 @@ class HmacSha256:
         return hmac_sha256_signature(secret, signed, encoding=self.encoding, prefix=self.prefix)
 
     def _outcome(self, *, body: bytes, headers: Mapping[str, str]) -> VerificationOutcome:
-        secret = self.secret_getter()
+        try:
+            secret = self.secret_getter()
+        except (DatabaseError, InterfaceError) as error:
+            # A getter that keeps its secret in Postgres reads it here, so a dropped connection
+            # leaves the signature unchecked. Letting the error out answers 500, which asks no
+            # sender to come back and leaves the lost delivery uncounted.
+            logger.warning(
+                "ingress_secret_unavailable",
+                signature_header=self.signature_header,
+                error_type=type(error).__name__,
+            )
+            return VerificationOutcome.UNAVAILABLE
         if not secret:
             return VerificationOutcome.NOT_CONFIGURED
 

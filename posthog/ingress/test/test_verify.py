@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from unittest.mock import patch
 
+from django.db import InterfaceError, OperationalError
 from django.test import SimpleTestCase
 
 import jwt
@@ -78,6 +79,32 @@ class TestHmacSha256(SimpleTestCase):
             scheme.verify(body=BODY, headers={"X-Signature": _digest().hex()}).outcome,
             VerificationOutcome.NOT_CONFIGURED,
         )
+
+    @parameterized.expand(
+        [
+            ("dropped_connection", OperationalError("server closed the connection unexpectedly")),
+            ("closed_connection", InterfaceError("connection already closed")),
+        ]
+    )
+    def test_a_database_failure_reading_the_secret_is_unavailable(self, _name: str, error: Exception) -> None:
+        def secret_getter() -> str:
+            raise error
+
+        scheme = HmacSha256(secret_getter=secret_getter, signature_header="X-Signature")
+
+        self.assertEqual(
+            scheme.verify(body=BODY, headers={"X-Signature": _digest().hex()}).outcome,
+            VerificationOutcome.UNAVAILABLE,
+        )
+
+    def test_any_other_failure_reading_the_secret_still_raises(self) -> None:
+        def secret_getter() -> str:
+            raise ValueError("boom")
+
+        scheme = HmacSha256(secret_getter=secret_getter, signature_header="X-Signature")
+
+        with self.assertRaises(ValueError):
+            scheme.verify(body=BODY, headers={"X-Signature": _digest().hex()})
 
     def test_v0_timestamp_input_signs_timestamp_with_body(self) -> None:
         timestamp = str(int(time.time()))
