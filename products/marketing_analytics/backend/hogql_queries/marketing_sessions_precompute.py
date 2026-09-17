@@ -44,6 +44,9 @@ SESSION_READ_REACHBACK_DAYS = 1
 SESSION_SETTLING_PERIOD_SECONDS = 24 * 60 * 60
 
 # Bound the event scan by observed session ends; session IDs can span more than one day.
+# The bound compares `$start_timestamp` directly: wrapped in a function the sessions where-clause
+# extractor cannot push the window into raw_sessions, and the subquery aggregates every session
+# the team ever had. Window edges are hour-aligned, so the comparison is equivalent.
 SESSIONS_INSERT_TEMPLATE = """
 SELECT
     toStartOfHour(min(events.session.$start_timestamp)) AS period_bucket,
@@ -70,8 +73,8 @@ WHERE and(
     events.timestamp <= (
         SELECT max($end_timestamp)
         FROM sessions
-        WHERE toStartOfHour($start_timestamp) >= {time_window_min}
-            AND toStartOfHour($start_timestamp) < {time_window_max}
+        WHERE $start_timestamp >= {time_window_min}
+            AND $start_timestamp < {time_window_max}
     )
 )
 GROUP BY session_id, person_id
