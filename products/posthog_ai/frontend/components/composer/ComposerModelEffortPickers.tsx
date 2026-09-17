@@ -32,6 +32,7 @@ import {
     RuntimeAdapterEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
+import { ModelCostChip } from '../ModelCostChip'
 import { ComposerReasoningSlider } from './ComposerReasoningSlider'
 
 // Separates model and effort in a slider stop key; never appears in a model id or an effort.
@@ -257,7 +258,10 @@ export function ComposerModelEffortPickers({
                         >
                             {adapterModels.map((option) => (
                                 <DropdownMenuRadioItem key={option.model} value={option.model}>
-                                    {option.display_name}
+                                    <span className="flex w-full items-center justify-between gap-2">
+                                        {option.display_name}
+                                        <ModelCostChip model={option.model} />
+                                    </span>
                                 </DropdownMenuRadioItem>
                             ))}
                         </PickerSection>

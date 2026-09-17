@@ -7,6 +7,7 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { ModelCostChip } from 'products/posthog_ai/frontend/components/ModelCostChip'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
 import {
     filterEffortForModel,
@@ -54,6 +55,14 @@ function PreferenceEditor({
                 options: modelsForRuntimeAdapter(catalogue, adapter).map((choice) => ({
                     value: choice.model,
                     label: choice.display_name,
+                    // Menu only: cost is what you compare models on while choosing, and says
+                    // nothing once the closed control shows the one you picked.
+                    labelInMenu: (
+                        <span className="flex w-full items-center justify-between gap-2">
+                            {choice.display_name}
+                            <ModelCostChip model={choice.model} />
+                        </span>
+                    ),
                 })),
             })),
         [catalogue]
