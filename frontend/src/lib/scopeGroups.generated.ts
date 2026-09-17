@@ -82,6 +82,14 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
         ],
     },
     {
+        label: 'Developer experience',
+        objects: [
+            'engineering_analytics',
+            'stamphog',
+            'visual_review',
+        ],
+    },
+    {
         label: 'LLM & MCP analytics',
         objects: [
             'llm_analytics',
@@ -171,14 +179,6 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'uploaded_media',
             'file_system',
             'file_system_shortcut',
-        ],
-    },
-    {
-        label: 'Developer experience',
-        objects: [
-            'engineering_analytics',
-            'stamphog',
-            'visual_review',
         ],
     },
     {

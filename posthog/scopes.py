@@ -298,6 +298,7 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
             "metrics",
         ),
     ),
+    ("Developer experience", ("engineering_analytics", "stamphog", "visual_review")),
     (
         "LLM & MCP analytics",
         (
@@ -390,7 +391,6 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
             "file_system_shortcut",
         ),
     ),
-    ("Developer experience", ("engineering_analytics", "stamphog", "visual_review")),
     (
         "Internal tools",
         (
