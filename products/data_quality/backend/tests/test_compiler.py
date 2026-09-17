@@ -468,6 +468,14 @@ class TestCheckSerialization:
         normalized = _normalized(CheckType.ROW_COUNT, "", config)
         assert _fingerprint_for(normalized) == _fingerprint_for(expected)
 
+    def test_an_unset_relationship_window_preserves_an_existing_fingerprint(self) -> None:
+        # A check authored before the windows existed stored neither key. Canonicalizing an unset one
+        # as null would rehash it, so re-submitting it unchanged would duplicate it instead of upserting.
+        normalized = _normalized(CheckType.RELATIONSHIPS, "customer_id", RELATIONSHIPS_CONFIG)
+
+        assert normalized == RELATIONSHIPS_CONFIG
+        assert _fingerprint_for(normalized) == _fingerprint_for(RELATIONSHIPS_CONFIG)
+
     @parameterized.expand([(check_type,) for check_type in CheckType])
     def test_config_entry_round_trips(self, check_type) -> None:
         check = {
