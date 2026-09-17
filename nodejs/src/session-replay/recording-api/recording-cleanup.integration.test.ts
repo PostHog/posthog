@@ -112,10 +112,12 @@ describe('recording cleanup (integration)', () => {
             [randomUUID(), alertId, targetObservationId, teamId],
             'fixtureMatch'
         )
-        // A system render and a person's own gif export of the deleted recording, and an export of a kept one.
+        // Of the deleted recording: a system render, a person's own gif export, and an event screenshot frame.
+        // Of a kept recording: one export, which must stay.
         for (const [format, isSystem, sessionId] of [
             ['video/mp4', true, 'session-to-delete'],
             ['image/gif', false, 'session-to-delete'],
+            ['image/png', true, 'session-to-delete'],
             ['video/mp4', false, 'session-to-keep'],
         ] as const) {
             await postgres.query(
