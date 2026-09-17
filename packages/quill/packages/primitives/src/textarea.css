@@ -4,7 +4,7 @@
         min-height: 4rem;
         padding-block: 0.5rem;
         padding-inline: 0.5rem;
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--text-ui, 0.8125rem);
         resize: none;
         background-color: color-mix(in oklab, var(--input) 20%, transparent);
         border: 1px solid var(--input);

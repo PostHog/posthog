@@ -53,7 +53,7 @@ class SlackProvider(WebhookProvider):
             return JsonResponse({"challenge": str(payload.get("challenge", ""))})
         return None
 
-    def deliveries(self, request: HttpRequest, payload: Any) -> Sequence[WebhookDelivery]:
+    def deliveries(self, request: HttpRequest, payload: Any, facts: Mapping[str, Any]) -> Sequence[WebhookDelivery]:
         if not isinstance(payload, Mapping) or payload.get("type") != "event_callback":
             return ()
         event = payload.get("event")

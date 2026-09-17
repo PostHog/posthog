@@ -1094,7 +1094,8 @@ class TestBulkUpdateTicketTags(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual([row["id"] for row in data["updated"]], [str(self.tickets[0].id)])
-        self.assertEqual(data["skipped"], [{"id": str(other_ticket.id), "reason": "Not found"}])
+        # Missing and inaccessible ids share one skip reason so callers can't probe which ids exist.
+        self.assertEqual(data["skipped"], [{"id": str(other_ticket.id), "reason": "Not found or no edit access"}])
         self.assertEqual(self._ticket_tags(other_ticket), set())
 
     def test_denied_ticket_skipped_with_permission_denied(self):
@@ -1115,7 +1116,8 @@ class TestBulkUpdateTicketTags(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        self.assertEqual(data["skipped"], [{"id": str(self.tickets[0].id), "reason": "Permission denied"}])
+        # Missing and inaccessible ids share one skip reason so callers can't probe which ids exist.
+        self.assertEqual(data["skipped"], [{"id": str(self.tickets[0].id), "reason": "Not found or no edit access"}])
         self.assertEqual({row["id"] for row in data["updated"]}, {str(t.id) for t in self.tickets[1:]})
         self.assertEqual(self._ticket_tags(self.tickets[0]), set())
 

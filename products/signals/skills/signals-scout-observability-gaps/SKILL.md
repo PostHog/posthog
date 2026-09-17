@@ -1,5 +1,6 @@
 ---
 name: signals-scout-observability-gaps
+scout-display-name: Observability gaps
 description: >
   Signals scout for observability gaps — significant event volumes with no insight, dashboard,
   or alert coverage. Recommends new insights, dashboards, or alerts as the product evolves.

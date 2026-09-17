@@ -28,6 +28,7 @@ from products.feature_flags.backend.temporal.health_checks.stale_flags import (
     EVIDENCE_NOT_CALLED_RECENTLY,
     StaleFeatureFlagsCheck,
 )
+from products.feature_flags.backend.test.replay_gate_fixtures import trigger_groups
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
@@ -107,6 +108,10 @@ class TestStaleFlagsDetect(BaseTest):
         elif link == "replay_link":
             # Queryset update instead of save so no Team receivers run in the fixture.
             Team.objects.filter(pk=self.team.pk).update(session_recording_linked_flag={"id": flag.id, "key": flag.key})
+        elif link == "replay_trigger_group":
+            Team.objects.filter(pk=self.team.pk).update(
+                session_recording_trigger_groups=trigger_groups({"flag": flag.key})
+            )
         else:
             raise ValueError(link)
 
@@ -135,6 +140,9 @@ class TestStaleFlagsDetect(BaseTest):
             # Local-evaluation semantics: a disabled dependent still protects its dependency.
             ("disabled_dependent_still_blocks", stale_by_usage(), "disabled_dependent_flag", False),
             ("replay_linked", stale_by_config(), "replay_link", False),
+            # A trigger group gates recording just as the linked-flag column does, so the flag it
+            # names is not a cleanup candidate either.
+            ("replay_trigger_group_linked", stale_by_config(), "replay_trigger_group", False),
         ]
     )
     def test_detect_inclusion_and_exclusion(
@@ -148,6 +156,30 @@ class TestStaleFlagsDetect(BaseTest):
 
         included = any(result.payload["flag_id"] == flag.id for result in results.get(self.team.id, []))
         assert included is expected_included
+
+    def test_a_gate_stored_in_another_project_still_protects_the_flag(self) -> None:
+        # Flag ids are globally unique, so a team can store a flag another project owns. Matching
+        # ids per project would report that flag as a cleanup candidate. The delete guard is
+        # project-scoped too, so nothing else would stop the delete that follows, and the stored
+        # reference would be left unrepairable.
+        flag = self._create_flag("gated-from-another-project", **stale_by_config())
+        other_project_team = Team.objects.create(organization=self.organization)
+        # The scan covers the projects that own candidate flags, so the other project needs one
+        # of its own before the gate it stores is read at all.
+        their_flag = FeatureFlag.objects.create(
+            team=other_project_team, key="their-own-flag", created_by=self.user, active=True, **stale_by_config()
+        )
+        Team.objects.filter(pk=other_project_team.pk).update(
+            session_recording_linked_flag={"id": flag.id, "key": flag.key}
+        )
+
+        results = self._detect([self.team.id, other_project_team.id])
+
+        assert not any(result.payload["flag_id"] == flag.id for result in results.get(self.team.id, []))
+        # Nothing gates `their_flag`: a linked flag contributes its id to `flag_ids` and never its
+        # key to `flag_keys`. It stays reported, so an exclusion that swallowed the whole batch
+        # would fail here.
+        assert any(result.payload["flag_id"] == their_flag.id for result in results.get(other_project_team.id, []))
 
     # (name, flag_kwargs, expected payload subset)
     @parameterized.expand(

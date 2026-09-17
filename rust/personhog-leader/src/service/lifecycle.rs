@@ -141,7 +141,7 @@ impl PersonHogLeaderService {
             .value()
             .clone();
         let lock_started = Instant::now();
-        let _guard = mutex.lock().await;
+        let guard = mutex.lock_owned().await;
         record_release_phase("lock_wait", lock_started);
 
         // Releasing another op's fence would break that op's seal.
@@ -247,9 +247,14 @@ impl PersonHogLeaderService {
             approx_bytes: approx_person_bytes(2),
         };
         let produce_started = Instant::now();
-        let committed = self.commit_document(partition, &cache_key, death).await;
+        // The RPC's own guard admitted the batch; this one rides the
+        // commit through its outcome.
+        let inflight = self.inflight.begin(partition);
+        let committed = self
+            .commit_document(partition, &cache_key, death, guard, inflight)
+            .await;
         record_release_phase("produce", produce_started);
-        committed?;
+        let _committed = committed?;
         // The death document stays cached while its mark stands, answering
         // not-found from memory; the prune-time settle drops it once the
         // writer confirms, and PG answers from then on.

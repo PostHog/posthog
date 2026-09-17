@@ -5,18 +5,34 @@ from typing import Any
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 from rest_framework.fields import empty
+from rest_framework.request import Request
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.permissions import get_authenticator_scopes
 
 from products.autoresearch.backend.facade import api
-from products.autoresearch.backend.facade.contracts import Pipeline, PipelineWrite
+from products.autoresearch.backend.facade.contracts import (
+    IterationTrailEntry,
+    Model,
+    Pipeline,
+    PipelineWrite,
+    Run,
+    TrainingRun,
+)
 
 POPULATION_KINDS = api.POPULATION_KINDS
 
 # (value, label) pairs, not bare values: drf-spectacular builds each enum component's name and
 # its label list from them, and `ENUM_NAME_OVERRIDES` matches on the value set.
 PIPELINE_STATUS_CHOICES = api.PIPELINE_STATUS_CHOICES
+TEMPLATE_KEY_CHOICES = api.TEMPLATE_KEY_CHOICES
+VALIDATION_WARNING_CODES = api.VALIDATION_WARNING_CODES
+MODEL_ROLE_CHOICES = api.MODEL_ROLE_CHOICES
+RUN_STATUS_CHOICES = api.RUN_STATUS_CHOICES
+RUN_TYPE_CHOICES = api.RUN_TYPE_CHOICES
+TRAINING_RUN_STATUS_CHOICES = api.TRAINING_RUN_STATUS_CHOICES
+ITERATION_STATUS_CHOICES = api.ITERATION_STATUS_CHOICES
 
 TARGET_EVENT_MAX_LENGTH = 255
 OUTPUT_PERSON_PROPERTY_MAX_LENGTH = 255
@@ -27,6 +43,9 @@ OUTPUT_PERSON_PROPERTY_MAX_LENGTH = 255
 _FORBIDDEN_TARGET_EVENT_CHARS = re.compile(r"[\x00-\x1f\x7f`{}]")
 
 _OUTPUT_PERSON_PROPERTY_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_$.\-]*$")
+
+# Resolving an action target reveals whether the id exists and its name, so a scoped token needs a read scope.
+_ACTION_READ_SCOPES = ("action:read", "action:write", "*")
 
 
 def _validate_target_event_value(value: str, *, error_key: str) -> None:
@@ -40,11 +59,28 @@ def _validate_target_event_value(value: str, *, error_key: str) -> None:
         )
 
 
+def validate_event_target(target_event: str, *, error_key: str) -> None:
+    """The rules creation applies to an event target: not the product's own event, and safe to place in
+    the training agent's prompt brief. Template resolution applies them so its result is one creation accepts."""
+    if target_event == api.PREDICTION_EVENT_NAME:
+        raise serializers.ValidationError(
+            {error_key: f"'{api.PREDICTION_EVENT_NAME}' is the event this product emits, so it cannot be a target."}
+        )
+    _validate_target_event_value(target_event, error_key=error_key)
+
+
+def _require_action_scope(request: Request | None) -> None:
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if scopes is not None and not any(scope in scopes for scope in _ACTION_READ_SCOPES):
+        raise serializers.ValidationError({"target_definition": "An action target needs the action:read scope."})
+
+
 def resolve_target(
     *,
     team: Any,
     target_event: str,
     target_definition: dict[str, Any] | None,
+    request: Request | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Validate and normalize a prediction target, returning (target_event, target_definition).
@@ -77,6 +113,7 @@ def resolve_target(
             raise serializers.ValidationError(
                 {"target_definition": "Action target requires a positive integer 'action_id'."}
             )
+        _require_action_scope(request)
         try:
             action_name, action_id = api.resolve_action_target(team.project_id, action_id)
         except (api.PipelineNotFound, api.InvalidTarget) as exc:
@@ -98,13 +135,7 @@ def resolve_target(
                 )
             }
         )
-    if target_event == api.PREDICTION_EVENT_NAME:
-        raise serializers.ValidationError(
-            {
-                "target_event": f"'{api.PREDICTION_EVENT_NAME}' is the event this product emits, so it cannot be a target."
-            }
-        )
-    _validate_target_event_value(target_event, error_key="target_event")
+    validate_event_target(target_event, error_key="target_event")
     return target_event, {"type": "event"}
 
 
@@ -163,6 +194,9 @@ _POPULATION_KIND_REQUIRED_DAYS: dict[str, str | None] = {
 }
 _POPULATION_KIND_REQUIRES_EVENT = frozenset({"ever_performed_event"})
 _POPULATION_DAYS_MAX = 730
+# Every filter and list-valued operand becomes a bound parameter in several HogQL queries, so bound the body first.
+_POPULATION_FILTERS_MAX = 20
+_POPULATION_FILTER_VALUES_MAX = 200
 
 
 @extend_schema_field(
@@ -193,6 +227,16 @@ class PopulationDefinitionField(serializers.JSONField):
             not isinstance(properties, list) or any(not isinstance(p, dict) for p in properties)
         ):
             raise serializers.ValidationError("Population 'properties' must be a list of filter objects.")
+        if properties and len(properties) > _POPULATION_FILTERS_MAX:
+            raise serializers.ValidationError(
+                f"A population can have at most {_POPULATION_FILTERS_MAX} property filters."
+            )
+        for prop in properties or []:
+            operand = prop.get("value")
+            if isinstance(operand, list) and len(operand) > _POPULATION_FILTER_VALUES_MAX:
+                raise serializers.ValidationError(
+                    f"A property filter can list at most {_POPULATION_FILTER_VALUES_MAX} values."
+                )
         kind = value.get("kind")
         if kind is None:
             return value
@@ -214,6 +258,54 @@ class PopulationDefinitionField(serializers.JSONField):
                     f"Population kind '{kind}' needs an 'event' naming the event it applies to."
                 )
         return value
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "description": (
+            "Portable recipe artifact. Contains feature_sql (HogQL), feature_transforms, "
+            "model_class, model_params, fit_signature, trained_on, holdout_score, and agent_description."
+        ),
+        "example": {
+            "feature_sql": "SELECT a.person_id AS distinct_id, countIf(e.event='$pageview') AS pageviews_30d FROM {anchors} a LEFT JOIN events e ON e.person_id = a.person_id AND e.timestamp < fromUnixTimestamp(a.cutoff_ts) GROUP BY a.person_id",
+            "feature_transforms": [],
+            "model_class": "sklearn.linear_model.LogisticRegression",
+            "model_params": {"C": 1.0, "max_iter": 200},
+            "fit_signature": "abc123",
+            "trained_on": "2026-04-01 to 2026-05-01",
+            "holdout_score": 0.72,
+            "agent_description": "Stub recipe: universal engagement features",
+        },
+    }
+)
+class ModelRecipeField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "description": (
+            "Global feature importance bundle: top features by gain, directionality "
+            "(positive/negative impact on predicted probability), stability across runs, "
+            "and leakage warning annotations."
+        ),
+    }
+)
+class ModelExplanationField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "additionalProperties": True,
+        "description": "A metrics bundle keyed by metric name. Empty until the producing run records anything.",
+    }
+)
+class MetricsBundleField(serializers.JSONField):
+    pass
 
 
 # ── Core serializers ------------------------------------------------------
@@ -525,6 +617,7 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
                 team=team,
                 target_event=self._value(data, "target_event", ""),
                 target_definition=self._value(data, "target_definition"),
+                request=self.context.get("request"),
             )
             updates["target_event"] = target_event
             updates["target_definition"] = target_definition
@@ -548,3 +641,526 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
         if not is_update and not self._value(data, "inference_population"):
             updates["inference_population"] = self._value(data, "training_population", {})
         return replace(data, **updates) if updates else data
+
+
+@extend_schema_serializer(component_name="AutoresearchModel")
+class AutoresearchModelSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Unique UUID of this model version.")
+    pipeline = serializers.UUIDField(help_text="Pipeline this model belongs to.")
+    role = serializers.ChoiceField(
+        choices=MODEL_ROLE_CHOICES,
+        required=False,
+        help_text="Model role: 'champion' (active scoring model), 'challenger' (shadow model), or 'archived'.",
+    )
+    recipe_hash = serializers.CharField(
+        read_only=True,
+        help_text="SHA-256 of the serialized recipe. Used to deduplicate identical recipes across runs.",
+    )
+    model_recipe = ModelRecipeField(
+        help_text="Portable recipe artifact. Feature SQL, transforms, model class, params, and metadata."
+    )
+    model_explanation = ModelExplanationField(
+        help_text="Global feature importance and directionality. Used to explain top drivers on the model card."
+    )
+    holdout_score = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="AUC on the held-out test split at training time. Preliminary signal before online labels mature.",
+    )
+    realized_score = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Online AUC computed from actual realized outcomes. Authoritative once enough labels have matured.",
+    )
+    calibration_error = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Expected calibration error (ECE). Lower is better; well-calibrated models have ECE < 0.05.",
+    )
+    metrics = MetricsBundleField(
+        required=False,
+        help_text="Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts.",
+    )
+    source_training_run = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Training run that produced this model. Read that run's artifact bundle to reuse the "
+            "champion's train.py and features.sql as a starting point. Null for legacy models."
+        ),
+    )
+    agent_description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="The agent's own plain-English description of what this recipe does and why it was chosen.",
+    )
+    trained_on_start = serializers.DateField(
+        required=False, allow_null=True, help_text="Start of the training data window (inclusive)."
+    )
+    trained_on_end = serializers.DateField(
+        required=False, allow_null=True, help_text="End of the training data window (exclusive)."
+    )
+    is_preliminary = serializers.BooleanField(
+        required=False,
+        help_text="True if this model has not yet been validated against realized online outcomes.",
+    )
+    promoted_at = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="Timestamp when this model was promoted to champion."
+    )
+    archived_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="Timestamp when this model was archived (superseded or retired).",
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        dataclass = Model
+        fields = [
+            "id",
+            "pipeline",
+            "role",
+            "recipe_hash",
+            "model_recipe",
+            "model_explanation",
+            "holdout_score",
+            "realized_score",
+            "calibration_error",
+            "metrics",
+            "source_training_run",
+            "agent_description",
+            "trained_on_start",
+            "trained_on_end",
+            "is_preliminary",
+            "promoted_at",
+            "archived_at",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class TrainingRunSummaryLadderItemSerializer(serializers.Serializer):
+    """One iteration referenced from a run summary's ladder or dead-ends list."""
+
+    iteration_number = serializers.IntegerField(help_text="Iteration index this entry refers to.")
+    holdout_score = serializers.FloatField(allow_null=True, help_text="Holdout AUC for this iteration.")
+    model_class = serializers.CharField(allow_blank=True, help_text="Model class tried in this iteration.")
+    agent_description = serializers.CharField(allow_blank=True, help_text="The agent's rationale for this attempt.")
+
+
+class TrainingRunSummarySerializer(serializers.Serializer):
+    """Tier-1 distilled summary of a completed run — the orientation memory a new run reads first."""
+
+    target_event = serializers.CharField(help_text="Target event the run's pipeline predicts.")
+    horizon_days = serializers.IntegerField(help_text="Prediction horizon, in days.")
+    best_holdout_score = serializers.FloatField(allow_null=True, help_text="Best holdout AUC achieved in the run.")
+    champion_promoted = serializers.BooleanField(
+        help_text="Whether this run's best model was promoted to champion (vs kept as challenger)."
+    )
+    champion_model_class = serializers.CharField(allow_blank=True, help_text="Model class of the run's best model.")
+    kept_ladder = TrainingRunSummaryLadderItemSerializer(
+        many=True,
+        help_text="Kept iterations, highest holdout AUC first — the winning approaches worth reusing.",
+    )
+    dead_ends = TrainingRunSummaryLadderItemSerializer(
+        many=True,
+        help_text="Discarded or crashed iterations — approaches already tried that did not help; avoid repeating.",
+    )
+    recommended_next = serializers.CharField(
+        allow_blank=True, help_text="Agent's suggested next experiments for a future run. Empty if not provided."
+    )
+    distillation = serializers.CharField(
+        allow_blank=True, help_text="Agent's 1–2 sentence distillation of what this run learned. Empty if not provided."
+    )
+
+
+@extend_schema_serializer(component_name="IterationTrail")
+class IterationTrailSerializer(DataclassSerializer):
+    """Compact, read-only view of one iteration for the cross-run history feed and the Training tab."""
+
+    iteration_number = serializers.IntegerField(
+        min_value=-2147483648, max_value=2147483647, help_text="Order of this attempt within its run (0-based)."
+    )
+    status = serializers.ChoiceField(
+        choices=ITERATION_STATUS_CHOICES,
+        help_text="Whether this recipe was kept (improved the best score), discarded, or crashed.",
+    )
+    holdout_score = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Holdout AUC this iteration achieved. Null if it was skipped/degenerate.",
+    )
+    train_score = serializers.FloatField(
+        required=False, allow_null=True, help_text="Train-fold AUC for this iteration, if recorded."
+    )
+    agent_description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="The agent's one-line rationale for what it tried and why.",
+    )
+    model_spec = serializers.JSONField(help_text="Model class and hyperparameters tried in this iteration.")
+
+    class Meta:
+        dataclass = IterationTrailEntry
+        fields = [
+            "iteration_number",
+            "status",
+            "holdout_score",
+            "train_score",
+            "agent_description",
+            "model_spec",
+        ]
+
+
+@extend_schema_serializer(component_name="AutoresearchTrainingRun")
+class AutoresearchTrainingRunSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Unique UUID of this training run.")
+    pipeline = serializers.UUIDField(help_text="Pipeline this training run belongs to.")
+    task_id = serializers.UUIDField(
+        required=False, allow_null=True, help_text="Parent Task ID in the tasks sandbox. Null for stub runs."
+    )
+    task_run_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Task sandbox run ID. Null for stub/synchronous training runs.",
+    )
+    task_url = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Relative URL to the underlying sandbox Task detail page. Null for stub/synchronous training runs.",
+    )
+    status = serializers.ChoiceField(
+        choices=TRAINING_RUN_STATUS_CHOICES,
+        read_only=True,
+        help_text="Run status: pending, running, completed, or failed.",
+    )
+    iteration_budget = serializers.IntegerField(
+        min_value=-2147483648,
+        max_value=2147483647,
+        required=False,
+        help_text="Maximum iterations allowed for this run.",
+    )
+    iteration_count = serializers.IntegerField(read_only=True, help_text="Number of iterations completed.")
+    best_holdout_score = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Best holdout AUC achieved across all iterations in this run.",
+    )
+    summary = TrainingRunSummarySerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Distilled cross-run learning summary written on completion. Null until the run completes.",
+    )
+    iterations = IterationTrailSerializer(
+        many=True,
+        read_only=True,
+        help_text="Per-iteration breakdown — every recipe the agent tried this run, kept or discarded, "
+        "with its model spec, holdout/train AUC, and one-line rationale. Ordered by iteration_number.",
+    )
+    error = serializers.CharField(read_only=True, allow_blank=True, help_text="Error message if the run failed.")
+    started_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="Timestamp when the training run started."
+    )
+    completed_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="Timestamp when the training run completed or failed."
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        dataclass = TrainingRun
+        fields = [
+            "id",
+            "pipeline",
+            "task_id",
+            "task_run_id",
+            "task_url",
+            "status",
+            "iteration_budget",
+            "iteration_count",
+            "best_holdout_score",
+            "summary",
+            "iterations",
+            "error",
+            "started_at",
+            "completed_at",
+            "created_at",
+        ]
+
+
+@extend_schema_serializer(component_name="AutoresearchRun")
+class AutoresearchRunSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Unique UUID of this run.")
+    pipeline = serializers.UUIDField(help_text="Pipeline this run belongs to.")
+    model = serializers.UUIDField(
+        required=False, allow_null=True, help_text="Model used for scoring. Null for validation runs."
+    )
+    run_type = serializers.ChoiceField(
+        choices=RUN_TYPE_CHOICES,
+        help_text="Type of run: 'inference' (daily scoring) or 'validation' (outcome evaluation).",
+    )
+    status = serializers.ChoiceField(
+        choices=RUN_STATUS_CHOICES,
+        required=False,
+        help_text="Run status: pending, running, completed, or failed.",
+    )
+    rows_scored = serializers.IntegerField(
+        min_value=-2147483648,
+        max_value=2147483647,
+        required=False,
+        allow_null=True,
+        help_text="Number of users scored in this inference run.",
+    )
+    metrics = MetricsBundleField(help_text="Run metrics: rows scored, score distribution summary, validation AUC, etc.")
+    error = serializers.CharField(required=False, allow_blank=True, help_text="Error message if the run failed.")
+    started_at = serializers.DateTimeField(required=False, allow_null=True, help_text="Timestamp when the run started.")
+    completed_at = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="Timestamp when the run completed or failed."
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        dataclass = Run
+        fields = [
+            "id",
+            "pipeline",
+            "model",
+            "run_type",
+            "status",
+            "rows_scored",
+            "metrics",
+            "error",
+            "started_at",
+            "completed_at",
+            "created_at",
+        ]
+
+
+# ── Validation serializers -------------------------------------------------
+
+
+class ValidationWarningSerializer(serializers.Serializer):
+    # A CharField on purpose: a ChoiceField named `code` collides with another product's `code` enum in drf-spectacular.
+    code = serializers.CharField(
+        help_text=(
+            "Machine-readable warning code. 'population_too_large' and 'horizon_exceeds_lookback' mean a "
+            "training run would fail: fix the definition before creating. 'low_volume', 'low_positives' and "
+            "'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). "
+            "'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are "
+            "severity 'warning'."
+        ),
+    )
+    message = serializers.CharField(help_text="Human-readable warning description.")
+    severity = serializers.ChoiceField(
+        choices=["info", "warning", "error"],
+        help_text=(
+            "Severity level. 'error' means training would fail or the data is too thin for a reliable model; "
+            "see 'code' for which. 'warning' is worth acknowledging. Creation enforces none of them."
+        ),
+    )
+
+
+class ValidatePipelineRequestSerializer(serializers.Serializer):
+    target_event = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "Event name to predict, e.g. '$pageview'. Must exist in the team's event schema. "
+            "Omit when predicting an action target (pass target_definition instead)."
+        ),
+    )
+    target_definition = TargetDefinitionField(
+        required=False,
+        default=dict,
+        help_text=(
+            'Optional target definition. Pass {"type": "action", "action_id": N} to predict a '
+            "PostHog action (multi-step / property / autocapture matcher) instead of a single event."
+        ),
+    )
+    horizon_days = serializers.IntegerField(
+        default=7,
+        min_value=1,
+        max_value=365,
+        help_text="Predict whether the target event occurs within this many days.",
+    )
+    training_lookback_days = serializers.IntegerField(
+        default=180,
+        min_value=7,
+        max_value=730,
+        help_text="How far back to look for training examples. Default: 180.",
+    )
+    training_population = PopulationDefinitionField(
+        default=dict,
+        help_text="Population filter for training examples. Use {} for all identified users.",
+    )
+    inference_population = PopulationDefinitionField(
+        default=dict,
+        help_text=(
+            "Population filter for daily scoring. When omitted or empty, the training population is "
+            "counted, as creation stores it."
+        ),
+    )
+
+
+class ValidatePipelineResponseSerializer(serializers.Serializer):
+    can_proceed = serializers.BooleanField(
+        help_text=(
+            "False when any warning has severity 'error'. Creation does not enforce it, but a definition with "
+            "'population_too_large' or 'horizon_exceeds_lookback' cannot train."
+        )
+    )
+    requires_acknowledgement = serializers.BooleanField(
+        help_text="True if there are non-blocking warnings the user should acknowledge before proceeding."
+    )
+    estimated_training_rows = serializers.IntegerField(
+        allow_null=True,
+        help_text="Estimated number of user-level training rows based on the population and lookback window.",
+    )
+    positive_count = serializers.IntegerField(
+        allow_null=True,
+        help_text="Estimated number of positive examples (users who performed the target event).",
+    )
+    negative_count = serializers.IntegerField(allow_null=True, help_text="Estimated number of negative examples.")
+    base_rate = serializers.FloatField(
+        allow_null=True,
+        help_text="Fraction of the training population that performed the target event.",
+    )
+    inference_population_size = serializers.IntegerField(
+        allow_null=True,
+        help_text="Estimated number of users in the inference (daily scoring) population.",
+    )
+    warnings = ValidationWarningSerializer(
+        many=True, help_text="List of validation warnings. Check 'severity' and 'code'."
+    )
+    error = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Why validation did not run, or null when it did. A query error in the definition itself "
+            "is passed through; any other failure is a generic message and the detail is logged."
+        ),
+    )
+
+
+# ── Template serializers ───────────────────────────────────────────────────────
+
+
+class TemplateInfoSerializer(serializers.Serializer):
+    key = serializers.ChoiceField(
+        choices=TEMPLATE_KEY_CHOICES,
+        help_text="Template identifier, e.g. 'likely_active_soon'. Pass to autoresearch-resolve-template-create.",
+    )
+    display_name = serializers.CharField(help_text="Human-readable template name.")
+    description = serializers.CharField(help_text="What this template predicts and who it is for.")
+    default_horizon_days = serializers.IntegerField(
+        help_text="Default prediction horizon in days. Can be overridden when resolving.",
+    )
+    requires_user_event = serializers.BooleanField(
+        help_text=(
+            "If true, you must supply a target_event when resolving — the template does not auto-select one. "
+            "Required for 'feature_adoption' and 'repeat_key_behavior'."
+        ),
+    )
+    requires_activity_resolution = serializers.BooleanField(
+        help_text=(
+            "If true, the target event is automatically resolved from your event schema "
+            "($pageview, $screen, or the highest-volume non-noisy event). "
+            "You can override the resolved event when resolving the template."
+        ),
+    )
+    notes = serializers.CharField(help_text="Usage guidance and implementation notes.")
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "description": (
+            "Semantic population filter compiled to HogQL by the training/inference harness. "
+            "Supported kinds: 'performed_event_within_days' (users who did event in last N days), "
+            "'person_first_seen_within_days' (new users by first-seen date), "
+            "'active_not_performed_target' (active users who have NOT done the target event), "
+            "'ever_performed_event' (users who have done the target event at least once)."
+        ),
+        "example": {"kind": "performed_event_within_days", "event": "$pageview", "days": 30},
+    }
+)
+class PopulationSpecField(serializers.JSONField):
+    pass
+
+
+class ResolveTemplateRequestSerializer(serializers.Serializer):
+    template_key = serializers.ChoiceField(
+        choices=TEMPLATE_KEY_CHOICES,
+        help_text=(
+            "Template to resolve. Use autoresearch-templates-list to see all available templates "
+            "with descriptions. Required."
+        ),
+    )
+    target_event = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        help_text=(
+            "Event name to use as the prediction target. "
+            "Required for 'feature_adoption' and 'repeat_key_behavior'. "
+            "Optional override for activity-based templates ('likely_active_soon', "
+            "'at_risk_of_inactivity', 'return_after_first_use'); omit to use the auto-resolved event. "
+            "To predict an action, create the pipeline with target_definition after resolving."
+        ),
+    )
+    horizon_days = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=365,
+        help_text="Override the template's default prediction horizon in days.",
+    )
+
+
+class ResolvedTemplateSerializer(serializers.Serializer):
+    template_key = serializers.ChoiceField(
+        choices=TEMPLATE_KEY_CHOICES,
+        help_text="The template key that was resolved. Pass it back to re-resolve with a different target_event.",
+    )
+    display_name = serializers.CharField(help_text="Human-readable template name.")
+    description = serializers.CharField(help_text="What this template predicts.")
+    suggested_name = serializers.CharField(help_text="Suggested pipeline name. Pass as 'name' to autoresearch-create.")
+    target_event = serializers.CharField(
+        help_text=(
+            "Resolved target event. Pass as 'target_event' to autoresearch-create. "
+            "For activity-based templates this is the auto-resolved activity event (or your override)."
+        ),
+    )
+    resolved_activity_event = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Activity event found in your event schema, populated only for templates that "
+            "auto-resolve the target ('likely_active_soon', 'at_risk_of_inactivity', "
+            "'return_after_first_use'). Null for templates where you supply target_event directly."
+        ),
+    )
+    activity_event_alternatives = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Other viable activity events found in your schema. "
+            "If the resolved event is not the right signal, re-resolve with one of these as target_event."
+        ),
+    )
+    horizon_days = serializers.IntegerField(help_text="Resolved prediction horizon in days.")
+    training_lookback_days = serializers.IntegerField(
+        help_text=(
+            "Training lookback in days, sized so the horizon leaves room for training examples. "
+            "Pass as 'training_lookback_days' to autoresearch-create."
+        ),
+    )
+    training_population = PopulationSpecField(
+        help_text=("Resolved training population filter. Pass as 'training_population' to autoresearch-create."),
+    )
+    inference_population = PopulationSpecField(
+        help_text=(
+            "Resolved inference (daily scoring) population filter. "
+            "Pass as 'inference_population' to autoresearch-create."
+        ),
+    )
+    output_person_property = serializers.CharField(
+        help_text="Suggested person property name for prediction scores. Pass as 'output_person_property' to autoresearch-create.",
+    )
+    notes = serializers.CharField(help_text="Usage notes and guidance for interpreting this resolved config.")

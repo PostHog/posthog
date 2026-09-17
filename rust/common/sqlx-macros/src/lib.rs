@@ -6,6 +6,9 @@
 //! The executor call after `=>` is part of the macro because each `sqlx`
 //! expansion has its own row type; awaiting inside each branch is what
 //! lets the two unify.
+//!
+//! `op = "name"` prefixes both expansions with the query tag
+//! `/* service='<crate>', operation='name' */` that pganalyze and pgcollector read.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
@@ -18,6 +21,7 @@ const MIRROR_SUFFIX: &str = "_tmp";
 struct MirroredQuery {
     row: Option<Type>,
     mirror: Expr,
+    op: Option<LitStr>,
     sql: LitStr,
     args: Vec<Expr>,
     method: Ident,
@@ -35,6 +39,18 @@ impl MirroredQuery {
         };
         let mirror: Expr = input.parse()?;
         input.parse::<Token![,]>()?;
+        let op = if input.peek(Ident) && input.peek2(Token![=]) {
+            let key: Ident = input.parse()?;
+            if key != "op" {
+                return Err(syn::Error::new(key.span(), "expected `op = \"...\"`"));
+            }
+            input.parse::<Token![=]>()?;
+            let op: LitStr = input.parse()?;
+            input.parse::<Token![,]>()?;
+            Some(op)
+        } else {
+            None
+        };
         let sql: LitStr = input.parse()?;
         let mut args = Vec::new();
         while input.peek(Token![,]) {
@@ -52,6 +68,7 @@ impl MirroredQuery {
         Ok(Self {
             row,
             mirror,
+            op,
             sql,
             args,
             method,
@@ -65,6 +82,19 @@ impl MirroredQuery {
             Err(message) => {
                 return syn::Error::new(self.sql.span(), message).to_compile_error();
             }
+        };
+        let (real, mirror) = match &self.op {
+            Some(op) => {
+                // The using crate's rustc invocation carries its package name.
+                let service = std::env::var("CARGO_PKG_NAME").unwrap_or_default();
+                match tag(&service, &op.value()) {
+                    Ok(prefix) => (format!("{prefix}{real}"), format!("{prefix}{mirror}")),
+                    Err(message) => {
+                        return syn::Error::new(op.span(), message).to_compile_error();
+                    }
+                }
+            }
+            None => (real, mirror),
         };
         let real = LitStr::new(&real, self.sql.span());
         let mirror = LitStr::new(&mirror, self.sql.span());
@@ -96,6 +126,24 @@ impl Parse for WithRow {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         MirroredQuery::parse(input, true).map(Self)
     }
+}
+
+/// A value with a quote or a comment marker would end the tag early, so both are rejected.
+fn tag(service: &str, operation: &str) -> Result<String, String> {
+    for (what, value) in [("service", service), ("operation", operation)] {
+        if value.is_empty()
+            || !value
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':'))
+        {
+            return Err(format!(
+                "query tag {what} {value:?} must be a plain identifier"
+            ));
+        }
+    }
+    Ok(format!(
+        "/* service='{service}', operation='{operation}' */ "
+    ))
 }
 
 fn rewrite(sql: &str) -> Result<(String, String), String> {
@@ -178,7 +226,17 @@ pub fn mirrored_query_scalar(input: TokenStream) -> TokenStream {
 
 #[cfg(test)]
 mod tests {
-    use super::rewrite;
+    use super::{rewrite, tag};
+
+    #[test]
+    fn the_tag_is_a_sqlcommenter_prefix_and_rejects_values_that_would_break_it() {
+        assert_eq!(
+            tag("personhog-identity", "merge_flip").unwrap(),
+            "/* service='personhog-identity', operation='merge_flip' */ "
+        );
+        assert!(tag("personhog-identity", "it's").is_err());
+        assert!(tag("", "x").is_err());
+    }
 
     #[test]
     fn a_bare_placeholder_gets_the_mirror_suffix() {

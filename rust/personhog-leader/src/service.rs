@@ -12,7 +12,7 @@ use personhog_proto::personhog::types::v1::{
     SealedSourceSnapshot, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 use rdkafka::producer::FutureProducer;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OwnedMutexGuard};
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -29,7 +29,7 @@ use crate::fence::{
     fenced_status, semantic_refusal, target_mark_status, FenceHealer, FenceMap, FenceState,
 };
 use crate::fencing::{FencedChangelogProducers, FencedProduceError};
-use crate::inflight::InflightTracker;
+use crate::inflight::{InflightGuard, InflightTracker};
 use crate::kafka::produce_person_changelog;
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
 use crate::pg::{load_person_from_pg, PgFallback};
@@ -75,14 +75,33 @@ impl PropertySizeLimits {
     }
 }
 
+/// Lands a document in the changelog and then the cache, as its own task,
+/// so a handler dropped by its client cannot leave a record in flight
+/// without the person lock or committed without the cache update.
+struct Committer {
+    cache: Arc<PartitionedCache>,
+    dirty_index: Arc<DirtyIndex>,
+    emitted_versions: Arc<EmittedVersions>,
+    producer: FutureProducer<KafkaContext>,
+    changelog_topic: String,
+    fenced: Option<Arc<FencedChangelogProducers>>,
+}
+
+/// A committed document, with the locks the handler took for it, so the
+/// handler keeps them until it is done with the document.
+struct Committed {
+    proto: Person,
+    _lock: OwnedMutexGuard<()>,
+    _inflight: InflightGuard,
+}
+
 pub struct PersonHogLeaderService {
+    committer: Arc<Committer>,
     cache: Arc<PartitionedCache>,
     /// Per-key locks to serialize concurrent updates for the same person.
     /// Prevents lost updates from concurrent get -> compute -> produce -> put
     /// sequences, and thundering herd on PG fallback.
     locks: Arc<DashMap<PersonCacheKey, Arc<Mutex<()>>>>,
-    producer: FutureProducer<KafkaContext>,
-    changelog_topic: String,
     /// Read-only PG fallback (pool + the table it reads) for cache miss.
     fallback: Option<PgFallback>,
     /// Per-partition inflight counter used to drive the handoff drain phase.
@@ -111,9 +130,6 @@ pub struct PersonHogLeaderService {
     /// config for the full policy): at this many live fences, FencePerson
     /// sheds new fences with RESOURCE_EXHAUSTED.
     fence_map_max_entries: usize,
-    /// Present when broker-enforced epoch fencing is on; the write
-    /// path produces through the partition's transaction window.
-    fenced: Option<Arc<FencedChangelogProducers>>,
     /// This pod's claim to serve, consulted before answering a strong
     /// read. Present only when lease-gated reads are enabled.
     authority: Option<Arc<AuthorityClock>>,
@@ -207,11 +223,18 @@ impl PersonHogLeaderService {
         authority: Option<Arc<AuthorityClock>>,
         emitted_versions: Arc<EmittedVersions>,
     ) -> Self {
-        Self {
-            cache,
-            locks,
+        let committer = Arc::new(Committer {
+            cache: Arc::clone(&cache),
+            dirty_index: Arc::clone(&dirty_index),
+            emitted_versions: Arc::clone(&emitted_versions),
             producer,
             changelog_topic,
+            fenced,
+        });
+        Self {
+            committer,
+            cache,
+            locks,
             fence_healer: fallback
                 .as_ref()
                 .map(|f| Arc::new(FenceHealer::new(f.clone(), Arc::clone(&fences)))),
@@ -223,7 +246,6 @@ impl PersonHogLeaderService {
             size_limits,
             warnings,
             fences,
-            fenced,
             authority,
             emitted_versions,
             fence_map_max_entries: DEFAULT_FENCE_MAP_MAX_ENTRIES,
@@ -476,17 +498,18 @@ impl PersonHogLeaderService {
     }
 
     /// The shared tail of every document write: refuse unapplyable records,
-    /// produce to Kafka first, then dirty-mark and update the cache — so
-    /// readers only ever see durably committed state. The mark precedes the
-    /// cache insert: a reader that misses the cache in the gap sees the
-    /// mark and recovers this exact record from the changelog. Assumes the
-    /// caller holds the per-key lock.
+    /// produce to Kafka first, then dirty-mark and update the cache, so
+    /// readers only ever see durably committed state. The person lock and
+    /// the in-flight slot travel with the commit and come back with the
+    /// document.
     async fn commit_document(
         &self,
         partition: u32,
         cache_key: &PersonCacheKey,
         person: CachedPerson,
-    ) -> Result<Person, Status> {
+        lock: OwnedMutexGuard<()>,
+        inflight: InflightGuard,
+    ) -> Result<Committed, Status> {
         // A record the writer cannot bind must never reach the changelog —
         // no consumer downstream can apply or repair it.
         if let Err(reason) = assert_writeable(&person) {
@@ -515,9 +538,46 @@ impl PersonHogLeaderService {
         self.check_authority(partition)?;
 
         // From here the record may reach the changelog whatever happens
-        // to this request — including the request simply ceasing to exist
-        // when the client's deadline expires. The guard is what makes the
-        // version un-reusable in that case.
+        // to this request, including the request ceasing to exist when
+        // the client's deadline expires, so the rest runs as its own
+        // task: it finishes under the person lock, lands the record in
+        // the cache, and only then lets the lock go.
+        let committer = Arc::clone(&self.committer);
+        let (team_id, person_id) = (cache_key.team_id, cache_key.person_id);
+        let cache_key = cache_key.clone();
+        tokio::spawn(async move {
+            committer
+                .commit(partition, cache_key, person, proto, lock, inflight)
+                .await
+        })
+        .await
+        .unwrap_or_else(|e| {
+            // The floor stays raised through the unwind, so the version
+            // is spent; what is lost is only the outcome.
+            tracing::error!(
+                team_id,
+                person_id,
+                partition,
+                error = %e,
+                "commit task ended without reporting an outcome"
+            );
+            Err(Status::internal(format!("commit task: {e}")))
+        })
+    }
+}
+
+impl Committer {
+    async fn commit(
+        &self,
+        partition: u32,
+        cache_key: PersonCacheKey,
+        person: CachedPerson,
+        proto: Person,
+        lock: OwnedMutexGuard<()>,
+        inflight: InflightGuard,
+    ) -> Result<Committed, Status> {
+        // The guard is what makes the version un-reusable if this task
+        // never reports.
         let mut emitted = EmittedVersionGuard::new(
             Arc::clone(&self.emitted_versions),
             partition,
@@ -704,13 +764,19 @@ impl PersonHogLeaderService {
                 is_deleted: person.is_deleted,
             },
         );
-        self.cache.put(partition, cache_key.clone(), person);
+        self.cache.put(partition, cache_key, person);
         // The cache carries the version now, so the floor has nothing
         // left to say.
         emitted.resolved();
-        Ok(proto)
+        Ok(Committed {
+            proto,
+            _lock: lock,
+            _inflight: inflight,
+        })
     }
+}
 
+impl PersonHogLeaderService {
     /// The write path's fence conditional: an in-memory lookup and nothing
     /// else. The map is authoritative here — a fence that outlives its op
     /// is not the leader's to detect, because the op being unfinished is
@@ -957,10 +1023,9 @@ impl PersonHogLeader for PersonHogLeaderService {
         // — the frozen state stays the latest until cutover. The handoff
         // protocol waits for the per-partition inflight count to drop to
         // zero before advancing; combined with sync-acked produces, a zero
-        // count implies every acked write is durable in Kafka. Using a
-        // non-`_` prefixed binding so the RAII guard is held for the full
-        // handler lifetime (see the `let_underscore_drop` lint).
-        let Some(_inflight_guard) = self.inflight.try_begin(partition) else {
+        // count implies every acked write is durable in Kafka. The guard
+        // moves into the commit, which holds it through the outcome.
+        let Some(inflight_guard) = self.inflight.try_begin(partition) else {
             return Err(Status::failed_precondition(format!(
                 "partition {partition} is fenced for handoff; writes are rejected"
             )));
@@ -1031,7 +1096,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             .value()
             .clone();
         let lock_wait = std::time::Instant::now();
-        let _guard = mutex.lock().await;
+        let guard = mutex.lock_owned().await;
         histogram!("personhog_leader_person_lock_wait_ms")
             .record(lock_wait.elapsed().as_secs_f64() * 1000.0);
 
@@ -1271,13 +1336,13 @@ impl PersonHogLeader for PersonHogLeaderService {
             approx_bytes,
         };
 
-        let proto = self
-            .commit_document(partition, &cache_key, updated_person)
+        let committed = self
+            .commit_document(partition, &cache_key, updated_person, guard, inflight_guard)
             .await?;
         counter!("personhog_leader_updates_total", "outcome" => "updated").increment(1);
 
         Ok(Response::new(UpdatePersonPropertiesResponse {
-            person: Some(proto),
+            person: Some(committed.proto),
             updated: true,
         }))
     }
@@ -1299,7 +1364,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             ));
         }
 
-        let Some(_inflight_guard) = self.inflight.try_begin(partition) else {
+        let Some(inflight_guard) = self.inflight.try_begin(partition) else {
             return Err(Status::failed_precondition(format!(
                 "partition {partition} is fenced for handoff; writes are rejected"
             )));
@@ -1333,7 +1398,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             .value()
             .clone();
         let lock_wait = std::time::Instant::now();
-        let _guard = mutex.lock().await;
+        let guard = mutex.lock_owned().await;
         histogram!("personhog_leader_person_lock_wait_ms")
             .record(lock_wait.elapsed().as_secs_f64() * 1000.0);
 
@@ -1610,15 +1675,15 @@ impl PersonHogLeader for PersonHogLeaderService {
             approx_bytes,
         };
 
-        let proto = self
-            .commit_document(partition, &cache_key, folded_person)
+        let committed = self
+            .commit_document(partition, &cache_key, folded_person, guard, inflight_guard)
             .await?;
         counter!("personhog_leader_folds_total", "outcome" => fold_outcome).increment(1);
 
         self.authoritative_ok(
             partition,
             FoldPersonDocumentResponse {
-                person: Some(proto),
+                person: Some(committed.proto),
             },
         )
     }

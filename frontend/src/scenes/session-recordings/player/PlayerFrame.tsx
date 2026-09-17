@@ -20,6 +20,9 @@ const BASE_CLICK_INDICATOR_DURATION_S = 1 / 3
 // than the app's. CSPMiddleware supplies it.
 const PLAYER_FRAME_SRC = '/replay_player_frame/index.html'
 const PLAYER_FRAME_CONTENT_ID = 'player-frame-content'
+// Without a timeout, a frame load event that never arrives leaves rrweb with nowhere to mount and
+// the player stays blank for as long as the tab is open.
+const PLAYER_FRAME_LOAD_TIMEOUT_MS = 10000
 
 export const PlayerFrame = (): JSX.Element => {
     const replayDimensionRef = useRef<viewportResizeDimension>()
@@ -118,6 +121,20 @@ export const PlayerFrame = (): JSX.Element => {
         setRootFrame(frameRef.current)
     }, [setRootFrame, applyFrameStyles, playerFrameDocumentLoadFailed])
 
+    // frameSrc is a dependency so each retry, which swaps the frame's document, arms its own
+    // timeout instead of reusing the one armed for the previous document.
+    useEffect(() => {
+        if (!ownDocument) {
+            return
+        }
+        const timer = setTimeout(() => {
+            if (!frameRef.current) {
+                playerFrameDocumentLoadFailed(iframeRef.current)
+            }
+        }, PLAYER_FRAME_LOAD_TIMEOUT_MS)
+        return () => clearTimeout(timer)
+    }, [ownDocument, frameSrc, playerFrameDocumentLoadFailed])
+
     // Need useEffect to populate replayer on component paint. Under the flag the frame may still be
     // loading, in which case handleFrameLoad does this instead.
     // ownDocument is a dependency because flags resolve after the first paint. A user who holds a
@@ -175,6 +192,11 @@ export const PlayerFrame = (): JSX.Element => {
                     onLoad={handleFrameLoad}
                     title="Session replay player"
                     // Interaction belongs to the app's controls, not the recorded page.
+                    // Do not add allow-scripts even though the browser reports it missing. That
+                    // report is from rrweb's own replay frame, which carries the same sandbox and
+                    // cannot inherit a permission it does not request, so it changes nothing a
+                    // recording renders. It only lets this document, same-origin with the app, drop
+                    // its own sandbox.
                     sandbox="allow-same-origin"
                 />
             ) : (

@@ -122,3 +122,17 @@ export const ExperimentWatchShelfNoSessionLinkedExposures: Story = shelfStory(
     ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures,
     [0, 0, 0]
 )
+
+// A 400 is the backend refusing a comparison this experiment cannot have, so the shelf states it
+// and offers no retry. Shot at two widths because the line sits under the filter row, where a long
+// refusal is what runs out of room first.
+const REFUSAL_DETAIL = 'This experiment has only one variant, so there is nothing to compare it against.'
+
+const refusedStory = (width: number): Story => ({
+    parameters: { testOptions: { viewport: { width, height: 1000 } } },
+    decorators: [mswDecorator({ post: { [DELTAS_PATH]: [400, { detail: REFUSAL_DETAIL }] } })],
+    play: openTheShelf,
+})
+
+export const ExperimentWatchShelfRefused: Story = refusedStory(1300)
+export const ExperimentWatchShelfRefusedNarrow: Story = refusedStory(800)

@@ -736,6 +736,7 @@
     'start_date',
     'status',
     'status_label',
+    'tagged_items',
     'team_id',
     'updated_at',
   ])
@@ -819,6 +820,7 @@
     '__module__',
     '__static_attributes__',
     '__str__',
+    '_activity_trigger',
     '_evaluation_tag_names',
     '_has_experiment',
     '_meta',

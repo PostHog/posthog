@@ -33,7 +33,7 @@ describe('MlBlockMetadataSink', () => {
 
     it('rejects v2 metadata when encryption is not configured', async () => {
         await expect(sink.storeSessionBlocks([block('01a0a4f0-3200-7000-8000-000000000001', 7)])).rejects.toThrow(
-            'requires privacy configuration'
+            'requires key manager configuration'
         )
         expect(outputs.queueMessages).not.toHaveBeenCalled()
     })
