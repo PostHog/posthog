@@ -1,7 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, LemonTableColumn, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { IconHide, IconPlusSmall } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonInput,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumns,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -13,6 +21,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -20,6 +29,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, HeatmapScreenshotType } from '~/types'
 
+import { HeatmapCaptureAllowlistNotice } from '../../components/HeatmapCaptureAllowlistNotice'
+import { heatmapCaptureSettingsLogic, isUrlCoveredByAllowlist } from '../../components/heatmapCaptureSettingsLogic'
 import { HeatmapsWarnings } from '../../components/HeatmapsWarnings'
 import { heatmapsEmptyState } from '../../emptyState/heatmapsEmptyState'
 import { HEATMAPS_PER_PAGE, heatmapsSceneLogic } from './heatmapsSceneLogic'
@@ -34,6 +45,11 @@ export const scene: SceneExport = {
 export function HeatmapsScene(): JSX.Element {
     const { savedHeatmaps, savedHeatmapsLoading, filters, totalCount } = useValues(heatmapsSceneLogic)
     const { deleteHeatmap, setHeatmapsFilters } = useActions(heatmapsSceneLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    const { urlAllowlist, canCaptureAllUrls, captureMode } = useValues(
+        heatmapCaptureSettingsLogic({ teamId: currentTeamId ?? 0 })
+    )
+    const showCaptureStatus = !canCaptureAllUrls && captureMode === 'url_allowlist'
 
     const columns: LemonTableColumns<HeatmapScreenshotType> = [
         {
@@ -48,11 +64,21 @@ export function HeatmapsScene(): JSX.Element {
         {
             title: 'Page',
             dataIndex: 'url',
-            render: (_, row) => (
-                <Link to={urls.heatmap(row.short_id)}>
-                    <span className="truncate max-w-[32rem] inline-block align-middle">{row.url}</span>
-                </Link>
-            ),
+            render: (_, row) => {
+                const wontCapture = showCaptureStatus && !!row.url && !isUrlCoveredByAllowlist(row.url, urlAllowlist)
+                return (
+                    <div className="flex items-center gap-2">
+                        <Link to={urls.heatmap(row.short_id)}>
+                            <span className="truncate max-w-[28rem] inline-block align-middle">{row.url}</span>
+                        </Link>
+                        {wontCapture && (
+                            <Tooltip title="Not in your capture URLs. When capture limits take effect, this page stops collecting new heatmap data.">
+                                <IconHide className="text-muted shrink-0" />
+                            </Tooltip>
+                        )}
+                    </div>
+                )
+            },
         },
         {
             title: 'Heatmap data URL',
@@ -146,6 +172,7 @@ export function HeatmapsScene(): JSX.Element {
                     </Shortcut>
                 }
             />
+            <HeatmapCaptureAllowlistNotice />
             <LemonBanner
                 type="info"
                 dismissKey="heatmaps-beta-banner"
