@@ -24,8 +24,10 @@ import {
     GoalLine,
     MetricsDisplaySettings,
     MetricsDisplayType,
+    MetricsHistogramQuery,
     MetricsQuery,
     MetricsQueryClause,
+    MetricsQueryFilter,
     MetricsYAxisSettings,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -168,6 +170,13 @@ export const RECOMMENDED_AGGREGATION_BY_TYPE: Record<string, MetricAggregation> 
 export const DEFAULT_DATE_FROM = '-1h'
 // Kept off the persisted node: a saved query with no `display` renders as a line chart anyway.
 export const DEFAULT_DISPLAY_TYPE: MetricsDisplayType = 'line'
+// A latency-over-time heatmap only makes sense for a distribution metric; gauges and
+// counters have no per-bucket histogram to grid.
+const HISTOGRAM_METRIC_TYPES: readonly OtelMetricTypeEnumApi[] = [
+    OtelMetricTypeEnumApi.Histogram,
+    OtelMetricTypeEnumApi.ExponentialHistogram,
+    OtelMetricTypeEnumApi.Summary,
+]
 // The anomaly badge characterizes the most recent slice of the selected window against the rest.
 const ANOMALY_WINDOW_FRACTION = 0.2
 export const LIVE_REFRESH_MS = 15_000
@@ -367,8 +376,10 @@ export interface metricsViewerLogicValues {
     groupBySearch: string
     hasMetricName: boolean
     hasResults: boolean
+    heatmapEligible: boolean
+    histogramQueryNode: MetricsHistogramQuery | null
     isAddToDashboardModalOpen: boolean
-    lastSavedQueryNode: MetricsQuery | null
+    lastSavedQueryNode: MetricsQuery | MetricsHistogramQuery | null
     liveRefresh: boolean
     metricName: string
     metricsDisplay: MetricsDisplaySettings | undefined
@@ -387,6 +398,7 @@ export interface metricsViewerLogicValues {
     queryState: MetricsViewerQueryState
     savedInsight: QueryBasedInsightModel | null
     savedInsightLoading: boolean
+    savedQueryNode: MetricsQuery | MetricsHistogramQuery | null
     selectedMetricType: OtelMetricTypeEnumApi | null
     selectedServices: string[]
     viewerClauses: MetricsViewerClause[]
@@ -577,8 +589,8 @@ export interface metricsViewerLogicActions {
     setGroupBySearch: (groupBySearch: string) => {
         groupBySearch: string
     }
-    setLastSavedQueryNode: (query: MetricsQuery) => {
-        query: MetricsQuery
+    setLastSavedQueryNode: (query: MetricsQuery | MetricsHistogramQuery) => {
+        query: MetricsQuery | MetricsHistogramQuery
     }
     setLiveRefresh: (liveRefresh: boolean) => {
         liveRefresh: boolean
@@ -643,6 +655,18 @@ export interface metricsViewerLogicMeta {
             dateTo: string | null,
             metricsDisplay: MetricsDisplaySettings | undefined
         ) => MetricsQuery | null
+        heatmapEligible: (namedClauses: MetricsViewerClause[], formula: string) => boolean
+        histogramQueryNode: (
+            namedClauses: MetricsViewerClause[],
+            heatmapEligible: boolean,
+            dateFrom: string | null,
+            dateTo: string | null
+        ) => MetricsHistogramQuery | null
+        savedQueryNode: (
+            displayType: MetricsDisplayType,
+            metricsQueryNode: MetricsQuery | null,
+            histogramQueryNode: MetricsHistogramQuery | null
+        ) => MetricsQuery | MetricsHistogramQuery | null
         queryFilters: (activeClause: MetricsViewerClause) => _MetricFilterApi[]
         selectedServices: (activeClause: MetricsViewerClause) => string[]
         correlationServices: (selectedServices: string[], queryResults: _MetricSeriesApi[]) => string[]
@@ -700,7 +724,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         addToDashboard: true,
         openAddToDashboardModal: true,
         closeAddToDashboardModal: true,
-        setLastSavedQueryNode: (query: MetricsQuery) => ({ query }),
+        setLastSavedQueryNode: (query: MetricsQuery | MetricsHistogramQuery) => ({ query }),
         // Saves the current query as an insight (reusing the last save while the query is
         // unchanged) and routes to its alerts page, where the shared insight-alert form
         // builds a MetricsAlertConfig on it. Surfaces insight alerts for metrics instead of
@@ -1025,12 +1049,18 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             },
             setMetricName: ({ metricName }) => {
                 const metricType = values.items.find((item) => item.name === metricName.trim())?.metric_type
-                actions.setSelectedMetricType(toKnownMetricType(metricType))
+                const knownType = toKnownMetricType(metricType)
+                actions.setSelectedMetricType(knownType)
                 // Each metric type has one sensible default; a manual aggregation pick
                 // holds only until the next metric switch.
                 const recommended = metricType ? RECOMMENDED_AGGREGATION_BY_TYPE[metricType] : undefined
                 if (recommended && recommended !== values.aggregation) {
                     actions.setRecommendedAggregation(recommended)
+                }
+                // A distribution metric leaving the chart can't keep the heatmap display —
+                // fall back rather than render it against a metric with no histogram.
+                if (values.displayType === 'heatmap' && (!knownType || !HISTOGRAM_METRIC_TYPES.includes(knownType))) {
+                    actions.setDisplayType(DEFAULT_DISPLAY_TYPE)
                 }
             },
             loadItemsSuccess: backfillClauseTypes,
@@ -1044,12 +1074,12 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 lemonToast.error(`Failed to save insight: ${error}`)
             },
             addToDashboard: () => {
-                if (!canCreateMetricsInsight() || !values.metricsQueryNode) {
+                if (!canCreateMetricsInsight() || !values.savedQueryNode) {
                     return
                 }
                 // Re-clicking with an unchanged query reuses the saved insight instead
                 // of littering saved insights with duplicates.
-                if (values.savedInsight && objectsEqual(values.lastSavedQueryNode, values.metricsQueryNode)) {
+                if (values.savedInsight && objectsEqual(values.lastSavedQueryNode, values.savedQueryNode)) {
                     actions.openAddToDashboardModal()
                     return
                 }
@@ -1067,12 +1097,12 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 }
             },
             createAlert: () => {
-                if (!canCreateMetricsInsight() || !values.metricsQueryNode) {
+                if (!canCreateMetricsInsight() || !values.savedQueryNode) {
                     return
                 }
                 // Reuse the saved insight while the query is unchanged; route straight to its
                 // alerts page since no save (and so no saveAsInsightSuccess) is coming.
-                if (values.savedInsight && objectsEqual(values.lastSavedQueryNode, values.metricsQueryNode)) {
+                if (values.savedInsight && objectsEqual(values.lastSavedQueryNode, values.savedQueryNode)) {
                     router.actions.push(urls.insightAlerts(values.savedInsight.short_id))
                     return
                 }
@@ -1178,7 +1208,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     if (!canCreateMetricsInsight()) {
                         return null
                     }
-                    const query = values.metricsQueryNode
+                    const query = values.savedQueryNode
                     if (!query) {
                         return null
                     }
@@ -1361,6 +1391,56 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     ...(metricsDisplay ? { display: metricsDisplay } : {}),
                 }
             },
+        ],
+        // The heatmap renders one distribution, so it needs exactly one non-formula clause on a
+        // distribution metric. The OTel type is latched at pick time (backfilled from the picker
+        // list), so this doesn't flicker as the live picker search results change.
+        heatmapEligible: [
+            (s) => [s.namedClauses, s.formula],
+            (namedClauses: MetricsViewerClause[], formula: string): boolean =>
+                namedClauses.length === 1 &&
+                !formula &&
+                namedClauses[0].selectedMetricType !== null &&
+                HISTOGRAM_METRIC_TYPES.includes(namedClauses[0].selectedMetricType),
+        ],
+        // The viewer state as a `MetricsHistogramQuery` schema node — the heatmap's query, built
+        // from the same clause and window as the time-series node so the tile re-runs exactly
+        // what the viewer shows. Null while the query can't grid a distribution.
+        histogramQueryNode: [
+            (s) => [s.namedClauses, s.heatmapEligible, s.dateFrom, s.dateTo],
+            (
+                namedClauses: MetricsViewerClause[],
+                heatmapEligible: boolean,
+                dateFrom: string | null,
+                dateTo: string | null
+            ): MetricsHistogramQuery | null => {
+                if (!heatmapEligible) {
+                    return null
+                }
+                const clause = namedClauses[0]
+                const filters = metricFiltersForGroup(clause.filterGroup)
+                return {
+                    kind: NodeKind.MetricsHistogramQuery,
+                    metricName: clause.metricName.trim(),
+                    ...(clause.selectedMetricType ? { metricType: clause.selectedMetricType } : {}),
+                    ...(filters.length ? { filters: filters as MetricsQueryFilter[] } : {}),
+                    dateRange: {
+                        date_from: dateFrom ?? DEFAULT_DATE_FROM,
+                        ...(dateTo ? { date_to: dateTo } : {}),
+                    },
+                }
+            },
+        ],
+        // What "Save as insight" / add-to-dashboard / create-alert persist and route on: the
+        // histogram query while the heatmap display is selected, otherwise the time-series node.
+        savedQueryNode: [
+            (s) => [s.displayType, s.metricsQueryNode, s.histogramQueryNode],
+            (
+                displayType: MetricsDisplayType,
+                metricsQueryNode: MetricsQuery | null,
+                histogramQueryNode: MetricsHistogramQuery | null
+            ): MetricsQuery | MetricsHistogramQuery | null =>
+                displayType === 'heatmap' ? histogramQueryNode : metricsQueryNode,
         ],
         // The active clause's filter bar as backend matchers — what the samples panel sends.
         queryFilters: [

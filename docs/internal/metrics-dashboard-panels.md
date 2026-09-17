@@ -31,6 +31,7 @@ They are a color scale, not the range: the gauge's automatic max extends past th
 - **Gauge**: one radial gauge per series (capped at 12). Bounds come from the explicit y-axis min/max, else the threshold extremes, else 0 to the value.
 - **Bar gauge**: one bar per series, sorted by value. It needs grouped data to be meaningful, so the picker disables it unless the result is grouped; removing the last group-by falls the display back to line.
 - **Table**: one row per series, one column per label key, plus one column per reducer in `legendCalcs`. The list is deduplicated and capped at six reducers — it is persisted user input from saved insights.
+- **Heatmap**: a latency-over-time grid (time on x, histogram bucket on y, count as color). Unlike the other panels it does not read the shared time-series response — it runs its own `MetricsHistogramQuery`, so it only applies to a single distribution metric (`histogram`, `exponential_histogram`, or `summary`) with no formula. The picker disables it otherwise, and a query that stops being eligible (a metric switch to a gauge or counter, or adding a formula/series) falls the display back to line. "Save as insight" on the heatmap persists the `MetricsHistogramQuery` node rather than the `MetricsQuery` node, so the saved tile renders the same heatmap.
 
 ## Null buckets
 

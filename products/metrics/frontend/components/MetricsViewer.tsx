@@ -29,6 +29,7 @@ import { AccessControlLevel, AccessControlResourceType, DateMappingOption } from
 import { traceUrl } from 'products/tracing/frontend/traceLinks'
 
 import { getMetricsInsightEditorDisabledReason } from '../metricsAccess'
+import { MetricsHistogramQueryNode } from '../nodes/MetricsHistogramQueryNode'
 import { MetricsPanel } from '../panels/MetricsPanel'
 import { METRICS_PANELS } from '../panels/registry'
 import { MetricsAnomalyPanel } from './MetricsAnomalyPanel'
@@ -45,7 +46,7 @@ import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
 import { LIVE_REFRESH_MS, MAX_CLAUSES, metricsViewerLogic, sanitizeFormulaInput } from './metricsViewerLogic'
 
 const BASE_DISPLAY_TYPES: MetricsDisplayType[] = ['line', 'area', 'bar']
-const PANEL_DISPLAY_TYPES: MetricsDisplayType[] = ['stat', 'gauge', 'bargauge', 'table']
+const PANEL_DISPLAY_TYPES: MetricsDisplayType[] = ['stat', 'gauge', 'bargauge', 'table', 'heatmap']
 
 // Mirrors the curated set used by `LogsViewer/Filters/DateRangeFilter`.
 const DATE_OPTIONS: DateMappingOption[] = [
@@ -109,6 +110,8 @@ export const MetricsViewer = (): JSX.Element => {
         hasResults,
         displayType,
         metricsDisplay,
+        heatmapEligible,
+        histogramQueryNode,
     } = useValues(logic)
     const {
         setDateFrom,
@@ -138,10 +141,18 @@ export const MetricsViewer = (): JSX.Element => {
         const types = dashboardPanelsEnabled ? [...BASE_DISPLAY_TYPES, ...PANEL_DISPLAY_TYPES] : BASE_DISPLAY_TYPES
         return types.map((value) => {
             const def = METRICS_PANELS[value]
-            const disabledReason = def.needsGroupBy && !resultIsGrouped ? 'Add a group-by to use this panel' : undefined
+            const disabledReason = def.needsGroupBy
+                ? !resultIsGrouped
+                    ? 'Add a group-by to use this panel'
+                    : undefined
+                : def.needsHistogram
+                  ? !heatmapEligible
+                      ? 'Pick a single histogram metric (no formula) to use this panel'
+                      : undefined
+                  : undefined
             return { value, label: def.label, disabledReason }
         })
-    }, [dashboardPanelsEnabled, resultIsGrouped])
+    }, [dashboardPanelsEnabled, resultIsGrouped, heatmapEligible])
     const { exemplarDotClicked } = useActions(metricsUsageTrackingLogic)
     const metricsViewerDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Metrics,
@@ -388,6 +399,10 @@ export const MetricsViewer = (): JSX.Element => {
                                     {queryError}
                                 </LemonBanner>
                             </div>
+                        ) : displayType === 'heatmap' && histogramQueryNode ? (
+                            // The heatmap runs its own histogram query, so it mounts the histogram
+                            // node rather than consuming the time-series result the other panels share.
+                            <MetricsHistogramQueryNode query={histogramQueryNode} context={{}} />
                         ) : hasResults ? (
                             <MetricsPanel
                                 series={chartSeries}
