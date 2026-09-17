@@ -277,6 +277,9 @@ export interface oauthAuthorizeLogicActions {
     resetOauthAuthorization: (values?: OAuthAuthorizationFormValues) => {
         values?: OAuthAuthorizationFormValues
     }
+    setAccessControlsApply: (accessControlsApply: boolean) => {
+        accessControlsApply: boolean
+    }
     setAllScopeAccess: (level: ScopeAccessLevel) => {
         level: ScopeAccessLevel
     }
@@ -288,9 +291,6 @@ export interface oauthAuthorizeLogicActions {
     }
     setIsMcpResource: (isMcpResource: boolean) => {
         isMcpResource: boolean
-    }
-    setAccessControlsApply: (accessControlsApply: boolean) => {
-        accessControlsApply: boolean
     }
     setNewProjectLoading: (loading: boolean) => {
         loading: boolean
