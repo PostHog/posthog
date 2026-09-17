@@ -744,6 +744,9 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         }
 
                         const response = await performWideEventsQueryInTwoPhases(query)
+                        // The wait above only collapses calls still queued. A response that lands after a
+                        // newer load started must not overwrite that load's result.
+                        breakpoint()
 
                         if (!response?.results?.[0]) {
                             // No matching events found
