@@ -102,9 +102,12 @@ experiment.
 - **Re-pull** `experiment-results-get { id: <experiment_id> }` (cached — `refresh` defaults to false)
   a while later — if the previously-null rows now carry data, they were transient, not failing.
 - **Force one recompute** with `experiment-results-get { id: <experiment_id>, refresh: true }` — this
-  triggers an on-demand compute of every metric. If it returns the rows populated (no `data: null`),
-  the backend compute path is healthy and the earlier nulls were transient. If a row stays `null`
-  after a successful force-refresh, that metric genuinely fails to compute — then inspect its
+  triggers an on-demand compute of every metric. A row that comes back populated proves the earlier
+  `null` was transient. **A row that stays `null` is unresolved, not proven broken.** The tool fires
+  every metric query at once, and it turns any single query failure (an exhausted rate-limit retry, a
+  network error) into `data: null` while the call as a whole still reports success. So a forced
+  refresh produces nulls of its own under load. Re-pull once the load clears, and report a metric as
+  failing to compute only after the row stays `null` across separate pulls. Then inspect its
   definition (e.g. a `mean` metric over a property that doesn't exist, a baseline of zero, or a
   malformed funnel).
 
