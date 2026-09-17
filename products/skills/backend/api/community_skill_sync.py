@@ -19,6 +19,7 @@ from .skill_services import (
     MAX_SKILL_FILE_COUNT,
     RESERVED_SKILL_NAMES,
     SKILL_NAME_PATTERN,
+    bundled_skill_names,
 )
 
 logger = structlog.get_logger(__name__)
@@ -80,9 +81,11 @@ def _validate_entry_shape(entry: dict[str, Any]) -> None:
     """
     slug = entry.get("slug", "")
     # The slug is both the catalog URL segment and the default installed-skill name, so it must
-    # satisfy the skill-name rules — lowercase alnum + single hyphens, not reserved. This also
-    # keeps DRF's default lookup regex (which rejects '.'/'/') able to route detail/install URLs,
-    # and means the default-name install can never raise an uncaught name ValidationError.
+    # satisfy the skill-name rules — lowercase alnum + single hyphens, neither reserved nor a name
+    # PostHog bundles (an entry under a bundled name would install to a name the agent host cannot
+    # tell from the bundled skill). This also keeps DRF's default lookup regex (which rejects
+    # '.'/'/') able to route detail/install URLs, and means the default-name install can never
+    # raise an uncaught name ValidationError.
     # fullmatch, not match: `$` also matches just before a trailing newline, so `match` would
     # accept "valid-skill\n" and persist the newline into the URL segment and install name.
     if (
@@ -90,6 +93,7 @@ def _validate_entry_shape(entry: dict[str, Any]) -> None:
         or not SKILL_NAME_PATTERN.fullmatch(slug)
         or "--" in slug
         or slug.lower() in RESERVED_SKILL_NAMES
+        or slug.lower() in bundled_skill_names()
     ):
         raise ValueError(f"slug '{slug}' is not a valid, routable skill identifier")
 

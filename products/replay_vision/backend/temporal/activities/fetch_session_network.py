@@ -5,8 +5,10 @@ import asyncio
 import structlog
 from asgiref.sync import sync_to_async
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.session_recordings.recordings.errors import RecordingApiConfigurationError
 from posthog.session_recordings.recordings.recording_api_client import recording_api_client
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock, list_blocks_async
 
@@ -44,7 +46,8 @@ async def fetch_session_network_activity(inputs: FetchSessionNetworkInputs) -> N
 
     Network data is a side input: it sharpens a finding when it is there, and the scan is still valid
     without it. So every failure path stores an empty payload instead of raising, which also stops a
-    retry loop from re-reading a large recording.
+    retry loop from re-reading a large recording. The one exception is a missing recording-api
+    setting, which is a fault of the whole deployment and has to stay visible.
     """
     try:
         redis_client, redis_key = get_redis_state_client(
@@ -54,6 +57,12 @@ async def fetch_session_network_activity(inputs: FetchSessionNetworkInputs) -> N
         if await redis_client.exists(redis_key):
             return
         payload = await _load_payload(inputs.team_id, inputs.session_id)
+    except RecordingApiConfigurationError as exc:
+        # A missing setting stops every session, not this one, so absorbing it here would bury a
+        # deployment fault in one warning per scan. Fail the activity instead: `_optional` in the
+        # workflow keeps the scan running, and the failure reaches Temporal and the activity metric
+        # under a named cause. Non-retryable because no further attempt can find the setting.
+        raise ApplicationError(str(exc), type="RecordingApiConfigurationError", non_retryable=True) from exc
     except Exception:
         logger.warning(
             "replay_vision.fetch_network.failed",

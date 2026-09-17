@@ -2,14 +2,18 @@ import re
 import hmac
 import time
 import base64
+from types import SimpleNamespace
 
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+import jwt
+from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
-from posthog.ingress.verify.schemes import HmacSha256, SnsSignature, VerificationOutcome
+from posthog.ingress.verify.jwt import _JWKS_CLIENTS, BearerJwt, _jwks_client
+from posthog.ingress.verify.schemes import HmacSha256, SnsSignature, Verification, VerificationOutcome
 
 SECRET = "s3cret"
 BODY = b'{"action":"opened"}'
@@ -173,3 +177,137 @@ class TestSnsSignature(SimpleTestCase):
 
     def test_unparseable_body_is_invalid_rather_than_raising(self) -> None:
         self.assertEqual(self._scheme().verify(body=b"not json", headers={}).outcome, VerificationOutcome.INVALID)
+
+
+JWKS_URI = "https://login.example.com/v1/.well-known/keys"
+AUDIENCE = "00000000-0000-0000-0000-000000000001"
+ISSUER = "https://api.issuer.example.com"
+SERVICE_URL = "https://connector.example.com/emea/"
+KEY_ID = "signing-key-1"
+
+
+class TestBearerJwt(SimpleTestCase):
+    private_key: rsa.RSAPrivateKey
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls.private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+    def setUp(self) -> None:
+        # The client map is module-global, so a test must not inherit another test's clients.
+        _JWKS_CLIENTS.clear()
+        self.addCleanup(_JWKS_CLIENTS.clear)
+
+    def _token(self, *, expires_in_seconds: int | None = 300, **claims: str) -> str:
+        payload: dict[str, object] = {"iss": ISSUER, "aud": AUDIENCE, "serviceurl": SERVICE_URL, **claims}
+        if expires_in_seconds is not None:
+            payload["exp"] = int(time.time()) + expires_in_seconds
+        return jwt.encode(payload, self.private_key, algorithm="RS256", headers={"kid": KEY_ID})
+
+    def _scheme(
+        self,
+        *,
+        jwks_uri: str | None = JWKS_URI,
+        audience: str | None = AUDIENCE,
+        issuers: frozenset[str] = frozenset({ISSUER}),
+    ) -> BearerJwt:
+        return BearerJwt(
+            jwks_uri_getter=lambda: jwks_uri,
+            audience_getter=lambda: audience,
+            issuers_getter=lambda: issuers,
+        )
+
+    def _verify(self, scheme: BearerJwt, headers: dict[str, str]) -> Verification:
+        # The JWKS fetch is the only boundary mocked here; the decode below it is the real one.
+        signing_key = SimpleNamespace(key=self.private_key.public_key())
+        with patch.object(jwt.PyJWKClient, "get_signing_key_from_jwt", return_value=signing_key):
+            return scheme.verify(body=BODY, headers=headers)
+
+    def test_verified_token_hands_its_claims_to_deliveries(self) -> None:
+        verification = self._verify(self._scheme(), {"Authorization": "Bearer " + self._token()})
+
+        self.assertEqual(verification.outcome, VerificationOutcome.VERIFIED)
+        self.assertEqual(verification.facts["iss"], ISSUER)
+        self.assertEqual(verification.facts["aud"], AUDIENCE)
+        self.assertEqual(verification.facts["serviceurl"], SERVICE_URL)
+
+    @parameterized.expand(
+        [
+            ("missing_header", None),
+            ("another_auth_scheme", "Basic {token}"),
+            ("token_without_the_bearer_prefix", "{token}"),
+        ]
+    )
+    def test_rejects_a_request_that_carries_no_bearer_token(self, _name: str, template: str | None) -> None:
+        headers = {} if template is None else {"Authorization": template.format(token=self._token())}
+
+        self.assertEqual(self._verify(self._scheme(), headers).outcome, VerificationOutcome.INVALID)
+
+    @parameterized.expand(
+        [
+            ("foreign_issuer", {"iss": "https://issuer.example.org"}, 300),
+            ("audience_of_another_app", {"aud": "00000000-0000-0000-0000-000000000002"}, 300),
+            ("expired_beyond_the_leeway", {}, -3600),
+            ("no_expiry_claim", {}, None),
+        ]
+    )
+    def test_rejects_a_token_this_app_must_not_accept(
+        self, _name: str, claims: dict[str, str], expires_in_seconds: int | None
+    ) -> None:
+        token = self._token(expires_in_seconds=expires_in_seconds, **claims)
+
+        headers = {"Authorization": "Bearer " + token}
+        self.assertEqual(self._verify(self._scheme(), headers).outcome, VerificationOutcome.INVALID)
+
+    def test_rejects_a_tampered_signature(self) -> None:
+        header, payload, signature = self._token().split(".")
+        # The first character, not the last: base64 drops the last one's padding bits, so
+        # flipping it can leave the signature bytes unchanged.
+        flipped = ("A" if signature[0] != "A" else "B") + signature[1:]
+
+        headers = {"Authorization": f"Bearer {header}.{payload}.{flipped}"}
+        self.assertEqual(self._verify(self._scheme(), headers).outcome, VerificationOutcome.INVALID)
+
+    @parameterized.expand(
+        [
+            (
+                "key_id_the_jwks_does_not_serve",
+                jwt.PyJWKClientError("unable to find a key"),
+                VerificationOutcome.INVALID,
+            ),
+            (
+                "jwks_that_could_not_be_fetched",
+                jwt.PyJWKClientConnectionError("connection error"),
+                VerificationOutcome.UNAVAILABLE,
+            ),
+        ]
+    )
+    def test_a_signing_key_failure_separates_the_token_from_the_fetch(
+        self, _name: str, error: Exception, expected: VerificationOutcome
+    ) -> None:
+        headers = {"Authorization": "Bearer " + self._token()}
+
+        with patch.object(jwt.PyJWKClient, "get_signing_key_from_jwt", side_effect=error):
+            outcome = self._scheme().verify(body=BODY, headers=headers).outcome
+        self.assertEqual(outcome, expected)
+
+    @parameterized.expand(
+        [
+            ("no_jwks_uri", None, AUDIENCE, frozenset({ISSUER})),
+            ("no_audience", JWKS_URI, None, frozenset({ISSUER})),
+            ("no_issuers", JWKS_URI, AUDIENCE, frozenset()),
+        ]
+    )
+    def test_missing_configuration_is_not_configured_rather_than_invalid(
+        self, _name: str, jwks_uri: str | None, audience: str | None, issuers: frozenset[str]
+    ) -> None:
+        scheme = self._scheme(jwks_uri=jwks_uri, audience=audience, issuers=issuers)
+
+        headers = {"Authorization": "Bearer " + self._token()}
+        self.assertEqual(self._verify(scheme, headers).outcome, VerificationOutcome.NOT_CONFIGURED)
+
+    def test_reuses_one_jwks_client_per_uri(self) -> None:
+        # The client holds the key cache, so a client per delivery is a JWKS fetch per delivery.
+        self.assertIs(_jwks_client(JWKS_URI), _jwks_client(JWKS_URI))
+        self.assertIsNot(_jwks_client(JWKS_URI), _jwks_client("https://login.example.org/keys"))
