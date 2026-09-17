@@ -109,6 +109,56 @@ class TestSubjectResolver(BaseTest):
 
         assert not resolve_subject(other_team.id, SubjectType.TABLE, table.id).exists
 
+    def test_a_curated_tables_columns_are_offered_under_the_names_hogql_resolves(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="stripe_source",
+            connection_id="stripe_connection",
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="stripe_charge",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://bucket/x",
+            external_data_source=source,
+            columns={
+                "id": {"clickhouse": "String"},
+                "amount": {"clickhouse": "Nullable(Int64)"},
+                "customer": {"clickhouse": "String"},
+                "created": {"clickhouse": "Int64"},
+                "_dlt_id": {"clickhouse": "String"},
+            },
+        )
+        database = Database.create_for(team=self.team, bypass_warehouse_access_control=True)
+
+        offered = next(
+            subject for subject in selectable_subjects(self.team.id, {SubjectType.TABLE}) if subject.id == str(table.id)
+        )
+
+        assert set(offered.columns) == {"id", "amount", "customer_id", "created_at"}
+        assert offered.columns["amount"] == "Nullable(Int64)"
+        assert all(name in database.get_table("stripe_charge").fields for name in offered.columns)
+        assert subject_column_type(self.team.id, SubjectType.TABLE, table.id, "customer_id") == "String"
+        assert subject_column_type(self.team.id, SubjectType.TABLE, table.id, "customer") is None
+
+    def test_an_uncurated_tables_columns_keep_their_names_without_the_sync_plumbing(self) -> None:
+        table = self._table("postgres_orders")
+        table.columns = {
+            "id": {"clickhouse": "Int64"},
+            "customer": {"clickhouse": "String"},
+            "_dlt_id": {"clickhouse": "String"},
+            "_dlt_load_id": {"clickhouse": "String"},
+        }
+        table.save(update_fields=["columns"])
+
+        offered = next(
+            subject for subject in selectable_subjects(self.team.id, {SubjectType.TABLE}) if subject.id == str(table.id)
+        )
+
+        assert set(offered.columns) == {"id", "customer"}
+        assert subject_column_type(self.team.id, SubjectType.TABLE, table.id, "customer") == "String"
+
 
 class TestReadableSubjectSnapshot(BaseTest):
     def _table(

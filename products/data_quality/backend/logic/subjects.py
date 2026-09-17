@@ -55,15 +55,16 @@ def selectable_subjects(team_id: int, kinds: Collection[SubjectType]) -> list[Se
     subjects: list[SelectableSubject] = []
     if SubjectType.TABLE in kinds:
         excluded_table_ids = unqueryable_table_ids(team_id)
+        columns_by_id = warehouse_facade.all_queryable_table_columns(team_id)
         subjects.extend(
             SelectableSubject(
                 subject_type=SubjectType.TABLE,
-                id=str(table.id),
-                name=table.name,
-                columns=_clickhouse_types(table.columns),
+                id=str(table_id),
+                name=name,
+                columns=columns_by_id.get(table_id) or {},
             )
-            for table in warehouse_facade.all_queryable_tables(team_id)
-            if table.id not in excluded_table_ids
+            for table_id, name in warehouse_facade.all_queryable_table_names(team_id).items()
+            if table_id not in excluded_table_ids
         )
     if SubjectType.VIEW in kinds:
         columns_by_id = data_modeling_facade.all_saved_query_columns(team_id)
@@ -87,18 +88,6 @@ def selectable_subjects(team_id: int, kinds: Collection[SubjectType]) -> list[Se
             for metric in testable_metric_subjects(team_id)
         )
     return sorted(subjects, key=lambda subject: (subject.subject_type, subject.name))
-
-
-def _clickhouse_types(columns: dict | None) -> dict[str, str]:
-    return {name: type_ for name, entry in (columns or {}).items() if (type_ := _clickhouse_type(entry)) is not None}
-
-
-def _clickhouse_type(entry: object) -> str | None:
-    # A table records either a bare type string (older rows) or a dict keyed "clickhouse", the same
-    # two shapes hogql_fields_and_structure_for_columns handles.
-    if isinstance(entry, dict):
-        entry = entry.get("clickhouse")
-    return entry if isinstance(entry, str) else None
 
 
 def testable_metric_subjects(team_id: int) -> list[MetricSubject]:
@@ -190,13 +179,11 @@ def subject_column_type(team_id: int, subject_type: str, subject_uuid: str | UUI
     if kind is SubjectType.METRIC:
         return None
     if kind is SubjectType.TABLE:
-        table = warehouse_facade.get_queryable_table(UUID(str(subject_uuid)), team_id)
-        columns = table.columns if table else {}
+        table_id = UUID(str(subject_uuid))
+        columns = warehouse_facade.all_queryable_table_columns(team_id, {table_id}).get(table_id, {})
     else:
         columns = data_modeling_facade.get_saved_query_columns(team_id, subject_uuid)
-    # The saved-query facade already unwrapped a view's entry to the string; a table's is unwrapped
-    # here.
-    return _clickhouse_type((columns or {}).get(column_name))
+    return columns.get(column_name)
 
 
 def _missing(kind: SubjectType, subject_uuid: str | UUID) -> SubjectRef:
