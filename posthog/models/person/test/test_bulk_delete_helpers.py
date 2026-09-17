@@ -295,6 +295,37 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
         ch_delete.assert_not_called()
         pg_delete.assert_not_called()
 
+    def test_runs_the_steps_per_batch_once_the_distinct_id_cap_is_reached(self):
+        p1 = create_person(team=self.team, distinct_ids=["a1", "a2", "a3"], properties={})
+        p2 = create_person(team=self.team, distinct_ids=["b1", "b2", "b3"], properties={})
+        p3 = create_person(team=self.team, distinct_ids=["c1"], properties={})
+        with (
+            patch("posthog.models.person.bulk_delete.QUEUED_DELETION_DISTINCT_IDS_PER_BATCH", 4),
+            patch("posthog.models.person.bulk_delete.queue_person_training_deletion") as training,
+            patch("posthog.models.person.bulk_delete.delete_person"),
+            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
+        ):
+            result = process_queued_person_deletion(
+                self.team.pk,
+                [str(p1.uuid), str(p2.uuid), str(p3.uuid)],
+                delete_profile=True,
+                delete_recordings=False,
+                actor=self.user,
+                was_impersonated=False,
+                organization_id=self.organization.id,
+            )
+        assert result.deleted_count == 3
+        assert result.failures == []
+        # p1 and p2 fill the cap together; p3 runs in a second, smaller batch.
+        assert [[person.uuid for person in call.args[1]] for call in pg_delete.call_args_list] == [
+            [p1.uuid, p2.uuid],
+            [p3.uuid],
+        ]
+        assert [sorted(call.args[1]) for call in training.call_args_list] == [
+            ["a1", "a2", "a3", "b1", "b2", "b3"],
+            ["c1"],
+        ]
+
     def test_recordings_only_pages_distinct_ids_into_workflows_without_deleting(self):
         p = create_person(team=self.team, distinct_ids=["a", "b", "c"], properties={})
         with (

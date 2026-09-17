@@ -177,6 +177,20 @@ def delete_persons_profile(
 # person with hundreds of thousands of distinct IDs no longer hits the personhog request timeout.
 QUEUED_DELETION_DISTINCT_ID_PAGE_SIZE = 5000
 
+# A task chunk is sized by person count, which says nothing about how many distinct IDs it holds.
+# The deletion steps run once this many distinct IDs are in memory, so several wide persons in one
+# chunk cannot pile up on a worker; the bound is this cap plus one person's worth of IDs.
+QUEUED_DELETION_DISTINCT_IDS_PER_BATCH = 20_000
+
+
+@frozen
+class _QueuedDeletionOptions:
+    delete_profile: bool
+    delete_recordings: bool
+    actor: User | None
+    was_impersonated: bool
+    organization_id: uuid_lib.UUID | None
+
 
 def process_queued_person_deletion(
     team_id: int,
@@ -201,6 +215,13 @@ def process_queued_person_deletion(
     """
     from posthog.personhog_client.client import personhog_call
 
+    options = _QueuedDeletionOptions(
+        delete_profile=delete_profile,
+        delete_recordings=delete_recordings,
+        actor=actor,
+        was_impersonated=was_impersonated,
+        organization_id=organization_id,
+    )
     failures: builtins.list[PersonDeletionFailure] = []
     requested = [uuid_lib.UUID(u) for u in person_uuids]
 
@@ -225,11 +246,13 @@ def process_queued_person_deletion(
             caller_tag="persons/deletion-distinct-ids",
         )
 
-    distinct_ids_by_person: dict[int, builtins.list[DistinctIdForPerson]] = {}
-    fetched: builtins.list[Person] = []
+    deleted_count = 0
+    batch: builtins.list[Person] = []
+    batch_distinct_ids: dict[int, builtins.list[DistinctIdForPerson]] = {}
+    batch_distinct_id_count = 0
     for person in persons:
         try:
-            distinct_ids_by_person[person.pk] = _fetch_distinct_ids(person.pk)
+            distinct_ids = _fetch_distinct_ids(person.pk)
         except Exception as exc:
             _record_step_failure(
                 failures,
@@ -239,15 +262,33 @@ def process_queued_person_deletion(
                 person_uuids=[person.uuid],
             )
             continue
-        person._distinct_ids = [d.id for d in distinct_ids_by_person[person.pk]]
-        fetched.append(person)
+        person._distinct_ids = [d.id for d in distinct_ids]
+        batch.append(person)
+        batch_distinct_ids[person.pk] = distinct_ids
+        batch_distinct_id_count += len(distinct_ids)
+        if batch_distinct_id_count >= QUEUED_DELETION_DISTINCT_IDS_PER_BATCH:
+            deleted_count += _run_queued_deletion_steps(team_id, batch, batch_distinct_ids, failures, options)
+            batch, batch_distinct_ids, batch_distinct_id_count = [], {}, 0
+    if batch:
+        deleted_count += _run_queued_deletion_steps(team_id, batch, batch_distinct_ids, failures, options)
 
-    fetched_uuids = [person.uuid for person in fetched]
+    return PersonProfileDeletionResult(deleted_count=deleted_count, failures=failures)
+
+
+def _run_queued_deletion_steps(
+    team_id: int,
+    persons: builtins.list[Person],
+    distinct_ids_by_person: dict[int, builtins.list[DistinctIdForPerson]],
+    failures: builtins.list[PersonDeletionFailure],
+    options: _QueuedDeletionOptions,
+) -> int:
+    """Run the requested steps for persons whose distinct IDs are loaded; returns how many were deleted."""
+    person_uuids = [person.uuid for person in persons]
     prerequisites_ok = True
-    if fetched and (delete_profile or delete_recordings):
+    if options.delete_profile or options.delete_recordings:
         try:
             queue_person_training_deletion(
-                team_id, [distinct_id for person in fetched for distinct_id in person.distinct_ids]
+                team_id, [distinct_id for person in persons for distinct_id in person.distinct_ids]
             )
         except Exception as exc:
             prerequisites_ok = False
@@ -256,11 +297,11 @@ def process_queued_person_deletion(
                 step=PersonDeletionStep.QUEUE_TRAINING_DELETION,
                 team_id=team_id,
                 exc=exc,
-                person_uuids=fetched_uuids,
+                person_uuids=person_uuids,
             )
-    if fetched and delete_recordings:
+    if options.delete_recordings:
         try:
-            queue_person_recording_deletion(team_id, fetched, actor=actor, queue_ai_training_deletion=False)
+            queue_person_recording_deletion(team_id, persons, actor=options.actor, queue_ai_training_deletion=False)
         except Exception as exc:
             prerequisites_ok = False
             _record_step_failure(
@@ -268,29 +309,30 @@ def process_queued_person_deletion(
                 step=PersonDeletionStep.QUEUE_RECORDING_DELETION,
                 team_id=team_id,
                 exc=exc,
-                person_uuids=fetched_uuids,
+                person_uuids=person_uuids,
             )
 
-    if not delete_profile or not fetched:
-        return PersonProfileDeletionResult(deleted_count=0, failures=failures)
+    if not options.delete_profile:
+        return 0
     if not prerequisites_ok:
         logger.warning(
             "person_deletion.profile_delete_skipped",
             team_id=team_id,
-            person_count=len(fetched),
+            person_count=len(persons),
             reason="a step before the profile delete failed; the persons stay for the retry",
         )
-        return PersonProfileDeletionResult(deleted_count=0, failures=failures)
+        return 0
 
     result = _tombstone_and_delete_persons(
         team_id,
-        fetched,
+        persons,
         lambda person: distinct_ids_by_person[person.pk],
-        actor=actor,
-        was_impersonated=was_impersonated,
-        organization_id=organization_id,
+        actor=options.actor,
+        was_impersonated=options.was_impersonated,
+        organization_id=options.organization_id,
     )
-    return PersonProfileDeletionResult(deleted_count=result.deleted_count, failures=[*failures, *result.failures])
+    failures.extend(result.failures)
+    return result.deleted_count
 
 
 def _tombstone_and_delete_persons(
