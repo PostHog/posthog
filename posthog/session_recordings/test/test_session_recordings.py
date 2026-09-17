@@ -736,6 +736,34 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         assert update_response.status_code == 404
 
+    def test_deleted_recording_with_persisted_row_is_not_found(self):
+        session_recording_id = str(uuid7())
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        produce_replay_summary(
+            session_id=session_recording_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time.isoformat(),
+            last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
+            distinct_id="d1",
+        )
+        produce_replay_summary(
+            session_id=session_recording_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time.isoformat(),
+            is_deleted=True,
+        )
+        SessionRecording.objects.create(
+            team=self.team,
+            session_id=session_recording_id,
+            start_time=base_time,
+            click_count=7,
+            full_recording_v2_path=f"s3://bucket/{session_recording_id}",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     @time_machine.travel("2023-01-01T12:00:00.000Z", tick=False)
     def test_get_single_session_recording_metadata(self):
         p = create_person(
