@@ -422,6 +422,8 @@ function refuse(purpose: string, reason: string, message: string): { ok: false; 
  * Replace `{paramName}` placeholders in `template` with `args[paramName]`.
  * Missing keys stay as the literal `{name}` so authors notice during smoke
  * tests rather than silently shipping `"Delete organization ?"` to a user.
+ * A key present with `null` renders as `null`: that is a value the agent chose for a
+ * nullable argument, not a missing key.
  * Non-scalar values (objects, arrays) are left as the literal `{name}` too
  * — these are user-facing confirmation prompts; rendering "[object Object]"
  * silently is worse than the author seeing the placeholder leak through.
@@ -432,6 +434,11 @@ function interpolate(template: string, args: Record<string, unknown>): string {
             return full
         }
         const value = args[key]
+        // A present key holding null is a value the agent chose (a nullable argument such as
+        // "clear this"), so the prompt shows it rather than leaking the placeholder
+        if (value === null) {
+            return 'null'
+        }
         const t = typeof value
         if (t === 'string' || t === 'number' || t === 'boolean') {
             return String(value)

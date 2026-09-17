@@ -193,6 +193,20 @@ describe('prepareConfirmedAction', () => {
         expect(result.message).toBe('Delete {missing}')
     })
 
+    it('renders a null argument as null so a clearing action reads as one', async () => {
+        const codec = makeCodec()
+        const { stash } = makeStash()
+        const result = await prepareConfirmedAction(makeContext(), {
+            args: { level: null },
+            purpose: 'p',
+            actionLabel: 'a',
+            messageTemplate: 'Set level to {level}',
+            codec,
+            stash,
+        })
+        expect(result.message).toBe('Set level to null')
+    })
+
     it('leaves non-scalar placeholders literal (no "[object Object]" in user prompts)', async () => {
         const codec = makeCodec()
         const { stash } = makeStash()
