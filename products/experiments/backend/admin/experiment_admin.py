@@ -300,7 +300,8 @@ class ExperimentAdmin(admin.ModelAdmin):
         extra_context["recalculation_panel"] = (
             build_recalculation_panel(latest_recalculation) if latest_recalculation is not None else None
         )
-        extra_context["can_start_recalculation"] = self.has_change_permission(request, obj)
+        # request_recalculation rejects an experiment with no start_date, so a draft gets no button.
+        extra_context["can_start_recalculation"] = obj.is_launched and self.has_change_permission(request, obj)
         extra_context["start_recalculation_url"] = reverse("admin:experiment_start_recalculation", args=[obj.pk])
 
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
