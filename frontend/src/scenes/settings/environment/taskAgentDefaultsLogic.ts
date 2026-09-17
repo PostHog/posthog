@@ -159,7 +159,11 @@ export interface taskAgentDefaultsLogicMeta {
         ) => AIRunPreferenceDraft
         teamDraftDirty: (teamDraft: AIRunPreferenceDraft, teamPreferences: TasksAIRunPreferencesApi | null) => boolean
         myDraftDirty: (myDraft: AIRunPreferenceDraft, myPreferenceStored: AIRunPreferenceDraft) => boolean
-        canResetMyPreference: (myDraft: AIRunPreferenceDraft, myPreferenceStored: AIRunPreferenceDraft) => boolean
+        canResetMyPreference: (
+            myDraft: AIRunPreferenceDraft,
+            myPreferences: TasksUserConfigResponseApi | null,
+            myConfig: TasksUserConfigResponseApi | null
+        ) => boolean
     }
 }
 
