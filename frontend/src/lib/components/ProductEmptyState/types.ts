@@ -113,7 +113,7 @@ export interface ProductEmptyStateConfig {
     /** Dark-mode accent override; falls back to `accentColor` */
     accentColorDark?: string
     /** A `pngHoggie(...)`-wrapped hedgehog, rendered above the product name */
-    hedgehog?: ComponentType<{ className?: string; style?: CSSProperties }>
+    hedgehog?: ComponentType<{ className?: string; style?: CSSProperties; loading?: 'lazy' | 'eager' }>
     /**
      * Where the hedgehog sits: `above` (default) is a small illustration above the
      * product name; `beside` renders it large next to the text and install command,

@@ -543,8 +543,18 @@ async function takeSnapshotWithTheme(
         await page.waitForFunction(() => {
             const allImages = Array.from(document.images)
             const areAllImagesLoaded = allImages.every(
-                // ProseMirror-separator isn't an actual image of any sort, so we ignore those
-                (i: HTMLImageElement) => !!i.naturalWidth || i.classList.contains('ProseMirror-separator')
+                (i: HTMLImageElement) =>
+                    !!i.naturalWidth ||
+                    // ProseMirror-separator isn't an actual image of any sort, so we ignore those
+                    i.classList.contains('ProseMirror-separator') ||
+                    // An image with no layout box cannot appear in the screenshot, and a
+                    // `loading="lazy"` one has nothing to intersect, so the browser can leave it
+                    // unfetched for the whole run. Its naturalWidth then stays 0 and this wait can
+                    // only time out. Responsive layouts hit this whenever they render the same
+                    // image twice and let a media or container query display one of the pair.
+                    // getClientRects() is empty only for display:none (the element's own or an
+                    // ancestor's), so a visible image that is still downloading is still waited for.
+                    i.getClientRects().length === 0
             )
             if (areAllImagesLoaded) {
                 // Hide gifs to prevent their animations causing flakiness
