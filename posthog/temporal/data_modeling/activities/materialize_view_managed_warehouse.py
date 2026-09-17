@@ -57,6 +57,7 @@ class ManagedWarehouseShadowInputs:
     node_id: str
     job_id: str
     dangerously_execute_raw_sql: bool = False
+    use_trino: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -219,7 +220,6 @@ async def _materialize_view_managed_warehouse(
     node = objects.node
     saved_query = objects.saved_query
     bind_data_modeling_log_context(inputs.team_id, saved_query.id)
-    hogql_query = typing.cast(dict, saved_query.query)["query"]
     schema_name = duckgres_data_modeling_schema(team.pk)
     table_name = saved_query.normalized_name
 
@@ -235,20 +235,32 @@ async def _materialize_view_managed_warehouse(
     values: dict[str, object] = {}
     s3_secrets: tuple[DuckLakeS3Secret, ...] = ()
     try:
-        if inputs.dangerously_execute_raw_sql:
-            sql = hogql_query
-        else:
-            compiled = await database_sync_to_async_pool(_compile_hogql_for_ducklake)(hogql_query, team.pk)
-            sql = compiled.sql
-            values = compiled.values
-            s3_secrets = compiled.s3_secrets
-        await logger.adebug("Managed warehouse shadow SQL generated", sql=sql)
-
-        from products.managed_warehouse.backend.facade.client import execute_ducklake_create_table
-
-        result = await database_sync_to_async_pool(execute_ducklake_create_table)(
-            team.pk, sql, schema_name, table_name, values, s3_secrets=s3_secrets
+        from products.managed_warehouse.backend.facade.client import (
+            execute_ducklake_create_table,
+            execute_trino_shadow_materialization,
         )
+
+        if inputs.use_trino:
+            result = await database_sync_to_async_pool(execute_trino_shadow_materialization)(
+                organization_id=str(team.organization_id),
+                team_id=team.pk,
+                saved_query_id=saved_query.id,
+                source_query=saved_query.query,
+                table_name=table_name,
+            )
+        else:
+            hogql_query = typing.cast(dict, saved_query.query)["query"]
+            if inputs.dangerously_execute_raw_sql:
+                sql = hogql_query
+            else:
+                compiled = await database_sync_to_async_pool(_compile_hogql_for_ducklake)(hogql_query, team.pk)
+                sql = compiled.sql
+                values = compiled.values
+                s3_secrets = compiled.s3_secrets
+            await logger.adebug("Managed warehouse shadow SQL generated", sql=sql)
+            result = await database_sync_to_async_pool(execute_ducklake_create_table)(
+                team.pk, sql, schema_name, table_name, values, s3_secrets=s3_secrets
+            )
         duration = time.monotonic() - start_time
 
         await logger.ainfo(

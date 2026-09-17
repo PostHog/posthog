@@ -174,7 +174,17 @@ Compilation is best effort per view. Unsupported HogQL records a failed result a
 
 The result admin can retry selected failed or stale rows. A retry creates a new selected-view job linked to the source job, preserving the original job and results as an immutable audit record.
 
-The data modeling shadow path uses these results as an eligibility gate. It requires a ready Trino target and a non-empty compiled result whose source hash matches the saved query's current definition.
+The `managed-warehouse-data-modeling-shadow` flag enables shadow materialization through Trino.
+It requires a ready Trino target and a non-empty compiled result whose source hash matches the saved query's current definition.
+The shadow activity executes the most recent matching conversion's stored `trino_sql` and `trino_values`, including its mapped table references.
+It checks the source hash again when the activity runs and fails the shadow job if no current conversion exists; rerun translation after editing the saved query.
+It does not recompile the query or fall back to DuckDB on failure.
+
+Trino atomically replaces the output table in the organization's catalog under `shadow_<team_id>_models`.
+ClickHouse materialization and publication continue independently, and a failed shadow write preserves the previous shadow table.
+The shadow row count comes from Trino's write result; storage size metrics are unavailable and remain zero.
+Existing Temporal histories retain their legacy execution path through a workflow patch.
+Explicit `managed_warehouse_only` runs without flag eligibility also retain the legacy path.
 
 ## Validation
 

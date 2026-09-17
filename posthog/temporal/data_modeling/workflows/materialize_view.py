@@ -91,6 +91,7 @@ CDP_VIEW_TRIGGER_PATCH = "cdp-data-warehouse-view-trigger-2026-08"
 
 # Histories recorded before this marker must keep passing only the team ID to the activity.
 DUCKGRES_SHADOW_TRANSLATION_GATE_PATCH = "duckgres-shadow-translation-gate-2026-09"
+TRINO_SHADOW_EXECUTION_PATCH = "trino-shadow-execution-2026-09"
 
 # these indicate problems with the query or data, not transient issues
 NON_RETRYABLE_ERRORS = [
@@ -244,6 +245,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     dag_id=inputs.dag_id,
                     job_id=managed_warehouse_job_id,
                     dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
+                    use_trino=managed_warehouse_enabled and temporalio.workflow.patched(TRINO_SHADOW_EXECUTION_PATCH),
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=20),
                 retry_policy=temporalio.common.RetryPolicy(
