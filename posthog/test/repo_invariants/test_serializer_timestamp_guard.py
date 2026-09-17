@@ -42,7 +42,8 @@ from typing import Any, TypeGuard
 from django.core.exceptions import FieldDoesNotExist
 from django.db import models
 
-from rest_framework import serializers
+from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
+from rest_framework import serializers, viewsets
 from rest_framework.generics import GenericAPIView
 
 # DRF's enumerator, not the drf-spectacular subclass, because the subclass runs
@@ -203,7 +204,8 @@ def _serializer_choices(view_class: type) -> tuple[set[type], list[str]]:
         except Exception as error:
             unresolved.append(f"{klass.__qualname__}.get_serializer_class: {type(error).__name__}")
             continue
-        module_scope = vars(sys.modules.get(function.__module__, None)) or {}
+        module = sys.modules.get(function.__module__)
+        module_scope = vars(module) if module is not None else {}
         scope, locally_bound = _function_scope(tree, module_scope, view_class)
         found.update(locally_bound)
         for node in ast.walk(tree):
@@ -218,16 +220,46 @@ def _serializer_choices(view_class: type) -> tuple[set[type], list[str]]:
     return found, unresolved
 
 
+def _serializer_classes(declared: Any) -> set[type]:
+    """The serializer classes behind a request-body declaration.
+
+    A declaration is not always a class: `inline_serializer` returns an instance,
+    `many=True` wraps the real serializer in a `ListSerializer`, and a media-type
+    mapping holds one declaration per content type.
+    """
+    if isinstance(declared, dict):
+        return {entry for value in declared.values() for entry in _serializer_classes(value)}
+    if isinstance(declared, list | tuple):
+        return {entry for value in declared for entry in _serializer_classes(value)}
+    if isinstance(declared, serializers.ListSerializer):
+        return _serializer_classes(declared.child)
+    if isinstance(declared, serializers.BaseSerializer):
+        return {type(declared)}
+    if _is_serializer(declared):
+        return {declared}
+    return set()
+
+
 def _request_body_serializers(view_class: type, handler_names: set[str]) -> set[type]:
-    """Serializers an `@extend_schema(request=...)` decorator names on a write handler."""
+    """Serializers an `@extend_schema(request=...)` decorator names on a write handler.
+
+    drf-spectacular does not store the declaration as data. It builds a schema class
+    that closes over `request` and keeps it in the handler's `kwargs`, so the value is
+    read back out of that closure. `test_request_body_declarations_stay_readable` fails
+    if a drf-spectacular upgrade moves it, rather than letting discovery narrow quietly.
+    """
     found: set[type] = set()
     for name in handler_names:
-        annotation = getattr(getattr(view_class, name, None), "_spectacular_annotation", None) or {}
-        declared = annotation.get("request")
-        if _is_serializer(declared):
-            found.add(declared)
-        elif isinstance(declared, dict):
-            found.update(entry for entry in declared.values() if _is_serializer(entry))
+        handler = getattr(view_class, name, None)
+        handler_kwargs = getattr(handler, "kwargs", None)
+        schema = handler_kwargs.get("schema") if isinstance(handler_kwargs, dict) else None
+        for klass in getattr(schema, "__mro__", ()):
+            getter = vars(klass).get("get_request_serializer")
+            code = getattr(getter, "__code__", None)
+            closure = getattr(getter, "__closure__", None) or ()
+            for variable, cell in zip(getattr(code, "co_freevars", ()), closure):
+                if variable == "request":
+                    found |= _serializer_classes(cell.cell_contents)
     return found
 
 
@@ -328,6 +360,30 @@ def test_discovery_reaches_dynamically_selected_serializers() -> None:
         "Discovery no longer reaches these serializers, so a server-owned timestamp on one of them "
         "would pass the sweep above. Reading get_serializer_class statically is what finds them:\n" + "\n".join(missing)
     )
+
+
+def test_request_body_declarations_stay_readable() -> None:
+    # drf-spectacular keeps `request=` in a closure rather than as data, so the reader
+    # depends on its internals. An upgrade that moves it must fail here.
+    class DeclaredBodySerializer(serializers.Serializer):
+        pass
+
+    @extend_schema_view(create=extend_schema(request=DeclaredBodySerializer))
+    class DecoratedViewSet(viewsets.GenericViewSet):
+        def create(self, request: Any) -> None: ...
+
+    assert _request_body_serializers(DecoratedViewSet, {"create"}) == {DeclaredBodySerializer}
+
+
+def test_request_body_declarations_normalize_to_classes() -> None:
+    # inline_serializer returns an instance, and many=True wraps one in a ListSerializer.
+    class BodySerializer(serializers.Serializer):
+        pass
+
+    assert _serializer_classes(BodySerializer(many=True)) == {BodySerializer}
+    assert _serializer_classes({"application/json": BodySerializer()}) == {BodySerializer}
+    inline = inline_serializer("InlineBody", fields={"name": serializers.CharField()})
+    assert _serializer_classes(inline) == {type(inline)}
 
 
 def test_nullable_column_without_a_default_is_owned_by_its_name() -> None:
