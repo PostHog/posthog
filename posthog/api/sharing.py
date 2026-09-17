@@ -11,6 +11,7 @@ from django.core.exceptions import (
     ValidationError as DjangoValidationError,
 )
 from django.core.serializers.json import DjangoJSONEncoder
+from django.db import transaction
 from django.db.models import Model, Q
 from django.http import HttpResponse
 from django.shortcuts import render
@@ -75,6 +76,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.canvas.backend.artifacts import artifact_origin as canvas_artifact_origin
 from products.canvas.backend.models import Canvas
 from products.canvas.backend.sharing import (
     CanvasNotPublished,
@@ -670,7 +672,15 @@ class SharingConfigurationViewSet(
                 raise NotFound("Notebook not found.")
         if canvas_id:
             try:
-                canvas = Canvas.objects.for_team(self.team_id).filter(id=canvas_id, deleted=False).first()
+                # ``team_id`` is pinned to the route's own team, not the project's canonical
+                # team. Object-level access control matches its rows on the request team, so a
+                # canonicalizing lookup would let a child environment's route reach a canvas
+                # whose deny rules are stored under the parent and are invisible from here.
+                canvas = (
+                    Canvas.objects.for_team(self.team_id)
+                    .filter(id=canvas_id, team_id=self.team_id, deleted=False)
+                    .first()
+                )
             except DjangoValidationError:
                 canvas = None
             if canvas is None:
@@ -806,7 +816,6 @@ class SharingConfigurationViewSet(
 
         # Now that the caller is authorized to edit, collapse any duplicate active rows.
         instance = self._get_sharing_configuration(context, dedupe=True)
-        self._ensure_task_artifact_anchor(context, instance)
 
         if request.data.get("password_required", False):
             if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
@@ -847,30 +856,39 @@ class SharingConfigurationViewSet(
 
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
 
-        # Enabling always captures the build published right now. The share dialog's "Update public
-        # link" sends enabled=true again to move the pin to a newer publish. A toggle-free PATCH
-        # (settings only) never moves it.
-        if canvas is not None and "enabled" in request.data:
-            if serializer.data.get("enabled"):
-                try:
-                    pin_shared_build(canvas)
-                except CanvasNotPublished:
-                    raise ValidationError("Publish the canvas before sharing it.")
-            else:
-                clear_shared_build(canvas)
-        # The same rule for a file: enabling pins its newest upload, so "Publish changes" is a
-        # second enable. Disabling leaves the pin where it is; the link is off anyway. Read the
-        # flag off the saved row, not serializer.data, which would freeze the response before
-        # the pin moves.
-        if (
-            context.get("task_artifact_identity")
-            and "enabled" in request.data
-            and instance.enabled
-            and instance.task_artifact_id is not None
-        ):
-            tasks_facade.pin_shared_task_artifact(instance.task_artifact_id, self.team_id)
+        # Creating the anchor retains the upload in object storage, which replaces its expiry
+        # tags, so it must not happen for a request that is then rejected.
+        self._ensure_task_artifact_anchor(context, instance)
+
+        # The saved row and the pin it implies must land together. An enabled row whose canvas
+        # lost its pin serves a live public page with nothing on it, so a failure between the two
+        # writes has to take both back.
+        with transaction.atomic():
+            serializer.save()
+
+            # Enabling always captures the build published right now. The share dialog's "Update
+            # public link" sends enabled=true again to move the pin to a newer publish. A
+            # toggle-free PATCH (settings only) never moves it.
+            if canvas is not None and "enabled" in request.data:
+                if serializer.data.get("enabled"):
+                    try:
+                        pin_shared_build(canvas)
+                    except CanvasNotPublished:
+                        raise ValidationError("Publish the canvas before sharing it.")
+                else:
+                    clear_shared_build(canvas)
+            # The same rule for a file: enabling pins its newest upload, so "Publish changes" is a
+            # second enable. Disabling leaves the pin where it is; the link is off anyway. Read the
+            # flag off the saved row, not serializer.data, which would freeze the response before
+            # the pin moves.
+            if (
+                context.get("task_artifact_identity")
+                and "enabled" in request.data
+                and instance.enabled
+                and instance.task_artifact_id is not None
+            ):
+                tasks_facade.pin_shared_task_artifact(instance.task_artifact_id, self.team_id)
 
         if context.get("insight"):
             name = instance.insight.name or instance.insight.derived_name
@@ -1129,13 +1147,22 @@ class TaskArtifactSharingConfigurationSerializer(SharingConfigurationSerializer)
     latest_artifact_id = serializers.SerializerMethodField(
         help_text="Manifest id of the file's newest upload. Differs from shared_artifact_id when there are changes to publish."
     )
+    user_can_change_sharing = serializers.SerializerMethodField(
+        help_text="Whether the reader may turn this link on or off. Reading the state needs task visibility; changing it needs control of the task, which in a shared space is the task's creator alone."
+    )
 
     class Meta(SharingConfigurationSerializer.Meta):
-        fields = [*SharingConfigurationSerializer.Meta.fields, "shared_artifact_id", "latest_artifact_id"]
+        fields = [
+            *SharingConfigurationSerializer.Meta.fields,
+            "shared_artifact_id",
+            "latest_artifact_id",
+            "user_can_change_sharing",
+        ]
         read_only_fields = [
             *SharingConfigurationSerializer.Meta.read_only_fields,
             "shared_artifact_id",
             "latest_artifact_id",
+            "user_can_change_sharing",
         ]
 
     def _versions(self) -> SharedTaskArtifactVersionsDTO | None:
@@ -1159,6 +1186,19 @@ class TaskArtifactSharingConfigurationSerializer(SharingConfigurationSerializer)
     def get_latest_artifact_id(self, _instance: SharingConfiguration) -> str | None:
         versions = self._versions()
         return versions.latest_artifact_id if versions else None
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_user_can_change_sharing(self, instance: SharingConfiguration) -> bool:
+        identity = self.context.get("task_artifact_identity")
+        anchor = instance.task_artifact
+        task_id = getattr(identity, "task_id", None) or (anchor.task_id if anchor is not None else None)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        team_id = self.context["get_team"]().id if "get_team" in self.context else None
+        if task_id is None or team_id is None:
+            return False
+        user_id = user.id if user is not None and user.is_authenticated else None
+        return tasks_facade.user_can_control_task(task_id, team_id, user_id)
 
 
 @extend_schema(
@@ -2026,12 +2066,20 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "asset_opengraph_image_url": shared_url_as_png(request.build_absolute_uri()),
         }
 
-        return render_template(
+        page = render_template(
             "exporter.html",
             request=request,
             context=context,
             team_for_public_context=resource.team,
         )
+        if "canvas" in exported_data:
+            # The page nests the built canvas in an iframe on the artifact origin. The app's
+            # default policy admits any https frame, so a canvas could navigate its own frame to
+            # an origin of its author's choosing and keep the shared page's chrome around it.
+            # Browsers intersect policies, so this second header narrows that default to the one
+            # origin the page has a frame for.
+            page["Content-Security-Policy"] = f"frame-src {canvas_artifact_origin()}"
+        return page
 
     def exported_asset_for_sharing_configuration(self, resource: SharingConfiguration) -> ExportedAsset | None:
         target = resource.insight or resource.dashboard

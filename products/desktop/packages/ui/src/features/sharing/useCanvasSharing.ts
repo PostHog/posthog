@@ -44,8 +44,11 @@ export function useSetCanvasSharing(dashboardId: string): {
           trpc.dashboards.sharing.queryKey({ id: dashboardId }),
           sharing,
         );
-        // Enabling moves the pinned build, which the canvas record carries.
+        // Enabling and disabling both move the pinned build, which the canvas record and
+        // every list row carry. The grid card reads its "changes to publish" dot off the
+        // list, so refreshing only the record leaves that dot up until the next poll.
         void queryClient.invalidateQueries(trpc.dashboards.get.pathFilter());
+        void queryClient.invalidateQueries(trpc.dashboards.list.pathFilter());
       },
       onError: (error) => {
         toast.error("Couldn't update public sharing", {

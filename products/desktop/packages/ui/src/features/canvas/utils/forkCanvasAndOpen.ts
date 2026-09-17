@@ -1,4 +1,8 @@
 import type { HostTrpcClient } from "@posthog/host-router/client";
+import {
+  getCurrentBrowserTabId,
+  navigateBrowserTab,
+} from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { toast } from "@posthog/ui/primitives/toast";
 import { navigateToChannelDashboard } from "@posthog/ui/router/navigationBridge";
 import { logger } from "@posthog/ui/shell/logger";
@@ -31,12 +35,23 @@ async function runFork(
   client: HostTrpcClient,
   dashboardId: string,
 ): Promise<void> {
+  // The copy takes about a second to make, and nothing holds the user in place while it does.
+  // Remember which tab asked, so the copy opens there instead of in whichever tab happens to be
+  // active when the response lands.
+  const originTabId = getCurrentBrowserTabId();
   try {
     const copy = await client.dashboards.fork.mutate({ id: dashboardId });
     toast.success("Copied to your personal space", {
       description: "Edits here won't change the original canvas.",
     });
-    navigateToChannelDashboard(copy.channelId, copy.id);
+    navigateBrowserTab(
+      originTabId,
+      {
+        href: `/spaces/${copy.channelId}/dashboards/${copy.id}`,
+        dashboardId: copy.id,
+      },
+      () => navigateToChannelDashboard(copy.channelId, copy.id),
+    );
   } catch (error) {
     log.error("Failed to copy canvas", { dashboardId, error: String(error) });
     toast.error("Couldn't copy this canvas", {

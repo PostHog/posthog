@@ -26,7 +26,11 @@ import { PublishChangesButton } from "./PublishChangesButton";
 import { publicLinkHasUnpublishedChanges } from "./publicLink";
 import { ShareDialog } from "./ShareDialog";
 import { ShareSection } from "./ShareSection";
-import type { ShareSurface, ShareVisibility } from "./shareTarget";
+import {
+  type ShareSurface,
+  type ShareVisibility,
+  shareVisibilityForChannel,
+} from "./shareTarget";
 import { teamLinkDescription } from "./teamLinkCopy";
 import { useCanvasSharingQuery, useSetCanvasSharing } from "./useCanvasSharing";
 
@@ -171,17 +175,20 @@ export function CanvasShareDialog({
 }) {
   const { channels, isLoading: channelsLoading } = useChannels();
   const channel = channels.find((candidate) => candidate.id === channelId);
-  const visibility: ShareVisibility = channel
-    ? channel.channelType === "personal"
-      ? "personal"
-      : "project"
-    : channelsLoading
-      ? "unknown"
-      : "project";
+  const visibility = shareVisibilityForChannel(
+    channel?.channelType,
+    channelsLoading,
+  );
   // A grid loads its components live through the host, which a public page cannot do, so the
   // server refuses to publish one. Home is a grid, so this is every user's canvas list.
   const { dashboard } = useDashboard(dashboardId);
   const isPubliclyShareable = dashboard ? dashboard.kind !== "grid" : true;
+  // Copying starts from a published build, so the endpoint refuses a grid (which never has one)
+  // and a canvas that has not been published yet. Offering the link anyway only produces a
+  // "couldn't copy this canvas" toast for whoever opens it.
+  const canBeCopied = dashboard
+    ? dashboard.kind !== "grid" && !!dashboard.publishedBuildId
+    : false;
   const sharing = useCanvasSharingQuery(dashboardId);
   // Turning sharing on captures the published build, so there has to be one. An already-shared
   // canvas keeps its toggle so the link can still be turned off.
@@ -224,7 +231,7 @@ export function CanvasShareDialog({
     >
       <CanvasShareBodyView
         appUrl={canvasShareUrl(channelId, dashboardId)}
-        forkUrl={canvasForkUrl(channelId, dashboardId)}
+        forkUrl={canBeCopied ? canvasForkUrl(channelId, dashboardId) : null}
         publicUrl={
           sharing.data?.accessToken
             ? sharedResourceUrl(sharing.data.accessToken)

@@ -82,7 +82,9 @@ def shared_canvas_payload(canvas: Canvas, *, build: CanvasBuild | None = None) -
     token (and any password) has been validated by the caller."""
     build = _ready_build(build if build is not None else canvas.shared_build)
     entry = build.manifest.get("entryHtml") if build is not None and isinstance(build.manifest, dict) else None
-    artifact_url = create_canvas_artifact_url(build, entry) if build is not None and isinstance(entry, str) else None
+    artifact_url = (
+        create_canvas_artifact_url(build, entry, shared=True) if build is not None and isinstance(entry, str) else None
+    )
     return {
         "id": str(canvas.id),
         "name": canvas.name,

@@ -23,10 +23,12 @@ from django.core import signing
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotModified
 from django.views.decorators.clickjacking import xframe_options_exempt
 
+from posthog.constants import AvailableFeature
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.storage import object_storage
 
 from products.canvas.backend.contract import artifact_csp
-from products.canvas.backend.models import CanvasBuild
+from products.canvas.backend.models import Canvas, CanvasBuild
 
 ARTIFACT_TOKEN_SALT = "posthog.canvas.artifact.v1"
 # Tokens embed a coarse time bucket instead of a per-second timestamp, so the
@@ -56,20 +58,57 @@ def _artifact_signing_keys() -> list[str]:
     return configured or [settings.SECRET_KEY, *settings.SECRET_KEY_FALLBACKS]
 
 
-def create_canvas_artifact_token(build: CanvasBuild) -> str | None:
+def create_canvas_artifact_token(build: CanvasBuild, *, shared: bool = False) -> str | None:
+    """Mint a capability for one build's assets.
+
+    ``shared`` marks a token handed to an anonymous viewer of a public link. The token itself
+    lives for one to two buckets, which outlasts a revocation, so delivery re-checks the share
+    for such a token (see ``_shared_build_is_live``). A token minted for a signed-in client
+    needs no such check: the caller already passed the canvas's own access rules.
+    """
     keys = _artifact_signing_keys()
     if not keys or (not settings.CANVAS_ARTIFACT_ORIGIN and not (settings.DEBUG or settings.TEST)):
         return None
     if not (settings.DEBUG or settings.TEST) and (len(keys[0]) < 32 or _configured_artifact_host() is None):
         return None
     bucket = int(time.time() // ARTIFACT_TOKEN_BUCKET_SECONDS)
-    return signing.Signer(key=keys[0], salt=ARTIFACT_TOKEN_SALT).sign_object(
-        {"team_id": build.team_id, "canvas_id": str(build.canvas_id), "build_id": str(build.id), "bucket": bucket},
-        compress=True,
+    claims: dict[str, Any] = {
+        "team_id": build.team_id,
+        "canvas_id": str(build.canvas_id),
+        "build_id": str(build.id),
+        "bucket": bucket,
+    }
+    if shared:
+        claims["shared"] = True
+    return signing.Signer(key=keys[0], salt=ARTIFACT_TOKEN_SALT).sign_object(claims, compress=True)
+
+
+def _shared_build_is_live(*, team_id: int, canvas_id: UUID, build_id: UUID) -> bool:
+    """Whether a public link still serves this build.
+
+    Turning a share off, rotating its token, unpinning the build, or turning public sharing off
+    for the organization each has to take the artifact with it, the same way it takes the shared
+    page. The page itself applies these rules in ``SharingViewerPageViewSet``.
+    """
+    config = (
+        SharingConfiguration.objects.filter(
+            SharingConfiguration.tokens_active_q(), team_id=team_id, canvas_id=canvas_id
+        )
+        .select_related("team__organization")
+        .first()
     )
+    if config is None:
+        return False
+    organization = config.team.organization
+    if (
+        organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
+        and not organization.allow_publicly_shared_resources
+    ):
+        return False
+    return Canvas.objects.for_team(team_id).filter(id=canvas_id, shared_build_id=build_id).exists()
 
 
-def _artifact_origin() -> str:
+def artifact_origin() -> str:
     """The origin artifacts are linked from and served on.
 
     DEBUG/TEST with no CANVAS_ARTIFACT_ORIGIN falls back to the application
@@ -83,11 +122,11 @@ def _artifact_origin() -> str:
     return settings.CANVAS_ARTIFACT_ORIGIN or settings.SITE_URL
 
 
-def create_canvas_artifact_url(build: CanvasBuild, artifact_path: str) -> str | None:
-    token = create_canvas_artifact_token(build)
+def create_canvas_artifact_url(build: CanvasBuild, artifact_path: str, *, shared: bool = False) -> str | None:
+    token = create_canvas_artifact_token(build, shared=shared)
     if token is None:
         return None
-    return f"{_artifact_origin()}/canvas-artifacts/{token}/{artifact_path}"
+    return f"{artifact_origin()}/canvas-artifacts/{token}/{artifact_path}"
 
 
 def _read_token(token: str) -> dict[str, Any]:
@@ -123,6 +162,10 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
         .first()
     )
     if build is None or not build.artifact_object_prefix or not isinstance(build.manifest, dict):
+        raise Http404
+    if claims.get("shared") is True and not _shared_build_is_live(
+        team_id=team_id, canvas_id=canvas_id, build_id=build_id
+    ):
         raise Http404
     assets = build.manifest.get("assets")
     asset = (

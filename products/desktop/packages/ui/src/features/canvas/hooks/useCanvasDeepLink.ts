@@ -18,7 +18,7 @@ import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQuery } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 const log = logger.scope("canvas-deep-link");
 
@@ -103,11 +103,17 @@ export function useCanvasDeepLink() {
     [tabsClient, client, bluebirdEnabled],
   );
 
+  // The pending payload stays the same object for the hook's whole life, while `openCanvas`
+  // is rebuilt whenever the bluebird flag resolves or changes. Without a handled marker the
+  // effect would act on the drained link again, and a "link to a copy" would copy twice.
+  const handledPendingLink = useRef<string | null>(null);
   useEffect(() => {
     const pending = pendingDeepLink.data;
-    if (pending?.channelId && pending?.dashboardId) {
-      openCanvas(pending.channelId, pending.dashboardId, pending.fork);
-    }
+    if (!pending?.channelId || !pending?.dashboardId) return;
+    const handled = `${pending.channelId}/${pending.dashboardId}/${pending.fork ? "fork" : "open"}`;
+    if (handledPendingLink.current === handled) return;
+    handledPendingLink.current = handled;
+    openCanvas(pending.channelId, pending.dashboardId, pending.fork);
   }, [pendingDeepLink.data, openCanvas]);
 
   useSubscription(
