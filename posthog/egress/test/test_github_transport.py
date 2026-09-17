@@ -3,6 +3,9 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase
 
 import requests
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from parameterized import parameterized
 from requests.structures import CaseInsensitiveDict
 
@@ -22,6 +25,40 @@ def _response(status: int = 200) -> requests.Response:
 
 
 class TestGitHubTransport(SimpleTestCase):
+    @parameterized.expand([("success", 200, "UNSET"), ("http_error", 429, "ERROR")])
+    def test_request_records_normalized_client_span(self, _name: str, status_code: int, span_status: str) -> None:
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+        with (
+            patch("posthog.egress.github.transport.tracer", provider.get_tracer("test")),
+            patch("posthog.egress.github.transport.consume_github_installation_sync", return_value=True),
+            patch("requests.request", return_value=_response(status_code)),
+        ):
+            github_request(
+                "GET",
+                "https://api.github.com/repos/example/repo/branches?page=1",
+                source="integration",
+                installation_id="42",
+                endpoint="/repos/{owner}/{repo}/branches",
+            )
+
+        span = exporter.get_finished_spans()[0]
+        assert span.name == "github.http.request"
+        assert span.kind.name == "CLIENT"
+        assert span.attributes == {
+            "http.request.method": "GET",
+            "server.address": "api.github.com",
+            "github.endpoint": "/repos/{owner}/{repo}/branches",
+            "github.resource": "core",
+            "github.source": "integration",
+            "github.priority": "critical",
+            "github.installation_scoped": True,
+            "http.response.status_code": status_code,
+        }
+        assert span.status.status_code.name == span_status
+
     @parameterized.expand(
         [
             ("code_search", "https://api.github.com/search/code?q=x", GitHubRateResource.CODE_SEARCH),
@@ -45,3 +82,18 @@ class TestGitHubTransport(SimpleTestCase):
         ):
             github_request("GET", "https://api.github.com/search/code?q=x", source="test", installation_id=None)
         consume.assert_not_called()
+
+    def test_span_uses_the_request_host_for_raw_github_urls(self) -> None:
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+        with (
+            patch("posthog.egress.github.transport.tracer", provider.get_tracer("test")),
+            patch("requests.request", return_value=_response()),
+        ):
+            github_request("GET", "https://raw.githubusercontent.com/PostHog/posthog/main/README.md", source="test")
+
+        attributes = exporter.get_finished_spans()[0].attributes
+        assert attributes is not None
+        assert attributes["server.address"] == "raw.githubusercontent.com"
