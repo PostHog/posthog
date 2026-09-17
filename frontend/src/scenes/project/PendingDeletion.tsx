@@ -27,8 +27,6 @@ export function ProjectPendingDeletion(): JSX.Element {
     const { openProjectSwitcher, closeProjectSwitcher, openOrgSwitcher, closeOrgSwitcher } =
         useActions(newAccountMenuLogic)
     const hasOtherOrgs = otherOrganizations.length > 0
-    const deletionScheduledAt = currentProject?.deletion_scheduled_at
-    const canCancelDeletion = !!deletionScheduledAt && dayjs(deletionScheduledAt).isAfter(dayjs())
 
     return (
         <div className="max-w-[600px] mx-auto px-2 py-8">
@@ -39,28 +37,24 @@ export function ProjectPendingDeletion(): JSX.Element {
                         Disassembling {currentProject?.name ? `"${currentProject.name}"` : 'this project'} at the
                         circuit level
                     </h3>
-                    {canCancelDeletion ? (
-                        <p className="text-secondary">
-                            This project is scheduled for deletion
-                            <strong>{` on ${dayjs(deletionScheduledAt).format('MMMM D, YYYY [at] h:mm A')}`}</strong>.
-                            If you've changed your mind, you can cancel project deletion before then.
-                        </p>
-                    ) : (
-                        <p className="text-secondary">
-                            This project is being deleted. Deletion has already started, so it can't be canceled.
-                        </p>
-                    )}
+                    <p className="text-secondary">
+                        This project is scheduled for deletion
+                        <strong>
+                            {currentProject?.deletion_scheduled_at
+                                ? ` on ${dayjs(currentProject.deletion_scheduled_at).format('MMMM D, YYYY [at] h:mm A')}`
+                                : ' soon'}
+                        </strong>
+                        . If you've changed your mind, you can cancel project deletion before then.
+                    </p>
                     <div className="flex items-center gap-2">
-                        {canCancelDeletion && (
-                            <LemonButton
-                                type="secondary"
-                                onClick={() => cancelProjectDeletion()}
-                                loading={currentProjectLoading}
-                                data-attr="cancel-project-deletion"
-                            >
-                                Cancel project deletion
-                            </LemonButton>
-                        )}
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => cancelProjectDeletion()}
+                            loading={currentProjectLoading}
+                            data-attr="cancel-project-deletion"
+                        >
+                            Cancel project deletion
+                        </LemonButton>
                         <Popover
                             visible={isProjectSwitcherOpen}
                             onClickOutside={closeProjectSwitcher}

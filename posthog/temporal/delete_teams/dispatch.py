@@ -16,13 +16,13 @@ if TYPE_CHECKING:
 PROJECT_DELETION_DELAY = timedelta(hours=48)
 
 
-def project_deletion_delay(project: "Project") -> timedelta:
-    """How long to wait before the project deletion workflow starts.
+def project_deletion_delay(project: "Project") -> timedelta | None:
+    """How long to wait before the project deletion workflow starts, or None to start it at once.
 
     The delay is a recovery window for a deletion the user did not mean to request. A project
     where no environment ever ingested an event holds nothing to recover, so it deletes at once.
     """
-    return PROJECT_DELETION_DELAY if project.has_ingested_data() else timedelta()
+    return PROJECT_DELETION_DELAY if project.has_ingested_data() else None
 
 
 def start_delete_project_data_workflow(

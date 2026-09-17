@@ -588,7 +588,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
     @parameterized.expand(
         [
             ("with_ingested_data", True, timedelta(hours=48)),
-            ("without_ingested_data", False, timedelta()),
+            ("without_ingested_data", False, None),
         ]
     )
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
@@ -607,13 +607,16 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertTrue(self.project.is_pending_deletion)
         self.assertAlmostEqual(
             self.project.deletion_scheduled_at.timestamp(),
-            (timezone.now() + expected_delay).timestamp(),
+            (timezone.now() + (expected_delay or timedelta())).timestamp(),
             delta=5,
         )
         mock_delete_task.assert_called_once()
         start_delay = mock_delete_task.call_args.kwargs["start_delay"]
-        self.assertLessEqual(start_delay, expected_delay)
-        self.assertGreater(start_delay, expected_delay - timedelta(minutes=1))
+        if expected_delay is None:
+            self.assertIsNone(start_delay)
+        else:
+            self.assertLessEqual(start_delay, expected_delay)
+            self.assertGreater(start_delay, expected_delay - timedelta(minutes=1))
 
     @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")

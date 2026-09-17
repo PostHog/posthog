@@ -162,7 +162,7 @@ class TestProjectAdminTriggerDeletion(BaseTest):
     @parameterized.expand(
         [
             ("with_ingested_data", True, timedelta(hours=48)),
-            ("without_ingested_data", False, timedelta()),
+            ("without_ingested_data", False, None),
         ]
     )
     @time_machine.travel("2025-01-15 12:00:00", tick=False)
@@ -184,7 +184,7 @@ class TestProjectAdminTriggerDeletion(BaseTest):
         self.project.refresh_from_db()
         self.assertTrue(self.project.is_pending_deletion)
         assert self.project.deletion_scheduled_at is not None
-        self.assertEqual(self.project.deletion_scheduled_at, timezone.now() + expected_delay)
+        self.assertEqual(self.project.deletion_scheduled_at, timezone.now() + (expected_delay or timedelta()))
 
     def test_get_does_not_start_workflow(self):
         response, mock_start = self._call("GET")
