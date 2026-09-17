@@ -88,6 +88,14 @@ describe('CLI confirmed-action runtime', () => {
         expect(outcome.ok).toBe(false)
     })
 
+    it('replaces a stored key that is too short to sign with', async () => {
+        await fs.writeFile(path.join(stateDir, 'confirmed-action-key'), 'short')
+
+        const hash = await prepare(stateDir)
+
+        expect((await execute(stateDir, hash)).ok).toBe(true)
+    })
+
     it('touches no files until a confirmed action needs the runtime', async () => {
         nextCliInvocation(stateDir)
 

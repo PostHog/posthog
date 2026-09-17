@@ -8,8 +8,8 @@
  * directory, and a file-backed store that carries the prepared payload from
  * one CLI process to the next.
  *
- * The key never leaves the machine, so a confirmation prepared on the CLI is
- * only valid on that CLI — which is what we want; it authorizes the local
+ * The key lives in that state directory, so a CLI confirmation is valid
+ * wherever the directory is — which is what we want; it authorizes the local
  * user's own next command, nothing else.
  */
 
@@ -28,6 +28,8 @@ import {
     SignedStateCodec,
 } from '@/lib/signed-state'
 import { type ConfirmedActionRuntime, setConfirmedActionRuntimeProvider } from '@/tools/confirmed-action-registry'
+
+import { errorCode } from './utils'
 
 export const STATE_DIR_ENV_VAR = 'POSTHOG_CLI_STATE_DIR'
 
@@ -69,15 +71,42 @@ function buildCliConfirmedActionRuntime(env: NodeJS.ProcessEnv): ConfirmedAction
 
 function loadOrCreateLocalKey(stateDir: string): Buffer {
     const file = path.join(stateDir, KEY_FILE_NAME)
-    if (fs.existsSync(file)) {
-        const existing = fs.readFileSync(file, 'utf-8').trim()
-        if (Buffer.byteLength(existing, 'utf8') >= SIGNING_KEY_MIN_BYTES) {
-            return Buffer.from(existing, 'utf8')
-        }
+    const existing = readLocalKey(file)
+    if (existing) {
+        return existing
     }
 
     const generated = randomBytes(SIGNING_KEY_MIN_BYTES).toString('hex')
     fs.mkdirSync(stateDir, { mode: 0o700, recursive: true })
-    fs.writeFileSync(file, generated, { mode: 0o600 })
+    try {
+        // Exclusive create. Two first-run commands must agree on one key,
+        // because a hash the first signs fails verification under a key the
+        // second wrote over it.
+        fs.writeFileSync(file, generated, { flag: 'wx', mode: 0o600 })
+    } catch (error) {
+        if (errorCode(error) !== 'EEXIST') {
+            throw error
+        }
+        const other = readLocalKey(file)
+        if (other) {
+            return other
+        }
+        // The file is there but too short to sign with, so nothing usable
+        // was ever signed under it. Replace it.
+        fs.writeFileSync(file, generated, { mode: 0o600 })
+    }
     return Buffer.from(generated, 'utf8')
+}
+
+function readLocalKey(file: string): Buffer | undefined {
+    let raw: string
+    try {
+        raw = fs.readFileSync(file, 'utf-8').trim()
+    } catch (error) {
+        if (errorCode(error) === 'ENOENT') {
+            return undefined
+        }
+        throw error
+    }
+    return Buffer.byteLength(raw, 'utf8') >= SIGNING_KEY_MIN_BYTES ? Buffer.from(raw, 'utf8') : undefined
 }

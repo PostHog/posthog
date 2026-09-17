@@ -413,7 +413,7 @@ Product teams own their definitions and control which operations are exposed as 
    - Cannot combine `confirmed_action` with `input_schema` – custom input schemas do not use the confirmed-action codegen path yet.
    - Cannot combine `confirmed_action` with `ui_app` – the codegen doesn't wrap the execute factory with `withUiApp` yet.
    - Requires the `MCP_SIGNED_STATE_KEY` environment variable (≥32 bytes) on every environment running the MCP Hono server. A missing or short key disables the paradigm at boot (non-`confirmed_action` tools keep working), and `-prepare`/`-execute` calls fail at request time with a message pointing at the env var.
-   - The CLI (`posthog-cli api`) runs the same handlers without Redis or a server key, so it installs its own runtime instead: a signing key generated once into its local state directory, and a file-backed store that carries the prepared payload from the prepare command to the execute command. Set `POSTHOG_CLI_STATE_DIR` to move that directory; a confirmation prepared on the CLI is valid only on that machine.
+   - The CLI (`posthog-cli api`) runs the same handlers without Redis or a server key, so it installs its own runtime instead: a signing key generated once into its local state directory, and a file-backed store that carries the prepared payload from the prepare command to the execute command. Set `POSTHOG_CLI_STATE_DIR` to move that directory; a CLI confirmation is valid wherever that directory is available.
 
 3. **Generate** handlers and schemas:
 
