@@ -2029,9 +2029,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         check = self._create_check()
         other_team = self.create_team_with_organization(self.organization)
 
-        response = self.client.get(
-            f"/api/projects/{other_team.id}/warehouse_saved_queries/{self.view.id}/checks/{check.id}/"
-        )
+        response = self.client.get(f"/api/projects/{other_team.id}/data_quality_checks/{check.id}/")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
