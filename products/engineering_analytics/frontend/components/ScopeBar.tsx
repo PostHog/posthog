@@ -216,8 +216,6 @@ const RUN_SCOPE_SEGMENTS = RUN_SCOPE_OPTIONS.map((option) => ({
     'data-attr': `engineering-analytics-run-scope-${option.value}`,
 }))
 
-/** The shared run-scope control: four fixed groups that partition the repo's runs. Every workflow
- *  surface sends the picked group, so a drill-down reports the same population as the list it came from. */
 export function RunScopeControl(): JSX.Element {
     const { runScope } = useValues(engineeringAnalyticsFiltersLogic)
     const { setRunScope } = useActions(engineeringAnalyticsFiltersLogic)
@@ -260,7 +258,6 @@ export function ScopeDateFilter({
     )
 }
 
-/** The scope-panel rim both workflow pages share: run group on the left, window on the right. */
 export function WorkflowScopeControls(): JSX.Element {
     return (
         <>

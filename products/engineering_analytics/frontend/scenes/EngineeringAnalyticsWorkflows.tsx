@@ -43,7 +43,6 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
         <div className="flex flex-col gap-4">
             <RepoEntityHeader repoFullName={activeSource?.repo || ''} right={<SourceScopeChip pickerOnly />} />
 
-            {/* Scope + window govern every surface inside the panel, the same scope the overview carries. */}
             <ScopePanel busy={workflowHealthLoading && workflowHealth.length > 0} controls={<WorkflowScopeControls />}>
                 <WorkflowsHealthHeader
                     summary={fleetSummary}

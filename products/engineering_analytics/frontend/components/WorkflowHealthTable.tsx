@@ -109,19 +109,13 @@ export function WorkflowHealthTable({
     compact = false,
 }: WorkflowHealthTableProps): JSX.Element {
     const { searchParams } = useValues(router)
-    // Each row opens the workflow's runs page, carrying the active window, run scope, and source so the
-    // drill-down reports the same group of runs.
     const rowUrl = (row: WorkflowHealthRow): string =>
         withScope(
             urls.engineeringAnalyticsWorkflowRuns(row.repoOwner, row.repoName, row.workflowName),
             searchParams,
             sourceId
         )
-    // Workflows the merge queue runs come first, because they gate every merge. Failing workflows stay
-    // findable through the Status tag and its sorter, so they need no pass of their own.
     const orderedRows = orderWorkflowHealthRows(rows)
-    // Computed once for the whole table: without a gating row there is nothing to rank against, so a repo
-    // with no merge queue mutes nothing.
     const hasGatingRow = orderedRows.some(isGatingWorkflow)
     const columns: LemonTableColumns<WorkflowHealthRow> = [
         {

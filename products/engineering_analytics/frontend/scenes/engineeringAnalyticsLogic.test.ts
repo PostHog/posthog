@@ -345,8 +345,6 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('scopes workflow health to the shared run group', async () => {
-        // The scope lives in the shared filters logic so it carries into the workflow detail page; the
-        // Workflows tab reads it and reloads workflow health whenever the group changes.
         logic = engineeringAnalyticsLogic()
         logic.mount()
         const filters = engineeringAnalyticsFiltersLogic()
@@ -359,7 +357,6 @@ describe('engineeringAnalyticsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealth', 'loadWorkflowHealthSuccess'])
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d', run_scope: 'pull_request' })
 
-        // The group persists across a window change.
         filters.actions.setDateRange('-90d', null)
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d', run_scope: 'pull_request' })
