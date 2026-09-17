@@ -7,9 +7,11 @@ import { normalizeParamAliases } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
     withAgentNote,
+    withPageOffsets,
     pickResponseFields,
     withInformationalResponse,
     type WithPostHogUrl,
+    type WithPageOffsets,
     type WithAgentNote,
     type WithInformationalResponse,
 } from '@/tools/tool-utils'
@@ -76,7 +78,7 @@ const InboxReportArtefactsListSchema = () => {
 
 const inboxReportArtefactsList = (): ToolBase<
     ReturnType<typeof InboxReportArtefactsListSchema>,
-    WithAgentNote<WithPostHogUrl<Schemas.PaginatedSignalReportArtefactList>>
+    WithAgentNote<WithPostHogUrl<WithPageOffsets<Schemas.PaginatedSignalReportArtefactList>>>
 > => ({
     name: 'inbox-report-artefacts-list',
     schema: InboxReportArtefactsListSchema(),
@@ -90,8 +92,9 @@ const inboxReportArtefactsList = (): ToolBase<
                 offset: params.offset,
             },
         })
+        const paged = withPageOffsets(result)
         return withAgentNote(
-            await withPostHogUrl(context, result, '/inbox'),
+            await withPostHogUrl(context, paged, '/inbox'),
             "Find the newest applicable `## Verification plan`. Treat it as guidance, not evidence. Confirm the current state before work and the outcome after the chosen resolution. Missing or inconclusive evidence does not show resolution. If the issue no longer occurs, record the result and reassess the report. If no plan applies, verify the issue from the report's evidence.\n"
         )
     },
@@ -237,7 +240,7 @@ const InboxReportsListSchema = () => {
 
 const inboxReportsList = (): ToolBase<
     ReturnType<typeof InboxReportsListSchema>,
-    WithAgentNote<WithPostHogUrl<Schemas.PaginatedSignalReportListList>>
+    WithAgentNote<WithPostHogUrl<WithPageOffsets<Schemas.PaginatedSignalReportListList>>>
 > => ({
     name: 'inbox-reports-list',
     schema: InboxReportsListSchema(),
@@ -307,13 +310,14 @@ const inboxReportsList = (): ToolBase<
                 ])
             ),
         } as typeof result
+        const paged = withPageOffsets(filtered)
         return withAgentNote(
             await withPostHogUrl(
                 context,
                 {
-                    ...filtered,
+                    ...paged,
                     results: await Promise.all(
-                        (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/inbox/${item.id}`))
+                        (paged.results ?? []).map((item) => withPostHogUrl(context, item, `/inbox/${item.id}`))
                     ),
                 },
                 '/inbox'
@@ -461,7 +465,7 @@ const InboxSourceConfigsListSchema = () => {
 
 const inboxSourceConfigsList = (): ToolBase<
     ReturnType<typeof InboxSourceConfigsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedSignalSourceConfigList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedSignalSourceConfigList>>
 > => ({
     name: 'inbox-source-configs-list',
     schema: InboxSourceConfigsListSchema(),
@@ -489,7 +493,8 @@ const inboxSourceConfigsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/inbox')
+        const paged = withPageOffsets(filtered)
+        return await withPostHogUrl(context, paged, '/inbox')
     },
 })
 

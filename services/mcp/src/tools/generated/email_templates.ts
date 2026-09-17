@@ -5,7 +5,13 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/email_templates/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { EmailTemplateDesignPatchSchema } from '@/schema/tool-inputs'
-import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    omitResponseFields,
+    withPageOffsets,
+    type WithPostHogUrl,
+    type WithPageOffsets,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const WorkflowsCreateEmailTemplateSchema = () => {
@@ -79,7 +85,7 @@ const WorkflowsListEmailTemplatesSchema = () => {
 
 const workflowsListEmailTemplates = (): ToolBase<
     ReturnType<typeof WorkflowsListEmailTemplatesSchema>,
-    WithPostHogUrl<Schemas.PaginatedMessageTemplateList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedMessageTemplateList>>
 > => ({
     name: 'workflows-list-email-templates',
     schema: WorkflowsListEmailTemplatesSchema(),
@@ -97,12 +103,13 @@ const workflowsListEmailTemplates = (): ToolBase<
             ...result,
             results: (result.results ?? []).map((item: any) => omitResponseFields(item, ['content', 'created_by'])),
         } as typeof result
+        const paged = withPageOffsets(filtered)
         return await withPostHogUrl(
             context,
             {
-                ...filtered,
+                ...paged,
                 results: await Promise.all(
-                    (filtered.results ?? []).map((item) =>
+                    (paged.results ?? []).map((item) =>
                         withPostHogUrl(context, item, `/workflows/library/templates/${item.id}`)
                     )
                 ),

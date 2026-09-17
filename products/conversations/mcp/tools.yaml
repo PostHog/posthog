@@ -44,9 +44,10 @@ tools:
             triage result, date range, and search. To work with a saved ticket view, pass its short_id as the `view`
             parameter (find it via conversations-views-list); the view's saved filters are applied server-side, and any
             filter parameter passed explicitly overrides the view's value for that dimension. Results are paginated and
-            ordered by updated_at descending by default. Returns ticket metadata including status, priority, message
-            counts, and timestamps. Use conversations-tickets-retrieve for one ticket's full details and
-            conversations-tickets-messages-retrieve for its message thread.
+            ordered by updated_at descending by default; page with `next_offset` from the response, and stop when it is
+            null. Returns ticket metadata including status, priority, message counts, and timestamps. Use
+            conversations-tickets-retrieve for one ticket's full details and conversations-tickets-messages-retrieve for
+            its message thread.
         response:
             include:
                 - id
@@ -75,10 +76,10 @@ tools:
         title: Read support ticket messages
         description: >
             Return a support ticket's message thread, ordered chronologically. The response is paginated (default 50,
-            max 200 per page) — use the limit and offset query params to page through long threads, and read count/next
-            from the response envelope. Includes all messages from the customer, team members, and AI, as well as
-            private internal notes. Each message contains author_type, author_name, content, and an is_private flag
-            indicating internal notes.
+            max 200 per page) — read `count` for the thread length and `next_offset` for the offset of the next page,
+            then call again with that offset. A null `next_offset` means the thread ends here. Includes all messages
+            from the customer, team members, and AI, as well as private internal notes. Each message contains
+            author_type, author_name, content, and an is_private flag indicating internal notes.
     conversations-tickets-notes-destroy:
         operation: conversations_tickets_notes_destroy
         enabled: true
@@ -139,7 +140,10 @@ tools:
         title: Get support ticket
         description: >
             Get a specific support ticket by ID or ticket number. Returns full ticket details including status,
-            priority, assignee, message count, channel info, person data, and session context.
+            priority, assignee, message count, channel info, session context, and the reporter's identity. `person`
+            carries the identity fields only: id, name, distinct_ids, is_identified and created_at. It carries no person
+            properties, because a full property set crowds the ticket content out of the response. Read those with the
+            persons tools when your task needs them.
         agent_note:
             The PostHog Assistant may have investigated this ticket and written self-driving reports into the Inbox. To
             surface them, call inbox-reports-list with source_id set to this ticket's `id` and
@@ -162,7 +166,11 @@ tools:
                 - anonymous_traits
                 - session_context
                 - session_id
-                - person
+                - person.id
+                - person.name
+                - person.distinct_ids
+                - person.is_identified
+                - person.created_at
                 - email_from
                 - email_to
                 - email_subject

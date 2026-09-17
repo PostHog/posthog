@@ -7,9 +7,11 @@ import { normalizeParamAliases } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
     withInformationalResponse,
+    withPageOffsets,
     pickResponseFields,
     omitResponseFields,
     type WithPostHogUrl,
+    type WithPageOffsets,
     type WithInformationalResponse,
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -177,7 +179,7 @@ const NotebooksListSchema = () => {
 
 const notebooksList = (): ToolBase<
     ReturnType<typeof NotebooksListSchema>,
-    WithPostHogUrl<Schemas.PaginatedNotebookMinimalList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedNotebookMinimalList>>
 > => ({
     name: 'notebooks-list',
     schema: NotebooksListSchema(),
@@ -196,7 +198,8 @@ const notebooksList = (): ToolBase<
                 user: params.user,
             },
         })
-        return await withPostHogUrl(context, result, '/notebooks')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/notebooks')
     },
 })
 

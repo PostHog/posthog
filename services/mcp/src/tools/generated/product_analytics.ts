@@ -9,7 +9,9 @@ import {
     withAgentNote,
     omitResponseFields,
     pickResponseFields,
+    withPageOffsets,
     type WithPostHogUrl,
+    type WithPageOffsets,
     type WithAgentNote,
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -516,7 +518,7 @@ const InsightsListSchema = () => {
 
 const insightsList = (): ToolBase<
     ReturnType<typeof InsightsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedInsightList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedInsightList>>
 > => ({
     name: 'insights-list',
     schema: InsightsListSchema(),
@@ -567,12 +569,13 @@ const insightsList = (): ToolBase<
                 ])
             ),
         } as typeof result
+        const paged = withPageOffsets(filtered)
         return await withPostHogUrl(
             context,
             {
-                ...filtered,
+                ...paged,
                 results: await Promise.all(
-                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/insights/${item.short_id}`))
+                    (paged.results ?? []).map((item) => withPostHogUrl(context, item, `/insights/${item.short_id}`))
                 ),
             },
             '/insights'
@@ -587,7 +590,7 @@ const InsightsTrendingRetrieveSchema = () => {
 
 const insightsTrendingRetrieve = (): ToolBase<
     ReturnType<typeof InsightsTrendingRetrieveSchema>,
-    WithPostHogUrl<Schemas.PaginatedTrendingInsightList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedTrendingInsightList>>
 > => ({
     name: 'insights-trending-retrieve',
     schema: InsightsTrendingRetrieveSchema(),
@@ -625,12 +628,13 @@ const insightsTrendingRetrieve = (): ToolBase<
                 ])
             ),
         } as typeof result
+        const paged = withPageOffsets(filtered)
         return await withPostHogUrl(
             context,
             {
-                ...filtered,
+                ...paged,
                 results: await Promise.all(
-                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/insights/${item.short_id}`))
+                    (paged.results ?? []).map((item) => withPostHogUrl(context, item, `/insights/${item.short_id}`))
                 ),
             },
             '/insights'

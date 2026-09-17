@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/messaging/api'
+import { withPageOffsets, type WithPageOffsets } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const OptOutsAddSchema = () => {
@@ -36,7 +37,7 @@ const OptOutsListSchema = () => {
     return MessagingPreferencesOptOutsRetrieveQueryParams
 }
 
-const optOutsList = (): ToolBase<ReturnType<typeof OptOutsListSchema>, Schemas.PaginatedOptOuts> => ({
+const optOutsList = (): ToolBase<ReturnType<typeof OptOutsListSchema>, WithPageOffsets<Schemas.PaginatedOptOuts>> => ({
     name: 'opt-outs-list',
     schema: OptOutsListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof OptOutsListSchema>>) => {
@@ -51,7 +52,8 @@ const optOutsList = (): ToolBase<ReturnType<typeof OptOutsListSchema>, Schemas.P
                 search: params.search,
             },
         })
-        return result
+        const paged = withPageOffsets(result)
+        return paged
     },
 })
 

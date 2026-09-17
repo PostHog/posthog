@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/streamlit_apps/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, withPageOffsets, type WithPostHogUrl, type WithPageOffsets } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const StreamlitAppsCreateSchema = () => {
@@ -87,7 +87,7 @@ const StreamlitAppsListSchema = () => {
 
 const streamlitAppsList = (): ToolBase<
     ReturnType<typeof StreamlitAppsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedAppSummaryContractList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedAppSummaryContractList>>
 > => ({
     name: 'streamlit-apps-list',
     schema: StreamlitAppsListSchema(),
@@ -101,12 +101,13 @@ const streamlitAppsList = (): ToolBase<
                 offset: params.offset,
             },
         })
+        const paged = withPageOffsets(result)
         return await withPostHogUrl(
             context,
             {
-                ...result,
+                ...paged,
                 results: await Promise.all(
-                    (result.results ?? []).map((item) =>
+                    (paged.results ?? []).map((item) =>
                         withPostHogUrl(context, item, `/streamlit-apps/${item.short_id}`)
                     )
                 ),

@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/health_issues/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, withPageOffsets, type WithPostHogUrl, type WithPageOffsets } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const HealthIssuesGetSchema = () => {
@@ -31,7 +31,7 @@ const HealthIssuesListSchema = () => {
 
 const healthIssuesList = (): ToolBase<
     ReturnType<typeof HealthIssuesListSchema>,
-    WithPostHogUrl<Schemas.PaginatedHealthIssueList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedHealthIssueList>>
 > => ({
     name: 'health-issues-list',
     schema: HealthIssuesListSchema(),
@@ -49,7 +49,8 @@ const healthIssuesList = (): ToolBase<
                 status: params.status,
             },
         })
-        return await withPostHogUrl(context, result, '/health')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/health')
     },
 })
 

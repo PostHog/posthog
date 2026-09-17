@@ -3,7 +3,14 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/cdp_functions/api'
-import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    omitResponseFields,
+    pickResponseFields,
+    withPageOffsets,
+    type WithPostHogUrl,
+    type WithPageOffsets,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CdpFunctionsCreateSchema = () => {
@@ -194,7 +201,7 @@ const CdpFunctionsListSchema = () => {
 
 const cdpFunctionsList = (): ToolBase<
     ReturnType<typeof CdpFunctionsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedHogFunctionMinimalList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedHogFunctionMinimalList>>
 > => ({
     name: 'cdp-functions-list',
     schema: CdpFunctionsListSchema(),
@@ -234,7 +241,8 @@ const cdpFunctionsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/pipeline')
+        const paged = withPageOffsets(filtered)
+        return await withPostHogUrl(context, paged, '/pipeline')
     },
 })
 
@@ -246,7 +254,7 @@ const CdpFunctionsListRevisionsSchema = () => {
 
 const cdpFunctionsListRevisions = (): ToolBase<
     ReturnType<typeof CdpFunctionsListRevisionsSchema>,
-    WithPostHogUrl<Schemas.PaginatedHogFunctionRevisionBasicList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedHogFunctionRevisionBasicList>>
 > => ({
     name: 'cdp-functions-list-revisions',
     schema: CdpFunctionsListRevisionsSchema(),
@@ -260,7 +268,8 @@ const cdpFunctionsListRevisions = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/pipeline')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/pipeline')
     },
 })
 

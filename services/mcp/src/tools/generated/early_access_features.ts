@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/early_access_features/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, withPageOffsets, type WithPostHogUrl, type WithPageOffsets } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const EarlyAccessFeatureCreateSchema = () => {
@@ -72,7 +72,7 @@ const EarlyAccessFeatureListSchema = () => {
 
 const earlyAccessFeatureList = (): ToolBase<
     ReturnType<typeof EarlyAccessFeatureListSchema>,
-    WithPostHogUrl<Schemas.PaginatedEarlyAccessFeatureList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedEarlyAccessFeatureList>>
 > => ({
     name: 'early-access-feature-list',
     schema: EarlyAccessFeatureListSchema(),
@@ -86,7 +86,8 @@ const earlyAccessFeatureList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/early_access_features')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/early_access_features')
     },
 })
 

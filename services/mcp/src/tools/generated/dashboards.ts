@@ -10,8 +10,10 @@ import {
     withAgentNote,
     omitResponseFields,
     stripNullFields,
+    withPageOffsets,
     withInformationalResponse,
     type WithPostHogUrl,
+    type WithPageOffsets,
     type WithAgentNote,
     type WithInformationalResponse,
 } from '@/tools/tool-utils'
@@ -414,7 +416,7 @@ const DashboardTemplatesListSchema = () => {
 
 const dashboardTemplatesList = (): ToolBase<
     ReturnType<typeof DashboardTemplatesListSchema>,
-    WithInformationalResponse<WithPostHogUrl<Schemas.PaginatedDashboardTemplateList>>
+    WithInformationalResponse<WithPostHogUrl<WithPageOffsets<Schemas.PaginatedDashboardTemplateList>>>
 > => ({
     name: 'dashboard-templates-list',
     schema: DashboardTemplatesListSchema(),
@@ -444,8 +446,9 @@ const dashboardTemplatesList = (): ToolBase<
                 ])
             ),
         } as typeof result
+        const paged = withPageOffsets(filtered)
         return withInformationalResponse(
-            await withPostHogUrl(context, filtered, '/dashboard'),
+            await withPostHogUrl(context, paged, '/dashboard'),
             'dashboard-template-references',
             "Use it only to identify potentially relevant templates for the user's request."
         )
@@ -803,7 +806,7 @@ const DashboardsGetAllSchema = () => {
 
 const dashboardsGetAll = (): ToolBase<
     ReturnType<typeof DashboardsGetAllSchema>,
-    WithPostHogUrl<Schemas.PaginatedDashboardBasicList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedDashboardBasicList>>
 > => ({
     name: 'dashboards-get-all',
     schema: DashboardsGetAllSchema(),
@@ -821,12 +824,13 @@ const dashboardsGetAll = (): ToolBase<
                 search: params.search,
             },
         })
+        const paged = withPageOffsets(result)
         return await withPostHogUrl(
             context,
             {
-                ...result,
+                ...paged,
                 results: await Promise.all(
-                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/dashboard/${item.id}`))
+                    (paged.results ?? []).map((item) => withPostHogUrl(context, item, `/dashboard/${item.id}`))
                 ),
             },
             '/dashboard'

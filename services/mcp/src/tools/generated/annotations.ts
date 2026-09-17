@@ -4,7 +4,13 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/annotations/api'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    omitResponseFields,
+    withPageOffsets,
+    type WithPostHogUrl,
+    type WithPageOffsets,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const AnnotationCreateSchema = () => {
@@ -93,7 +99,7 @@ const AnnotationsListSchema = () => {
 
 const annotationsList = (): ToolBase<
     ReturnType<typeof AnnotationsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedAnnotationList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedAnnotationList>>
 > => ({
     name: 'annotations-list',
     schema: AnnotationsListSchema(),
@@ -122,7 +128,8 @@ const annotationsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/data-management/annotations')
+        const paged = withPageOffsets(filtered)
+        return await withPostHogUrl(context, paged, '/data-management/annotations')
     },
 })
 

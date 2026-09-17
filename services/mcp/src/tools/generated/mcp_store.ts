@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/mcp_store/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, withPageOffsets, type WithPostHogUrl, type WithPageOffsets } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const McpConnectionToolsListSchema = () => {
@@ -13,7 +13,7 @@ const McpConnectionToolsListSchema = () => {
 
 const mcpConnectionToolsList = (): ToolBase<
     ReturnType<typeof McpConnectionToolsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedMCPServerInstallationToolList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedMCPServerInstallationToolList>>
 > => ({
     name: 'mcp-connection-tools-list',
     schema: McpConnectionToolsListSchema(),
@@ -23,7 +23,8 @@ const mcpConnectionToolsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_server_installations/${encodeURIComponent(String(params.id))}/tools/`,
         })
-        return await withPostHogUrl(context, result, '/settings/mcp-servers')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/settings/mcp-servers')
     },
 })
 
@@ -34,7 +35,7 @@ const McpConnectionsListSchema = () => {
 
 const mcpConnectionsList = (): ToolBase<
     ReturnType<typeof McpConnectionsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedMCPServerInstallationList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedMCPServerInstallationList>>
 > => ({
     name: 'mcp-connections-list',
     schema: McpConnectionsListSchema(),
@@ -48,7 +49,8 @@ const mcpConnectionsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/settings/mcp-servers')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/settings/mcp-servers')
     },
 })
 

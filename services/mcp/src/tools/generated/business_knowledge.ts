@@ -4,7 +4,13 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/business_knowledge/api'
 import { BusinessKnowledgeUrlSourceCreateSchema } from '@/schema/tool-inputs'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    pickResponseFields,
+    withPageOffsets,
+    type WithPostHogUrl,
+    type WithPageOffsets,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const BusinessKnowledgeDocumentWindowRetrieveSchema = () => {
@@ -73,7 +79,7 @@ const BusinessKnowledgeSourcesListSchema = () => {
 
 const businessKnowledgeSourcesList = (): ToolBase<
     ReturnType<typeof BusinessKnowledgeSourcesListSchema>,
-    WithPostHogUrl<Schemas.PaginatedKnowledgeSourceList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedKnowledgeSourceList>>
 > => ({
     name: 'business-knowledge-sources-list',
     schema: BusinessKnowledgeSourcesListSchema(),
@@ -110,7 +116,8 @@ const businessKnowledgeSourcesList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/business-knowledge')
+        const paged = withPageOffsets(filtered)
+        return await withPostHogUrl(context, paged, '/business-knowledge')
     },
 })
 

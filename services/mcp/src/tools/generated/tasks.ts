@@ -14,7 +14,14 @@ import {
     prepareConfirmedAction,
     type PrepareConfirmedActionResult,
 } from '@/tools/confirmed-action-runtime'
-import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    withPageOffsets,
+    pickResponseFields,
+    omitResponseFields,
+    type WithPostHogUrl,
+    type WithPageOffsets,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ChannelCreateSchema = () => {
@@ -116,7 +123,10 @@ const ChannelListSchema = () => {
     return TaskChannelsListQueryParams
 }
 
-const channelList = (): ToolBase<ReturnType<typeof ChannelListSchema>, Schemas.PaginatedChannelDTOList> => ({
+const channelList = (): ToolBase<
+    ReturnType<typeof ChannelListSchema>,
+    WithPageOffsets<Schemas.PaginatedChannelDTOList>
+> => ({
     name: 'channel-list',
     schema: ChannelListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ChannelListSchema>>) => {
@@ -129,7 +139,8 @@ const channelList = (): ToolBase<ReturnType<typeof ChannelListSchema>, Schemas.P
                 offset: params.offset,
             },
         })
-        return result
+        const paged = withPageOffsets(result)
+        return paged
     },
 })
 
@@ -345,7 +356,10 @@ const LoopsListSchema = () => {
     return LoopsListQueryParams
 }
 
-const loopsList = (): ToolBase<ReturnType<typeof LoopsListSchema>, WithPostHogUrl<Schemas.PaginatedLoopDTOList>> => ({
+const loopsList = (): ToolBase<
+    ReturnType<typeof LoopsListSchema>,
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedLoopDTOList>>
+> => ({
     name: 'loops-list',
     schema: LoopsListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof LoopsListSchema>>) => {
@@ -358,7 +372,8 @@ const loopsList = (): ToolBase<ReturnType<typeof LoopsListSchema>, WithPostHogUr
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/tasks')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/tasks')
     },
 })
 
@@ -701,7 +716,7 @@ const TasksListSchema = () => {
 
 const tasksList = (): ToolBase<
     ReturnType<typeof TasksListSchema>,
-    WithPostHogUrl<Schemas.PaginatedTaskListItemList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedTaskListItemList>>
 > => ({
     name: 'tasks-list',
     schema: TasksListSchema(),
@@ -760,12 +775,13 @@ const tasksList = (): ToolBase<
                 ])
             ),
         } as typeof result
+        const paged = withPageOffsets(filtered)
         return await withPostHogUrl(
             context,
             {
-                ...filtered,
+                ...paged,
                 results: await Promise.all(
-                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/tasks/${item.id}`))
+                    (paged.results ?? []).map((item) => withPostHogUrl(context, item, `/tasks/${item.id}`))
                 ),
             },
             '/tasks'
@@ -908,7 +924,7 @@ const TasksRunsListSchema = () => {
 
 const tasksRunsList = (): ToolBase<
     ReturnType<typeof TasksRunsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedTaskRunDetailDTOList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedTaskRunDetailDTOList>>
 > => ({
     name: 'tasks-runs-list',
     schema: TasksRunsListSchema(),
@@ -940,7 +956,8 @@ const tasksRunsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/tasks')
+        const paged = withPageOffsets(filtered)
+        return await withPostHogUrl(context, paged, '/tasks')
     },
 })
 

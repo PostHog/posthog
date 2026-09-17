@@ -4,7 +4,13 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/persons/api'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    pickResponseFields,
+    withPageOffsets,
+    type WithPostHogUrl,
+    type WithPageOffsets,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const PersonsBulkDeleteSchema = () => {
@@ -73,7 +79,7 @@ const PersonsListSchema = () => {
 
 const personsList = (): ToolBase<
     ReturnType<typeof PersonsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedPersonRecordList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedPersonRecordList>>
 > => ({
     name: 'persons-list',
     schema: PersonsListSchema(),
@@ -107,7 +113,8 @@ const personsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/persons')
+        const paged = withPageOffsets(filtered)
+        return await withPostHogUrl(context, paged, '/persons')
     },
 })
 

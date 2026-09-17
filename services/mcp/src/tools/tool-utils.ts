@@ -79,6 +79,51 @@ export function withInformationalResponse<T>(result: T, tag: string, purpose?: s
 }
 
 /**
+ * A paginated envelope whose `next`/`previous` links are replaced by the offsets to page with.
+ */
+export type WithPageOffsets<T> = Omit<T, 'next' | 'previous'> & {
+    next_offset: number | null
+    previous_offset: number | null
+}
+
+/**
+ * Replace a paginated envelope's `next`/`previous` links with the offsets they point at.
+ *
+ * An agent pages by calling the tool again with `offset`, never by fetching a URL, and the
+ * links are absolute URLs built from the hostname the MCP server reached the API on — which
+ * deployments can route over a cluster-internal name (see `ApiConfig.publicBaseUrl`).
+ */
+export function withPageOffsets<T>(result: T): WithPageOffsets<T> {
+    if (result === null || typeof result !== 'object' || Array.isArray(result)) {
+        return result as WithPageOffsets<T>
+    }
+    const { next, previous, ...rest } = result as Record<string, unknown>
+    return {
+        ...rest,
+        next_offset: offsetFromPageLink(next, null),
+        // A link back to the very first page carries no `offset` param, so read it as offset 0.
+        previous_offset: offsetFromPageLink(previous, 0),
+    } as WithPageOffsets<T>
+}
+
+function offsetFromPageLink(link: unknown, missingParam: number | null): number | null {
+    if (typeof link !== 'string') {
+        return null
+    }
+    let rawOffset: string | null
+    try {
+        rawOffset = new URL(link, 'http://pagination.invalid').searchParams.get('offset')
+    } catch {
+        return null
+    }
+    if (rawOffset === null) {
+        return missingParam
+    }
+    const offset = Number(rawOffset)
+    return Number.isInteger(offset) && offset >= 0 ? offset : null
+}
+
+/**
  * Pick only fields matching the given dot-path patterns.
  * Supports wildcards: `'groups.*.key'` iterates all array items / object keys.
  */

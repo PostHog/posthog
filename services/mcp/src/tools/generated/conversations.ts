@@ -7,7 +7,9 @@ import {
     withPostHogUrl,
     withAgentNote,
     pickResponseFields,
+    withPageOffsets,
     type WithPostHogUrl,
+    type WithPageOffsets,
     type WithAgentNote,
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -19,7 +21,7 @@ const ConversationsTicketsListSchema = () => {
 
 const conversationsTicketsList = (): ToolBase<
     ReturnType<typeof ConversationsTicketsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedTicketList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedTicketList>>
 > => ({
     name: 'conversations-tickets-list',
     schema: ConversationsTicketsListSchema(),
@@ -69,7 +71,8 @@ const conversationsTicketsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/support/tickets')
+        const paged = withPageOffsets(filtered)
+        return await withPostHogUrl(context, paged, '/support/tickets')
     },
 })
 
@@ -83,7 +86,7 @@ const ConversationsTicketsMessagesRetrieveSchema = () => {
 
 const conversationsTicketsMessagesRetrieve = (): ToolBase<
     ReturnType<typeof ConversationsTicketsMessagesRetrieveSchema>,
-    Schemas.PaginatedTicketMessageList
+    WithPageOffsets<Schemas.PaginatedTicketMessageList>
 > => ({
     name: 'conversations-tickets-messages-retrieve',
     schema: ConversationsTicketsMessagesRetrieveSchema(),
@@ -100,7 +103,8 @@ const conversationsTicketsMessagesRetrieve = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return result
+        const paged = withPageOffsets(result)
+        return paged
     },
 })
 
@@ -228,7 +232,11 @@ const conversationsTicketsRetrieve = (): ToolBase<
             'anonymous_traits',
             'session_context',
             'session_id',
-            'person',
+            'person.id',
+            'person.name',
+            'person.distinct_ids',
+            'person.is_identified',
+            'person.created_at',
             'email_from',
             'email_to',
             'email_subject',
@@ -333,7 +341,7 @@ const ConversationsViewsListSchema = () => {
 
 const conversationsViewsList = (): ToolBase<
     ReturnType<typeof ConversationsViewsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedTicketViewList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedTicketViewList>>
 > => ({
     name: 'conversations-views-list',
     schema: ConversationsViewsListSchema(),
@@ -351,7 +359,8 @@ const conversationsViewsList = (): ToolBase<
             ...result,
             results: (result.results ?? []).map((item: any) => pickResponseFields(item, ['short_id', 'name'])),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/support/tickets')
+        const paged = withPageOffsets(filtered)
+        return await withPostHogUrl(context, paged, '/support/tickets')
     },
 })
 

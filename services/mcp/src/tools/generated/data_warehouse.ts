@@ -5,9 +5,11 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/data_warehouse/api'
 import {
     withPostHogUrl,
+    withPageOffsets,
     pickResponseFields,
     withInformationalResponse,
     type WithPostHogUrl,
+    type WithPageOffsets,
     type WithInformationalResponse,
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -99,7 +101,7 @@ const SavedQueryColumnAnnotationsListSchema = () => {
 
 const savedQueryColumnAnnotationsList = (): ToolBase<
     ReturnType<typeof SavedQueryColumnAnnotationsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedDataWarehouseSavedQueryColumnAnnotationList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedDataWarehouseSavedQueryColumnAnnotationList>>
 > => ({
     name: 'saved-query-column-annotations-list',
     schema: SavedQueryColumnAnnotationsListSchema(),
@@ -114,7 +116,8 @@ const savedQueryColumnAnnotationsList = (): ToolBase<
                 saved_query_id: params.saved_query_id,
             },
         })
-        return await withPostHogUrl(context, result, '/sql')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/sql')
     },
 })
 
@@ -316,7 +319,7 @@ const ViewListSchema = () => {
 
 const viewList = (): ToolBase<
     ReturnType<typeof ViewListSchema>,
-    WithPostHogUrl<Schemas.PaginatedDataWarehouseSavedQueryMinimalList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedDataWarehouseSavedQueryMinimalList>>
 > => ({
     name: 'view-list',
     schema: ViewListSchema(),
@@ -330,12 +333,13 @@ const viewList = (): ToolBase<
                 search: params.search,
             },
         })
+        const paged = withPageOffsets(result)
         return await withPostHogUrl(
             context,
             {
-                ...result,
+                ...paged,
                 results: await Promise.all(
-                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/sql?open_view=${item.id}`))
+                    (paged.results ?? []).map((item) => withPostHogUrl(context, item, `/sql?open_view=${item.id}`))
                 ),
             },
             '/sql'
@@ -580,7 +584,7 @@ const WarehouseColumnAnnotationsListSchema = () => {
 
 const warehouseColumnAnnotationsList = (): ToolBase<
     ReturnType<typeof WarehouseColumnAnnotationsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedWarehouseColumnAnnotationList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedWarehouseColumnAnnotationList>>
 > => ({
     name: 'warehouse-column-annotations-list',
     schema: WarehouseColumnAnnotationsListSchema(),
@@ -595,7 +599,8 @@ const warehouseColumnAnnotationsList = (): ToolBase<
                 table_id: params.table_id,
             },
         })
-        return await withPostHogUrl(context, result, '/sql')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/sql')
     },
 })
 

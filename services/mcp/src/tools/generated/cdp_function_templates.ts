@@ -3,7 +3,13 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/cdp_function_templates/api'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    pickResponseFields,
+    withPageOffsets,
+    type WithPostHogUrl,
+    type WithPageOffsets,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CdpFunctionTemplatesListSchema = () => {
@@ -13,7 +19,7 @@ const CdpFunctionTemplatesListSchema = () => {
 
 const cdpFunctionTemplatesList = (): ToolBase<
     ReturnType<typeof CdpFunctionTemplatesListSchema>,
-    WithPostHogUrl<Schemas.PaginatedHogFunctionTemplateList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedHogFunctionTemplateList>>
 > => ({
     name: 'cdp-function-templates-list',
     schema: CdpFunctionTemplatesListSchema(),
@@ -46,7 +52,8 @@ const cdpFunctionTemplatesList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/pipeline/new')
+        const paged = withPageOffsets(filtered)
+        return await withPostHogUrl(context, paged, '/pipeline/new')
     },
 })
 

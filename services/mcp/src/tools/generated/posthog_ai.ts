@@ -6,8 +6,10 @@ import * as orvalSchemas from '@/generated/posthog_ai/api'
 import {
     withPostHogUrl,
     pickResponseFields,
+    withPageOffsets,
     withInformationalResponse,
     type WithPostHogUrl,
+    type WithPageOffsets,
     type WithInformationalResponse,
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -19,7 +21,7 @@ const ConversationsListSchema = () => {
 
 const conversationsList = (): ToolBase<
     ReturnType<typeof ConversationsListSchema>,
-    WithInformationalResponse<WithPostHogUrl<Schemas.PaginatedConversationMinimalList>>
+    WithInformationalResponse<WithPostHogUrl<WithPageOffsets<Schemas.PaginatedConversationMinimalList>>>
 > => ({
     name: 'conversations-list',
     schema: ConversationsListSchema(),
@@ -39,13 +41,14 @@ const conversationsList = (): ToolBase<
                 pickResponseFields(item, ['id', 'title', 'topic', 'status', 'type', 'created_at', 'updated_at'])
             ),
         } as typeof result
+        const paged = withPageOffsets(filtered)
         return withInformationalResponse(
             await withPostHogUrl(
                 context,
                 {
-                    ...filtered,
+                    ...paged,
                     results: await Promise.all(
-                        (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/ai?chat=${item.id}`))
+                        (paged.results ?? []).map((item) => withPostHogUrl(context, item, `/ai?chat=${item.id}`))
                     ),
                 },
                 '/ai'

@@ -323,6 +323,16 @@ Product teams own their definitions and control which operations are exposed as 
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
 
+   #### Paginated responses
+
+   Codegen recognizes a DRF paginated envelope from the response type and replaces its
+   `next` / `previous` links with `next_offset` / `previous_offset`.
+   There is no YAML switch for it.
+   The links are absolute URLs built from the hostname the MCP server reached the API on,
+   which a deployment can route over a cluster-internal name, and an agent pages by calling
+   the tool again with `offset` rather than by fetching a URL.
+   So write the tool description against `count` and `next_offset`, never against `next`.
+
    For generated list apps, `generate:ui-apps` also checks `detail_tool` and the
    `detail_args` keys against the tool's input schema snapshot, so a wrong argument
    name fails generation instead of silently dropping the argument at runtime.

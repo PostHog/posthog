@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/skills/api'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
+import { withPageOffsets, type WithPageOffsets } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const SkillArchiveSchema = () => {
@@ -255,7 +256,10 @@ const SkillListSchema = () => {
     return LlmSkillsListQueryParams
 }
 
-const skillList = (): ToolBase<ReturnType<typeof SkillListSchema>, Schemas.PaginatedLLMSkillListList> => ({
+const skillList = (): ToolBase<
+    ReturnType<typeof SkillListSchema>,
+    WithPageOffsets<Schemas.PaginatedLLMSkillListList>
+> => ({
     name: 'skill-list',
     schema: SkillListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof SkillListSchema>>) => {
@@ -272,7 +276,8 @@ const skillList = (): ToolBase<ReturnType<typeof SkillListSchema>, Schemas.Pagin
                 search: params.search,
             },
         })
-        return result
+        const paged = withPageOffsets(result)
+        return paged
     },
 })
 

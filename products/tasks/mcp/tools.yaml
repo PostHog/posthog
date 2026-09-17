@@ -86,8 +86,9 @@ tools:
         description: >
             List channels the requester can access: public channels, their personal #me channel, and private channels
             they belong to. Use a channel ID to create or list canvases or read instructions. Private channels can have
-            the same name, so identify them by ID. Send `limit` and `offset` to get a page with `count`, `next`,
-            `previous`, and `results`. Without `limit`, the response is an array of all accessible channels.
+            the same name, so identify them by ID. Send `limit` and `offset` to get a page with `count`, `results`, and
+            `next_offset` — the offset to send for the page after, or null at the end. Without `limit`, the response is
+            an array of all accessible channels.
     channel-retrieve:
         operation: task_channels_retrieve
         enabled: true
