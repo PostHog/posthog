@@ -16,7 +16,7 @@ class TestImportProblems:
             (
                 "description over the spec limit",
                 {"description": "d" * 1025},
-                "description is 1025 characters; the spec maximum is 1024",
+                "The description is 1025 characters. Shorten it to 1024 characters or fewer",
             ),
             ("license over the cap", {"license": "L" * 256}, "license must be 255 characters or fewer"),
             (
@@ -38,7 +38,7 @@ class TestImportProblems:
                         SkillFileExport(path="notes.md", content="b"),
                     ]
                 },
-                "file 'notes.md': collides with another file (case-insensitive)",
+                "file 'notes.md': Rename this file. It differs from 'Notes.md' only in letter case, so the two become one file on a case-insensitive filesystem.",
             ),
         ]
     )
