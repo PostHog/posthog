@@ -1,4 +1,4 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
 
@@ -13,7 +13,7 @@ from products.data_modeling.backend.facade import api as data_modeling_facade
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.enums import SubjectType
 from products.data_quality.backend.logic.subject_access import readable_subjects, subject_metadata
-from products.data_quality.backend.logic.subjects import resolve_subject, subject_column_type
+from products.data_quality.backend.logic.subjects import resolve_subject, selectable_subjects, subject_column_type
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -152,9 +152,12 @@ class TestReadableSubjectSnapshot(BaseTest):
         catalog_excluded = {table.id for table in tables if not database.has_table(table.name)}
         readable = readable_subjects(self.team.id, set())
         snapshot_excluded = {table.id for table in tables} - readable.table_ids
+        offered = {UUID(subject.id) for subject in selectable_subjects(self.team.id, {SubjectType.TABLE})}
+        offered_excluded = {table.id for table in tables} - offered
 
         assert catalog_excluded == {backing_table.id, direct_table.id}
         assert snapshot_excluded == catalog_excluded
+        assert offered_excluded == catalog_excluded
 
     def test_a_soft_deleted_views_backing_table_stays_out_of_the_snapshot(self) -> None:
         view, backing_table = self._materialized_view()

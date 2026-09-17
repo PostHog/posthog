@@ -35,6 +35,18 @@ def resolve_subject(team_id: int, subject_type: str, subject_uuid: str | UUID) -
     return _resolve_view(team_id, subject_uuid)
 
 
+def unqueryable_table_ids(team_id: int) -> set[UUID]:
+    """The tables the normal HogQL database leaves out, so no check should name one.
+
+    A direct-access table is absent from the database build, so a check on it errors on every run.
+    A materialized view's backing table answers to the view's own name, so a check on it reports
+    against the wrong subject instead.
+    """
+    excluded = set(data_modeling_facade.backing_table_ids_by_saved_query(team_id))
+    excluded.update(warehouse_facade.direct_access_table_ids(team_id))
+    return excluded
+
+
 def selectable_subjects(team_id: int, kinds: Collection[SubjectType]) -> list[SelectableSubject]:
     """Everything in this team a check can be authored on, of the kinds asked for.
 
@@ -42,6 +54,7 @@ def selectable_subjects(team_id: int, kinds: Collection[SubjectType]) -> list[Se
     """
     subjects: list[SelectableSubject] = []
     if SubjectType.TABLE in kinds:
+        excluded_table_ids = unqueryable_table_ids(team_id)
         subjects.extend(
             SelectableSubject(
                 subject_type=SubjectType.TABLE,
@@ -50,6 +63,7 @@ def selectable_subjects(team_id: int, kinds: Collection[SubjectType]) -> list[Se
                 columns=_clickhouse_types(table.columns),
             )
             for table in warehouse_facade.all_queryable_tables(team_id)
+            if table.id not in excluded_table_ids
         )
     if SubjectType.VIEW in kinds:
         columns_by_id = data_modeling_facade.all_saved_query_columns(team_id)
