@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import json
 import tempfile
 import importlib.util
 from pathlib import Path
@@ -404,6 +405,80 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             selection.selected_seconds_by_segment(selected, durations),
             {"core": 170, "poe": 70, "temporal": 210},
         )
+
+    def test_django_url_edges_select_a_test_that_only_requests_the_route(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            tmp_path = Path(root)
+            selection = _load_selection_module()
+            selection.REPO_ROOT = tmp_path
+
+            test_path = tmp_path / "posthog" / "api" / "test" / "test_alerts.py"
+            test_path.parent.mkdir(parents=True)
+            test_path.write_text("def test_alerts():\n    client.post('/api/projects/1/alerts')\n")
+            edge_path = tmp_path / "edges.json"
+            edge_path.write_text(
+                json.dumps(
+                    {
+                        "view_file_to_tests": {
+                            "products/alerts/backend/presentation/views/alert.py": ["posthog/api/test/test_alerts.py"]
+                        }
+                    }
+                )
+            )
+
+            features_by_path = selection.classify_tests()
+            changed = ["products/alerts/backend/presentation/views/alert.py"]
+
+            without_edges = selection.ast_select_tests(changed, features_by_path)
+            with_edges = selection.ast_select_tests(
+                changed, features_by_path, selection.DjangoEdgeMap.load(str(edge_path))
+            )
+
+            # The test names the route, not the view module, so no token group reaches it:
+            # `product_api_client:alerts` only covers tests under products/alerts/.
+            self.assertNotIn("posthog/api/test/test_alerts.py", without_edges.tests)
+            self.assertIn("posthog/api/test/test_alerts.py", with_edges.tests)
+
+    def test_signal_expansion_replaces_the_blanket_fallback_only_when_enabled(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            tmp_path = Path(root)
+            selection = _load_selection_module()
+            selection.REPO_ROOT = tmp_path
+
+            handler_path = tmp_path / "products" / "conversations" / "backend" / "signals.py"
+            handler_path.parent.mkdir(parents=True)
+            handler_path.write_text(
+                "from django.db.models.signals import post_save\npost_save.connect(handle, sender=Comment)\n"
+            )
+            test_path = tmp_path / "posthog" / "api" / "test" / "test_comments.py"
+            test_path.parent.mkdir(parents=True)
+            test_path.write_text("def test_comments():\n    client.get('/api/projects/1/comments/')\n")
+            edge_path = tmp_path / "edges.json"
+            edge_path.write_text(
+                json.dumps(
+                    {
+                        "signal_neighbors": {
+                            "products/conversations/backend/signals.py": ["posthog/models/comment/comment.py"],
+                        }
+                    }
+                )
+            )
+
+            features_by_path = selection.classify_tests()
+            changed = ["products/conversations/backend/signals.py"]
+            url_only = selection.DjangoEdgeMap.load(str(edge_path))
+            with_expansion = selection.DjangoEdgeMap.load(str(edge_path), signal_expansion=True)
+
+            self.assertEqual(url_only.signal_expansion(changed), [])
+            self.assertEqual(with_expansion.signal_expansion(changed), ["posthog/models/comment/comment.py"])
+            self.assertIn(
+                "signal_handler_api_tests",
+                selection.ast_select_tests(changed, features_by_path, url_only).groups,
+            )
+            self.assertNotIn(
+                "signal_handler_api_tests",
+                selection.ast_select_tests(changed, features_by_path, with_expansion).groups,
+            )
 
 
 if __name__ == "__main__":

@@ -29,6 +29,11 @@ is deliberate for now, not an oversight — forcing a full run on every migratio
 would cover a failure mode we have not actually observed, at the cost of the
 narrowing on a very common kind of PR.
 
+`--django-edges` adds a fourth, experimental strategy: edges read out of Django's own
+registries by `tools/django_edges/extract.py`, instead of inferred from names and string
+tokens. It is off in CI. See docs/internal/snob-django-dependency-edges.md for what it
+finds, what it costs, and why the signal half of it is behind a second flag.
+
 Outputs JSON to stdout. The "shadow" in the filename is historical — ci-backend's
 turbo-discover job now acts on this output, so a test this misses is a test that does not
 run on the PR. Recall beats precision: when in doubt, add a FULL_RUN_PATTERNS entry.
@@ -122,6 +127,58 @@ SIGNAL_CONNECT_NAMES = {
 }
 
 MAX_CHANGED_FILES = 50
+
+
+@dataclass(frozen=True)
+class DjangoEdgeMap:
+    """Django-derived edges, as written by `tools/django_edges/extract.py`.
+
+    The AST heuristics below infer framework wiring from file names and string tokens.
+    These edges come from Django's own registries instead — the URL resolver, the signal
+    receiver lists, and `_meta` — so they name exact files rather than guessing.
+
+    The URL edges only add tests. The signal expansion also *removes* the blanket
+    "every API-client test" fallback, and measured much worse than that fallback on a
+    hub model, so it stays behind `signal_expansion_enabled`.
+    """
+
+    view_file_to_tests: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    signal_neighbors: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    model_neighbors: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    signal_expansion_enabled: bool = False
+
+    @classmethod
+    def load(cls, path: str, signal_expansion: bool = False) -> DjangoEdgeMap:
+        raw = json.loads(Path(path).read_text())
+
+        def as_map(key: str) -> dict[str, tuple[str, ...]]:
+            return {source: tuple(targets) for source, targets in (raw.get(key) or {}).items()}
+
+        return cls(
+            view_file_to_tests=as_map("view_file_to_tests"),
+            signal_neighbors=as_map("signal_neighbors"),
+            model_neighbors=as_map("model_neighbors"),
+            signal_expansion_enabled=signal_expansion,
+        )
+
+    def tests_reaching_view(self, path: str) -> list[str]:
+        """Test files whose own URL literals resolve to the view defined in `path`."""
+        return list(self.view_file_to_tests.get(path, ()))
+
+    def signal_expansion(self, changed_files: list[str]) -> list[str]:
+        """Files on the other side of a signal connection from a changed file.
+
+        Handed to Snob as extra changed files, so its import closure runs over them too:
+        a receiver change reaches the tests that save its sender model, and a model
+        change reaches the tests that cover its receivers. This is how a framework edge
+        enters the existing dependency graph instead of a parallel selection mechanism.
+        """
+        if not self.signal_expansion_enabled:
+            return []
+        expanded: set[str] = set()
+        for path in changed_files:
+            expanded.update(self.signal_neighbors.get(path, ()))
+        return sorted(expanded - set(changed_files))
 
 
 @dataclass(frozen=True)
@@ -422,7 +479,11 @@ def _add_group(groups: dict[str, set[str]], name: str, tests: list[str] | set[st
     groups.setdefault(name, set()).update(tests)
 
 
-def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestFeatures]) -> AstSelection:
+def ast_select_tests(
+    changed_files: list[str],
+    features_by_path: dict[str, TestFeatures],
+    django_edges: DjangoEdgeMap | None = None,
+) -> AstSelection:
     groups: dict[str, set[str]] = {}
     full_run_reasons: list[str] = []
     all_test_files = set(features_by_path.keys())
@@ -525,9 +586,12 @@ def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestF
                 app_tests = _find_tests_in_app(app, all_test_files)
                 _add_group(groups, f"signal_handler_app:{app}", app_tests)
             # Signal handlers often affect tests across apps too — include
-            # all API-client tests as a conservative fallback
-            api_client_tests = {p for p, f in features_by_path.items() if f.is_django_api_test}
-            _add_group(groups, "signal_handler_api_tests", api_client_tests)
+            # all API-client tests as a conservative fallback. With the signal registry
+            # loaded, `signal_expansion` names the files on the other side of each
+            # connection exactly, so the blanket group is not needed.
+            if django_edges is None or not django_edges.signal_expansion_enabled:
+                api_client_tests = {p for p, f in features_by_path.items() if f.is_django_api_test}
+                _add_group(groups, "signal_handler_api_tests", api_client_tests)
 
     # ── 7. Middleware expansion ───────────────────────────────────────
     # Middleware runs on every request. If changed, include all tests
@@ -557,6 +621,13 @@ def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestF
             if app_tests:
                 _add_group(groups, f"same_app:{app}", app_tests)
 
+    # ── 10. Django URL dispatch edges ────────────────────────────────
+    # Django's resolver says which view serves each path a test requests, so a changed
+    # view file names its HTTP-level tests exactly, with no token matching.
+    if django_edges is not None:
+        for path in changed_prod_files:
+            _add_group(groups, f"django_url_edge:{path}", django_edges.tests_reaching_view(path))
+
     sorted_groups = {name: sorted(tests) for name, tests in sorted(groups.items())}
     all_tests = sorted({test for tests in sorted_groups.values() for test in tests})
     return AstSelection(
@@ -567,8 +638,13 @@ def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestF
     )
 
 
-def snob_select_tests(changed_files: list[str]) -> dict[str, Any]:
-    changed_py_files = [path for path in changed_files if path.endswith(".py")]
+def snob_select_tests(changed_files: list[str], extra_files: list[str] | None = None) -> dict[str, Any]:
+    """Snob's import-graph selection, optionally seeded with framework-derived files.
+
+    `extra_files` are files a Django edge connects to the diff. Snob treats them as
+    changed, so one graph and one closure cover both import and framework edges.
+    """
+    changed_py_files = [path for path in [*changed_files, *(extra_files or [])] if path.endswith(".py")]
     if not changed_py_files:
         return {"status": "ok", "tests": [], "count": 0}
 
@@ -677,12 +753,18 @@ def narrowable_baseline_seconds(durations: dict[str, float]) -> float:
     return total
 
 
-def build_result(base_ref: str) -> dict[str, Any]:
+def build_result(
+    base_ref: str,
+    django_edges_path: str | None = None,
+    signal_expansion: bool = False,
+) -> dict[str, Any]:
     os.chdir(REPO_ROOT)
     changed_files = changed_files_from_git(base_ref)
+    django_edges = DjangoEdgeMap.load(django_edges_path, signal_expansion) if django_edges_path else None
     features_by_path = classify_tests()
-    ast_selection = ast_select_tests(changed_files, features_by_path)
-    snob_selection = snob_select_tests(changed_files)
+    ast_selection = ast_select_tests(changed_files, features_by_path, django_edges)
+    signal_expansion_files = django_edges.signal_expansion(changed_files) if django_edges else []
+    snob_selection = snob_select_tests(changed_files, signal_expansion_files)
 
     snob_tests = [str(test) for test in snob_selection.get("tests", [])]
     combined_tests = _existing_test_files(set(snob_tests) | set(ast_selection.tests))
@@ -695,6 +777,11 @@ def build_result(base_ref: str) -> dict[str, Any]:
         "base_ref": base_ref,
         "changed_files": changed_files,
         "changed_file_count": len(changed_files),
+        "django_edges": {
+            "enabled": django_edges is not None,
+            "signal_expansion_enabled": signal_expansion,
+            "signal_expansion": signal_expansion_files,
+        },
         "snob": snob_selection,
         "ast": asdict(ast_selection),
         "combined": {
@@ -766,13 +853,23 @@ def main() -> None:
     parser.add_argument("--base-ref", required=True, help="Base ref for git diff, for example origin/master")
     parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON")
     parser.add_argument(
+        "--django-edges",
+        help="Path to the Django edge JSON from tools/django_edges/extract.py (experimental)",
+    )
+    parser.add_argument(
+        "--django-signal-expansion",
+        action="store_true",
+        help="Also seed Snob with signal-registry neighbours, replacing the blanket "
+        "signal-handler fallback (experimental; measured worse than the fallback)",
+    )
+    parser.add_argument(
         "--summary-path",
         help="Append a Markdown summary to this file (e.g. $GITHUB_STEP_SUMMARY)",
     )
     args = parser.parse_args()
 
     try:
-        result = build_result(args.base_ref)
+        result = build_result(args.base_ref, args.django_edges, args.django_signal_expansion)
     except subprocess.CalledProcessError as exc:
         sys.stderr.write(f"Error: git diff against {args.base_ref!r} failed: {exc.stderr}\n")
         sys.exit(1)

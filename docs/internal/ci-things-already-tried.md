@@ -215,6 +215,26 @@ To go after those minutes, reduce how often the verdict is `full` — the `MAX_C
 
 _Also asked as:_ skip product tests on a full run, narrow the product matrix, why do all products run when I only changed core
 
+### Feed Django-aware dependency edges into the backend test selector
+
+**Verdict: open** · Sep 2026 · measured, prototype in `tools/django_edges/`
+
+Snob selects on Python imports. A Django project also wires itself together through the URL resolver, signal receivers connected in `AppConfig.ready()`, and `_meta`, and none of that produces an import.
+So the question is whether asking Django for those relationships after `django.setup()` beats the name and token heuristics the selector uses today.
+
+The information is real. The URL resolver produces 1774 edges over 263 view and URLconf files, and 93% of them join a test to a view file the test never imports.
+The signal registry produces 142 sender/receiver file pairs, 105 of them cross-app.
+It costs about 76 seconds to build, most of it resolving the URL literals found in test files.
+
+The gain on real diffs is not. Over 15 replayed master commits the edges added one test file, because the existing fallbacks already select hundreds to thousands of test files per diff, so the tests a precise edge names are usually in the set already.
+Seeding Snob with signal neighbors was worse than the blanket fallback it replaced: the median signal-connected file went from 1242 selected test files to 3077, because the senders are `Team`, `User` and `Organization`.
+
+Two side findings are worth fixing on their own. A `posthog/urls.py` diff narrows the Django suite to two test files, and `_django_app_for_path` returns a file path rather than a directory for any file directly under `posthog/` or `ee/`, which makes the same-app fallback a no-op for `posthog/apps.py`, `posthog/urls.py` and `posthog/health.py`.
+
+Read [docs/internal/snob-django-dependency-edges.md](snob-django-dependency-edges.md) for the full numbers, the fixture that reproduces the blind spot, and what to do first.
+
+_Also asked as:_ django-aware test selection, snob misses signals, url routing test selection, runtime introspection for affected tests, does snob understand django
+
 ### Disable the pytest `unraisableexception` and `threadexception` plugins
 
 **Verdict: open, and approved** · Jul 2026 · [#70886](https://github.com/PostHog/posthog/pull/70886)

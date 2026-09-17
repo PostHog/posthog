@@ -1,0 +1,40 @@
+{
+    "model_neighbors": {},
+    "signal_neighbors": {
+        "shop/models.py": ["shop/receivers.py"],
+        "shop/receivers.py": ["shop/models.py"]
+    },
+    "stats": {
+        "models": {
+            "model_count": 9,
+            "neighbors": null,
+            "relation_count": 0,
+            "seconds": 0.0
+        },
+        "setup_seconds": 0.1,
+        "signals": {
+            "global_receiver_files": [],
+            "neighbors": null,
+            "pair_count": 1,
+            "receiver_count": 19,
+            "seconds": 0.55,
+            "signal_count": 23
+        },
+        "total_seconds": 0.65,
+        "urls": {
+            "catch_all_literal_count": 0,
+            "catch_all_literals": [],
+            "resolved_literals": 1,
+            "resolver_seconds": 0.0,
+            "route_count": 1,
+            "test_scan_seconds": 0.0,
+            "unresolved_literal_count": 2,
+            "unresolved_literals": ["/orders/", "/summary/"],
+            "view_file_to_tests": null
+        }
+    },
+    "view_file_to_tests": {
+        "shop/views.py": ["tests/test_order_api.py"],
+        "urls.py": ["tests/test_order_api.py"]
+    }
+}
