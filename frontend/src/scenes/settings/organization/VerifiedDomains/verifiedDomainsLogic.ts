@@ -149,6 +149,7 @@ export interface verifiedDomainsLogicValues {
     isIdJagConfigSubmitting: boolean
     isIdJagConfigValid: boolean
     isOIDCAvailable: boolean
+    isAutomaticProvisioningAvailable: boolean
     isSAMLAvailable: boolean
     isSCIMAvailable: boolean
     isSSOEnforcementAvailable: boolean
@@ -708,6 +709,9 @@ export interface verifiedDomainsLogicMeta {
             verifiedDomains: OrganizationDomainType[],
             user: UserType | null
         ) => OrganizationDomainType | null
+        isAutomaticProvisioningAvailable: (
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+        ) => boolean
         isSSOEnforcementAvailable: (
             hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
         ) => boolean
@@ -1136,6 +1140,11 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     ) ?? null
                 )
             },
+        ],
+        isAutomaticProvisioningAvailable: [
+            () => [userLogic.selectors.hasAvailableFeature],
+            (hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean): boolean =>
+                hasAvailableFeature(AvailableFeature.AUTOMATIC_PROVISIONING),
         ],
         isSSOEnforcementAvailable: [
             () => [userLogic.selectors.hasAvailableFeature],
