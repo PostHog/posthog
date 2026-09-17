@@ -15,7 +15,11 @@ jest.mock('products/logs/frontend/components/ViewLogsButton', () => ({
 
 const capturedMetricsArgs: { serviceName: string | null; dateFrom?: string | null; dateTo?: string | null }[] = []
 jest.mock('products/metrics/frontend/components/ViewServiceMetricsButton', () => ({
-    useViewServiceMetricsButton: (args: { serviceName: string | null; dateFrom?: string | null; dateTo?: string | null }) => {
+    useViewServiceMetricsButton: (args: {
+        serviceName: string | null
+        dateFrom?: string | null
+        dateTo?: string | null
+    }) => {
         capturedMetricsArgs.push(args)
         return { enabled: true, to: args.serviceName ? '/metrics?x=1' : undefined, disabledReason: undefined }
     },
