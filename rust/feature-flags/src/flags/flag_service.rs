@@ -433,6 +433,7 @@ mod tests {
                 key: "beta_feature".to_string(),
                 has_experiment: false,
                 filters: FlagFilters {
+                    non_v1: None,
                     groups: vec![FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "country".to_string(),
@@ -471,6 +472,7 @@ mod tests {
                 key: "new_ui".to_string(),
                 has_experiment: false,
                 filters: FlagFilters {
+                    non_v1: None,
                     groups: vec![],
                     multivariate: None,
                     aggregation_group_type_index: None,
@@ -495,6 +497,7 @@ mod tests {
                 key: "premium_feature".to_string(),
                 has_experiment: false,
                 filters: FlagFilters {
+                    non_v1: None,
                     groups: vec![FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "is_premium".to_string(),
@@ -629,6 +632,7 @@ mod tests {
                 deleted: false,
                 active: i % 2 == 0,
                 filters: FlagFilters {
+                    non_v1: None,
                     groups: vec![FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: format!("property_key_{i}"),

@@ -194,11 +194,13 @@ pub struct MultivariateFlagOptions {
 // Runtime Python mirror: products/feature_flags/backend/api/filters_schema.py validates
 // filters against these shapes at write time — keep field shapes in sync (issue #50084).
 //
-// `filters` is customer-writable JSONB that Django stores unvalidated, so every struct
-// reachable from here must carry `#[serde(flatten)] extra` and be weighed in
+// V1 `filters` is customer-writable JSONB that Django stores unvalidated, so each v1
+// struct reachable from here must carry `#[serde(flatten)] extra` and be weighed in
 // `estimate_filters_size`. Skipping either drops customer keys, or hides their bytes.
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Clone, Deserialize, Serialize, Default)]
 pub struct FlagFilters {
+    #[serde(skip)]
+    pub non_v1: Option<Arc<super::config_v2::NonV1Config>>,
     #[serde(default)]
     pub groups: Vec<FlagPropertyGroup>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -279,7 +281,7 @@ pub struct FeatureFlag {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     pub key: String,
-    // Non-v1 documents stay opaque in `extra`; check the format before reading v1 fields.
+    // Check the format before reading v1 fields; non-v1 documents retain their raw JSON.
     #[serde(
         deserialize_with = "crate::flags::config_format::deserialize_filters",
         serialize_with = "crate::flags::config_format::serialize_filters"
@@ -338,13 +340,13 @@ impl FeatureFlag {
 
 /// Row struct for PostgreSQL queries via sqlx. The `evaluation_tags` column is
 /// always named `evaluation_tags` in the SQL query, so no alias is needed.
-#[derive(Debug, Default, Serialize, sqlx::FromRow)]
-pub struct FeatureFlagRow {
+#[derive(Default, Serialize, sqlx::FromRow)]
+pub struct FeatureFlagRow<F = serde_json::Value> {
     pub id: i32,
     pub team_id: i32,
     pub name: Option<String>,
     pub key: String,
-    pub filters: serde_json::Value,
+    pub filters: F,
     pub deleted: bool,
     pub active: bool,
     pub ensure_experience_continuity: Option<bool>,
@@ -438,6 +440,10 @@ fn estimate_filters_size(filters: &FlagFilters) -> usize {
         .map_or(0, |h| estimate_json_map_size(&h.extra));
 
     groups_size
+        + filters
+            .non_v1
+            .as_ref()
+            .map_or(0, |config| config.estimated_heap_bytes())
         + estimate_json_map_size(&filters.extra)
         + multivariate_size
         + holdout_size

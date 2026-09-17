@@ -5,11 +5,34 @@ The Rust feature flags service evaluates flags using a deterministic, hash-based
 ## Architecture overview
 
 Stored configuration dispatch reads `filters.version`; the row's `FeatureFlag.version` remains a concurrency counter.
-An absent discriminator or numeric 1 (including 1.0) selects v1; every other value, 2 included, is a format this service does not evaluate.
+An absent discriminator or numeric 1 (including 1.0) selects v1.
+Numeric 2 (including 2.0) selects the closed v2 parser; other discriminator values are unsupported.
+The service does not evaluate any non-v1 format, including a successfully parsed v2 configuration.
 The classification matches Python's `detect_config_format` (`products/feature_flags/backend/facade/config.py`).
 
 Cache and PostgreSQL ingress classify the original document before decoding v1 fields.
-Non-v1 objects stay opaque in the filters passthrough map so cache round trips retain them and the cache byte budget includes them.
+Non-v1 objects retain their original JSON in `FlagFilters.non_v1`, alongside the v2 parse result when applicable.
+PostgreSQL decodes filters as raw JSON through the same reader used by service-cache records.
+Raw number tokens keep excess decimal precision from rounding into validity and survive cache round trips.
+The prepared cache retains this data through an `Arc`; requests reuse the parse result, and its byte estimate includes raw JSON, typed rules, property values, and seeds.
+Manually constructed opaque filters still use the passthrough-map serialization fallback.
+
+The parser accepts person-assigned boolean configurations with ordered targeted-release and percentage-rollout rules.
+It validates required fields, closed semantic objects, unique UUID rule IDs, boolean values, canonical person-property operators, rollout policies, assignment literals, and seeds.
+Missing defaults and miss policies are errors; explicit null defaults and empty rule/targeting arrays are valid.
+Experiment and holdout semantics, group assignment, non-boolean outputs, and cohort/group/flag predicates remain unsupported.
+One unsupported predicate or rule rejects the whole flag's configuration.
+Parser diagnostics and debug output omit raw configuration values.
+
+The reader enforces 100 rules, 100 predicates per rule, 1–400 character percentage-rule seeds, and finite percentages in [0, 100] with at most two decimal places.
+Its compact UTF-8 document ceiling is 512 KiB, matching the default `MAX_FEATURE_FLAG_FILTER_SIZE_BYTES` writer limit.
+Writers must also enforce their deployment-specific document limit and explicit metadata limit; the parser adds no separate metadata-size policy.
+Reader and writer byte limits must agree before admitting stored v2 data if a deployment overrides the default.
+Presentation metadata stays in the original JSON and does not enter typed targeting.
+
+The service-cache envelope remains separate from the canonical definitions-entry envelope, where team identity can be omitted.
+Parser tests adapt canonical definition filters to service records without adding a definitions-v2 route or allowing the legacy definitions endpoint to publish v2.
+Released harness 1.6.0 parser fixtures live separately from the unchanged v1 corpus pin.
 
 The evaluator classifies them once per request, next to `filtered_out_flag_ids`, rather than failing per flag inside `get_match`: an eligible non-v1 flag gets a `flag_data_parsing_error` response entry, is skipped by regex, cohort, dependency, and property preparation, and is pre-seeded false like any other skipped flag, so a dependent's `flag_evaluates_to: false` condition still resolves.
 Detailed responses mark them failed.
@@ -24,6 +47,8 @@ Inactive and deleted non-v1 flags do not fail the team's rebuild.
 `/remote_config` stays outside this boundary: it reads `filters.payloads["true"]` raw, as Django's shadow-compared view does.
 This boundary does not make legacy definitions producers or older cache writers safe for persisted v2 rows.
 Those paths need independent exclusion and deployment-floor protection before such rows can exist.
+To roll back parsing, remove its reader consumer first while retaining opaque non-v1 reads and evaluator/producer rejection.
+Never restore a reader that interprets v2 data as v1.
 
 The production `v1_bucketing` functions accept prescribed hashes for contract tests.
 Rollout returns included at 100% before identifier resolution or hashing; other percentages use `hash <= percentage / 100.0`.

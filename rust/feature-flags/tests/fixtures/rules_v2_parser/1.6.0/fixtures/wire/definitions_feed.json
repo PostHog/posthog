@@ -1,0 +1,204 @@
+{
+  "fixture_version": "1.0.0",
+  "schema": "schemas/definitions_v2.schema.json",
+  "templates": {
+    "mixed": {
+      "flags": [
+        {
+          "id": 202,
+          "key": "legacy-garden",
+          "active": true,
+          "version": 9,
+          "filters": {
+            "groups": [
+              {
+                "properties": [],
+                "rollout_percentage": 100
+              }
+            ]
+          }
+        },
+        {
+          "id": 201,
+          "key": "garden-layout",
+          "active": true,
+          "version": 7,
+          "filters": {
+            "version": 2,
+            "return_type": "boolean",
+            "default_value": false,
+            "rules": [
+              {
+                "id": "11111111-1111-4111-8111-111111111111",
+                "rule_type": "targeted_release",
+                "targeting": {
+                  "properties": [
+                    {
+                      "key": "account_tier",
+                      "type": "person",
+                      "operator": "exact",
+                      "value": "preview",
+                      "label": "Account tier"
+                    }
+                  ]
+                },
+                "description": "Enable the preview for selected accounts.",
+                "metadata": {
+                  "display_color": "blue"
+                },
+                "value": true
+              },
+              {
+                "id": "22222222-2222-4222-8222-222222222222",
+                "rule_type": "percentage_rollout",
+                "targeting": {
+                  "properties": []
+                },
+                "value": true,
+                "rollout_percentage": 25.5,
+                "on_rollout_miss": "continue",
+                "assignment_algorithm": "sha1_60_v1",
+                "seed": "release-preview",
+                "assign_by": "person"
+              },
+              {
+                "id": "44444444-4444-4444-8444-444444444444",
+                "rule_type": "experiment",
+                "targeting": {
+                  "properties": []
+                },
+                "experiment_id": 42,
+                "paused": false,
+                "rollout_percentage": 100,
+                "on_rollout_miss": "continue",
+                "assignment_algorithm": "sha1_60_v1",
+                "seed": "experiment-preview",
+                "assign_by": "person",
+                "variants": [
+                  {
+                    "key": "control",
+                    "weight": 50,
+                    "value": true
+                  },
+                  {
+                    "key": "test",
+                    "weight": 50,
+                    "value": true
+                  }
+                ],
+                "holdout": {
+                  "id": 7,
+                  "seed": "holdout-",
+                  "exclusion_percentage": 5
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "cohorts": {},
+      "group_type_mapping": {}
+    }
+  },
+  "cases": [
+    {
+      "id": "definitions_feed.mixed_versions",
+      "template": "mixed",
+      "expected": "valid"
+    },
+    {
+      "id": "definitions_feed.missing_cohorts",
+      "template": "mixed",
+      "remove": [
+        "/cohorts"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "required",
+        "instance_path": "",
+        "message_contains": "cohorts"
+      }
+    },
+    {
+      "id": "definitions_feed.minimal_events_false",
+      "template": "mixed",
+      "set": {
+        "/minimal_flag_called_events": false
+      },
+      "expected": "valid"
+    },
+    {
+      "id": "definitions_feed.minimal_events_true",
+      "template": "mixed",
+      "set": {
+        "/minimal_flag_called_events": true
+      },
+      "expected": "valid"
+    },
+    {
+      "id": "definitions_feed.minimal_events_wrong_type",
+      "template": "mixed",
+      "set": {
+        "/minimal_flag_called_events": "false"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "type",
+        "instance_path": "/minimal_flag_called_events"
+      }
+    },
+    {
+      "id": "definitions_feed.null_legacy_row_fields",
+      "template": "mixed",
+      "set": {
+        "/flags/0/version": null,
+        "/flags/0/ensure_experience_continuity": null
+      },
+      "expected": "valid"
+    },
+    {
+      "id": "definitions_feed.missing_flags",
+      "template": "mixed",
+      "remove": [
+        "/flags"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "required",
+        "instance_path": "",
+        "message_contains": "flags"
+      }
+    },
+    {
+      "id": "definitions_feed.missing_group_type_mapping",
+      "template": "mixed",
+      "remove": [
+        "/group_type_mapping"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "required",
+        "instance_path": "",
+        "message_contains": "group_type_mapping"
+      }
+    },
+    {
+      "id": "definitions_feed.unknown_field",
+      "template": "mixed",
+      "set": {
+        "/future_feed_field": 1
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "additionalProperties",
+        "instance_path": "",
+        "message_contains": "future_feed_field"
+      }
+    }
+  ]
+}

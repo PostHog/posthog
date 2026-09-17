@@ -22,6 +22,41 @@ pub mod common;
 
 fn documents() -> Vec<(String, Value, bool, bool)> {
     let mut cases = Vec::new();
+    let supported: Value = serde_json::from_str(include_str!(
+        "fixtures/rules_v2_parser/1.6.0/fixtures/config/valid/boolean_targeted_and_percentage_rollout.json"
+    )).unwrap();
+    cases.push((
+        "rejected-valid-v2".to_string(),
+        supported.clone(),
+        true,
+        false,
+    ));
+    let mut unsupported = supported.clone();
+    unsupported["rules"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"rule_type": "experiment"}));
+    cases.push((
+        "rejected-unsupported-v2".to_string(),
+        unsupported,
+        true,
+        false,
+    ));
+    let mut overprecise = supported.clone();
+    overprecise["rules"][1]["rollout_percentage"] = json!("__overprecise__");
+    cases.push((
+        "rejected-overprecise-v2".to_string(),
+        overprecise,
+        true,
+        false,
+    ));
+    cases.push((
+        "inactive-valid-v2".to_string(),
+        supported.clone(),
+        false,
+        false,
+    ));
+    cases.push(("deleted-valid-v2".to_string(), supported, true, true));
     for (key, version) in [
         ("absent", None),
         ("one", Some(json!(1))),
@@ -115,8 +150,40 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
         }
     }
     if cached {
-        insert_flags_for_team_in_redis(redis, team.id, Some(json!(flags).to_string())).await?;
+        let encoded = json!(flags)
+            .to_string()
+            .replace("\"__overprecise__\"", "33.330000000000000001");
+        insert_flags_for_team_in_redis(redis, team.id, Some(encoded)).await?;
     } else {
+        let raw = docs
+            .iter()
+            .find(|(key, ..)| key == "rejected-overprecise-v2")
+            .unwrap()
+            .1
+            .to_string()
+            .replace("\"__overprecise__\"", "33.330000000000000001");
+        let mut connection = db.non_persons_writer.get_connection().await?;
+        sqlx::query("UPDATE posthog_featureflag SET filters = $1::jsonb WHERE team_id = $2 AND key = 'rejected-overprecise-v2'")
+            .bind(raw).bind(team.id).execute(&mut *connection).await?;
+        drop(connection);
+        let stored = FeatureFlagList::from_pg(db.non_persons_reader.clone(), team.id).await?;
+        for (key, valid) in [
+            ("rejected-valid-v2", true),
+            ("rejected-overprecise-v2", false),
+        ] {
+            let flag = stored.iter().find(|flag| flag.key == key).unwrap();
+            assert_eq!(
+                flag.filters
+                    .non_v1
+                    .as_ref()
+                    .unwrap()
+                    .parsed_v2
+                    .as_ref()
+                    .unwrap()
+                    .is_ok(),
+                valid
+            );
+        }
         assert!(build_flags_cache(db.non_persons_reader.clone(), team.id)
             .await
             .is_err());
