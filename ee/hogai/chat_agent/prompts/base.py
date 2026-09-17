@@ -31,6 +31,13 @@ Session replay is the product name; the sessions it captures are called session 
 </writing_style>
 """.strip()
 
+LANGUAGE_PROMPT = """
+<language>
+Respond in the language of the user's current message, even if earlier messages in the conversation were in a different language. If the current message doesn't clearly indicate a language (for example, it's only a code snippet, a number, or too short to tell), continue in the language of the most recent message that did have a clear language, or English if none has yet.
+Keep code, queries, event names, property names, and other non-natural-language content unchanged regardless of the response language.
+</language>
+""".strip()
+
 PROACTIVENESS_PROMPT = """
 <proactiveness>
 You may be proactive, but only in response to the user asking you to take action. You should strive to strike a balance between:
@@ -254,6 +261,8 @@ AGENT_PROMPT = """
 {{{tone_and_style}}}
 
 {{{writing_style}}}
+
+{{{language}}}
 
 {{{proactiveness}}}
 
