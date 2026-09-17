@@ -73,6 +73,7 @@ function queryInput(overrides: Partial<BuildAccountsTableQueryPlanInput> = {}): 
         tagsFilter: [],
         assignmentStatus: 'all',
         assignedToFilter: [],
+        includeChurnedAndIgnored: false,
         accountIdFilter: null,
         tileFilter: null,
         accountFilters: [],
@@ -239,6 +240,16 @@ describe('accountsTableQuery', () => {
         expect(plan?.query.filters).toEqual([{ kind: 'account_id', accountId: RELATIONSHIP_ID }])
         expect(plan?.query.includeChurned).toBe(true)
         expect(plan?.query.includeIgnored).toBe(true)
+    })
+
+    it.each([
+        [false, false],
+        [true, true],
+    ])('maps includeChurnedAndIgnored %s onto both lifecycle flags', (include, expected) => {
+        const plan = buildAccountsTableQueryPlan(queryInput({ includeChurnedAndIgnored: include }))
+
+        expect(plan?.query.includeChurned).toBe(expected)
+        expect(plan?.query.includeIgnored).toBe(expected)
     })
 
     it('drops unsupported columns instead of changing runners', () => {

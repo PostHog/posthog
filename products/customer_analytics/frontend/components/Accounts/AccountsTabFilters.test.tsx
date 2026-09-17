@@ -124,6 +124,19 @@ describe('AccountsTabFilters', () => {
         expect(logic.values.assignedToCurrentUser).toBe(true)
     })
 
+    it('lets a search reach churned and ignored accounts', () => {
+        renderFilters()
+        const checkbox = screen
+            .getByText('Include churned and ignored')
+            .closest('.LemonCheckbox')!
+            .querySelector('input')!
+        expect(checkbox.checked).toBe(false)
+
+        fireEvent.click(checkbox)
+
+        expect(logic.values.includeChurnedAndIgnored).toBe(true)
+    })
+
     it('renders the "Assigned to" picker with its default label', () => {
         renderFilters()
 

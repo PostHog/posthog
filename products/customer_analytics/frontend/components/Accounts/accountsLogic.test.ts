@@ -395,6 +395,7 @@ describe('accountsLogic', () => {
                 search: 'restored after identity',
                 assignmentStatus: 'all',
                 assignedTo: [],
+                includeChurnedAndIgnored: false,
                 tags: [],
                 tileFilter: null,
                 customProperties: [],
@@ -802,6 +803,33 @@ describe('accountsLogic', () => {
                 sort: { column: 'name', direction: 'desc' },
                 tileFilter: TILE_FILTER,
             })
+        })
+
+        it('round-trips the churned-and-ignored opt-in through the hash and the query', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setIncludeChurnedAndIgnored(true)
+            }).toFinishAllListeners()
+
+            // The hash is no longer empty, so the status rides along and the link cannot
+            // be read back as a legacy assigned-only view.
+            expect(router.values.hashParams.view).toEqual({
+                assignmentStatus: 'all',
+                includeChurnedAndIgnored: true,
+            })
+
+            const source = logic.values.accountsQuerySource as AccountsTableQuery
+            expect(source.includeChurned).toBe(true)
+            expect(source.includeIgnored).toBe(true)
+        })
+
+        it('leaves churned and ignored accounts hidden for a hash that predates the filter', async () => {
+            router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: { search: 'acme' } })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.includeChurnedAndIgnored).toBe(false)
+            const source = logic.values.accountsQuerySource as AccountsTableQuery
+            expect(source.includeChurned).toBe(false)
+            expect(source.includeIgnored).toBe(false)
         })
 
         it('marks an explicit status in the hash while other filters are present', async () => {
@@ -1373,6 +1401,18 @@ describe('accountsLogic', () => {
 
             expect(logic.values.tagOverrides['acc-1']).toBeUndefined()
             expect(logic.values.isTagsSaving('acc-1')).toBe(false)
+        })
+    })
+
+    describe('openAccount', () => {
+        it('reveals an account the current view hides, including a hidden lifecycle state', async () => {
+            logic.actions.setTagsFilter(['enterprise'])
+            logic.actions.openAccount('11111111-1111-4111-8111-111111111111', 'acme', 'Acme', 'notes')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.tagsFilter).toEqual([])
+            expect(logic.values.includeChurnedAndIgnored).toBe(true)
+            expect(logic.values.searchQuery).toBe('acme')
         })
     })
 
