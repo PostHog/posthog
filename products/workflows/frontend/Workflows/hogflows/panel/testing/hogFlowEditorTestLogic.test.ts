@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_GROUP_TYPES } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
+
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { groupsModel } from '~/models/groupsModel'
@@ -17,6 +19,11 @@ import {
     hogFlowEditorTestLogic,
     parseGroupsFromResult,
 } from './hogFlowEditorTestLogic'
+
+jest.mock('scenes/hog-functions/sampleEventsQuery', () => ({
+    ...jest.requireActual('scenes/hog-functions/sampleEventsQuery'),
+    performWideEventsQueryInTwoPhases: jest.fn(),
+}))
 
 // Mounting hogFlowEditorTestLogic mounts workflowLogic, whose afterMount loads the hog
 // flow; without a valid fixture the editor's resetFlowFromHogFlow crashes and logs.
@@ -297,6 +304,43 @@ describe('hogFlowEditorTestLogic', () => {
             }).toDispatchActions(['loadSampleGlobals'])
 
             expect(logic.values.matchingFilters).not.toEqual(before)
+        })
+
+        it('keeps the newest sample event when an older query answers last', async () => {
+            // Two loads overlap and the first query answers second. The stale answer must be
+            // discarded, or the panel shows an event the current filters never asked for.
+            const eventRow = (uuid: string): any[] => [
+                { uuid, event: '$pageview', distinct_id: 'd1', properties: {}, timestamp: '2026-05-01T00:00:00Z' },
+                { id: 'p1', properties: {} },
+            ]
+            let releaseStale: (() => void) | undefined
+            const queryMock = performWideEventsQueryInTwoPhases as jest.Mock
+            queryMock.mockReset()
+            queryMock
+                .mockImplementationOnce(
+                    async () =>
+                        await new Promise((resolve) => {
+                            releaseStale = () => resolve({ results: [eventRow('stale-event')] })
+                        })
+                )
+                .mockImplementation(async () => ({ results: [eventRow('fresh-event')] }))
+
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadSampleGlobals'])
+            while (!releaseStale) {
+                await new Promise((resolve) => setTimeout(resolve, 20))
+            }
+
+            logic.actions.loadSampleGlobals({})
+            await expectLogic(logic).toDispatchActions(['loadSampleGlobalsSuccess'])
+            expect(logic.values.sampleGlobals?.event?.uuid).toEqual('fresh-event')
+
+            releaseStale!()
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            expect(logic.values.sampleGlobals?.event?.uuid).toEqual('fresh-event')
         })
     })
 

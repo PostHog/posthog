@@ -1,5 +1,18 @@
 import { deepEqual as equal } from 'fast-equals'
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    isBreakpoint,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -799,9 +812,12 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                             groups
                         )
                     } catch (e: any) {
-                        if (!e.message?.includes('breakpoint')) {
-                            actions.setSampleGlobalsError('Failed to load matching events. Please try again.')
+                        // A superseded load must not resolve at all. Returning here would set the
+                        // sample event to null over the result of the load that replaced it.
+                        if (isBreakpoint(e)) {
+                            throw e
                         }
+                        actions.setSampleGlobalsError('Failed to load matching events. Please try again.')
                         return null
                     }
                 },
