@@ -246,6 +246,27 @@ describe('databaseTableListLogic', () => {
             expect(logic.values.databaseFieldsComplete).toBe(true)
         })
 
+        it('refreshes fields already requested without hydrating untouched tables', async () => {
+            await loadShallow()
+            const hydratedEvents = { ...shallowTables.events, fields: eventsFields }
+            ;(performQuery as jest.Mock).mockResolvedValueOnce({ tables: { events: hydratedEvents }, joins: [] })
+            await logic.asyncActions.hydrateTableFields(['events'])
+
+            const refreshedFields = { ...eventsFields, event: { ...eventsFields.uuid, name: 'event' } }
+            ;(performQuery as jest.Mock)
+                .mockResolvedValueOnce({ tables: shallowTables, joins: [] })
+                .mockResolvedValueOnce({
+                    tables: { events: { ...hydratedEvents, fields: refreshedFields } },
+                    joins: [],
+                })
+            await expectLogic(logic, () => logic.actions.refreshDatabaseSchema()).toFinishAllListeners()
+
+            expect((performQuery as jest.Mock).mock.calls[2][0]).toMatchObject({ includeFields: false })
+            expect((performQuery as jest.Mock).mock.calls[3][0]).toMatchObject({ tables: ['events'] })
+            expect(logic.values.database?.tables.events.fields).toEqual(refreshedFields)
+            expect(logic.values.database?.tables.persons.fields).toEqual({})
+        })
+
         it('hydrateTableFields merges the requested tables and flags missing ones as errors', async () => {
             await loadShallow()
             ;(performQuery as jest.Mock).mockResolvedValueOnce({
@@ -349,6 +370,19 @@ describe('databaseTableListLogic', () => {
             expect((performQuery as jest.Mock).mock.calls[1][0]).toMatchObject({
                 tables: ['events', 'persons'],
             })
+            expect(logic.values.databaseFieldsComplete).toBe(true)
+            expect(logic.values.database?.tables['persons'].fields).toEqual(eventsFields)
+
+            ;(performQuery as jest.Mock)
+                .mockResolvedValueOnce({ tables: shallowTables, joins: [] })
+                .mockResolvedValueOnce({
+                    tables: {
+                        events: { ...shallowTables.events, fields: eventsFields },
+                        persons: { ...shallowTables.persons, fields: eventsFields },
+                    },
+                    joins: [],
+                })
+            await expectLogic(logic, () => logic.actions.loadDatabase({ shallow: true })).toFinishAllListeners()
             expect(logic.values.databaseFieldsComplete).toBe(true)
             expect(logic.values.database?.tables['persons'].fields).toEqual(eventsFields)
         })

@@ -530,9 +530,22 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
     }),
-    listeners(({ actions, values }) => ({
-        refreshDatabaseSchema: () => {
-            actions.loadDatabase({ force: true, shallow: !values.databaseFieldsComplete })
+    listeners(({ actions, asyncActions, values, cache }) => ({
+        refreshDatabaseSchema: async (_, breakpoint) => {
+            const connectionId = values.connectionId
+            const tableNames = Object.keys(values.database?.tables ?? {}).filter(
+                (name) => values.tableFieldsStatus[name] === 'loaded' || values.tableFieldsStatus[name] === 'loading'
+            )
+            await asyncActions.loadDatabase({ force: true, shallow: !values.databaseFieldsComplete })
+            breakpoint()
+            if (values.connectionId === connectionId) {
+                actions.hydrateTableFields(tableNames)
+            }
+        },
+        loadDatabaseSuccess: () => {
+            if (cache.allTableFieldsRequested && values.database) {
+                actions.ensureAllTableFields()
+            }
         },
         hydrateTableFields: async ({ tableNames }) => {
             const requestConnectionId = values.connectionId ?? undefined
@@ -594,6 +607,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             }
         },
         ensureAllTableFields: () => {
+            cache.allTableFieldsRequested = true
             if (values.databaseFieldsComplete && values.database) {
                 return
             }

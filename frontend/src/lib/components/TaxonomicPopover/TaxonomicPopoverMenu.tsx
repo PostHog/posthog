@@ -18,8 +18,8 @@
  * placeholder button is rendered — the heavy `ArmedTaxonomicPopoverMenu` is
  * mounted on first click and opened immediately via `defaultOpen`.
  */
-import { useValues } from 'kea'
-import { ReactElement, useMemo, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { ReactElement, useEffect, useMemo, useState } from 'react'
 
 import { IconChevronDown, IconFilter } from '@posthog/icons'
 
@@ -244,6 +244,15 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
     // here (not in the lazy outer component) so non-opened pickers don't
     // subscribe to it.
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
+    const { ensureAllTableFields } = useActions(databaseTableListLogic)
+    useEffect(() => {
+        if (
+            groupType === TaxonomicFilterGroupType.DataWarehouse ||
+            groupTypes?.includes(TaxonomicFilterGroupType.DataWarehouse)
+        ) {
+            ensureAllTableFields()
+        }
+    }, [groupType, groupTypes, ensureAllTableFields])
 
     // The group a synthetic `selected` entry should claim. `groupType` is
     // the popover's *default tab*, not the value's real category — and it's

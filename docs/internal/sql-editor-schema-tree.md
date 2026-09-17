@@ -22,4 +22,7 @@ Changing the visible range preserves the focused row so mouse-down and mouse-up 
 There is no timed background request for all fields.
 Consumers that need fields across the catalog must request them explicitly with `ensureAllTableFields`.
 Sidebar search uses this to retain column-name matching.
-Schema mutations invalidate and refresh the catalog; field hydration follows the expanded nodes.
+Warehouse series, warehouse property menus, and the data quality check editor explicitly request complete fields when needed.
+After that request, catalog reloads also restore complete fields for consumers of the shared store.
+Schema mutations refresh previously hydrated or pending tables, as well as expanded nodes.
+Saved-query lists expose metadata only; refreshing them preserves the query and columns already fetched for an open editor tab.

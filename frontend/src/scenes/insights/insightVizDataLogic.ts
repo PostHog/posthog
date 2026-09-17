@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -396,6 +396,7 @@ export interface insightVizDataLogicActions {
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
         | TraceSpansTreeQueryResponse // insightDataLogic
+    ensureAllTableFields: () => { value: true } // databaseTableListLogic
     setQuery: (
         query: Node<Record<string, any>> | null,
         fromUrl?: boolean | undefined
@@ -1326,6 +1327,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             ['featureFlags'],
         ],
         actions: [
+            databaseTableListLogic,
+            ['ensureAllTableFields'],
             insightDataLogic,
             ['setQuery', 'setInsightData', 'loadData', 'loadDataSuccess', 'loadDataFailure', 'cancelChanges'],
         ],
@@ -2601,6 +2604,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     listeners(({ actions, values, props, cache }) => ({
         // query
         setQuery: ({ query }) => {
+            if (values.hasDataWarehouseSeries) {
+                actions.ensureAllTableFields()
+            }
             if (isInsightVizNode(query)) {
                 if (props.setQuery) {
                     props.setQuery(query)
@@ -2782,6 +2788,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             }
         },
     })),
+    afterMount(({ actions, values }) => {
+        if (values.hasDataWarehouseSeries) {
+            actions.ensureAllTableFields()
+        }
+    }),
 ])
 
 const getActiveUsersMath = (

@@ -34,6 +34,8 @@ const MATERIALIZATION_POLL_MAX_ATTEMPTS = 12
 /** Mirrors the server's default for the materialize action, so the picker opens on what it would pick. */
 export const DEFAULT_MATERIALIZE_SYNC_FREQUENCY: DataModelingSyncInterval = '24hour'
 
+export type DataWarehouseSavedQuerySummary = Omit<DataWarehouseSavedQuery, 'columns' | 'query'>
+
 export interface DataWarehouseSavedQueryUpdate extends Partial<DataWarehouseSavedQuery> {
     id: string
     types?: string[][]
@@ -50,14 +52,14 @@ export interface dataWarehouseViewsLogicValues {
     databaseLoading: boolean // databaseTableListLogic
     views: DatabaseSchemaViewTable[] // databaseTableListLogic
     user: UserType | null // userLogic
-    dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
+    dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
     dataWarehouseSavedQueriesLoading: boolean
     dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[]
     dataWarehouseSavedQueryFoldersById: Record<string, DataWarehouseSavedQueryFolder>
     dataWarehouseSavedQueryFoldersLoading: boolean
-    dataWarehouseSavedQueryMap: Record<string, DataWarehouseSavedQuery>
-    dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery>
-    dataWarehouseSavedQueryMapByIdStringMap: Record<string, DataWarehouseSavedQuery>
+    dataWarehouseSavedQueryMap: Record<string, DataWarehouseSavedQuerySummary>
+    dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuerySummary>
+    dataWarehouseSavedQueryMapByIdStringMap: Record<string, DataWarehouseSavedQuerySummary>
     initialDataWarehouseSavedQueryLoading: boolean
     materializationAction: null
     materializationActionLoading: boolean
@@ -130,13 +132,13 @@ export interface dataWarehouseViewsLogicActions {
         payload?: string
     }
     createDataWarehouseSavedQuerySuccess: (
-        dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?: Partial<DataWarehouseSavedQuery> & {
             types: string[][]
             folder_id?: string | null
         }
     ) => {
-        dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
         payload?: Partial<DataWarehouseSavedQuery> & {
             types: string[][]
             folder_id?: string | null
@@ -166,10 +168,10 @@ export interface dataWarehouseViewsLogicActions {
         payload?: string
     }
     deleteDataWarehouseSavedQuerySuccess: (
-        dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?: string
     ) => {
-        dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
         payload?: string
     }
     loadDataWarehouseSavedQueries: () => any
@@ -181,10 +183,10 @@ export interface dataWarehouseViewsLogicActions {
         errorObject?: any
     }
     loadDataWarehouseSavedQueriesSuccess: (
-        dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?: any
     ) => {
-        dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
         payload?: any
     }
     loadDataWarehouseSavedQueryFolders: () => any
@@ -306,10 +308,10 @@ export interface dataWarehouseViewsLogicActions {
         }
     }
     updateDataWarehouseSavedQuerySuccess: (
-        dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?: DataWarehouseSavedQueryUpdate
     ) => {
-        dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
         payload?: DataWarehouseSavedQueryUpdate
     }
 }
@@ -319,14 +321,14 @@ export interface dataWarehouseViewsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         shouldShowEmptyState: (views: DatabaseSchemaViewTable[], databaseLoading: boolean) => boolean
         dataWarehouseSavedQueryMapById: (
-            dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
-        ) => Record<string, DataWarehouseSavedQuery>
+            dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
+        ) => Record<string, DataWarehouseSavedQuerySummary>
         dataWarehouseSavedQueryMapByIdStringMap: (
-            dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
-        ) => Record<string, DataWarehouseSavedQuery>
+            dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
+        ) => Record<string, DataWarehouseSavedQuerySummary>
         dataWarehouseSavedQueryMap: (
-            dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
-        ) => Record<string, DataWarehouseSavedQuery>
+            dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
+        ) => Record<string, DataWarehouseSavedQuerySummary>
         dataWarehouseSavedQueryFoldersById: (
             dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[]
         ) => Record<string, DataWarehouseSavedQueryFolder>
@@ -461,14 +463,15 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             },
         ],
         dataWarehouseSavedQueries: [
-            [] as DataWarehouseSavedQuery[],
+            [] as DataWarehouseSavedQuerySummary[],
             {
                 loadDataWarehouseSavedQueries: async () => {
                     const savedQueries = await warehouseSavedQueriesList(String(ApiConfig.getCurrentTeamId()), {
                         include_columns: false,
                     })
-                    // The editor still uses the legacy saved-query shape; list responses omit the SQL and columns.
-                    return savedQueries.results as unknown as DataWarehouseSavedQuery[]
+                    return savedQueries.results.map(
+                        ({ columns: _columns, ...view }) => view
+                    ) as unknown as DataWarehouseSavedQuerySummary[]
                 },
                 createDataWarehouseSavedQuery: async (
                     view: Partial<DataWarehouseSavedQuery> & {
@@ -657,14 +660,14 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         ],
         dataWarehouseSavedQueryMapById: [
             (s) => [s.dataWarehouseSavedQueries],
-            (dataWarehouseSavedQueries: DataWarehouseSavedQuery[]) => {
+            (dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]) => {
                 return (
                     dataWarehouseSavedQueries?.reduce(
                         (acc, cur) => {
                             acc[cur.id] = cur
                             return acc
                         },
-                        {} as Record<string, DataWarehouseSavedQuery>
+                        {} as Record<string, DataWarehouseSavedQuerySummary>
                     ) ?? {}
                 )
             },
@@ -672,28 +675,28 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         // id hyphens are removed. Used for hex'd id paths in DAG
         dataWarehouseSavedQueryMapByIdStringMap: [
             (s) => [s.dataWarehouseSavedQueries],
-            (dataWarehouseSavedQueries: DataWarehouseSavedQuery[]) => {
+            (dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]) => {
                 return (
                     dataWarehouseSavedQueries?.reduce(
                         (acc, cur) => {
                             acc[cur.id.replace(/-/g, '')] = cur
                             return acc
                         },
-                        {} as Record<string, DataWarehouseSavedQuery>
+                        {} as Record<string, DataWarehouseSavedQuerySummary>
                     ) ?? {}
                 )
             },
         ],
         dataWarehouseSavedQueryMap: [
             (s) => [s.dataWarehouseSavedQueries],
-            (dataWarehouseSavedQueries: DataWarehouseSavedQuery[]) => {
+            (dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]) => {
                 return (
                     dataWarehouseSavedQueries?.reduce(
                         (acc, cur) => {
                             acc[cur.name] = cur
                             return acc
                         },
-                        {} as Record<string, DataWarehouseSavedQuery>
+                        {} as Record<string, DataWarehouseSavedQuerySummary>
                     ) ?? {}
                 )
             },

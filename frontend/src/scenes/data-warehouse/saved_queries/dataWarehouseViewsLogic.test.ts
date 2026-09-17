@@ -71,7 +71,7 @@ describe('dataWarehouseViewsLogic', () => {
                 '/api/projects/:team_id/warehouse_saved_queries/': ({ request }) => {
                     expect(new URL(request.url).searchParams.get('include_columns')).toBe('false')
                     listCalls += 1
-                    return [200, { results: [{ id: 'view-123', name: 'v' }] }]
+                    return [200, { results: [{ id: 'view-123', name: 'v', columns: [] }] }]
                 },
             },
             delete: { '/api/environments/:team_id/warehouse_saved_queries/:id/': [204] },
@@ -79,7 +79,7 @@ describe('dataWarehouseViewsLogic', () => {
 
         logic.actions.loadDataWarehouseSavedQueries()
         await expectLogic(logic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
-        expect(logic.values.dataWarehouseSavedQueries.map((view) => view.id)).toEqual(['view-123'])
+        expect(logic.values.dataWarehouseSavedQueries).toEqual([{ id: 'view-123', name: 'v' }])
         expect(listCalls).toBe(1)
 
         await expectLogic(logic, () => {
