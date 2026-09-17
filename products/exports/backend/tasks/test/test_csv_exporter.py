@@ -1770,11 +1770,18 @@ class TestExcelWriter:
         assert "18,278 columns" in str(exc_info.value)
         assert "CSV format" in str(exc_info.value)
 
-    def test_excel_writer_formats_readable_rows(self) -> None:
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            'Please keep the "weekly" filter.\n' + "Long responses should wrap without widening every column. " * 8,
+            "Long answer.\n" * 2000,
+            "x" * 32767,
+        ],
+    )
+    def test_excel_writer_formats_readable_rows(self, answer: str) -> None:
         writer = ExcelWriter()
         columns = ["Respondent ID", "Email", "Q1: What could we improve about the report builder?"]
         writer.write_header(columns)
-        answer = 'Please keep the "weekly" filter.\n' + "Long responses should wrap without widening every column. " * 8
         writer.write_row(dict(zip(columns, ["anonymous-1", None, answer])))
         path = writer.finish()
         try:
@@ -1789,6 +1796,9 @@ class TestExcelWriter:
             assert sheet["C2"].alignment.vertical == "top"
             assert 24 <= sheet.column_dimensions["C"].width <= 60
             assert sheet.row_dimensions[2].height > sheet.sheet_format.defaultRowHeight
+            assert sheet.row_dimensions[2].height <= 409
+            if len(answer) > 2000:
+                assert sheet.row_dimensions[2].height == 409
         finally:
             os.unlink(path)
 

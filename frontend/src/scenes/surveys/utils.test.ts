@@ -102,8 +102,9 @@ describe('survey utils', () => {
         expect(sql).toContain('AND timestamp >= now() - INTERVAL 7 DAY')
         expect(sql).toContain("HAVING uuid NOT IN ('archived-response')")
         expect(sql).not.toMatch(/AS response\b|AS actions\b|AS answer_\d|LIMIT 100/)
-        expect(sql).toContain("nullIf(JSONExtractString(person_properties, '$email'), '')")
-        expect(sql).toContain("nullIf(JSONExtractString(person_properties, 'email'), '')")
+        expect(sql).toContain(
+            "coalesce(nullIf(JSONExtractString(person_properties, '$email'), ''), nullIf(JSONExtractString(person_properties, 'email'), ''), '') AS Email"
+        )
         expect(sql.split(' FROM (')[0]).not.toMatch(/person_properties AS|event_properties/)
     })
 

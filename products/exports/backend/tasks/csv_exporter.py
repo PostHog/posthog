@@ -105,6 +105,7 @@ class ExcelWriter(TabularWriter):
     def _append_row(self, values: list[str | int | float | bool | None], *, header: bool = False) -> None:
         cells = []
         line_count = 1
+        max_lines = 27
         for value, width in zip(values, self._column_widths):
             cell = WriteOnlyCell(self._worksheet, value=value)
             cell.alignment = self._alignment
@@ -112,11 +113,17 @@ class ExcelWriter(TabularWriter):
                 cell.font = self._header_font
                 cell.fill = self._header_fill
             cells.append(cell)
-            if isinstance(value, str):
-                line_count = max(
-                    line_count,
-                    sum(max(1, len(textwrap.wrap(line, width=width - 2))) for line in value.splitlines()),
-                )
+            if isinstance(value, str) and line_count < max_lines:
+                if len(value) > width * max_lines:
+                    line_count = max_lines
+                else:
+                    line_count = min(
+                        max_lines,
+                        max(
+                            line_count,
+                            sum(max(1, len(textwrap.wrap(line, width=width - 2))) for line in value.splitlines()),
+                        ),
+                    )
         self._row_count += 1
         self._worksheet.row_dimensions[self._row_count].height = min(409, 15 * line_count + 6)
         self._worksheet.append(cells)
