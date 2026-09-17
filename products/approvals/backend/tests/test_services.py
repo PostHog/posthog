@@ -101,3 +101,6 @@ class TestApplyOnEncryptedPayloadsFlag(APIBaseTest):
         assert change_request.state == ChangeRequestState.APPLIED
         flag.refresh_from_db()
         assert flag.active is True
+        stored_payload = flag.filters["payloads"]["true"]
+        decrypted_payload = flag_payload_codec().decrypt(stored_payload.encode("utf-8")).decode("utf-8")
+        assert decrypted_payload == '"next"', stored_payload
