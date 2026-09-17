@@ -59,6 +59,8 @@ export interface PropertyFiltersProps {
     propertyAllowList?: AllowedProperties
     excludedProperties?: ExcludedProperties
     allowRelativeDateOptions?: boolean
+    /** Let people commit a person property that has no definition yet — see `TaxonomicFilterProps`. */
+    allowNonCapturedPersonProperties?: boolean
     disabledReason?: string
     excludedOperators?: ExcludedOperators
     selectingKeyOnly?: SelectingKeyOnly
@@ -116,6 +118,7 @@ export function PropertyFilters({
     propertyAllowList,
     excludedProperties,
     allowRelativeDateOptions,
+    allowNonCapturedPersonProperties,
     disabledReason = undefined,
     excludedOperators,
     selectingKeyOnly,
@@ -229,6 +232,7 @@ export function PropertyFilters({
                                                 excludedProperties={excludedProperties}
                                                 taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
                                                 allowRelativeDateOptions={allowRelativeDateOptions}
+                                                allowNonCapturedPersonProperties={allowNonCapturedPersonProperties}
                                                 excludedOperators={excludedOperators}
                                                 selectingKeyOnly={selectingKeyOnly}
                                                 hideBehavioralCohorts={hideBehavioralCohorts}

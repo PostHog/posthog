@@ -1158,6 +1158,30 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    // A person property only gets a definition once someone has it set, so survey targeting rules
+    // like "has not answered survey X" can only be written if the picker offers the typed name.
+    describe('the "not seen yet" option for person properties', () => {
+        it.each([
+            [true, true],
+            [false, false],
+        ])('allowNonCapturedPersonProperties %p offers the option: %p', async (allowed, expected) => {
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: `person-properties-${allowed}`,
+                listGroupType: TaxonomicFilterGroupType.PersonProperties,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.PersonProperties],
+                showNumericalPropsOnly: false,
+                allowNonCapturedPersonProperties: allowed,
+            })
+            listLogic.mount()
+
+            await expectLogic(listLogic, () => {
+                listLogic.actions.setSearchQuery('$survey_responded/0192e-abc')
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ showNonCapturedEventOption: expected })
+        })
+    })
+
     // A hidden event is excluded by its label and case variants, not just its raw name, so a picker
     // that allows uncaptured events must not offer any of those forms as "not seen yet" — that would
     // commit a name no event carries and hide the explanation of the event's absence.

@@ -444,5 +444,24 @@ describe('useGroupList', () => {
             // No rebuild renderer draws the offer row yet, so the empty state is what a person sees.
             expect(result.current.showEmptyState).toBe(!expected)
         })
+
+        // Person properties get the same offer, under their own opt-in, so survey targeting can name
+        // a property nobody has been given yet.
+        it('allowNonCapturedPersonProperties offers an unseen person property', async () => {
+            apiGet.mockResolvedValueOnce({ results: [], count: 0 })
+            const group = makeGroup({
+                type: TaxonomicFilterGroupType.PersonProperties,
+                endpoint: 'api/projects/1/property_definitions',
+            })
+            const { result } = renderHook(() =>
+                useGroupList({
+                    group,
+                    searchQuery: '$survey_responded/0192e-abc',
+                    allowNonCapturedPersonProperties: true,
+                })
+            )
+            await waitFor(() => expect(result.current.isLoading).toBe(false))
+            expect(result.current.showNonCapturedEventOption).toBe(true)
+        })
     })
 })

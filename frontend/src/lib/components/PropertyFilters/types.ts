@@ -70,6 +70,7 @@ export interface PropertyFilterInternalProps {
     metadataSource?: AnyDataNode
     excludedProperties?: ExcludedProperties
     allowRelativeDateOptions?: boolean
+    allowNonCapturedPersonProperties?: boolean
     excludedOperators?: ExcludedOperators
     selectingKeyOnly?: SelectingKeyOnly
     hideBehavioralCohorts?: boolean

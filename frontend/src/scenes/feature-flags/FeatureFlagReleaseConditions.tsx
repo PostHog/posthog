@@ -119,12 +119,15 @@ export function FeatureFlagReleaseConditions({
     removedLastConditionCallback,
     evaluationRuntime,
     isDisabled,
+    allowNonCapturedPersonProperties,
 }: FeatureFlagReleaseConditionsLogicProps & {
     hideMatchOptions?: boolean
     excludeTitle?: boolean
     showTrashIconWithOneCondition?: boolean
     removedLastConditionCallback?: () => void
     isDisabled?: boolean
+    /** Let people target a person property that has no definition yet — see `TaxonomicFilterProps`. */
+    allowNonCapturedPersonProperties?: boolean
 }): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -392,6 +395,7 @@ export function FeatureFlagReleaseConditions({
                                 }
                                 errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
                                 hideBehavioralCohorts={!realtimeCohortFlagTargeting}
+                                allowNonCapturedPersonProperties={allowNonCapturedPersonProperties}
                             />
                         </div>
                     )}

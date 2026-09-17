@@ -62,6 +62,20 @@ export function quickFilterToPropertyFilters(item: QuickFilterItem): (EventPrope
     return [quickFilterToPropertyFilter(item), ...(item.extraProperties ?? [])]
 }
 
+/** Group types where the host can let a person commit a name the project has never seen. */
+export function groupAllowsNonCapturedOption(
+    groupType: TaxonomicFilterGroupType,
+    options: { allowNonCapturedEvents?: boolean; allowNonCapturedPersonProperties?: boolean }
+): boolean {
+    if (groupType === TaxonomicFilterGroupType.Events || groupType === TaxonomicFilterGroupType.CustomEvents) {
+        return !!options.allowNonCapturedEvents
+    }
+    if (groupType === TaxonomicFilterGroupType.PersonProperties) {
+        return !!options.allowNonCapturedPersonProperties
+    }
+    return false
+}
+
 export type TaxonomicFilterGroupValueMap = { [key in TaxonomicFilterGroupType]?: (PropertyKey | null)[] }
 export type ExcludedProperties = TaxonomicFilterGroupValueMap
 export type SelectedProperties = TaxonomicFilterGroupValueMap
@@ -158,6 +172,10 @@ export interface TaxonomicFilterProps {
     initialSearchQuery?: string
     /** Allow users to select events that haven't been captured yet (default: false) */
     allowNonCapturedEvents?: boolean
+    /** Allow users to select person properties that have no definition yet (default: false). A property
+     *  only gets a definition once it has been set on someone, so a rule like "has not answered survey X"
+     *  cannot be written without this. */
+    allowNonCapturedPersonProperties?: boolean
     hogQLGlobals?: Record<string, any>
     /** When true, the SQL expression tab shows a hint about using `AS column_name`
      * or `-- column_name` to get a readable breakdown label. Only shown for long expressions. */
