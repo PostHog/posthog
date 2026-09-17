@@ -168,6 +168,8 @@ fn the_protocol_with_crashes_is_safe_and_live() {
 /// below the warm HWM. This is a stronger guarantee than the manual
 /// review claimed — found by the checker refusing to produce a
 /// counterexample for the weaker claim.
+/// Refusing reads is the kind of change that can starve liveness, so this
+/// clears every property, not only the safety ones.
 #[test]
 fn a_single_zombie_pod_is_safe() {
     model(1, 1)
@@ -175,28 +177,15 @@ fn a_single_zombie_pod_is_safe() {
         .assert_properties();
 }
 
-/// Epoch fencing closes the *write* half of the residual: warming bumps
-/// the broker's producer epoch, so the zombie's produce is rejected
-/// before any ack. Acked-write loss, split acceptance, and drain-ack
-/// finality all hold again, zombie window and all.
-///
-/// `strong_reads_complete` is covered by
-/// `the_double_zombie_leaves_no_stale_read_reachable`.
+/// The double zombie, closed by both halves at once: fencing rejects the
+/// zombie's produce before any ack, and the read gate stops it answering
+/// from a cache the new owner is already changing. Every property holds,
+/// including the stale-read one that fencing alone used to leave broken.
 #[test]
 fn epoch_fenced_double_zombie_is_safe() {
-    let checker = model(2, 1).explore("epoch_fenced_double_zombie_is_safe");
-    assert!(
-        checker.discovery("no_lost_acked_write").is_none(),
-        "epoch fencing must eliminate acked-write loss"
-    );
-    assert!(
-        checker.discovery("no_split_write_acceptance").is_none(),
-        "epoch fencing must restore single-writer capability"
-    );
-    assert!(
-        checker.discovery("drained_ack_is_final").is_none(),
-        "a drained ack must remain final under fencing"
-    );
+    model(2, 1)
+        .explore("epoch_fenced_double_zombie_is_safe")
+        .assert_properties();
 }
 
 /// The rejected warm ordering — changelog read before fence acquisition
@@ -654,40 +643,6 @@ fn epoch_fenced_under_cancellation_is_safe_and_live() {
         ..base()
     }
     .explore("epoch_fenced_under_cancellation_is_safe_and_live")
-    .assert_properties();
-}
-
-/// Fencing rejects a zombie's writes, the read gate its reads. Both run
-/// unconditionally, so the composed protocol leaves no stale read.
-#[test]
-fn the_double_zombie_leaves_no_stale_read_reachable() {
-    assert!(
-        HandoffModel {
-            claim_recovers: true,
-            crashes: 2,
-            zombie_window: 1,
-            ..base()
-        }
-        .explore("the_double_zombie_leaves_no_stale_read_reachable")
-        .discovery("strong_reads_complete")
-        .is_none(),
-        "fencing and the read gate together must leave no stale read"
-    );
-}
-
-/// The gate makes pods refuse reads, which is exactly the kind of change
-/// that can starve liveness — so a gated configuration has to clear
-/// every property, not just the stale-read one the complementarity
-/// verdict inspects.
-#[test]
-fn a_lease_gated_fleet_is_safe_and_live() {
-    HandoffModel {
-        claim_recovers: true,
-        crashes: 1,
-        zombie_window: 1,
-        ..base()
-    }
-    .explore("a_lease_gated_fleet_is_safe_and_live")
     .assert_properties();
 }
 
