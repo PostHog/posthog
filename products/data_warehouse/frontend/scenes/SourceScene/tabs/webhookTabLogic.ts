@@ -147,6 +147,7 @@ export interface webhookTabLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         source: (arg: ExternalDataSource | null) => ExternalDataSource | null
         sourceConfig: (arg: SourceConfigResponseApi | null) => SourceConfigResponseApi | null
+        providerWebhookMissing: (webhookInfo: WebhookInfo | null) => boolean
         internalStateLabel: (webhookInfo: WebhookInfo | null) => {
             label: string
             tagType: 'danger' | 'default' | 'success' | 'warning'
@@ -156,7 +157,6 @@ export interface webhookTabLogicMeta {
             tagType: 'danger' | 'default' | 'success' | 'warning'
         }
         hasWebhookSchemas: (source: ExternalDataSource | null) => boolean
-        providerWebhookMissing: (webhookInfo: WebhookInfo | null) => boolean
         canDeleteWebhook: (webhookInfo: WebhookInfo | null, hasWebhookSchemas: boolean) => boolean
         mappedTables: (
             webhookInfo: WebhookInfo | null,
