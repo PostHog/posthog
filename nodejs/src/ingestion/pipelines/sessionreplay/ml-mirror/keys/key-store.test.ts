@@ -51,11 +51,16 @@ class DynamoBoundary {
     public writes = 0
     public writeRequests = 0
     public deferWrites = 0
+    public writeBatchSizes: number[] = []
     public conditionalFailures = 0
 
     public async send(command: BatchGetItemCommand | BatchWriteItemCommand | PutItemCommand): Promise<object> {
         if (command instanceof BatchWriteItemCommand) {
             const requests = command.input.RequestItems![table]
+            if (requests.length > 25) {
+                throw new Error(`BatchWriteItem takes at most 25 rows, got ${requests.length}`)
+            }
+            this.writeBatchSizes.push(requests.length)
             this.writeRequests += 1
             await Promise.resolve()
             // DynamoDB answers a partial throttle by storing some rows and returning the rest as unprocessed.
@@ -196,6 +201,7 @@ describe('ML session key batches', () => {
         // three batches of at most 25, so 122 requests become 64.
         expect(boundary.writes).toBe(122)
         expect(boundary.writeRequests).toBe(64)
+        expect([...boundary.writeBatchSizes].sort((a, b) => b - a)).toEqual([25, 25, 11])
     })
 
     it('commits concurrent new sessions without conditional failures', async () => {
