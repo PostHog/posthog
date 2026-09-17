@@ -4,6 +4,7 @@ import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '~/cdp/_
 import { createExampleInvocation, createHogFunction } from '~/cdp/_tests/fixtures'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { EncryptedFields } from '~/cdp/utils/encryption-utils'
+import { deviceSubscriptionKey } from '~/cdp/utils/push-subscription-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { IntegrationManagerService } from '../managers/integration-manager.service'
@@ -903,6 +904,86 @@ describe('PushNotificationService', () => {
                     properties: { $unset: ['$device_push_subscription_com.example.app'] },
                 })
             )
+        })
+    })
+
+    describe('multiple devices on one app', () => {
+        const twoDevices = () =>
+            createSendPushNotificationInvocation({
+                [deviceSubscriptionKey('test-project', 'token-phone')]: encryptedFields.encrypt('token-phone'),
+                [deviceSubscriptionKey('test-project', 'token-tablet')]: encryptedFields.encrypt('token-tablet'),
+            })
+
+        const ok = () => ({
+            fetchError: null,
+            fetchResponse: { status: 200, text: () => Promise.resolve('{}'), dump: () => Promise.resolve() },
+            fetchDuration: 10,
+        })
+
+        const unregistered = () => ({
+            fetchError: null,
+            fetchResponse: {
+                status: 404,
+                text: () =>
+                    Promise.resolve(
+                        JSON.stringify({ error: { status: 'NOT_FOUND', details: [{ errorCode: 'UNREGISTERED' }] } })
+                    ),
+                dump: () => Promise.resolve(),
+            },
+            fetchDuration: 10,
+        })
+
+        const serverError = () => ({
+            fetchError: null,
+            fetchResponse: { status: 500, text: () => Promise.resolve('{}'), dump: () => Promise.resolve() },
+            fetchDuration: 10,
+        })
+
+        it('sends to every device, not just one', async () => {
+            // The bug: a second device on the same app was unreachable because it overwrote the first.
+            mockTrackedFetch.mockResolvedValue(ok())
+
+            const result = await service.executeSendPushNotification(twoDevices())
+
+            expect(result.error).toBeUndefined()
+            const sentTokens = mockTrackedFetch.mock.calls.map(
+                (call: any) => parseJSON(call[0].fetchParams.body).message.token
+            )
+            expect(sentTokens.sort()).toEqual(['token-phone', 'token-tablet'])
+        })
+
+        it('prunes only the dead device and still delivers to the other', async () => {
+            mockTrackedFetch.mockResolvedValueOnce(unregistered()).mockResolvedValueOnce(ok())
+
+            const result = await service.executeSendPushNotification(twoDevices())
+
+            expect(result.error).toBeUndefined()
+            const unsets = result.capturedPostHogEvents.flatMap((e: any) => e.properties.$unset ?? [])
+            expect(unsets).toHaveLength(1)
+            expect(unsets[0]).toMatch(/^\$device_push_subscription_test-project:/)
+        })
+
+        it('does not retry the step when one device failed but another was delivered to', async () => {
+            // Retrying would push a second time to the device that already received it. Losing the
+            // failed device's notification is the better of the two outcomes.
+            mockTrackedFetch.mockResolvedValueOnce(ok()).mockResolvedValueOnce(serverError())
+
+            const result = await service.executeSendPushNotification(twoDevices())
+
+            // Finished, not rescheduled: a reschedule is what would resend to the delivered device.
+            expect(result.error).toBeUndefined()
+            expect(result.finished).toBe(true)
+            expect(result.invocation.queueScheduledAt).toBeUndefined()
+        })
+
+        it('reschedules the step when no device was delivered to', async () => {
+            // Nothing arrived anywhere, so a retry cannot duplicate a delivery.
+            mockTrackedFetch.mockResolvedValue(serverError())
+
+            const result = await service.executeSendPushNotification(twoDevices())
+
+            expect(result.finished).toBe(false)
+            expect(result.invocation.queueScheduledAt).toBeDefined()
         })
     })
 
