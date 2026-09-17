@@ -22,20 +22,33 @@ export function ReleaseConditionsModal(): JSX.Element {
     const { isReleaseConditionsModalOpen } = useValues(modalsLogic)
 
     const _featureFlagLogic = featureFlagLogic({ id: experiment.feature_flag?.id ?? null } as FeatureFlagLogicProps)
-    const { featureFlag, featureFlagLoading, nonEmptyVariants } = useValues(_featureFlagLogic)
+    const { featureFlag, featureFlagLoading, nonEmptyVariants, accessDeniedToFeatureFlag, featureFlagMissing } =
+        useValues(_featureFlagLogic)
     const { setFeatureFlagFilters, saveSidebarExperimentFeatureFlag } = useActions(_featureFlagLogic)
 
     // This save writes the feature flag directly, so it needs editor access to the flag. Editor
     // access to the experiment never implies it, and the flag carries its own access level.
     const flagLoaded = !!featureFlag.id && featureFlag.id === experiment.feature_flag?.id
-    const saveDisabledReason = flagLoaded
-        ? getAccessControlDisabledReason(
-              AccessControlResourceType.FeatureFlag,
-              AccessControlLevel.Editor,
-              featureFlag.user_access_level
-          )
-        : 'Loading the feature flag'
-    const blockedByFlagAccess = flagLoaded && saveDisabledReason !== null
+    // A refused read answers the access question on its own, and leaves no access level to read
+    // off the flag.
+    const flagAccessReason =
+        flagLoaded || accessDeniedToFeatureFlag
+            ? getAccessControlDisabledReason(
+                  AccessControlResourceType.FeatureFlag,
+                  AccessControlLevel.Editor,
+                  accessDeniedToFeatureFlag ? AccessControlLevel.None : featureFlag.user_access_level
+              )
+            : null
+    // Loaded, refused and still loading are three different answers, and only the last one
+    // resolves on its own.
+    const saveDisabledReason =
+        flagAccessReason ??
+        (flagLoaded
+            ? null
+            : featureFlagMissing
+              ? "Couldn't load the feature flag. Refresh the page to try again."
+              : 'Loading the feature flag')
+    const blockedByFlagAccess = flagAccessReason !== null
 
     // Recorded once, because reopening the modal shows the user the same gate and must not count
     // as another blocked save.

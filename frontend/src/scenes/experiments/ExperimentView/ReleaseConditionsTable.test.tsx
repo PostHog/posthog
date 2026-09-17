@@ -38,11 +38,12 @@ function flagWithAccess(userAccessLevel: AccessControlLevel): Partial<FeatureFla
     }
 }
 
-function mocksFor(userAccessLevel: AccessControlLevel): Record<string, any> {
+function mocksFor(userAccessLevel: AccessControlLevel, flagResponse?: [number, any]): Record<string, any> {
     return {
         get: {
             [`/api/projects/:team/experiments/${EXPERIMENT_ID}`]: () => [200, { id: EXPERIMENT_ID }],
-            [`/api/projects/:team/feature_flags/${FLAG_ID}`]: () => [200, flagWithAccess(userAccessLevel)],
+            [`/api/projects/:team/feature_flags/${FLAG_ID}`]: () =>
+                flagResponse ?? [200, flagWithAccess(userAccessLevel)],
             '/api/projects/:team/feature_flags': () => [200, { results: [], count: 0 }],
             '/api/projects/:team/experiment_holdouts': () => [200, { results: [], count: 0 }],
             '/api/projects/:team/experiment_saved_metrics': () => [200, { results: [], count: 0 }],
@@ -122,5 +123,24 @@ describe('ReleaseConditionsModal', () => {
 
         await waitFor(() => expect(screen.getByText('Save').closest('button')).toHaveAttribute('aria-disabled', 'true'))
         expect(blockedSaveEvents(capture)).toHaveLength(1)
+    })
+
+    // A failed flag load leaves the flag empty, which used to read as still loading forever.
+    it.each([
+        [
+            'refused',
+            [403, { type: 'authentication_error', code: 'permission_denied', detail: 'Not allowed' }],
+            /permissions for this feature flag/,
+        ],
+        ['missing', [404, { detail: 'Not found' }], /Couldn't load the feature flag/],
+    ])('a %s flag load explains itself instead of loading forever', async (_, flagResponse, expected) => {
+        useMocks(mocksFor(AccessControlLevel.Viewer, flagResponse as [number, any]))
+        renderModal(AccessControlLevel.Editor)
+
+        await waitFor(() => expect(screen.getByText('Save').closest('button')).toHaveAttribute('aria-disabled', 'true'))
+        await userEvent.hover(screen.getByText('Save'))
+
+        await waitFor(() => expect(screen.getByText(expected as RegExp)).toBeInTheDocument())
+        expect(screen.queryByText('Loading the feature flag')).not.toBeInTheDocument()
     })
 })
