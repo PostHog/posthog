@@ -66,6 +66,8 @@
                         formaction="{{ start_recalculation_url }}"
                         formmethod="post"
                         formnovalidate
+                        data-disable-on-submit
+                        data-submitting-text="Starting..."
                         class="button"
                         style="padding: 8px 14px;
                                background: #417690">Start new recalculation</button>
@@ -75,6 +77,8 @@
                         formaction="{{ panel.retry_url }}"
                         formmethod="post"
                         formnovalidate
+                        data-disable-on-submit
+                        data-submitting-text="Retrying..."
                         class="button"
                         style="padding: 8px 14px;
                                background: #417690">Retry latest failures</button>
@@ -95,6 +99,8 @@
                     formaction="{{ start_recalculation_url }}"
                     formmethod="post"
                     formnovalidate
+                    data-disable-on-submit
+                    data-submitting-text="Starting..."
                     class="button"
                     style="margin-top: 8px;
                            padding: 8px 14px;
@@ -102,3 +108,15 @@
         {% endif %}
     {% endif %}
 </fieldset>
+<script>
+    // These buttons live inside the admin change form, so the submit event bubbles up from it.
+    // Disabling the submitter after submit starts keeps the request but blocks a second click.
+    document.addEventListener("submit", function (event) {
+        var button = event.submitter;
+        if (!button || !button.hasAttribute("data-disable-on-submit")) {
+            return;
+        }
+        button.disabled = true;
+        button.textContent = button.getAttribute("data-submitting-text") || button.textContent;
+    });
+</script>
