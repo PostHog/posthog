@@ -91,8 +91,12 @@ export const STORED_NODE_ID_PREFIX = 'phb-'
  *
  * A comment is the only place a paragraph can carry an id: the document is markdown, and prose
  * has no attribute to hold one. It renders nowhere, so a reader never sees it.
+ *
+ * The prefix is part of the pattern, so this matches exactly what the serializer writes back.
+ * A wider pattern would eat an authorial `<!--ph:note-->` as an anchor and drop it on the next
+ * save, because the serializer writes no anchor for an id it did not store.
  */
-const NODE_ANCHOR_REGEX = /^<!--ph:([A-Za-z0-9._-]{1,128})-->$/
+const NODE_ANCHOR_REGEX = /^<!--ph:(phb-[A-Za-z0-9._-]{1,124})-->$/
 
 export function isStoredNodeId(id: string | undefined): boolean {
     return !!id && id.startsWith(STORED_NODE_ID_PREFIX)
@@ -151,9 +155,14 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
     const occurrences = new Map<string, number>()
     let pendingAnchorId: string | null = null
     const pushParsedNode = (node: NotebookBlockNode): void => {
-        if (pendingAnchorId !== null) {
-            node.id = pendingAnchorId
-            pendingAnchorId = null
+        const anchorId = pendingAnchorId
+        pendingAnchorId = null
+        // A tag's own `nodeId` prop wins over an anchor above it, matching the backend walk in
+        // products/notebooks/backend/util.py. Taking the anchor here would address one cell by
+        // two different ids, one per layer.
+        const carriesOwnId = node.type === 'component' && typeof node.props.nodeId === 'string' && !!node.props.nodeId
+        if (anchorId !== null && !carriesOwnId) {
+            node.id = anchorId
             nodes.push(node)
             return
         }

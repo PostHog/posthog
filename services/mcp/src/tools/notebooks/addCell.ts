@@ -151,6 +151,12 @@ function locateProseAnchorEnd(markdown: string, anchor: ProseAnchor): number {
     if (markdown.slice(anchor.start, anchor.end) === anchor.source) {
         return anchor.end
     }
+    // A stored id is written into the document above its block, so it names the block exactly.
+    // Matching on it survives an edit to the block's own text, which the text search below
+    // cannot, and it never confuses two blocks that read the same.
+    if (anchor.nodeId.startsWith(STORED_NODE_ID_PREFIX)) {
+        return locateStoredAnchorEnd(markdown, anchor)
+    }
     const matches: number[] = []
     for (
         let index = markdown.indexOf(anchor.source);
@@ -172,6 +178,28 @@ function locateProseAnchorEnd(markdown: string, anchor: ProseAnchor): number {
         )
     }
     return matches[0]! + anchor.source.length
+}
+
+/**
+ * Where the block under `<!--ph:id-->` ends, read from the anchor rather than from the block's
+ * text. The block runs to the next blank line, which is what separates two blocks.
+ */
+function locateStoredAnchorEnd(markdown: string, anchor: ProseAnchor): number {
+    const marker = `<!--ph:${anchor.nodeId}-->\n`
+    const at = markdown.indexOf(marker)
+    if (at === -1) {
+        throw new Error(
+            `Block ${anchor.nodeId} is no longer in notebook, so a cell cannot be placed after it. Read the notebook again with notebooks-get and retry with the id it returns.`
+        )
+    }
+    if (markdown.indexOf(marker, at + 1) !== -1) {
+        throw new Error(
+            `Block ${anchor.nodeId} names more than one block in notebook, so it cannot name one of them. Read the notebook again with notebooks-get.`
+        )
+    }
+    const bodyStart = at + marker.length
+    const blankLine = markdown.slice(bodyStart).search(/\n[ \t]*\n/)
+    return blankLine === -1 ? markdown.length : bodyStart + blankLine
 }
 
 function insertBlock(

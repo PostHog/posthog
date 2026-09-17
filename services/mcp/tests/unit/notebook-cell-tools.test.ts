@@ -740,6 +740,25 @@ describe('notebook cell tools', () => {
 
         // Relocation used to accept any unique occurrence of the source, so a paragraph that
         // grew around the old text took the insert into its middle and split it in two.
+        // A stored id is written into the document, so it names its block even when a block that
+        // reads the same is inserted above it and the text search would find two candidates.
+        it('places a cell after a stored id when identical prose sits above it', async () => {
+            const state = makeState('<!--ph:phb-one-->\nShared text.\n\n\nShared text.\n')
+            // Offsets from before an edit above the block, so the lookup cannot take them.
+            state.stateCells = [{ node_id: 'phb-one', cell_type: 'markdown', code: 'Shared text.', start: 32, end: 44 }]
+            const context = createMockContext(state)
+
+            await addCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                cell_type: 'markdown',
+                markdown: 'Inserted note.',
+                after_node_id: 'phb-one',
+            })
+
+            const inserted = state.saveBodies[0].content.content[0].attrs.markdown
+            expect(inserted.indexOf('Inserted note.')).toBeLessThan(inserted.lastIndexOf('Shared text.'))
+        })
+
         it('refuses a source that survives only inside a longer paragraph', async () => {
             const state = makeState('# Doc\n\n\nUpdated First paragraph. Now longer.\n')
             state.stateCells = [FIRST]
@@ -867,6 +886,22 @@ describe('notebook cell tools', () => {
                 })
             ).rejects.toThrow(/leave a code fence open/)
             expect(state.saveBodies).toHaveLength(0)
+        })
+
+        // The prefix only hints at the cell type. A tag holding an id that reads like a markdown
+        // block id still owns that id, so a code update must reach the tag.
+        it('updates a cell tag whose own nodeId reads like a markdown block id', async () => {
+            const state = makeState('<SQLV2 nodeId="phb-tagged" code="select 1" returnVariable="df" />')
+            state.runStatusResponses.push(DONE_STATUS)
+            const context = createMockContext(state)
+
+            await updateCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                node_id: 'phb-tagged',
+                code: 'select 2',
+            })
+
+            expect(state.saveBodies[0].content.content[0].attrs.markdown).toContain('code="select 2"')
         })
 
         it('refuses a node_id that names more than one block', async () => {

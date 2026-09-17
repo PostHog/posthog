@@ -685,6 +685,24 @@ describe('markdown round trip', () => {
             expect(new Set(ids).size).toEqual(2)
         })
 
+        // The serializer writes an anchor back only for a stored id. A parser that consumed a
+        // wider set would eat an authorial note and drop it on the next save.
+        it('leaves a comment that is not a stored id as a comment', () => {
+            const markdown = '<!--ph:note-->\n\nA paragraph.'
+
+            const document = parseMarkdownNotebook(markdown)
+
+            expect(document.nodes.map((node) => node.type)).toEqual(['component', 'paragraph'])
+            // The comment serializer pads the delimiters, so the note comes back spaced.
+            expect(serializeMarkdownNotebook(document)).toContain('ph:note')
+        })
+
+        it('gives a tag its own nodeId prop rather than an anchor above it', () => {
+            const document = parseMarkdownNotebook('<!--ph:phb-outer-->\n<SQLV2 nodeId="s1" code="select 1" />')
+
+            expect(document.nodes[0].id).not.toEqual('phb-outer')
+        })
+
         it('keeps an anchored block out of the paragraph above it', () => {
             const document = parseMarkdownNotebook('First.\n<!--ph:phb-abc-->\nSecond.')
 

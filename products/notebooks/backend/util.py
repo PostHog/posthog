@@ -380,6 +380,21 @@ def iter_markdown_blocks(markdown: str, max_prose_blocks: int | None = None) -> 
     line_index = 0
     prose_built = 0
     pending_anchor_id: str | None = None
+    # An anchor names one block. A second copy of one reaches the document through a three-way
+    # markdown merge, and two blocks under one id leave neither addressable, because every cell
+    # tool refuses an id that names more than one. The first keeps it; the rest fall back to a
+    # derived id. `ensureUniqueNodeIds` does the same in the editor.
+    claimed_anchor_ids: set[str] = set()
+
+    def claim_anchor_id() -> str | None:
+        nonlocal pending_anchor_id
+        anchor_id = pending_anchor_id
+        pending_anchor_id = None
+        if anchor_id is None or anchor_id in claimed_anchor_ids:
+            return None
+        claimed_anchor_ids.add(anchor_id)
+        return anchor_id
+
     # Two counters over one walk: code points to slice the document Python holds, UTF-16 units
     # to report, because the caller slices in UTF-16. Each advances once per character.
     code_points = 0
@@ -428,7 +443,7 @@ def iter_markdown_blocks(markdown: str, max_prose_blocks: int | None = None) -> 
             if prose_budget_left():
                 prose_built += 1
                 yield _build_markdown_prose_block(
-                    block_source(line_index, end_line_index), utf16, occurrences, pending_anchor_id
+                    block_source(line_index, end_line_index), utf16, occurrences, claim_anchor_id()
                 )
             pending_anchor_id = None
             consume(line_index, end_line_index)
@@ -443,9 +458,8 @@ def iter_markdown_blocks(markdown: str, max_prose_blocks: int | None = None) -> 
         if component is not None:
             tag_name, raw, next_line_index = component
             yield _build_markdown_component_block(
-                tag_name, raw, block_source(line_index, next_line_index), utf16, occurrences, pending_anchor_id
+                tag_name, raw, block_source(line_index, next_line_index), utf16, occurrences, claim_anchor_id()
             )
-            pending_anchor_id = None
             consume(line_index, next_line_index)
             line_index = next_line_index
             continue
@@ -456,7 +470,7 @@ def iter_markdown_blocks(markdown: str, max_prose_blocks: int | None = None) -> 
         if prose_budget_left():
             prose_built += 1
             yield _build_markdown_prose_block(
-                block_source(line_index, end_line_index), utf16, occurrences, pending_anchor_id
+                block_source(line_index, end_line_index), utf16, occurrences, claim_anchor_id()
             )
         pending_anchor_id = None
         consume(line_index, end_line_index)
@@ -487,11 +501,14 @@ def _opens_markdown_component_block(lines: list[str], line_index: int) -> bool:
     return _read_markdown_component_block(lines, line_index) is not None
 
 
-_MARKDOWN_NODE_ANCHOR_REGEX = re.compile(r"^<!--ph:([A-Za-z0-9._-]{1,128})-->$")
+_MARKDOWN_NODE_ANCHOR_REGEX = re.compile(r"^<!--ph:(phb-[A-Za-z0-9._-]{1,124})-->$")
 """A block id the document stores, written on its own line above the block it names.
 
-Mirrors `NODE_ANCHOR_REGEX` in frontend/src/lib/components/MarkdownNotebook/markdown.ts. A
-paragraph has no attribute to carry an id, so a comment is the only place one fits, and it
+Mirrors `NODE_ANCHOR_REGEX` in frontend/src/lib/components/MarkdownNotebook/markdown.ts,
+prefix included. A wider pattern here would read an authorial `<!--ph:note-->` as an anchor
+that the editor reads as a comment, and the two layers would disagree on the block list.
+
+A paragraph has no attribute to carry an id, so a comment is the only place one fits, and it
 renders nowhere.
 """
 

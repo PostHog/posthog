@@ -234,6 +234,17 @@ class TestMarkdownBlockSpans(SimpleTestCase):
         blocks = list(iter_markdown_blocks(markdown))
         assert [block.node_id for block in blocks] == ["s1"]
 
+    def test_a_repeated_anchor_names_only_the_first_block(self) -> None:
+        markdown = "<!--ph:phb-abc-->\nFirst.\n\n<!--ph:phb-abc-->\nSecond."
+        node_ids = [block.node_id for block in iter_markdown_blocks(markdown)]
+        assert node_ids[0] == "phb-abc"
+        assert len(set(node_ids)) == 2
+
+    def test_a_comment_that_is_not_a_stored_id_is_not_an_anchor(self) -> None:
+        blocks = list(iter_markdown_blocks("<!--ph:note-->\n\nA paragraph."))
+        assert [block.node_id for block in blocks] != ["note"]
+        assert blocks[0].source == "<!--ph:note-->"
+
     def test_an_anchor_inside_a_fence_is_not_read_as_one(self) -> None:
         markdown = "```\n<!--ph:phb-example-->\n```\n\nParagraph."
         blocks = list(iter_markdown_blocks(markdown))
