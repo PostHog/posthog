@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AIReplyPlaybookApi,
     AiFeedbackRequestApi,
     BulkUpdateStatusRequestApi,
     BulkUpdateStatusResponseApi,
@@ -51,6 +52,23 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getConversationsAiReplyPlaybookListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/ai_reply_playbook/`
+}
+
+/**
+ * Inherited support-reply playbook for this project, plus the team's custom addendum if any.
+ */
+export const conversationsAiReplyPlaybookList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AIReplyPlaybookApi[]> => {
+    return apiMutator<AIReplyPlaybookApi[]>(getConversationsAiReplyPlaybookListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getConversationsTicketsListUrl = (projectId: string, params?: ConversationsTicketsListParams) => {
     const normalizedParams = new URLSearchParams()
