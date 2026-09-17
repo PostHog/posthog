@@ -43,11 +43,24 @@ class CatalogEntry:
 MCP_SERVER_CATALOG: list[CatalogEntry] = [
     CatalogEntry(
         name="Atlassian",
-        url="https://mcp.atlassian.com/v1/mcp",
+        url="https://mcp.atlassian.com/v2/mcp",
         description="Integrate with Atlassian products like Jira and Confluence.",
         auth_type="oauth",
         category="productivity",
         icon_domain="atlassian.com",
+        docs_url="https://developer.atlassian.com/cloud/rovo-mcp/",
+        oauth_scope_allowlist=(
+            "read:me",
+            "read:account",
+            "offline_access",
+            "email",
+            "read:jira:agent-interface",
+            "write:jira:agent-interface",
+            "search:jira:agent-interface",
+            "read:confluence:agent-interface",
+            "write:confluence:agent-interface",
+            "search:confluence:agent-interface",
+        ),
     ),
     CatalogEntry(
         name="Box",
