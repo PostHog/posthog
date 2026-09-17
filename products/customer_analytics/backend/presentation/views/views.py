@@ -1784,6 +1784,7 @@ class AccountViewSet(
                 self.team_id,
                 self.kwargs["pk"],
                 user_access_control=self.user_access_control,
+                user=cast(User, request.user),
             )
         except api.ResourceForbiddenError:
             raise PermissionDenied()

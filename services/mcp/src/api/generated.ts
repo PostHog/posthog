@@ -89702,6 +89702,11 @@ export namespace Schemas {
       readonly started_by: string;
       /** Distinct ID of the customer who started the ticket. */
       readonly distinct_id: string;
+      /**
+         * How the ticket was attributed to this account. 'native' is the org the support product recorded on the ticket and 'membership' is the requester's single PostHog org, both of which are facts. 'membership_ambiguous' (the requester belongs to several orgs) and 'domain' (the requester's email domain matched the account) are hints that can be wrong. Null when no attribution method is known.
+         * @nullable
+         */
+      readonly attribution_method: string | null;
     }
 
     /**

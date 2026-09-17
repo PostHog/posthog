@@ -7,6 +7,7 @@ team's Slack credentials directly.
 """
 
 import asyncio
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Protocol, cast
 from uuid import UUID
@@ -393,25 +394,9 @@ def _support_ticket_last_message(ticket: Ticket, comment: Comment | None) -> Con
     )
 
 
-def list_account_tickets(
-    team_id: int,
-    organization_id: str,
-    user_access_control: _TicketAccessControl,
-    *,
-    limit: int = 50,
-) -> list[TicketSummary]:
-    """Support tickets whose resolved customer org matches ``organization_id``, newest activity first.
-
-    ``organization_id`` is the customer's group key (a customer-analytics account's
-    ``external_id``). An empty key matches nothing — never every ticket for the team.
-    """
-    if not organization_id:
+def _ticket_summaries(team_id: int, tickets: list[Ticket]) -> list[TicketSummary]:
+    if not tickets:
         return []
-    tickets = list(
-        user_access_control.filter_queryset_by_access_level(
-            Ticket.objects.filter(team_id=team_id, organization_id=organization_id)
-        ).order_by(F("last_message_at").desc(nulls_last=True))[:limit]
-    )
     latest_comments = {
         comment.item_id: comment
         for comment in Comment.objects.filter(
@@ -442,6 +427,50 @@ def list_account_tickets(
         )
         for ticket in tickets
     ]
+
+
+def list_account_tickets(
+    team_id: int,
+    organization_id: str,
+    user_access_control: _TicketAccessControl,
+    *,
+    limit: int = 50,
+) -> list[TicketSummary]:
+    """Support tickets whose resolved customer org matches ``organization_id``, newest activity first.
+
+    ``organization_id`` is the customer's group key (a customer-analytics account's
+    ``external_id``). An empty key matches nothing — never every ticket for the team.
+    """
+    if not organization_id:
+        return []
+    tickets = list(
+        user_access_control.filter_queryset_by_access_level(
+            Ticket.objects.filter(team_id=team_id, organization_id=organization_id)
+        ).order_by(F("last_message_at").desc(nulls_last=True))[:limit]
+    )
+    return _ticket_summaries(team_id, tickets)
+
+
+def list_tickets_by_ids(
+    team_id: int,
+    ticket_ids: Sequence[str],
+    user_access_control: _TicketAccessControl,
+) -> list[TicketSummary]:
+    """Support tickets by id, in the order ``ticket_ids`` gives.
+
+    An id the caller cannot read, or that belongs to another team, is left out rather than
+    raising, so a caller that resolved the ids elsewhere never leaks a ticket past its RBAC.
+    Every id must already be a valid UUID string.
+    """
+    if not ticket_ids:
+        return []
+    tickets_by_id = {
+        str(ticket.id): ticket
+        for ticket in user_access_control.filter_queryset_by_access_level(
+            Ticket.objects.filter(team_id=team_id, id__in=ticket_ids)
+        )
+    }
+    return _ticket_summaries(team_id, [tickets_by_id[t] for t in ticket_ids if t in tickets_by_id])
 
 
 def list_account_ticket_messages(

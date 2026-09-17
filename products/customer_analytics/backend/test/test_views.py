@@ -13,6 +13,8 @@ from parameterized import parameterized
 from redis.exceptions import RedisError
 from rest_framework import status
 
+from posthog.hogql.errors import ResolutionError
+
 from posthog.auth import MCP_USER_AGENT_MARKER
 from posthog.constants import AvailableFeature
 from posthog.models import Tag, TaggedItem
@@ -3227,6 +3229,7 @@ class TestAccountSupportTicketViewSet(APIBaseTest):
         data = response.json()
         self.assertEqual([t["ticket_number"] for t in data], [7])
         self.assertEqual(data[0]["status"], "open")
+        self.assertEqual(data[0]["attribution_method"], "native")
         self.assertEqual(data[0]["last_message"]["sender"]["name"], "Example customer")
         self.assertEqual(data[0]["last_message"]["direction"], "inbound")
         self.assertTrue(data[0]["deep_link"].endswith(f"/project/{self.team.id}/support/tickets/7"))
@@ -3244,6 +3247,67 @@ class TestAccountSupportTicketViewSet(APIBaseTest):
 
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
         self.assertEqual(response.json(), [])
+
+    @patch(
+        "products.customer_analytics.backend.logic.attributed_support_tickets.posthog_feature_flag_enabled",
+        return_value=True,
+    )
+    @patch("products.customer_analytics.backend.logic.attributed_support_tickets.execute_hogql_query")
+    def test_attribution_view_selects_and_labels_tickets_the_org_key_alone_would_miss(
+        self, mock_execute_hogql_query: MagicMock, _mock_flag_enabled: MagicMock
+    ) -> None:
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        no_org = Ticket.objects.create(
+            team=self.team, ticket_number=21, widget_session_id="s21", distinct_id="d21", organization_id=None
+        )
+        native = Ticket.objects.create(
+            team=self.team, ticket_number=22, widget_session_id="s22", distinct_id="d22", organization_id="acme-1"
+        )
+        other_team = Team.objects.create(organization=self.organization)
+        other_teams_ticket = Ticket.objects.create(
+            team=other_team, ticket_number=23, widget_session_id="s23", distinct_id="d23", organization_id=None
+        )
+        mock_execute_hogql_query.return_value = MagicMock(
+            results=[
+                [str(no_org.id), "membership"],
+                [str(native.id), "native"],
+                ["not-a-ticket-id", "domain"],
+                [str(other_teams_ticket.id), "domain"],
+            ]
+        )
+
+        response = self.client.get(self.endpoint)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        data = response.json()
+        self.assertEqual([t["ticket_number"] for t in data], [21, 22])
+        self.assertEqual([t["attribution_method"] for t in data], ["membership", "native"])
+
+    @patch(
+        "products.customer_analytics.backend.logic.attributed_support_tickets.posthog_feature_flag_enabled",
+        return_value=True,
+    )
+    @patch("products.customer_analytics.backend.logic.attributed_support_tickets.execute_hogql_query")
+    def test_missing_attribution_view_falls_back_to_the_accounts_org_key(
+        self, mock_execute_hogql_query: MagicMock, _mock_flag_enabled: MagicMock
+    ) -> None:
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        mock_execute_hogql_query.side_effect = ResolutionError("Unknown table support_tickets_attributed")
+        Ticket.objects.create(
+            team=self.team, ticket_number=24, widget_session_id="s24", distinct_id="d24", organization_id="acme-1"
+        )
+        Ticket.objects.create(
+            team=self.team, ticket_number=25, widget_session_id="s25", distinct_id="d25", organization_id=None
+        )
+
+        response = self.client.get(self.endpoint)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        data = response.json()
+        self.assertEqual([t["ticket_number"] for t in data], [24])
+        self.assertEqual(data[0]["attribution_method"], "native")
 
     def test_ticket_object_denial_hides_list_metadata_and_message_bodies(self):
         allowed_ticket = Ticket.objects.create(

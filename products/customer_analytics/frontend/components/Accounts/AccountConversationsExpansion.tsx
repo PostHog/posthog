@@ -14,6 +14,7 @@ import {
     LemonSkeleton,
     LemonTable,
     LemonTableColumns,
+    LemonTag,
     Link,
     ProfilePicture,
     Tooltip,
@@ -124,6 +125,33 @@ function SourceFilter({
                 {label}
             </LemonButton>
         </LemonMenu>
+    )
+}
+
+// The methods that attribute a ticket to the account from a recorded fact. Anything else is a
+// guess, so it gets a tag. Treating an unrecognized method as a guess means a method the
+// attribution view adds later shows the caveat instead of passing as certain.
+const CERTAIN_ATTRIBUTION_METHODS = new Set(['native', 'membership'])
+
+const UNCERTAIN_ATTRIBUTION_TOOLTIPS: Record<string, string> = {
+    membership_ambiguous:
+        'The person who opened this ticket belongs to more than one organization, so the ticket may belong to a different account.',
+    domain: 'Matched on the email domain of the person who opened this ticket, not on a recorded organization.',
+}
+
+const DEFAULT_UNCERTAIN_ATTRIBUTION_TOOLTIP =
+    'This ticket was matched to the account indirectly, so it may belong to a different account.'
+
+function UncertainMatchTag({ method }: { method: string | null }): JSX.Element | null {
+    if (!method || CERTAIN_ATTRIBUTION_METHODS.has(method)) {
+        return null
+    }
+    return (
+        <Tooltip title={UNCERTAIN_ATTRIBUTION_TOOLTIPS[method] ?? DEFAULT_UNCERTAIN_ATTRIBUTION_TOOLTIP}>
+            <LemonTag type="warning" className="shrink-0">
+                Possible match
+            </LemonTag>
+        </Tooltip>
     )
 }
 
@@ -556,7 +584,12 @@ export function AccountConversationsExpansion({
                     <span className="flex min-w-0 items-center gap-2 py-1">
                         <SourceIcon source={conversation.source} />
                         <span className="flex min-w-0 flex-col">
-                            <span className="font-medium truncate">{conversationTitle(conversation)}</span>
+                            <span className="flex min-w-0 items-center gap-1">
+                                <span className="font-medium truncate">{conversationTitle(conversation)}</span>
+                                {conversation.source === 'support' && (
+                                    <UncertainMatchTag method={conversation.ticket.attribution_method} />
+                                )}
+                            </span>
                             <span className="text-xs text-muted line-clamp-2">{conversationPreview(conversation)}</span>
                         </span>
                     </span>

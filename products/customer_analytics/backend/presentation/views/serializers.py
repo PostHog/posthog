@@ -1238,6 +1238,19 @@ class SupportTicketSerializer(DataclassSerializer):
     created_at = serializers.DateTimeField(read_only=True, help_text="When the ticket conversation started.")
     started_by = serializers.CharField(read_only=True, help_text="Display name of the customer who started the ticket.")
     distinct_id = serializers.CharField(read_only=True, help_text="Distinct ID of the customer who started the ticket.")
+    # Deliberately a CharField and not a ChoiceField: the values come from an attribution view
+    # the API does not own, so it can start reporting a method this code has never seen.
+    attribution_method = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "How the ticket was attributed to this account. 'native' is the org the support product "
+            "recorded on the ticket and 'membership' is the requester's single PostHog org, both of "
+            "which are facts. 'membership_ambiguous' (the requester belongs to several orgs) and "
+            "'domain' (the requester's email domain matched the account) are hints that can be wrong. "
+            "Null when no attribution method is known."
+        ),
+    )
 
     class Meta:
         dataclass = TicketSummary
@@ -1253,6 +1266,7 @@ class SupportTicketSerializer(DataclassSerializer):
             "created_at",
             "started_by",
             "distinct_id",
+            "attribution_method",
         ]
 
 

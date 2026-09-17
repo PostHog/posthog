@@ -17,6 +17,7 @@ Do NOT:
 
 import asyncio
 from collections.abc import Iterable
+from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional, cast
@@ -89,6 +90,7 @@ from products.conversations.backend.facade.api import (
     list_account_email_threads,
     list_account_ticket_messages,
     list_account_tickets,
+    list_tickets_by_ids,
     trigger_immediate_channel_summary,
 )
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
@@ -3917,12 +3919,18 @@ def get_account_support_tickets(
     team_id: int,
     account_id: str,
     user_access_control: "UserAccessControl",
+    user: "User",
     *,
     limit: int = 50,
 ) -> list[TicketSummary] | None:
     """Support tickets (from the conversations product) for an accessible account, newest activity
     first. None when the parent account isn't accessible (→ 404); an empty list when the account
     has no linked customer org key, or has one but no matching tickets.
+
+    The support product only records an org on a ticket it could resolve at the time, which leaves
+    the older backlog and most email tickets with no org at all. So when an attribution view is
+    available, that view decides which tickets belong to the account, and every ticket carries the
+    method that attributed it. Without the view, the ticket's own org key decides.
 
     Raises :class:`ResourceForbiddenError` (→ 403) when the caller can read the account but not
     tickets — this endpoint is authorized as ``account`` while the payload is ticket content, so
@@ -3934,7 +3942,26 @@ def get_account_support_tickets(
     account = _resolve_account(team_id, account_id=account_id)
     if account is None or not account.external_id:
         return []
-    return list_account_tickets(team_id, account.external_id, user_access_control, limit=limit)
+
+    from products.customer_analytics.backend.logic.attributed_support_tickets import (  # noqa: PLC0415  # Keeps HogQL off the facade import path.
+        NATIVE_ATTRIBUTION_METHOD,
+        list_attributed_ticket_refs,
+    )
+
+    team = user_access_control.team
+    if team is None or team.id != team_id:
+        team = Team.objects.get(id=team_id)
+
+    refs = list_attributed_ticket_refs(team=team, user=user, external_id=account.external_id, limit=limit)
+    if refs is None:
+        return [
+            replace(ticket, attribution_method=NATIVE_ATTRIBUTION_METHOD)
+            for ticket in list_account_tickets(team_id, account.external_id, user_access_control, limit=limit)
+        ]
+
+    method_by_ticket_id = {ref.ticket_id: ref.attribution_method for ref in refs}
+    tickets = list_tickets_by_ids(team_id, [ref.ticket_id for ref in refs], user_access_control)
+    return [replace(ticket, attribution_method=method_by_ticket_id.get(ticket.id)) for ticket in tickets]
 
 
 def get_account_support_ticket_messages(
