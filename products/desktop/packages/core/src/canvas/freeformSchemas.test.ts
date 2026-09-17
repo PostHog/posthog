@@ -6,6 +6,38 @@ import {
   limitCanvasCommentHighlights,
 } from "./freeformSchemas";
 
+describe("task composer navigation", () => {
+  it("preserves bounded task input without accepting a channel override", () => {
+    expect(
+      canvasNavIntentSchema.parse({
+        target: "compose-task",
+        prompt: "Inspect this PR",
+        repository: "example/app",
+        channelId: "another-channel",
+      }),
+    ).toEqual({
+      target: "compose-task",
+      prompt: "Inspect this PR",
+      repository: "example/app",
+    });
+    expect(canvasNavIntentSchema.parse({ target: "new-task" })).toEqual({
+      target: "new-task",
+    });
+  });
+
+  it.each([
+    { repository: "https://github.com/example/app" },
+    { repository: "../app" },
+    { repository: "example/app/extra" },
+    { prompt: "x".repeat(16_001) },
+  ])("rejects invalid composer input %j", (input) => {
+    expect(
+      canvasNavIntentSchema.safeParse({ target: "compose-task", ...input })
+        .success,
+    ).toBe(false);
+  });
+});
+
 describe("canvasToHostMessageSchema", () => {
   const message = (url: string) => ({
     channel: "posthog-canvas",
@@ -17,6 +49,8 @@ describe("canvasToHostMessageSchema", () => {
     "https://posthog.com/docs",
     "https://us.posthog.com/project/2",
     "https://app.posthog.com",
+    "https://github.com/example/app/pull/42",
+    "https://github.com/example/app/pull/42/files#diff-example",
   ])("accepts %s", (url) => {
     expect(canvasToHostMessageSchema.safeParse(message(url)).success).toBe(
       true,
@@ -25,6 +59,11 @@ describe("canvasToHostMessageSchema", () => {
 
   it.each([
     "https://example.com",
+    "https://github.com/login",
+    "https://github.com.evil.com/example/app/pull/42",
+    "https://user:password@github.com/example/app/pull/42",
+    "https://github.com:8443/example/app/pull/42",
+    "https://github.com/example/app/pull/42?redirect=https://example.com",
     "http://posthog.com",
     "https://posthog.com.evil.com",
     "mailto:hi@posthog.com",

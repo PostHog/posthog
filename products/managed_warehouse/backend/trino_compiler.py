@@ -76,25 +76,63 @@ def get_ready_trino_catalog_name(organization_id: str) -> str | None:
     from products.managed_warehouse.backend.presentation.views import _request  # noqa: PLC0415
 
     response = _request("GET", organization_id, "/trino", require_enabled=False)
-    if not status.is_success(response.status_code) or not isinstance(response.data, dict):
+    readiness_logger = logger.bind(organization_id=str(organization_id), status_code=response.status_code)
+    if not status.is_success(response.status_code):
+        readiness_logger.warning("trino_target_not_ready", reason="http_error")
         return None
-    if response.data.get("enabled") is not True:
+    if not isinstance(response.data, dict):
+        readiness_logger.warning(
+            "trino_target_not_ready", reason="invalid_response", response_type=type(response.data).__name__
+        )
+        return None
+    enabled = response.data.get("enabled")
+    if not isinstance(enabled, bool):
+        readiness_logger.warning(
+            "trino_target_not_ready", reason="invalid_enabled", enabled_type=type(enabled).__name__
+        )
+        return None
+    if not enabled:
+        readiness_logger.info(
+            "trino_target_not_ready",
+            reason="not_enabled",
+            enabled=enabled,
+            enabled_type=type(enabled).__name__,
+        )
         return None
 
     trino_status = response.data.get("status")
-    if not isinstance(trino_status, dict) or trino_status.get("state") != "ready":
+    if not isinstance(trino_status, dict):
+        readiness_logger.warning(
+            "trino_target_not_ready", reason="invalid_status", status_type=type(trino_status).__name__
+        )
+        return None
+    state = trino_status.get("state")
+    if state != "ready":
+        readiness_logger.info(
+            "trino_target_not_ready",
+            reason="state_not_ready",
+            state=state[:128] if isinstance(state, str) else None,
+            state_type=type(state).__name__,
+        )
         return None
     response_org = trino_status.get("org")
     if response_org is not None and str(response_org) != str(organization_id):
-        logger.warning(
+        readiness_logger.warning(
             "refusing_trino_catalog_for_mismatched_organization",
+            reason="organization_mismatch",
             requested_organization_id=str(organization_id),
-            response_organization_id=str(response_org),
+            response_organization_id=response_org[:128] if isinstance(response_org, str) else None,
+            response_organization_id_type=type(response_org).__name__,
         )
         return None
 
     catalog_name = trino_status.get("trino_catalog_name") or trino_status.get("catalog")
-    return catalog_name.strip() if isinstance(catalog_name, str) and catalog_name.strip() else None
+    if not isinstance(catalog_name, str) or not catalog_name.strip():
+        readiness_logger.warning(
+            "trino_target_not_ready", reason="invalid_catalog", catalog_type=type(catalog_name).__name__
+        )
+        return None
+    return catalog_name.strip()
 
 
 def prepare_hogql_to_trino_compiler(
@@ -194,7 +232,11 @@ def compile_hogql_to_trino_sql(
     from posthog.hogql.modifiers import create_default_modifiers_for_team  # noqa: PLC0415
     from posthog.hogql.parser import parse_select, sanitize_client_parser_mode  # noqa: PLC0415
     from posthog.hogql.placeholders import find_placeholders, replace_placeholders  # noqa: PLC0415
+    from posthog.hogql.printer.trino_hogql import (
+        TrinoHogQLPrinter,  # noqa: PLC0415 -- keeps compiler imports off Django startup
+    )
     from posthog.hogql.printer.utils import prepare_and_print_ast  # noqa: PLC0415
+    from posthog.hogql.resolver import resolve_types  # noqa: PLC0415 -- keeps compiler imports off Django startup
     from posthog.hogql.variables import replace_variables  # noqa: PLC0415
     from posthog.hogql.visitor import clone_expr  # noqa: PLC0415
 
@@ -276,7 +318,10 @@ def compile_hogql_to_trino_sql(
             modifiers=query_modifiers,
             bypass_warehouse_access_control=bypass_warehouse_access_control,
             database=database,
+            trino_table_locators=trino_table_locators,
+            restricted_properties=trino_context.restricted_properties,
         )
-        hogql_pretty, _ = prepare_and_print_ast(hogql_ast, hogql_context, dialect="hogql")
+        resolved_hogql = resolve_types(hogql_ast, hogql_context, dialect="trino")
+        hogql_pretty = TrinoHogQLPrinter(context=hogql_context).visit(resolved_hogql)
 
     return TrinoCompiledQuery(sql=trino_sql, values=dict(trino_context.values), hogql=hogql_pretty)

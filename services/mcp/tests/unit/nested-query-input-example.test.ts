@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { TOOL_MAP } from '@/tools'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
+import { mergeToolFactories } from '@/tools/mergeToolFactories'
 import { getToolDefinitions } from '@/tools/toolDefinitions'
 import type { ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -70,7 +71,10 @@ function jsonExamples(description: string): unknown[] {
     return examples
 }
 
-const allFactories: Record<string, () => ToolBase<ZodObjectAny>> = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
+const allFactories: Record<string, () => ToolBase<ZodObjectAny>> = mergeToolFactories({
+    generated: GENERATED_TOOL_MAP,
+    handwritten: TOOL_MAP,
+})
 const definitions = getToolDefinitions()
 
 const wrapperTools = Object.entries(allFactories).flatMap(([name, factory]) => {

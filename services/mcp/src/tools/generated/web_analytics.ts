@@ -396,31 +396,6 @@ const CompareFilter = z.object({
 
 const integer = z.coerce.number().int()
 
-const ActionConversionGoal = z.object({
-    actionId: integer,
-})
-
-const CustomEventConversionGoal = z.object({
-    customEventName: z.string(),
-})
-
-const WebAnalyticsConversionGoal = z.union([ActionConversionGoal, CustomEventConversionGoal])
-
-const AssistantDateRange = z.object({
-    date_from: z.string().describe('ISO8601 date string.'),
-    date_to: z.string().nullable().describe('ISO8601 date string.').optional(),
-})
-
-const AssistantDurationRange = z.object({
-    date_from: z
-        .string()
-        .describe(
-            "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start."
-        ),
-})
-
-const AssistantDateRangeFilter = z.union([AssistantDateRange, AssistantDurationRange])
-
 const PropertyOperator = z.enum([
     'exact',
     'is_not',
@@ -507,6 +482,39 @@ const WebAnalyticsPropertyFilter = z.union([
 ])
 
 const WebAnalyticsPropertyFilters = z.array(WebAnalyticsPropertyFilter)
+
+const ActionConversionGoal = z.object({
+    actionId: integer,
+    properties: WebAnalyticsPropertyFilters.optional(),
+})
+
+const CustomEventConversionGoal = z.object({
+    customEventName: z.string(),
+    properties: WebAnalyticsPropertyFilters.optional(),
+})
+
+const WebAnalyticsConversionGoal = z.union([ActionConversionGoal, CustomEventConversionGoal])
+
+const AssistantDateRange = z.object({
+    date_from: z.string().describe('ISO8601 date string.'),
+    date_to: z
+        .string()
+        .nullable()
+        .describe(
+            'ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.'
+        )
+        .optional(),
+})
+
+const AssistantDurationRange = z.object({
+    date_from: z
+        .string()
+        .describe(
+            "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start."
+        ),
+})
+
+const AssistantDateRangeFilter = z.union([AssistantDateRange, AssistantDurationRange])
 
 const AssistantWebOverviewQuery = z.object({
     compareFilter: CompareFilter.describe(

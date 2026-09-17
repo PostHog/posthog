@@ -1,4 +1,4 @@
-from typing import Any, Optional, TypedDict
+from typing import Any, Optional, Protocol, TypedDict
 
 from django.http.request import HttpRequest
 from django.http.response import JsonResponse
@@ -89,6 +89,15 @@ class ClickHouseAtCapacity(APIException):
     )
 
 
+class QueryRanConcurrently(APIException):
+    """Raised by a query single flight follower whose leader left nothing to serve or rebuild: the
+    leader failed in a way that cannot be shared, died, or held its lock past the limit."""
+
+    status_code = 503
+    default_code = "query_ran_concurrently"
+    default_detail = "This query was already running and its result couldn't be reused. Try again in a moment."
+
+
 class ClickHouseEstimatedQueryExecutionTimeTooLong(APIException):
     status_code = 512  # Custom error code
     default_detail = "Estimated query execution time is too long. Try reducing its scope by changing the time range."
@@ -135,6 +144,20 @@ class ClickHouseClusterMemoryLimitExceeded(ClickHouseQueryMemoryLimitExceeded):
     default_detail = (
         "We're under heavy load right now and couldn't finish this query. Please try again in a few minutes."
     )
+
+
+class FieldedValidationError(Protocol):
+    """A framework-free validation error, as a product's internals raise it."""
+
+    message: str
+    field: str | None
+
+
+def as_drf_validation_error(error: FieldedValidationError) -> ValidationError:
+    """The DRF equivalent of a framework-free validation error, keyed by field when it names one."""
+    if error.field:
+        return ValidationError({error.field: [error.message]})
+    return ValidationError(error.message)
 
 
 class ExceptionContext(TypedDict):

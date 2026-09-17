@@ -48,6 +48,10 @@
   .legend i { display: inline-block; width: 10px; height: 3px; margin-right: 4px; vertical-align: middle; }
   .kv td:first-child { color: var(--muted); width: 180px; }
   .pill { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; background: var(--panel2); border: 1px solid var(--border); }
+  .tag { display: inline-block; font-family: var(--mono); font-size: 11px; color: var(--accent); background: rgba(122, 162, 247, .1); border: 1px solid rgba(122, 162, 247, .3); border-radius: 4px; padding: 0 5px; margin: 0 4px 2px 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; white-space: nowrap; }
+  .tag b { color: var(--muted); font-weight: 400; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid var(--accent); border-radius: 6px; font-family: var(--mono); font-size: 11px; }
+  .chip button { padding: 0 4px; border: 0; background: none; color: var(--muted); }
   .clickable { cursor: pointer; } tr.clickable:hover td { background: var(--panel2); }
   details summary { cursor: pointer; color: var(--muted); }
 </style>
@@ -137,6 +141,13 @@
   const panel = (title, ...kids) => el('div', { class: 'panel' }, title ? el('h2', {}, title) : null, ...kids);
   const tile = (label, value, cls = '') => el('div', { class: 'panel tile' }, el('div', { class: 'v ' + cls }, value ?? '–'), el('div', { class: 'l' }, label));
   const queryCell = q => el('span', { class: 'q', title: q || '' }, q || el('span', { class: 'muted' }, '(text not captured)'));
+  // Tags label a query by the code that ran it (/* nodejs:PERSONS_WRITE<updatePersonsBatch> */, /* route='/api/x' */).
+  const TAG_ORDER = ['service', 'db_use', 'operation', 'caller', 'route', 'controller', 'task', 'workflow', 'query_type', 'purpose', 'team_id'];
+  const tagEntries = tags => tags ? Object.entries(tags).sort(([a], [b]) => (TAG_ORDER.indexOf(a) + 1 || 99) - (TAG_ORDER.indexOf(b) + 1 || 99)) : [];
+  const tagPills = (tags, max = 5) => { const e = tagEntries(tags); if (!e.length) return null; return el('span', {}, e.slice(0, max).map(([k, v]) => el('span', { class: 'tag', title: `${k}=${v}` }, el('b', {}, k + '='), v)), e.length > max ? el('span', { class: 'muted' }, `+${e.length - max}`) : null); };
+  // The row label: tags first, SQL underneath, so a list reads by code path rather than by statement text.
+  const queryLabel = r => el('span', {}, tagPills(r.tags), r.tags && Object.keys(r.tags).length ? el('br') : null, queryCell(r.query));
+  const tagFilterChip = (tags, onClear) => tags ? el('span', { class: 'chip' }, tags, el('button', { title: 'clear tag filter', onclick: onClear }, '✕')) : null;
 
   // ---------- simple SVG line chart ----------
   // series: [{name, color, points: [[Date, number | null]]}]; a null y breaks the line.
@@ -184,7 +195,7 @@
       ),
       el('div', { class: 'grid two', style: 'margin-top:12px' },
         panel('Top queries by total time', table(d.top_queries, [
-          { key: 'query', label: 'query', render: r => el('a', { href: `#/${state.server}/query?queryid=${r.queryid}` }, queryCell(r.query)) },
+          { key: 'query', label: 'query', render: r => el('a', { href: `#/${state.server}/query?queryid=${r.queryid}` }, queryLabel(r)) },
           { key: 'calls', label: 'calls', num: true, fmt: fmt.num }, { key: 'mean_ms', label: 'mean', num: true, fmt: fmt.ms }, { key: 'pct_of_total_time', label: '% time', num: true, fmt: fmt.pct },
         ])),
         panel('Top wait events (active sessions, sampled)', table(d.top_wait_events, [
@@ -204,19 +215,50 @@
 
   pages.queries = async () => {
     const order = state.params.order || 'total_exec_time';
-    const rows = await api(`/servers/${state.server}/queries`, { since: state.range, order, limit: 200, datname: state.params.datname });
+    const group = state.params.group || '';
+    const tagFilter = state.params.tags || '';
     const orders = [['total_exec_time', 'total time'], ['calls', 'calls'], ['mean_exec_time', 'mean time'], ['rows', 'rows'], ['shared_blks_read', 'blocks read'], ['wal_bytes', 'WAL bytes'], ['storage_blks_read', 'Aurora storage reads']];
     const [dbsel] = dbSelect(v => go('queries', { ...state.params, datname: v }));
     dbsel.prepend(el('option', { value: '', selected: state.params.datname ? null : '' }, 'all databases'));
+    const [rows, tagged] = await Promise.all([
+      group ? null : api(`/servers/${state.server}/queries`, { since: state.range, order, limit: 200, datname: state.params.datname, tags: tagFilter }),
+      api(`/servers/${state.server}/tags`, { since: state.range, key: group, datname: state.params.datname, limit: 200 }),
+    ]);
+    const keys = (tagged.keys || []).map(k => k.key);
+    const groupSel = el('select', { onchange: e => { const p = { ...state.params, group: e.target.value }; if (p.group) delete p.tags; go('queries', p); } },
+      el('option', { value: '', selected: group ? null : '' }, 'query'),
+      keys.map(k => el('option', { value: k, selected: k === group ? '' : null }, `tag: ${k}`)),
+      group && !keys.includes(group) ? el('option', { value: group, selected: '' }, `tag: ${group}`) : null);
+    const toolbar = el('div', { class: 'toolbar' },
+      el('label', {}, 'group by ', groupSel),
+      group ? null : el('label', {}, 'order by ', el('select', { onchange: e => go('queries', { ...state.params, order: e.target.value }) }, orders.map(([v, l]) => el('option', { value: v, selected: v === order ? '' : null }, l)))),
+      el('label', {}, 'database ', dbsel),
+      tagFilterChip(tagFilter, () => { const p = { ...state.params }; delete p.tags; go('queries', p); }));
+    if (group) {
+      const samp = tagged.log_sampling || {};
+      const sub = samp.enabled ? 'load per code path: active sessions from 10s samples, calls and latency from sampled statement logs' : 'load per code path from 10s activity samples (statement log sampling is off, so no calls or latency)';
+      return [
+        el('h1', {}, 'Queries by tag ', el('span', { class: 'mono' }, group), el('span', { class: 'sub' }, sub)),
+        toolbar,
+        panel(null, table(tagged.groups, [
+          { key: 'value', label: group, render: r => el('span', { class: 'tag', title: r.value }, r.value) },
+          { key: 'avg_active_sessions', label: 'avg active sessions', num: true, fmt: v => fmt.dec(v, 2) },
+          { key: 'active_over_10s', label: 'samples > 10s', num: true, fmt: fmt.num },
+          { key: 'distinct_queries', label: 'queries', num: true, render: r => fmt.num(r.distinct_queries ?? r.distinct_statements) },
+          { key: 'est_calls', label: 'est. calls', num: true, fmt: fmt.num }, { key: 'est_total_ms', label: 'est. total', num: true, fmt: fmt.ms },
+          { key: 'p50', label: 'p50', num: true, fmt: fmt.ms }, { key: 'p95', label: 'p95', num: true, fmt: fmt.ms }, { key: 'p99', label: 'p99', num: true, fmt: fmt.ms }, { key: 'max_ms', label: 'max', num: true, fmt: fmt.ms },
+        ], { sortKey: 'avg_active_sessions', onRow: r => { const p = { ...state.params, tags: `${group}=${encodeURIComponent(r.value)}` }; delete p.group; go('queries', p); }, empty: 'no tagged activity in this range (queries need a /* key=value */ comment)' })),
+      ];
+    }
     return [
-      el('h1', {}, 'Queries', el('span', { class: 'sub' }, 'pg_stat_statements, per-interval deltas summed over the range')),
-      el('div', { class: 'toolbar' }, el('label', {}, 'order by ', el('select', { onchange: e => go('queries', { ...state.params, order: e.target.value }) }, orders.map(([v, l]) => el('option', { value: v, selected: v === order ? '' : null }, l)))), el('label', {}, 'database ', dbsel)),
+      el('h1', {}, 'Queries', el('span', { class: 'sub' }, tagFilter ? 'pg_stat_statements totals for queries seen with this tag; the totals include every caller of each query' : 'pg_stat_statements, per-interval deltas summed over the range')),
+      toolbar,
       panel(null, table(rows, [
-        { key: 'query', label: 'query', render: r => queryCell(r.query) },
+        { key: 'query', label: 'query', render: queryLabel },
         { key: 'datname', label: 'db' }, { key: 'rolname', label: 'role' },
         { key: 'calls', label: 'calls', num: true, fmt: fmt.num }, { key: 'total_ms', label: 'total', num: true, fmt: fmt.ms }, { key: 'mean_ms', label: 'mean', num: true, fmt: fmt.ms }, { key: 'stddev_ms', label: 'stddev', num: true, fmt: fmt.ms },
         { key: 'rows', label: 'rows', num: true, fmt: fmt.num }, { key: 'shared_blks_read', label: 'blks read', num: true, fmt: fmt.num }, { key: 'pct_of_total_time', label: '% time', num: true, render: r => el('span', {}, el('span', { class: 'bar', style: `width:${Math.min(100, r.pct_of_total_time || 0)}px` }), ' ', fmt.pct(r.pct_of_total_time)) },
-      ], { onRow: r => go('query', { queryid: r.queryid }) })),
+      ], { onRow: r => go('query', { queryid: r.queryid }), empty: tagFilter ? 'no queries seen with this tag in the range' : 'nothing in this range' })),
     ];
   };
 
@@ -241,15 +283,19 @@
       : 'mean only: no sampled durations in this range (needs log_min_duration_sample and the logs collector)';
     return [
       el('h1', {}, 'Query ', el('span', { class: 'mono' }, qid), el('span', { class: 'sub' }, t.datname || '')),
-      panel('Text', el('pre', {}, t.query || '(not captured yet)'), t.truncated ? el('div', { class: 'muted' }, 'truncated at 10 KB') : null),
+      panel('Text', tagPills(t.tags, 12) ? el('div', { style: 'margin-bottom:8px' }, tagPills(t.tags, 12), el('span', { class: 'muted', style: 'font-size:11px' }, ' tags on the first call seen')) : null, el('pre', {}, t.query || '(not captured yet)'), t.truncated ? el('div', { class: 'muted' }, 'truncated at 10 KB') : null),
       el('div', { class: 'grid two', style: 'margin-top:12px' },
         panel(`Calls per ${per}`, chart([{ name: 'calls', color: COLORS[0], points: pts.map(([m, v]) => [m, v.calls]) }], { yfmt: fmt.num })),
         panel(`Latency per ${per}`,
           chart([{ name: 'mean', color: COLORS[2], points: pts.map(([m, v]) => [m, v.calls ? v.total / v.calls : 0]) }, ...qseries], { yfmt: v => fmt.ms(v) }),
           el('div', { class: 'muted', style: 'margin-top:6px; font-size:11px' }, latencyNote)),
         panel('Wait events while running', table(d.wait_events, [{ key: 'wait_event_type', label: 'type', fmt: v => v || 'CPU' }, { key: 'wait_event', label: 'event', fmt: v => v || '–' }, { key: 'samples', label: 'samples', num: true, fmt: fmt.num }])),
+        panel('Callers (tags seen while running)', table(d.callers, [
+          { key: 'tags', label: 'tags', render: r => tagPills(r.tags, 8) }, { key: 'source', label: 'source', fmt: v => v === 'activity' ? 'activity samples' : 'statement log' },
+          { key: 'samples', label: 'samples', num: true, fmt: fmt.num }, { key: 'share_pct', label: 'share', num: true, render: r => el('span', {}, el('span', { class: 'bar', style: `width:${Math.min(100, r.share_pct || 0)}px` }), ' ', fmt.pct(r.share_pct)) },
+        ], { empty: 'no tagged samples in range (queries need a /* key=value */ comment)' })),
       ),
-      el('div', { style: 'margin-top:12px' }, panel('Slowest logged samples', table(d.slowest_samples, [{ key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'log_stream', label: 'instance' }, { key: 'usename', label: 'user' }, { key: 'duration_ms', label: 'duration', num: true, fmt: fmt.ms }, { key: 'query', label: 'statement', render: r => queryCell(r.query) }]))),
+      el('div', { style: 'margin-top:12px' }, panel('Slowest logged samples', table(d.slowest_samples, [{ key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'log_stream', label: 'instance' }, { key: 'usename', label: 'user' }, { key: 'duration_ms', label: 'duration', num: true, fmt: fmt.ms }, { key: 'tags', label: 'tags', render: r => tagPills(r.tags, 4) }, { key: 'trace_id', label: 'trace', cls: 'mono', render: r => r.trace_id ? el('span', { title: r.trace_id }, r.trace_id.slice(0, 12) + '…') : null }, { key: 'query', label: 'statement', render: r => queryCell(r.query) }]))),
       el('div', { style: 'margin-top:12px' }, panel('Execution plans (Aurora plan stats)', d.plans.length ? d.plans.map(p => el('details', { open: '' }, el('summary', {}, `plan ${p.planid} · ${p.plan_type} · calls ${fmt.num(p.calls)} · total ${fmt.ms(p.total_ms)} · captured ${fmt.ago(p.plan_captured_time)}`), el('pre', {}, p.explain_plan || ''))) : el('div', { class: 'empty' }, 'no plans (aurora_stat_plans is Aurora-only)'))),
       el('div', { style: 'margin-top:12px' }, panel('auto_explain plans from the log', d.logged_plans.length ? d.logged_plans.map(p => el('details', {}, el('summary', {}, `${fmt.ts(p.log_time)} · ${fmt.ms(p.duration_ms)} · ${p.datname}`), el('pre', {}, JSON.stringify(p.plan, null, 2)))) : el('div', { class: 'empty' }, 'none in range'))),
     ];
@@ -266,7 +312,7 @@
       el('div', { style: 'margin-top:12px' }, panel('Long-running / waiting / idle-in-transaction sessions', table(d.sessions, [
         { key: 'pid', label: 'pid', num: true }, { key: 'instance', label: 'instance' }, { key: 'datname', label: 'db' }, { key: 'usename', label: 'user' }, { key: 'application_name', label: 'app' }, { key: 'state', label: 'state' },
         { key: 'wait_event_type', label: 'wait', fmt: (v, r) => v ? `${v}:${r.wait_event}` : 'CPU' }, { key: 'query_age_s', label: 'query age', num: true, fmt: v => fmt.dec(v, 0) + ' s' }, { key: 'xact_age_s', label: 'xact age', num: true, fmt: v => fmt.dec(v, 0) + ' s' }, { key: 'blocked_by', label: 'blocked by' },
-        { key: 'query', label: 'query', render: r => queryCell(r.query) },
+        { key: 'query', label: 'query', render: queryLabel },
       ], { empty: 'no interesting sessions right now' }))),
       d.memory_hogs.length ? el('div', { style: 'margin-top:12px' }, panel('Backends over 64 MB (Aurora memory contexts)', table(d.memory_hogs, [{ key: 'pid', label: 'pid', num: true }, { key: 'usename', label: 'user' }, { key: 'allocated_bytes', label: 'allocated', num: true, fmt: fmt.bytes }, { key: 'top_context', label: 'largest context' }, { key: 'query', label: 'query', render: r => queryCell(r.query) }]))) : null,
     ];
@@ -362,9 +408,9 @@
         panel('Errors grouped', table(d.summary, [{ key: 'class', label: 'class' }, { key: 'sqlstate', label: 'sqlstate', cls: 'mono' }, { key: 'message', label: 'message' }, { key: 'n', label: 'count', num: true, fmt: fmt.num }])),
       ),
       el('div', { style: 'margin-top:12px' }, panel('Recent errors', table(d.recent, [
-        { key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'level', label: 'level', render: r => el('span', { class: r.level === 'ERROR' ? 'warn' : 'err' }, r.level) }, { key: 'datname', label: 'db' }, { key: 'usename', label: 'user' }, { key: 'message', label: 'message' }, { key: 'statement', label: 'statement', render: r => queryCell(r.statement) },
+        { key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'level', label: 'level', render: r => el('span', { class: r.level === 'ERROR' ? 'warn' : 'err' }, r.level) }, { key: 'datname', label: 'db' }, { key: 'usename', label: 'user' }, { key: 'message', label: 'message' }, { key: 'statement', label: 'statement', render: r => el('span', {}, tagPills(r.tags, 3), queryCell(r.statement)) },
       ], { empty: 'no errors in range' }))),
-      el('div', { style: 'margin-top:12px' }, panel('Largest temp-file spills', table(d.temp_files, [{ key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'datname', label: 'db' }, { key: 'usename', label: 'user' }, { key: 'size_bytes', label: 'size', num: true, fmt: fmt.bytes }, { key: 'statement', label: 'statement', render: r => queryCell(r.statement) }], { empty: 'none (needs log_temp_files)' }))),
+      el('div', { style: 'margin-top:12px' }, panel('Largest temp-file spills', table(d.temp_files, [{ key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'datname', label: 'db' }, { key: 'usename', label: 'user' }, { key: 'size_bytes', label: 'size', num: true, fmt: fmt.bytes }, { key: 'statement', label: 'statement', render: r => el('span', {}, tagPills(r.tags, 3), queryCell(r.statement)) }], { empty: 'none (needs log_temp_files)' }))),
     ];
   };
 

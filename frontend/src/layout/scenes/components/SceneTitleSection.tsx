@@ -1,6 +1,7 @@
 import '../../panel-layout/ProjectTree/defaultTree'
 
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
@@ -27,6 +28,7 @@ import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/Wrapping
 import { cn } from 'lib/utils/css-classes'
 import { AnimatedSparkles } from 'scenes/max/components/AnimatedSparkles'
 import { UseMaxToolOptions, useMaxTool } from 'scenes/max/useMaxTool'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -37,6 +39,19 @@ import { Breadcrumb, FileSystemIconColor, SidePanelTab } from '~/types'
 import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/defaultTree'
 import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
+
+/**
+ * The click on the PostHog AI button is the only proof the handler ran. Every route into the
+ * panel captures `sidebar opened` afterwards, so a click without that follow-up event marks a
+ * click that never reached `openSidePanel`. Scene id is read off `sceneLogic` without
+ * subscribing so capture never triggers a re-render.
+ */
+function captureSceneAiButtonClicked(tool: string | null): void {
+    posthog.capture('scene ai button clicked', {
+        scene: sceneLogic.findMounted()?.values.activeSceneId ?? null,
+        tool,
+    })
+}
 
 export function SceneTitlePanelButton({
     maxToolProps,
@@ -72,6 +87,7 @@ export function SceneTitlePanelButton({
                     onClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
+                        captureSceneAiButtonClicked(maxToolProps?.identifier ?? null)
                         if (openMax) {
                             openMax()
                         } else {

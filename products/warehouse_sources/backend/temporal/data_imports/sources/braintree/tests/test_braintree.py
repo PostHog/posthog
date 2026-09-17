@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.
     _base_url,
     _build_query,
     _format_created_at,
+    _normalize_node,
     braintree_source,
     get_rows,
     validate_credentials,
@@ -35,11 +36,14 @@ def _make_manager(resume_state: BraintreeResumeConfig | None = None) -> mock.Mag
     return manager
 
 
-def _search_response(search_field: str, edges: list[dict[str, Any]], has_next: bool = False) -> mock.MagicMock:
+def _search_response(endpoint: str, edges: list[dict[str, Any]], has_next: bool = False) -> mock.MagicMock:
+    config = BRAINTREE_ENDPOINTS[endpoint]
+    payload: Any = {config.connection_field: {"pageInfo": {"hasNextPage": has_next}, "edges": edges}}
+    for wrapper in reversed(config.query_path):
+        payload = {wrapper: payload}
+
     resp = mock.MagicMock()
-    resp.json.return_value = {
-        "data": {"search": {search_field: {"pageInfo": {"hasNextPage": has_next}, "edges": edges}}}
-    }
+    resp.json.return_value = {"data": payload}
     resp.status_code = 200
     resp.ok = True
     return resp
@@ -66,6 +70,8 @@ class TestBuildQuery:
             ("transactions", "TransactionSearchInput"),
             ("refunds", "RefundSearchInput"),
             ("disputes", "DisputeSearchInput"),
+            ("customers", "CustomerSearchInput"),
+            ("recurring_billing_subscriptions", "RecurringBillingSubscriptionSearchInput"),
         ],
     )
     def test_query_uses_correct_input_type(self, endpoint, input_type):
@@ -73,7 +79,40 @@ class TestBuildQuery:
         # Braintree's search fields declare `input` as non-null; a nullable
         # declaration here fails GraphQL validation (VariableTypeMismatch).
         assert f"$input: {input_type}!" in query
-        assert BRAINTREE_ENDPOINTS[endpoint].search_field in query
+        assert BRAINTREE_ENDPOINTS[endpoint].connection_field in query
+
+    def test_query_nests_connection_under_its_wrappers(self):
+        # `merchantAccounts` hangs off `viewer.merchant`, not the `search` root.
+        query = _build_query(BRAINTREE_ENDPOINTS["merchant_accounts"])
+        assert "viewer {" in query
+        assert "merchant {" in query
+        assert "search" not in query
+
+    def test_query_omits_input_when_the_connection_takes_none(self):
+        # `Merchant.merchantAccounts` declares `input` as nullable, so declaring an
+        # unused non-null variable would fail validation on every request.
+        query = _build_query(BRAINTREE_ENDPOINTS["merchant_accounts"])
+        assert "$input" not in query
+        assert "input:" not in query
+
+
+class TestNormalizeNode:
+    def test_hoists_nested_created_at_to_the_node_root(self):
+        config = BRAINTREE_ENDPOINTS["recurring_billing_subscriptions"]
+        node = {"id": "s1", "timeline": {"createdAt": "2024-01-02T03:04:05Z"}}
+
+        assert _normalize_node(node, config)["createdAt"] == "2024-01-02T03:04:05Z"
+
+    @pytest.mark.parametrize("node", [{"id": "s1"}, {"id": "s1", "timeline": None}, {"id": "s1", "timeline": {}}])
+    def test_leaves_node_untouched_when_the_nested_timestamp_is_missing(self, node):
+        # A null timestamp must not seed a `createdAt` column holding None for every row.
+        config = BRAINTREE_ENDPOINTS["recurring_billing_subscriptions"]
+        assert "createdAt" not in _normalize_node(node, config)
+
+    def test_leaves_root_level_nodes_alone(self):
+        config = BRAINTREE_ENDPOINTS["transactions"]
+        node = {"id": "t1", "createdAt": "2024-01-02T03:04:05Z"}
+        assert _normalize_node(node, config) is node
 
 
 class TestFormatCreatedAt:
@@ -140,9 +179,10 @@ class TestGetRows:
             requested = call.kwargs["json"]["variables"]["first"]
             assert 0 < requested <= MAX_PAGE_SIZE
 
+    @pytest.mark.parametrize("endpoint", ["transactions", "refunds", "customers", "recurring_billing_subscriptions"])
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_incremental_search_input_has_gte_filter(self, mock_session):
-        mock_session.return_value.post.return_value = _search_response("transactions", [])
+    def test_incremental_search_input_has_gte_filter(self, mock_session, endpoint):
+        mock_session.return_value.post.return_value = _search_response(endpoint, [])
 
         manager = _make_manager()
         list(
@@ -150,7 +190,7 @@ class TestGetRows:
                 "production",
                 "pub",
                 "priv",
-                "transactions",
+                endpoint,
                 _VERSION,
                 mock.MagicMock(),
                 manager,
@@ -161,6 +201,37 @@ class TestGetRows:
 
         variables = mock_session.return_value.post.call_args.kwargs["json"]["variables"]
         assert variables["input"] == {"createdAt": {"greaterThanOrEqualTo": "2024-01-02T00:00:00Z"}}
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_reads_rows_nested_under_the_connection_wrappers(self, mock_session):
+        mock_session.return_value.post.return_value = _search_response(
+            "merchant_accounts", [{"cursor": "c1", "node": {"id": "ma1"}}]
+        )
+
+        manager = _make_manager()
+        batches = list(get_rows("production", "pub", "priv", "merchant_accounts", _VERSION, mock.MagicMock(), manager))
+
+        assert [item["id"] for batch in batches for item in batch] == ["ma1"]
+        # A connection taking no search input must not send an `input` variable the
+        # query never declares.
+        assert "input" not in mock_session.return_value.post.call_args.kwargs["json"]["variables"]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_yields_subscriptions_with_a_root_level_created_at(self, mock_session):
+        mock_session.return_value.post.return_value = _search_response(
+            "recurring_billing_subscriptions",
+            [{"cursor": "c1", "node": {"id": "s1", "timeline": {"createdAt": "2024-01-02T03:04:05Z"}}}],
+        )
+
+        manager = _make_manager()
+        batches = list(
+            get_rows(
+                "production", "pub", "priv", "recurring_billing_subscriptions", _VERSION, mock.MagicMock(), manager
+            )
+        )
+
+        # The partition key and the incremental cursor both read `createdAt` off the row.
+        assert batches[0][0]["createdAt"] == "2024-01-02T03:04:05Z"
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_incremental_omits_filter_when_search_input_lacks_created_at(self, mock_session):
@@ -251,5 +322,12 @@ class TestBraintreeSourceResponse:
         assert response.primary_keys == [config.primary_key]
         # Search ordering is undocumented — watermark commits only at run end.
         assert response.sort_mode == "desc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
+
+        if config.partition_key is None:
+            # Partitioning on a column the nodes never carry writes every row to a
+            # partition keyed on null.
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+        else:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]

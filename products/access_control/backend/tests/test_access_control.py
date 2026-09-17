@@ -1329,15 +1329,17 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         baseline = 16  # This is a lot! There is currently an n+1 issue with the legacy access control system
 
-        # +8: org, roles, preloaded permissions acs, preloaded acs for the list, survey internal flag IDs
-        with self.assertNumQueries(baseline + 7):
+        # +8: org, roles, preloaded permissions acs, preloaded acs for the list, survey internal flag
+        # IDs, the project's replay gates
+        with self.assertNumQueries(baseline + 8):
             self.client.get("/api/projects/@current/feature_flags/")
 
         for i in range(10):
             FeatureFlag.objects.create(team=self.team, created_by=self.other_user, key=f"flag-{10 + i}")
 
-        # +8: org, roles, preloaded permissions acs, preloaded acs for the list, survey internal flag IDs
-        with self.assertNumQueries(baseline + 7):
+        # +8: org, roles, preloaded permissions acs, preloaded acs for the list, survey internal flag
+        # IDs, the project's replay gates
+        with self.assertNumQueries(baseline + 8):
             self.client.get("/api/projects/@current/feature_flags/")
 
 
@@ -1774,6 +1776,7 @@ class TestAccessControlDefaultsEndpoint(BaseAccessControlTest):
         assert "dashboard" in data["resource_access_levels"]
         assert "feature_flag" in data["resource_access_levels"]
         assert "insight" in data["resource_access_levels"]
+        assert "data_catalog" in data["resource_access_levels"]
 
     def test_only_returns_current_team_defaults(self):
         """Access controls from other teams are not included."""

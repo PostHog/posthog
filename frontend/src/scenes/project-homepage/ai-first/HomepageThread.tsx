@@ -33,9 +33,12 @@ export function HomepageThread(): JSX.Element {
         if (query && !hasSentInitial.current) {
             hasSentInitial.current = true
             setQuestion(query)
-            setTimeout(() => {
+            // Cleared on unmount, so a fast navigation away doesn't send a prompt into a thread
+            // the user has already left.
+            const sendTimer = setTimeout(() => {
                 askMax(query)
             }, 100)
+            return () => clearTimeout(sendTimer)
         }
     }, [query]) // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -40,7 +40,7 @@ The queue tracks the remaining request slots from active and waiting jobs. It ap
 
 The frontier consumer uses cooperative rebalancing. Its revoke path drains active work before it releases assigned partitions.
 
-Each image-fetch worker creates two Kafka group members by default. A local joiner combines their batches before it starts a fetch pass. Group assignments do not overlap, and each member can own multiple partitions. The joiner processes available batches when its join window ends. A later group can run concurrently instead of spending its Kafka poll interval behind a full pass. Shared request limits still bound total network concurrency. The worker divides a 100 MiB Kafka prefetch budget across its group members, with a minimum of 25 MiB per member. This preserves the queue sizes for one to four members and allows a default maximum-sized record in each queue. Sixteen members have a combined prefetch budget of 400 MiB. During a mixed-version rollout, pods with more group members can receive more partitions until the rollout finishes. `SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH` accepts targets from one to sixteen for worker-count experiments.
+Each image-fetch worker creates two Kafka group members by default. A local joiner combines their batches before it starts a fetch pass. Group assignments do not overlap, and each member can own multiple partitions. The joiner processes available batches when its join window ends. Each member waits for its group to start before it reads another batch, so a group has at most one contribution per member. The member then tracks completion through the shared Kafka consumer background-task mechanism. Each member can hold two unfinished batches. The consumer waits for the oldest batch at that limit and stores offsets in batch order. Shared request limits still bound total network concurrency. The background-task timeout is 240 seconds, leaving 60 seconds below the default Kafka poll allowance for joining and scheduling. Shutdown stops all consumer loops and waits for the actual joined processing promises before disconnecting consumers and destroying shared dependencies. This wait includes work that outlives the Kafka consumer drain or background-task timeout. The worker divides a 100 MiB Kafka prefetch budget across its group members, with a minimum of 25 MiB per member. This preserves the queue sizes for one to four members and allows a default maximum-sized record in each queue. Sixteen members have a combined prefetch budget of 400 MiB. During a mixed-version rollout, pods with more group members can receive more partitions until the rollout finishes. `SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH` accepts targets from one to sixteen for worker-count experiments.
 
 Retry jobs use 1-minute, 10-minute, and 1-hour Kafka topics. The topics use broker append timestamps.
 
@@ -83,6 +83,25 @@ Batch-diversity histograms record the top 1, 5, and 10 URL shares and the invers
 `ml_image_fetch_republished_total` keeps the `topic` label key for rolling compatibility. The only values emitted by the new code are `frontier` and `delay`.
 
 Republish batch metrics use the fixed topic classes `frontier`, `retry_1m`, `retry_10m`, and `retry_1h`. They expose Kafka record count, registrable-domain key count, per-topic delivery time, and total republish flush time. They do not use a configured topic name or a domain as a label.
+
+Processing-stage metrics expose the active count, oldest active age, and elapsed time of finished operations, including failures.
+Consumer stages separate the join window from waiting for the combined batch to finish. Their active counts measure outstanding consumer batches, not distinct consumers; overlap can raise the processing count to twice the member count.
+Compare p95 and p99 for image HTTP, configuration HTTP, candidate work, and batch fetch duration separately. Check the oldest active stage age too, because completed-duration histograms exclude unfinished work. Evaluate tighter request timeouts against successful fetch throughput, timeout failures, and deadline republishes.
+Batch stages separate parsing, history reads, filtering, fetching, republish preparation, history writes, republish flushes, final accounting, and dead-letter delivery.
+Candidate stages separate admission to the pod-wide controller, work that holds a slot, policy checks, and image fetching.
+The queued-candidate gauge counts work before selection; it excludes candidates waiting for admission or already running.
+Request stages distinguish configuration and image HTTP work from capacity, crawl-delay, and domain-rate waits.
+Image publication separates admission from Kafka delivery.
+Stage timers use a monotonic clock and record actual elapsed time, including scheduler delays.
+Nested stages overlap: candidate work includes policy and publication, and candidate fetch includes scheduler waits and redirect policy checks.
+Do not sum nested stages or subtract their percentiles to estimate batch time.
+
+Configuration lookup counters distinguish cached results, callers that share an existing request, and callers that start a new request.
+Their outcome describes the cache entry or fetched result before any stale-cache fallback.
+Configuration fetch counters count each redirect chain once, with a fixed failure category.
+A timeout category means the request deadline elapsed before an exception reached the fetcher; other exceptions use `request_error`.
+These counters do not count individual redirect hops, and shared or cached results can produce multiple policy decisions.
+No new metric uses a URL, hostname, domain, error message, or batch identifier as a label.
 
 The Grafana dashboard uses these runtime metrics. Its frontier health panels exclude the delay topics so they do not double-count retry traffic.
 

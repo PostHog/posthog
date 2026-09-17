@@ -98,13 +98,11 @@ export const metricsOverviewLogic = kea<metricsOverviewLogicType>([
         },
     })),
     listeners(({ actions }) => ({
-        // A service row click lands the user on that service's catalog of metric
-        // cards, already narrowed to the service, so there is something to scan
-        // before picking a name. The catalog reuses the viewer's filter + picker
-        // scope, and a card click from there opens the viewer with the metric set.
+        // A service row click lands in the viewer with that service already
+        // selected. The viewer reuses the filter to scope its metric picker.
         viewService: ({ serviceName }) => {
             actions.setFilterGroup(serviceFilterGroup(serviceName))
-            actions.setActiveTab('explore')
+            actions.setActiveTab('viewer')
         },
     })),
     afterMount(({ actions, cache }) => {

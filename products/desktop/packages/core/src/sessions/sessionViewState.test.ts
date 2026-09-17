@@ -1,7 +1,10 @@
 import type { AgentSession } from "@posthog/shared";
 import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
-import { deriveSessionViewState } from "./sessionViewState";
+import {
+  deriveSessionLifecycleState,
+  deriveSessionViewState,
+} from "./sessionViewState";
 
 function makeTask(runStatus: TaskRunStatus, runId = "run-1"): Task {
   return {
@@ -193,16 +196,26 @@ describe("deriveSessionViewState", () => {
     expect(state.isInitializing).toBe(false);
   });
 
-  it("shows loading while a local session reconnects after reload", () => {
-    const task = makeTask("in_progress");
-    if (task.latest_run) {
-      task.latest_run.environment = "local";
-    }
+  it.each(["queued", "in_progress", "completed"] as const)(
+    "keeps an unopened local %s run idle while its chat waits to reconnect",
+    (status) => {
+      const task = makeTask(status);
+      if (task.latest_run) {
+        task.latest_run.environment = "local";
+      }
 
-    expect(
-      deriveSessionViewState(undefined, task, null, false).isInitializing,
-    ).toBe(true);
-  });
+      expect(
+        deriveSessionLifecycleState(undefined, task, false).isInitializing,
+      ).toBe(false);
+      expect(
+        deriveSessionLifecycleState(undefined, task, false, true)
+          .isInitializing,
+      ).toBe(true);
+      expect(
+        deriveSessionViewState(undefined, task, null, false).isInitializing,
+      ).toBe(true);
+    },
+  );
 
   it("keeps a local session loading until its first prompt", () => {
     const task = makeTask("in_progress");
@@ -257,5 +270,52 @@ describe("deriveSessionViewState", () => {
     expect(state.isCloudRunNotTerminal).toBe(true);
     expect(state.isCloudRunTerminal).toBe(false);
     expect(state.isInitializing).toBe(true);
+  });
+
+  it.each([
+    {
+      name: "run that failed before the agent booted",
+      runStatus: "failed" as TaskRunStatus,
+      runErrorMessage:
+        "Link a GitHub account with repo access before running user-authored cloud tasks.",
+      expected: true,
+    },
+    {
+      name: "failed run that stopped for another reason",
+      runStatus: "failed" as TaskRunStatus,
+      runErrorMessage: "The sandbox ran out of memory.",
+      expected: false,
+    },
+    {
+      name: "run still in progress",
+      runStatus: "in_progress" as TaskRunStatus,
+      runErrorMessage: "github_authorization_required",
+      expected: false,
+    },
+  ])(
+    "classifies a GitHub connection failure on a $name",
+    ({ runStatus, runErrorMessage, expected }) => {
+      const task = makeTask(runStatus);
+      if (task.latest_run) task.latest_run.error_message = runErrorMessage;
+
+      const state = deriveSessionViewState(undefined, task, null, true);
+
+      expect(state.hasError).toBe(false);
+      expect(state.githubConnectionRequired).toBe(expected);
+    },
+  );
+
+  it("classifies a GitHub connection failure reported by the live session", () => {
+    const session = makeSession("failed");
+    session.cloudErrorMessage = "github_authorization_required";
+
+    const state = deriveSessionViewState(
+      session,
+      makeTask("failed"),
+      null,
+      true,
+    );
+
+    expect(state.githubConnectionRequired).toBe(true);
   });
 });

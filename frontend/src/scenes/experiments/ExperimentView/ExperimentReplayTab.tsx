@@ -15,6 +15,7 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill'
 
+import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
@@ -32,9 +33,10 @@ import { scannerTypeLabel } from 'products/replay_vision/frontend/replay_scanner
 
 import { NOT_A_FUNNEL_REASON } from '../utils'
 import { ExperimentBehaviorComparison, ExperimentBehaviorComparisonToggle } from './ExperimentBehaviorComparison'
+import { EXPERIMENT_RECORDING_MODE_OPTIONS } from './experimentRecordingModes'
+import { type ExperimentReplayMetricFilterMode, isFunnelMode } from './experimentRecordingsDeepLink'
 import { ExperimentRecordingsListEmptyState } from './ExperimentRecordingsListEmptyState'
 import {
-    ExperimentReplayMetricFilterMode,
     ExperimentReplayMetricOption,
     ExperimentSessionBucket,
     LinkedScanner,
@@ -94,6 +96,7 @@ const MODE_SUMMARIES: Record<ExperimentReplayMetricFilterMode, string> = {
     fired_any: 'fired events from at least one selected metric',
     no_metric_activity: 'fired no events from the selected metrics',
     funnel_dropoff: "were exposed but didn't finish the funnel",
+    funnel_completed: 'were exposed and finished the funnel',
 }
 
 /**
@@ -109,14 +112,15 @@ function metricFilterTriggerLabel(
     selectedUuids: string[],
     options: ExperimentReplayMetricOption[]
 ): string {
-    if (mode === 'funnel_dropoff') {
+    if (isFunnelMode(mode)) {
+        const label = mode === 'funnel_completed' ? 'Finished funnel' : "Didn't finish funnel"
         const selected = options.find((option) => option.uuid === selectedUuids[0])
-        return selected ? `Didn't finish funnel: ${selected.name}` : "Didn't finish funnel"
+        return selected ? `${label}: ${selected.name}` : label
     }
     if (selectedUuids.length === 0) {
         // Never fall back to the neutral label for a non-default mode: the mode is on, and the
         // caption below is what explains why it isn't narrowing anything yet.
-        return mode === 'fired_all' ? 'Metric events' : mode === 'fired_any' ? 'Fired any' : 'No metric events'
+        return mode === 'fired_all' ? 'Metric events' : mode === 'fired_any' ? 'Fired any' : 'Fired none'
     }
     const metrics = pluralize(selectedUuids.length, 'metric')
     if (selectedUuids.length === 1) {
@@ -135,20 +139,30 @@ function metricFilterTriggerLabel(
 
 /** Why a picked mode isn't narrowing the list — it needs a selection it doesn't have yet. */
 function unappliedModeReason(mode: ExperimentReplayMetricFilterMode): string {
-    return mode === 'funnel_dropoff'
+    return isFunnelMode(mode)
         ? 'Pick a funnel metric whose last step can be matched to recordings. Showing every exposed recording until then.'
         : 'Pick at least one metric. Showing every exposed recording until then.'
 }
 
 /**
  * States what the server-computed set does and doesn't cover. Every clause is load-bearing: the
- * list is capped, the scan window is clamped, and "in this session" is the honest unit — the
- * experiment analysis counts per person over the whole run window.
+ * list is capped, the scan window ends at the last exposure and reaches back only so far from
+ * there, and "in this session" is the honest unit — the experiment analysis counts per person over
+ * the whole run window.
  */
-function bucketCaption(bucket: ExperimentSessionBucket): string {
-    const { session_ids, truncated, considered_metrics, excluded_metrics, filter_test_accounts } = bucket.response
+function bucketCaption(bucket: ExperimentSessionBucket, experimentStartDate: string | null): string {
+    const { session_ids, truncated, considered_metrics, excluded_metrics, filter_test_accounts, date_from, date_to } =
+        bucket.response
+    // The backend clamps the window start to the experiment's start, so a scan that reached the
+    // whole run comes back with the two equal and leaves this null.
+    const scannedFrom =
+        date_from && experimentStartDate && dayjs(date_from).isAfter(dayjs(experimentStartDate))
+            ? dayjs(date_from).format('MMM D, YYYY')
+            : null
     if (session_ids.length === 0) {
-        return 'No recordings matched this filter.'
+        return scannedFrom
+            ? `No recordings matched this filter between ${scannedFrom} and ${dayjs(date_to).format('MMM D, YYYY')}. Earlier sessions weren't checked.`
+            : 'No recordings matched this filter.'
     }
     const sessions = truncated
         ? `Showing the ${session_ids.length} most recent recordings that`
@@ -168,7 +182,8 @@ function bucketCaption(bucket: ExperimentSessionBucket): string {
                   .join(', ')}`
             : null,
     ].filter(Boolean)
-    return `${sessions} ${what}.${caveats.length > 0 ? ` ${caveats.join('. ')}.` : ''}`
+    const scanNote = scannedFrom ? ` Sessions before ${scannedFrom} weren't checked.` : ''
+    return `${sessions} ${what}.${caveats.length > 0 ? ` ${caveats.join('. ')}.` : ''}${scanNote}`
 }
 
 /** A metric row: its name, plus the events a session actually has to have fired to match it. */
@@ -182,31 +197,6 @@ function MetricOptionLabel({ option }: { option: ExperimentReplayMetricOption })
         </span>
     )
 }
-
-const METRIC_FILTER_MODE_OPTIONS: { value: ExperimentReplayMetricFilterMode; label: string; tooltip: string }[] = [
-    {
-        value: 'fired_all',
-        label: 'Fired all',
-        tooltip: 'Sessions that fired events for every selected metric.',
-    },
-    {
-        value: 'fired_any',
-        label: 'Fired any',
-        tooltip: 'Sessions that fired events for at least one of the selected metrics.',
-    },
-    {
-        value: 'no_metric_activity',
-        label: 'Fired none',
-        tooltip:
-            'Sessions that fired no events for any of the selected metrics. Select nothing to use every metric that can be matched.',
-    },
-    {
-        value: 'funnel_dropoff',
-        label: "Didn't finish funnel",
-        tooltip:
-            "Sessions that saw the experiment but didn't fire a funnel metric's last step during the recording. The exposure counts as the funnel's first step. The same person may have finished it in a later session.",
-    },
-]
 
 /** Placeholder for the watching-scanners card while the lookup is in flight, so the tab doesn't
  * flash the cross-sell banner before the card resolves. */
@@ -324,19 +314,26 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
     // different reasons (server-side events, a retention window, data-warehouse-only sources, or
     // simply not being a funnel while the drop-off mode is on).
     const linkableMetricOptions = metricOptions.filter(
-        (option) => !option.unlinkable && (metricFilterMode !== 'funnel_dropoff' || option.dropoffReason === null)
+        (option) => !option.unlinkable && (!isFunnelMode(metricFilterMode) || option.dropoffReason === null)
     )
     const unselectableOptionsByReason = new Map<string, ExperimentReplayMetricOption[]>()
     for (const option of metricOptions) {
         const reason = option.unlinkable
             ? option.unlinkableReason
-            : metricFilterMode === 'funnel_dropoff'
+            : isFunnelMode(metricFilterMode)
               ? option.dropoffReason
               : null
         if (reason) {
             unselectableOptionsByReason.set(reason, [...(unselectableOptionsByReason.get(reason) ?? []), option])
         }
     }
+
+    // Both client-side modes narrow the list themselves, and the trigger label already says which
+    // metric they narrowed it by, so the caption has nothing left to add once one is picked.
+    const clientSideFilterApplied =
+        !sessionBucketRequest &&
+        (metricFilterMode === 'fired_all' || metricFilterMode === 'funnel_completed') &&
+        effectiveMetricUuids.length > 0
 
     const scannerSetupUrl = combineUrl(
         urls.replayVisionScannerTemplate('new'),
@@ -426,7 +423,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                                     fullWidth
                                     value={metricFilterMode}
                                     onChange={(value) => setMetricFilterMode(value)}
-                                    options={METRIC_FILTER_MODE_OPTIONS}
+                                    options={EXPERIMENT_RECORDING_MODE_OPTIONS}
                                 />
                             </div>
                             <DropdownMenuSeparator />
@@ -480,12 +477,10 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
             {/* The default mode also uses the endpoint for a single multi-source metric, so the
                 caption follows the request, not the mode. */}
             <div className="mb-2 flex items-center gap-2 text-xs text-secondary">
-                {!sessionBucketRequest && metricFilterMode === 'fired_all' ? (
-                    effectiveMetricUuids.length === 0 ? (
-                        <span data-attr="experiment-recordings-population-caption">
-                            {effectiveExposureScope === 'in_session' ? inSessionCopy.caption : ALL_EXPOSED_CAPTION}
-                        </span>
-                    ) : null
+                {clientSideFilterApplied ? null : !sessionBucketRequest && metricFilterMode === 'fired_all' ? (
+                    <span data-attr="experiment-recordings-population-caption">
+                        {effectiveExposureScope === 'in_session' ? inSessionCopy.caption : ALL_EXPOSED_CAPTION}
+                    </span>
                 ) : !sessionBucketRequest ? (
                     <span>{unappliedModeReason(metricFilterMode)}</span>
                 ) : sessionBucketError !== null ? (
@@ -498,7 +493,9 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                 ) : sessionBucketLoading || !sessionBucket ? (
                     <span>Finding matching sessions…</span>
                 ) : (
-                    <span data-attr="experiment-recordings-bucket-caption">{bucketCaption(sessionBucket)}</span>
+                    <span data-attr="experiment-recordings-bucket-caption">
+                        {bucketCaption(sessionBucket, experiment.start_date ?? null)}
+                    </span>
                 )}
             </div>
             <ExperimentBehaviorComparison experiment={experiment} onWatchRecording={watchRecording} />

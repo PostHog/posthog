@@ -122,6 +122,7 @@ export function filterVisibleTasks(
 export interface TaskSession {
   taskRunId: string;
   isPromptPending?: boolean;
+  currentPromptId?: number | null;
   pendingPermissions?: { size: number };
   cloudStatus?: TaskRunStatus;
   cloudOutput?: { pr_url?: unknown } | null;
@@ -147,7 +148,7 @@ export function computeSidebarSessionSignature(
     const isAgentIdle = session.agentIdleForRunId === session.taskRunId;
     signature += `${session.taskId}:${session.taskRunId ?? ""}:${
       session.isPromptPending ? 1 : 0
-    }:${session.pendingPermissions?.size ?? 0}:${
+    }:${session.currentPromptId ?? ""}:${session.pendingPermissions?.size ?? 0}:${
       session.cloudStatus ?? ""
     }:${prUrl}:${isAgentIdle ? 1 : 0};`;
   }
@@ -234,23 +235,25 @@ export function deriveTaskRunState(
   const taskRunStatus = resolveEffectiveCloudStatus(task, session) ?? undefined;
   const isAgentIdle =
     sessionRunsLatestRun && session?.agentIdleForRunId === latestRunId;
-  const isPromptPending =
+  const hasLivePrompt =
     sessionRunsLatestRun &&
     session?.isPromptPending === true &&
-    !isTerminalStatus(taskRunStatus);
+    !isTerminalStatus(taskRunStatus) &&
+    (task.latest_run?.environment === "cloud" ||
+      (session?.currentPromptId !== null &&
+        session?.currentPromptId !== undefined));
   const isCloudRunStarting =
     taskRunStatus === "not_started" || taskRunStatus === "queued";
   const isCloudRunWorking =
     taskRunStatus === "in_progress" &&
-    (isPromptPending ||
-      (task.latest_run?.mode === "background" && !isAgentIdle));
+    (hasLivePrompt || (task.latest_run?.mode === "background" && !isAgentIdle));
   const isActiveCloudRun =
     task.latest_run?.environment === "cloud" &&
     (isCloudRunStarting || isCloudRunWorking);
 
   return {
     id: task.id,
-    isGenerating: isPromptPending || isActiveCloudRun,
+    isGenerating: hasLivePrompt || isActiveCloudRun,
     needsPermission:
       sessionRunsLatestRun && (session?.pendingPermissions?.size ?? 0) > 0,
     taskRunId: task.latest_run?.id ?? undefined,

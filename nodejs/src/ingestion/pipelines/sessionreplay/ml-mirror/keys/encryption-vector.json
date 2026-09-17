@@ -1,0 +1,20 @@
+{
+    "context": {
+        "teamId": 7,
+        "organizationId": "00000000-0000-4000-8000-000000000007",
+        "sessionId": "01994569-4380-7000-8000-000000000007"
+    },
+    "key": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
+    "data": "c3ludGhldGljIGludGVyb3BlcmFiaWxpdHkgcGF5bG9hZA==",
+    "envelope": {
+        "v": 3,
+        "context": {
+            "teamId": 7,
+            "organizationId": "00000000-0000-4000-8000-000000000007",
+            "sessionId": "01994569-4380-7000-8000-000000000007",
+            "kind": "rrweb"
+        },
+        "nonce": "AwMDAwMDAwMDAwMD",
+        "ciphertext": "VofNdzJNKisZYCoynzKNY51Zko7W/PgZW6enwYKcLNfQw1APuYhuzy8mpJ3qd2oMKRc="
+    }
+}

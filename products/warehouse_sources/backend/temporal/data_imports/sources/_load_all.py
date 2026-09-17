@@ -53,6 +53,7 @@ from .amazon_s3.source import AmazonS3Source
 from .amazon_selling_partner.source import AmazonSellingPartnerSource
 from .amazon_sns.source import AmazonSNSSource
 from .amazon_sqs.source import AmazonSQSSource
+from .amplemarket.source import AmplemarketSource
 from .amplitude.source import AmplitudeSource
 from .anodot_cost.source import AnodotCostSource
 from .anomalo.source import AnomaloSource
@@ -393,6 +394,7 @@ from .ebay.source import EbaySource
 from .ecb_data_portal.source import EcbDataPortalSource
 from .elasticemail.source import ElasticemailSource
 from .elasticsearch.source import ElasticsearchSource
+from .electricity_maps.source import ElectricityMapsSource
 from .elevenlabs.source import ElevenLabsSource
 from .eloqua.source import EloquaSource
 from .emailoctopus.source import EmailOctopusSource
@@ -965,6 +967,7 @@ from .qualtrics.source import QualtricsSource
 from .qualys_vmdr.source import QualysVmdrSource
 from .quay.source import QuaySource
 from .quickbooks.source import QuickBooksSource
+from .quo.source import QuoSource
 from .railway.source import RailwaySource
 from .railz.source import RailzSource
 from .raisely.source import RaiselySource
@@ -1097,6 +1100,7 @@ from .sleekplan.source import SleekplanSource
 from .sleuth.source import SleuthSource
 from .smaily.source import SmailySource
 from .smartengage.source import SmartEngageSource
+from .smartlead.source import SmartleadSource
 from .smartlook.source import SmartlookSource
 from .smartreach.source import SmartreachSource
 from .smartrecruiters.source import SmartrecruitersSource
@@ -1143,6 +1147,7 @@ from .streamelements.source import StreamElementsSource
 from .streamlabs.source import StreamlabsSource
 from .stripe.source import StripeSource
 from .stytch.source import StytchSource
+from .substack.source import SubstackSource
 from .sumo_logic.source import SumoLogicSource
 from .sumsub.source import SumsubSource
 from .supabase.source import SupabaseSource

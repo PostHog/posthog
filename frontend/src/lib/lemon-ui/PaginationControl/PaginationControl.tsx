@@ -50,6 +50,7 @@ export function PaginationControl<T>({
             </span>
             <LemonButton
                 icon={<IconChevronLeft />}
+                aria-label="Previous page"
                 disabledReason={!isPreviousAvailable ? 'No previous page' : undefined}
                 size="small"
                 onClick={() => {
@@ -61,6 +62,7 @@ export function PaginationControl<T>({
             />
             <LemonButton
                 icon={<IconChevronRight />}
+                aria-label="Next page"
                 disabledReason={!isNextAvailable ? 'No next page' : undefined}
                 size="small"
                 onClick={() => {
