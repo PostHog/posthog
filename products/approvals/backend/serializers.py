@@ -35,6 +35,8 @@ class ChangeRequestSummarySerializer(serializers.ModelSerializer):
 class ChangeRequestSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     applied_by = UserBasicSerializer(read_only=True)
+    intent = serializers.SerializerMethodField()
+    intent_display = serializers.SerializerMethodField()
     approvals = serializers.SerializerMethodField()
     can_approve = serializers.SerializerMethodField()
     can_cancel = serializers.SerializerMethodField()
@@ -76,8 +78,6 @@ class ChangeRequestSerializer(serializers.ModelSerializer):
             "action_version",
             "resource_type",
             "resource_id",
-            "intent",
-            "intent_display",
             "policy_snapshot",
             "validation_status",
             "validation_errors",
@@ -92,6 +92,30 @@ class ChangeRequestSerializer(serializers.ModelSerializer):
             "apply_error",
             "result_data",
         ]
+
+    @extend_schema_field(serializers.DictField())
+    def get_intent(self, obj: ChangeRequest) -> dict:
+        return self._redact(obj, obj.intent)
+
+    @extend_schema_field(serializers.DictField())
+    def get_intent_display(self, obj: ChangeRequest) -> dict:
+        return self._redact(obj, obj.intent_display)
+
+    @staticmethod
+    def _redact(obj: ChangeRequest, payload: dict | None) -> dict:
+        """Route a stored field through the gating action's read-path redaction.
+
+        `intent` holds the endpoint serializer's validated change, which can carry a value the
+        resource keeps encrypted at rest, and this viewset serves both fields to every member
+        with approvals read scope. The gate now withholds such a value before it stores a change
+        request, so this covers the rows written before that and anything else an action strips.
+        """
+        if not payload:
+            return payload or {}
+        action_class = obj.get_action_class()
+        if action_class is None:
+            return payload
+        return action_class.redact_intent_for_read(payload, obj)
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_approvals(self, obj):

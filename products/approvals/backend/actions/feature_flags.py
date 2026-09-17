@@ -1,12 +1,16 @@
 from abc import abstractmethod
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.db import transaction
 
 from products.approvals.backend.actions.base import BaseAction
 from products.approvals.backend.exceptions import ApplyFailed, PreconditionFailed
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, flag_payload_codec
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+if TYPE_CHECKING:
+    from products.approvals.backend.models import ChangeRequest
 
 
 def _get_validated_change(request, view, *args, **kwargs) -> dict[str, Any]:
@@ -59,6 +63,118 @@ def _get_flag_instance(view, *args, **kwargs) -> Optional[FeatureFlag]:
         instance = args[0] if args else None
         return instance if isinstance(instance, FeatureFlag) else None
     return view.get_object()
+
+
+def _withhold_encrypted_payloads(
+    change: dict[str, Any], flag: Optional[FeatureFlag]
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Keep a secret flag payload out of the change a change request stores and replays.
+
+    The gate runs before `encrypt_flag_payloads` in the serializer body, so `filters.payloads`
+    still holds plaintext here. A change request stores that change in a JSONField and serves it
+    to every member with approvals read scope, so the plaintext must not go in. Ciphertext cannot
+    take its place either, because filters validation requires every payload string to parse as
+    JSON and a Fernet token does not, which would fail the replay on apply.
+
+    Return the change with each secret payload replaced by the sentinel that validation already
+    accepts, plus the ciphertext to store beside it. `apply` passes the ciphertext back through
+    the serializer context, which is the same swap `update()` makes for a stored payload.
+    """
+    effective_has_encrypted = change.get(
+        "has_encrypted_payloads",
+        flag.has_encrypted_payloads if flag is not None else False,
+    )
+    if not effective_has_encrypted:
+        return change, {}
+
+    payloads = (change.get("filters") or {}).get("payloads") or {}
+    # The sentinel means the client echoed back a payload it could not read, so there is no new
+    # secret to withhold. `update()` restores the stored ciphertext for those keys.
+    secrets = {
+        key: value for key, value in payloads.items() if isinstance(value, str) and value != REDACTED_PAYLOAD_VALUE
+    }
+    if not secrets:
+        return change, {}
+
+    codec = flag_payload_codec()
+    encrypted = {key: codec.encrypt(value.encode("utf-8")).decode("utf-8") for key, value in secrets.items()}
+
+    replayable = dict(change)
+    filters = dict(replayable["filters"])
+    filters["payloads"] = {**payloads, **dict.fromkeys(secrets, REDACTED_PAYLOAD_VALUE)}
+    replayable["filters"] = filters
+    # Record the resolved value. The read path uses it to tell a secret payload from an ordinary
+    # one without loading the flag row, and `update()` sets it the same way.
+    replayable["has_encrypted_payloads"] = True
+    return replayable, encrypted
+
+
+def _holds_readable_payload(payload: dict[str, Any]) -> bool:
+    """Report whether a stored change holds a payload value that is not already the sentinel."""
+
+    def walk(value: Any) -> bool:
+        if isinstance(value, dict):
+            payloads = (value.get("filters") or {}).get("payloads") if isinstance(value.get("filters"), dict) else None
+            if isinstance(payloads, dict) and any(entry != REDACTED_PAYLOAD_VALUE for entry in payloads.values()):
+                return True
+            return any(walk(item) for item in value.values())
+        if isinstance(value, list):
+            return any(walk(item) for item in value)
+        return False
+
+    return walk(payload)
+
+
+def _flag_keeps_payloads_encrypted(change_request: "ChangeRequest") -> bool:
+    """Ask the flag itself whether it keeps its payloads encrypted.
+
+    Only reached for a stored change that still holds a readable payload, which a write from
+    before the gate withheld one can do without saying so: the field is resolved against the
+    flag inside the serializer body, after the gate has already captured the change. A change
+    request whose flag cannot be resolved keeps its payload visible, because nothing then says
+    the payload was ever a secret.
+    """
+    flag_id = change_request.intent.get("flag_id") or change_request.resource_id
+    if not flag_id:
+        return False
+    try:
+        # nosemgrep: idor-lookup-without-team (project_id from the change request's own team)
+        return FeatureFlag.objects.filter(
+            id=flag_id,
+            team__project_id=change_request.team.project_id,
+            has_encrypted_payloads=True,
+        ).exists()
+    except (ValueError, TypeError):
+        return False
+
+
+def _redact_payloads_for_read(payload: dict[str, Any], change_request: "ChangeRequest") -> dict[str, Any]:
+    """Remove withheld ciphertext and secret payload values from a stored intent.
+
+    `has_encrypted_payloads` sits beside `filters` in a validated flag change, so that sibling
+    marks a payload the flag keeps encrypted at rest. A change stored before the gate withheld
+    the payload can hold one without that marker, so the flag is asked directly in that case.
+    That lookup is skipped whenever every payload is already the sentinel, which is every
+    change this gate withholds, so it costs a query per listed change request that still
+    holds a readable payload. An ordinary payload is left alone, because anyone who can read
+    the flag can already read it.
+    """
+    encrypted = _holds_readable_payload(payload) and _flag_keeps_payloads_encrypted(change_request)
+
+    def walk(value: Any) -> Any:
+        if isinstance(value, dict):
+            redacted = {key: walk(item) for key, item in value.items() if key != "encrypted_payloads"}
+            filters = redacted.get("filters")
+            if (encrypted or value.get("has_encrypted_payloads")) and isinstance(filters, dict):
+                payloads = filters.get("payloads")
+                if isinstance(payloads, dict):
+                    redacted["filters"] = {**filters, "payloads": dict.fromkeys(payloads, REDACTED_PAYLOAD_VALUE)}
+            return redacted
+        if isinstance(value, list):
+            return [walk(item) for item in value]
+        return value
+
+    return walk(payload)
 
 
 def _check_version_staleness(intent_data: dict[str, Any], context: Optional[dict[str, Any]] = None) -> bool:
@@ -248,6 +364,8 @@ class FeatureFlagActionBase(BaseAction):
         # keys the direct call preserves.
         skip_cleanup = bool(getattr(request, "skip_opportunistic_filter_cleanup", False))
 
+        replayable, encrypted_payloads = _withhold_encrypted_payloads(change, flag)
+
         if flag is None:
             # Create: no row yet — baseline is a disabled flag and the payload is the create body.
             return {
@@ -255,7 +373,8 @@ class FeatureFlagActionBase(BaseAction):
                 "flag_key": change.get("key"),
                 "current_state": {"active": False},
                 "gated_changes": gated_changes,
-                "full_request_data": dict(change),
+                "full_request_data": dict(replayable),
+                "encrypted_payloads": encrypted_payloads,
                 "preconditions": {"version": None, "updated_at": None},
                 "skip_opportunistic_filter_cleanup": skip_cleanup,
             }
@@ -265,7 +384,8 @@ class FeatureFlagActionBase(BaseAction):
             "flag_key": flag.key,
             "current_state": {"active": flag.active},
             "gated_changes": gated_changes,
-            "full_request_data": dict(change),
+            "full_request_data": dict(replayable),
+            "encrypted_payloads": encrypted_payloads,
             "preconditions": {
                 "version": flag.version,
                 "updated_at": flag.updated_at.isoformat() if flag.updated_at else None,
@@ -322,6 +442,10 @@ class FeatureFlagActionBase(BaseAction):
                 raise ApplyFailed(f"Serializer save failed: {str(e)}")
 
         return flag
+
+    @classmethod
+    def redact_intent_for_read(cls, payload: dict[str, Any], change_request: "ChangeRequest") -> dict[str, Any]:
+        return _redact_payloads_for_read(payload, change_request)
 
     @classmethod
     @abstractmethod
@@ -532,6 +656,8 @@ class UpdateFeatureFlagAction(BaseAction):
 
         triggered_paths = cls._get_triggered_paths(old_filters, new_filters)
 
+        replayable, encrypted_payloads = _withhold_encrypted_payloads(change, flag)
+
         return {
             "flag_id": flag.id if flag is not None else None,
             "flag_key": flag.key if flag is not None else change.get("key"),
@@ -542,7 +668,8 @@ class UpdateFeatureFlagAction(BaseAction):
                 "rollout_percentage": new_rollout_percentages,
             },
             "triggered_paths": triggered_paths,
-            "full_request_data": dict(change),
+            "full_request_data": dict(replayable),
+            "encrypted_payloads": encrypted_payloads,
             "preconditions": {
                 "version": flag.version if flag is not None else None,
                 "updated_at": (flag.updated_at.isoformat() if flag.updated_at else None) if flag is not None else None,
@@ -623,6 +750,10 @@ class UpdateFeatureFlagAction(BaseAction):
                 raise ApplyFailed(f"Serializer save failed: {str(e)}")
 
         return flag
+
+    @classmethod
+    def redact_intent_for_read(cls, payload: dict[str, Any], change_request: "ChangeRequest") -> dict[str, Any]:
+        return _redact_payloads_for_read(payload, change_request)
 
     @classmethod
     def get_display_data(cls, intent_data: dict[str, Any]) -> dict[str, Any]:

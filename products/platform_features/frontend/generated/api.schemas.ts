@@ -940,6 +940,10 @@ export const ChangeRequestStateEnumApi = {
     Failed: 'failed',
 } as const
 
+export type ChangeRequestApiIntent = { [key: string]: unknown }
+
+export type ChangeRequestApiIntentDisplay = { [key: string]: unknown }
+
 export type ChangeRequestApiApprovalsItem = { [key: string]: unknown }
 
 export interface ChangeRequestApi {
@@ -949,8 +953,8 @@ export interface ChangeRequestApi {
     readonly resource_type: string
     /** @nullable */
     readonly resource_id: string | null
-    readonly intent: unknown
-    readonly intent_display: unknown
+    readonly intent: ChangeRequestApiIntent
+    readonly intent_display: ChangeRequestApiIntentDisplay
     readonly policy_snapshot: unknown
     readonly validation_status: ValidationStatusEnumApi
     readonly validation_errors: unknown

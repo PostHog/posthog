@@ -18284,6 +18284,10 @@ export namespace Schemas {
       proposed_status?: ProposedStatusEnum;
     }
 
+    export type ChangeRequestIntent = { [key: string]: unknown };
+
+    export type ChangeRequestIntentDisplay = { [key: string]: unknown };
+
     export type ChangeRequestApprovalsItem = { [key: string]: unknown };
 
     /**
@@ -18327,8 +18331,8 @@ export namespace Schemas {
       readonly resource_type: string;
       /** @nullable */
       readonly resource_id: string | null;
-      readonly intent: unknown;
-      readonly intent_display: unknown;
+      readonly intent: ChangeRequestIntent;
+      readonly intent_display: ChangeRequestIntentDisplay;
       readonly policy_snapshot: unknown;
       readonly validation_status: ValidationStatusEnum;
       readonly validation_errors: unknown;
