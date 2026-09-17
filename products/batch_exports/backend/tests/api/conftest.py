@@ -15,6 +15,7 @@ from temporalio.service import RPCError
 from posthog.models.integration import Integration
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.codec import EncryptionCodec
+from posthog.temporal.common.logger import configure_logger
 
 from products.batch_exports.backend.models.batch_export import BATCH_EXPORT_INTERVAL_TO_START_JITTER, BatchExport
 from products.batch_exports.backend.tests.api.fixtures import create_organization, create_team, create_user
@@ -68,6 +69,7 @@ def temporal_worker(temporal):
 
     This saves a lot of time, as waiting for the worker to stop takes a while.
     """
+    configure_logger(cache_logger_on_first_use=False)
     with start_test_worker(temporal):
         yield
 
