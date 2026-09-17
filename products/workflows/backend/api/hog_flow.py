@@ -4130,57 +4130,154 @@ def conflicting_parts(hog_flow: HogFlow, proposal: WorkflowProposal) -> list[str
     """Parts of the workflow the proposal changes that someone else already changed since it was
     written: step ids for `actions`, field names for everything else.
 
-    The check follows merge semantics. A step merges per field, so only the steps it names are
-    compared, as they were at `base_version` against as they are now. A whole-list field replaces
-    the list, so any publish since counts. Every other field replaces one value, so that value is
-    compared. An unrelated edit elsewhere in the workflow merges cleanly and is not a reason to refuse."""
-    touched_steps = {_item_id(item) for item in proposal.content.get("actions") or []} - {None}
-    touched_lists = [field for field in PROPOSAL_WHOLE_LIST_FIELDS if field in proposal.content]
-    touched_fields = [
-        field
-        for field in proposal.content
-        if field not in PROPOSAL_MERGE_BY_ID_FIELDS and field not in PROPOSAL_WHOLE_LIST_FIELDS
-    ]
+    The check follows merge semantics. A step merges per field, so only the fields the proposal sets
+    on the steps it names are compared, as they were at `base_version` against as they are now. A
+    whole-list field replaces the list, so any publish since counts. Every other field replaces one
+    value, so that value is compared. An edit elsewhere merges cleanly, and an edit that already made
+    the proposed change is nothing to undo, so neither is a reason to refuse."""
     if hog_flow.version == proposal.base_version:
         return []
+    base_content = base_content_of(hog_flow, proposal)
+    content = proposal_changes(proposal, base_content)
+    touched_steps = {_item_id(item) for item in content.get("actions") or []} - {None}
+    touched_lists = [field for field in PROPOSAL_WHOLE_LIST_FIELDS if field in content]
+    touched_fields = [
+        field
+        for field in content
+        if field not in PROPOSAL_MERGE_BY_ID_FIELDS and field not in PROPOSAL_WHOLE_LIST_FIELDS
+    ]
     if touched_lists:
         # A whole-list field carries the shape of the graph around the steps it lists, so any
         # publish since it was read can drop something. Nothing narrower to compare.
         return sorted({*touched_steps, *touched_lists, *touched_fields})
-    base_revision = HogFlowRevision.objects.filter(hog_flow=hog_flow, version=proposal.base_version).first()
-    if base_revision is None:
+    if base_content is None:
         # Without the snapshot the proposal read, "changed since" is unanswerable. Refuse rather
         # than stage a merge over an unknown base.
         return sorted({*touched_steps, *touched_fields})
     live_content = snapshot_flow_content(hog_flow)
-    base_actions = {_item_id(item): item for item in base_revision.content.get("actions") or []}
+    base_actions = {_item_id(item): item for item in base_content.get("actions") or []}
     live_actions = {_item_id(item): item for item in live_content.get("actions") or []}
+    proposed_actions = {_item_id(item): item for item in content.get("actions") or []}
     moved_steps = [
         step_id
         for step_id in touched_steps
-        if base_actions.get(step_id) != live_actions.get(step_id)
         # A step the proposal adds is only a conflict if that id now exists.
-        and not (step_id not in base_actions and step_id not in live_actions)
+        if not (step_id not in base_actions and step_id not in live_actions)
+        and _moved_since(base_actions.get(step_id), live_actions.get(step_id), proposed_actions[step_id])
     ]
-    moved_fields = [field for field in touched_fields if base_revision.content.get(field) != live_content.get(field)]
+    moved_fields = [
+        field
+        for field in touched_fields
+        if _moved_since(base_content.get(field), live_content.get(field), content[field])
+    ]
     return sorted({*moved_steps, *moved_fields})
 
 
-# Their items reach helpers that read each item as a mapping, so anything else has to fail here as a 400.
+def base_content_of(hog_flow: HogFlow, proposal: WorkflowProposal) -> dict | None:
+    """The workflow as the proposal read it. That is the live workflow while its version has not
+    moved; after a publish it is the revision snapshot, which a workflow that has never been
+    published under revision tracking may not have."""
+    if hog_flow.version == proposal.base_version:
+        return snapshot_flow_content(hog_flow)
+    revision = HogFlowRevision.objects.filter(hog_flow=hog_flow, version=proposal.base_version).first()
+    return dict(revision.content) if revision is not None else None
+
+
+def proposal_changes(proposal: WorkflowProposal, base_content: dict | None) -> dict:
+    """The proposal's content reduced to what it changes against the workflow as it read it: a
+    step keeps only the fields that read differently there, and a step that reads the same drops
+    out. A producer that sends a whole step therefore still merges as the one-field change it made,
+    and never writes the rest of that step back over a later edit. Without the snapshot the content
+    stands as sent."""
+    content = dict(proposal.content)
+    if base_content is None or "actions" not in content:
+        return content
+    base_steps = {_item_id(item): item for item in base_content.get("actions") or []}
+    changed_steps = []
+    for item in content.get("actions") or []:
+        base_step = base_steps.get(_item_id(item))
+        if not isinstance(item, dict) or base_step is None:
+            changed_steps.append(item)
+            continue
+        changed = _changed_leaves(base_step, {key: value for key, value in item.items() if key != "id"})
+        if changed is not _ABSENT:
+            changed_steps.append({"id": item["id"], **changed})
+    content["actions"] = changed_steps
+    return content
+
+
+_ABSENT = object()
+
+
+def _changed_leaves(base: Any, patch: Any) -> Any:
+    """`patch` without every leaf that already reads the same in `base`, read the way `_deep_merge`
+    writes it; `_ABSENT` when nothing is left."""
+    if isinstance(patch, dict) and isinstance(base, dict):
+        kept = {}
+        for key, value in patch.items():
+            changed = _changed_leaves(base.get(key), value)
+            if changed is not _ABSENT:
+                kept[key] = changed
+        return kept if kept else _ABSENT
+    if patch is None:
+        return _ABSENT if base is None else None
+    return _ABSENT if patch == base else patch
+
+
+def _moved_since(base: Any, live: Any, proposed: Any) -> bool:
+    """Whether someone changed, since `base`, something the proposal sets, and to a value other than
+    the proposed one. Reads the patch the way `_deep_merge` writes it: a dict compares leaf by leaf,
+    anything else as one value."""
+    if not isinstance(proposed, dict) or base is None or live is None:
+        return base != live and live != proposed
+    return any(
+        _leaf(live, path) != _leaf(base, path) and _leaf(live, path) != _leaf(proposed, path)
+        for path in _patch_paths(proposed)
+    )
+
+
+def _patch_paths(patch: Any, prefix: tuple[str, ...] = ()) -> list[tuple[str, ...]]:
+    if not isinstance(patch, dict) or not patch:
+        return [prefix]
+    return [path for key, value in patch.items() for path in _patch_paths(value, (*prefix, key))]
+
+
+def _leaf(item: Any, path: tuple[str, ...]) -> Any:
+    for key in path:
+        if not isinstance(item, dict) or key not in item:
+            return _ABSENT
+        item = item[key]
+    # A null leaf in a patch deletes the key, so it reads as the key being absent.
+    return _ABSENT if item is None else item
+
+
+# Content fields that hold a list of objects. Their items reach the secret-stripping and graph
+# validation helpers, which read each item as a mapping, so anything else has to fail as a bad
+# request here rather than as an AttributeError several frames down.
 PROPOSAL_LIST_OF_OBJECT_FIELDS = ("actions", "edges", "variables")
 
 
 def unstage_workflow_proposals(hog_flow: HogFlow) -> None:
-    """Put back in the queue any suggestion whose content is no longer the staged draft.
+    """Put back in the queue any approved suggestion whose change the draft no longer carries.
 
-    Approved means one thing here: this suggestion's content is what sits in the draft. Discarding
-    the draft, restoring a revision or approving a different suggestion replaces that content, so
-    the earlier one is pending again - and publish, which reads approved as "this is what shipped",
-    must not record it as applied against a version that never carried it.
+    Approved means one thing here: this suggestion's change sits in the draft. Discarding the draft,
+    restoring a revision, approving a different suggestion or editing over the draft can take that
+    change out again, so the suggestion is pending again - and publish, which reads approved as
+    "this is what shipped", must not record it as applied against a version that never carried it.
+    An edit that leaves the change in place, elsewhere on the same step or not, changes nothing here.
     """
-    WorkflowProposal.objects.filter(hog_flow=hog_flow, status=WorkflowProposal.Status.APPROVED).update(
-        status=WorkflowProposal.Status.SUGGESTED, resolved_at=None, resolved_by=None
-    )
+    approved = WorkflowProposal.objects.filter(hog_flow=hog_flow, status=WorkflowProposal.Status.APPROVED)
+    draft = hog_flow.draft
+    gone = [
+        proposal.id
+        for proposal in approved
+        if draft is None
+        or merge_proposal_content(draft, proposal_changes(proposal, base_content_of(hog_flow, proposal))) != draft
+    ]
+    if gone:
+        WorkflowProposal.objects.filter(id__in=gone).update(
+            status=WorkflowProposal.Status.SUGGESTED, resolved_at=None, resolved_by=None
+        )
 
 
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
@@ -5287,7 +5384,10 @@ class HogFlowViewSet(
             locked.draft_updated_at = None
             locked.draft_encrypted_inputs = None
             locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
-            # Every path that changes the draft unstages what it dropped, so whatever is approved here just went live.
+            # Approved means "this draft carries it", and every path that changes the draft unstages
+            # what it dropped, so whatever is approved here just went live. One indexed UPDATE, and a
+            # no-op for every workflow that has no proposals - which is why it needs no flag check of
+            # its own.
             WorkflowProposal.objects.filter(hog_flow=locked, status=WorkflowProposal.Status.APPROVED).update(
                 status=WorkflowProposal.Status.APPLIED, applied_version=locked.version
             )
@@ -5656,14 +5756,19 @@ class HogFlowViewSet(
                 raise StaleWorkflowUpdateError()
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
-            # The draft is a full snapshot (live plus the proposal), so publish stays a plain copy.
-            locked.draft = merge_proposal_content(snapshot_flow_content(locked), locked_proposal.content)
+            # The draft is always a full content snapshot (live content as the base, the proposal's
+            # changed fields merged in), so publish stays a plain copy with no merge logic.
+            locked.draft = merge_proposal_content(
+                snapshot_flow_content(locked),
+                proposal_changes(locked_proposal, base_content_of(locked, locked_proposal)),
+            )
             locked.draft_updated_at = timezone.now()
             # Proposal content carries no secrets, so the draft re-attaches them from live on publish.
             locked.draft_encrypted_inputs = None
             locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
 
-            # The new draft replaces what was staged; an earlier approval stays only if the draft still carries it.
+            # This suggestion's content replaces whatever was staged, so a previously approved one
+            # goes back to the queue unless the new draft still carries its change.
             unstage_workflow_proposals(locked)
 
             locked_proposal.status = WorkflowProposal.Status.APPROVED

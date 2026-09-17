@@ -179,6 +179,8 @@ class TestWorkflowProposals(APIBaseTest):
 
     @parameterized.expand([("actions",), ("variables",)])
     def test_a_suggestion_is_refused_once_someone_edits_what_it_changes(self, _mock_flag, field: str):
+        # `actions` collides here because the publish below moves the same URL on the same step.
+        # `variables` reads like a single setting but is a whole list, so any publish since is a collision.
         flow_id = self._create_active_flow()
         content = (
             {"actions": [_webhook_action(url="https://proposed.example.com")]}
@@ -188,7 +190,18 @@ class TestWorkflowProposals(APIBaseTest):
         proposal = self._propose(flow_id, content=content, source_id=f"stale:{field}")
         self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
-            {"operations": [{"op": "update_action", "id": "action_1", "patch": {"name": "renamed"}}]},
+            {
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": "action_1",
+                        "patch": {
+                            "name": "renamed",
+                            "config": {"inputs": {"url": {"value": "https://moved.example.com"}}},
+                        },
+                    }
+                ]
+            },
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
         self._publish(flow_id)
@@ -199,24 +212,6 @@ class TestWorkflowProposals(APIBaseTest):
 
         assert response.status_code == 409, response.json()
         assert response.json()["code"] == "proposal_out_of_date"
-        assert HogFlow.objects.get(id=flow_id).draft is None
-
-    def test_a_suggestion_older_than_the_live_workflow_is_refused(self, _mock_flag):
-        flow_id = self._create_active_flow()
-        proposal = self._propose(flow_id)
-        self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
-            {"operations": [{"op": "update_action", "id": "action_1", "patch": {"name": "renamed"}}]},
-            HTTP_X_POSTHOG_CLIENT="mcp",
-        )
-        self._publish(flow_id)
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {"overwrite": True}
-        )
-        assert response.status_code == 409, response.json()
-        assert response.json()["code"] == "proposal_out_of_date"
-        assert WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"]).status == "suggested"
         assert HogFlow.objects.get(id=flow_id).draft is None
 
     def test_a_field_change_is_refused_once_that_field_moved(self, _mock_flag):
@@ -720,6 +715,35 @@ class TestWorkflowProposals(APIBaseTest):
         assert draft["actions"][0]["name"] == "renamed by a human"
         assert draft["actions"][1]["config"]["inputs"]["url"]["value"] == "https://proposed.example.com"
 
+    @parameterized.expand([("another field of that step", "renamed"), ("the same change made by hand", None)])
+    def test_a_step_change_still_approves_after(self, _mock_flag, _label: str, new_name: str | None):
+        flow_id = self._create_active_flow()
+        proposal = self._propose(
+            flow_id, content={"actions": [_webhook_action(url="https://proposed.example.com")]}, source_id="one-field"
+        )
+        patch = (
+            {"name": new_name}
+            if new_name
+            else {"config": {"inputs": {"url": {"value": "https://proposed.example.com"}}}}
+        )
+        self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": [{"op": "update_action", "id": "action_1", "patch": patch}]},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        self._publish(flow_id)
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/").json()["results"]
+        assert [item["is_stale"] for item in listed] == [False]
+        approve = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {}
+        )
+        assert approve.status_code == 200, approve.json()
+        draft = HogFlow.objects.get(id=flow_id).draft
+        assert draft is not None
+        assert draft["actions"][1]["name"] == (new_name or "action_1")
+        assert draft["actions"][1]["config"]["inputs"]["url"]["value"] == "https://proposed.example.com"
+
     def test_a_suggestion_is_refused_once_the_step_it_changes_is_deleted(self, _mock_flag):
         flow_id = self._create_active_flow()
         proposal = self._propose(
@@ -829,33 +853,39 @@ class TestWorkflowProposals(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert expected in str(response.json())
 
-    def test_editing_the_draft_returns_the_approved_suggestion_to_the_queue(self, _mock_flag):
+    @parameterized.expand(
+        [
+            ("undoes the change", "https://edited.example.com", "action_1", "suggested", None),
+            ("touches another field of that step", "https://proposed.example.com", "renamed", "applied", 2),
+        ]
+    )
+    def test_editing_the_draft_hands_the_suggestion_back_only_if_the_edit(
+        self, _mock_flag, _label: str, url: str, name: str, status: str, applied_version: int | None
+    ):
+        # Publish reads approved as shipped, so only an edit that takes the change out of the draft hands it back.
         flow_id = self._create_active_flow()
-        proposal = self._propose(flow_id)
+        proposal = self._propose(flow_id, content={"actions": [_webhook_action(url="https://proposed.example.com")]})
         approve = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {}
         )
         assert approve.status_code == 200, approve.json()
 
+        edited = _webhook_action(url=url)
+        edited["name"] = name
         edit = self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-            {
-                "actions": [_trigger_action(), _webhook_action(url="https://edited.example.com")],
-                "stage_draft": True,
-            },
+            {"actions": [_trigger_action(), edited], "stage_draft": True},
             format="json",
         )
         assert edit.status_code == 200, edit.json()
-
-        assert (
-            WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"]).status
-            == WorkflowProposal.Status.SUGGESTED
+        assert WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"]).status == (
+            "approved" if status == "applied" else "suggested"
         )
 
         self._publish(flow_id)
-        applied = WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"])
-        assert applied.status == WorkflowProposal.Status.SUGGESTED
-        assert applied.applied_version is None
+        stored = WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"])
+        assert stored.status == status
+        assert stored.applied_version == applied_version
 
     def test_applied_suggestions_are_listed_by_the_version_that_carried_them(self, _mock_flag):
         flow_id = self._create_active_flow()
