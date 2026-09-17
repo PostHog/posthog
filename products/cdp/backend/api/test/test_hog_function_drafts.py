@@ -330,9 +330,13 @@ class TestHogFunctionDrafts(DraftTestCase):
             ("live_secret_first", False, [True, False]),
             ("draft_secret_last", True, [False, True]),
             ("draft_secret_first", True, [True, False]),
+            ("enabled_raw_api_secret_last", True, [False, True], False),
+            ("enabled_raw_api_secret_first", True, [True, False], False),
         ]
     )
-    def test_duplicate_input_keys_are_rejected(self, _name: str, enabled: bool, secret_flags: list[bool]) -> None:
+    def test_duplicate_input_keys_are_rejected(
+        self, _name: str, enabled: bool, secret_flags: list[bool], from_agent: bool = True
+    ) -> None:
         function_id = self._create(enabled=enabled)
         function = HogFunction.objects.get(id=function_id)
         saved_inputs = function.inputs
@@ -341,14 +345,16 @@ class TestHogFunctionDrafts(DraftTestCase):
         logs = ActivityLog.objects.filter(team_id=self.team.id, scope="HogFunction", item_id=function_id)
         log_count = logs.count()
 
-        response = self._agent_patch(
-            function_id,
-            {
-                "inputs_schema": [
-                    BASE_FUNCTION["inputs_schema"][0],
-                    *[{"key": "token", "type": "string", "secret": secret} for secret in secret_flags],
-                ]
-            },
+        payload = {
+            "inputs_schema": [
+                BASE_FUNCTION["inputs_schema"][0],
+                *[{"key": "token", "type": "string", "secret": secret} for secret in secret_flags],
+            ]
+        }
+        response = (
+            self._agent_patch(function_id, payload)
+            if from_agent
+            else self.client.patch(self._url(function_id), payload)
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
