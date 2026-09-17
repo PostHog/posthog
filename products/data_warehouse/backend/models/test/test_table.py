@@ -901,6 +901,36 @@ class TestTable(BaseTest):
             with pytest.raises(Exception, match=f"Set CSV quote handling to '{expected_label}'"):
                 table._validate_csv_double_quotes_setting()
 
+    @parameterized.expand(
+        [
+            (
+                "Cannot extract table structure from CSV format file, because there are no files with "
+                "provided path in S3 or all files are empty",
+                "doesn't exist in the bucket",
+            ),
+            ("Cannot extract table structure: the file is empty", "contains no data"),
+        ]
+    )
+    def test_validate_csv_double_quotes_does_not_blame_quoting_for_missing_data(self, message, expected):
+        from clickhouse_driver.errors import ServerException
+
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_csv",
+            url_pattern="https://example.com/test.csv",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            options={"csv_allow_double_quotes": True},
+            team=self.team,
+        )
+
+        with patch(
+            "products.warehouse_sources.backend.models.table.sync_execute",
+            side_effect=ServerException(message, code=636),
+        ):
+            with pytest.raises(Exception, match=expected):
+                table._validate_csv_double_quotes_setting()
+
     def test_validate_csv_double_quotes_reraises_a_non_parse_error(self):
         from clickhouse_driver.errors import ServerException
 

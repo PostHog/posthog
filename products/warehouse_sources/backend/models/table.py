@@ -1107,6 +1107,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         }
     )
 
+    # Code 636 also comes back when the path matches no file, or every file is empty, which no
+    # quote setting can fix. `_safe_expose_ch_error` already carries the copy for both.
+    _CSV_NO_DATA_ERRORS = ("there are no files with provided path", "file is empty")
+
     def _csv_parses_with_double_quotes(self, allow_double_quotes: bool) -> bool:
         """Read a few rows under one quote setting. False when the rows don't parse; any other
         failure (credentials, a missing file) is raised for the caller to surface as-is."""
@@ -1130,6 +1134,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 },
             )
         except ClickHouseServerException as e:
+            if any(needle in e.message for needle in self._CSV_NO_DATA_ERRORS):
+                self._safe_expose_ch_error(e)
             if e.code in self._CSV_PARSE_ERROR_CODES:
                 return False
             raise
