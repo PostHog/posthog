@@ -122,12 +122,7 @@ from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
-from products.signals.backend.report_check_execution import resolve_check_query
-from products.signals.backend.report_checks import (
-    MAX_ACTIVE_CHECKS_PER_REPORT,
-    MetricThresholdConfig,
-    parse_check_config,
-)
+from products.signals.backend.report_check_authoring import CheckCreationError, create_check
 from products.signals.backend.report_claims import (
     actor_owns_claim,
     get_active_claim,
@@ -4293,7 +4288,10 @@ def _record_reviewer_edit(
     ),
     destroy=extend_schema(
         summary="Cancel a check",
-        description="Stop an active check. Its recorded results stay on the report.",
+        description=(
+            "Stop a check that is still open — active, or pending its report resolving. Its recorded "
+            "results stay on the report."
+        ),
         parameters=[_REPORT_ID_PARAMETER],
         responses={200: SignalReportCheckSerializer},
         operation_id="signals_report_checks_destroy",
@@ -4347,59 +4345,24 @@ class SignalReportCheckViewSet(
         write_serializer.is_valid(raise_exception=True)
         spec = write_serializer.validated_data
 
-        # Resolve a metric reference now and store the query it points at, rather than at each run.
-        # An unresolvable reference would otherwise sit idle for the whole soak window before
-        # retiring, and a reference resolved late would measure whatever the metric had become.
-        stored_config = spec["config"]
-        config = parse_check_config(spec["kind"], stored_config)
-        if isinstance(config, MetricThresholdConfig) and config.metric_id is not None:
-            try:
-                stored_config = {**stored_config, "query": resolve_check_query(config, report)}
-            except ValueError as error:
-                return Response(
-                    {"error": f"This check cannot run: {error}."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-        # Resolved before the locked transaction — a bad X-PostHog-Task-Id header must 400 before
-        # anything mutates, and its task lookup has no business inside the lock.
+        # Resolved before the write — a bad X-PostHog-Task-Id header must 400 before anything
+        # mutates, and its task lookup has no business inside the create's row lock.
         attribution = resolve_request_attribution(request, self.team.id)
-
-        with transaction.atomic():
-            # The cap is a count and then an insert, so it only holds if concurrent creates
-            # serialize. Row-lock the report first, the lock `enforce_report_task_cap` takes to cap
-            # a report's tasks the same way.
-            locked_report = SignalReport.objects.select_for_update().filter(id=report.id, team_id=self.team.id).first()
-            if locked_report is None:
-                raise NotFound()
-
-            active_checks = SignalReportCheck.objects.for_team(self.team.id).filter(
-                report_id=locked_report.id, status=SignalReportCheck.Status.ACTIVE
-            )
-            if active_checks.count() >= MAX_ACTIVE_CHECKS_PER_REPORT:
-                return Response(
-                    {"error": f"A report may carry at most {MAX_ACTIVE_CHECKS_PER_REPORT} active checks."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            check = SignalReportCheck.objects.for_team(locked_report.team_id).create(
-                # The report's own environment team, never a canonicalized one: the report's reads
-                # and its artefact log filter by it.
-                team_id=locked_report.team_id,
-                report_id=locked_report.id,
+        try:
+            check = create_check(
+                report=report,
                 title=spec["title"],
                 rationale=spec.get("rationale", ""),
                 kind=spec["kind"],
-                config=stored_config,
+                config=spec["config"],
+                attribution=attribution,
                 next_run_at=spec["next_run_at"],
                 run_interval_minutes=spec.get("run_interval_minutes"),
                 runs_remaining=spec["runs_remaining"],
                 expires_at=spec["expires_at"],
-                actor_kind=attribution.kind,
-                actor_agent=attribution.agent_name,
-                created_by_id=attribution.user_id,
-                task_id=attribution.task_id,
             )
+        except CheckCreationError as error:
+            return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.get_serializer(check).data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
@@ -4409,7 +4372,7 @@ class SignalReportCheckViewSet(
         # overwrite the status that artefact explains.
         cancelled = (
             SignalReportCheck.objects.for_team(self.team.id)
-            .filter(id=check.id, status=SignalReportCheck.Status.ACTIVE)
+            .filter(id=check.id, status__in=SignalReportCheck.OPEN_STATUSES)
             .update(status=SignalReportCheck.Status.CANCELLED, updated_at=timezone.now())
         )
         check.refresh_from_db()

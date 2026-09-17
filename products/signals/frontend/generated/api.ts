@@ -9,7 +9,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CancelReportCheckRequestApi,
     CommitDiffResponseApi,
+    CreateReportCheckRequestApi,
     EditReportRequestApi,
     EditReportResponseApi,
     EmitFindingRequestApi,
@@ -49,6 +51,7 @@ import type {
     ReportSignalsResponseApi,
     ScoutChatTaskApi,
     ScoutChatTaskCreateApi,
+    ScoutCheckSummaryApi,
     ScoutCostsApi,
     ScoutEmissionReportLinkApi,
     ScoutMemberApi,
@@ -107,6 +110,7 @@ import type {
     SignalsScoutMembersListParams,
     SignalsScoutNotesListParams,
     SignalsScoutProjectProfileGetParams,
+    SignalsScoutReportChecksListParams,
     SignalsScoutRunsCostsParams,
     SignalsScoutRunsFindingsSummaryParams,
     SignalsScoutRunsListParams,
@@ -1582,6 +1586,86 @@ export const signalsScoutRecordOutput = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(recordStructuredOutputRequestApi),
+    })
+}
+
+export const getSignalsScoutReportCheckCancelUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/report-check-cancel/`
+}
+
+/**
+ * Stop a check that is no longer worth running — the claim it re-measures has changed, or a better check replaces it. Results it already recorded stay on the report. A check that has already finished cannot be cancelled.
+ * @summary Cancel a follow-up check
+ */
+export const signalsScoutReportCheckCancel = async (
+    projectId: string,
+    runId: string,
+    cancelReportCheckRequestApi: CancelReportCheckRequestApi,
+    options?: RequestInit
+): Promise<ScoutCheckSummaryApi> => {
+    return apiMutator<ScoutCheckSummaryApi>(getSignalsScoutReportCheckCancelUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(cancelReportCheckRequestApi),
+    })
+}
+
+export const getSignalsScoutReportCheckCreateUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/report-check-create/`
+}
+
+/**
+ * Schedule a re-measurement of a report's claim, so whether the fix held becomes a stored fact instead of something a future run has to remember to look for. A `metric_threshold` check runs one bounded Trends query and compares the result. An `agent` check runs a scout instead, for a claim no single number settles.
+ * @summary Write a follow-up check on a report
+ */
+export const signalsScoutReportCheckCreate = async (
+    projectId: string,
+    runId: string,
+    createReportCheckRequestApi: CreateReportCheckRequestApi,
+    options?: RequestInit
+): Promise<ScoutCheckSummaryApi> => {
+    return apiMutator<ScoutCheckSummaryApi>(getSignalsScoutReportCheckCreateUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createReportCheckRequestApi),
+    })
+}
+
+export const getSignalsScoutReportChecksListUrl = (
+    projectId: string,
+    runId: string,
+    params: SignalsScoutReportChecksListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/runs/${runId}/report-checks/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/runs/${runId}/report-checks/`
+}
+
+/**
+ * Every check on one report, newest first. Read this before writing one: a report already carrying a check for the same claim needs no second one, and a report holds at most five open checks at a time.
+ * @summary List a report's follow-up checks
+ */
+export const signalsScoutReportChecksList = async (
+    projectId: string,
+    runId: string,
+    params: SignalsScoutReportChecksListParams,
+    options?: RequestInit
+): Promise<ScoutCheckSummaryApi[]> => {
+    return apiMutator<ScoutCheckSummaryApi[]>(getSignalsScoutReportChecksListUrl(projectId, runId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
