@@ -897,7 +897,27 @@ export namespace Schemas {
       description?: string | null;
       /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
       is_single_holder?: boolean;
+      /** Whether customer analytics can take control of this relationship per account. Rows under a controlled relationship can't be deleted. On an account where control has started, only a person can change the relationship and an empty relationship is a deliberate decision. Set by project operators, not through this API. */
+      readonly is_controlled: boolean;
     }
+
+    /**
+     * * `human` - Human
+     * * `workflow` - Workflow
+     * * `ai` - AI
+     * * `salesforce_claim` - Salesforce claim
+     * * `migration` - Migration
+     */
+    export type AccountRelationshipSourceEnum = typeof AccountRelationshipSourceEnum[keyof typeof AccountRelationshipSourceEnum];
+
+
+    export const AccountRelationshipSourceEnum = {
+      Human: 'human',
+      Workflow: 'workflow',
+      Ai: 'ai',
+      SalesforceClaim: 'salesforce_claim',
+      Migration: 'migration',
+    } as const;
 
     /**
      * One assignment of a user to an account relationship, with its effective range.
@@ -916,6 +936,14 @@ export namespace Schemas {
          * @nullable
          */
       readonly ended_at: string | null;
+      /** Which kind of writer made this assignment; null on rows older than provenance tracking.
+       *
+       * * `human` - Human
+       * * `workflow` - Workflow
+       * * `ai` - AI
+       * * `salesforce_claim` - Salesforce claim
+       * * `migration` - Migration */
+      readonly source: AccountRelationshipSourceEnum | null;
     }
 
     /**
@@ -12959,9 +12987,9 @@ export namespace Schemas {
     /**
      * Typed configuration for a Snowflake batch-export destination.
      *
-     * Account, user, authentication type and credentials may live in a linked Integration (when one is
-     * provided) or inline in this config (legacy). Mirrors the non-credential fields of
-     * `SnowflakeBatchExportInputs` in `products/batch_exports/backend/service.py`.
+     * Account, user, authentication type and credentials live in the linked Integration, never here.
+     * Mirrors the non-credential fields of `SnowflakeBatchExportInputs` in
+     * `products/batch_exports/backend/service.py`.
      */
     export interface SnowflakeDestinationConfig {
       /** Snowflake database to write to. */
@@ -14092,7 +14120,7 @@ export namespace Schemas {
      */
     export interface SnowflakeDestinationRequest {
       type: SnowflakeDestinationRequestType;
-      /** ID of a snowflake-kind Integration providing the account, user and credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+      /** ID of a snowflake-kind Integration providing the account, user and credentials. Use the integrations-list MCP tool to find one. */
       integration_id: number;
       config: SnowflakeDestinationConfig;
     }
@@ -38463,6 +38491,102 @@ export namespace Schemas {
      */
     export type ExternalAccountCustomProperties = {[key: string]: unknown};
 
+    /**
+     * * `unmanaged` - Unmanaged
+     * * `assigned` - Assigned
+     * * `cleared` - Cleared
+     * * `blocked` - Blocked
+     */
+    export type OwnershipRoleStateEnum = typeof OwnershipRoleStateEnum[keyof typeof OwnershipRoleStateEnum];
+
+
+    export const OwnershipRoleStateEnum = {
+      Unmanaged: 'unmanaged',
+      Assigned: 'assigned',
+      Cleared: 'cleared',
+      Blocked: 'blocked',
+    } as const;
+
+    export interface ExternalAccountOwnershipHolder {
+      /** PostHog user id of the holder. */
+      user_id: number;
+      /**
+         * Current email address of the holder; null for a holder outside the organization.
+         * @nullable
+         */
+      email: string | null;
+      /**
+         * Current display name of the holder; null when unset or outside the organization.
+         * @nullable
+         */
+      name: string | null;
+      /** Whether the holder is currently a member of the project's organization. */
+      is_organization_member: boolean;
+      /** Whether the holder's PostHog user account is active. */
+      is_active: boolean;
+    }
+
+    /**
+     * * `holder_missing` - The active relationship has no user
+     * * `holder_inactive` - The holder's user account is deactivated
+     * * `holder_not_in_organization` - The holder is not a member of the organization
+     * * `multiple_active_holders` - More than one active relationship holds the role
+     */
+    export type OwnershipRoleDiagnosticEnum = typeof OwnershipRoleDiagnosticEnum[keyof typeof OwnershipRoleDiagnosticEnum];
+
+
+    export const OwnershipRoleDiagnosticEnum = {
+      HolderMissing: 'holder_missing',
+      HolderInactive: 'holder_inactive',
+      HolderNotInOrganization: 'holder_not_in_organization',
+      MultipleActiveHolders: 'multiple_active_holders',
+    } as const;
+
+    export interface ExternalAccountRoleOwnership {
+      /** The controlled relationship definition. Map it to the role you project; it does not change. */
+      definition_id: string;
+      /** Current name of the relationship definition. */
+      definition_name: string;
+      /** `unmanaged`: customer analytics does not hold authority over this relationship on this account; the holder, if any, is a legacy assignment. `assigned`: the holder is authoritative. `cleared`: the relationship is authoritatively empty. `blocked`: the relationship is managed but its holder cannot be projected; see `diagnostics` and keep the last applied value.
+       *
+       * * `unmanaged` - Unmanaged
+       * * `assigned` - Assigned
+       * * `cleared` - Cleared
+       * * `blocked` - Blocked */
+      state: OwnershipRoleStateEnum;
+      /**
+         * When customer analytics last decided this relationship on this account; null while unmanaged.
+         * @nullable
+         */
+      controlled_at: string | null;
+      /**
+         * The active relationship holding the role, or null when empty.
+         * @nullable
+         */
+      relationship_id: string | null;
+      /** The current holder, or null. */
+      holder: ExternalAccountOwnershipHolder | null;
+      /** Why a managed relationship is blocked. Informational on an unmanaged one. */
+      diagnostics: OwnershipRoleDiagnosticEnum[];
+    }
+
+    export interface ExternalAccountOwnership {
+      /** Account UUID, the canonical identity within this project. */
+      account_id: string;
+      /**
+         * External account key: the group key the account is linked to.
+         * @nullable
+         */
+      external_id: string | null;
+      /**
+         * Region of this PostHog instance (`us`, `eu`), or null when self-hosted.
+         * @nullable
+         */
+      region: string | null;
+      /** One entry per controlled relationship definition of the project, in name order, whether or not this account is managed under it. Empty when the project controls no relationship. */
+      roles: ExternalAccountRoleOwnership[];
+    }
+
     export interface ExternalAccount {
       /** Account UUID. */
       id: string;
@@ -38485,6 +38609,8 @@ export namespace Schemas {
       ignored_at: string | null;
       /** Typed account properties: external-system ids. Role assignments live under `relationships`. */
       properties: ExternalAccountProperties;
+      /** Authority state of each relationship the project controls. */
+      ownership: ExternalAccountOwnership;
       /** Tag names on the account, sorted alphabetically. */
       tags: string[];
       /** Active relationship assignments keyed by definition name (e.g. 'CSM'). Definitions with no active assignment are omitted. */
@@ -38530,6 +38656,8 @@ export namespace Schemas {
          * @nullable
          */
       ignored_at: string | null;
+      /** Authority state of each relationship the project controls. */
+      ownership: ExternalAccountOwnership;
       /** Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted. */
       relationships: ExternalAccountListItemRelationships;
     }
@@ -64866,6 +64994,8 @@ export namespace Schemas {
       description?: string | null;
       /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
       is_single_holder?: boolean;
+      /** Whether customer analytics can take control of this relationship per account. Rows under a controlled relationship can't be deleted. On an account where control has started, only a person can change the relationship and an empty relationship is a deliberate decision. Set by project operators, not through this API. */
+      readonly is_controlled?: boolean;
     }
 
     /**
@@ -97376,6 +97506,10 @@ export namespace Schemas {
      * Maximum number of accounts to return. Values below 1 are clamped to 1; values above 100 are clamped to 100.
      */
     limit?: number;
+    /**
+     * When true, return only accounts where customer analytics holds authority over at least one controlled relationship, including accounts whose managed relationships are cleared and accounts that are ignored. Authority does not end when an account is ignored, so `include_ignored` is implied.
+     */
+    managed_only?: boolean;
     };
 
     export type FeatureFlagsStaffCacheListParams = {

@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 from unittest.mock import Mock, patch
 
 from django.core.cache import cache
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.http import HttpRequest
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
@@ -17,7 +18,13 @@ from requests import RequestException
 from rest_framework.request import Request as DRFRequest
 from rest_framework.throttling import BaseThrottle, ScopedRateThrottle
 
-from posthog.ingress.contracts import DeliveryOwnership, ProviderSpec, WebhookConsumer, WebhookDelivery
+from posthog.ingress.contracts import (
+    DeliveryDispatch,
+    DeliveryOwnership,
+    ProviderSpec,
+    WebhookConsumer,
+    WebhookDelivery,
+)
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
 from posthog.ingress.dispatch.forward import HOST_IDENTIFYING_HEADERS, forward_to_secondary_region
 from posthog.ingress.dispatch.registry import ConsumerRegistry
@@ -49,7 +56,12 @@ RAISES = object()
 class _RedeliveringGitHubProvider(GitHubProvider):
     # Stands in for a provider that replays a delivery the endpoint did not accept, which GitHub
     # itself does not do.
-    forward_failure_status = 502
+    retry_status = 502
+
+
+class _SlowForwardGitHubProvider(GitHubProvider):
+    # Stands in for a provider whose deliveries carry uploaded files, which Mailgun's do.
+    forward_timeout_seconds = 10.0
 
 
 class _ClaimsGitHubProvider(GitHubProvider):
@@ -95,6 +107,7 @@ class TestWebhookView(SimpleTestCase):
         self.factory = RequestFactory()
         self.dispatcher = Mock()
         self.dispatcher.ownership_of.return_value = (DeliveryOwnership.UNDECIDED, ())
+        self.dispatcher.dispatch.return_value = DeliveryDispatch()
         patcher = patch("posthog.ingress.views.get_dispatcher", return_value=self.dispatcher)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -364,7 +377,9 @@ def _consumer(
 
 
 @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
-class TestRegionalForwarding(SimpleTestCase):
+class _DispatchingViewTestCase(SimpleTestCase):
+    """A view driving the real dispatcher and registry, rather than a mocked one."""
+
     def setUp(self) -> None:
         cache.clear()
         self.factory = RequestFactory()
@@ -373,11 +388,6 @@ class TestRegionalForwarding(SimpleTestCase):
         secret = patch("posthog.ingress.github.provider.get_instance_setting", return_value=SECRET)
         secret.start()
         self.addCleanup(secret.stop)
-
-        forward = patch("posthog.ingress.dispatch.forward.requests.request")
-        self.requests = forward.start()
-        self.requests.return_value = Mock(ok=True, status_code=202)
-        self.addCleanup(forward.stop)
 
     def _view(self, consumers: list[WebhookConsumer], *, provider: WebhookProvider | None = None):
         registry = ConsumerRegistry(providers=[GITHUB_SPEC, PANDADOC_SPEC], consumers=consumers)
@@ -398,6 +408,15 @@ class TestRegionalForwarding(SimpleTestCase):
                 "X-GitHub-Delivery": "delivery-1",
             },
         )
+
+
+class TestRegionalForwarding(_DispatchingViewTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        forward = patch("posthog.ingress.dispatch.forward.requests.request")
+        self.requests = forward.start()
+        self.requests.return_value = Mock(ok=True, status_code=202)
+        self.addCleanup(forward.stop)
 
     @parameterized.expand(
         [
@@ -448,6 +467,25 @@ class TestRegionalForwarding(SimpleTestCase):
         self.assertEqual([call.kwargs["outcome"] for call in observe.call_args_list], [outcome])
         self.assertEqual(self.handler.call_count, dispatched)
 
+    @parameterized.expand(
+        [
+            ("the package default", GitHubProvider, 3.0),
+            ("a provider whose deliveries carry files", _SlowForwardGitHubProvider, 10.0),
+        ]
+    )
+    def test_the_forward_runs_under_the_providers_own_timeout(
+        self, _name: str, provider_class: type[GitHubProvider], expected_timeout: float
+    ) -> None:
+        view = self._view(
+            [_consumer(GITHUB_SPEC, name="probe", handler=self.handler, answer=DeliveryOwnership.ELSEWHERE)],
+            provider=provider_class("posthog"),
+        )
+
+        with patch("posthog.regions.PRIMARY_REGION_DOMAIN", "testserver"):
+            view(self._github_request())
+
+        self.assertEqual(self.requests.call_args.kwargs["timeout"], expected_timeout)
+
     def test_the_secondary_region_reports_an_unowned_delivery_rather_than_forwarding_it_back(self) -> None:
         view = self._view(
             [_consumer(GITHUB_SPEC, name="probe", handler=self.handler, answer=DeliveryOwnership.ELSEWHERE)]
@@ -485,6 +523,108 @@ class TestRegionalForwarding(SimpleTestCase):
 
         self.assertEqual(response.status_code, 202)
         self.assertEqual(self.requests.call_count, 1)
+        self.assertEqual(self.handler.call_count, 2)
+
+
+class TestUnacceptedDelivery(_DispatchingViewTestCase):
+    @parameterized.expand(
+        [
+            ("a_provider_that_redelivers_asks_for_one", _RedeliveringGitHubProvider, 502, "retry_requested", ["probe"]),
+            ("a_provider_that_does_not_keeps_the_receipt", GitHubProvider, 202, "accepted", None),
+        ]
+    )
+    def test_a_consumer_that_raised_costs_the_receipt_only_where_that_buys_a_redelivery(
+        self,
+        _name: str,
+        provider_class: type[GitHubProvider],
+        status: int,
+        outcome: str,
+        warned_about: list[str] | None,
+    ) -> None:
+        self.handler.side_effect = RuntimeError("the consumer's durable write failed")
+        view = self._view(
+            [_consumer(GITHUB_SPEC, name="probe", handler=self.handler)],
+            provider=provider_class("posthog"),
+        )
+
+        with (
+            patch("posthog.ingress.dispatch.dispatcher.capture_exception"),
+            patch("posthog.ingress.views.observe_delivery") as observe,
+            patch("posthog.ingress.views.logger") as logger,
+        ):
+            response = view(self._github_request())
+
+        self.assertEqual(response.status_code, status)
+        self.assertEqual([call.kwargs["outcome"] for call in observe.call_args_list], [outcome])
+        # The dispatcher already logged the consumer's own failure, so the view says only that
+        # the request is not receipted, and names what cost it.
+        warnings = {call.args[0]: call.kwargs for call in logger.warning.call_args_list}
+        self.assertEqual(warnings.get("ingress_delivery_retry_requested", {}).get("consumers"), warned_about)
+
+    def test_a_consumer_the_budget_skipped_costs_the_receipt_the_same_way(self) -> None:
+        elapsed = {"seconds": 0.0}
+
+        def spend_the_budget(delivery: WebhookDelivery) -> None:
+            elapsed["seconds"] += 30.0
+
+        skipped = Mock()
+        view = self._view(
+            [
+                _consumer(GITHUB_SPEC, name="alpha", handler=Mock(side_effect=spend_the_budget)),
+                _consumer(GITHUB_SPEC, name="zulu", handler=skipped),
+            ],
+            provider=_RedeliveringGitHubProvider("posthog"),
+        )
+
+        with (
+            patch("time.monotonic", lambda: elapsed["seconds"]),
+            patch("posthog.ingress.views.logger") as logger,
+        ):
+            response = view(self._github_request())
+
+        self.assertEqual(response.status_code, 502)
+        skipped.assert_not_called()
+        warnings = {call.args[0]: call.kwargs for call in logger.warning.call_args_list}
+        self.assertEqual(warnings["ingress_delivery_retry_requested"]["consumers"], ["zulu"])
+
+    def test_a_duplicate_that_arrives_while_the_first_run_is_going_is_not_receipted(self) -> None:
+        runs = {"count": 0}
+        answered: list[int] = []
+
+        def deliver_again_mid_run(delivery: WebhookDelivery) -> None:
+            runs["count"] += 1
+            if runs["count"] == 1:
+                answered.append(view(self._github_request()).status_code)
+
+        view = self._view(
+            [_consumer(GITHUB_SPEC, name="probe", handler=Mock(side_effect=deliver_again_mid_run))],
+            provider=_RedeliveringGitHubProvider("posthog"),
+        )
+
+        self.assertEqual(view(self._github_request()).status_code, 202)
+        # The duplicate met a run that had not settled, so it asks for the delivery again rather
+        # than receipting work that can still raise.
+        self.assertEqual(answered, [502])
+        self.assertEqual(runs["count"], 1)
+
+    def test_the_redelivery_reaches_only_the_consumer_that_did_not_accept(self) -> None:
+        accepted = Mock()
+        self.handler.side_effect = RuntimeError("the consumer's durable write failed")
+        view = self._view(
+            [
+                _consumer(GITHUB_SPEC, name="alpha", handler=accepted),
+                _consumer(GITHUB_SPEC, name="zulu", handler=self.handler),
+            ],
+            provider=_RedeliveringGitHubProvider("posthog"),
+        )
+
+        with patch("posthog.ingress.dispatch.dispatcher.capture_exception"):
+            self.assertEqual(view(self._github_request()).status_code, 502)
+            self.handler.side_effect = None
+            self.assertEqual(view(self._github_request()).status_code, 202)
+
+        # The one that accepted is deduped on the replay, so the retry costs it nothing.
+        accepted.assert_called_once()
         self.assertEqual(self.handler.call_count, 2)
 
 
@@ -540,3 +680,42 @@ class TestForwardToSecondaryRegion(SimpleTestCase):
         self.assertEqual(sent & HOST_IDENTIFYING_HEADERS, set())
         self.assertIn("x-forwarded-for", sent)
         self.assertIn(SECONDARY_REGION_DOMAIN, kwargs["url"])
+
+    def test_a_multipart_request_read_as_a_form_is_rebuilt_from_its_fields_and_files(self) -> None:
+        multipart = RequestFactory().post(
+            "/webhooks/mailgun/",
+            data={
+                "token": "delivery-token",
+                "recipient": "team-abc@example.com",
+                "attachment-1": SimpleUploadedFile("note.txt", b"attached", content_type="text/plain"),
+            },
+        )
+        # A form provider verifies through request.POST, which leaves no raw body to replay.
+        self.assertEqual(multipart.POST["token"], "delivery-token")
+
+        with patch("posthog.ingress.dispatch.forward.requests.request") as request:
+            request.return_value = Mock(ok=True, status_code=202)
+            forward_to_secondary_region(multipart, provider="mailgun", app="inbound")
+
+        kwargs = request.call_args.kwargs
+        self.assertIn(("token", "delivery-token"), kwargs["data"])
+        self.assertIn(("recipient", "team-abc@example.com"), kwargs["data"])
+        self.assertEqual(kwargs["files"], [("attachment-1", ("note.txt", b"attached", "text/plain"))])
+        forwarded_header_names = {key.lower() for key in kwargs["headers"]}
+        self.assertNotIn("content-type", forwarded_header_names)
+        self.assertNotIn("content-length", forwarded_header_names)
+
+    def test_a_urlencoded_form_read_still_replays_its_raw_bytes(self) -> None:
+        body = b"token=delivery-token&recipient=team-abc%40example.com"
+        urlencoded = RequestFactory().post(
+            "/webhooks/mailgun/", data=body, content_type="application/x-www-form-urlencoded"
+        )
+        self.assertEqual(urlencoded.POST["token"], "delivery-token")
+
+        with patch("posthog.ingress.dispatch.forward.requests.request") as request:
+            request.return_value = Mock(ok=True, status_code=202)
+            forward_to_secondary_region(urlencoded, provider="mailgun", app="inbound")
+
+        kwargs = request.call_args.kwargs
+        self.assertEqual(kwargs["data"], body)
+        self.assertNotIn("files", kwargs)

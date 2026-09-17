@@ -48,8 +48,10 @@ def _throttle_refusal(provider: WebhookProvider, request: HttpRequest) -> HttpRe
 def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], HttpResponse]:
     """A Django view for one provider app.
 
-    The response is a transport receipt. The method, the throttle, verification and the payload
-    decide the status; consumers never do, and their return values are ignored.
+    The response is a transport receipt: the method, the throttle, verification and the payload
+    decide the status, and a consumer's return value is ignored. A provider that sets
+    `retry_status` also gets that status when the work did not run at all, which is the
+    transport saying so rather than a consumer choosing an answer.
     """
     # Refused at build rather than per request, because the failure is silent at request time:
     # a ScopedRateThrottle reads its rate from the view's `throttle_scope`, finds none here, and
@@ -121,10 +123,15 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
         if elsewhere:
             if is_primary_region(request):
                 # Once for the request, not once per delivery: what is replayed is the signed body.
-                forwarded = forward_to_secondary_region(request, provider=provider.provider, app=provider.app)
-                if not forwarded and provider.forward_failure_status is not None:
+                forwarded = forward_to_secondary_region(
+                    request,
+                    provider=provider.provider,
+                    app=provider.app,
+                    timeout=provider.forward_timeout_seconds,
+                )
+                if not forwarded and provider.retry_status is not None:
                     observe_delivery(provider=provider.provider, app=provider.app, outcome="forward_failed")
-                    return HttpResponse(status=provider.forward_failure_status)
+                    return HttpResponse(status=provider.retry_status)
             else:
                 # A local miss on the secondary region is that consumer's unresolved routing, not
                 # proof that no region owns the delivery.
@@ -135,8 +142,22 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
                     consumers=list(elsewhere),
                 )
 
+        unaccepted: dict[str, None] = {}
         for delivery in deliveries:
-            dispatcher.dispatch(delivery, budget=budget)
+            dispatched = dispatcher.dispatch(delivery, budget=budget)
+            unaccepted.update(dict.fromkeys(dispatched.unaccepted_consumers))
+
+        if unaccepted and provider.retry_status is not None:
+            # The dispatcher already logged and captured each consumer's own failure, so this
+            # only says the request is not being receipted, and which consumers cost it that.
+            logger.warning(
+                "ingress_delivery_retry_requested",
+                provider=provider.provider,
+                app=provider.app,
+                consumers=list(unaccepted),
+            )
+            observe_delivery(provider=provider.provider, app=provider.app, outcome="retry_requested")
+            return HttpResponse("Delivery not accepted", status=provider.retry_status)
 
         observe_delivery(provider=provider.provider, app=provider.app, outcome="accepted")
         return HttpResponse(status=provider.success_status)
