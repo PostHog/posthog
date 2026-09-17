@@ -192,7 +192,7 @@ describe('experiment refresh control intent', () => {
                 fireEvent.click(
                     control === 'full'
                         ? document.querySelector('[data-attr="refresh-experiment"]')!
-                        : screen.getByRole('button', { name: 'Try again' })
+                        : screen.getByText('Try again')
                 )
                 await expectLogic(logic).toFinishAllListeners()
                 await expectLogic(metricsLogic).toFinishAllListeners()
@@ -301,7 +301,7 @@ describe('experiment refresh control intent', () => {
             await jest.advanceTimersByTimeAsync(21000)
         })
         queries.length = 0
-        fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+        fireEvent.click(screen.getByText('Retry'))
         await act(async () => {
             release()
             await jest.advanceTimersByTimeAsync(0)

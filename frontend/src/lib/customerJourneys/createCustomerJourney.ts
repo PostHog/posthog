@@ -81,6 +81,142 @@ export interface CustomerJourneyDependencies {
     }
 }
 
+const CUSTOMER_JOURNEY_INSIGHT_TYPES: readonly CustomerJourneyInsightType[] = [
+    'TRENDS',
+    'STICKINESS',
+    'LIFECYCLE',
+    'FUNNELS',
+    'RETENTION',
+    'PATHS',
+]
+const CUSTOMER_JOURNEY_TILE_STATES: readonly CustomerJourneyTileState[] = ['ready', 'failed', 'pending']
+const CUSTOMER_JOURNEY_SUMMARY_COUNT_KEYS = [
+    'total_count',
+    'ready_count',
+    'failed_count',
+    'pending_count',
+    'excluded_count',
+] as const
+
+interface ProjectedTileResults {
+    tile_results: CustomerJourneyTileResult[]
+    tile_results_truncated: boolean
+}
+
+function isNonnegativeSafeInteger(value: unknown): value is number {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
+function isNonnegativeFiniteNumber(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0
+}
+
+function isCustomerJourneyInsightType(value: unknown): value is CustomerJourneyInsightType {
+    return CUSTOMER_JOURNEY_INSIGHT_TYPES.includes(value as CustomerJourneyInsightType)
+}
+
+function isCustomerJourneyTileState(value: unknown): value is CustomerJourneyTileState {
+    return CUSTOMER_JOURNEY_TILE_STATES.includes(value as CustomerJourneyTileState)
+}
+
+function projectSummaryCounts(summary: CustomerJourneySummary): Record<string, number> {
+    const counts: Record<string, number> = {}
+    for (const key of CUSTOMER_JOURNEY_SUMMARY_COUNT_KEYS) {
+        const value = summary[key]
+        if (isNonnegativeSafeInteger(value)) {
+            counts[key] = value
+        }
+    }
+    return counts
+}
+
+function projectInsightTypeSummary(
+    summary: CustomerJourneySummary
+): NonNullable<CustomerJourneySummary['insight_type_summary']> {
+    const projected: NonNullable<CustomerJourneySummary['insight_type_summary']> = {}
+    for (const insightType of CUSTOMER_JOURNEY_INSIGHT_TYPES) {
+        const entry = summary.insight_type_summary?.[insightType]
+        if (entry && [entry.total_count, entry.ready_count, entry.failed_count].every(isNonnegativeSafeInteger)) {
+            projected[insightType] = {
+                total_count: entry.total_count,
+                ready_count: entry.ready_count,
+                failed_count: entry.failed_count,
+                ...(isNonnegativeFiniteNumber(entry.max_duration_ms) ? { max_duration_ms: entry.max_duration_ms } : {}),
+            }
+        }
+    }
+    return projected
+}
+
+function projectTileResult(value: unknown, seenTileIds: Set<number>): CustomerJourneyTileResult | null {
+    const row = value as Partial<CustomerJourneyTileResult> | null
+    const tileId = row?.tile_id
+    const insightShortId = row?.insight_short_id
+    const insightType = row?.insight_type
+    const state = row?.state
+    const duration = row?.duration_ms
+    if (
+        !row ||
+        !isNonnegativeSafeInteger(tileId) ||
+        typeof insightShortId !== 'string' ||
+        insightShortId.trim().length === 0 ||
+        insightShortId.length > 128 ||
+        !isCustomerJourneyInsightType(insightType) ||
+        !isCustomerJourneyTileState(state) ||
+        (state === 'ready' && !isNonnegativeFiniteNumber(duration)) ||
+        seenTileIds.has(tileId)
+    ) {
+        return null
+    }
+    seenTileIds.add(tileId)
+    return {
+        tile_id: tileId,
+        insight_short_id: insightShortId,
+        insight_type: insightType,
+        state,
+        ...(state === 'ready' ? { duration_ms: duration as number } : {}),
+    }
+}
+
+function projectTileResults(summary: CustomerJourneySummary): ProjectedTileResults | undefined {
+    if (summary.tile_results === undefined) {
+        return undefined
+    }
+
+    const sourceRows: unknown[] = Array.isArray(summary.tile_results) ? summary.tile_results : []
+    let truncated = summary.tile_results_truncated === true || !Array.isArray(summary.tile_results)
+    const seenTileIds = new Set<number>()
+    const tileResults: CustomerJourneyTileResult[] = []
+    for (const value of sourceRows) {
+        const projected = projectTileResult(value, seenTileIds)
+        if (projected) {
+            tileResults.push(projected)
+        } else {
+            truncated = true
+        }
+    }
+    tileResults.sort((a, b) => a.tile_id - b.tile_id)
+    return {
+        tile_results: tileResults.slice(0, CUSTOMER_JOURNEY_TILE_RESULTS_LIMIT),
+        tile_results_truncated: truncated || tileResults.length > CUSTOMER_JOURNEY_TILE_RESULTS_LIMIT,
+    }
+}
+
+function projectCustomerJourneySummary(summary: CustomerJourneySummary): Record<string, unknown> {
+    const insightTypeSummary = projectInsightTypeSummary(summary)
+    const tileResults = projectTileResults(summary)
+    return {
+        ...(summary.error_type !== undefined ? { error_type: summary.error_type } : {}),
+        ...(summary.end_reason !== undefined ? { end_reason: summary.end_reason } : {}),
+        ...projectSummaryCounts(summary),
+        ...(typeof summary.exposures_response_cached === 'boolean'
+            ? { exposures_response_cached: summary.exposures_response_cached }
+            : {}),
+        ...(Object.keys(insightTypeSummary).length ? { insight_type_summary: insightTypeSummary } : {}),
+        ...tileResults,
+    }
+}
+
 export function createCustomerJourney(
     context: CustomerJourneyContext,
     { now, capture, visibility }: CustomerJourneyDependencies
@@ -137,97 +273,6 @@ export function createCustomerJourney(
         finished = true
         try {
             const finishedAt = accumulateForeground()
-            const counts: Record<string, number> = {}
-            for (const key of [
-                'total_count',
-                'ready_count',
-                'failed_count',
-                'pending_count',
-                'excluded_count',
-            ] as const) {
-                const value = summary[key]
-                if (value !== undefined && Number.isSafeInteger(value) && value >= 0) {
-                    counts[key] = value
-                }
-            }
-            const insightTypeSummary: CustomerJourneySummary['insight_type_summary'] = {}
-            for (const insightType of ['TRENDS', 'STICKINESS', 'LIFECYCLE', 'FUNNELS', 'RETENTION', 'PATHS'] as const) {
-                const entry = summary.insight_type_summary?.[insightType]
-                if (
-                    entry &&
-                    [entry.total_count, entry.ready_count, entry.failed_count].every(
-                        (value) => Number.isSafeInteger(value) && value >= 0
-                    )
-                ) {
-                    insightTypeSummary[insightType] = {
-                        total_count: entry.total_count,
-                        ready_count: entry.ready_count,
-                        failed_count: entry.failed_count,
-                        ...(entry.max_duration_ms !== undefined &&
-                        Number.isFinite(entry.max_duration_ms) &&
-                        entry.max_duration_ms >= 0
-                            ? { max_duration_ms: entry.max_duration_ms }
-                            : {}),
-                    }
-                }
-            }
-            let tileResults: CustomerJourneyTileResult[] | undefined
-            let tileResultsTruncated: boolean | undefined
-            if (summary.tile_results !== undefined) {
-                const validInsightTypes = new Set<CustomerJourneyInsightType>([
-                    'TRENDS',
-                    'STICKINESS',
-                    'LIFECYCLE',
-                    'FUNNELS',
-                    'RETENTION',
-                    'PATHS',
-                ])
-                const validStates = new Set<CustomerJourneyTileState>(['ready', 'failed', 'pending'])
-                const seenTileIds = new Set<number>()
-                const sourceRows: unknown[] = Array.isArray(summary.tile_results) ? summary.tile_results : []
-                tileResultsTruncated = summary.tile_results_truncated === true || !Array.isArray(summary.tile_results)
-                tileResults = []
-                for (const value of sourceRows) {
-                    const row = value as Partial<CustomerJourneyTileResult> | null
-                    const tileId = row?.tile_id
-                    const insightShortId = row?.insight_short_id
-                    const insightType = row?.insight_type
-                    const state = row?.state
-                    const duration = row?.duration_ms
-                    const validDuration =
-                        state !== 'ready' ||
-                        (typeof duration === 'number' && Number.isFinite(duration) && duration >= 0)
-                    if (
-                        !row ||
-                        typeof tileId !== 'number' ||
-                        !Number.isSafeInteger(tileId) ||
-                        tileId < 0 ||
-                        typeof insightShortId !== 'string' ||
-                        insightShortId.trim().length === 0 ||
-                        insightShortId.length > 128 ||
-                        !validInsightTypes.has(insightType as CustomerJourneyInsightType) ||
-                        !validStates.has(state as CustomerJourneyTileState) ||
-                        !validDuration ||
-                        seenTileIds.has(tileId)
-                    ) {
-                        tileResultsTruncated = true
-                        continue
-                    }
-                    seenTileIds.add(tileId)
-                    tileResults.push({
-                        tile_id: tileId,
-                        insight_short_id: insightShortId,
-                        insight_type: insightType as CustomerJourneyInsightType,
-                        state: state as CustomerJourneyTileState,
-                        ...(state === 'ready' ? { duration_ms: duration as number } : {}),
-                    })
-                }
-                tileResults.sort((a, b) => a.tile_id - b.tile_id)
-                if (tileResults.length > CUSTOMER_JOURNEY_TILE_RESULTS_LIMIT) {
-                    tileResultsTruncated = true
-                    tileResults = tileResults.slice(0, CUSTOMER_JOURNEY_TILE_RESULTS_LIMIT)
-                }
-            }
             capture('customer_journey_finished', {
                 ...common,
                 visibility_state: visibilityState,
@@ -235,16 +280,7 @@ export function createCustomerJourney(
                 duration_ms: Math.max(0, finishedAt - startedAt),
                 foreground_duration_ms: foregroundDurationMs,
                 ...(firstUsefulMs !== undefined ? { first_useful_ms: firstUsefulMs } : {}),
-                ...(summary.error_type !== undefined ? { error_type: summary.error_type } : {}),
-                ...(summary.end_reason !== undefined ? { end_reason: summary.end_reason } : {}),
-                ...counts,
-                ...(typeof summary.exposures_response_cached === 'boolean'
-                    ? { exposures_response_cached: summary.exposures_response_cached }
-                    : {}),
-                ...(Object.keys(insightTypeSummary).length ? { insight_type_summary: insightTypeSummary } : {}),
-                ...(tileResults !== undefined
-                    ? { tile_results: tileResults, tile_results_truncated: tileResultsTruncated }
-                    : {}),
+                ...projectCustomerJourneySummary(summary),
             })
         } catch {
             // Telemetry must not interrupt the operation it observes.

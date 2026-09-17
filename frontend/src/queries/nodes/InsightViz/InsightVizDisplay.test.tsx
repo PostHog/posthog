@@ -31,62 +31,66 @@ const ALL_INSIGHT_TYPES = Object.values(InsightType) as InsightType[]
 /** Insight types that use the dashboard refresh hint (excludes web analytics — separate UX). */
 const DASHBOARD_HINT_INSIGHT_TYPES = ALL_INSIGHT_TYPES.filter((t) => t !== InsightType.WEB_ANALYTICS)
 
+function mockRetentionReadinessValues(getInsightData: () => { result: unknown }): void {
+    ;(useActions as jest.Mock).mockReturnValue({ loadData: jest.fn(), updateQuerySource: jest.fn() })
+    ;(useValues as jest.Mock).mockImplementation((logic) => {
+        if (logic === insightLogic) {
+            return {
+                insightProps: { dashboardItemId: undefined },
+                canEditInsight: false,
+                isInDashboardContext: true,
+            }
+        }
+        if (logic === insightDataLogic) {
+            return { exportContext: null, queryId: null }
+        }
+        if (logic.pathString?.includes('insightNavLogic')) {
+            return { activeView: InsightType.RETENTION }
+        }
+        if (logic.pathString?.includes('funnelDataLogic')) {
+            return {
+                funnelVizType: null,
+                hasFunnelResults: false,
+                isFunnelWithEnoughSteps: true,
+                isFunnelWithIncompleteDataWarehouseStep: false,
+            }
+        }
+        if (logic.pathString?.includes('insightVizDataLogic')) {
+            return {
+                isFunnels: false,
+                isPaths: false,
+                hasDetailedResultsTable: false,
+                showLegend: false,
+                usesInChartLegend: false,
+                hasFormula: false,
+                supportsDisplay: true,
+                samplingFactor: null,
+                insightDataLoading: false,
+                hasRenderableResults: true,
+                erroredQueryId: null,
+                timedOutQueryId: null,
+                vizSpecificOptions: {},
+                query: { kind: 'InsightVizNode', source: { kind: 'RetentionQuery' } },
+                querySource: { kind: 'RetentionQuery' },
+                display: null,
+                series: [],
+                insightData: getInsightData(),
+                validationError: null,
+                validationErrorCode: null,
+                theme: {},
+            }
+        }
+        return {}
+    })
+}
+
 describe('InsightVizDisplay', () => {
     it('reports an empty retention result only after that exact response reference is committed', () => {
         const expectedEmptyRetention: unknown[] = []
         let insightData = { result: [] as unknown[] }
         const onCommitted = jest.fn()
 
-        ;(useActions as jest.Mock).mockReturnValue({ loadData: jest.fn(), updateQuerySource: jest.fn() })
-        ;(useValues as jest.Mock).mockImplementation((logic) => {
-            if (logic === insightLogic) {
-                return {
-                    insightProps: { dashboardItemId: undefined },
-                    canEditInsight: false,
-                    isInDashboardContext: true,
-                }
-            }
-            if (logic === insightDataLogic) {
-                return { exportContext: null, queryId: null }
-            }
-            if (logic.pathString?.includes('insightNavLogic')) {
-                return { activeView: InsightType.RETENTION }
-            }
-            if (logic.pathString?.includes('funnelDataLogic')) {
-                return {
-                    funnelVizType: null,
-                    hasFunnelResults: false,
-                    isFunnelWithEnoughSteps: true,
-                    isFunnelWithIncompleteDataWarehouseStep: false,
-                }
-            }
-            if (logic.pathString?.includes('insightVizDataLogic')) {
-                return {
-                    isFunnels: false,
-                    isPaths: false,
-                    hasDetailedResultsTable: false,
-                    showLegend: false,
-                    usesInChartLegend: false,
-                    hasFormula: false,
-                    supportsDisplay: true,
-                    samplingFactor: null,
-                    insightDataLoading: false,
-                    hasRenderableResults: true,
-                    erroredQueryId: null,
-                    timedOutQueryId: null,
-                    vizSpecificOptions: {},
-                    query: { kind: 'InsightVizNode', source: { kind: 'RetentionQuery' } },
-                    querySource: { kind: 'RetentionQuery' },
-                    display: null,
-                    series: [],
-                    insightData,
-                    validationError: null,
-                    validationErrorCode: null,
-                    theme: {},
-                }
-            }
-            return {}
-        })
+        mockRetentionReadinessValues(() => insightData)
 
         const context = {
             dashboardJourneyRenderReadiness: {
@@ -134,56 +138,7 @@ describe('InsightVizDisplay', () => {
         const expectedResult: unknown[] = []
         const onCommitted = jest.fn()
 
-        ;(useActions as jest.Mock).mockReturnValue({ loadData: jest.fn(), updateQuerySource: jest.fn() })
-        ;(useValues as jest.Mock).mockImplementation((logic) => {
-            if (logic === insightLogic) {
-                return {
-                    insightProps: { dashboardItemId: undefined },
-                    canEditInsight: false,
-                    isInDashboardContext: true,
-                }
-            }
-            if (logic === insightDataLogic) {
-                return { exportContext: null, queryId: null }
-            }
-            if (logic.pathString?.includes('insightNavLogic')) {
-                return { activeView: InsightType.RETENTION }
-            }
-            if (logic.pathString?.includes('funnelDataLogic')) {
-                return {
-                    funnelVizType: null,
-                    hasFunnelResults: false,
-                    isFunnelWithEnoughSteps: true,
-                    isFunnelWithIncompleteDataWarehouseStep: false,
-                }
-            }
-            if (logic.pathString?.includes('insightVizDataLogic')) {
-                return {
-                    isFunnels: false,
-                    isPaths: false,
-                    hasDetailedResultsTable: false,
-                    showLegend: false,
-                    usesInChartLegend: false,
-                    hasFormula: false,
-                    supportsDisplay: true,
-                    samplingFactor: null,
-                    insightDataLoading: false,
-                    hasRenderableResults: true,
-                    erroredQueryId: null,
-                    timedOutQueryId: null,
-                    vizSpecificOptions: {},
-                    query: { kind: 'InsightVizNode', source: { kind: 'RetentionQuery' } },
-                    querySource: { kind: 'RetentionQuery' },
-                    display: null,
-                    series: [],
-                    insightData: { result: expectedResult },
-                    validationError: null,
-                    validationErrorCode: null,
-                    theme: {},
-                }
-            }
-            return {}
-        })
+        mockRetentionReadinessValues(() => ({ result: expectedResult }))
 
         render(
             <InsightVizDisplay
