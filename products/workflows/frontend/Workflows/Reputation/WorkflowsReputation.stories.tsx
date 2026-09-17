@@ -151,3 +151,37 @@ export const DomainWithheldFromCaller: StoryFn = () => {
     useStorybookMocks(mockReputation({ ...baseResponse, isps: [], isp_withheld_domains: ['mail.example.com'] }))
     return <WorkflowsReputation />
 }
+
+export const SuspendedByProvider: StoryFn = () => {
+    useStorybookMocks(
+        mockReputation({
+            ...baseResponse,
+            aws: {
+                health: 'suspended',
+                sending_status: 'DISABLED',
+                findings: [
+                    {
+                        finding_type: 'COMPLAINT',
+                        impact: 'HIGH',
+                        description: '',
+                        last_updated_at: '2026-09-01T00:00:00Z',
+                    },
+                ],
+            },
+        })
+    )
+    return <WorkflowsReputation />
+}
+
+export const SuspendedByStaff: StoryFn = () => {
+    // No AWS finding to fix, so the banner has to stand on its own reason and the review request.
+    useStorybookMocks(
+        mockReputation({
+            ...baseResponse,
+            email_sending_suspended: true,
+            email_sending_suspended_at: '2026-09-01T00:00:00Z',
+            email_sending_suspension_reason: 'Spam complaint rate above 0.5% for seven days',
+        })
+    )
+    return <WorkflowsReputation />
+}

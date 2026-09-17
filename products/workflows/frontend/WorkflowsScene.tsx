@@ -2,7 +2,7 @@ import { MakeLogicType, actions, kea, path, props, reducers, selectors, useActio
 import { urlToAction } from 'kea-router'
 
 import { IconApple, IconAndroid, IconLetter, IconPlusSmall } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonMenu, LemonMenuItems, LemonTag, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -323,8 +323,9 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             {emailSendingSuspended && (
                 <LemonBanner type="error" data-attr="workflows-email-suspended-banner">
                     Email sending is suspended for this project. Workflow emails are not being delivered.
-                    {emailSendingSuspensionReason ? <> Reason: {emailSendingSuspensionReason}.</> : null} Contact
-                    support to get sending re-enabled.
+                    {emailSendingSuspensionReason ? <> Reason: {emailSendingSuspensionReason}.</> : null} The{' '}
+                    <Link to={urls.workflows('reputation')}>Reputation tab</Link> shows what to fix and lets you request
+                    a review.
                 </LemonBanner>
             )}
             <LemonTabs activeKey={currentTab} tabs={tabs} sceneInset data-attr="workflows-scene-tabs" />
