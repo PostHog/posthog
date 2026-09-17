@@ -27,6 +27,8 @@ export function CreateOrganizationModal({
     const { logout } = useActions(userLogic)
     const [name, setName] = useState<string>('')
 
+    // The API trims the name before it checks for blank, so a spaces-only name is a doomed request.
+    const trimmedName = name.trim()
     const hasPendingInvites = pendingInvites.length > 0
     // Only stuck users see this: no organization membership and no invite waiting. Someone deliberately creating an
     // additional org from the account menu still has a current org, so this guidance stays hidden for them.
@@ -42,10 +44,10 @@ export function CreateOrganizationModal({
     }
     const handleSubmit = (): void => {
         // Also guards Enter-key submission, which bypasses the button's disabledReason
-        if (!name || currentOrganizationLoading) {
+        if (!trimmedName || currentOrganizationLoading) {
             return
         }
-        createOrganization(name)
+        createOrganization(trimmedName)
     }
 
     return (
@@ -71,7 +73,7 @@ export function CreateOrganizationModal({
                     <LemonButton
                         type="primary"
                         onClick={() => handleSubmit()}
-                        disabledReason={!name ? 'Think of a name!' : null}
+                        disabledReason={!trimmedName ? 'Think of a name!' : null}
                         loading={currentOrganizationLoading}
                         data-attr="create-organization-ok"
                     >
