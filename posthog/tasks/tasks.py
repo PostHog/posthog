@@ -409,6 +409,11 @@ def _process_query_task_failure(
     if isinstance(exc, APIException):
         # User-safe message (e.g. ClickHouseAtCapacity's "try again later" copy)
         query_status.error_message = str(exc.detail)
+        # get_codes() returns a list/dict for compound validation errors; only scalar codes
+        # are meaningful to the frontend, which matches on specific code strings.
+        codes = exc.get_codes()
+        if isinstance(codes, str):
+            query_status.error_code = codes
     query_status.end_time = datetime.datetime.now(datetime.UTC)
     manager.store_query_status(query_status)
 
