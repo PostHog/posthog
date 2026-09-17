@@ -37,6 +37,12 @@ def get_support_slack_settings() -> dict:
     )
 
 
+def get_support_slack_signing_secret() -> str | None:
+    """The secret ingress verifies SupportHog deliveries with."""
+    secret = get_support_slack_settings().get("SUPPORT_SLACK_SIGNING_SECRET")
+    return str(secret) if secret else None
+
+
 def supporthog_missing_file_scopes(team: "Team") -> list[str]:
     """File scopes this install hasn't granted, for logging why attachments failed.
 
