@@ -36,6 +36,25 @@ NOVEL_SUMMARY_MIN_TOKENS = 8
 # viewer could lean on by hammering the broad feed.
 NOVEL_SUMMARY_MAX_SIBLINGS = 40
 
+# Component weights for the blended watchability score. A lone signal outranks a lone anything-else,
+# but a type hit combined with the scan's own notability can outrank a routine signal — the feed is a
+# portfolio of the window's most watchable rows, not signals first and everything after. Retune here.
+WATCH_WEIGHT_SIGNAL = 1.0
+WATCH_WEIGHT_HIT = 0.9
+WATCH_WEIGHT_NOTABILITY = 0.7
+WATCH_WEIGHT_FRICTION = 0.3
+# A row the reader already opened keeps its evidence but drops by this much, so an unviewed peer with
+# comparable evidence comes first while a strong seen row (a signal, a wide outlier) still holds its
+# place above routine unseen rows.
+WATCH_SEEN_PENALTY = 0.5
+# A no-baseline "yes" verdict is the weak conventional something-happened phrasing, so it enters the
+# blend below a verdict the scanner's own window shows to be rare.
+VERDICT_YES_STRENGTH = 0.5
+# The score deviation, in stddevs, at which an outlier counts full strength. The hit fires at
+# OUTLIER_STDDEVS; its strength climbs from there to 1.0 by this many stddevs, so a wider outlier ranks
+# above a marginal one instead of both reading as the same boolean hit.
+OUTLIER_FULL_STDDEVS = 3.0
+
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 # Friction language in the model's own prose about the session. Stems, so "retried"/"retrying",
@@ -191,8 +210,15 @@ def _max_summary_similarity(candidate: _Candidate, siblings: list[_Candidate]) -
     return max(len(candidate.summary_tokens & other) / len(candidate.summary_tokens | other) for other in others)
 
 
-def _type_hit(candidate: _Candidate, baseline: _ScannerBaseline, siblings: list[_Candidate]) -> dict[str, Any] | None:
-    """The type-specific reason this row stands out for its scanner, or None."""
+def _type_hit(
+    candidate: _Candidate, baseline: _ScannerBaseline, siblings: list[_Candidate]
+) -> tuple[dict[str, Any], float] | None:
+    """The type-specific reason this row stands out for its scanner and how strongly, or None.
+
+    The strength is in (0, 1]: a wide score outlier, a very rare verdict or tag, or a summary unlike
+    its siblings scores near 1; a marginal hit scores near the floor of its rule. It feeds the blended
+    score only — the returned reason dict is unchanged, so the card copy stays the same.
+    """
     if candidate.scanner_type == "monitor" and candidate.verdict in ("yes", "no"):
         # With a baseline, the notable answer is the scanner's own minority verdict — prompt
         # polarity doesn't matter ("did they struggle?" vs "was the experience good?"). Without
@@ -200,13 +226,14 @@ def _type_hit(candidate: _Candidate, baseline: _ScannerBaseline, siblings: list[
         if baseline.verdict_shares:
             share = baseline.verdict_shares.get(candidate.verdict, 0.0)
             if share <= UNUSUAL_VERDICT_MAX_SHARE:
-                return {"kind": "unusual_verdict", "verdict": candidate.verdict, "verdict_share": round(share, 3)}
+                reason = {"kind": "unusual_verdict", "verdict": candidate.verdict, "verdict_share": round(share, 3)}
+                return reason, 1.0 - share
         elif candidate.verdict == "yes":
-            return {"kind": "verdict_yes"}
+            return {"kind": "verdict_yes"}, VERDICT_YES_STRENGTH
     if candidate.scanner_type == "summarizer":
         similarity = _max_summary_similarity(candidate, siblings)
         if similarity is not None and similarity <= NOVEL_SUMMARY_MAX_SIMILARITY:
-            return {"kind": "novel_summary"}
+            return {"kind": "novel_summary"}, 1.0 - similarity
     if (
         candidate.scanner_type == "scorer"
         and candidate.score is not None
@@ -216,34 +243,59 @@ def _type_hit(candidate: _Candidate, baseline: _ScannerBaseline, siblings: list[
         and baseline.score_stddev > 0
         and abs(candidate.score - baseline.score_mean) >= OUTLIER_STDDEVS * baseline.score_stddev
     ):
-        return {"kind": "outlier_score", "score": candidate.score, "window_mean": round(baseline.score_mean, 2)}
+        sigma = abs(candidate.score - baseline.score_mean) / baseline.score_stddev
+        reason = {"kind": "outlier_score", "score": candidate.score, "window_mean": round(baseline.score_mean, 2)}
+        return reason, min(1.0, sigma / OUTLIER_FULL_STDDEVS)
     if candidate.scanner_type == "classifier" and baseline.rare_tags:
         rare = [(baseline.tag_shares[tag], tag) for tag in set(candidate.tags) if tag in baseline.rare_tags]
         if rare:
             share, tag = min(rare)
-            return {"kind": "rare_tag", "tag": tag, "tag_share": round(share, 3)}
+            return {"kind": "rare_tag", "tag": tag, "tag_share": round(share, 3)}, 1.0 - share
     return None
+
+
+def _watchability(candidate: _Candidate, hit_strength: float) -> float:
+    """Blend the row's signal, type hit, notability, and friction into one score, then dock a row the
+    reader already opened. Every source contributes at once, so a row wins on the sum of its evidence
+    rather than on a single dominant flag."""
+    signal_strength = 1.0 if candidate.signals_count > 0 else 0.0
+    notability = candidate.notability if candidate.notability is not None else 0.0
+    friction = 1.0 if candidate.friction else 0.0
+    score = (
+        WATCH_WEIGHT_SIGNAL * signal_strength
+        + WATCH_WEIGHT_HIT * hit_strength
+        + WATCH_WEIGHT_NOTABILITY * notability
+        + WATCH_WEIGHT_FRICTION * friction
+    )
+    if candidate.viewed:
+        score -= WATCH_SEEN_PENALTY
+    return score
 
 
 def rank_watch_feed_candidates(rows: list[dict[str, Any]]) -> list[WatchFeedEntry]:
     """Rank candidate rows (`id`, `scanner_id`, `created_at`, `scanner_result`, `feed_viewed`) most
-    watchable first: signal emitters, then type-specific hits, then unviewed before viewed, then
-    the scan's own notability judgment, then prose that reads as friction, then newest.
+    watchable first by a blended score, then newest.
 
-    Signals and type hits encode what the user configured the scanner to find, so a strong hit they
-    saw yesterday still outranks unviewed routine rows — seen-state orders rows within those tiers
-    rather than above them. Notability and friction are inferred rather than configured, so they stay
-    below seen-state: they lift unread rows, never resurface ones a reader already dismissed. The
-    notability value also breaks ties inside every tier.
+    The score adds four sources at once — emitted signals, a type-specific hit, the scan's own
+    notability judgment, and prose that reads as friction — each weighted, so a row wins on the sum of
+    its evidence. A type hit plus a high notability can outrank a routine signal, rather than every
+    signal outranking everything else. A row the reader already opened keeps its evidence but is docked,
+    so an unviewed peer comes first while a strong seen row still holds its place above routine unseen
+    rows.
+
+    The displayed reason still names the single strongest source (signal, then hit, then notability,
+    then friction, then seen-state), independent of the score that ordered the row.
     """
     candidates = [_parse_candidate(row) for row in rows]
     baselines = _baselines(candidates)
     by_scanner: dict[UUID, list[_Candidate]] = {}
     for candidate in candidates:
         by_scanner.setdefault(candidate.scanner_id, []).append(candidate)
-    scored: list[tuple[tuple[bool, bool, bool, bool, bool, float, datetime], WatchFeedEntry]] = []
+    scored: list[tuple[tuple[float, datetime], WatchFeedEntry]] = []
     for candidate in candidates:
-        hit = _type_hit(candidate, baselines[candidate.scanner_id], by_scanner[candidate.scanner_id])
+        hit_result = _type_hit(candidate, baselines[candidate.scanner_id], by_scanner[candidate.scanner_id])
+        hit = hit_result[0] if hit_result is not None else None
+        hit_strength = hit_result[1] if hit_result is not None else 0.0
         has_signal = candidate.signals_count > 0
         notable = candidate.notability is not None and candidate.notability >= NOTABLE_MIN_SCORE
         if has_signal:
@@ -263,16 +315,7 @@ def rank_watch_feed_candidates(rows: list[dict[str, Any]]) -> list[WatchFeedEntr
         # score, and gating on `notable` alone would attach the sentence over the copy that row earned.
         if candidate.notability_reason and reason["kind"] == "notable":
             reason["notability_reason"] = candidate.notability_reason
-        sort_key = (
-            has_signal,
-            hit is not None,
-            not candidate.viewed,
-            notable,
-            candidate.friction,
-            # -1.0 keeps an unjudged row (pre-notability, None) below a judged-routine 0.0 in the tiebreak.
-            candidate.notability if candidate.notability is not None else -1.0,
-            candidate.created_at,
-        )
+        sort_key = (_watchability(candidate, hit_strength), candidate.created_at)
         scored.append((sort_key, WatchFeedEntry(observation_id=candidate.observation_id, reason=reason)))
     scored.sort(key=lambda item: item[0], reverse=True)
     return [entry for _, entry in scored]
