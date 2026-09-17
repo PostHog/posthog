@@ -1,6 +1,6 @@
 # MCP Integration Architecture
 
-This directory contains PostHog's MCP (Model Context Protocol) server. The protocol is served by the **Hono runtime** (Node, deployed to our k8s clusters). A thin **Cloudflare Worker** sits in front of it as a stateless edge router that terminates OAuth, validates tokens, and proxies `/mcp` traffic to the regional Hono deployment.
+This directory contains PostHog's MCP (Model Context Protocol) server. The protocol is served by the **Hono runtime** (Node, deployed to our k8s clusters). A thin **Cloudflare Worker** sits in front of it as a stateless edge router that terminates OAuth, validates tokens, and proxies `/mcp` and `/ui-apps/*` traffic to the regional Hono deployment.
 
 ## Overview
 
@@ -17,9 +17,10 @@ flowchart TB
         H1["Serves the MCP protocol (tools, prompts, resources)"]
         H2["Per-user session state in Redis (keyed by token hash)"]
         H3["Tracks analytics events to PostHog"]
+        H4["Serves the MCP UI app bundles (/ui-apps/*)"]
     end
 
-    Worker -->|"proxyToHono(): forwards /mcp to<br/>mcp.{us,eu}.posthog.com"| Hono
+    Worker -->|"proxyToHono(): forwards /mcp and /ui-apps/*<br/>to mcp.{us,eu}.posthog.com"| Hono
 ```
 
 The Worker no longer serves the protocol itself — an earlier iteration ran a stateful Cloudflare Durable Object (`mcp.ts`) for this, but that has been removed in favor of always proxying to Hono.
@@ -37,7 +38,7 @@ A request's dialect is detected per request from the `_meta` protocol-version ke
 
 ```txt
 src/
-├── index.ts          # Worker entry point: OAuth, routing, /mcp proxy
+├── index.ts          # Worker entry point: OAuth, routing, /mcp and /ui-apps/* proxy
 ├── proxy.ts          # Region resolution + reverse proxy to the Hono runtime
 ├── hono/             # The Hono runtime that actually serves the MCP protocol
 └── lib/              # Shared helpers (caching, analytics, logging, …)
@@ -56,6 +57,9 @@ if (url.pathname.startsWith('/mcp')) {
   return proxyToHono(request, region)
 }
 ```
+
+`/ui-apps/*` proxies the same way, but ahead of the OAuth gate and without the KV lookup: the bundles are public, and they must come from the same regional image that built the stub URLs that name them.
+The Worker's own asset upload no longer answers those paths, because `wrangler.jsonc` lists them in `assets.run_worker_first`.
 
 `RequestProperties` (the parsed headers and query params for a request) is defined in `src/lib/request-properties.ts` and shared by both runtimes.
 

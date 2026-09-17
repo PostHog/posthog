@@ -5,33 +5,12 @@ import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { corsHeadersForOAuthMetadata, oauthMetadataPreflightResponse } from '@/lib/oauth-metadata-cors'
 import { RequestProperties } from '@/lib/request-properties'
-import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
+import { buildRedirectUrl, getPublicUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 import { getAdvertisedOAuthScopes } from '@/tools/toolDefinitions'
 import type { CloudRegion } from '@/tools/types'
 
 import { proxyToHono, resolveProxyRegion } from './proxy'
-
-// Helper to get the public-facing URL, respecting reverse proxy headers
-// This is needed for local development with ngrok/cloudflared where request.url
-// shows http://localhost but the actual URL is https://...ngrok-free.dev
-function getPublicUrl(request: Request): URL {
-    const url = new URL(request.url)
-
-    // Check for X-Forwarded-Host (ngrok, cloudflared, and most reverse proxies)
-    const forwardedHost = request.headers.get('X-Forwarded-Host')
-    if (forwardedHost) {
-        url.host = forwardedHost
-    }
-
-    // Check for X-Forwarded-Proto (https vs http)
-    const forwardedProto = request.headers.get('X-Forwarded-Proto')
-    if (forwardedProto) {
-        url.protocol = forwardedProto + ':'
-    }
-
-    return url
-}
 
 // Detect region from hostname for EU subdomain routing.
 // This is a workaround for Claude Code's OAuth bug where it ignores the
@@ -97,13 +76,14 @@ const handleRequest = async (
         })
     }
 
-    // Static MCP UI app bundles (`/ui-apps/<app>/main.js`,
-    // `/ui-apps/<app>/styles.css`). Production's Cloudflare edge already
-    // routes these to the asset binding before the Worker runs, but
-    // `wrangler dev` invokes the Worker first — without this short-circuit,
-    // the OAuth gate below 401s the request before assets get a chance.
+    // MCP UI app bundles (`/ui-apps/<app>/main.js`, `/ui-apps/<app>/styles.css`).
+    // They come from the regional runtime, whose image carries the bundles built
+    // with the manifest and the stub that name them. The Worker's own static copy
+    // uploads on a separate schedule and can answer with an older bundle.
+    // This also keeps the bundles ahead of the OAuth gate below, which would
+    // otherwise 401 them.
     if (url.pathname.startsWith('/ui-apps/')) {
-        return env.ASSETS.fetch(request)
+        return proxyToHono(request, getRegionFromRequest(request) ?? 'us')
     }
 
     // Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
