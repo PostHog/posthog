@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1363_taggeditem_generic_columns"),
+        ("posthog", "1365_heatmap_screenshot_allowed_hostnames"),
         ("canvas", "0021_canvas_fork_lineage"),
     ]
 
