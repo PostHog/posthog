@@ -216,7 +216,7 @@ class TestHeatmapAccessControl(ClickhouseTestMixin, APIBaseTest):
     def test_preflight_requires_resource_viewer_access(
         self, _name: str, object_grant: bool, expected_status: int, mock_preflight: MagicMock
     ) -> None:
-        mock_preflight.return_value = PreflightResult("allowed", None, 200, None)
+        mock_preflight.return_value = PreflightResult("allowed", None, 200, None, "https://example.com/page")
         self._create_project_default(access_level="none")
         self._create_access_control(
             self.viewer_user,

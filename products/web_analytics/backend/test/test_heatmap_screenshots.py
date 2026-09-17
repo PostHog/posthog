@@ -83,6 +83,7 @@ class TestHeatmapsAPI(APIBaseTest):
             blocked_by="frame_ancestors",
             http_status=200,
             body_excerpt=None,
+            resolved_url="https://example.com/page",
         )
 
         resp = self.client.post(
@@ -110,7 +111,11 @@ class TestHeatmapsAPI(APIBaseTest):
         # cache key idents personal-API-key requests by key hash, so a user could mint keys to
         # multiply that occupancy; the budget has to be one project-wide bucket.
         mock_preflight.return_value = PreflightResult(
-            framing="allowed", blocked_by=None, http_status=200, body_excerpt=None
+            framing="allowed",
+            blocked_by=None,
+            http_status=200,
+            body_excerpt=None,
+            resolved_url="https://example.com/page",
         )
         self.client.logout()
 

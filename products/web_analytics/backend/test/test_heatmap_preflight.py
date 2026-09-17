@@ -169,9 +169,19 @@ class TestPreflightPage(SimpleTestCase):
 
         result = preflight_page("https://example.com/page")
 
-        assert result == PreflightResult("blocked", "x_frame_options", 200, None)
+        assert result == PreflightResult("blocked", "x_frame_options", 200, None, expected_hop)
         # Every hop re-enters pinned_session, which is what validates and pins each target.
         assert [call.args[0] for call in mock_session.call_args_list] == ["https://example.com/page", expected_hop]
+
+    @patch("products.web_analytics.backend.heatmap_preflight.pinned_session")
+    def test_a_page_that_does_not_redirect_resolves_to_itself(self, mock_session):
+        # Callers tell "this page redirects" from resolved_url differing from what they asked for,
+        # so a direct page must answer with its own URL rather than nothing.
+        mock_session.return_value.__enter__.return_value.request.return_value = self._response(200, {})
+
+        result = preflight_page("https://example.com/page")
+
+        assert result == PreflightResult("allowed", None, 200, None, "https://example.com/page")
 
     @patch("products.web_analytics.backend.heatmap_preflight.pinned_session")
     def test_a_chain_that_never_settles_reports_no_status(self, mock_session):
@@ -182,7 +192,7 @@ class TestPreflightPage(SimpleTestCase):
 
         # No status, because the UI reads one as the host's answer about the page and a loop never
         # produced a page.
-        assert result == PreflightResult("unknown", None, None, None)
+        assert result == PreflightResult("unknown", None, None, None, None)
         assert request.call_count == PREFLIGHT_MAX_REDIRECTS + 1
 
     @patch("products.web_analytics.backend.heatmap_preflight.pinned_session")
@@ -196,7 +206,7 @@ class TestPreflightPage(SimpleTestCase):
 
         result = preflight_page("https://example.com/page")
 
-        assert result == PreflightResult("unknown", None, None, None)
+        assert result == PreflightResult("unknown", None, None, None, None)
 
     @patch("products.web_analytics.backend.heatmap_preflight.pinned_session")
     def test_unreachable_host_is_a_verdict_not_an_exception(self, mock_session):

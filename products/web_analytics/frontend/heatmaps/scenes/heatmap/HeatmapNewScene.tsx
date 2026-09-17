@@ -21,7 +21,7 @@ import { AccessControlLevel, AccessControlResourceType, HeatmapType } from '~/ty
 import { HeatmapAdvancedSettings } from '../../components/HeatmapAdvancedSettings'
 import { HeatmapRecording } from '../../components/HeatmapRecording'
 import { HeatmapRecordingFallback } from '../../components/HeatmapRecordingFallback'
-import { heatmapsBrowserLogic, isUrlPattern } from '../../components/heatmapsBrowserLogic'
+import { heatmapsBrowserLogic, isUrlPattern, redirectEmptyStateMessage } from '../../components/heatmapsBrowserLogic'
 import { HeatmapScreenshotAccessNotice } from '../../components/HeatmapScreenshotAccessNotice'
 import { HeatmapsEnableCapture } from '../../components/HeatmapsEnableCapture'
 import { HeatmapsInvalidURL } from '../../components/HeatmapsInvalidURL'
@@ -124,7 +124,7 @@ function CaptureReadiness(): JSX.Element {
 }
 
 function MatchingDataReadiness(): JSX.Element {
-    const { currentPageDataCheck, pageDataCheckLoading } = useValues(heatmapCreationLogic)
+    const { currentPageDataCheck, pageDataCheckLoading, redirectDestination } = useValues(heatmapCreationLogic)
     const { requestPageDataCheck } = useActions(heatmapCreationLogic)
 
     if (pageDataCheckLoading) {
@@ -161,6 +161,14 @@ function MatchingDataReadiness(): JSX.Element {
         onClick: () => requestPageDataCheck('manual'),
     }
 
+    if (currentPageDataCheck.outcome === 'none' && redirectDestination) {
+        return (
+            <LemonBanner type="warning" action={checkAgain}>
+                {redirectEmptyStateMessage(redirectDestination)}
+            </LemonBanner>
+        )
+    }
+
     return (
         <LemonBanner type="warning" action={checkAgain}>
             {currentPageDataCheck.outcome === 'none'
@@ -174,7 +182,7 @@ function ChoosePageStep(): JSX.Element {
     const logic = heatmapLogic({ id: 'new' })
     const { displayUrl, isDisplayUrlValid, displayUrlIsPattern, dataUrl } = useValues(logic)
     const { setDisplayUrl } = useActions(logic)
-    const { topUrls, topUrlsLoading, noPageviews } = useValues(heatmapsBrowserLogic)
+    const { topUrls, topUrlsLoading, noHeatmapUrls } = useValues(heatmapsBrowserLogic)
     const { pageStepBlockReason } = useValues(heatmapCreationLogic)
     const { continueFromPage } = useActions(heatmapCreationLogic)
 
@@ -221,9 +229,9 @@ function ChoosePageStep(): JSX.Element {
                             <HeatmapsInvalidURL />
                         )
                     ) : null}
-                    {!displayUrl && noPageviews && !topUrlsLoading ? (
+                    {!displayUrl && noHeatmapUrls && !topUrlsLoading ? (
                         <div className="text-xs text-muted mt-1">
-                            No pageview events have been received yet. You can enter a URL manually.
+                            No heatmap interactions have been recorded yet. You can enter a URL manually.
                         </div>
                     ) : null}
                 </div>

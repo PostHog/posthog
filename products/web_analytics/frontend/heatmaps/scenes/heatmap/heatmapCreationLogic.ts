@@ -35,7 +35,7 @@ import type { TeamPublicType, TeamType } from '~/types'
 
 import { savedPrewarmCreate } from 'products/web_analytics/frontend/generated/api'
 
-import { heatmapsBrowserLogic, isUrlPattern } from '../../components/heatmapsBrowserLogic'
+import { heatmapUrlRedirect, heatmapsBrowserLogic, isUrlPattern } from '../../components/heatmapsBrowserLogic'
 import type { PagePreflight } from '../../components/heatmapsBrowserLogic'
 import { ReplayIframeData, getStoredRecordingBackground } from '../../replayIframeData'
 import { HeatmapCreationContext, heatmapLogic } from './heatmapLogic'
@@ -194,6 +194,7 @@ export interface heatmapCreationLogicValues {
     pageDataCheck: HeatmapDataCheckResult | null
     pageDataCheckLoading: boolean
     pageStepBlockReason: string | null
+    redirectDestination: string | null
     recordingBackground: RecordingBackgroundSelection | null
     recordingBackgroundData: ReplayIframeData | null
     recordingHeatmapOpen: boolean
@@ -347,6 +348,10 @@ export interface heatmapCreationLogicMeta {
         recordingBackgroundData: (recordingBackground: RecordingBackgroundSelection | null) => ReplayIframeData | null
         analyticsBackgroundType: (pageAccess: HeatmapPageAccess | null, type: HeatmapType) => HeatmapType | 'recording'
         hasMatchingData: (currentPageDataCheck: HeatmapDataCheckResult | null) => boolean | null
+        redirectDestination: (
+            currentPagePreflight: PagePreflight | null,
+            effectiveDataUrl: string | null
+        ) => string | null
         captureEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
         creationContext: (
             captureEnabled: boolean,
@@ -616,6 +621,11 @@ export const heatmapCreationLogic = kea<heatmapCreationLogicType>([
                       ? false
                       : null,
         ],
+        redirectDestination: [
+            (s) => [s.currentPagePreflight, s.effectiveDataUrl],
+            (currentPagePreflight: PagePreflight | null, effectiveDataUrl: string | null): string | null =>
+                heatmapUrlRedirect(currentPagePreflight, effectiveDataUrl),
+        ],
         captureEnabled: [
             (s) => [s.currentTeam],
             (currentTeam: TeamPublicType | TeamType | null): boolean => !!currentTeam?.heatmaps_opt_in,
@@ -710,6 +720,11 @@ export const heatmapCreationLogic = kea<heatmapCreationLogicType>([
                     result: pageDataCheck.outcome,
                     match_type: pageDataCheck.matchType,
                 })
+                // A redirect is the likeliest reason a page with traffic holds no interactions, and
+                // probing costs an outbound request, so only ask once the check has come back empty.
+                if (pageDataCheck.outcome === 'none' && pageDataCheck.url === values.displayUrl) {
+                    actions.checkPagePreflight(values.displayUrl)
+                }
             },
             authorizeDisplayUrl: () => {
                 const origin = getAuthorizationOrigin(values.displayUrl)

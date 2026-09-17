@@ -24,6 +24,8 @@ import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
 import { AnyPropertyFilter, CohortPropertyFilter, HeatmapType, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { heatmapsBrowserLogic, redirectEmptyStateMessage } from './heatmapsBrowserLogic'
+
 const cohortIdsToPropertyFilters = (ids: number[]): AnyPropertyFilter[] =>
     ids.map((id) => ({
         type: PropertyFilterType.Cohort,
@@ -134,6 +136,9 @@ export function FilterPanel({
     const { patchHeatmapFilters, setHeatmapColorPalette, setHeatmapFixedPositionMode, setCommonFilters } = useActions(
         heatmapDataLogic({ context: 'in-app' })
     )
+
+    const { redirectDestination } = useValues(heatmapsBrowserLogic)
+    const { setDataUrl } = useActions(heatmapsBrowserLogic)
 
     const cohortFilterEnabled = useFeatureFlag('HEATMAPS_COHORT_FILTER')
     const eventFilterEnabled = useFeatureFlag('HEATMAPS_EVENT_FILTER')
@@ -310,10 +315,23 @@ export function FilterPanel({
                 <ViewportChooser lockedWidth={lockedWidth} />
             </div>
             {heatmapEmpty ? (
-                <LemonBanner type="info" className="mb-2">
-                    No data found. Try a different date range or URL, or lower the "Viewport accuracy" in heatmap
-                    settings. A high value can hide data on pages with less traffic.
-                </LemonBanner>
+                redirectDestination ? (
+                    <LemonBanner
+                        type="info"
+                        className="mb-2"
+                        action={{
+                            children: 'Use the destination',
+                            onClick: () => setDataUrl(redirectDestination),
+                        }}
+                    >
+                        {redirectEmptyStateMessage(redirectDestination)}
+                    </LemonBanner>
+                ) : (
+                    <LemonBanner type="info" className="mb-2">
+                        No data found. Try a different date range or URL, or lower the "Viewport accuracy" in heatmap
+                        settings. A high value can hide data on pages with less traffic.
+                    </LemonBanner>
+                )
             ) : null}
         </div>
     )

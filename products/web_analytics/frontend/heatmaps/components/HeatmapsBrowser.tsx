@@ -247,7 +247,7 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
 function HeatmapsBrowserIntro(): JSX.Element {
     const logic = heatmapsBrowserLogic()
 
-    const { topUrls, topUrlsLoading, noPageviews } = useValues(logic)
+    const { topUrls, topUrlsLoading, noHeatmapUrls } = useValues(logic)
 
     const { setDisplayUrl } = useActions(logic)
 
@@ -276,10 +276,10 @@ function HeatmapsBrowserIntro(): JSX.Element {
                 <div className="gap-y-px p-2 border bg-surface-primary rounded">
                     {topUrlsLoading ? (
                         <LemonSkeleton className="h-10" repeat={10} />
-                    ) : noPageviews ? (
+                    ) : noHeatmapUrls ? (
                         <LemonBanner type="info">
-                            No pageview events have been received yet. Once you have some data, you'll see the most
-                            viewed pages here.
+                            No heatmap interactions have been recorded yet. Once your site collects some, you'll see the
+                            pages with the most interactions here.
                         </LemonBanner>
                     ) : (
                         <>

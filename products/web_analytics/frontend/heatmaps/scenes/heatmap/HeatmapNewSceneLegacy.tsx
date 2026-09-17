@@ -28,7 +28,7 @@ export function HeatmapNewSceneLegacy(): JSX.Element {
     const { loading, displayUrl, isDisplayUrlValid, type, name, dataUrl, isBrowserUrlAuthorized, displayUrlIsPattern } =
         useValues(logic)
     const { setDisplayUrl, setType, setName, createHeatmap } = useActions(logic)
-    const { topUrls, topUrlsLoading, noPageviews } = useValues(heatmapsBrowserLogic)
+    const { topUrls, topUrlsLoading, noHeatmapUrls } = useValues(heatmapsBrowserLogic)
 
     const debouncedOnNameChange = useDebouncedCallback((name: string) => {
         setName(name)
@@ -94,8 +94,8 @@ export function HeatmapNewSceneLegacy(): JSX.Element {
                 {displayUrl && isDisplayUrlValid && dataUrl && !isBrowserUrlAuthorized ? (
                     <HeatmapsForbiddenURL />
                 ) : null}
-                {!displayUrl && noPageviews && !topUrlsLoading ? (
-                    <div className="text-xs text-muted mt-1">No pageview events have been received yet.</div>
+                {!displayUrl && noHeatmapUrls && !topUrlsLoading ? (
+                    <div className="text-xs text-muted mt-1">No heatmap interactions have been recorded yet.</div>
                 ) : null}
             </SceneSection>
             <SceneDivider />
