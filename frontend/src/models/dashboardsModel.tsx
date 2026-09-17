@@ -160,6 +160,9 @@ export interface dashboardsModelActions {
         error: string
         errorObject?: any
     }
+    loadDashboardsIfNeeded: () => {
+        value: true
+    }
     loadDashboardsSuccess: (
         pagedDashboards:
             | {
@@ -357,6 +360,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
         actions: [tagsModel, ['loadTags']],
     })),
     actions(() => ({
+        loadDashboardsIfNeeded: true,
         // we page through the dashboards and need to manually track when that is finished
         dashboardsFullyLoaded: true,
         delayedDeleteDashboard: (id: number) => ({ id }),
