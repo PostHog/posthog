@@ -322,6 +322,7 @@ export function useInboxCloudTaskRunner({
             : { cloud_run_source: "manual" }),
           adapter,
           ...analyticsExtras,
+          task_id: result.data.task.id,
           space_context_mode: "none",
         });
       } else {
