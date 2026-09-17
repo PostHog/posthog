@@ -535,6 +535,12 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             actions.setLineageRequestedFor(lineageMetricKey(values.metric))
             actions.loadLineage()
         },
+        loadLineageSuccess: () => {
+            // One request runs at a time, so a metric change during a request cannot start its own.
+            // The graph that lands is then the previous metric's, and this asks for the current one.
+            // The guard above returns for a graph that already matches, so a normal load stops here.
+            actions.loadLineageIfNeeded()
+        },
         loadLineageFailure: async (_, breakpoint) => {
             if (values.lineageProblem !== 'not_ready' || values.lineageRetried) {
                 return

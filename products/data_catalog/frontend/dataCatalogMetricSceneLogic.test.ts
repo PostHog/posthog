@@ -178,6 +178,27 @@ describe('dataCatalogMetricSceneLogic', () => {
         }
     })
 
+    it('reloads lineage when the metric is replaced while the request is in flight', async () => {
+        let finishFirstRequest: (lineage: unknown) => void = () => {}
+        lineageRequest().mockReturnValueOnce(
+            new Promise((resolve) => {
+                finishFirstRequest = resolve
+            })
+        )
+        lineageRequest().mockResolvedValue({ nodes: [{ id: 'node-2' }], edges: [] })
+
+        logic.actions.setActiveTab('lineage')
+        await expectLogic(logic).toDispatchActions(['loadLineage'])
+        expect(lineageRequest()).toHaveBeenCalledTimes(1)
+
+        logic.actions.setMetric(buildMetric({ definition: { kind: 'HogQLQuery', query: 'SELECT 2' } }))
+        finishFirstRequest({ nodes: [{ id: 'node-1' }], edges: [] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lineageRequest()).toHaveBeenCalledTimes(2)
+        expect(logic.values.lineage?.nodes.map((node) => node.id)).toEqual(['node-2'])
+    })
+
     it('keeps the delayed retry when the metric reload lands after the failure', async () => {
         jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] })
         try {
