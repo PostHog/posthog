@@ -89,10 +89,8 @@ MOTHERDUCK_SYSTEM_DATABASES = ("md_information_schema", "system", "temp", "memor
 # DuckDB reports MotherDuck being unreachable as an `Invalid Input Error` from the client
 # extension's init, the same class a wrong database name or access token produces, so the class
 # below cannot tell an outage from a config problem. These are MotherDuck's own wordings for one.
-MOTHERDUCK_TRANSIENT_ERRORS = (
-    "could not connect to motherduck",
-    "please try again later",
-)
+# Matched as one phrase: "please try again later" alone also ends other driver errors.
+MOTHERDUCK_TRANSIENT_ERRORS = ("could not connect to motherduck. please try again later",)
 
 MOTHERDUCK_UNAVAILABLE_MESSAGE = (
     "MotherDuck is temporarily unavailable, so PostHog couldn't connect. This isn't a problem with "

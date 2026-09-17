@@ -549,12 +549,20 @@ class TestMotherDuck:
         non_retryable = source.get_non_retryable_errors()
         assert any(pattern in error_msg for pattern in non_retryable), f"Error should be non-retryable: {error_msg}"
 
-    def test_connection_failure_is_non_retryable_end_to_end(self, source):
+    @pytest.mark.parametrize(
+        "driver_error",
+        [
+            "Invalid Input Error: bad connection option",
+            "Invalid Input Error: bad connection option, please try again later",
+        ],
+        ids=["bad_option", "generic_try_again_phrase"],
+    )
+    def test_connection_failure_is_non_retryable_end_to_end(self, source, driver_error):
         # Reproduces the real path: `connect()` wraps and translates the driver error before
         # raising, so the non-retryable match has to run against that translated text, not the
         # raw DuckDB error class. A key that only matches the raw class (as this dict used to)
         # would let a bad database name or malformed token retry indefinitely.
-        with patch(_CONNECT_PATH, side_effect=duckdb.Error("Invalid Input Error: bad connection option")):
+        with patch(_CONNECT_PATH, side_effect=duckdb.Error(driver_error)):
             with pytest.raises(MotherDuckConnectionError) as exc_info:
                 connect("md-token", "my_db")
 
