@@ -14,17 +14,16 @@ import { SidePanelTab } from '~/types'
 import { composerSeedLogic, runnerPanelLogic, toolStreamEventsLogic } from 'products/posthog_ai/frontend/api/logics'
 import type { ToolStreamEvent } from 'products/posthog_ai/frontend/api/types'
 
-import { newWorkflowAgentLogic } from './newWorkflowAgentLogic'
+import { AiFirstHandoffLogicProps, aiFirstHandoffLogic } from './aiFirstHandoffLogic'
 
-const WORKFLOW_ID = '2f1e9c3a-5b7d-4e8f-9a0b-1c2d3e4f5a6b'
-const OLDER_ID = '7a1b2c3d-0000-4e8f-9a0b-1c2d3e4f5a6b'
+const CREATED_ID = '2f1e9c3a-5b7d-4e8f-9a0b-1c2d3e4f5a6b'
 const NAME = 'Win back inactive users'
 
 function createEvent(overrides: Partial<ToolStreamEvent>): ToolStreamEvent {
     return {
         streamKey: 'draft-1',
         toolCallId: 'call-1',
-        toolName: 'workflows-create',
+        toolName: 'things-create',
         rawToolName: 'exec',
         phase: 'completed',
         source: 'live',
@@ -32,7 +31,7 @@ function createEvent(overrides: Partial<ToolStreamEvent>): ToolStreamEvent {
             toolCallId: 'call-1',
             rawServerName: 'posthog',
             rawToolName: 'exec',
-            input: { command: `call workflows-create ${JSON.stringify({ name: NAME })}` },
+            input: { command: `call things-create ${JSON.stringify({ name: NAME })}` },
             // Large creates come back as a "saved to file" notice, so the id never rides the output.
             output: { content: 'Error: result exceeds maximum allowed tokens.', isError: false },
             status: 'completed',
@@ -42,29 +41,28 @@ function createEvent(overrides: Partial<ToolStreamEvent>): ToolStreamEvent {
     }
 }
 
-describe('newWorkflowAgentLogic', () => {
-    let logic: ReturnType<typeof newWorkflowAgentLogic.build>
+describe('aiFirstHandoffLogic', () => {
+    let logic: ReturnType<typeof aiFirstHandoffLogic.build>
+    let findCreatedId: jest.Mock<Promise<string | null>, [Record<string, unknown> | undefined]>
+
+    const handoff = (): AiFirstHandoffLogicProps => ({
+        toolName: 'things-create',
+        findCreatedId,
+        urlFor: (id) => `/things/${id}`,
+        notOpenedMessage: 'Your thing was created, but it could not be opened.',
+        eventPrefix: 'thing ai composer',
+        createdEvent: 'thing ai composer created thing',
+        createdIdProperty: 'thing_id',
+    })
 
     beforeEach(() => {
-        useMocks({
-            ...maxMocks,
-            get: {
-                ...maxMocks.get,
-                // Ordered by update time like the real list, so the same-named older draft comes first.
-                '/api/environments/:team_id/hog_flows/': {
-                    results: [
-                        { id: OLDER_ID, name: NAME, created_at: '2026-09-01T00:00:00Z' },
-                        { id: WORKFLOW_ID, name: NAME, created_at: '2026-09-15T00:00:00Z' },
-                    ],
-                    count: 2,
-                },
-            },
-        })
+        useMocks(maxMocks)
         initKeaTests()
+        findCreatedId = jest.fn(async (innerInput) => (innerInput?.name === NAME ? CREATED_ID : null))
         sidePanelStateLogic.mount()
         sidePanelStateLogic.actions.setSidePanelAvailable(true)
-        router.actions.push('/workflows/new/workflow', {}, {})
-        logic = newWorkflowAgentLogic()
+        router.actions.push('/things/new', {}, {})
+        logic = aiFirstHandoffLogic(handoff())
         logic.mount()
         runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }).actions.setActiveCreation({ streamKey: 'draft-1' })
     })
@@ -98,27 +96,46 @@ describe('newWorkflowAgentLogic', () => {
         seeds.unmount()
     })
 
-    it('opens the side panel and routes to the draft once this run creates a workflow', async () => {
+    // The exec path keeps the created record on the result's metadata. Names are not unique, so a record's id
+    // wins over the name lookup, which only covers a truncated output.
+    it.each([
+        {
+            name: 'the id on the output record',
+            output: {
+                content: [{ type: 'text', text: 'Created' }],
+                _meta: { 'com.posthog.mcp/app_data': { id: CREATED_ID, name: NAME } },
+            },
+            lookups: 0,
+        },
+        {
+            name: 'a name lookup when the output carries no record',
+            output: { content: 'Error: result exceeds maximum allowed tokens.', isError: false },
+            lookups: 1,
+        },
+    ])('opens the side panel and routes to the entity by $name', async ({ output, lookups }) => {
         await expectLogic(logic, () => {
-            toolStreamEventsLogic.actions.emitToolEvent(createEvent({}))
+            toolStreamEventsLogic.actions.emitToolEvent(
+                createEvent({ invocation: { ...createEvent({}).invocation, output } })
+            )
         }).toFinishAllListeners()
 
+        expect(findCreatedId).toHaveBeenCalledTimes(lookups)
         expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
         expect(sidePanelStateLogic.values.sidePanelOpen).toBe(true)
-        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(`/workflows/${WORKFLOW_ID}/workflow`)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(`/things/${CREATED_ID}`)
     })
 
-    // The draft is already saved, so a lookup that fails or matches nothing must say where it went.
+    // The entity is already saved, so a lookup that fails or matches nothing must say where it went.
     it.each([
-        { name: 'the lookup fails', response: () => [500, { detail: 'boom' }] },
-        { name: 'no workflow matches', response: () => [200, { results: [], count: 0 }] },
+        { name: 'the lookup fails', finder: () => Promise.reject(new Error('boom')) },
+        { name: 'nothing matches', finder: () => Promise.resolve(null) },
         {
             name: 'the create call sent no name',
-            overrides: { invocation: { input: { command: 'call workflows-create {}' } } },
+            overrides: { invocation: { input: { command: 'call things-create {}' } } },
         },
-    ])('says the draft could not be opened when $name', async ({ response, overrides }) => {
-        if (response) {
-            useMocks({ get: { '/api/environments/:team_id/hog_flows/': response } })
+    ])('says the entity could not be opened when $name', async ({ finder, overrides }) => {
+        if (finder) {
+            findCreatedId.mockImplementation(finder)
         }
         const toast = jest.spyOn(lemonToast, 'error')
 
@@ -128,11 +145,31 @@ describe('newWorkflowAgentLogic', () => {
             )
         }).toFinishAllListeners()
 
-        expect(toast).toHaveBeenCalledTimes(1)
+        expect(toast).toHaveBeenCalledWith('Your thing was created, but it could not be opened.')
         expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
-        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe('/workflows/new/workflow')
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe('/things/new')
 
         toast.mockRestore()
+    })
+
+    // The panel logic outlives this page, so the lookup's continuation must not route from a page left behind.
+    it('does not route once the page is left during the lookup', async () => {
+        const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+        const panel = runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID })
+        panel.mount()
+        let resolveFinder: (id: string | null) => void = () => {}
+        findCreatedId.mockImplementation(() => new Promise((resolve) => (resolveFinder = resolve)))
+
+        toolStreamEventsLogic.actions.emitToolEvent(createEvent({}))
+        await flush()
+        logic.unmount()
+        resolveFinder(CREATED_ID)
+        await flush()
+
+        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe('/things/new')
+
+        panel.unmount()
     })
 
     // The bus is global: a replay, another run's create, or a still-streaming call must not move the user.
@@ -140,13 +177,14 @@ describe('newWorkflowAgentLogic', () => {
         { name: 'a replayed event', overrides: { source: 'replay' as const } },
         { name: 'another stream', overrides: { streamKey: 'other-run' } },
         { name: 'an unfinished call', overrides: { phase: 'started' as const } },
-        { name: 'a different tool', overrides: { toolName: 'workflows-get' } },
+        { name: 'a different tool', overrides: { toolName: 'things-get' } },
     ])('ignores $name', async ({ overrides }) => {
         await expectLogic(logic, () => {
             toolStreamEventsLogic.actions.emitToolEvent(createEvent(overrides))
         }).toFinishAllListeners()
 
+        expect(findCreatedId).not.toHaveBeenCalled()
         expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
-        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe('/workflows/new/workflow')
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe('/things/new')
     })
 })

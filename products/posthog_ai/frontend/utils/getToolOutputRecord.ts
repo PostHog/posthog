@@ -1,10 +1,13 @@
-import type { ToolCallMessage } from '../../types/toolTypes'
+import type { ToolCallMessage } from '../types/toolTypes'
 
 export function asRecord(value: unknown): Record<string, unknown> | null {
     return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
 }
 
-export function getToolOutputRecord(message: ToolCallMessage): Record<string, unknown> | null {
+/** The handler record behind a tool result. Takes a thread message or the `{ rawOutput, status }` of a stream event. */
+export function getToolOutputRecord(
+    message: Pick<ToolCallMessage, 'rawOutput' | 'status'>
+): Record<string, unknown> | null {
     const output = asRecord(message.rawOutput)
     if (!output || output.isError === true || message.status === 'failed') {
         return null

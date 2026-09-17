@@ -19,7 +19,7 @@ import { RecordingUniversalFilters } from '~/types'
 
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
-import { getToolOutputRecord } from '../getToolOutputRecord'
+import { getToolOutputRecord } from '../../../utils/getToolOutputRecord'
 
 /**
  * Shared shape extractors for the sandbox MCP tool renderer widgets. Each turns a flattened

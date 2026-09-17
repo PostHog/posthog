@@ -5,26 +5,22 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import {
+    AI_COMPOSER_MODE_VALUE,
+    EDITOR_MODE_PARAM,
+    EDITOR_MODE_VALUE,
+    aiComposerAvailable,
+    isAiFirstVariant,
+} from 'scenes/max/aiFirstCreate/aiFirstMode'
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { urls } from 'scenes/urls'
 
 import type { HogFlowTemplate } from './hogflows/types'
 import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
 
-// pinned: URL search param for the surface a new workflow opens on. A URL that says neither opens the editor.
-export const EDITOR_MODE_PARAM = 'mode'
-export const EDITOR_MODE_VALUE = 'editor'
-export const AI_COMPOSER_MODE_VALUE = 'ai'
-
 /** The new-workflow URL for an entry that means "start from nothing", the only kind the composer answers. */
 export function urlForNewWorkflowComposer(): string {
     return combineUrl(urls.workflowNew(), { [EDITOR_MODE_PARAM]: AI_COMPOSER_MODE_VALUE }).url
-}
-
-/** Reading the flag captures `$feature_flag_called`, the experiment's exposure, so this runs after every cheaper check. */
-function isAiFirstVariant(featureFlags: FeatureFlagsSet): boolean {
-    const variant = featureFlags[FEATURE_FLAGS.WORKFLOWS_AI_FIRST_NEW]
-    return variant === true || variant === 'test'
 }
 
 // The editor scene is `/workflows/:id/:tab`, and only the `new` id can show the composer.
@@ -128,7 +124,7 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
         aiFirstNewEnabled: [
             (s) => [s.featureFlags, s.sceneIntegrationEnabled],
             (featureFlags: FeatureFlagsSet, sceneIntegrationEnabled: boolean): boolean =>
-                sceneIntegrationEnabled && isAiFirstVariant(featureFlags),
+                sceneIntegrationEnabled && isAiFirstVariant(FEATURE_FLAGS.WORKFLOWS_AI_FIRST_NEW, featureFlags),
         ],
         // Deep links with a starting point stay on the editor. Checked here so the scene never reads the flag early.
         aiComposerAvailable: [
@@ -139,13 +135,16 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
                 searchParams: Record<string, any>,
                 location: { pathname: string }
             ): boolean =>
-                sceneIntegrationEnabled &&
-                isNewWorkflowRoute(location.pathname) &&
-                !searchParams.templateId &&
-                !searchParams.editTemplateId &&
-                !searchParams[TRIGGER_PREFILL_PARAM] &&
-                searchParams[EDITOR_MODE_PARAM] === AI_COMPOSER_MODE_VALUE &&
-                isAiFirstVariant(featureFlags),
+                aiComposerAvailable(
+                    FEATURE_FLAGS.WORKFLOWS_AI_FIRST_NEW,
+                    featureFlags,
+                    sceneIntegrationEnabled,
+                    searchParams,
+                    isNewWorkflowRoute(location.pathname) &&
+                        !searchParams.templateId &&
+                        !searchParams.editTemplateId &&
+                        !searchParams[TRIGGER_PREFILL_PARAM]
+                ),
         ],
     }),
     listeners(({ actions, values }) => ({
@@ -161,7 +160,6 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
             }
         },
         openEditorFromAiComposer: () => {
-            posthog.capture('workflow ai composer escape hatch clicked')
             actions.showNewWorkflowModal()
         },
         createWorkflowFromTemplate: ({ template }) => {
