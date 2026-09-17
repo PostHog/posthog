@@ -5,6 +5,7 @@ import {
   describeIntegrationDisconnectError,
   isAlreadyDisconnectedError,
   isGithubConnectAlreadyLinked,
+  isGithubConnectionRequiredError,
   isGithubConnectPendingApproval,
 } from "./connectErrors";
 
@@ -112,5 +113,28 @@ describe("isGithubConnectPendingApproval", () => {
     [undefined, false],
   ])("code %s -> %s", (code, expected) => {
     expect(isGithubConnectPendingApproval(code)).toBe(expected);
+  });
+});
+
+describe("isGithubConnectionRequiredError", () => {
+  it.each([
+    ["GitHub is not connected for this project", true],
+    ["github_authorization_required", true],
+    ["Link a GitHub account with repo access before running this task.", true],
+    [
+      "User-authored run requires a linked GitHub account with repo access.",
+      true,
+    ],
+    ["GitHub user integration for this run requires reauthorization", true],
+    [
+      "GitHub user integration requires reauthorization and no team installation is available",
+      true,
+    ],
+    ["GitHub integration for this run no longer exists", true],
+    ["GitHub returned a temporary API error", false],
+    ["TaskRun 42 no longer exists; its rows were deleted", false],
+    [null, false],
+  ])("classifies %s", (message, expected) => {
+    expect(isGithubConnectionRequiredError(message)).toBe(expected);
   });
 });

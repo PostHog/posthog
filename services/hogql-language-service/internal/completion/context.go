@@ -17,6 +17,7 @@ const (
 	completionModeBetweenSeparator
 	completionModePredicateContinuation
 	completionModePostExpression
+	completionModeStatementStart
 )
 
 type sqlTokenKind uint8
@@ -40,6 +41,9 @@ func analyzeCursorContext(input string) completionMode {
 	tokens, depth, incomplete := scanSQLTokens(input)
 	if incomplete {
 		return completionModeNone
+	}
+	if len(tokens) == 0 || tokens[len(tokens)-1].text == ";" && depth == 0 {
+		return completionModeStatementStart
 	}
 	clauseIndex, clause := activeClause(tokens, depth)
 	switch clause {
@@ -240,8 +244,9 @@ func scanSQLTokens(input string) ([]sqlToken, int, bool) {
 	depth := 0
 	for index := 0; index < len(input); {
 		character := input[index]
-		if unicode.IsSpace(rune(character)) {
-			index++
+		r, size := utf8.DecodeRuneInString(input[index:])
+		if unicode.IsSpace(r) {
+			index += size
 			continue
 		}
 		if character == '-' && index+1 < len(input) && input[index+1] == '-' {

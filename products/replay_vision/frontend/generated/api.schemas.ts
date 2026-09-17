@@ -1850,10 +1850,15 @@ export interface SignalScoutConfigOptionsApi {
  */
 export interface ScannerScoutCreateApi {
     /**
-     * Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.
+     * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
+     * @maxLength 200
+     */
+    display_name?: string
+    /**
+     * Optional skill name for the scout — its permanent identifier, containing only lowercase letters, numbers, and hyphens. Omit it and one is generated from `display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when that name is taken. Pass it to pick the identifier yourself, or to keep a client written before display names working unchanged. The `signals-scout-` prefix is optional.
      * @maxLength 64
      */
-    name: string
+    name?: string
     /**
      * Short description of the signal or behavior this scout investigates.
      * @maxLength 1024
@@ -2319,6 +2324,7 @@ export interface SuggestTagsResponseApi {
 /**
  * * `signal_emitted` - Signal Emitted
  * * `unusual_verdict` - Unusual Verdict
+ * * `notable` - Notable
  * * `verdict_yes` - Verdict Yes
  * * `outlier_score` - Outlier Score
  * * `rare_tag` - Rare Tag
@@ -2332,6 +2338,7 @@ export type WatchFeedReasonEnumApi = (typeof WatchFeedReasonEnumApi)[keyof typeo
 export const WatchFeedReasonEnumApi = {
     SignalEmitted: 'signal_emitted',
     UnusualVerdict: 'unusual_verdict',
+    Notable: 'notable',
     VerdictYes: 'verdict_yes',
     OutlierScore: 'outlier_score',
     RareTag: 'rare_tag',
@@ -2345,10 +2352,11 @@ export const WatchFeedReasonEnumApi = {
  * Machine-readable reason an observation made the feed; the frontend renders the copy.
  */
 export interface WatchFeedReasonApi {
-    /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `friction` (the scan describes errors, retries, or dead ends), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+    /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
      *
      * * `signal_emitted` - Signal Emitted
      * * `unusual_verdict` - Unusual Verdict
+     * * `notable` - Notable
      * * `verdict_yes` - Verdict Yes
      * * `outlier_score` - Outlier Score
      * * `rare_tag` - Rare Tag
@@ -2372,6 +2380,16 @@ export interface WatchFeedReasonApi {
      * @nullable
      */
     verdict_share?: number | null
+    /**
+     * The scan's own 0-1 judgment of how much a team would benefit from watching, for `notable`.
+     * @nullable
+     */
+    notability?: number | null
+    /**
+     * The scan's own sentence naming why the session is worth watching. Present only on the `notable` reason kind, and preferred over copy derived from the reason kind. Absent on observations scanned before notability shipped.
+     * @nullable
+     */
+    notability_reason?: string | null
     /**
      * The observation's score, for `outlier_score`.
      * @nullable
@@ -2408,7 +2426,7 @@ export interface WatchFeedItemApi {
  * Response of GET /vision/scanners/watch_feed/.
  */
 export interface WatchFeedResponseApi {
-    /** Succeeded observations in the window worth watching, most interesting first: signal emitters, then type-specific hits, then unviewed before viewed, then newest. */
+    /** Succeeded observations in the window worth watching, most interesting first: signal emitters, then type-specific hits, then unviewed before viewed, then the scan's own notability judgment, then prose that reads as friction, then newest. */
     results: WatchFeedItemApi[]
 }
 
@@ -2877,6 +2895,16 @@ export type VisionScannersWatchFeedRetrieveParams = {
      * @minLength 1
      */
     scanner_type?: VisionScannersWatchFeedRetrieveScannerType
+    /**
+     * Case-insensitive text to match against the scan's own words (title, summary, reasoning, and the notability sentence) and the scanner's name. Applied before ranking, so it searches the whole window rather than the items that would have surfaced without it.
+     * @minLength 1
+     */
+    search?: string
+    /**
+     * Comma-separated scanner tags to restrict the feed to. A team with many scanners uses these to follow one area without naming every scanner in it.
+     * @minLength 1
+     */
+    tags?: string
 }
 
 export type VisionScannersWatchFeedRetrieveScannerType =
