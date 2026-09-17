@@ -32,13 +32,13 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 An ownership file is a YAML mapping.
 
-| Field     | Required | Type                               | Meaning                                                          |
-| --------- | -------- | ---------------------------------- | ---------------------------------------------------------------- |
-| `version` | yes      | integer                            | The format version. MUST be `1`.                                 |
-| `owners`  | yes      | string, list of strings, or `null` | The owners of the directory.                                     |
-| `status`  | no       | string                             | The lifecycle of the code.                                       |
-| `inherit` | no       | boolean                            | Whether fields fall through from ancestor files. Default `true`. |
-| `rules`   | no       | list of rule mappings              | Per-path overrides inside this directory.                        |
+| Field     | Required | Type                               | Meaning                                                                       |
+| --------- | -------- | ---------------------------------- | ----------------------------------------------------------------------------- |
+| `version` | yes      | integer                            | The format version. MUST be the integer `1`, not a boolean, float, or string. |
+| `owners`  | yes      | string, list of strings, or `null` | The owners of the directory.                                                  |
+| `status`  | no       | string                             | The lifecycle of the code.                                                    |
+| `inherit` | no       | boolean                            | Whether fields fall through from ancestor files. Default `true`.              |
+| `rules`   | no       | list of rule mappings              | Per-path overrides inside this directory.                                     |
 
 The root file MAY also carry the repository settings in section 5.
 Any other top-level field is an error.
@@ -50,6 +50,7 @@ Any other top-level field is an error.
 3. A list MUST be ordered. The first entry is the primary owner.
 4. `null` means the directory is unowned by design. A coverage check MUST NOT report such paths.
 5. An empty list means the file sets no owners. The owners of the nearest ancestor apply.
+6. Any other value is an error. The file then sets no owners, as with an empty list, and its other fields still apply.
 
 ### 3.2 `status`
 
@@ -78,10 +79,10 @@ Each rule is a mapping with these fields:
 | `status`  | no       | as in 3.2                           | Replaces the file-level status for matching paths.    |
 | `inherit` | no       | boolean                             | Replaces the file-level `inherit` for matching paths. |
 
-1. A rule with a list of patterns is equal to one rule per pattern, in list order, with the same fields.
+1. A rule with a list of valid patterns is equal to one rule per pattern, in list order, with the same fields.
 2. Within one file, the last rule whose pattern matches a path applies. Earlier matching rules have no effect.
 3. A rule MUST NOT change the resolution of a path outside the directory of its file.
-4. A rule with a pattern that the matcher rejects is an error. A tool MUST ignore that rule and MAY continue with the rest of the file.
+4. A rule with a pattern that the matcher rejects is an error. A tool MUST ignore the whole rule, including its other patterns, and MAY continue with the rest of the file.
 
 ### 3.5 Patterns
 
@@ -97,6 +98,8 @@ Patterns use the GitHub CODEOWNERS syntax, applied to paths relative to the dire
 8. A pattern MUST NOT be empty and MUST NOT contain `***`.
 
 ## 4. Resolution
+
+A consumer SHOULD get resolutions from an implementation of this algorithm, not by reading ownership files itself.
 
 To resolve a path `P`:
 
@@ -120,6 +123,49 @@ To resolve a path `P`:
 
 A path is unowned when `owners` is empty and `unowned_by_design` is `false`.
 
+### 4.1 Field merge
+
+Step 5 applies each file's values to the result as this table shows.
+The value is the file-level value after the matching rule replaced it.
+
+| Field     | Value in the file | Effect on the result                                                |
+| --------- | ----------------- | ------------------------------------------------------------------- |
+| `inherit` | `false`           | The result is reset to empty before the other fields apply.         |
+| `inherit` | `true` or absent  | No effect.                                                          |
+| `owners`  | non-empty list    | Owners become this list. Source becomes this file.                  |
+| `owners`  | `[]`              | No effect.                                                          |
+| `owners`  | `null`            | Owners become `null` (unowned by design). Source becomes this file. |
+| `status`  | set               | Status becomes this value.                                          |
+| `status`  | absent            | No effect.                                                          |
+
+### 4.2 Flow (non-normative)
+
+The numbered steps above are normative. This diagram shows the same walk.
+
+```mermaid
+flowchart TD
+    start([Path P]) --> walk[Take the next directory, from the root to the parent of P]
+    walk --> has{Has an ownership file?}
+    has -- no --> more
+    has -- yes --> take[Take the file's owners, status, and inherit]
+    take --> rule{Does a rule match P?<br/>The last match wins}
+    rule -- yes --> apply[Replace the fields that the rule sets]
+    rule -- no --> cut
+    apply --> cut{inherit is false?}
+    cut -- yes --> reset[Reset the result]
+    cut -- no --> merge
+    reset --> merge[Merge owners and status as in 4.1]
+    merge --> more{More directories?}
+    more -- yes --> walk
+    more -- no --> done([Return owners, unowned_by_design, status, source, slack])
+```
+
+### 4.3 Conformance
+
+The cases in [`conformance/`](https://github.com/PostHog/posthog/tree/master/tools/owners/conformance) are part of this specification.
+An implementation of section 4 and section 5.2 MUST produce the expected result for every case that applies to it.
+When the prose and a case disagree, the disagreement is a defect in this specification.
+
 ## 5. Repository settings
 
 Only the root file MAY carry these fields. A tool MUST report them as errors in any other file.
@@ -130,7 +176,7 @@ Only the root file MAY carry these fields. A tool MUST report them as errors in 
 | `github_org`    | string           | The GitHub organization of the team slugs.                                                                |
 | `producers`     | list of strings  | The automation names a team can address in `notifications`.                                               |
 | `reserved_dirs` | list of patterns | Extra locations where `owners.yaml` MUST NOT be placed. The patterns are relative to the repository root. |
-| `codeowners`    | mapping          | How a CODEOWNERS export spells test file paths. This field is specific to `posthog-owners` (section 7).   |
+| `codeowners`    | mapping          | How a CODEOWNERS export spells test file paths. This field is specific to `posthog-owners` (section 8).   |
 
 ### 5.1 `github_org`
 
@@ -174,7 +220,48 @@ For an alias file:
 2. The `owners` field MUST be a list of non-empty strings. Otherwise the file counts as absent.
 3. An `owners.yaml` in the same directory takes precedence. A linter SHOULD report a directory that has both.
 
-## 7. The posthog-owners implementation
+## 7. Resolver interface
+
+This section applies to an implementation that answers resolution requests from other programs through a command.
+In `posthog-owners`, both `owners resolve --json` and `python -m posthog_owners` implement it.
+
+### 7.1 Request
+
+1. The caller MAY pass paths as command arguments.
+2. When the caller passes no path arguments, the resolver MUST read paths from standard input, one path per line. It MUST remove whitespace at the start and end of each line and MUST skip empty lines.
+3. The caller MAY name the repository root. Without one, the resolver MAY find the root itself, for example from the git worktree.
+4. The caller MAY name the purpose of the channel: people or notifications (section 5.2). The default is people. `posthog-owners` spells these `--purpose slack` and `--purpose notifications`.
+
+### 7.2 Response
+
+1. On success, the resolver MUST write one JSON object to standard output and exit with status 0.
+2. Each key MUST be a requested path after normalization (section 4, step 1). Two requests that normalize to the same path produce one key.
+3. Each value MUST be an object with these members:
+
+   | Member   | Type             | Value                                                                     |
+   | -------- | ---------------- | ------------------------------------------------------------------------- |
+   | `owners` | array of strings | The resolved owners. Empty when the path is unowned or unowned by design. |
+   | `status` | string           | The resolved status.                                                      |
+   | `slack`  | string or `null` | The channel for the requested purpose.                                    |
+   | `source` | string or `null` | The repository-relative path of the file that set the owners.             |
+
+4. A path that is unowned by design has an empty `owners` array and a non-null `source`. An unowned path has an empty `owners` array and a `null` source.
+5. An unowned path is not an error.
+
+[`resolution.schema.json`](https://github.com/PostHog/posthog/blob/master/tools/owners/resolution.schema.json) describes this object.
+
+### 7.3 Errors
+
+1. When the repository root does not exist or cannot be found, the resolver MUST exit with a non-zero status.
+2. On an error, the resolver MUST NOT write a partial response to standard output.
+
+### 7.4 Compatibility
+
+1. A consumer MUST ignore members that it does not know.
+2. An implementation MAY add members to a value.
+3. Removing a member, renaming it, or changing its meaning requires a new version of this specification.
+
+## 8. The posthog-owners implementation
 
 This section describes the reference implementation. It is not part of the format.
 
@@ -189,7 +276,7 @@ This section describes the reference implementation. It is not part of the forma
   | `jest_root_tests`    | A pattern, relative to the repository root, for the test files that `jest_root` runs. Those files get an extra spelling relative to `jest_root`. |
   | `jest_root_packages` | A directory whose packages do not run their own Jest suite, so their files get no package-relative spelling.                                     |
 
-## 8. Examples (non-normative)
+## 9. Examples (non-normative)
 
 The smallest valid file:
 
@@ -233,6 +320,57 @@ teams:
     slack: false
 ```
 
+A worked example. The repository has three ownership files:
+
+```yaml
+# owners.yaml
+version: 1
+owners: team-platform
+status: active
+teams:
+  team-billing:
+    notifications: '#billing-bots'
+```
+
+```yaml
+# billing/owners.yaml
+version: 1
+owners: [team-billing, '@alice']
+status: deprecated
+rules:
+  - match: 'api/'
+    status: active
+  - match: 'vendor/'
+    owners: null
+```
+
+```yaml
+# billing/legacy/owners.yaml
+version: 1
+owners: []
+inherit: false
+```
+
+The trace for `billing/api/invoices.py`:
+
+| Step | File                  | Values after the rule                                                 | Result after the step                                                          |
+| ---- | --------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| 1    | `owners.yaml`         | owners `[team-platform]`, status `active`                             | owners `[team-platform]`, status `active`, source `owners.yaml`                |
+| 2    | `billing/owners.yaml` | rule `api/` matches: owners `[team-billing, @alice]`, status `active` | owners `[team-billing, @alice]`, status `active`, source `billing/owners.yaml` |
+
+The primary owner is `team-billing`. Its registry entry has no `slack`, so the people channel is the derived `#team-billing`. The notifications channel is `#billing-bots`.
+
+The results for all four paths, with the purpose "people":
+
+| Path                      | `owners`                 | `unowned_by_design` | `status`     | `source`              | `slack`         |
+| ------------------------- | ------------------------ | ------------------- | ------------ | --------------------- | --------------- |
+| `billing/api/invoices.py` | `[team-billing, @alice]` | `false`             | `active`     | `billing/owners.yaml` | `#team-billing` |
+| `billing/jobs/run.py`     | `[team-billing, @alice]` | `false`             | `deprecated` | `billing/owners.yaml` | `#team-billing` |
+| `billing/vendor/lib.py`   | `[]`                     | `true`              | `deprecated` | `billing/owners.yaml` | none            |
+| `billing/legacy/old.py`   | `[]`                     | `false`             | `active`     | none                  | none            |
+
+`billing/legacy/old.py` is unowned: `inherit: false` drops everything from the parent files, and the file itself sets no owners. The status is the default, `active`.
+
 Invalid files:
 
 ```yaml
@@ -258,10 +396,10 @@ rules:
     owners: team-other
 ```
 
-## 9. Design notes (non-normative)
+## 10. Design notes (non-normative)
 
 - **Nearest file wins, per field.** Kubernetes OWNERS files add approvers from every ancestor, which fits "someone must approve". For routing, the union tags too many teams, so the nearest file wins. The merge is per field, so a child file that sets only `owners` keeps the `status` of its ancestors.
-- **Rules stay in their file.** In a single CODEOWNERS file, a broad pattern added late can take over earlier specific lines. Here a rule changes only its own directory, so reading one file and its ancestors explains any path.
+- **Rules stay in their file.** In a single CODEOWNERS file, a broad pattern added late can take over earlier specific lines. Here a rule changes only its own directory, so a new rule cannot take over paths in another directory.
 - **Unowned is a decision.** `owners: null` records that nobody owns a path on purpose. A missing owner fails the coverage check.
 - **Routing, not approval.** The format answers "who owns this path" for review requests, alerts, and reports. It does not replace a platform's required-approval rules.
 

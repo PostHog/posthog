@@ -1,0 +1,125 @@
+# These cases apply only to an implementation that reads product.yaml as an alias file (SPEC sections 6 and 8).
+cases:
+    - name: a product.yaml owners list decides ownership
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+          products/foo/product.yaml: |
+              name: Foo
+              owners:
+                - team-foo
+      expect:
+          products/foo/backend/x.py:
+              owners: [team-foo]
+              unowned_by_design: false
+              status: active
+              source: products/foo/product.yaml
+              slack: '#team-foo'
+
+    - name: only the owners field of product.yaml has an effect
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              status: deprecated
+          products/foo/product.yaml: |
+              name: Foo
+              owners: [team-foo]
+              status: generated
+              inherit: false
+              rules:
+                - match: '*.py'
+                  owners: team-rule
+      expect:
+          products/foo/x.py:
+              owners: [team-foo]
+              unowned_by_design: false
+              status: deprecated
+              source: products/foo/product.yaml
+              slack: '#team-foo'
+
+    - name: an owners.yaml in the same directory takes precedence over product.yaml
+      files:
+          products/foo/owners.yaml: |
+              version: 1
+              owners: team-owners-file
+          products/foo/product.yaml: |
+              name: Foo
+              owners: [team-foo]
+      expect:
+          products/foo/x.py:
+              owners: [team-owners-file]
+              unowned_by_design: false
+              status: active
+              source: products/foo/owners.yaml
+              slack: '#team-owners-file'
+
+    - name: product.yaml applies when the owners.yaml next to it is invalid
+      files:
+          products/foo/owners.yaml: |
+              owners: team-owners-file
+          products/foo/product.yaml: |
+              name: Foo
+              owners: [team-foo]
+      expect:
+          products/foo/x.py:
+              owners: [team-foo]
+              unowned_by_design: false
+              status: active
+              source: products/foo/product.yaml
+              slack: '#team-foo'
+
+    - name: a product.yaml whose owners is not a list counts as absent
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+          products/string/product.yaml: |
+              owners: team-foo
+          products/null/product.yaml: |
+              owners: null
+          products/missing/product.yaml: |
+              name: Missing
+          products/bad-entry/product.yaml: |
+              owners: [team-foo, '']
+      expect:
+          products/string/x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+          products/null/x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+          products/missing/x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+          products/bad-entry/x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+
+    - name: a product.yaml with an empty owners list falls through
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+          products/foo/product.yaml: |
+              owners: []
+      expect:
+          products/foo/x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'

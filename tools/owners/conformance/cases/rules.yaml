@@ -1,0 +1,247 @@
+cases:
+    - name: a rule replaces the file owners only for the paths it matches
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+              rules:
+                - match: Dockerfile
+                  owners: team-infra
+      expect:
+          Dockerfile:
+              owners: [team-infra]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-infra'
+          main.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: a rule that sets only status keeps the file owners
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+              rules:
+                - match: 'generated/**'
+                  status: generated
+      expect:
+          generated/api.ts:
+              owners: [team-a]
+              unowned_by_design: false
+              status: generated
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: a rule with owners null marks its paths as unowned by design
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+          a/owners.yaml: |
+              version: 1
+              owners: team-a
+              rules:
+                - match: '/vendor/**'
+                  owners: null
+      expect:
+          a/vendor/lib.py:
+              owners: []
+              unowned_by_design: true
+              status: active
+              source: a/owners.yaml
+              slack: null
+          a/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: a/owners.yaml
+              slack: '#team-a'
+
+    - name: a rule with an empty owners list falls through to ancestor files
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+          a/owners.yaml: |
+              version: 1
+              owners: team-a
+              rules:
+                - match: '/shared/'
+                  owners: []
+      expect:
+          a/shared/x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+
+    - name: the last matching rule in a file wins
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+              rules:
+                - match: '*.yml'
+                  owners: team-yaml
+                - match: 'docker-compose*.yml'
+                  owners: team-infra
+      expect:
+          docker-compose.dev.yml:
+              owners: [team-infra]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-infra'
+          other.yml:
+              owners: [team-yaml]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-yaml'
+          main.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: an earlier matching rule has no effect even for fields the last rule does not set
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+              rules:
+                - match: '*.py'
+                  status: generated
+                - match: 'special.py'
+                  owners: team-b
+      expect:
+          special.py:
+              owners: [team-b]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-b'
+          other.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: generated
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: a rule with a list of patterns acts as one rule per pattern in list order
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+              rules:
+                - match: '*.yml'
+                  owners: team-yaml
+                - match: [Dockerfile, 'docker-compose*.yml']
+                  owners: team-infra
+                  status: generated
+      expect:
+          Dockerfile:
+              owners: [team-infra]
+              unowned_by_design: false
+              status: generated
+              source: owners.yaml
+              slack: '#team-infra'
+          docker-compose.dev.yml:
+              owners: [team-infra]
+              unowned_by_design: false
+              status: generated
+              source: owners.yaml
+              slack: '#team-infra'
+          other.yml:
+              owners: [team-yaml]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-yaml'
+
+    - name: a rule does not change paths outside the directory of its file
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+          a/owners.yaml: |
+              version: 1
+              owners: team-a
+              rules:
+                - match: '**'
+                  owners: team-rule
+      expect:
+          x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+          b/x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+          a/x.py:
+              owners: [team-rule]
+              unowned_by_design: false
+              status: active
+              source: a/owners.yaml
+              slack: '#team-rule'
+
+    - name: a nearer file with owners wins over a matching rule in an ancestor file
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              rules:
+                - match: '/a/'
+                  owners: team-rule
+                  status: deprecated
+          a/owners.yaml: |
+              version: 1
+              owners: team-a
+          b/owners.yaml: |
+              version: 1
+              owners: []
+      expect:
+          a/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: deprecated
+              source: a/owners.yaml
+              slack: '#team-a'
+          b/x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+
+    - name: a matching rule in an ancestor file applies below a nearer file with no owners
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              rules:
+                - match: '/a/'
+                  owners: team-rule
+          a/owners.yaml: |
+              version: 1
+              owners: []
+              status: generated
+      expect:
+          a/x.py:
+              owners: [team-rule]
+              unowned_by_design: false
+              status: generated
+              source: owners.yaml
+              slack: '#team-rule'

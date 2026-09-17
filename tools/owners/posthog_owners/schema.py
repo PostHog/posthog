@@ -353,6 +353,11 @@ def _parse_rule(raw: object, index: int, errors: list[str]) -> list[OwnersRule]:
     return [OwnersRule(match=pattern, owners=owners, status=status, inherit=inherit) for pattern in patterns]
 
 
+def _is_version_one(value: object) -> bool:
+    """YAML ``true`` and ``1.0`` compare equal to 1 in Python, but the format requires the integer."""
+    return type(value) is int and value == 1
+
+
 def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersFile | None, list[str]]:
     """Parse and validate ``owners.yaml`` contents.
 
@@ -371,7 +376,7 @@ def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersF
         if key not in TOP_LEVEL_KEYS:
             errors.append(f"unknown top-level field '{key}'")
 
-    if data.get("version") != 1:
+    if not _is_version_one(data.get("version")):
         errors.append("'version: 1' is required")
 
     if "owners" not in data:
@@ -408,7 +413,7 @@ def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersF
                 file.rules.extend(_parse_rule(raw_rule, i, errors))
 
     # A missing version or owners makes the file unusable for resolution.
-    if data.get("version") != 1 or "owners" not in data:
+    if not _is_version_one(data.get("version")) or "owners" not in data:
         return None, errors
     return file, errors
 

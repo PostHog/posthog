@@ -20,7 +20,6 @@ from posthog_owners import (
 )
 from posthog_owners.cli import _consolidation_suggestions, _live_scope, _reserved_location_error, main
 from posthog_owners.fmt import CanonicalPlacer, CanonicalPlan
-from posthog_owners.matcher import path_matches_pattern
 from posthog_owners.resolver import OwnersResolver, team_channel
 from posthog_owners.schema import (
     TOP_LEVEL_KEYS,
@@ -31,106 +30,10 @@ from posthog_owners.schema import (
 )
 
 
-@pytest.mark.parametrize(
-    "pattern,path,expected",
-    [
-        ("/foo/bar", "foo/bar", True),
-        ("/foo/bar", "foo/bar/baz.py", True),
-        ("/foo/bar", "x/foo/bar", False),
-        ("foo", "a/b/foo", True),
-        ("foo", "a/b/foo/c", True),
-        ("*.js", "a/b/c.js", True),
-        ("*.js", "a/b/c.ts", False),
-        ("/docs/*", "docs/x.md", True),
-        ("/docs/*", "docs/a/b.md", False),
-        ("a/**/b", "a/b", True),
-        ("a/**/b", "a/x/y/b", True),
-        ("a/**/b", "a/b/c", True),
-        ("**/foo", "a/foo", True),
-        ("**", "anything/x", True),
-        ("docs/", "docs/x/y", True),
-        ("docker-compose*.yml", "a/b/docker-compose.dev.yml", True),
-    ],
-)
-def test_matcher_vectors(pattern: str, path: str, expected: bool) -> None:
-    assert path_matches_pattern(pattern, path) is expected
-
-
 def _write(root: Path, rel: str, text: str) -> None:
     p = root / rel
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(text)
-
-
-@pytest.fixture
-def resolver_repo(tmp_path: Path) -> Path:
-    _write(
-        tmp_path,
-        "owners.yaml",
-        "version: 1\nowners: null\nrules:\n  - match: Dockerfile\n    owners: [team-devex]\n",
-    )
-    _write(
-        tmp_path,
-        "posthog/owners.yaml",
-        "version: 1\nowners: [team-a]\n"
-        "rules:\n  - match: '/vendor/**'\n    owners: null\n  - match: legacy.py\n    owners: [team-legacy]\n",
-    )
-    _write(tmp_path, "posthog/sub/owners.yaml", "version: 1\nowners: [team-b]\n")
-    _write(tmp_path, "posthog/noinherit/owners.yaml", "version: 1\ninherit: false\nowners: [team-c]\n")
-    _write(tmp_path, "products/foo/product.yaml", "name: Foo\nowners:\n  - team-foo\n")
-    _write(tmp_path, "products/bar/product.yaml", "name: Bar\nowners:\n  - team-CHANGEME\n")
-    return tmp_path
-
-
-@pytest.mark.parametrize(
-    "path,owners,unowned_by_design",
-    [
-        ("Dockerfile", ["team-devex"], False),
-        ("README.md", None, True),
-        ("posthog/x.py", ["team-a"], False),
-        ("posthog/legacy.py", ["team-legacy"], False),
-        ("posthog/vendor/lib.py", None, True),
-        ("posthog/sub/y.py", ["team-b"], False),
-        ("posthog/sub/legacy.py", ["team-b"], False),
-        ("posthog/noinherit/z.py", ["team-c"], False),
-        ("products/foo/thing.py", ["team-foo"], False),
-        ("products/bar/thing.py", None, True),
-        ("other/legacy.py", None, True),
-    ],
-)
-def test_resolver_precedence(resolver_repo: Path, path: str, owners: list[str] | None, unowned_by_design: bool) -> None:
-    r = OwnersResolver(repo_root=resolver_repo).resolve(path)
-    assert r.owners == owners
-    assert r.unowned_by_design is unowned_by_design
-
-
-def test_rule_level_inherit_false_cuts_ancestors_for_matching_paths_only(tmp_path: Path) -> None:
-    _write(tmp_path, "a/owners.yaml", "version: 1\nowners: [team-a]\n")
-    _write(
-        tmp_path,
-        "a/b/owners.yaml",
-        "version: 1\nowners: []\nrules:\n  - match: '/cut/'\n    owners: [team-b]\n    inherit: false\n",
-    )
-    resolver = OwnersResolver(repo_root=tmp_path)
-    cut = resolver.resolve("a/b/cut/x.py")
-    assert cut.owners == ["team-b"]  # rule-level inherit:false + own owners win
-    other = resolver.resolve("a/b/other.py")
-    assert other.owners == ["team-a"]  # non-matching path still inherits the ancestor
-
-
-def test_rule_level_inherit_true_restores_ancestors_under_file_level_cut(tmp_path: Path) -> None:
-    # The inverse direction: the file cuts inheritance, a rule opts its paths
-    # back in. The cut must apply after rule overrides — applying it while
-    # collecting files made this documented override a silent no-op.
-    _write(tmp_path, "owners.yaml", "version: 1\nowners: [team-root]\n")
-    _write(
-        tmp_path,
-        "a/owners.yaml",
-        "version: 1\nowners: []\ninherit: false\nrules:\n  - match: '/keep/'\n    inherit: true\n",
-    )
-    resolver = OwnersResolver(repo_root=tmp_path)
-    assert resolver.resolve("a/x.py").owners is None  # file-level cut holds
-    assert resolver.resolve("a/keep/x.py").owners == ["team-root"]  # rule restores
 
 
 def test_invalid_rule_glob_is_a_schema_error_not_a_crash(tmp_path: Path) -> None:
@@ -204,23 +107,6 @@ def test_multi_match_validation_errors_drop_the_rule(tmp_path: Path, rules_yaml:
     assert parsed is not None and parsed.rules == []
 
 
-def test_multi_match_rule_wins_and_loses_under_last_match(tmp_path: Path) -> None:
-    # The exploded patterns take part in last-match-wins like any rule: the later
-    # multi-match rule overrides the earlier `*.yml` for its patterns only.
-    _write(
-        tmp_path,
-        "owners.yaml",
-        "version: 1\nowners: [team-a]\n"
-        "rules:\n  - match: '*.yml'\n    owners: [team-yaml]\n"
-        "  - match: [Dockerfile, 'docker-compose*.yml']\n    owners: [team-infra]\n",
-    )
-    resolver = OwnersResolver(repo_root=tmp_path)
-    assert resolver.resolve("Dockerfile").owners == ["team-infra"]
-    assert resolver.resolve("docker-compose.dev.yml").owners == ["team-infra"]  # beats earlier *.yml
-    assert resolver.resolve("other.yml").owners == ["team-yaml"]  # only *.yml matches
-    assert resolver.resolve("main.py").owners == ["team-a"]  # no rule matches
-
-
 def test_resolver_no_contribution_is_unowned_not_exempt(tmp_path: Path) -> None:
     _write(tmp_path, "posthog/owners.yaml", "version: 1\nowners: [team-a]\n")
     resolver = OwnersResolver(repo_root=tmp_path)
@@ -228,19 +114,6 @@ def test_resolver_no_contribution_is_unowned_not_exempt(tmp_path: Path) -> None:
     assert r.owners is None
     assert r.unowned_by_design is False
     assert resolver.unowned(["other/file.py", "posthog/x.py"]) == ["other/file.py"]
-
-
-@pytest.mark.parametrize(
-    "path,slack",
-    [
-        ("posthog/x.py", "#team-a"),
-        ("posthog/sub/y.py", "#team-b"),
-        ("posthog/noinherit/z.py", "#team-c"),
-        ("products/foo/thing.py", "#team-foo"),
-    ],
-)
-def test_resolver_slack_derivation_and_fallthrough(resolver_repo: Path, path: str, slack: str) -> None:
-    assert OwnersResolver(repo_root=resolver_repo).resolve(path).slack == slack
 
 
 @pytest.fixture
@@ -259,22 +132,6 @@ def registry_repo(tmp_path: Path) -> Path:
     _write(tmp_path, "indiv/owners.yaml", "version: 1\nowners: ['@alice', team-registry]\n")
     _write(tmp_path, "split/owners.yaml", "version: 1\nowners: [team-split]\n")
     return tmp_path
-
-
-@pytest.mark.parametrize(
-    "path,purpose,slack",
-    [
-        ("reg/x.py", "slack", "#registry-chan"),  # registry hit for the primary owner beats derived
-        ("silent/x.py", "slack", None),  # registry false suppresses derivation
-        ("derive/x.py", "slack", "#team-nonreg"),  # no registry entry: derive #<primary owner>
-        ("indiv/x.py", "slack", None),  # primary owner is an @handle: registry ignored, no derive
-        ("split/x.py", "slack", "#split-people"),  # a declared notifications channel stays off the people lookup
-        ("split/x.py", "notifications", "#split-bots"),  # automation resolves to the declared bot channel
-        ("reg/x.py", "notifications", "#registry-chan"),  # no notifications entry: automation follows the people
-    ],
-)
-def test_slack_registry_precedence(registry_repo: Path, path: str, purpose: str, slack: str | None) -> None:
-    assert OwnersResolver(repo_root=registry_repo, purpose=purpose).resolve(path).slack == slack
 
 
 def test_teams_registry_and_settings_are_root_only(tmp_path: Path) -> None:
@@ -861,7 +718,8 @@ def test_json_entrypoint_resolves_against_an_explicit_repo_root(registry_repo: P
     result = _run_entrypoint(registry_repo, "--repo-root", str(registry_repo), "reg/x.py")
 
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == {
+    response = json.loads(result.stdout)
+    assert response == {
         "reg/x.py": {
             "owners": ["team-registry"],
             "status": "active",
@@ -869,6 +727,9 @@ def test_json_entrypoint_resolves_against_an_explicit_repo_root(registry_repo: P
             "source": "reg/owners.yaml",
         }
     }
+    jsonschema = pytest.importorskip("jsonschema")
+    schema = json.loads((Path(__file__).parent.parent / "resolution.schema.json").read_text())
+    jsonschema.validate(response, schema)
 
 
 def test_json_entrypoint_repo_root_reads_stdin_paths_and_honors_purpose(registry_repo: Path) -> None:

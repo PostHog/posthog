@@ -1,0 +1,97 @@
+name: Publish posthog-owners to PyPI
+
+on:
+    push:
+        tags:
+            - 'owners-v*'
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: publish-owners-${{ github.ref }}
+    cancel-in-progress: false
+
+jobs:
+    publish:
+        name: Build and publish
+        # Hard guard: only publish from a tag ref. workflow_dispatch is supported
+        # so a failed publish can be re-run against the existing tag (via
+        # `gh workflow run publish-owners.yml --ref owners-vX.Y.Z`); dispatching
+        # from a branch is a no-op.
+        if: startsWith(github.ref, 'refs/tags/owners-v')
+        runs-on: ubuntu-22.04
+        timeout-minutes: 10
+        environment: pypi-owners
+        permissions:
+            id-token: write
+            contents: write
+            attestations: write
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: '3.13.13'
+
+            - uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
+
+            - name: Verify tag matches package version
+              shell: bash
+              env:
+                  TAG_REF: ${{ github.ref_name }}
+              run: |
+                  tag_version="${TAG_REF#owners-v}"
+                  pkg_version=$(python -c "import tomllib; print(tomllib.load(open('tools/owners/pyproject.toml','rb'))['project']['version'])")
+                  if [[ "$tag_version" != "$pkg_version" ]]; then
+                      echo "::error::tag version ($tag_version) does not match tools/owners/pyproject.toml version ($pkg_version)"
+                      exit 1
+                  fi
+
+            # hogli's script is stdlib-only and reads any Keep a Changelog file.
+            - name: Extract release notes from the changelog
+              shell: bash
+              env:
+                  TAG_REF: ${{ github.ref_name }}
+              run: |
+                  tag_version="${TAG_REF#owners-v}"
+                  python tools/hogli/scripts/release_notes.py "$tag_version" --changelog tools/owners/CHANGELOG.md > /tmp/owners-release-notes.md
+
+            - name: Build sdist and wheel
+              run: uv build tools/owners --out-dir dist
+
+            - name: Validate metadata
+              run: uvx twine check dist/*.whl dist/*.tar.gz
+
+            - name: Smoke-test built wheel
+              shell: bash
+              env:
+                  TAG_REF: ${{ github.ref_name }}
+              run: |
+                  tag_version="${TAG_REF#owners-v}"
+                  uv venv /tmp/owners-smoke
+                  uv pip install --python /tmp/owners-smoke/bin/python --find-links dist "posthog-owners==$tag_version"
+                  /tmp/owners-smoke/bin/owners --version
+                  /tmp/owners-smoke/bin/owners lint --repo-root .
+
+            - name: Generate build provenance attestation
+              uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+              with:
+                  subject-path: |
+                      dist/*.whl
+                      dist/*.tar.gz
+
+            - name: Publish to PyPI
+              run: uv publish dist/*.whl dist/*.tar.gz
+
+            - name: Create GitHub Release
+              uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+              with:
+                  files: |
+                      dist/*.whl
+                      dist/*.tar.gz
+                  body_path: /tmp/owners-release-notes.md
+                  prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}

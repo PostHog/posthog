@@ -1,0 +1,62 @@
+# These cases cover posthog-owners behavior that is not part of the format (SPEC section 8).
+cases:
+    - name: the team-CHANGEME placeholder is removed from an owners.yaml list
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+          only/owners.yaml: |
+              version: 1
+              owners: team-CHANGEME
+          mixed/owners.yaml: |
+              version: 1
+              owners: [team-CHANGEME, team-b]
+      expect:
+          only/x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+          mixed/x.py:
+              owners: [team-b]
+              unowned_by_design: false
+              status: active
+              source: mixed/owners.yaml
+              slack: '#team-b'
+
+    - name: a rule with only the placeholder falls through to ancestor files
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+          a/owners.yaml: |
+              version: 1
+              owners: team-a
+              rules:
+                - match: new.py
+                  owners: team-CHANGEME
+      expect:
+          a/new.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+
+    - name: a product.yaml with only the placeholder falls through
+      files:
+          owners.yaml: |
+              version: 1
+              owners: null
+          products/bar/product.yaml: |
+              name: Bar
+              owners:
+                - team-CHANGEME
+      expect:
+          products/bar/thing.py:
+              owners: []
+              unowned_by_design: true
+              status: active
+              source: owners.yaml
+              slack: null

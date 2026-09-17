@@ -2,9 +2,9 @@
 
 Code ownership in small `owners.yaml` files next to the code, with a resolver, a linter, and a CODEOWNERS export.
 
-Each directory declares its owners in a two-line file.
-The nearest file wins, so you can read any path's owner from that path and its parents.
-Bots, CI jobs, and chat alerts call one resolver instead of each parsing a CODEOWNERS file.
+Each directory declares its owners in a short file.
+Resolving a path takes more steps than a CODEOWNERS lookup: the nearest file wins field by field, `inherit: false` cuts off parent files, and rules override fields inside a file.
+So don't read the files to find an owner. Ask the resolver: `owners who <path>` for a person, and the library, CLI, or JSON entrypoint for a tool.
 GitHub's `CODEOWNERS` can stay in place for required approvals.
 
 The format is defined in [SPEC.md](https://github.com/PostHog/posthog/blob/master/tools/owners/SPEC.md).
@@ -20,7 +20,7 @@ owners: [team-billing, '@alice']
 ```
 
 ```console
-$ uvx --from "git+https://github.com/PostHog/posthog#subdirectory=tools/owners" owners who billing/api/invoices.py
+$ uvx posthog-owners who billing/api/invoices.py
 path:    billing/api/invoices.py
 owners:  team-billing, @alice
 status:  active
@@ -40,24 +40,21 @@ A single `CODEOWNERS` file works well for small repos. In a large monorepo it ha
 `owners.yaml` addresses these:
 
 - **The nearest file wins, field by field.** A child file that only sets `owners` keeps the `status` of its parent. `inherit: false` stops inheritance.
-- **Rules stay in their file.** A `rules:` pattern can only change paths below its own file, so one file and its parents explain any path.
+- **Rules stay in their file.** A `rules:` pattern can only change paths below its own file, so a new rule can't take over another team's paths.
 - **"Unowned" is a decision.** `owners: null` marks code that nobody owns on purpose. Everything else without an owner shows up in `owners unowned`.
 - **A lifecycle status.** `status: generated`, `vendored`, or `deprecated` lets a review bot skip generated files without its own ignore list.
 - **A team channel registry.** The root file maps a team to its Slack channels, with a separate channel for automation and a per-bot opt-out.
-- **One resolver for every tool.** A Python library, a CLI, and a JSON entrypoint that needs only PyYAML. The JSON entrypoint suits tools written in other languages.
+- **One resolver for every tool.** Review bots, CI jobs, and alerts all ask the same resolver, so none of them reimplements the resolution steps. It comes as a Python library, a CLI, and a JSON entrypoint that needs only PyYAML.
 
 ## Install
 
-The package is not on PyPI yet. Install it from GitHub:
-
 ```bash
-uv tool install "git+https://github.com/PostHog/posthog#subdirectory=tools/owners"
-# or run it once
-uvx --from "git+https://github.com/PostHog/posthog#subdirectory=tools/owners" owners --help
+uv tool install posthog-owners   # or: pipx install posthog-owners
+uvx posthog-owners --help         # run it once without installing
 ```
 
-In CI, pin a commit so the resolution rules can't change under you: `...posthog@<sha>#subdirectory=tools/owners`.
-The install clones the full monorepo, so the first run takes a while.
+The package installs two identical commands, `owners` and `posthog-owners`.
+In CI, pin the version (`posthog-owners==0.2.0`), because a new release can change how paths resolve.
 
 Requirements: Python 3.10 or later, PyYAML, and click.
 The commands read tracked files through `git`. Outside a git worktree, pass `--repo-root` and they read the files from disk.
@@ -207,7 +204,7 @@ Backstage and other service catalogs track ownership per service, not per path.
 - **You need GitHub to block merges on an owner's approval.** Keep that in `.github/CODEOWNERS`. `owners.yaml` routes, it doesn't block. The CODEOWNERS export covers test files only.
 - **Your repo is small.** A CODEOWNERS file of a few dozen lines is easier to read than many small files.
 - **You use GitLab or Bitbucket code owner approvals.** The tool reads GitHub team slugs and `@handles`, and the live lint uses the GitHub API.
-- **You need a stable release channel today.** The package is at version 0.x and installs from the PostHog monorepo.
+- **You need a stable 1.0 API.** The package is at version 0.x. The file format is at version 1, but the Python API can still change between minor releases.
 
 ## Project
 
@@ -217,5 +214,16 @@ Backstage and other service catalogs track ownership per service, not per path.
 
 The package lives in the [PostHog monorepo](https://github.com/PostHog/posthog/tree/master/tools/owners). It has no dependencies on the rest of the monorepo.
 Run its tests with `uv run --no-project --with pyyaml --with click --with pytest pytest tools/owners/tests`.
+
+To release, bump `version` in `pyproject.toml`, add the matching section to `CHANGELOG.md`, merge, then tag `master`:
+
+```bash
+git tag owners-v0.2.0 && git push origin owners-v0.2.0
+```
+
+The tag starts [`publish-owners.yml`](https://github.com/PostHog/posthog/blob/master/.github/workflows/publish-owners.yml).
+It checks that the tag matches the version, builds and tests the wheel, and publishes to PyPI with trusted publishing.
+It then creates a GitHub release from the changelog section.
+To retry a failed run, dispatch the workflow on the same tag: `gh workflow run publish-owners.yml --ref owners-v0.2.0`.
 
 MIT licensed.
