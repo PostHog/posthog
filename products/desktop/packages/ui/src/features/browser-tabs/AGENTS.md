@@ -346,12 +346,37 @@ the model and the UX so both stay in step with the code.
 - Resizes persist through `onLayout` → `setSplitSizes`, which returns the same
   array for an unchanged layout so the mount-time callback writes nothing.
 
+### The split in the strip
+A split is one thing you switch to, so the strip shows it as **one pill**, the
+way Arc, Chrome and Edge nest split tabs under one entry. Vivaldi leaves tiled
+tabs unmarked and scattered in its bar, and that is its most-requested fix.
+- `collapseSplits` (`displayOrder.ts`) keeps one pill per group in the slot of
+  its first member in the display order (the **anchor**); the other members
+  leave the strip. The pill's `id` is the anchor, so reorder and the
+  sortable slot work as for one tab.
+- The pill leads with a miniature of the split: the members' icons in a
+  framed row, in tile order. Its label and icon follow the tile that was
+  active last (`tileLayoutStore.activeByGroup`, written by `TileLayout` on
+  every activation), so the pill always names the page you would land on.
+  The tooltip reads `Split view` and lists every member.
+- **Click the pill to come back to the split** after visiting another tab; it
+  reopens on that last-active tile (`lastActiveIn`). A click while the split
+  is on screen does nothing.
+- The pill's X, middle-click and `Close split` close every tab of the split.
+  Removing one tab is the tile header's X, and Cmd/Ctrl+W closes the active
+  tile only. Bulk closes count a split pill as one slot but close all of its
+  tabs. `Separate all tabs` in the pill's menu dissolves the group and keeps
+  the tabs. A split pill has no pin item.
+- Cmd/Ctrl+1-9 count the split pill as one stop.
+
 ### Drag to tile
 - While a pill is dragged (`tabReorderStore.draggingTabId`), every tile of the
   visible group, or the lone active page, shows four edge drop zones
   (`TileDropZones`, `useDroppable` in the same `BrowserTabsDndProvider` scope,
   data `{ type: "tile-drop", tabId, edge }`). The dragged tab's own tile shows
-  none, and a full group disables its zones.
+  none, and a full group disables its zones. A split pill drags as one unit
+  and a pinned pill stays icon-only, so neither shows zones, and `dragend`
+  refuses a tile drop for them.
 - Pill drags stay x-axis locked; the zones are still hit because dnd-kit's
   default collision detection tests the **pointer** position first.
 - `dragend` on a tile zone calls `tileTab` and returns without persisting the
@@ -364,8 +389,8 @@ the model and the UX so both stay in step with the code.
 - No in-tile navigation without a router: a link inside a background tile
   drives the one router, so it changes the active tile's page, not its own.
   A second router over memory history is the known alternative.
-- The strip does not yet mark which tabs share a group; a context-menu
-  "Remove from split" and keyboard focus between tiles are also open.
+- Tiles cannot be rearranged inside a split yet (the pill drags as one unit);
+  keyboard focus between tiles is also open.
 
 ## Known rough edges / follow-ups
 

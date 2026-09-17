@@ -95,6 +95,13 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
       // the preview order is discarded because the pill never left its slot.
       if (isTileDropData(tgt)) {
         const tiling = useTileLayoutStore.getState();
+        // The zones hide for these drags; this is the guard if one shows late.
+        if (
+          groupForTab(tiling.groups, src.tabId) ||
+          usePinnedTabsStore.getState().pinnedTabIds.includes(src.tabId)
+        ) {
+          return;
+        }
         tiling.tileTab(src.tabId, tgt.tabId, tgt.edge);
         const group = groupForTab(tiling.groups, tgt.tabId);
         track(ANALYTICS_EVENTS.BROWSER_TAB_TILED, {

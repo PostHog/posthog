@@ -1,6 +1,7 @@
 import type { BrowserTab, TabsSnapshot } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
+  collapseSplits,
   displayedTabIds,
   frontOfUnpinnedOrder,
   partitionPinnedFirst,
@@ -110,5 +111,28 @@ describe("frontOfUnpinnedOrder", () => {
   it("appends when there is no other unpinned tab", () => {
     const order = frontOfUnpinnedOrder(snap(["p", "c"]), "w1", "c", ["p"]);
     expect(order).toEqual(["p", "c"]);
+  });
+});
+
+describe("collapseSplits", () => {
+  it("keeps one pill per split in the first member's slot", () => {
+    const group = {
+      id: "g1",
+      root: {
+        type: "split" as const,
+        id: "g1",
+        direction: "horizontal" as const,
+        children: [
+          { type: "tab" as const, tabId: "c" },
+          { type: "tab" as const, tabId: "a" },
+        ],
+      },
+    };
+    const { ids, groupByAnchor } = collapseSplits(
+      ["a", "b", "c", "d"],
+      [group],
+    );
+    expect(ids).toEqual(["a", "b", "d"]);
+    expect(groupByAnchor.get("a")).toBe(group);
   });
 });

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   groupForTab,
+  lastActiveIn,
   MAX_TILES_PER_GROUP,
+  pruneActiveByGroup,
   pruneGroups,
   setSplitSizes,
   type TileEdge,
@@ -153,5 +155,17 @@ describe("tileLayout", () => {
       split("s1", "horizontal", [leaf("a"), leaf("b")]),
     );
     expect(pruneGroups(groups, ["c"])).toEqual([]);
+  });
+
+  it("reopens a split on its first tile once the remembered tile left", () => {
+    const groups = tileTab([], "b", "a", "right", ids());
+    const group = groups[0];
+    expect(lastActiveIn(group, { [group.id]: "b" })).toBe("b");
+    const next = tileTab(groups, "c", "a", "right", ids());
+    const remembered = pruneActiveByGroup(untileTab(next, "b"), {
+      [group.id]: "b",
+    });
+    expect(remembered).toEqual({});
+    expect(lastActiveIn(untileTab(next, "b")[0], remembered)).toBe("a");
   });
 });

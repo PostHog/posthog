@@ -20,6 +20,7 @@ function setup(overrides?: Partial<Parameters<typeof TabStrip>[0]>) {
     onCloseOthers: vi.fn(),
     onCloseToRight: vi.fn(),
     onCloseToLeft: vi.fn(),
+    onSeparate: vi.fn(),
     ...overrides,
   };
   // Pills call useSortable, which needs an ancestor DnD provider (the app
@@ -98,6 +99,35 @@ describe("TabStrip", () => {
     expect(screen.queryByText("Overview")).toBeNull();
     expect(screen.getByLabelText("Overview (pinned)")).toBeTruthy();
     expect(screen.getByLabelText("Close Funnels")).toBeTruthy();
+  });
+
+  it("shows a split as one pill that closes and separates as a whole", async () => {
+    const props = setup({
+      tabs: [
+        {
+          id: "t1",
+          label: "Funnels",
+          channelName: null,
+          split: {
+            members: [
+              { id: "t1", label: "Overview" },
+              { id: "t2", label: "Funnels" },
+            ],
+            activeId: "t2",
+          },
+        },
+      ],
+    });
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
+    expect(screen.getByLabelText("Funnels (split, 2 tabs)")).toBeTruthy();
+
+    await userEvent.click(screen.getByLabelText("Close split (2 tabs)"));
+    expect(props.onClose).toHaveBeenCalledWith("t1");
+
+    fireEvent.contextMenu(screen.getByLabelText("Funnels (split, 2 tabs)"));
+    expect(screen.queryByText("Pin tab")).toBeNull();
+    await userEvent.click(await screen.findByText("Separate all tabs"));
+    expect(props.onSeparate).toHaveBeenCalledWith("t1");
   });
 
   it("pins from the context menu", async () => {

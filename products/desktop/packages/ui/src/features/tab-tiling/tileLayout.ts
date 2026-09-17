@@ -153,6 +153,46 @@ export function tileTab(
     : [...without, next];
 }
 
+/** Dissolve a group so every tab gets its own pill again. */
+export function separateGroup(
+  groups: readonly TileGroup[],
+  groupId: string,
+): TileGroup[] {
+  return groups.filter((g) => g.id !== groupId);
+}
+
+/**
+ * The tile a split reopens on: the tile that was active last, else the first
+ * tile. The strip's split pill names this tab and a click on it goes here.
+ */
+export function lastActiveIn(
+  group: TileGroup,
+  activeByGroup: Readonly<Record<string, string>>,
+): string {
+  const ids = tabIdsIn(group.root);
+  const remembered = activeByGroup[group.id];
+  return remembered && ids.includes(remembered) ? remembered : ids[0];
+}
+
+/**
+ * Drop remembered tiles whose group or tab is gone. Returns the same object
+ * when nothing changed so a store can skip the update.
+ */
+export function pruneActiveByGroup(
+  groups: readonly TileGroup[],
+  activeByGroup: Readonly<Record<string, string>>,
+): Record<string, string> {
+  const next: Record<string, string> = {};
+  for (const group of groups) {
+    const tabId = activeByGroup[group.id];
+    if (tabId && tabIdsIn(group.root).includes(tabId)) next[group.id] = tabId;
+  }
+  const same =
+    Object.keys(next).length === Object.keys(activeByGroup).length &&
+    Object.entries(next).every(([id, tabId]) => activeByGroup[id] === tabId);
+  return same ? activeByGroup : next;
+}
+
 function sameSizes(a: number[] | undefined, b: number[]): boolean {
   return !!a && a.length === b.length && a.every((v, i) => v === b[i]);
 }

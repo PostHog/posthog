@@ -2,6 +2,7 @@ import { MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { humanizeReportTitle } from "@posthog/core/inbox/reportPresentation";
 import { useService } from "@posthog/di/react";
 import {
+  type BrowserTab,
   closeTab as closeTabLocal,
   closeTabs as closeTabsLocal,
   DEFAULT_TAB_HREF,
@@ -15,6 +16,7 @@ import {
   type TabsSnapshot,
   type TabViewState,
 } from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { channelSectionFor } from "@posthog/ui/features/canvas/channelSections";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
@@ -44,11 +46,18 @@ import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { useTabSession } from "@posthog/ui/features/navigation/useActiveSession";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { getLeafPanel } from "@posthog/ui/features/panels/panelStoreHelpers";
+import {
+  groupForTab,
+  lastActiveIn,
+  tabIdsIn,
+} from "@posthog/ui/features/tab-tiling/tileLayout";
+import { useTileLayoutStore } from "@posthog/ui/features/tab-tiling/tileLayoutStore";
 import { getTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInputSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { reportIdFromHref } from "@posthog/ui/router/reportNavigation";
 import { useAppView } from "@posthog/ui/router/useAppView";
+import { track } from "@posthog/ui/shell/analytics";
 import { isMac } from "@posthog/ui/utils/platform";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -65,6 +74,7 @@ import {
   type BrowserTabsClient,
 } from "./browserTabsClient";
 import {
+  collapseSplits,
   frontOfUnpinnedOrder,
   partitionPinnedFirst,
   storedOrderIds,
@@ -220,6 +230,10 @@ function BrowserTabStripImpl() {
   // Transient reorder preview (set while a pill is dragged); overrides the
   // strip's order without touching the domain snapshot mirror.
   const previewOrder = useTabReorderStore((s) => s.previewOrder);
+  // Tabs that share the pane show as one pill; see collapseSplits.
+  const tileGroups = useTileLayoutStore((s) => s.groups);
+  const activeByGroup = useTileLayoutStore((s) => s.activeByGroup);
+  const separateGroup = useTileLayoutStore((s) => s.separate);
   // Drop pins for tabs that no longer exist (closed here or in another
   // window). Skip the pre-seed empty snapshot so a slow boot doesn't wipe pins.
   useEffect(() => {
@@ -551,117 +565,150 @@ function BrowserTabStripImpl() {
         ...stored.filter((id) => !seen.has(id)),
       ];
     }
-    return partitionPinnedFirst(base, pinnedTabIds)
-      .map((id) => byId.get(id))
-      .filter((t) => t !== undefined)
-      .map((t): TabView => {
-        const pinned = pinnedSet.has(t.id);
-        // The active tab shows the current route's target, so resolve from the
-        // route (instant) rather than its stored ids (which lag a navigation).
-        const isActive = t.id === activeTabId;
-        const taskId = isActive ? (activeSession.taskId ?? null) : t.taskId;
-        const dashId = isActive ? (params.dashboardId ?? null) : t.dashboardId;
-        const channelId = isActive
-          ? (params.channelId ?? activeSession.channelId ?? null)
-          : t.channelId;
-        const section = isActive ? routeChannelSection : t.channelSection;
-        const appView = isActive ? routeAppView : t.appView;
-        const channel = channelName(channelId);
-        const feedId = isActive ? routeFeedId : feedIdFromHref(t.href);
-        if (feedId) {
-          return {
-            id: t.id,
-            label: feedName(feedId) ?? t.viewState?.title ?? "Saved search",
-            icon: <MagnifyingGlassIcon size={14} />,
-            channelName: null,
-            pinned,
-          };
-        }
-        if (taskId) {
-          const task = findTask(taskId);
-          return {
-            id: t.id,
-            label:
-              task?.title ??
-              taskInfo.get(taskId) ??
-              t.viewState?.title ??
-              "Task",
-            // The session list's status dot, so a tab and its row never say
-            // different things about the same session.
-            icon: <TaskTabDot task={task} />,
-            channelName: channel,
-            pinned,
-          };
-        }
-        if (dashId) {
-          const info = resolveCanvas(dashId);
-          return {
-            id: t.id,
-            label: info?.name ?? t.viewState?.title ?? "Canvas",
-            icon: iconForTemplate(info?.templateId ?? "freeform", {
-              size: 14,
-            }),
-            channelName: channel,
-            pinned,
-          };
-        }
-        // A top-level app page (Inbox, Agents, Skills, …).
-        // Resolve this before channel state: when navigation crosses from a
-        // space to Activity, persisted channel context must not turn the new
-        // top-level tab into a space tab.
-        if (appView && isTabAppView(appView)) {
-          const tabReportId = isActive
-            ? activeReportId
-            : (activityReportIdFromHref(t.href) ?? reportIdFromHref(t.href));
-          const reportTab = tabReportId
-            ? {
-                title: isActive
-                  ? (activeTitle ?? t.viewState?.title)
-                  : t.viewState?.title,
-              }
-            : null;
-          const display = resolveTabAppViewDisplay(appView, reportTab);
-          return {
-            id: t.id,
-            ...display,
-            channelName: null,
-            pinned,
-          };
-        }
-        // A channel tab: a sub-section (Recents/CONTEXT.md/…) or the channel home.
-        // The section drives the label; the channel name carries the space
-        // context. Home has no section, so it labels by the channel name.
-        if (channelId) {
-          const meta = channelSectionFor(section);
-          return {
-            id: t.id,
-            label:
-              meta?.label ??
-              channel ??
-              t.viewState?.title ??
-              (spacesLayout ? "Space" : "Channel"),
-            icon: channelGlyph(channel ?? undefined, {
-              size: 14,
-              space: spacesLayout,
-            }),
-            channelName: channel,
-            // No section meta → the channel's index page.
-            isChannelHome: !meta,
-            pinned,
-          };
-        }
+    const viewFor = (t: BrowserTab): TabView => {
+      const pinned = pinnedSet.has(t.id);
+      // The active tab shows the current route's target, so resolve from the
+      // route (instant) rather than its stored ids (which lag a navigation).
+      const isActive = t.id === activeTabId;
+      const taskId = isActive ? (activeSession.taskId ?? null) : t.taskId;
+      const dashId = isActive ? (params.dashboardId ?? null) : t.dashboardId;
+      const channelId = isActive
+        ? (params.channelId ?? activeSession.channelId ?? null)
+        : t.channelId;
+      const section = isActive ? routeChannelSection : t.channelSection;
+      const appView = isActive ? routeAppView : t.appView;
+      const channel = channelName(channelId);
+      const feedId = isActive ? routeFeedId : feedIdFromHref(t.href);
+      if (feedId) {
         return {
           id: t.id,
-          label: t.viewState?.title ?? "New tab",
+          label: feedName(feedId) ?? t.viewState?.title ?? "Saved search",
+          icon: <MagnifyingGlassIcon size={14} />,
           channelName: null,
           pinned,
         };
-      });
+      }
+      if (taskId) {
+        const task = findTask(taskId);
+        return {
+          id: t.id,
+          label:
+            task?.title ?? taskInfo.get(taskId) ?? t.viewState?.title ?? "Task",
+          // The session list's status dot, so a tab and its row never say
+          // different things about the same session.
+          icon: <TaskTabDot task={task} />,
+          channelName: channel,
+          pinned,
+        };
+      }
+      if (dashId) {
+        const info = resolveCanvas(dashId);
+        return {
+          id: t.id,
+          label: info?.name ?? t.viewState?.title ?? "Canvas",
+          icon: iconForTemplate(info?.templateId ?? "freeform", {
+            size: 14,
+          }),
+          channelName: channel,
+          pinned,
+        };
+      }
+      // A top-level app page (Inbox, Agents, Skills, …).
+      // Resolve this before channel state: when navigation crosses from a
+      // space to Activity, persisted channel context must not turn the new
+      // top-level tab into a space tab.
+      if (appView && isTabAppView(appView)) {
+        const tabReportId = isActive
+          ? activeReportId
+          : (activityReportIdFromHref(t.href) ?? reportIdFromHref(t.href));
+        const reportTab = tabReportId
+          ? {
+              title: isActive
+                ? (activeTitle ?? t.viewState?.title)
+                : t.viewState?.title,
+            }
+          : null;
+        const display = resolveTabAppViewDisplay(appView, reportTab);
+        return {
+          id: t.id,
+          ...display,
+          channelName: null,
+          pinned,
+        };
+      }
+      // A channel tab: a sub-section (Recents/CONTEXT.md/…) or the channel home.
+      // The section drives the label; the channel name carries the space
+      // context. Home has no section, so it labels by the channel name.
+      if (channelId) {
+        const meta = channelSectionFor(section);
+        return {
+          id: t.id,
+          label:
+            meta?.label ??
+            channel ??
+            t.viewState?.title ??
+            (spacesLayout ? "Space" : "Channel"),
+          icon: channelGlyph(channel ?? undefined, {
+            size: 14,
+            space: spacesLayout,
+          }),
+          channelName: channel,
+          // No section meta → the channel's index page.
+          isChannelHome: !meta,
+          pinned,
+        };
+      }
+      return {
+        id: t.id,
+        label: t.viewState?.title ?? "New tab",
+        channelName: null,
+        pinned,
+      };
+    };
+
+    const { ids, groupByAnchor } = collapseSplits(
+      partitionPinnedFirst(base, pinnedTabIds),
+      tileGroups,
+    );
+    return ids.flatMap((id): TabView[] => {
+      const anchor = byId.get(id);
+      if (!anchor) return [];
+      const group = groupByAnchor.get(id);
+      if (!group) return [viewFor(anchor)];
+      const members = tabIdsIn(group.root)
+        .map((memberId) => byId.get(memberId))
+        .filter((t) => t !== undefined)
+        .map(viewFor);
+      // The pill names the tile the split reopens on: the active tab while
+      // the split is on screen, else the tile that was active last.
+      const activeId =
+        activeTabId && members.some((m) => m.id === activeTabId)
+          ? activeTabId
+          : lastActiveIn(group, activeByGroup);
+      const face = members.find((m) => m.id === activeId) ?? members[0];
+      return [
+        {
+          ...face,
+          id: anchor.id,
+          pinned: false,
+          split: {
+            members: members.map((m) => ({
+              id: m.id,
+              label: m.label,
+              icon: m.icon,
+            })),
+            activeId: face.id,
+          },
+        },
+      ];
+    });
   }, [
     snapshot,
     windowId,
     pinnedTabIds,
     previewOrder,
+    tileGroups,
+    activeByGroup,
     channelName,
     dashboards,
     activeRecord,
@@ -792,15 +839,19 @@ function BrowserTabStripImpl() {
     [channelReportsEnabled, navigate, router.history],
   );
 
+  // A split pill selects the tile the split reopens on, not the pill's anchor.
   const handleSelect = useCallback(
     (tabId: string) => {
       if (!windowId) return;
+      const group = groupForTab(tileGroups, tabId);
+      const targetId = group ? lastActiveIn(group, activeByGroup) : tabId;
+      if (group && targetId === activeTabId) return;
       const target = readMirror().tabs.find(
-        (tab) => tab.windowId === windowId && tab.id === tabId,
+        (tab) => tab.windowId === windowId && tab.id === targetId,
       );
       if (target) goToTab(target);
     },
-    [goToTab, windowId],
+    [goToTab, windowId, tileGroups, activeByGroup, activeTabId],
   );
 
   // Navigate to the close's survivor, or — when the last tab was closed — to the
@@ -818,7 +869,14 @@ function BrowserTabStripImpl() {
   // Close applies locally and navigates to the survivor in the same tick — the
   // /website index therefore always renders against the post-close snapshot
   // and can't redirect (re-opening a tab) mid-flight.
+  // Closing a split pill closes every tab of the split; the tiles' own X
+  // removes one tab, and Cmd/Ctrl+W closes the active tile only.
   const handleClose = (tabId: string) => {
+    const group = groupForTab(tileGroups, tabId);
+    if (group) {
+      handleCloseMany(tabIdsIn(group.root));
+      return;
+    }
     useDraftStore
       .getState()
       .actions.setDraft(getTaskInputSessionId(tabId), null);
@@ -850,7 +908,7 @@ function BrowserTabStripImpl() {
   // Bulk closes operate on the strip's *displayed* order (pinned-first) and
   // never take pinned tabs with them. The anchor (the right-clicked tab, which
   // always survives) takes focus if the active tab was among those closed.
-  const handleCloseMany = (tabIds: string[], anchorTabId: string) => {
+  const handleCloseMany = (tabIds: string[], anchorTabId?: string) => {
     if (tabIds.length === 0) return;
     const draftActions = useDraftStore.getState().actions;
     for (const tabId of tabIds) {
@@ -875,9 +933,13 @@ function BrowserTabStripImpl() {
     );
   };
 
+  // A split pill counts as one slot but closes as all of its tabs.
+  const tabIdsOf = (view: TabView): string[] =>
+    view.split ? view.split.members.map((m) => m.id) : [view.id];
+
   const handleCloseOthers = (tabId: string) => {
     handleCloseMany(
-      tabs.filter((t) => t.id !== tabId && !t.pinned).map((t) => t.id),
+      tabs.filter((t) => t.id !== tabId && !t.pinned).flatMap(tabIdsOf),
       tabId,
     );
   };
@@ -889,7 +951,7 @@ function BrowserTabStripImpl() {
       tabs
         .slice(idx + 1)
         .filter((t) => !t.pinned)
-        .map((t) => t.id),
+        .flatMap(tabIdsOf),
       tabId,
     );
   };
@@ -901,9 +963,16 @@ function BrowserTabStripImpl() {
       tabs
         .slice(0, idx)
         .filter((t) => !t.pinned)
-        .map((t) => t.id),
+        .flatMap(tabIdsOf),
       tabId,
     );
+  };
+
+  const handleSeparate = (tabId: string) => {
+    const group = groupForTab(tileGroups, tabId);
+    if (!group) return;
+    separateGroup(group.id);
+    track(ANALYTICS_EVENTS.BROWSER_TAB_UNTILED, { tile_count: 0 });
   };
 
   const landOnDefault = (tabId?: string): void => {
@@ -974,6 +1043,7 @@ function BrowserTabStripImpl() {
       onCloseOthers={handleCloseOthers}
       onCloseToRight={handleCloseToRight}
       onCloseToLeft={handleCloseToLeft}
+      onSeparate={handleSeparate}
       onNewTab={handleNewTab}
     />
   );

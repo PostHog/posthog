@@ -1,4 +1,35 @@
 import type { TabsSnapshot } from "@posthog/shared";
+import {
+  groupForTab,
+  type TileGroup,
+  tabIdsIn,
+} from "@posthog/ui/features/tab-tiling/tileLayout";
+
+/**
+ * One pill per split: a group keeps the slot of its first member in the
+ * display order (its anchor) and its other members leave the strip. Returns
+ * the collapsed order and, per anchor, the group it stands for.
+ */
+export function collapseSplits(
+  displayIds: string[],
+  groups: readonly TileGroup[],
+): { ids: string[]; groupByAnchor: Map<string, TileGroup> } {
+  const groupByAnchor = new Map<string, TileGroup>();
+  const hidden = new Set<string>();
+  const ids: string[] = [];
+  for (const id of displayIds) {
+    if (hidden.has(id)) continue;
+    const group = groupForTab(groups, id);
+    if (group) {
+      groupByAnchor.set(id, group);
+      for (const member of tabIdsIn(group.root)) {
+        if (member !== id) hidden.add(member);
+      }
+    }
+    ids.push(id);
+  }
+  return { ids, groupByAnchor };
+}
 
 /** A window's tab ids in stored order (by position), pin-agnostic. */
 export function storedOrderIds(

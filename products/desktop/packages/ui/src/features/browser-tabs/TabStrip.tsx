@@ -1,6 +1,11 @@
 import { RestrictToHorizontalAxis } from "@dnd-kit/abstract/modifiers";
 import { useSortable } from "@dnd-kit/react/sortable";
-import { PlusIcon, PushPinIcon, XIcon } from "@phosphor-icons/react";
+import {
+  PlusIcon,
+  PushPinIcon,
+  SplitHorizontalIcon,
+  XIcon,
+} from "@phosphor-icons/react";
 import {
   Button,
   ContextMenu,
@@ -28,6 +33,22 @@ export interface TabView {
   isChannelHome?: boolean;
   /** Pinned tabs collapse to icon-only, sort first, and survive bulk closes. */
   pinned?: boolean;
+  /** Set when this pill stands for a split. `id` stays the tab whose strip
+   * slot the pill takes; `label` and `icon` follow the tile that was active
+   * last (`activeId`), which is where a click on the pill goes. */
+  split?: SplitView;
+}
+
+export interface SplitView {
+  /** The tabs that share the pane, in tile order. */
+  members: SplitMember[];
+  activeId: string;
+}
+
+export interface SplitMember {
+  id: string;
+  label: string;
+  icon?: ReactNode;
 }
 
 /** Which bulk-close actions would close at least one (unpinned) tab. */
@@ -50,6 +71,8 @@ export interface TabStripProps {
   onCloseOthers: (tabId: string) => void;
   onCloseToRight: (tabId: string) => void;
   onCloseToLeft: (tabId: string) => void;
+  /** Dissolve the split a pill stands for; every tab gets its own pill. */
+  onSeparate: (tabId: string) => void;
 }
 
 /**
@@ -69,6 +92,7 @@ export function TabStrip({
   onCloseOthers,
   onCloseToRight,
   onCloseToLeft,
+  onSeparate,
 }: TabStripProps) {
   // Which bulk closes are live per pill, in a single pass over the strip
   // (each closes only *unpinned* tabs in its range).
@@ -111,6 +135,7 @@ export function TabStrip({
             onCloseOthers={onCloseOthers}
             onCloseToRight={onCloseToRight}
             onCloseToLeft={onCloseToLeft}
+            onSeparate={onSeparate}
           />
         ))}
         {onNewTab && (
@@ -146,6 +171,7 @@ function SortableTabPill({
   onCloseOthers,
   onCloseToRight,
   onCloseToLeft,
+  onSeparate,
 }: {
   tab: TabView;
   index: number;
@@ -159,6 +185,7 @@ function SortableTabPill({
   | "onCloseOthers"
   | "onCloseToRight"
   | "onCloseToLeft"
+  | "onSeparate"
 >) {
   // Pinned and unpinned pills sort in separate groups so a drag can't preview
   // an insertion across the pin boundary (the drop handler rejects it too).
@@ -172,8 +199,15 @@ function SortableTabPill({
     data: { type: "browser-tab", tabId: tab.id },
   });
 
+  const split = tab.split;
+  const closeLabel = split
+    ? `Close split (${split.members.length} tabs)`
+    : `Close ${tab.label}`;
+
   // A pinned pill collapses to icon + padding (browser-style); its label lives
-  // in the tooltip. Unpinned pills keep the fading label and hover close.
+  // in the tooltip. Unpinned pills keep the fading label and hover close. A
+  // split pill leads with the icons of its tiles, so the strip shows which
+  // pill is a split and how many pages it opens.
   const pill = (
     <div
       ref={ref}
@@ -194,7 +228,13 @@ function SortableTabPill({
         size="sm"
         role="tab"
         aria-selected={isActive}
-        aria-label={tab.pinned ? `${tab.label} (pinned)` : undefined}
+        aria-label={
+          tab.pinned
+            ? `${tab.label} (pinned)`
+            : split
+              ? `${tab.label} (split, ${split.members.length} tabs)`
+              : undefined
+        }
         onClick={() => onSelect(tab.id)}
         className={`h-6 px-2 ${
           tab.pinned
@@ -202,7 +242,21 @@ function SortableTabPill({
             : "w-full justify-start gap-1 transition-[padding] group-hover:pr-6"
         } ${isActive ? "" : "opacity-60 hover:opacity-100"}`}
       >
-        {tab.icon || tab.pinned ? (
+        {split ? (
+          <span
+            aria-hidden
+            className="flex shrink-0 items-center divide-x divide-foreground/40 rounded-xs border border-foreground/40 [&_svg]:size-2"
+          >
+            {split.members.map((member) => (
+              <span
+                key={member.id}
+                className="flex h-3 w-3.5 items-center justify-center"
+              >
+                {member.icon ?? <SplitHorizontalIcon size={8} />}
+              </span>
+            ))}
+          </span>
+        ) : tab.icon || tab.pinned ? (
           <span className="flex shrink-0 items-center [&>svg]:size-3.5">
             {tab.icon ?? <PushPinIcon size={14} weight="fill" />}
           </span>
@@ -219,7 +273,7 @@ function SortableTabPill({
       {tab.pinned ? null : (
         <button
           type="button"
-          aria-label={`Close ${tab.label}`}
+          aria-label={closeLabel}
           onClick={(e) => {
             e.stopPropagation();
             onClose(tab.id);
@@ -253,7 +307,21 @@ function SortableTabPill({
               {tab.isChannelHome ? " / home" : null}
             </div>
           ) : null}
-          {tab.label && !(tab.isChannelHome && tab.channelName) ? (
+          {split ? (
+            <>
+              <div className="text-muted">Split view</div>
+              {split.members.map((member) => (
+                <div
+                  key={member.id}
+                  className={
+                    member.id === split.activeId ? "font-medium" : undefined
+                  }
+                >
+                  {member.label}
+                </div>
+              ))}
+            </>
+          ) : tab.label && !(tab.isChannelHome && tab.channelName) ? (
             <div className="font-medium">{tab.label}</div>
           ) : null}
         </TooltipContent>
@@ -262,14 +330,21 @@ function SortableTabPill({
           Electron drag regions swallow clicks on anything visually
           overlapping them — even a portalled popup on top. */}
       <ContextMenuContent className="no-drag">
-        <ContextMenuItem onClick={() => onTogglePin(tab.id)}>
-          <PushPinIcon size={14} />
-          {tab.pinned ? "Unpin tab" : "Pin tab"}
-        </ContextMenuItem>
+        {split ? (
+          <ContextMenuItem onClick={() => onSeparate(tab.id)}>
+            <SplitHorizontalIcon size={14} />
+            Separate all tabs
+          </ContextMenuItem>
+        ) : (
+          <ContextMenuItem onClick={() => onTogglePin(tab.id)}>
+            <PushPinIcon size={14} />
+            {tab.pinned ? "Unpin tab" : "Pin tab"}
+          </ContextMenuItem>
+        )}
         <ContextMenuSeparator />
         <ContextMenuItem onClick={() => onClose(tab.id)}>
           <XIcon size={14} />
-          Close tab
+          {split ? "Close split" : "Close tab"}
         </ContextMenuItem>
         <ContextMenuItem
           inset

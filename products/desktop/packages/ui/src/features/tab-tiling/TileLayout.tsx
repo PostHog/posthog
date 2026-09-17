@@ -1,5 +1,6 @@
 import { type BrowserTab, primaryWindow } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { usePinnedTabsStore } from "@posthog/ui/features/browser-tabs/pinnedTabsStore";
 import { pushTabHistoryEntry } from "@posthog/ui/features/browser-tabs/tabHistory";
 import { useTabReorderStore } from "@posthog/ui/features/browser-tabs/tabReorderStore";
 import { useTabsSnapshot } from "@posthog/ui/features/browser-tabs/useBrowserTabs";
@@ -106,7 +107,17 @@ export function TileLayout({ children }: { children: ReactNode }) {
   const groups = useTileLayoutStore((s) => s.groups);
   const prune = useTileLayoutStore((s) => s.prune);
   const untile = useTileLayoutStore((s) => s.untileTab);
-  const draggingTabId = useTabReorderStore((s) => s.draggingTabId);
+  const noteActive = useTileLayoutStore((s) => s.noteActive);
+  const pinnedTabIds = usePinnedTabsStore((s) => s.pinnedTabIds);
+  const rawDraggingTabId = useTabReorderStore((s) => s.draggingTabId);
+  // A split pill drags as one unit and a pinned pill stays icon-only, so
+  // neither can land on a tile edge: their drags show no drop zones.
+  const draggingTabId =
+    rawDraggingTabId &&
+    !groupForTab(groups, rawDraggingTabId) &&
+    !pinnedTabIds.includes(rawDraggingTabId)
+      ? rawDraggingTabId
+      : null;
   const historyTabId = useRouterState({
     select: (s) => s.location.state.tabId ?? null,
   });
@@ -153,6 +164,11 @@ export function TileLayout({ children }: { children: ReactNode }) {
   );
 
   const group = activeTabId ? groupForTab(groups, activeTabId) : null;
+
+  // The split pill reopens on the tile that was active last.
+  useEffect(() => {
+    if (group && activeTabId) noteActive(activeTabId);
+  }, [group, activeTabId, noteActive]);
 
   if (!group || !activeTabId) {
     return (
