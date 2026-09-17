@@ -68,7 +68,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
-from products.signals.backend.report_generation.resolve_reviewers import ReviewerPayloadIndex, bounded_reviewer_reason
+from products.signals.backend.report_generation.resolve_reviewers import ReviewerPayloadIndex
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult, persisted_repo_selection
 from products.signals.backend.report_metrics import ReportMetric, metric_batch_error
@@ -1012,26 +1012,12 @@ def _merge_forward_reviewer_evidence(*, report_id: str, suggested_reviewers: Sug
         if prior is None:
             merged.append(entry)
             continue
-        prior_commits = prior.get("relevant_commits")
-        # Prior evidence predates the reason length cap, so bound it the way the inbox PUT does.
-        # Left raw, one oversized legacy reason fails the whole candidate and drops the commits and
-        # the display name with it.
-        safe_prior_commits: list[object] = (
-            [
-                {**commit, "reason": bounded_reviewer_reason(commit.get("reason")) or ""}
-                if isinstance(commit, dict)
-                else commit
-                for commit in prior_commits
-            ]
-            if isinstance(prior_commits, list)
-            else []
-        )
         candidate = {
             "github_login": entry.github_login,
             "user_uuid": entry.user_uuid,
             "github_name": entry.github_name if entry.github_name is not None else prior.get("github_name"),
-            "relevant_commits": entry.relevant_commits or safe_prior_commits,
-            "reason": entry.reason if entry.reason is not None else bounded_reviewer_reason(prior.get("reason")),
+            "relevant_commits": entry.relevant_commits or prior.get("relevant_commits") or [],
+            "reason": entry.reason if entry.reason is not None else prior.get("reason"),
             # Owner provenance is recomputed from the live `LLMSkillOwner` set on every
             # reviewers-setting edit, so the fresh entry's flag wins — OR-ing in the prior value
             # would keep a former owner, re-added as a normal reviewer, excluded from autostart
