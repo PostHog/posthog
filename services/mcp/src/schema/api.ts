@@ -5,6 +5,7 @@ export type ApiEventDefinition = Schemas.EnterpriseEventDefinition
 
 export interface ApiUser {
     distinct_id: string
+    is_impersonated?: Schemas.User['is_impersonated']
     first_name?: string
     last_name?: string
     email: string

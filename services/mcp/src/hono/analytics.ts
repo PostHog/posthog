@@ -156,6 +156,9 @@ export async function trackToolCall(
     servedDescription?: string
 ): Promise<void> {
     try {
+        if (await state.reqCtx.isImpersonated()) {
+            return
+        }
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const requestContext = state.requestContext
         const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)

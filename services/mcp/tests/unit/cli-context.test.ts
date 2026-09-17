@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
     capture: vi.fn(),
     getAnalyticsContext: vi.fn(),
     getApiKey: vi.fn(),
-    getDistinctId: vi.fn(),
+    getUser: vi.fn(),
 }))
 
 vi.mock('@/lib/posthog', () => ({
@@ -18,7 +18,7 @@ vi.mock('@/lib/posthog', () => ({
 
 vi.mock('@/lib/StateManager', () => ({
     StateManager: class {
-        getDistinctId = mocks.getDistinctId
+        getUser = mocks.getUser
         getAnalyticsContext = mocks.getAnalyticsContext
         getApiKey = mocks.getApiKey
     },
@@ -29,10 +29,10 @@ import { buildCliContext } from '@/cli/context'
 describe('CLI context', () => {
     beforeEach(() => {
         mocks.capture.mockClear()
-        mocks.getDistinctId.mockReset()
+        mocks.getUser.mockReset()
         mocks.getAnalyticsContext.mockReset()
         mocks.getApiKey.mockReset()
-        mocks.getDistinctId.mockRejectedValue(new Error('offline'))
+        mocks.getUser.mockRejectedValue(new Error('offline'))
         mocks.getAnalyticsContext.mockRejectedValue(new Error('offline'))
         mocks.getApiKey.mockRejectedValue(new Error('offline'))
     })
@@ -63,5 +63,20 @@ describe('CLI context', () => {
                 properties: expect.objectContaining({ $mcp_scope_preset: 'user' }),
             })
         )
+    })
+
+    it.each([true, false])('handles tool-call capture when impersonation is %s', async (impersonated) => {
+        mocks.getUser.mockResolvedValue({ distinct_id: 'user-123', is_impersonated: impersonated })
+        const context = await buildCliContext({ host: 'https://us.posthog.com', version: 2 })
+
+        await context.trackEvent(AnalyticsEvent.MCP_TOOL_CALL)
+
+        if (impersonated) {
+            expect(mocks.capture).not.toHaveBeenCalled()
+        } else {
+            expect(mocks.capture).toHaveBeenCalledWith(
+                expect.objectContaining({ distinctId: 'user-123', event: '$mcp_tool_call' })
+            )
+        }
     })
 })
