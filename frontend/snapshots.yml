@@ -80,6 +80,18 @@ snapshots:
         hash: v1.k794b7964.6c5cd88f5aa3d41c98e0eeeff971b922bbccf36f60403a84b580a61f9aa29afb.rEnc5arM9Mv69K2iPjoLgoW7dy7xruBpLLXaYMZlyb0
     components-action-step-description--summary-with-tooltip--light:
         hash: v1.k794b7964.3bce9d23f964dddb8aa880ac92507478730c02653598580c051d620f99eaaf65.HeFECSKIWtxNuvm1I3nU8WsJfXcgS2PMRcDfMf9eOZU
+    components-activityclienttag--mcp--dark:
+        hash: v1.k794b7964.d496faf4dc9010b9cd91b18f4c5eadc0002ab8f34c040661a6f6832e3df85918.YT1F9GQDBg005k0t-pxqxJzcFo_2S3vjHMEAH3yHO3w
+    components-activityclienttag--mcp--light:
+        hash: v1.k794b7964.4d0a6238b50eacc49ab9f63018544c145f492897ef62e2c562d168866ec8de21.ZVCV-mvozxQ79TtUyFoeWZmqGTQyjNuykP7OEbNjya0
+    components-activityclienttag--scout--dark:
+        hash: v1.k794b7964.e40563d181f3a781c4442e0999a6b192225d9bb5f4fd49a392091f432c32db4b.LJy0ij53eoAedhB73UDyoSDq-Bj65T1VJrgJPO6xQWU
+    components-activityclienttag--scout--light:
+        hash: v1.k794b7964.a3977b2ed40e208ded39015273e1d9112881140e613a922aba112594d113f68c.B7x5QlJdkHFTHN4mbZHvKO-vr9IzRWZIu7--Kf3ZA7A
+    components-activityclienttag--sdk--dark:
+        hash: v1.k794b7964.24d72c6225b22c25d415eea21df5dfb4836c2322c5c2bfcf34aff3d8f7b99f33.5jeGXKRvqCby_ZRnJAiqIcdnghfJ_m7Qm-7dprW0lZs
+    components-activityclienttag--sdk--light:
+        hash: v1.k794b7964.9c2107c79242cdf242289e892425279ec458cdd52bd7db647511edc9e201ef82.0RLoWz3N9SJu232VDLYehttumTHmbRhxGd3zOqY311I
     components-activitylog--data-management-activity--dark:
         hash: v1.k794b7964.c0fd7565eccb2a1b348b4e994751489c4d2922648e7bd2aafed432a72e979e44.D18rmt5xbd-90izaBhP2OrO9uNIGf_4PKa_f2Mogmyk
     components-activitylog--data-management-activity--light:
