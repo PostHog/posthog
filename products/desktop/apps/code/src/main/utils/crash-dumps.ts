@@ -21,6 +21,13 @@ const REPORT_DIRECTORIES = ["pending", "reports"];
 // of events, so only the newest few are reported and the rest are pruned.
 const MAX_REPORTED_DUMPS = 5;
 
+// The event carries the reporting launch's own time and app version, because
+// the capture path takes no timestamp and the dump does not record a version.
+// So an old dump would attribute an old crash to today's release. Past this
+// age a dump is pruned unreported, which keeps the first launch on a build
+// that reports at all from reading as a crash burst in that build.
+const MAX_REPORTED_DUMP_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 function listDumpsInDirectory(reportDir: string): CrashDump[] {
   let entries: string[];
   try {
@@ -69,11 +76,15 @@ export interface CrashDumpReport {
  * Turn the minidumps left by crashpad into exceptions, then delete them.
  *
  * A native crash never reaches the JavaScript crash handlers, so the dump on
- * disk is its only trace. The dump itself stays unread, and it does not say
- * which process faulted: crashpad's database covers every Chromium process, so
- * a renderer or GPU fault lands here too, beside the `render-process-gone` and
- * `child-process-gone` event its own handler reports. The event carries that a
- * native crash happened and when, not where in the binary.
+ * disk is its only trace. The dump itself stays unread, so the event carries
+ * that a native crash happened and when, not where in the binary.
+ *
+ * It also cannot say which process faulted, because one crashpad database
+ * serves every Chromium process and only the minidump's own annotations name
+ * the process. A renderer or GPU fault therefore reports here too, under
+ * `dumpProcess: "unknown"`, beside the `render-process-gone` or
+ * `child-process-gone` event its own handler already reported. The two group
+ * into separate issues, so neither signal hides the other.
  */
 export function reportCrashDumps(
   crashDumpsDir: string,
@@ -82,13 +93,17 @@ export function reportCrashDumps(
   const dumps = listCrashDumps(crashDumpsDir);
   let reported = 0;
   let pruned = 0;
+  const now = Date.now();
   for (const [index, dump] of dumps.entries()) {
-    if (index < MAX_REPORTED_DUMPS) {
+    const ageMs = now - dump.writtenAtMs;
+    if (index < MAX_REPORTED_DUMPS && ageMs <= MAX_REPORTED_DUMP_AGE_MS) {
       captureException(new Error("Native crash dump from a previous run"), {
         source: "main",
         type: "native-crash",
+        dumpProcess: "unknown",
         dumpFileName: dump.fileName,
         dumpWrittenAt: new Date(dump.writtenAtMs).toISOString(),
+        dumpAgeSeconds: String(Math.round(ageMs / 1000)),
         dumpSizeBytes: String(dump.sizeBytes),
         dumpCount: String(dumps.length),
         // Ingestion rejects the whole property bag if this is not a string,

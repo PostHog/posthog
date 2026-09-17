@@ -97,8 +97,26 @@ describe("crash dumps", () => {
       source: "main",
       type: "native-crash",
       dumpFileName: "crash.dmp",
+      dumpProcess: "unknown",
       dumpCount: "1",
       $exception_fingerprint: `native-crash:${process.platform}`,
+    });
+    expect(readdirSync(path.join(crashDumpsDir, "pending"))).toHaveLength(0);
+  });
+
+  // The event time and app version are the reporting launch's, so an old dump
+  // would read as a crash in the build that first reports it.
+  it("prunes a dump too old to attribute without reporting it", () => {
+    const eightDaysSeconds = 8 * 24 * 60 * 60;
+    writeDump("pending", "ancient.dmp", eightDaysSeconds);
+    writeDump("pending", "recent.dmp", 30);
+    const captureException = vi.fn();
+
+    const report = reportCrashDumps(crashDumpsDir, captureException);
+
+    expect(report).toEqual({ found: 2, reported: 1, pruned: 2 });
+    expect(captureException.mock.calls[0][1]).toMatchObject({
+      dumpFileName: "recent.dmp",
     });
     expect(readdirSync(path.join(crashDumpsDir, "pending"))).toHaveLength(0);
   });
