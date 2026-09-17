@@ -64,14 +64,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             let kind = self.peek();
             // A bare alias was just built: an outer-tier operator (AND, OR,
             // ternary `?`, a chained AS) may wrap it, and a comparison may take
-            // it as its left operand — `1 AS x > 0` is `(1 AS x) > 0`, the
-            // optional `AS` on cpp's `ColumnExprPrecedence3` (ClickHouse accepts
-            // the shape in nested contexts, e.g. `if(1 AS x > 0, …)`). Because
-            // that alias rides on the comparison alternative itself, the right
-            // operand keeps `BP_COMPARE + 1` here, as for any comparison. Any
-            // other value-tier operator terminates the expression here, matching
-            // cpp's two-tier grammar (`1 AS x AND y` is `(1 AS x) AND y`;
-            // `1 AS x + 2` rejects).
+            // it as its left operand, matching the optional `AS` on cpp's
+            // `ColumnExprPrecedence3`. That alias rides on the comparison
+            // alternative itself, so the right operand keeps `BP_COMPARE + 1`
+            // as for any comparison. Every other value-tier operator ends the
+            // expression here (`1 AS x + 2` rejects).
             if std::mem::take(&mut self.after_bare_alias) {
                 let continues = matches!(
                     kind,
