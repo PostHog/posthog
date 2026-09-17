@@ -15,7 +15,7 @@ MESSAGES_PAGE_SIZE = 100
 MESSAGE_TYPE_TO_INT = {"incoming": 0, "outgoing": 1, "activity": 2, "template": 3}
 
 
-@dataclass
+@dataclass(frozen=True)
 class ChatwootEndpointConfig:
     name: str
     # Path under /api/v1/accounts/{account_id}. Member fan-out paths carry a {parent_id}

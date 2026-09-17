@@ -14,6 +14,8 @@ from asgiref.sync import async_to_sync
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.settings import (
     CHATWOOT_ENDPOINTS,
@@ -89,7 +91,7 @@ class ChatwootResponseTooSlowError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ChatwootResumeConfig:
     # Next page to fetch for page-number endpoints. Stored as a bare page number (not a URL) so
     # stale state can never replay against a different host after the source's host is edited.
@@ -104,6 +106,14 @@ class ChatwootResumeConfig:
     # numbers only line up against the same window, so a resumed attempt must reuse it rather
     # than recompute "now".
     until: int | None = None
+
+
+@frozen
+class ReportingEventsWindow:
+    """The since/until bounds, in unix seconds, of one reporting_events page walk."""
+
+    since: int
+    until: int
 
 
 def normalize_host(host: str | None) -> str:
@@ -467,8 +477,8 @@ def _get_member_rows(
             resumable_source_manager.save_state(ChatwootResumeConfig(parent_id=remaining[index + 1]))
 
 
-def _reporting_events_window(db_incremental_field_last_value: Any) -> tuple[int, int]:
-    """The (since, until) unix-second bounds for one reporting_events walk.
+def _reporting_events_window(db_incremental_field_last_value: Any) -> ReportingEventsWindow:
+    """The unix-second bounds for one reporting_events walk.
 
     `until` is pinned at the start of the walk because Chatwoot orders this endpoint newest-first
     across page numbers: without a fixed upper bound, an event created mid-walk shifts every later
@@ -476,8 +486,10 @@ def _reporting_events_window(db_incremental_field_last_value: Any) -> tuple[int,
     both bounds are present, so a full refresh sends epoch 0 rather than omitting `since`.
     """
     watermark = parse_datetime_value(db_incremental_field_last_value)
-    since = max(0, int(watermark.timestamp())) if watermark is not None else 0
-    return since, int(datetime.now(UTC).timestamp())
+    return ReportingEventsWindow(
+        since=max(0, int(watermark.timestamp())) if watermark is not None else 0,
+        until=int(datetime.now(UTC).timestamp()),
+    )
 
 
 def _get_reporting_event_rows(
@@ -488,18 +500,18 @@ def _get_reporting_event_rows(
     resumable_source_manager: ResumableSourceManager[ChatwootResumeConfig],
     db_incremental_field_last_value: Any,
 ) -> Iterator[list[dict[str, Any]]]:
-    since, until = _reporting_events_window(db_incremental_field_last_value)
+    window = _reporting_events_window(db_incremental_field_last_value)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     page = 1
     if resume is not None and resume.page is not None:
         page = resume.page
         if resume.until is not None:
-            until = resume.until
-        logger.debug(f"Chatwoot: resuming reporting_events from page {page} of the window ending {until}")
+            window = dataclasses.replace(window, until=resume.until)
+        logger.debug(f"Chatwoot: resuming reporting_events from page {page} of the window ending {window.until}")
 
     while page <= MAX_LIST_PAGES:
-        url = _build_url(base_url, config.path, {"since": since, "until": until, "page": page})
+        url = _build_url(base_url, config.path, {"since": window.since, "until": window.until, "page": page})
         try:
             data = _fetch_json(session, url, logger)
         except requests.HTTPError as exc:
@@ -518,7 +530,7 @@ def _get_reporting_event_rows(
         total_pages = data.get("meta", {}).get("total_pages") if isinstance(data, dict) else None
         page += 1
         # Save AFTER yielding so a crash re-yields the last page rather than skipping it.
-        resumable_source_manager.save_state(ChatwootResumeConfig(page=page, until=until))
+        resumable_source_manager.save_state(ChatwootResumeConfig(page=page, until=window.until))
         if isinstance(total_pages, int) and page > total_pages:
             return
     logger.warning(f"Chatwoot: reporting_events hit the {MAX_LIST_PAGES}-page cap; rows beyond it were skipped")
