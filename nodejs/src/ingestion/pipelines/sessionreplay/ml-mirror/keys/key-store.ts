@@ -15,38 +15,13 @@ import {
     tableKeyString,
     teamBlockId,
 } from './schema'
+import { isTransientError } from './transient'
 
 // Commits retry transient DynamoDB and KMS failures; the budget counts the re-reads as well as the waits and stays under the consumer's loop stall threshold.
 const COMMIT_ATTEMPTS = 10
 const COMMIT_BUDGET_MS = 45_000
 const COMMIT_BACKOFF_BASE_MS = 100
 const COMMIT_BACKOFF_CAP_MS = 3_000
-const TRANSIENT_ERRORS = new Set([
-    'ProvisionedThroughputExceededException',
-    'ThrottlingException',
-    'RequestLimitExceeded',
-    'InternalServerError',
-    'ServiceUnavailableException',
-    'TransactionConflictException',
-    'KMSInternalException',
-    'DependencyTimeoutException',
-    'TimeoutError',
-    'AbortError',
-])
-const TRANSIENT_ERROR_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ETIMEDOUT', 'EAI_AGAIN'])
-
-function isTransientError(error: unknown): boolean {
-    if (!(error instanceof Error)) {
-        return false
-    }
-    const { code, $retryable, $fault } = error as Error & { code?: string; $retryable?: unknown; $fault?: string }
-    return (
-        TRANSIENT_ERRORS.has(error.name) ||
-        TRANSIENT_ERROR_CODES.has(code ?? '') ||
-        $retryable !== undefined ||
-        $fault === 'server'
-    )
-}
 
 function commitRetryDelayMs(attempt: number): number {
     return Math.random() * Math.min(COMMIT_BACKOFF_CAP_MS, COMMIT_BACKOFF_BASE_MS * 2 ** attempt)

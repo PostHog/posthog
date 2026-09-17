@@ -188,6 +188,34 @@ describe('ML session key batches', () => {
         expect(boundary.writes).toBeLessThanOrEqual(2)
     })
 
+    it.each([
+        ['prepare', 9, true],
+        ['prepare', 10, false],
+        ['reader', 9, true],
+        ['reader', 10, false],
+    ])('%s under %i consecutive read throttles succeeds: %s', async (entryPoint, failures, succeeds) => {
+        const send = boundary.send.bind(boundary)
+        let remaining = failures as number
+        jest.spyOn(boundary, 'send').mockImplementation((command) => {
+            if (command instanceof BatchGetItemCommand && remaining > 0) {
+                remaining -= 1
+                return Promise.reject(transientError('RequestLimitExceeded'))
+            }
+            return send(command)
+        })
+        jest.useFakeTimers()
+        const settled = (
+            entryPoint === 'prepare'
+                ? store.prepare([session])
+                : reader.read([sessionKeyId(session.teamId, session.sessionId)])
+        ).then(
+            () => 'read',
+            () => 'failed'
+        )
+        await jest.runAllTimersAsync()
+        expect(await settled).toBe(succeeds ? 'read' : 'failed')
+    })
+
     it('writes the month index entry before the key and repairs a failed index put', async () => {
         const send = boundary.send.bind(boundary)
         let remaining = 1

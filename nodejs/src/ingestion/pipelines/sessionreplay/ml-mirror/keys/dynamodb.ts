@@ -10,6 +10,7 @@ import pLimit from 'p-limit'
 import { MlKeyRequest, MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 
 import { TableKey, tableKeyString } from './schema'
+import { isTransientError } from './transient'
 
 export type DynamoItem = Record<string, AttributeValue>
 
@@ -32,7 +33,7 @@ export class MlKeyDynamoDB {
         private readonly client: Pick<DynamoDBClient, 'send'>,
         readonly tableName: string,
         private readonly requestTimeoutMs = 5_000,
-        private readonly attempts = 5
+        private readonly attempts = 10
     ) {}
 
     public async read(keys: TableKey[], deadline?: AbortSignal): Promise<Map<string, DynamoItem>> {
@@ -47,14 +48,24 @@ export class MlKeyDynamoDB {
                 this.concurrency(async () => {
                     let pending = chunk.map(encodeKey)
                     for (let attempt = 0; pending.length && attempt < this.attempts; attempt++) {
-                        const response = await this.timed('dynamodb_read', () =>
-                            this.client.send(
-                                new BatchGetItemCommand({
-                                    RequestItems: { [this.tableName]: { Keys: pending, ConsistentRead: true } },
-                                }),
-                                { abortSignal: this.requestSignal(deadline) }
+                        // Reads retry here because MlKeyReader and MlSessionKeyStore.prepare have no retry of their own, unlike writes, which MlKeyBatch.commit retries.
+                        let response
+                        try {
+                            response = await this.timed('dynamodb_read', () =>
+                                this.client.send(
+                                    new BatchGetItemCommand({
+                                        RequestItems: { [this.tableName]: { Keys: pending, ConsistentRead: true } },
+                                    }),
+                                    { abortSignal: this.requestSignal(deadline) }
+                                )
                             )
-                        )
+                        } catch (error) {
+                            if (!isTransientError(error) || attempt === this.attempts - 1) {
+                                throw error
+                            }
+                            await this.backoff(attempt)
+                            continue
+                        }
                         for (const item of response.Responses?.[this.tableName] ?? []) {
                             result.set(tableKeyString(decodeKey(item)), item)
                         }
@@ -120,7 +131,8 @@ export class MlKeyDynamoDB {
         return deadline ? AbortSignal.any([deadline, timeout]) : timeout
     }
 
+    // The cap matches MlKeyBatch.commit because an account-wide throttle outlasts a shorter budget. A caller's deadline still bounds the total wait.
     public async backoff(attempt: number): Promise<void> {
-        await new Promise((resolve) => setTimeout(resolve, Math.min(1000, 50 * 2 ** attempt) + Math.random() * 50))
+        await new Promise((resolve) => setTimeout(resolve, Math.min(3_000, 50 * 2 ** attempt) + Math.random() * 50))
     }
 }
