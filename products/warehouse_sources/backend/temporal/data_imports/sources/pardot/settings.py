@@ -332,7 +332,8 @@ PARDOT_ENDPOINTS: dict[str, PardotEndpointConfig] = {
             "isUseValues",
             "isRequired",
             "isAnalyticsSynced",
-            "valuesPrefill",
+            # valuesPrefill is write-only on create — the v5 API 400s if it's requested
+            # in a query's `fields` list.
             "salesforceId",
             *_TIMESTAMPS,
         ),
@@ -384,7 +385,8 @@ PARDOT_ENDPOINTS: dict[str, PardotEndpointConfig] = {
             "isPaused",
             "isSent",
             "isDeleted",
-            "scheduledTime",
+            # scheduledTime is write-only on create — the v5 API 400s if it's requested
+            # in a query's `fields` list.
             "sentAt",
             *_TIMESTAMPS,
         ),

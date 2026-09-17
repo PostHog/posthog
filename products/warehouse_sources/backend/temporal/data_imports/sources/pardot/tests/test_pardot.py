@@ -180,6 +180,19 @@ class TestBuildQueryParams:
         assert "orderBy" not in params
 
 
+class TestFieldLists:
+    @pytest.mark.parametrize(
+        "endpoint, write_only_field",
+        [
+            # v5 400s a query whose `fields` list names a write-only-on-create field.
+            ("custom_fields", "valuesPrefill"),
+            ("list_emails", "scheduledTime"),
+        ],
+    )
+    def test_does_not_request_write_only_fields(self, endpoint: str, write_only_field: str) -> None:
+        assert write_only_field not in PARDOT_ENDPOINTS[endpoint].fields
+
+
 class TestPagination:
     def test_walks_pages_until_the_token_runs_out(self) -> None:
         session = _session(
