@@ -59,6 +59,17 @@ MANAGED_PROXY_OLD_KEY = "managed-proxy-old-key"
 MANAGED_PROXY_NOW = 1_800_000_000
 MANAGED_PROXY_EDGE_IP = "198.51.100.10"
 MANAGED_PROXY_CLIENT_IP = "203.0.113.7"
+# GeoIP resolves these two, so the geo-block can tell them apart.
+MANAGED_PROXY_GERMAN_CLIENT_IP = "45.90.4.87"
+MANAGED_PROXY_NON_GERMAN_EDGE_IP = "28.160.62.192"
+# hex(HMAC-SHA256(MANAGED_PROXY_KEY, f"{MANAGED_PROXY_CLIENT_IP}:{MANAGED_PROXY_NOW}")), computed
+# independently of _managed_proxy_signature so that it pins the format the Worker also asserts.
+MANAGED_PROXY_KNOWN_ANSWER_SIGNATURE = "f825f520f1c3a2ef243b6a055a528b8ce94a3b4b9110bb6f3c2b568191e7b717"
+MANAGED_PROXY_KNOWN_ANSWER_HEADERS = {
+    "HTTP_X_POSTHOG_CLIENT_IP": MANAGED_PROXY_CLIENT_IP,
+    "HTTP_X_POSTHOG_CLIENT_IP_TIMESTAMP": str(MANAGED_PROXY_NOW),
+    "HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE": MANAGED_PROXY_KNOWN_ANSWER_SIGNATURE,
+}
 
 
 def _managed_proxy_signature(key: str, ip: str, timestamp: str) -> str:
@@ -239,8 +250,8 @@ class TestAccessMiddleware(APIBaseTest):
         ):
             response = self.client.get(
                 "/",
-                HTTP_X_FORWARDED_FOR="28.160.62.192",
-                **_managed_proxy_headers("45.90.4.87", key=key),
+                HTTP_X_FORWARDED_FOR=MANAGED_PROXY_NON_GERMAN_EDGE_IP,
+                **_managed_proxy_headers(MANAGED_PROXY_GERMAN_CLIENT_IP, key=key),
             )
 
         assert (b"PostHog is not available" in response.content) is blocked
@@ -261,7 +272,7 @@ class TestManagedProxyClientIPMiddleware(SimpleTestCase):
             for outcome in ManagedProxyClientIPOutcome
         }
 
-    def _client_ips(self, meta: dict[str, Any], expected_outcome: str | None) -> tuple[str, str | None]:
+    def _run_middleware(self, meta: dict[str, Any], expected_outcome: str | None) -> tuple[str, str | None]:
         counts_before = self._verification_counts()
         request = RequestFactory().get("/", REMOTE_ADDR="10.0.0.5", HTTP_X_FORWARDED_FOR=MANAGED_PROXY_EDGE_IP, **meta)
         # An earlier middleware may read request.headers, which caches a snapshot of META.
@@ -279,30 +290,22 @@ class TestManagedProxyClientIPMiddleware(SimpleTestCase):
             ManagedProxyClientIPMiddleware(get_response)(request)
 
         assert seen["leftover"] == []
-        counts_after = self._verification_counts()
-        moved = {key: counts_after[key] - value for key, value in counts_before.items() if counts_after[key] != value}
-        assert moved == ({expected_outcome: 1.0} if expected_outcome else {})
+        expected_counts = dict(counts_before)
+        if expected_outcome:
+            expected_counts[expected_outcome] += 1
+        assert self._verification_counts() == expected_counts
         return seen["ips"]
 
     @parameterized.expand(
         [
-            (
-                "known_answer_vector",
-                {
-                    "HTTP_X_POSTHOG_CLIENT_IP": "203.0.113.7",
-                    "HTTP_X_POSTHOG_CLIENT_IP_TIMESTAMP": "1800000000",
-                    "HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE": "f825f520f1c3a2ef243b6a055a528b8ce94a3b4b9110bb6f3c2b568191e7b717",
-                },
-                "203.0.113.7",
-            ),
+            ("known_answer_vector", MANAGED_PROXY_KNOWN_ANSWER_HEADERS, MANAGED_PROXY_CLIENT_IP),
             (
                 "uppercase_hex",
                 {
-                    "HTTP_X_POSTHOG_CLIENT_IP": "203.0.113.7",
-                    "HTTP_X_POSTHOG_CLIENT_IP_TIMESTAMP": "1800000000",
-                    "HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE": "F825F520F1C3A2EF243B6A055A528B8CE94A3B4B9110BB6F3C2B568191E7B717",
+                    **MANAGED_PROXY_KNOWN_ANSWER_HEADERS,
+                    "HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE": MANAGED_PROXY_KNOWN_ANSWER_SIGNATURE.upper(),
                 },
-                "203.0.113.7",
+                MANAGED_PROXY_CLIENT_IP,
             ),
             ("older_key", _managed_proxy_headers(key=MANAGED_PROXY_OLD_KEY), MANAGED_PROXY_CLIENT_IP),
             ("ipv6", _managed_proxy_headers("2001:db8::1"), "2001:db8::1"),
@@ -311,63 +314,69 @@ class TestManagedProxyClientIPMiddleware(SimpleTestCase):
         ]
     )
     def test_valid_signature_sets_client_ip(self, _name: str, meta: dict[str, Any], expected_ip: str) -> None:
-        assert self._client_ips(meta, "valid") == (expected_ip, expected_ip)
+        assert self._run_middleware(meta, "valid") == (expected_ip, expected_ip)
 
     @parameterized.expand(
         [
-            ("no_headers", {}, {}, None),
-            ("unknown_key", _managed_proxy_headers(key="some-other-key"), {}, "bad_signature"),
-            ("signed_for_another_ip", _managed_proxy_headers(signed_ip="192.0.2.1"), {}, "bad_signature"),
+            ("no_headers", {}, None),
+            ("unknown_key", _managed_proxy_headers(key="some-other-key"), "bad_signature"),
+            ("signed_for_another_ip", _managed_proxy_headers(signed_ip="192.0.2.1"), "bad_signature"),
             (
                 "expired_timestamp",
                 _managed_proxy_headers(timestamp=MANAGED_PROXY_NOW - 61),
-                {},
                 "timestamp_out_of_window",
             ),
             (
                 "future_timestamp",
                 _managed_proxy_headers(timestamp=MANAGED_PROXY_NOW + 6),
-                {},
                 "timestamp_out_of_window",
             ),
-            ("non_numeric_timestamp", _managed_proxy_headers(timestamp="1800000000.0"), {}, "invalid_input"),
-            ("oversized_timestamp", _managed_proxy_headers(timestamp="1" * 5000), {}, "invalid_input"),
-            ("malformed_ip", _managed_proxy_headers("not-an-ip"), {}, "invalid_input"),
+            ("non_numeric_timestamp", _managed_proxy_headers(timestamp="1800000000.0"), "invalid_input"),
+            ("oversized_timestamp", _managed_proxy_headers(timestamp="1" * 5000), "invalid_input"),
+            ("malformed_ip", _managed_proxy_headers("not-an-ip"), "invalid_input"),
             (
                 "missing_timestamp",
                 {k: v for k, v in _managed_proxy_headers().items() if k != "HTTP_X_POSTHOG_CLIENT_IP_TIMESTAMP"},
-                {},
                 "invalid_input",
             ),
             (
                 "empty_signature",
                 {**_managed_proxy_headers(), "HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE": ""},
-                {},
                 "invalid_input",
             ),
             (
                 "non_ascii_signature",
                 {**_managed_proxy_headers(), "HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE": "é" * 64},
-                {},
-                "bad_signature",
-            ),
-            ("no_keys", _managed_proxy_headers(key=""), {"MANAGED_PROXY_SIGNING_KEYS": []}, "not_configured"),
-            ("empty_key", _managed_proxy_headers(key=""), {"MANAGED_PROXY_SIGNING_KEYS": [""]}, "not_configured"),
-            (
-                "empty_key_in_list",
-                _managed_proxy_headers(key=""),
-                {"MANAGED_PROXY_SIGNING_KEYS": [MANAGED_PROXY_KEY, ""]},
                 "bad_signature",
             ),
         ]
     )
     def test_unverified_request_keeps_edge_ip(
-        self, _name: str, meta: dict[str, Any], setting_overrides: dict[str, Any], expected_outcome: str | None
+        self, _name: str, meta: dict[str, Any], expected_outcome: str | None
     ) -> None:
-        with self.settings(**setting_overrides):
-            client_ips = self._client_ips(meta, expected_outcome)
+        assert self._run_middleware(meta, expected_outcome) == (MANAGED_PROXY_EDGE_IP, MANAGED_PROXY_EDGE_IP)
+
+    @parameterized.expand(
+        [
+            ("no_keys", [], "not_configured"),
+            ("empty_key", [""], "not_configured"),
+            ("empty_key_in_list", [MANAGED_PROXY_KEY, ""], "bad_signature"),
+        ]
+    )
+    def test_signing_key_list_keeps_edge_ip(self, _name: str, keys: list[str], expected_outcome: str) -> None:
+        with self.settings(MANAGED_PROXY_SIGNING_KEYS=keys):
+            client_ips = self._run_middleware(_managed_proxy_headers(key="some-other-key"), expected_outcome)
 
         assert client_ips == (MANAGED_PROXY_EDGE_IP, MANAGED_PROXY_EDGE_IP)
+
+    def test_runs_before_the_middleware_that_logs_the_forwarded_for_header(self) -> None:
+        # per_request_logging_context_middleware reads x-forwarded-for on the request path, so it
+        # only records the signed IP while it stays below this middleware. AllowIPMiddleware and axes
+        # read the client IP at or after the view, so their position does not constrain this one.
+        middleware = list(settings.MIDDLEWARE)
+        assert middleware.index("posthog.middleware.ManagedProxyClientIPMiddleware") < middleware.index(
+            "posthog.middleware.per_request_logging_context_middleware"
+        )
 
 
 class TestAutoProjectMiddleware(APIBaseTest):

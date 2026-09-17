@@ -1,10 +1,8 @@
 import os
 import re
-import hmac
 import json
 import time
 import uuid
-import hashlib
 import posixpath
 from collections.abc import Callable
 from contextlib import suppress
@@ -50,6 +48,7 @@ from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
+from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
@@ -125,11 +124,6 @@ default_cookie_options = {
 
 cookie_api_paths_to_ignore = {"api", "flags", "scim"}
 
-MANAGED_PROXY_CLIENT_IP_META_KEYS = (
-    "HTTP_X_POSTHOG_CLIENT_IP",
-    "HTTP_X_POSTHOG_CLIENT_IP_TIMESTAMP",
-    "HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE",
-)
 MANAGED_PROXY_SIGNATURE_MAX_AGE_SECONDS = 60
 MANAGED_PROXY_SIGNATURE_MAX_CLOCK_SKEW_SECONDS = 5
 
@@ -143,8 +137,6 @@ class ManagedProxyClientIPOutcome(StrEnum):
     BAD_SIGNATURE = "bad_signature"
 
 
-# Only a request that carries a signed header counts here, so the series stays small.
-# Every outcome other than `valid` leaves the edge IP in place, and the request still succeeds.
 # Alert on `valid` falling to zero while managed proxy traffic continues. Do not alert on the
 # failure outcomes, because anyone can raise those by sending forged headers to the origin.
 MANAGED_PROXY_CLIENT_IP_VERIFICATIONS = Counter(
@@ -179,11 +171,9 @@ def verify_managed_proxy_client_ip(
         return ManagedProxyClientIPOutcome.TIMESTAMP_OUT_OF_WINDOW
 
     message = f"{ip}:{timestamp}".encode()
-    # compare_digest raises TypeError on a str with non-ASCII characters, so compare bytes.
-    provided = signature.lower().encode()
+    provided = signature.lower()
     for key in keys:
-        expected = hmac.new(key.encode(), message, hashlib.sha256).hexdigest().encode()
-        if hmac.compare_digest(expected, provided):
+        if signatures_match(hmac_sha256_signature(key, message), provided):
             return ManagedProxyClientIPOutcome.VALID
     return ManagedProxyClientIPOutcome.BAD_SIGNATURE
 
@@ -192,9 +182,17 @@ class ManagedProxyClientIPMiddleware:
     """Use the client IP that the managed reverse proxy signed as the request's client IP.
 
     Envoy sets X-Forwarded-For to its peer, which is a Cloudflare edge for managed proxy traffic.
+    Only a shared secret can recover the real client, because a Cloudflare edge range identifies
+    Cloudflare and not PostHog's Worker: any Cloudflare tenant can point a zone at this origin.
+    The ingress must therefore keep overwriting X-Forwarded-For rather than appending to it.
+
     After a valid signature, X-Forwarded-For holds only the signed IP, so get_ip_address,
     get_trusted_client_ip, axes, DRF throttles and the request log all see the real client.
-    REMOTE_ADDR stays the transport peer, because get_trusted_client_ip checks it against TRUSTED_PROXIES.
+    The rewrite goes into request.META because axes/ipware and the DRF throttles read
+    HTTP_X_FORWARDED_FOR from META directly, which a request attribute would not reach.
+
+    REMOTE_ADDR stays the transport peer. get_trusted_client_ip then returns the signed IP only
+    when that peer is in TRUSTED_PROXIES, or when TRUST_ALL_PROXIES is set.
 
     Any other outcome keeps the edge IP and lets the request through. The edge IP comes from Envoy
     rather than from the client, so the fallback costs precision and not safety. A rejection would
@@ -206,14 +204,18 @@ class ManagedProxyClientIPMiddleware:
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         # Remove the headers on every request, so that no later code can read an unverified value.
-        ip, timestamp, signature = (request.META.pop(key, None) for key in MANAGED_PROXY_CLIENT_IP_META_KEYS)
-        if ip or timestamp or signature:
-            outcome = verify_managed_proxy_client_ip(ip, timestamp, signature)
-            MANAGED_PROXY_CLIENT_IP_VERIFICATIONS.labels(outcome=outcome.value).inc()
-            if outcome is ManagedProxyClientIPOutcome.VALID and ip:
-                request.META["HTTP_X_FORWARDED_FOR"] = ip
-        # request.headers caches a copy of META on first access. Drop the cache in case an
-        # earlier middleware read it, so that later readers see the changes above.
+        ip = request.META.pop("HTTP_X_POSTHOG_CLIENT_IP", None)
+        timestamp = request.META.pop("HTTP_X_POSTHOG_CLIENT_IP_TIMESTAMP", None)
+        signature = request.META.pop("HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE", None)
+        if ip is None and timestamp is None and signature is None:
+            return self.get_response(request)
+
+        outcome = verify_managed_proxy_client_ip(ip, timestamp, signature)
+        MANAGED_PROXY_CLIENT_IP_VERIFICATIONS.labels(outcome=outcome.value).inc()
+        if outcome is ManagedProxyClientIPOutcome.VALID:
+            request.META["HTTP_X_FORWARDED_FOR"] = ip
+        # request.headers caches a copy of META on first access, and the pops above changed META.
+        # Drop the cache so that a later reader sees the change.
         request.__dict__.pop("headers", None)
         return self.get_response(request)
 
