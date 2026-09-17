@@ -9828,6 +9828,8 @@ export namespace Schemas {
      * * `skipped_unactionable` - skipped_unactionable
      * * `blocked_unsafe` - blocked_unsafe
      * * `blocked_unsafe_reply` - blocked_unsafe_reply
+     * * `clarified` - clarified
+     * * `suggested_clarification` - suggested_clarification
      * * `in_progress` - in_progress
      */
     export type AiTriageResultEnum = typeof AiTriageResultEnum[keyof typeof AiTriageResultEnum];
@@ -9842,6 +9844,8 @@ export namespace Schemas {
       SkippedUnactionable: 'skipped_unactionable',
       BlockedUnsafe: 'blocked_unsafe',
       BlockedUnsafeReply: 'blocked_unsafe_reply',
+      Clarified: 'clarified',
+      SuggestedClarification: 'suggested_clarification',
       InProgress: 'in_progress',
     } as const;
 
@@ -50672,6 +50676,18 @@ export namespace Schemas {
      */
     export type LLMPromptPublicConfig = { [key: string]: unknown } | null;
 
+    export interface LLMPromptResolvedReference {
+      /** Name of the referenced prompt that was spliced in. */
+      name: string;
+      /** Exact version whose content was spliced in. */
+      version: number;
+      /**
+         * Label the reference used, or null when it pinned a version directly.
+         * @nullable
+         */
+      label: string | null;
+    }
+
     export interface LLMPromptPublic {
       id: string;
       name: string;
@@ -50689,6 +50705,8 @@ export namespace Schemas {
       version: number;
       /** The label this prompt was fetched by. Only present when fetching with the label parameter. */
       label?: string;
+      /** The exact prompt versions spliced into the returned content, in order of first appearance. Empty when the prompt has no references. Only present when references were resolved. */
+      resolved_references?: LLMPromptResolvedReference[];
       created_at: string;
       updated_at: string;
       deleted: boolean;
@@ -50869,7 +50887,7 @@ export namespace Schemas {
     export interface LLMSkillCreate {
       readonly id: string;
       /**
-         * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
+         * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters. Cannot be the name of a skill PostHog ships.
          * @maxLength 64
          */
       name: string;
@@ -50932,7 +50950,7 @@ export namespace Schemas {
 
     export interface LLMSkillDuplicate {
       /**
-         * Name for the duplicated skill. Must be unique.
+         * Name for the duplicated skill. Must be unique, and cannot be the name of a skill PostHog ships.
          * @maxLength 64
          */
       new_name: string;
@@ -51190,7 +51208,7 @@ export namespace Schemas {
 
     export interface LLMSkillRename {
       /**
-         * New name for the skill. Must be unique in the project, and must not start with 'signals-scout-' or 'review-hog-'.
+         * New name for the skill. Must be unique in the project, cannot be the name of a skill PostHog ships, and must not start with 'signals-scout-' or 'review-hog-'.
          * @maxLength 64
          */
       new_name: string;
@@ -62863,6 +62881,11 @@ export namespace Schemas {
       error_message: string | null;
       /** @nullable */
       output: TaskRunDetailDTOOutput;
+      /**
+         * Latest summary for this task, including a summary inherited from an earlier run.
+         * @nullable
+         */
+      task_summary: string | null;
       state: TaskRunDetailDTOState;
       readonly artifacts: readonly TaskRunArtifactResponse[];
       /** @nullable */
@@ -63129,6 +63152,11 @@ export namespace Schemas {
        * * `closed` - closed
        * * `unknown` - unknown */
       pr_state: PrStateEnum | null;
+      /**
+         * Latest summary for this task, including a summary inherited from an earlier run.
+         * @nullable
+         */
+      task_summary?: string | null;
     }
 
     /**
@@ -63502,7 +63530,7 @@ export namespace Schemas {
        * * `on-track` - on-track
        * * `all` - all */
       sla?: TicketSlaFilterEnum;
-      /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, in_progress. */
+      /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress. */
       aiTriageResult?: AiTriageResultEnum[];
       /** Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace 'all' with an empty list to apply no assignee filter. */
       assignee?: TicketViewFiltersAssigneeItem[];
@@ -72588,6 +72616,14 @@ export namespace Schemas {
     export interface PatchedTaskRunSetOutputRequest {
       /** Output data from the run. Validated against the task's json_schema if one is set. */
       output?: unknown;
+    }
+
+    export interface PatchedTaskRunSetSummaryRequest {
+      /**
+         * Complete running summary that replaces the prior summary.
+         * @maxLength 1500
+         */
+      summary?: string;
     }
 
     /**
@@ -99885,7 +99921,7 @@ export namespace Schemas {
 
     export type ConversationsTicketsListParams = {
     /**
-     * Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `suggested`, `escalated_with_findings`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `blocked_unsafe`, `blocked_unsafe_reply`, `in_progress`.
+     * Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `suggested`, `escalated_with_findings`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `blocked_unsafe`, `blocked_unsafe_reply`, `clarified`, `suggested_clarification`, `in_progress`.
      */
     ai_triage_result?: string;
     /**
@@ -105174,6 +105210,10 @@ export namespace Schemas {
      * @maxLength 128
      */
     label?: string;
+    /**
+     * Replace @@@prompt:...@@@ references with the referenced prompts' content before returning. Set to false to get the raw text with the reference tags, e.g. for editing or export. Only applies when content is 'full'.
+     */
+    resolve?: boolean;
     /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
