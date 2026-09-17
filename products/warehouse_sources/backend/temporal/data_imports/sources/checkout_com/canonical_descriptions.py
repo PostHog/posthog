@@ -132,7 +132,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "issuing_bank": "Bank that issued the card used to make the payment.",
             "payment_type": "Type of card payment where the cardholder is not present (Regular, Recurring, MOTO, Installment, Unscheduled).",
             "payment_id": "Identifier of the payment this financial action belongs to.",
-            "payment_requested_on": "Request time of the parent payment. Used as the incremental sync cursor.",
+            "payment_requested_on": "Request time of the parent payment. Used as the incremental sync cursor, so actions added after the payment synced appear on a full refresh rather than the next incremental run.",
         },
     },
     "customers": {

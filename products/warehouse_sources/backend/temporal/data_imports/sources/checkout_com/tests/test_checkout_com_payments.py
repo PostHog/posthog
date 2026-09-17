@@ -626,6 +626,29 @@ class TestFinancialActionsFanout:
         assert [row["action_id"] for row in rows] == ["act_1"]
 
     @mock.patch(SESSION_PATCH)
+    def test_an_answered_empty_ledger_beside_a_404_is_tolerated(self, mock_make_session):
+        # A payment with no actions yet answers 200 with an empty `data` array, which proves
+        # the route works. Counting rows instead of answered lookups failed this run as an
+        # unroutable endpoint even though one lookup succeeded.
+        session = _FakeSession(
+            search_responses=[
+                _search_page(
+                    [
+                        _payment("pay_1", "2024-02-29T06:00:00Z"),
+                        _payment("pay_2", "2024-02-29T18:00:00Z"),
+                    ]
+                )
+            ],
+            lookup_responses=[
+                _financial_actions_page([]),
+                _FakeResponse(status_code=404),
+            ],
+        )
+        mock_make_session.side_effect = [session]
+
+        assert _rows(_source("financial_actions", start_date="2024-02-28")) == []
+
+    @mock.patch(SESSION_PATCH)
     def test_an_empty_ledger_across_every_payment_completes(self, mock_make_session):
         session = _FakeSession(
             search_responses=[_search_page([_payment("pay_1", "2024-02-29T06:00:00Z")])],

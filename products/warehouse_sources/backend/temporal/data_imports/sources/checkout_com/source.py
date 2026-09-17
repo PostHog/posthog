@@ -80,7 +80,7 @@ _PAYMENTS_INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 _PAYMENTS_ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "payments": "Payment requests (approved and declined) from the payments search API.",
     "payment_actions": "Authorization, capture, refund and void actions for each payment.",
-    "financial_actions": "Settlement ledger entries for each payment: captures, refunds, chargebacks and their fee breakdowns.",
+    "financial_actions": "Settlement ledger entries for each payment: captures, refunds, chargebacks and fee breakdowns. Actions added after a payment syncs need a full refresh to appear.",
     "customers": "Customer records referenced by your payments.",
     "instruments": "Stored payment instruments referenced by your payments.",
 }

@@ -22,9 +22,14 @@ the budget ran out.
 ``payment_actions``, ``financial_actions``, ``customers`` and ``instruments``
 have no listing endpoints at all, so their syncs walk the same payment windows
 and fan out per referenced record. ``GET /financial-actions`` requires a
-``payment_id`` (or a single ``action_id``), so the settlement ledger — captures,
-refunds, chargebacks and their fee breakdowns — is fetched per payment and
-paginated with ``pagination_token``. The search response references a customer by email alone
+``payment_id`` (or a single ``action_id``), so the settlement ledger (captures,
+refunds, chargebacks and their fee breakdowns) is fetched per payment and
+paginated with ``pagination_token``. It takes no time filter, so there is no
+action-level cursor available: the table advances on the parent payment's request
+time like the other fan-out tables, and an action added after its payment synced
+(a later refund or chargeback) appears on a full refresh rather than the next
+incremental run. The regenerated FinancialActions report table covers late
+adjustments without one, which is why both surfaces are worth syncing. The search response references a customer by email alone
 (its ``customer`` object carries no ``cus_`` id) and describes a card source
 without an instrument id, so customers are fetched via ``GET
 /customers/{identifier}`` (the endpoint accepts an email) and instruments via
@@ -214,8 +219,10 @@ class _FanoutRunState:
     # Counted separately from `rows_landed`, which the customers/instruments path owns:
     # these two decide whether an empty financial actions run is an unroutable endpoint
     # (every lookup 404'd) or an account that genuinely has no settled payments yet.
+    # `served` counts answered lookups rather than rows, because a payment with no actions
+    # yet answers 200 with an empty `data` array — that proves the route works.
     financial_actions_missing: int = 0
-    financial_actions_found: int = 0
+    financial_actions_served: int = 0
 
 
 def _to_datetime(value: Any) -> datetime | None:
@@ -440,6 +447,7 @@ def _financial_actions_rows(
         if payload is None:
             state.financial_actions_missing += 1
             return rows
+        state.financial_actions_served += 1
         data = payload.get("data")
         if not isinstance(data, list):
             return rows
@@ -454,7 +462,6 @@ def _financial_actions_rows(
             row["payment_id"] = payment_id
             row["payment_requested_on"] = payment.get("requested_on")
             rows.append(row)
-            state.financial_actions_found += 1
         next_token = _next_pagination_token(payload)
         if not next_token or next_token == pagination_token:
             return rows
@@ -830,7 +837,7 @@ def _get_rows(
         yield chunk
     # Checked before the budget branch, so an unroutable endpoint reports its own cause
     # rather than the generic falling-behind message a row-less run would otherwise raise.
-    if state.financial_actions_missing and not state.financial_actions_found:
+    if state.financial_actions_missing and not state.financial_actions_served:
         raise CheckoutComFinancialActionsUnavailableError(
             f"{FINANCIAL_ACTIONS_UNAVAILABLE_MARKER}: every financial actions lookup in this run "
             f"({state.financial_actions_missing} payment(s)) returned 404, so no settlement data could be read"
