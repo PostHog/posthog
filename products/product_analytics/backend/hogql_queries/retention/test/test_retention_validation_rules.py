@@ -10,8 +10,10 @@ from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWareho
 from posthog.hogql_queries.validation.validation import QueryValidationContext
 
 from products.product_analytics.backend.hogql_queries.retention.retention_validation_rules import (
+    MAX_RETENTION_INTERVALS,
     DisallowBreakdownsWithDataWarehouse24HourWindows,
     DisallowCumulativeWith24HourWindows,
+    DisallowExcessiveIntervals,
     DisallowGroupAggregationWithDataWarehouse24HourWindows,
     DisallowPropertyAggregationWith24HourWindows,
     RequireRetentionDataWarehouseEntitiesForCustomAggregationTarget,
@@ -261,3 +263,38 @@ class TestRetentionValidationRules(BaseTest):
         self.assertEqual(
             context.exception.get_codes(), ["retention_custom_aggregation_target_requires_data_warehouse_entities"]
         )
+
+    @parameterized.expand(
+        [
+            ("default_intervals", None, None, False),
+            ("intervals_at_limit", MAX_RETENTION_INTERVALS, None, False),
+            ("intervals_over_limit", MAX_RETENTION_INTERVALS + 1, None, True),
+            ("intervals_far_over_limit", 10_000_000, None, True),
+            ("brackets_within_limit", 7, [1, 3, 5], False),
+            ("brackets_sum_over_limit", 7, [1, 10_000_000], True),
+            ("brackets_count_over_limit", 7, [0] * (MAX_RETENTION_INTERVALS + 1), True),
+        ]
+    )
+    def test_disallow_excessive_intervals(
+        self,
+        _name: str,
+        total_intervals: int | None,
+        custom_brackets: list[float] | None,
+        raises_error: bool,
+    ) -> None:
+        query = RetentionQuery(
+            retentionFilter=RetentionFilter(
+                totalIntervals=total_intervals,
+                retentionCustomBrackets=custom_brackets,
+            )
+        )
+
+        if not raises_error:
+            DisallowExcessiveIntervals().validate(self._context(query))
+            return
+
+        with self.assertRaises(ValidationError) as context:
+            DisallowExcessiveIntervals().validate(self._context(query))
+
+        self.assertIn(f"Retention supports up to {MAX_RETENTION_INTERVALS} intervals.", str(context.exception))
+        self.assertEqual(context.exception.get_codes(), ["retention_too_many_intervals"])

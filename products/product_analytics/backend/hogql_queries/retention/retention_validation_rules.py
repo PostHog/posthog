@@ -9,6 +9,9 @@ from posthog.hogql_queries.utils.breakdowns import has_breakdown_filter
 from posthog.hogql_queries.utils.data_warehouse_schema_mixin import resolve_warehouse_field
 from posthog.hogql_queries.validation.validation import QueryValidationContext
 
+# Well above the 32 intervals the insight editor allows, so only a hand-written query reaches it.
+MAX_RETENTION_INTERVALS = 100
+
 
 class DisallowCumulativeWith24HourWindows:
     code = "retention_cumulative_24_hour_windows_unsupported"
@@ -141,5 +144,27 @@ class DisallowPropertyAggregationWith24HourWindows:
         if has_property_aggregation:
             raise ValidationError(
                 "Sum and average aggregation are not supported for 24 hour windows.",
+                code=self.code,
+            )
+
+
+class DisallowExcessiveIntervals:
+    """The result matrix has one cell for each pair of a start interval and a return interval, and the query
+    builds every cell in Python, so its cost is quadratic in the interval count. The request controls that
+    count through `totalIntervals` or through the custom brackets, which lets one query allocate for millions
+    of cells before any result reaches the user."""
+
+    code = "retention_too_many_intervals"
+
+    def validate(self, context: QueryValidationContext[RetentionQuery]) -> None:
+        retention_filter = context.query.retentionFilter
+        requested = retention_filter.totalIntervals or 0
+        brackets = retention_filter.retentionCustomBrackets
+        if brackets:
+            requested = max(requested, len(brackets), sum(brackets))
+        if requested > MAX_RETENTION_INTERVALS:
+            raise ValidationError(
+                f"Retention supports up to {MAX_RETENTION_INTERVALS} intervals. "
+                "Ask for fewer intervals, or use a longer period.",
                 code=self.code,
             )

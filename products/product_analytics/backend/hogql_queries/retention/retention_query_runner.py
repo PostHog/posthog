@@ -59,6 +59,7 @@ from products.product_analytics.backend.hogql_queries.retention.retention_base_q
 from products.product_analytics.backend.hogql_queries.retention.retention_validation_rules import (
     DisallowBreakdownsWithDataWarehouse24HourWindows,
     DisallowCumulativeWith24HourWindows,
+    DisallowExcessiveIntervals,
     DisallowGroupAggregationWithDataWarehouse24HourWindows,
     DisallowPropertyAggregationWith24HourWindows,
     DisallowUnsupportedDataWarehouseTimestampField,
@@ -148,6 +149,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
     def validators(self) -> Sequence[QueryValidationRule[RetentionQuery]]:
         return (
             DisallowCumulativeWith24HourWindows(),
+            DisallowExcessiveIntervals(),
             DisallowBreakdownsWithDataWarehouse24HourWindows(),
             DisallowGroupAggregationWithDataWarehouse24HourWindows(),
             DisallowPropertyAggregationWith24HourWindows(),
