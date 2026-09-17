@@ -63,10 +63,10 @@ def run_investigation_notification_safety_net() -> int:
     # legitimately-held check from this safety net; `investigation_agent_enabled`
     # is a stickier configuration knob and picks up exactly the checks whose
     # dispatch could have been the workflow's responsibility.
-    # No select_related on alert_configuration: that made the scan select every
-    # AlertConfiguration column, so a column the database has not migrated yet failed the whole
-    # sweep before it read a row. The filter still joins for `investigation_agent_enabled`, and
-    # each candidate loads its own alert below.
+    # The scan deliberately does not select_related the alert: selecting every
+    # AlertConfiguration column lets a column the database has not migrated yet fail the sweep
+    # before it reads a row. The filter joins for `investigation_agent_enabled` without
+    # selecting from the table, and each candidate loads its own alert below.
     candidates = AlertCheck.objects.filter(
         state=AlertState.FIRING,
         notification_sent_at__isnull=True,
