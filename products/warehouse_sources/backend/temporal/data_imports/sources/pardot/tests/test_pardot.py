@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.pardot import (
     PAGE_SIZE,
     PardotPageTokenExpiredError,
+    PardotQueryRejectedError,
     PardotResumeConfig,
     _build_query_params,
     _format_datetime,
@@ -98,10 +99,14 @@ class TestFormatDatetime:
     @pytest.mark.parametrize(
         "value, expected",
         [
-            (datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC), "2024-01-02T03:04:05Z"),
-            (datetime(2024, 1, 2, 3, 4, 5), "2024-01-02T03:04:05Z"),
-            (date(2024, 1, 2), "2024-01-02T00:00:00Z"),
-            ("2024-01-02T03:04:05Z", "2024-01-02T03:04:05Z"),
+            # v5 refuses the `Z` designator with "Invalid date time value" and fails the
+            # whole query, so every branch has to emit a numeric offset.
+            (datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC), "2024-01-02T03:04:05+00:00"),
+            (datetime(2024, 1, 2, 3, 4, 5), "2024-01-02T03:04:05+00:00"),
+            (date(2024, 1, 2), "2024-01-02T00:00:00+00:00"),
+            ("2024-01-02T03:04:05Z", "2024-01-02T03:04:05+00:00"),
+            ("2024-01-02T05:04:05+02:00", "2024-01-02T03:04:05+00:00"),
+            ("not a timestamp", "not a timestamp"),
         ],
     )
     def test_formats_cursor_values(self, value: Any, expected: str) -> None:
@@ -110,7 +115,7 @@ class TestFormatDatetime:
     def test_converts_non_utc_offsets(self) -> None:
         naive = datetime.fromisoformat("2024-01-02T05:04:05+02:00")
 
-        assert _format_datetime(naive) == "2024-01-02T03:04:05Z"
+        assert _format_datetime(naive) == "2024-01-02T03:04:05+00:00"
 
 
 class TestBuildQueryParams:
@@ -136,7 +141,7 @@ class TestBuildQueryParams:
         )
 
         assert params["orderBy"] == "updatedAt"
-        assert params["updatedAtAfterOrEqualTo"] == "2024-05-01T00:00:00Z"
+        assert params["updatedAtAfterOrEqualTo"] == "2024-05-01T00:00:00+00:00"
 
     def test_first_incremental_run_sorts_on_the_cursor_without_filtering(self) -> None:
         params = _build_query_params(
@@ -180,6 +185,10 @@ class TestBuildQueryParams:
         assert "orderBy" not in params
 
 
+def _refused_field_body(field: str) -> dict[str, Any]:
+    return {"code": 51, "message": f"Invalid parameter: fields. It contains an invalid or unknown field: {field}."}
+
+
 class TestFieldLists:
     @pytest.mark.parametrize(
         "endpoint, write_only_field",
@@ -191,6 +200,29 @@ class TestFieldLists:
     )
     def test_does_not_request_write_only_fields(self, endpoint: str, write_only_field: str) -> None:
         assert write_only_field not in PARDOT_ENDPOINTS[endpoint].fields
+
+    def test_a_refused_field_is_dropped_and_the_query_retried(self) -> None:
+        session = _session(
+            [
+                _response(_refused_field_body("salesforceCmsId"), status_code=400),
+                _response({"values": [{"id": 1}], "nextPageToken": "t1"}),
+                _response({"values": [{"id": 2}]}),
+            ]
+        )
+
+        rows = _collect(session, FakeResumeManager(), endpoint="forms")
+        first, retried, paged = _get_params(session)
+
+        assert [row["id"] for row in rows] == [1, 2]
+        assert "salesforceCmsId" in first["fields"].split(",")
+        assert "salesforceCmsId" not in retried["fields"].split(",")
+        assert paged["fields"] == retried["fields"]
+
+    def test_a_refused_primary_key_stops_the_endpoint(self) -> None:
+        session = _session([_response(_refused_field_body("id"), status_code=400)])
+
+        with pytest.raises(PardotQueryRejectedError):
+            _collect(session, FakeResumeManager(), endpoint="forms")
 
 
 class TestPagination:
@@ -283,12 +315,23 @@ class TestResume:
         with pytest.raises(PardotPageTokenExpiredError):
             _collect(session, FakeResumeManager())
 
-    def test_other_bad_requests_are_raised_rather_than_restarted(self) -> None:
-        session = _session([_response({"message": "Invalid field name"}, status_code=400)])
+    def test_other_bad_requests_surface_the_reason_rather_than_restarting(self) -> None:
+        # raise_for_status would store the 900-character request URL as the customer's error,
+        # which says nothing about why v5 refused it.
+        session = _session(
+            [
+                _response(
+                    {"code": 51, "message": "Invalid parameter: Parameter updatedAtAfterOrEqualTo is invalid."},
+                    status_code=400,
+                )
+            ]
+        )
         manager = FakeResumeManager(PardotResumeConfig(next_page_token="saved-token"))
 
-        with pytest.raises(requests.HTTPError):
+        with pytest.raises(PardotQueryRejectedError) as exc_info:
             _collect(session, manager)
+
+        assert "Parameter updatedAtAfterOrEqualTo is invalid" in str(exc_info.value)
 
 
 class TestAuth:
