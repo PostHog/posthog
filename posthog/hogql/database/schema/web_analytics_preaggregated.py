@@ -6,6 +6,7 @@ from posthog.hogql.database.models import (
     IntegerDatabaseField,
     StringDatabaseField,
     Table,
+    UUIDDatabaseField,
 )
 
 DEVICE_BROWSER_FIELDS = {
@@ -182,3 +183,55 @@ class WebPreAggregatedBouncesTable(Table):
 
     def to_printed_hogql(self):
         return "web_pre_aggregated_bounces"
+
+
+# The dimensional precompute tables mirror the v2 schema but carry an extra `job_id`
+# (the precomputation framework writes one generation per job). Reads filter
+# `job_id IN (ready ids)` to dedup the ReplacingMergeTree generations.
+WEB_DIMENSIONAL_SPECIFIC_FIELDS = {
+    "job_id": UUIDDatabaseField(
+        name="job_id", description="Precomputation job that wrote this row; reads filter to READY job ids."
+    ),
+}
+
+
+class WebStatsDimensionalPreAggregatedTable(Table):
+    description: str = (
+        "Precomputation-framework successor to web_pre_aggregated_stats: same dimensions plus a job_id "
+        "generation column, used internally by the web analytics product. Metric columns are AggregateFunction "
+        "states that must be merged, and reads must filter job_id to READY jobs to avoid double-counting."
+    )
+    fields: dict[str, FieldOrTable] = {
+        **web_preaggregated_base_fields,
+        **web_preaggregated_base_aggregation_fields,
+        **SHARED_SCHEMA_FIELDS,
+        **WEB_STATS_SPECIFIC_FIELDS,
+        **WEB_DIMENSIONAL_SPECIFIC_FIELDS,
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "web_stats_dimensional_preaggregated"
+
+    def to_printed_hogql(self):
+        return "web_stats_dimensional_preaggregated"
+
+
+class WebBouncesDimensionalPreAggregatedTable(Table):
+    description: str = (
+        "Precomputation-framework successor to web_pre_aggregated_bounces: same dimensions plus a job_id "
+        "generation column, used internally by the web analytics product. Metric columns are AggregateFunction "
+        "states that must be merged, and reads must filter job_id to READY jobs to avoid double-counting."
+    )
+    fields: dict[str, FieldOrTable] = {
+        **web_preaggregated_base_fields,
+        **web_preaggregated_base_aggregation_fields,
+        **SHARED_SCHEMA_FIELDS,
+        **WEB_BOUNCES_SPECIFIC_FIELDS,
+        **WEB_DIMENSIONAL_SPECIFIC_FIELDS,
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "web_bounces_dimensional_preaggregated"
+
+    def to_printed_hogql(self):
+        return "web_bounces_dimensional_preaggregated"

@@ -22,6 +22,7 @@ Parity with v2 is intentional, with two deliberate deviations:
     NULL, so they fit the non-nullable Int64 columns deterministically.
 """
 
+import uuid
 from datetime import datetime
 
 from posthog.hogql import ast
@@ -34,8 +35,13 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationResult,
     LazyComputationTable,
     ensure_precomputed,
+    get_ready_job_ids,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import SESSION_FORWARD_PAD_MINUTES
+
+# Distributed read-table names as registered in the HogQL database schema.
+WEB_STATS_DIMENSIONAL_READ_TABLE = "web_stats_dimensional_preaggregated"
+WEB_BOUNCES_DIMENSIONAL_READ_TABLE = "web_bounces_dimensional_preaggregated"
 
 # TTL tuned for "keep ~90 days warm, don't recompute every time": today's window
 # refreshes hourly, the last two days daily, everything older is computed once and
@@ -335,4 +341,33 @@ def ensure_web_bounces_dimensional_precomputed(
         placeholders=_base_placeholders(),
         query_type="web_bounces_dimensional_insert",
         read_after_write=False,
+    )
+
+
+def web_stats_dimensional_job_ids(team: Team, time_range_start: datetime, time_range_end: datetime) -> list[uuid.UUID]:
+    """READY job_ids for the stats dimensional table covering [start, end). Read-only —
+    reuses the writer's insert template/placeholders so the query_hash matches. Empty
+    when nothing is ready (caller falls back to v2/live)."""
+    return get_ready_job_ids(
+        team=team,
+        insert_query=STATS_INSERT_TEMPLATE,
+        time_range_start=time_range_start,
+        time_range_end=time_range_end,
+        table=LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED,
+        placeholders=_base_placeholders(),
+    )
+
+
+def web_bounces_dimensional_job_ids(
+    team: Team, time_range_start: datetime, time_range_end: datetime
+) -> list[uuid.UUID]:
+    """READY job_ids for the bounces dimensional table covering [start, end). See
+    `web_stats_dimensional_job_ids`."""
+    return get_ready_job_ids(
+        team=team,
+        insert_query=BOUNCES_INSERT_TEMPLATE,
+        time_range_start=time_range_start,
+        time_range_end=time_range_end,
+        table=LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED,
+        placeholders=_base_placeholders(),
     )

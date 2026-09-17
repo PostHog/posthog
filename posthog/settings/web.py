@@ -1547,6 +1547,16 @@ WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS: list[int] = [
     int(team_id)
     for team_id in get_list(get_from_env("WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS", _SESSION_ID_SET_DEFAULT_TEAM_IDS))
 ]
+
+# Teams whose web analytics reads are served from the dimensional precompute tables
+# instead of v2. Deliberately separate from WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS (the
+# Dagster fill allowlist) so a team's tables can be filled and validated before its
+# reads switch over. Strictly additive: defaults to empty so v2 stays the reader for
+# every team until one is explicitly enrolled here, and the runner falls back to v2
+# whenever a team has no READY dimensional data covering the requested window.
+WEB_DIMENSIONAL_READ_TEAM_IDS: list[int] = [
+    int(team_id) for team_id in get_list(get_from_env("WEB_DIMENSIONAL_READ_TEAM_IDS", ""))
+]
 # Admission control for long-lived SSE streams: the maximum number of streams
 # one worker process serves concurrently. Above the cap, sse_streaming_response()
 # returns 503 with a jittered Retry-After instead of opening the stream, keeping
