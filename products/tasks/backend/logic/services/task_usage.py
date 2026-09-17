@@ -17,6 +17,7 @@ import requests
 import structlog
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -196,6 +197,7 @@ def get_local_task_run_token_costs(
     generated_after: datetime,
     product: Product,
     task_run_ids: Sequence[UUID] | None = None,
+    max_execution_time: int | None = None,
 ) -> dict[str, Decimal]:
     """Model spend per task run, for every run that has any attributed to it.
 
@@ -213,6 +215,10 @@ def get_local_task_run_token_costs(
     the property is written only where a cost could be calculated, so the sum is null and the spend
     is unknown, not zero. A run priced in part still reports the sum of what was priced, which is a
     lower bound.
+
+    Pass `max_execution_time` when the caller answers to a deadline of its own. The read then
+    raises instead of outliving it, and raises rather than returning the partial sum the cluster
+    profile would otherwise allow, since a partial sum reads as a complete cost.
     """
     if task_run_ids is not None and not task_run_ids:
         return {}
@@ -254,6 +260,11 @@ def get_local_task_run_token_costs(
             placeholders=placeholders,
             team=_internal_llm_analytics_team(),
             query_type="TaskRunUsageTokenCost",
+            settings=(
+                HogQLGlobalSettings(max_execution_time=max_execution_time, timeout_overflow_mode="throw")
+                if max_execution_time is not None
+                else None
+            ),
         )
     rows = result.results or []
     if task_run_ids is None and rows and int(rows[0][2]) > MAX_TASK_RUN_COST_ROWS:

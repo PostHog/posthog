@@ -120,6 +120,9 @@ class TestLoadRunFooterSpend(SimpleTestCase):
         assert footer.spend_usd == Decimal("2.6696")
         assert mock_costs.call_args.kwargs["task_run_ids"] == [run.id]
         assert mock_costs.call_args.kwargs["origin_product"] == "slack"
+        # The activity posting this footer is capped at 30 seconds for the whole notification,
+        # so an unbounded read would lose the reader the card, not just the cost.
+        assert 0 < mock_costs.call_args.kwargs["max_execution_time"] < 30
 
     @parameterized.expand(
         [

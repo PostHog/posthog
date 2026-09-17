@@ -755,6 +755,11 @@ class RunFooter:
         return any((self.task_url, self.desktop_url, self.model, self.spend_usd is not None))
 
 
+# The activity that asks for a priced footer has 30 seconds for the whole notification, so the
+# read takes a slice of that and gives up rather than spending the budget the card needs.
+_SPEND_QUERY_MAX_EXECUTION_SECONDS = 10
+
+
 def _load_run_spend(run: "TaskRunDTO") -> Decimal | None:
     """What this run's model calls cost, or ``None`` when that is not known.
 
@@ -778,6 +783,7 @@ def _load_run_spend(run: "TaskRunDTO") -> Decimal | None:
             generated_after=run.created_at,
             product=Product.POSTHOG_CODE,
             task_run_ids=[run.id],
+            max_execution_time=_SPEND_QUERY_MAX_EXECUTION_SECONDS,
         )
     except Exception:
         logger.exception("slack_app_run_footer_spend_load_failed", run_id=str(run.id))
