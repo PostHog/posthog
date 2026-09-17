@@ -218,7 +218,11 @@ def get_teams_with_billable_rows_exported(begin: dt.datetime, end: dt.datetime) 
 
 
 def get_teams_with_active_batch_exports() -> list[contracts.TeamTotal]:
-    """Count the batch exports each team currently runs on a schedule."""
+    """Count the batch exports each team currently runs on a schedule.
+
+    A deleted export still counts, which is what the usage report has always reported.
+    Adding `deleted=False` here would move the number, so it is a decision of its own.
+    """
     rows = BatchExport.objects.filter(paused=False).values("team_id").annotate(total=Count("id"))
     return [contracts.TeamTotal(team_id=row["team_id"], total=row["total"]) for row in rows]
 
@@ -315,8 +319,9 @@ def create_batch_export(
         end_at=end_at,
     )
 
-    # The schedule is created before the rows, so a row can never describe a schedule that
-    # does not exist. A failed schedule creation leaves nothing behind to clean up.
+    # Schedule first, then the rows, which is the order every caller uses today. It trades one
+    # failure for the other: a failed save leaves an orphaned schedule, where the reverse order
+    # would leave a row pointing at no schedule. Neither is compensated yet.
     service.sync_batch_export(batch_export, created=True)
 
     with transaction.atomic():

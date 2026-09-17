@@ -165,8 +165,11 @@ def delete_batch_export(batch_export_id: UUID, temporal_client: "Client | None" 
         handle = temporal_client.get_schedule_handle(str(batch_export_id))
         try:
             async_to_sync(handle.delete)()
-        except temporalio.service.RPCError:
-            pass
+        except temporalio.service.RPCError as e:
+            # Anything else - an auth failure, an unreachable server - must still surface,
+            # or a broken Temporal connection reads as a clean teardown.
+            if e.status != temporalio.service.RPCStatusCode.NOT_FOUND:
+                raise
 
     BatchExport.objects.filter(id=batch_export_id).delete()
 
