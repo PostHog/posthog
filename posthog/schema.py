@@ -462,6 +462,11 @@ class ApprovalResumePayload(BaseModel):
     proposal_id: str
 
 
+class AssistantBareHogQLQuery(BaseModel):
+    kind: Literal["HogQLQuery"] = "HogQLQuery"
+    query: str = Field(..., description="The HogQL query to run.")
+
+
 class AssistantBaseMultipleBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2619,6 +2624,10 @@ class QueryLogTags(BaseModel):
         default=None,
         description=("Name of the query, preferably unique. For example web_analytics_vitals"),
     )
+    presetId: str | None = Field(
+        default=None,
+        description=("Short id of the saved Web analytics filter preset this query was run under, if any."),
+    )
     productKey: str | None = Field(
         default=None,
         description=(
@@ -3409,6 +3418,10 @@ class AssistantArrayPropertyFilter(BaseModel):
             ' convert it to a string "true" or "false".'
         ),
     )
+
+
+class AssistantBareInsightQuery(BaseModel):
+    kind: InsightNodeKind
 
 
 class AssistantBreakdownFilter(BaseModel):
@@ -17880,8 +17893,12 @@ class InsightActorsQueryBase(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class InsightQuery(RootModel[AssistantInsightVizNode | AssistantDataVisualizationNode]):
-    root: AssistantInsightVizNode | AssistantDataVisualizationNode
+class InsightQuery(
+    RootModel[
+        AssistantInsightVizNode | AssistantDataVisualizationNode | AssistantBareInsightQuery | AssistantBareHogQLQuery
+    ]
+):
+    root: AssistantInsightVizNode | AssistantDataVisualizationNode | AssistantBareInsightQuery | AssistantBareHogQLQuery
 
 
 class IsolationForestDetectorConfig(BaseModel):
