@@ -8,6 +8,11 @@ does not see through, so ``ORDER BY timestamp LIMIT n`` reads and sorts every ma
 ``toDate`` is monotonic in the instant, so ``ORDER BY toDate(ts) X, ts X`` is the same total order as
 ``ORDER BY ts X`` for either direction and the prefix changes no result. Index pruning already sees through the
 wrapper, so the WHERE side needs nothing.
+
+The transform runs only when ``HogQLContext.order_events_reads_by_sort_key`` is set. The sort key continues with
+``event`` after the date, so the rows of one day are not in timestamp order, and ClickHouse must read and sort a
+whole day before it returns the first row. That costs more than a parallel read when the range is short or the
+filter is selective.
 """
 
 from posthog.hogql import ast

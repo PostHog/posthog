@@ -413,9 +413,10 @@ def prepare_ast_for_printing(
 
             node = clickhouse_property_resolution(node, context)
 
-        # After property resolution, so the timestamp column is already wrapped and every table type is final.
-        with context.timings.measure("events_read_in_order"):
-            node = order_events_reads_by_sort_key(node)
+        if context.order_events_reads_by_sort_key:
+            # After property resolution, so the timestamp column is already wrapped and every table type is final.
+            with context.timings.measure("events_read_in_order"):
+                node = order_events_reads_by_sort_key(node)
 
         # We support global query settings, and local subquery settings.
         # If the global query is a select query with settings, merge the two.

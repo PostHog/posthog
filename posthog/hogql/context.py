@@ -165,6 +165,12 @@ class HogQLContext:
     # HogQLQueryModifier, so a query can't disable enforcement.
     apply_events_retention_floor: bool = True
 
+    # Backend-only opt-in for the sort key prefix on an events `ORDER BY timestamp ... LIMIT n` (see
+    # transforms/events_read_in_order.py). Reading in sort key order must read and sort a whole day before it
+    # returns a row, so it is slower than a parallel read when the range is short or the filter is selective.
+    # Set it only for a query shape that was measured to be faster with it.
+    order_events_reads_by_sort_key: bool = False
+
     # Entitlement-derived floors for federated tables that declare a `retention_field`, keyed by
     # Postgres table name so two such tables can never share one window. Resolved lazily by the
     # ClickHouse printer the first time each table is printed, so a query that reads none of them

@@ -2539,41 +2539,55 @@ class TestPrinter(BaseTest):
             (
                 "utc",
                 "UTC",
+                True,
                 "SELECT event FROM events ORDER BY timestamp DESC LIMIT 10",
                 "ORDER BY toDate(events.timestamp) DESC, toTimeZone(events.timestamp, %(hogql_val_0)s) DESC LIMIT 10",
             ),
             (
                 "non_utc",
                 "US/Pacific",
+                True,
                 "SELECT event FROM events ORDER BY timestamp DESC LIMIT 10",
                 "ORDER BY toDate(events.timestamp) DESC, toTimeZone(events.timestamp, %(hogql_val_0)s) DESC LIMIT 10",
             ),
             (
                 "table_alias",
                 "UTC",
+                True,
                 "SELECT e.event FROM events AS e ORDER BY e.timestamp ASC LIMIT 10",
                 "ORDER BY toDate(e.timestamp) ASC, toTimeZone(e.timestamp, %(hogql_val_0)s) ASC LIMIT 10",
             ),
             (
                 "subquery_with_its_own_limit",
                 "UTC",
+                True,
                 "SELECT event FROM (SELECT event FROM events ORDER BY timestamp DESC LIMIT 10)",
                 "ORDER BY toDate(events.timestamp) DESC, toTimeZone(events.timestamp, %(hogql_val_0)s) DESC LIMIT 10)",
             ),
             (
                 "cte_with_its_own_limit",
                 "UTC",
+                True,
                 "WITH recent AS (SELECT event FROM events ORDER BY timestamp DESC LIMIT 10) SELECT event FROM recent",
                 "ORDER BY toDate(events.timestamp) DESC, toTimeZone(events.timestamp, %(hogql_val_0)s) DESC LIMIT 10)",
+            ),
+            (
+                "off_by_default",
+                "UTC",
+                False,
+                "SELECT event FROM events ORDER BY timestamp DESC LIMIT 10",
+                "ORDER BY toTimeZone(events.timestamp, %(hogql_val_0)s) DESC LIMIT 10",
             ),
         ]
     )
     def test_order_by_events_timestamp_reads_in_sort_key_order(
-        self, _name: str, timezone: str, query: str, expected_order_by: str
+        self, _name: str, timezone: str, opted_in: bool, query: str, expected_order_by: str
     ):
         self.team.timezone = timezone
         self.team.save()
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        if opted_in:
+            context.order_events_reads_by_sort_key = True
 
         printed = self._select(query, context)
 

@@ -3555,7 +3555,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
-  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -3688,7 +3688,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
-  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -3911,7 +3911,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
-  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -4032,7 +4032,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
-  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -4498,7 +4498,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
-  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -4656,7 +4656,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
-  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -4799,7 +4799,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
-  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -4949,7 +4949,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
-  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,

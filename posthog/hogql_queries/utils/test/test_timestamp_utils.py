@@ -13,6 +13,8 @@ from parameterized import parameterized
 
 from posthog.schema import ActionsNode, DataWarehouseNode, DateRange, EventsNode, IntervalType
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.timestamp_utils import (
@@ -391,6 +393,26 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         assert get_earliest_timestamp_unfiltered(self.team) == earliest_timestamp
 
+    def test_unfiltered_earliest_timestamp_reads_in_sort_key_order(self):
+        printed: list[str | None] = []
+        lookups: list[str | None] = []
+
+        def run(*args, **kwargs):
+            lookups.append(get_query_tags().lookup)
+            response = execute_hogql_query(*args, **kwargs)
+            printed.append(response.clickhouse)
+            return response
+
+        with patch("posthog.hogql_queries.utils.timestamp_utils.execute_hogql_query", side_effect=run):
+            get_earliest_timestamp_unfiltered(self.team)
+
+        assert printed[0] is not None
+        self.assertRegex(
+            printed[0],
+            r"ORDER BY\s+toDate\(events\.timestamp\) ASC,\s+toTimeZone\(events\.timestamp, %\(hogql_val_\d+\)s\) ASC\s+LIMIT 1",
+        )
+        self.assertEqual(lookups, ["earliest_timestamp"])
+
     @parameterized.expand(
         [
             # Naive inputs are interpreted in the passed (team) timezone, not UTC.
@@ -535,6 +557,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
             tags = get_query_tags()
             captured["product"] = tags.product
             captured["feature"] = tags.feature
+            captured["lookup"] = tags.lookup
             result = MagicMock()
             result.results = [[datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)]]
             return result
@@ -548,3 +571,4 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         self.assertEqual(captured["product"], expected_product)
         self.assertEqual(captured["feature"], expected_feature)
+        self.assertEqual(captured["lookup"], "earliest_timestamp")
