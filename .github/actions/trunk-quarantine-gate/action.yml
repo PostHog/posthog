@@ -29,7 +29,7 @@ runs:
           env:
               JUNIT_PATHS: ${{ inputs.junit-paths }}
           run: |
-              script="${{ github.action_path }}/../../scripts/trunk-codeowners.sh"
+              script="$GITHUB_WORKSPACE/.github/scripts/trunk-codeowners.sh"
               if [ -x "$script" ]; then "$script" "$RUNNER_TEMP/trunk-codeowners" "$JUNIT_PATHS"; fi
 
         - name: Upload to Trunk
