@@ -181,6 +181,8 @@ const mcpMissingCapabilityReport = (): ToolBase<
 
 // --- Query wrapper schemas from schema.json ---
 
+const MCPCallerKind = z.enum(['people', 'automations', 'all'])
+
 const DateRange = z.object({
     date_from: z
         .string()
@@ -559,6 +561,9 @@ const AnyPropertyFilter = z.union([
 ])
 
 const MCPHarnessBreakdownQuery = z.object({
+    callerKind: MCPCallerKind.describe(
+        'When set, scope to one caller segment (people vs. automations). Unset applies no filter.'
+    ).optional(),
     dateRange: DateRange.optional(),
     filterTestAccounts: z.coerce.boolean().optional(),
     kind: z.literal('MCPHarnessBreakdownQuery').default('MCPHarnessBreakdownQuery'),

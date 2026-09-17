@@ -11,11 +11,15 @@ import {
 } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType } from '~/types'
 
-export function summarizeModelBreakdown(rows: MCPModelBreakdownItem[]): {
+type ModelShare = Pick<MCPModelBreakdownItem, 'model' | 'total_calls'>
+
+export function summarizeModelBreakdown<T extends ModelShare>(
+    rows: T[]
+): {
     totalCalls: number
     unknownCalls: number
     identifiedShare: number
-    rankedModels: MCPModelBreakdownItem[]
+    rankedModels: T[]
 } {
     const totalCalls = rows.reduce((total, row) => total + row.total_calls, 0)
     const unknownCalls = rows

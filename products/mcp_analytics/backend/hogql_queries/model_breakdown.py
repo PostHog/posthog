@@ -18,7 +18,11 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
-from products.mcp_analytics.backend.hogql_queries.base import mcp_query_date_range, validate_mcp_analytics_access
+from products.mcp_analytics.backend.hogql_queries.base import (
+    caller_kind_expr,
+    mcp_query_date_range,
+    validate_mcp_analytics_access,
+)
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -52,6 +56,9 @@ class MCPModelBreakdownQueryRunner(AnalyticsQueryRunner[MCPModelBreakdownQueryRe
             ),
             parse_expr("timestamp <= {date_to}", placeholders={"date_to": self.query_date_range.date_to_as_hogql()}),
         ]
+        caller_kind = caller_kind_expr(self.query.callerKind)
+        if caller_kind is not None:
+            exprs.append(caller_kind)
         properties = list(self.query.properties or [])
         if self.query.filterTestAccounts:
             properties += self.team.test_account_filters or []
@@ -64,7 +71,8 @@ class MCPModelBreakdownQueryRunner(AnalyticsQueryRunner[MCPModelBreakdownQueryRe
             """
             SELECT
                 coalesce(nullIf(trim(toString(properties.$mcp_llm_model)), ''), 'Unknown') AS model,
-                count() AS total_calls
+                count() AS model_calls,
+                countIf(toBool(properties.$mcp_is_error)) AS error_calls
             FROM events
             WHERE {where}
             GROUP BY model
@@ -74,10 +82,10 @@ class MCPModelBreakdownQueryRunner(AnalyticsQueryRunner[MCPModelBreakdownQueryRe
         if self.query.includeAllModels:
             return parse_select(
                 """
-                SELECT model, total_calls
+                SELECT model, model_calls AS total_calls, error_calls AS errors, round(error_calls * 100.0 / model_calls, 1) AS error_rate_pct
                 FROM {model_totals}
                 WHERE model != 'Unknown'
-                ORDER BY total_calls DESC, model ASC
+                ORDER BY model_calls DESC, model ASC
                 LIMIT {limit} OFFSET {offset}
                 """,
                 placeholders={
@@ -91,12 +99,15 @@ class MCPModelBreakdownQueryRunner(AnalyticsQueryRunner[MCPModelBreakdownQueryRe
             """
             SELECT
                 if(model = 'Unknown', 'Unknown', if(model_rank <= {limit}, model, 'Other')) AS model_group,
-                sum(total_calls) AS total_calls
+                sum(model_calls) AS total_calls,
+                sum(error_calls) AS errors,
+                round(sum(error_calls) * 100.0 / sum(model_calls), 1) AS error_rate_pct
             FROM (
                 SELECT
                     model,
-                    total_calls,
-                    row_number() OVER (ORDER BY model = 'Unknown' ASC, total_calls DESC, model ASC) AS model_rank
+                    model_calls,
+                    error_calls,
+                    row_number() OVER (ORDER BY model = 'Unknown' ASC, model_calls DESC, model ASC) AS model_rank
                 FROM {model_totals}
             )
             GROUP BY model_group
@@ -130,7 +141,15 @@ class MCPModelBreakdownQueryRunner(AnalyticsQueryRunner[MCPModelBreakdownQueryRe
         if self.query.includeAllModels:
             has_more = len(rows) > self.page_size
             rows = rows[: self.page_size]
-        results = [MCPModelBreakdownItem(model=str(row[0]), total_calls=int(row[1] or 0)) for row in rows]
+        results = [
+            MCPModelBreakdownItem(
+                model=str(row[0]),
+                total_calls=int(row[1] or 0),
+                errors=int(row[2] or 0),
+                error_rate_pct=float(row[3] or 0),
+            )
+            for row in rows
+        ]
 
         return MCPModelBreakdownQueryResponse(
             results=results,

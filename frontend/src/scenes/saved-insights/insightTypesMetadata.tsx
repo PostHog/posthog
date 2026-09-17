@@ -628,6 +628,18 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.MCPOverviewSummaryQuery]: {
+        name: 'MCP overview summary',
+        description: 'Top-line KPIs for the MCP analytics overview page.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPFailureGroupsQuery]: {
+        name: 'MCP failure groups',
+        description: 'Errored MCP tool calls grouped by tool, error type, and message.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
     [NodeKind.MCPToolSampleIntentsQuery]: {
         name: 'MCP tool sample intents',
         description: 'Recent sampled intents for a single MCP tool.',

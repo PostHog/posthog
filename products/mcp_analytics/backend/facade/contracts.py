@@ -235,8 +235,8 @@ class IntentClusterSnapshot:
 class IntentTheme:
     """One semantic grouping of agent intents in the project digest.
 
-    ``name`` and ``description`` come from the LLM; ``intent_count``, ``example_intent``, and
-    ``tools`` are resolved from the intents it grouped, so no figure on the card is invented.
+    ``name`` and ``description`` come from the LLM; every other field is resolved from the
+    intents it grouped (never from the model), so no figure on the card is invented.
     """
 
     name: str
@@ -244,6 +244,9 @@ class IntentTheme:
     intent_count: int
     example_intent: str
     tools: list[str] = field(default_factory=list)
+    # Both derived from the theme's underlying $mcp_is_error values, not asked of the LLM.
+    error_count: int = 0
+    success_pct: float = 100.0
 
 
 @dataclass(frozen=True)

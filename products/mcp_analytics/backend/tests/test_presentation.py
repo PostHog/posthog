@@ -19,6 +19,7 @@ from posthog.temporal.mcp_analytics.intent_clustering.constants import (
 )
 
 from products.mcp_analytics.backend import intent_generation
+from products.mcp_analytics.backend.facade import contracts
 from products.mcp_analytics.backend.facade.contracts import MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 from products.mcp_analytics.backend.presentation.serializers import (
@@ -683,6 +684,52 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         # Nothing persisted when generation fails.
         assert not MCPSession.objects.filter(team=self.team, session_id=session_id).exists()
+
+
+class TestMCPIntentDigestEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
+    def _url(self) -> str:
+        return f"/api/environments/{self.team.id}/mcp_analytics/sessions/intent_digest/"
+
+    @parameterized.expand(
+        [
+            ("body_omitted", {}, "people"),
+            ("people_explicit", {"caller_kind": "people"}, "people"),
+            ("automations", {"caller_kind": "automations"}, "automations"),
+            ("all", {"caller_kind": "all"}, "all"),
+        ]
+    )
+    def test_defaults_to_people_and_threads_caller_kind(
+        self, _name: str, body: dict[str, str], expected_caller_kind: str
+    ) -> None:
+        digest = contracts.IntentDigest(digest="Summary.", intent_count=1)
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch(
+                "products.mcp_analytics.backend.presentation.views.api.generate_intent_digest", return_value=digest
+            ) as mock_generate,
+        ):
+            response = self.client.post(self._url(), body, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_generate.assert_called_once_with(self.team, caller_kind=expected_caller_kind)
+
+    def test_rejects_an_unrecognized_caller_kind(self) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(self._url(), {"caller_kind": "robots"}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_returns_503_when_generation_unavailable(self) -> None:
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch(
+                "products.mcp_analytics.backend.presentation.views.api.generate_intent_digest",
+                side_effect=intent_generation.IntentGenerationUnavailable("LLM down"),
+            ),
+        ):
+            response = self.client.post(self._url())
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
 
 class TestMCPSessionToolCallsEndpoint(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):

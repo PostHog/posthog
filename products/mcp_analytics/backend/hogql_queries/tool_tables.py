@@ -58,6 +58,7 @@ from products.mcp_analytics.backend.hogql_queries.base import (
     EFFECTIVE_DESCRIPTION_SQL,
     EFFECTIVE_TOOL_SQL,
     NEW_SDK_SOURCE,
+    RAW_ERROR_TYPE_SQL,
     display_person_properties,
     mcp_query_date_range,
     tool_scope_exprs,
@@ -76,15 +77,10 @@ _EFFECTIVE_DESCRIPTION = EFFECTIVE_DESCRIPTION_SQL
 # token only has to be materialized once as `h`.
 _HARNESS_LABELS_AGG = f"arraySort(arrayDistinct(groupArray({mcp_harness.harness_label_sql('h')})))"
 
-# Raw failure-bucket parts of an errored $mcp_tool_call: the SDK stamps a semantic bucket
-# ($mcp_error_type: internal, validation, api_4xx, api_5xx, permission, timeout, rate_limited,
-# missing_context) plus an optional HTTP status ($mcp_error_status), falling back to "unknown"
-# when neither is present (older SDKs / server paths that only set $mcp_is_error). Both
-# properties are event-supplied and unbounded, so they are capped before grouping/filtering —
-# an attacker emitting huge unique values must not inflate the grouping key or response size.
-# The failures table groups on the raw parts and composes the display label from them, so the
-# occurrences drill-down can requery a bucket by the same normalized parts without label parsing.
-_RAW_ERROR_TYPE = "substring(coalesce(nullIf(toString(properties.$mcp_error_type), ''), 'unknown'), 1, 200)"
+# The optional HTTP status counterpart to base.RAW_ERROR_TYPE_SQL: also event-supplied and
+# unbounded, so capped before grouping/filtering the same way. The failures table groups on
+# the raw parts and composes the display label from them, so the occurrences drill-down can
+# requery a bucket by the same normalized parts without label parsing.
 _RAW_ERROR_STATUS = "substring(coalesce(toString(properties.$mcp_error_status), ''), 1, 20)"
 _COMPOSED_FAILURE_LABEL = "concat(error_type, if(empty(error_status), '', concat(' (HTTP ', error_status, ')')))"
 
@@ -226,7 +222,7 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
                 {_HARNESS_LABELS_AGG} AS harnesses
             FROM (
                 SELECT
-                    {_RAW_ERROR_TYPE} AS error_type,
+                    {RAW_ERROR_TYPE_SQL} AS error_type,
                     {_RAW_ERROR_STATUS} AS error_status,
                     timestamp,
                     {token} AS h
@@ -240,7 +236,7 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
             placeholders={
                 "_HARNESS_LABELS_AGG": parse_expr(_HARNESS_LABELS_AGG),
                 "_COMPOSED_FAILURE_LABEL": parse_expr(_COMPOSED_FAILURE_LABEL),
-                "_RAW_ERROR_TYPE": parse_expr(_RAW_ERROR_TYPE),
+                "RAW_ERROR_TYPE_SQL": parse_expr(RAW_ERROR_TYPE_SQL),
                 "_RAW_ERROR_STATUS": parse_expr(_RAW_ERROR_STATUS),
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                 "where": self._where(),
@@ -309,7 +305,7 @@ class MCPToolFailureOccurrencesQueryRunner(AnalyticsQueryRunner[MCPToolFailureOc
             parse_expr(
                 "{raw_type} = {error_type}",
                 placeholders={
-                    "raw_type": parse_expr(_RAW_ERROR_TYPE),
+                    "raw_type": parse_expr(RAW_ERROR_TYPE_SQL),
                     "error_type": ast.Constant(value=self.query.errorType),
                 },
             ),

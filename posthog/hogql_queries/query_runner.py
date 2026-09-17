@@ -51,9 +51,11 @@ from posthog.schema import (
     LifecycleQuery,
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
+    MCPFailureGroupsQuery,
     MCPHarnessBreakdownQuery,
     MCPMissingCapabilitiesQuery,
     MCPModelBreakdownQuery,
+    MCPOverviewSummaryQuery,
     MCPToolCallBreakdownQuery,
     MCPToolCallsAndErrorsQuery,
     MCPToolCategoriesQuery,
@@ -488,6 +490,8 @@ RunnableQueryNode = Union[
     MetricsQuery,
     MCPHarnessBreakdownQuery,
     MCPModelBreakdownQuery,
+    MCPOverviewSummaryQuery,
+    MCPFailureGroupsQuery,
     MCPToolCallBreakdownQuery,
     MCPToolCallsAndErrorsQuery,
     MCPToolTopUsersQuery,
@@ -1201,6 +1205,28 @@ def get_query_runner(
 
         return MCPModelBreakdownQueryRunner(
             query=cast(MCPModelBreakdownQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPOverviewSummaryQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPOverviewSummaryQueryRunner
+
+        return MCPOverviewSummaryQueryRunner(
+            query=cast(MCPOverviewSummaryQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPFailureGroupsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPFailureGroupsQueryRunner
+
+        return MCPFailureGroupsQueryRunner(
+            query=cast(MCPFailureGroupsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
