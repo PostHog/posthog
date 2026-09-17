@@ -157,41 +157,20 @@ class TestMintScopedToken:
             assert mint_scoped_token(ai_product="review_hog", team_id=2) == "phe_abc"
         body = post.call_args.kwargs["json"]
         assert body["product"] == "review_hog"
-        assert body["allowed_models"] == [
-            "claude-haiku-4-5",
-            "claude-sonnet-4-5",
-            "claude-sonnet-4-6",
-            "claude-sonnet-5",
-            "claude-opus-4-5",
-            "claude-opus-4-6",
-            "claude-opus-4-7",
-            "claude-opus-4-8",
-            "claude-opus-5",
-            "claude-fable-5",
-            "claude-fable-5-1",
-            "gpt-5",
-            "gpt-5.5",
-            "gpt-5.6-sol",
-            "gpt-5.6-luna",
-            "gpt-5.6-terra",
-            "gpt-6-astra",
-        ]
+        assert body["allowed_models"] == _PRODUCT_ALLOWED_MODELS["review_hog"]
 
-    def test_review_hog_pin_covers_every_registry_arm_model(self):
-        """A persisted reviewer arm resolves against the live registry with no
-        re-pin, so any registry model missing from the pin fails its turns
-        after cutover. Slash-namespaced served models are exempt: the reviewer
-        never draws them, and an entry the gateway cannot resolve fails the
-        whole mint."""
+    @pytest.mark.parametrize("product", ["review_hog", "slack_app"])
+    def test_model_pin_follows_the_catalog(self, product):
         from products.tasks.backend.facade.run_config import RuntimeAdapter, get_models_for_runtime_adapter
-        from products.tasks.backend.temporal.process_task.ai_gateway_token import _PRODUCT_ALLOWED_MODELS
+        from products.tasks.backend.logic.services.gateway_model_pin import SDK_IMPLICIT_MODELS
 
         registry = set(get_models_for_runtime_adapter(RuntimeAdapter.CLAUDE)) | set(
             get_models_for_runtime_adapter(RuntimeAdapter.CODEX)
         )
-        arm_models = {model for model in registry if "/" not in model}
-        missing = arm_models - set(_PRODUCT_ALLOWED_MODELS["review_hog"])
-        assert not missing, f"registry arm models absent from the review_hog pin: {sorted(missing)}"
+        pin = _PRODUCT_ALLOWED_MODELS[product]
+        assert len(pin) == len(set(pin))
+        assert set(pin) == {model for model in registry if "/" not in model} | set(SDK_IMPLICIT_MODELS)
+        assert any("/" in model for model in registry), "the catalog no longer offers a gateway-served model"
 
     def test_non_pinned_products_send_no_allowed_models(self, mint_settings):
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:

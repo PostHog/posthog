@@ -2,32 +2,20 @@
 
 from typing import Any
 
-from products.tasks.backend.model_catalog import normalize_model_id
+from products.tasks.backend.model_catalog import MODELS, normalize_model_id
 
 # Run-state stamp naming the product whose model-pinned token the sandbox holds.
 GATEWAY_PRODUCT_STATE_KEY = "ai_gateway_product"
 
-# Every model a run calls (harness, the agent SDK's implicit haiku and sonnet, registry arms); an off-pin
-# call fails with no fallback. Slash-namespaced ids stay out: Go serves them only on OpenAI shapes.
-_FIRST_PARTY_AGENT_MODELS: list[str] = [
-    "claude-haiku-4-5",
-    "claude-sonnet-4-5",
-    "claude-sonnet-4-6",
-    "claude-sonnet-5",
-    "claude-opus-4-5",
-    "claude-opus-4-6",
-    "claude-opus-4-7",
-    "claude-opus-4-8",
-    "claude-opus-5",
-    "claude-fable-5",
-    "claude-fable-5-1",
-    "gpt-5",
-    "gpt-5.5",
-    "gpt-5.6-sol",
-    "gpt-5.6-luna",
-    "gpt-5.6-terra",
-    "gpt-6-astra",
-]
+# The agent SDK calls these on its own: haiku as its small fast model, and the sonnet the explore
+# subagent's bare `sonnet` alias resolves to. The catalog does not offer them for selection.
+SDK_IMPLICIT_MODELS: tuple[str, ...] = ("claude-haiku-4-5", "claude-sonnet-4-5")
+
+# Every model a run calls; an off-pin call fails with no fallback. Slash-namespaced catalog ids stay out:
+# Go serves them only on OpenAI shapes, so runs on them keep the Python gateway.
+_FIRST_PARTY_AGENT_MODELS: list[str] = list(
+    dict.fromkeys([*SDK_IMPLICIT_MODELS, *(model.id for model in MODELS if "/" not in model.id)])
+)
 
 PRODUCT_ALLOWED_MODELS: dict[str, list[str]] = {
     "review_hog": _FIRST_PARTY_AGENT_MODELS,
