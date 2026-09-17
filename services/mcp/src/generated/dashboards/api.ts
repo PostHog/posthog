@@ -63,6 +63,7 @@ export const DashboardsListParams = () => zod.object({
 })
 
 export const DashboardsListQueryParams = () => zod.object({
+    exclude_generated: zod.boolean().optional().describe('Optional. Exclude dashboards that PostHog generated.'),
     folder: zod
         .string()
         .optional()
@@ -72,6 +73,7 @@ export const DashboardsListQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    pinned: zod.boolean().optional().describe('Optional. Return only pinned dashboards.'),
     search: zod
         .string()
         .optional()

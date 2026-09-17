@@ -16,7 +16,7 @@ import sharp from 'sharp'
 const ROOT = new URL('..', import.meta.url).pathname
 
 // The models decide what gets redacted, so they're pinned to immutable refs and digest-verified —
-// a mutable `main` URL would let an upstream change (or compromise) silently swap the privacy
+// a mutable `main` URL would let an upstream change (or compromise) silently swap the anonymization
 // control. Keep URLs + digests in sync with Dockerfile.ml-mirror-image-scrub (the image bakes the
 // same files at build time).
 const MODELS: { url: string; file: string; sha256: string }[] = [

@@ -84,6 +84,7 @@ depends_on = [
     "products.cohorts",
     "ee",
     "products.access_control",
+    "products.aeo",
     "products.analytics_platform",
     "products.approvals",
     "products.batch_exports",
@@ -158,6 +159,19 @@ depends_on = [
     "products.product_analytics", "products.access_control",
 ]
 layer = "modules"
+
+[[modules]]
+path = "products.aeo"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "products.aeo",
+]
 
 [[modules]]
 path = "products.ai_gateway"
@@ -876,6 +890,7 @@ depends_on = [
     "posthog",
     "products.cdp",
     "products.conversations",
+    "products.data_modeling",
     "products.data_warehouse",
     "products.notebooks",
     "products.notifications",

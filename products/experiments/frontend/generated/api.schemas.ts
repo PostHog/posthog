@@ -519,6 +519,15 @@ export interface PatchedExperimentHoldoutApi {
     readonly user_access_level?: string | null
 }
 
+export interface ExperimentSavedMetricLinkedExperimentApi {
+    /** Experiment ID. */
+    id: number
+    /** Experiment name. */
+    name: string
+    /** True when the experiment is launched and not yet stopped. */
+    is_running: boolean
+}
+
 /**
  * Mixin for serializers to add user access control fields
  */
@@ -546,6 +555,8 @@ export interface ExperimentSavedMetricApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Experiments using this shared metric (soft-deleted experiments excluded). Populated only on single-metric retrieve; always an empty list in list responses. */
+    readonly linked_experiments: readonly ExperimentSavedMetricLinkedExperimentApi[]
 }
 
 export interface PaginatedExperimentSavedMetricListApi {
@@ -584,6 +595,8 @@ export interface PatchedExperimentSavedMetricApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+    /** Experiments using this shared metric (soft-deleted experiments excluded). Populated only on single-metric retrieve; always an empty list in list responses. */
+    readonly linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[]
 }
 
 /**
@@ -813,6 +826,12 @@ export interface ExperimentBasicApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /**
+     * Organizational tags for this experiment (up to 100, 255 characters each).
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 export interface PaginatedExperimentBasicListApi {
@@ -1571,6 +1590,12 @@ export interface ExperimentWriteApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /**
+     * Organizational tags for this experiment (up to 100, 255 characters each).
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 /**
@@ -1708,6 +1733,12 @@ export interface ExperimentApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /**
+     * Organizational tags for this experiment (up to 100, 255 characters each).
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 /**
@@ -1841,6 +1872,12 @@ export interface PatchedExperimentWriteApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+    /**
+     * Organizational tags for this experiment (up to 100, 255 characters each).
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 export interface ChangeApi {
@@ -1939,7 +1976,7 @@ export interface EndExperimentApi {
      * @nullable
      */
     conclusion_comment?: string | null
-    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. A personal API key needs the task:write scope (403 otherwise). Skipped when the conclusion is empty, or when no connected repository can be resolved. */
     open_cleanup_pr?: boolean
     /**
      * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used.
@@ -2520,7 +2557,7 @@ export interface ShipVariantApi {
      * @nullable
      */
     conclusion_comment?: string | null
-    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. A personal API key needs the task:write scope (403 otherwise). Skipped when the conclusion is empty, or when no connected repository can be resolved. */
     open_cleanup_pr?: boolean
     /**
      * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used.
@@ -2534,6 +2571,54 @@ export interface ShipVariantApi {
     variant_key: string
     /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
     release_to_everyone?: boolean
+}
+
+/**
+ * * `add` - add
+ * * `remove` - remove
+ * * `set` - set
+ */
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
+
+export const BulkUpdateTagsActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+export interface BulkUpdateTagsRequestApi {
+    /**
+     * List of object IDs to update tags on.
+     * @maxItems 500
+     */
+    ids: number[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+     *
+     * * `add` - add
+     * * `remove` - remove
+     * * `set` - set */
+    action: BulkUpdateTagsActionEnumApi
+    /**
+     * Tag names to add, remove, or set (up to 100 per request, 255 characters each).
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsItemApi {
+    id: number
+    tags: string[]
+}
+
+export interface BulkUpdateTagsErrorApi {
+    id: number
+    reason: string
+}
+
+export interface BulkUpdateTagsResponseApi {
+    updated: BulkUpdateTagsItemApi[]
+    skipped: BulkUpdateTagsErrorApi[]
 }
 
 /**
@@ -2691,6 +2776,13 @@ export interface CreateFromPromptInputApi {
     feature_flag_key?: string
     /** Optional experiment description. */
     description?: string
+}
+
+export interface ExperimentMatchingIdsResponseApi {
+    /** IDs of all experiments matching the current list filters that the user can edit. */
+    ids: number[]
+    /** Number of matching editable experiments. */
+    total: number
 }
 
 /**
@@ -2866,6 +2958,10 @@ export type ExperimentsListParams = {
      */
     event?: string
     /**
+     * JSON-encoded list of tag names. Excludes experiments carrying any of the given tags, even when they also carry non-excluded tags.
+     */
+    excluded_tags?: string
+    /**
      * Filter to experiments linked to the given feature flag ID.
      */
     feature_flag_id?: number
@@ -2893,6 +2989,10 @@ export type ExperimentsListParams = {
      * Filter by experiment status. "running", "paused", and "exposure_frozen" are mutually exclusive: "running" returns launched experiments with an active feature flag, "paused" returns launched experiments whose feature flag is deactivated, and "exposure_frozen" returns launched experiments whose exposure was frozen to the already-enrolled cohort while metrics keep flowing. "complete" is an alias for "stopped". "all" disables status filtering.
      */
     status?: ExperimentsListStatus
+    /**
+     * JSON-encoded list of tag names. Returns experiments carrying at least one of the given tags, e.g. `["growth", "checkout"]`.
+     */
+    tags?: string
 }
 
 export type ExperimentsListStatus = (typeof ExperimentsListStatus)[keyof typeof ExperimentsListStatus]
@@ -2930,6 +3030,62 @@ export type ExperimentsTimeseriesResultsRetrieveParams = {
      */
     metric_uuid: string
 }
+
+export type ExperimentsMatchingIdsRetrieveParams = {
+    /**
+     * Filter by archived state. Defaults to non-archived experiments only.
+     */
+    archived?: boolean
+    /**
+     * Filter to experiments created by the given user(s). Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
+     */
+    created_by_id?: string
+    /**
+     * Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.
+     */
+    event?: string
+    /**
+     * JSON-encoded list of tag names. Excludes experiments carrying any of the given tags, even when they also carry non-excluded tags.
+     */
+    excluded_tags?: string
+    /**
+     * Filter to experiments linked to the given feature flag ID.
+     */
+    feature_flag_id?: number
+    /**
+     * Field to order by. Prefix with '-' for descending. Allowlisted fields include name, created_at, updated_at, start_date, end_date, duration, and status.
+     */
+    order?: string
+    /**
+     * Filter to experiments created from an LLM prompt with this name. Matches experiments whose parameters.prompt_metadata.name equals the given value.
+     */
+    prompt_name?: string
+    /**
+     * Free-text search applied to the experiment name (case-insensitive).
+     */
+    search?: string
+    /**
+     * Filter by experiment status. "running", "paused", and "exposure_frozen" are mutually exclusive: "running" returns launched experiments with an active feature flag, "paused" returns launched experiments whose feature flag is deactivated, and "exposure_frozen" returns launched experiments whose exposure was frozen to the already-enrolled cohort while metrics keep flowing. "complete" is an alias for "stopped". "all" disables status filtering.
+     */
+    status?: ExperimentsMatchingIdsRetrieveStatus
+    /**
+     * JSON-encoded list of tag names. Returns experiments carrying at least one of the given tags, e.g. `["growth", "checkout"]`.
+     */
+    tags?: string
+}
+
+export type ExperimentsMatchingIdsRetrieveStatus =
+    (typeof ExperimentsMatchingIdsRetrieveStatus)[keyof typeof ExperimentsMatchingIdsRetrieveStatus]
+
+export const ExperimentsMatchingIdsRetrieveStatus = {
+    All: 'all',
+    Complete: 'complete',
+    Draft: 'draft',
+    ExposureFrozen: 'exposure_frozen',
+    Paused: 'paused',
+    Running: 'running',
+    Stopped: 'stopped',
+} as const
 
 export type ExperimentsPromptTemplatesRetrieve200Item = {
     key: string

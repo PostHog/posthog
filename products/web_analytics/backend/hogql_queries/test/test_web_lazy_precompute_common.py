@@ -1,3 +1,5 @@
+import json
+import time
 from datetime import UTC, datetime
 
 import time_machine
@@ -16,6 +18,7 @@ from posthog.schema import (
     CustomEventConversionGoal,
     DateRange,
     EventPropertyFilter,
+    HogQLQueryModifiers,
     PersonPropertyFilter,
     PropertyOperator,
     SessionPropertyFilter,
@@ -44,6 +47,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     REVALIDATION_TRIGGER,
     SESSION_SETTLING_SECONDS,
     STALE_WHILE_REVALIDATE_SECONDS,
+    STICKY_WARM_SHAPES_KEY,
     TEAM_SHAPE_SET_TTL_SECONDS,
     VOLUME_FLOOR_READY_KEY,
     VOLUME_FLOOR_TEAMS_KEY,
@@ -53,10 +57,12 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     PropertyAccessControlled,
     UnsupportedFilterType,
     _oom_pin_key,
+    _sticky_team_count_key,
     _team_shape_set_key,
     check_common_eligibility,
     compute_filters_eligibility_hash,
     compute_shape_cap_key,
+    get_sticky_warm_shapes,
     handle_stale_served,
     host_filter_expr,
     is_precompute_enabled_for_team,
@@ -66,6 +72,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     log_eligibility_outcome,
     pin_team_oom,
     publish_volume_floor_teams,
+    record_sticky_warm_shape,
     try_reserve_precompute_shape,
     web_ensure_precomputed,
 )
@@ -628,6 +635,34 @@ class TestTeamOomPin(BaseTest):
 
 
 class TestWebEnsurePrecomputed(BaseTest):
+    @parameterized.expand(
+        [
+            ("off", False, None),
+            ("on", True, "webAnalyticsEagerBaselineWarming"),
+            ("revalidation", True, REVALIDATION_TRIGGER),
+        ]
+    )
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_classification_context_matches_insert_modifiers(
+        self, _name: str, enabled: bool, trigger: str | None, mock_ensure: mock.Mock
+    ) -> None:
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+        runner = WebOverviewQueryRunner(
+            team=self.team,
+            query=_overview(),
+            modifiers=HogQLQueryModifiers(cookielessTrafficIsRegular=enabled),
+        )
+        insert_modifiers = HogQLQueryModifiers(cookielessTrafficIsRegular=not enabled, sessionIdPushdown=True)
+        with tags_context(trigger=trigger):
+            web_ensure_precomputed(team=self.team, runner=runner, modifiers=insert_modifiers)
+        kwargs = mock_ensure.call_args.kwargs
+        assert kwargs["modifiers"].cookielessTrafficIsRegular is enabled
+        assert kwargs["modifiers"].sessionIdPushdown is True
+        assert insert_modifiers.cookielessTrafficIsRegular is not enabled
+        assert kwargs.get("cache_key_context") == (
+            {"traffic_classification": "cookieless-missing-ua-v1"} if enabled else None
+        )
+
     def tearDown(self):
         redis.get_client().delete(_oom_pin_key(self.team.pk))
         super().tearDown()
@@ -809,6 +844,111 @@ class TestWebEnsurePrecomputed(BaseTest):
         for window_start in expired_window_starts:
             assert schedule.get_ttl(window_start) == 1
         assert schedule.get_ttl(fresh_window_start) == 3600
+
+
+class TestStickyWarmShapes(BaseTest):
+    def setUp(self):
+        super().setUp()
+        redis.get_client().delete(STICKY_WARM_SHAPES_KEY, _sticky_team_count_key(self.team.id))
+
+    def tearDown(self):
+        redis.get_client().delete(STICKY_WARM_SHAPES_KEY, _sticky_team_count_key(self.team.id))
+        super().tearDown()
+
+    def _runner(self, query=None):
+        runner = mock.Mock()
+        runner.team = self.team
+        runner.query = query or _overview()
+        runner._test_account_filters = []
+        return runner
+
+    def test_single_miss_leaves_only_a_marker(self):
+        # A one-off exploration (a filter combo tried once) must never be
+        # warmed — the whole point of the two-touch bar. First miss = marker,
+        # invisible to the warmer.
+        record_sticky_warm_shape(team=self.team, runner=self._runner())
+        assert get_sticky_warm_shapes() == []
+        assert redis.get_client().hlen(STICKY_WARM_SHAPES_KEY) == 1  # the marker
+
+    def test_second_miss_upgrades_and_date_variants_share_one_entry(self):
+        # Date-range variants share one bucket namespace, so their misses must
+        # count as touches of ONE entry — otherwise the warmer replays the same
+        # namespace once per variant. Two variant misses = two touches = sticky.
+        record_sticky_warm_shape(team=self.team, runner=self._runner(_overview(date_from="-7d")))
+        record_sticky_warm_shape(team=self.team, runner=self._runner(_overview(date_from="-30d")))
+        # A different shape (filters) touched once stays a marker.
+        filtered = _overview(properties=[EventPropertyFilter(key="$host", value="a.com", operator="exact")])
+        record_sticky_warm_shape(team=self.team, runner=self._runner(filtered))
+
+        entries = get_sticky_warm_shapes()
+        assert len(entries) == 1
+        assert entries[0]["team_id"] == self.team.id
+        assert entries[0]["query"]["kind"] == "WebOverviewQuery"
+        # A third miss of the sticky shape is a no-op, not a rewrite.
+        record_sticky_warm_shape(team=self.team, runner=self._runner(_overview(date_from="-7d")))
+        assert len(get_sticky_warm_shapes()) == 1
+
+    def test_oversized_query_stays_a_marker(self):
+        # A multi-megabyte filter value must not be retained in shared Redis for the
+        # entry's lifetime. The second miss would upgrade the marker to a full entry,
+        # but the oversized payload keeps it a marker instead.
+        huge = _overview(properties=[EventPropertyFilter(key="$host", value="x" * 60_000, operator="exact")])
+        record_sticky_warm_shape(team=self.team, runner=self._runner(huge))
+        record_sticky_warm_shape(team=self.team, runner=self._runner(huge))
+        assert get_sticky_warm_shapes() == []
+        assert redis.get_client().hlen(STICKY_WARM_SHAPES_KEY) == 1  # marker only, never upgraded
+
+    @mock.patch(f"{_COMMON}.STICKY_SHAPE_MAX_PER_TEAM", 1)
+    def test_per_team_cap_refuses_new_shapes_but_still_upgrades_own_marker(self):
+        # One tenant must not fill the shared hash and starve others: past its
+        # per-team cap, new distinct shapes are refused even though the global
+        # hash is nowhere near full. Upgrading the team's own existing marker
+        # adds no field, so it must still proceed.
+        record_sticky_warm_shape(team=self.team, runner=self._runner())  # shape A: marker, team count -> 1
+        filtered = _overview(properties=[EventPropertyFilter(key="$host", value="a.com", operator="exact")])
+        record_sticky_warm_shape(team=self.team, runner=self._runner(filtered))  # shape B: refused, team cap
+        assert redis.get_client().hlen(STICKY_WARM_SHAPES_KEY) == 1
+        record_sticky_warm_shape(team=self.team, runner=self._runner())  # shape A again: upgrades, not blocked
+        assert len(get_sticky_warm_shapes()) == 1
+
+    @mock.patch(f"{_COMMON}.STICKY_SHAPE_MAX_ENTRIES", 1)
+    def test_full_set_refuses_new_shapes_but_upgrades_existing_markers(self):
+        record_sticky_warm_shape(team=self.team, runner=self._runner())  # marker fills the cap
+        filtered = _overview(properties=[EventPropertyFilter(key="$host", value="a.com", operator="exact")])
+        record_sticky_warm_shape(team=self.team, runner=self._runner(filtered))  # refused: cap
+        assert redis.get_client().hlen(STICKY_WARM_SHAPES_KEY) == 1
+        # Upgrading the capped shape's own marker adds no field, so it proceeds.
+        record_sticky_warm_shape(team=self.team, runner=self._runner())
+        assert len(get_sticky_warm_shapes()) == 1
+
+    def test_read_prunes_aged_and_undecodable_entries(self):
+        record_sticky_warm_shape(team=self.team, runner=self._runner())
+        record_sticky_warm_shape(team=self.team, runner=self._runner())  # upgrade to full
+        client = redis.get_client()
+        aged = time.time() - 48 * 3600
+        client.hset(
+            STICKY_WARM_SHAPES_KEY, "9999:aged", json.dumps({"team_id": 9999, "recorded_at": aged, "query": {}})
+        )
+        client.hset(STICKY_WARM_SHAPES_KEY, "9999:oldmark", json.dumps({"team_id": 9999, "recorded_at": aged}))
+        client.hset(STICKY_WARM_SHAPES_KEY, "9999:garbage", "not json")
+        # Fresh but malformed full entries: decodable JSON whose team_id is
+        # missing or non-numeric must be pruned, never handed to the warmer —
+        # one corrupt field would otherwise fail the whole hourly warm op.
+        client.hset(
+            STICKY_WARM_SHAPES_KEY, "9999:noteam", json.dumps({"recorded_at": time.time(), "query": {"kind": "x"}})
+        )
+        client.hset(
+            STICKY_WARM_SHAPES_KEY,
+            "9999:badteam",
+            json.dumps({"team_id": "not-a-number", "recorded_at": time.time(), "query": {"kind": "x"}}),
+        )
+
+        entries = get_sticky_warm_shapes()
+        assert len(entries) == 1
+        assert entries[0]["team_id"] == self.team.id
+        # Aged entries, aged markers, garbage, and malformed entries are pruned
+        # from Redis too, not just filtered from the return value.
+        assert client.hlen(STICKY_WARM_SHAPES_KEY) == 1
 
 
 class TestVolumeFloor(BaseTest):
@@ -1041,12 +1181,14 @@ class TestServeLiveWarmBehind(BaseTest):
         runner = mock.Mock()
         runner.team = self.team
         runner.query = _overview()
+        runner.modifiers = HogQLQueryModifiers()
         runner._test_account_filters = []
         return runner
 
+    @mock.patch(f"{_COMMON}.record_sticky_warm_shape")
     @mock.patch(f"{_COMMON}.enqueue_stale_revalidation")
     @mock.patch(f"{_COMMON}.ensure_precomputed")
-    def test_user_facing_is_check_only_and_warms_on_miss(self, mock_ensure, mock_enqueue):
+    def test_user_facing_is_check_only_and_warms_on_miss(self, mock_ensure, mock_enqueue, mock_sticky):
         mock_ensure.return_value = LazyComputationResult(ready=False, job_ids=[], memory_exceeded=False)
         runner = self._runner()
         web_ensure_precomputed(
@@ -1056,6 +1198,9 @@ class TestServeLiveWarmBehind(BaseTest):
         assert "runner" not in mock_ensure.call_args.kwargs
         assert "family" not in mock_ensure.call_args.kwargs
         mock_enqueue.assert_called_once_with(team=self.team, query=runner.query, family="web_overview")
+        # The check-missed shape also becomes sticky, so the hourly warmer keeps
+        # it warm instead of letting the one-off reactive build expire.
+        mock_sticky.assert_called_once_with(team=self.team, runner=runner)
 
     @mock.patch(f"{_COMMON}.enqueue_stale_revalidation")
     @mock.patch(f"{_COMMON}.ensure_precomputed")
@@ -1120,6 +1265,7 @@ class TestPrecomputeShapeCapWiring(BaseTest):
         runner = mock.Mock()
         runner.team = self.team
         runner.query = _overview()
+        runner.modifiers = HogQLQueryModifiers()
         runner._test_account_filters = []
         return runner
 

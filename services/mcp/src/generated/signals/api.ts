@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 41 enabled ops
+ * PostHog API - MCP 42 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -533,7 +533,7 @@ export const SignalsReportsBulkStateCreateBody = () => zod.object({
 })
 
 /**
- * Create a scout skill and its runnable config atomically. Any valid skill name works — the config row is what makes the skill a scout. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, network access, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
+ * Create a scout skill and its runnable config atomically. Give it a `display_name` — the label people read, kept exactly as written — and the scout's permanent skill name is generated from it, with a numeric suffix when that name is taken, so two scouts may share a label without sharing an identity. Pass `name` instead to pick that identifier yourself; any valid skill name works, since the config row is what makes a skill a scout. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, network access, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing an explicit `name` for a different definition returns 409.
  * @summary Create a scout
  */
 export const SignalsScoutCreateParams = () => zod.object({
@@ -543,6 +543,8 @@ export const SignalsScoutCreateParams = () => zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+export const signalsScoutCreateBodyDisplayNameMax = 200
 
 export const signalsScoutCreateBodyNameMax = 64
 
@@ -582,11 +584,19 @@ export const signalsScoutCreateBodyConfigOneRunCronScheduleMax = 100
 
 export const SignalsScoutCreateBody = () => zod
     .object({
+        display_name: zod
+            .string()
+            .max(signalsScoutCreateBodyDisplayNameMax)
+            .optional()
+            .describe(
+                "Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead."
+            ),
         name: zod
             .string()
             .max(signalsScoutCreateBodyNameMax)
+            .optional()
             .describe(
-                'Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.'
+                'Optional skill name for the scout — its permanent identifier, containing only lowercase letters, numbers, and hyphens. Omit it and one is generated from `display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when that name is taken. Pass it to pick the identifier yourself, or to keep a client written before display names working unchanged. The `signals-scout-` prefix is optional.'
             ),
         description: zod
             .string()
@@ -773,7 +783,7 @@ export const SignalsScoutCreateBody = () => zod
     .describe('Create a runnable custom scout and its config in one atomic request.')
 
 /**
- * List the per-(team, skill) scout configs for this project. Each row includes its schedule (rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when set), `enabled`, `emit` posture, and `tags`. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick. Pass `tags` to narrow the fleet to the scouts carrying at least one of the given labels.
+ * List the per-(team, skill) scout configs for this project. Each row includes its `display_name` (the label people read), its `skill_name` (the permanent identifier), its schedule (rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when set), `enabled`, `emit` posture, and `tags`. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick. Pass `tags` to narrow the fleet to the scouts carrying at least one of the given labels, and `search` to narrow it to the scouts matching a substring of either name.
  * @summary List scout configs
  */
 export const SignalsScoutConfigListParams = () => zod.object({
@@ -785,6 +795,13 @@ export const SignalsScoutConfigListParams = () => zod.object({
 })
 
 export const SignalsScoutConfigListQueryParams = () => zod.object({
+    search: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "Case-insensitive substring filter over a scout's display name and its skill name. A scout matches on either, so a person who knows the label and a caller who knows the identifier both find it. Omit for the whole fleet."
+        ),
     tags: zod
         .string()
         .min(1)
@@ -832,6 +849,8 @@ export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersMax =
 
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault = true
 export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
+
+export const signalsScoutConfigCreateBodyDisplayNameMax = 200
 
 export const signalsScoutConfigCreateBodySkillNameMax = 200
 
@@ -973,6 +992,13 @@ export const SignalsScoutConfigCreateBody = () => zod
             .describe(
                 "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
             ),
+        display_name: zod
+            .string()
+            .max(signalsScoutConfigCreateBodyDisplayNameMax)
+            .optional()
+            .describe(
+                "Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead."
+            ),
         skill_name: zod
             .string()
             .max(signalsScoutConfigCreateBodySkillNameMax)
@@ -1031,7 +1057,9 @@ export const SignalsScoutConfigUpdateBody = () => zod
             .string()
             .max(signalsScoutConfigUpdateBodyDisplayNameMax)
             .optional()
-            .describe('Name shown in the UI. Does not change the skill name. Leave blank to use the default name.'),
+            .describe(
+                "Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead."
+            ),
         enabled: zod
             .boolean()
             .optional()
@@ -2243,6 +2271,41 @@ export const SignalsScoutEmitSignalBody = () => zod
             ),
     })
     .describe('Request body for `emit-finding`. Run attribution is taken from the URL path.')
+
+/**
+ * Load one page in a real browser and return what makes it slow — most usefully the element the browser chose as the Largest Contentful Paint, and where the LCP time went. Field data says a route is slow; this says which element and why, so a finding can name it instead of guessing from source. Restricted to public PostHog pages: the browser signs in to nothing, so a page behind a login would report the login screen's numbers. One throttled cold load is not a p75 over real users — corroborate a field finding with it, never replace one. Capped at 5 audits per run.
+ * @summary Run a Lighthouse audit for a run
+ */
+export const SignalsScoutLighthouseAuditParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    run_id: zod.string().describe('UUID of the `SignalScoutRun` bridge row.'),
+})
+
+export const signalsScoutLighthouseAuditBodyUrlMax = 2000
+
+export const signalsScoutLighthouseAuditBodyFormFactorDefault = `desktop`
+
+export const SignalsScoutLighthouseAuditBody = () => zod
+    .object({
+        url: zod
+            .url()
+            .max(signalsScoutLighthouseAuditBodyUrlMax)
+            .describe(
+                "The page to audit. Must be an https url on an allowed host — public PostHog pages only. Pages behind a login cannot be audited: the browser signs in to nothing, so it would measure the login screen and report its numbers as the page's."
+            ),
+        form_factor: zod
+            .enum(['desktop', 'mobile'])
+            .describe('\* `desktop` - desktop\n\* `mobile` - mobile')
+            .default(signalsScoutLighthouseAuditBodyFormFactorDefault)
+            .describe(
+                'Which device profile to emulate. Desktop and mobile produce different numbers, so audit the one whose field data you are explaining.\n\n\* `desktop` - desktop\n\* `mobile` - mobile'
+            ),
+    })
+    .describe('Request body for `scout-lighthouse-audit`: one page, one device profile.')
 
 /**
  * The structured-output channel: record schema-validated records this run produced. Opt-in via the scout config's `structured_output_schema` (a JSON Schema describing one record) — without it the call fails closed, as it does for a dry-run scout (emit off). All-or-nothing: any invalid record fails the whole call with nothing written, so fix and resubmit the batch. Each accepted record lands in the project's event stream as a `$scout_structured_output` event — query them like any event (insights, SQL over `events`). Recording is idempotent: event ids are deterministic, so resubmitting an identical batch (e.g. retrying after a 503) cannot double-count.
