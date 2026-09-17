@@ -738,6 +738,24 @@ describe('notebook cell tools', () => {
             expect(state.saveBodies).toHaveLength(0)
         })
 
+        // Relocation used to accept any unique occurrence of the source, so a paragraph that
+        // grew around the old text took the insert into its middle and split it in two.
+        it('refuses a source that survives only inside a longer paragraph', async () => {
+            const state = makeState('# Doc\n\n\nUpdated First paragraph. Now longer.\n')
+            state.stateCells = [FIRST]
+            const context = createMockContext(state)
+
+            await expect(
+                addCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    cell_type: 'markdown',
+                    markdown: 'Inserted note.',
+                    after_node_id: FIRST.node_id,
+                })
+            ).rejects.toThrow(/no longer a block of its own/)
+            expect(state.saveBodies).toHaveLength(0)
+        })
+
         it('refuses a paragraph that vanished between the read and the write', async () => {
             const state = makeState('# Doc\n\n\nSecond paragraph.\n')
             state.stateCells = [FIRST]
@@ -750,7 +768,7 @@ describe('notebook cell tools', () => {
                     markdown: 'Inserted note.',
                     after_node_id: FIRST.node_id,
                 })
-            ).rejects.toThrow(/no longer in notebook/)
+            ).rejects.toThrow(/no longer a block of its own/)
             expect(state.saveBodies).toHaveLength(0)
         })
     })

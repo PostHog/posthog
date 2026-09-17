@@ -123,6 +123,24 @@ interface ProseAnchor {
 }
 
 /**
+ * Whether the text at `index` stands as a block of its own, rather than sitting inside a longer
+ * one. A blank line separates two blocks, so a match with one on each side covers a whole block.
+ *
+ * Deliberately strict. A layout this does not recognize is refused and the caller reads again,
+ * which costs a round trip. Accepting a match inside a longer paragraph would split that
+ * paragraph around the inserted cell, which costs the reader their text.
+ */
+const BLOCK_START_BOUNDARY = /(?:^|\n[ \t]*\n[ \t]*)$/
+const BLOCK_END_BOUNDARY = /^(?:[ \t]*\n[ \t]*\n|[ \t]*\n?$)/
+
+function isWholeBlockAt(markdown: string, index: number, source: string): boolean {
+    return (
+        BLOCK_START_BOUNDARY.test(markdown.slice(0, index)) &&
+        BLOCK_END_BOUNDARY.test(markdown.slice(index + source.length))
+    )
+}
+
+/**
  * Where the anchor block ends in `markdown`, by the offsets the read reported, or by its text
  * when an edit elsewhere has moved them.
  *
@@ -133,18 +151,27 @@ function locateProseAnchorEnd(markdown: string, anchor: ProseAnchor): number {
     if (markdown.slice(anchor.start, anchor.end) === anchor.source) {
         return anchor.end
     }
-    const first = markdown.indexOf(anchor.source)
-    if (first === -1) {
+    const matches: number[] = []
+    for (
+        let index = markdown.indexOf(anchor.source);
+        index !== -1;
+        index = markdown.indexOf(anchor.source, index + 1)
+    ) {
+        if (isWholeBlockAt(markdown, index, anchor.source)) {
+            matches.push(index)
+        }
+    }
+    if (matches.length === 0) {
         throw new Error(
-            `Block ${anchor.nodeId} is no longer in notebook, so a cell cannot be placed after it. Read the notebook again with notebooks-get and retry with the id it returns.`
+            `Block ${anchor.nodeId} is no longer a block of its own in notebook, so a cell cannot be placed after it. Read the notebook again with notebooks-get and retry with the id it returns.`
         )
     }
-    if (markdown.indexOf(anchor.source, first + 1) !== -1) {
+    if (matches.length > 1) {
         throw new Error(
             `Block ${anchor.nodeId} now matches more than one block, so it cannot name one of them. Read the notebook again with notebooks-get and retry with the id it returns.`
         )
     }
-    return first + anchor.source.length
+    return matches[0]! + anchor.source.length
 }
 
 function insertBlock(
