@@ -11,6 +11,7 @@ import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperi
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ActivityScope } from '~/types'
 
+import { ExperimentRefreshResultsBoundary } from 'products/experiments/frontend/ExperimentRefreshResultsBoundary'
 import { LegacyExperimentView } from 'products/experiments/frontend/legacy'
 import { ExperimentMetricModal } from 'products/experiments/frontend/modals/ExperimentMetricModal/ExperimentMetricModal'
 import { experimentMetricModalLogic } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
@@ -22,10 +23,11 @@ import { sharedMetricModalLogic } from 'products/experiments/frontend/modals/Sha
 import { EmptyMetricsPanel } from '../ExperimentForm/MetricsPanel/EmptyMetricsPanel'
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
+import { experimentMetricsLogic } from '../experimentMetricsLogic'
 import { DEFAULT_EXPERIMENT_TAB, type ExperimentTab, experimentSceneLogic } from '../experimentSceneLogic'
 import { Metrics } from '../MetricsView/new/Metrics'
 import { RecalculationStatus } from '../MetricsView/shared/RecalculationStatus'
-import { isLegacyExperiment } from '../utils'
+import { getExperimentVariants, isLegacyExperiment } from '../utils'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentDebugPanel } from './ExperimentExecutionPathComparison'
 import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
@@ -52,8 +54,48 @@ const MetricsTab = (): JSX.Element => {
     const hasMetrics = orderedPrimaryMetricsWithResults.length > 0 || orderedSecondaryMetricsWithResults.length > 0
     const showRecalculationStatus = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION] && hasMetrics
 
+    const {
+        experimentRefreshReady,
+        exposures,
+        exposuresLoading,
+        primaryMetricsResults,
+        secondaryMetricsResults,
+        primaryMetricsResultsLoading,
+        secondaryMetricsResultsLoading,
+        primaryMetricsResultsErrors,
+        secondaryMetricsResultsErrors,
+    } = useValues(experimentLogic)
+    const {
+        primaryMetricsResults: recalculatedPrimary,
+        secondaryMetricsResults: recalculatedSecondary,
+        primaryMetricsResultsErrors: recalculatedPrimaryErrors,
+        secondaryMetricsResultsErrors: recalculatedSecondaryErrors,
+        isRecalculating,
+    } = useValues(experimentMetricsLogic({ experiment }))
+    const { setExperimentResultsObserved, experimentRefreshCommitted } = useActions(experimentLogic)
+    const useRecalculation = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
+    const resultsLoading = useRecalculation
+        ? isRecalculating
+        : primaryMetricsResultsLoading || secondaryMetricsResultsLoading
+    const resultsErrors = useRecalculation
+        ? [...recalculatedPrimaryErrors, ...recalculatedSecondaryErrors]
+        : [...primaryMetricsResultsErrors, ...secondaryMetricsResultsErrors]
+
     return (
-        <>
+        <ExperimentRefreshResultsBoundary
+            ready={experimentRefreshReady}
+            primary={useRecalculation ? recalculatedPrimary : primaryMetricsResults}
+            secondary={useRecalculation ? recalculatedSecondary : secondaryMetricsResults}
+            exposures={exposures}
+            blocked={
+                exposuresLoading ||
+                resultsLoading ||
+                resultsErrors.some(Boolean) ||
+                (hasMetrics && !getExperimentVariants(experiment).length)
+            }
+            observe={setExperimentResultsObserved}
+            committed={experimentRefreshCommitted}
+        >
             <ResultsNotificationBanner />
 
             <div className="w-full mb-4 flex flex-col gap-4">
@@ -75,7 +117,7 @@ const MetricsTab = (): JSX.Element => {
                     <Metrics isSecondary={true} />
                 </>
             )}
-        </>
+        </ExperimentRefreshResultsBoundary>
     )
 }
 

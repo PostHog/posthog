@@ -3,6 +3,8 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 
+import { createCustomerJourney } from 'lib/customerJourneys/createCustomerJourney'
+import { startCustomerJourney } from 'lib/customerJourneys/startCustomerJourney'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
@@ -39,6 +41,7 @@ import { snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording as deleteRecordingMock } from './utils/playerUtils'
 
 jest.mock('./snapshot-processing/DecompressionWorkerManager')
+jest.mock('lib/customerJourneys/startCustomerJourney')
 jest.mock('./utils/playerUtils', () => ({
     ...jest.requireActual('./utils/playerUtils'),
     deleteRecording: jest.fn().mockResolvedValue(undefined),
@@ -274,6 +277,58 @@ describe('sessionRecordingPlayerLogic', () => {
                 sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }),
                 playerSettingsLogic,
             ])
+        })
+    })
+
+    describe('customer journey observation', () => {
+        it('starts before loading, observes terminal failures and starts a new attempt on explicit retry', async () => {
+            logic.unmount()
+            const capture = jest.fn(() => true)
+            jest.mocked(startCustomerJourney).mockImplementation((options) =>
+                createCustomerJourney(
+                    {
+                        ...options,
+                        attempt_id: `synthetic-${capture.mock.calls.length}`,
+                        region: 'US',
+                        project_id: 101,
+                        organization_id: 'synthetic-org',
+                        registry_version: 'test-v1',
+                    },
+                    {
+                        now: () => 10,
+                        capture,
+                        visibility: { getState: () => 'visible', subscribe: () => () => {} },
+                    }
+                )
+            )
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            logic.mount()
+            expect(capture).toHaveBeenCalledWith(
+                'customer_journey_started',
+                expect.objectContaining({ journey_name: 'replay_open', readiness_scope: 'player_mount_to_first_frame' })
+            )
+            logic.actions.setPlayerError('loadSnapshotsForSourceFailure')
+            expect(capture).toHaveBeenCalledTimes(1)
+            await expectLogic(logic, () => logic.actions.snapshotSourceLoadExhausted()).toDispatchActions([
+                'setPlayerError',
+            ])
+            expect(capture).toHaveBeenLastCalledWith(
+                'customer_journey_finished',
+                expect.objectContaining({ outcome: 'failed', error_type: 'playback_error' })
+            )
+            logic.actions.retryLoadingSnapshots()
+            expect(capture).toHaveBeenLastCalledWith(
+                'customer_journey_started',
+                expect.objectContaining({ trigger: 'retry' })
+            )
+            logic.unmount()
+            expect(capture).toHaveBeenLastCalledWith(
+                'customer_journey_finished',
+                expect.objectContaining({ outcome: 'observation_stopped' })
+            )
+            expect(capture).toHaveBeenCalledTimes(4)
+            consoleError.mockRestore()
+            jest.mocked(startCustomerJourney).mockReset()
         })
     })
 

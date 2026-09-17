@@ -1,8 +1,10 @@
 import { api } from 'lib/api.mock'
 
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { startCustomerJourney } from 'lib/customerJourneys/startCustomerJourney'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -23,6 +25,7 @@ import { initKeaTests } from '~/test/init'
 import { Experiment, MultivariateFlagVariant } from '~/types'
 
 import { ExperimentSavedMetric, ExperimentWarning, experimentLogic, getDisplayOrderedIndices } from './experimentLogic'
+import { experimentMetricsLogic } from './experimentMetricsLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
@@ -31,6 +34,8 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
         info: jest.fn(),
     },
 }))
+
+jest.mock('lib/customerJourneys/startCustomerJourney')
 
 const mockShowApprovalRequiredToast = jest.fn()
 jest.mock('scenes/approvals/ApprovalRequiredBanner', () => ({
@@ -254,6 +259,297 @@ describe('experimentLogic', () => {
     })
 
     describe('refreshExperimentResults', () => {
+        it.each([false, true])(
+            'tracks both metric groups and exposures before commit (recalculation=%s)',
+            async (recalculation) => {
+                logic.unmount()
+                logic = experimentLogic({ experimentId: experiment.id })
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.setExperiment({
+                    ...experiment,
+                    metrics: [
+                        {
+                            kind: NodeKind.ExperimentMetric,
+                            uuid: 'primary-a',
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                        },
+                    ],
+                    metrics_secondary: [
+                        {
+                            kind: NodeKind.ExperimentMetric,
+                            uuid: 'secondary-a',
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                        },
+                    ],
+                    saved_metrics: [],
+                })
+                const handle = { attemptId: 'unused', firstUseful: jest.fn(), finish: jest.fn(), dispose: jest.fn() }
+                jest.mocked(startCustomerJourney).mockImplementation((options) => ({
+                    ...handle,
+                    attemptId: options.attempt_id!,
+                }))
+                let requestsStartedAfterJourney = true
+                useMocks({
+                    post: {
+                        '/api/environments/:team/query/:kind': async ({ request }) => {
+                            requestsStartedAfterJourney &&= jest.mocked(startCustomerJourney).mock.calls.length > 0
+                            const { query } = (await request.json()) as { query: { kind: string } }
+                            return [
+                                200,
+                                query.kind === 'ExperimentExposureQuery'
+                                    ? { timeseries: [], total_exposures: {}, is_cached: true }
+                                    : { baseline: { key: 'control' }, variants: [] },
+                            ]
+                        },
+                    },
+                })
+                const terminalRun = {
+                    id: 'synthetic-run',
+                    status: 'completed',
+                    failed_metrics: 0,
+                    total_metrics: 2,
+                    completed_metrics: 2,
+                    metric_errors: {},
+                    results: [
+                        {
+                            metric_uuid: 'primary-a',
+                            status: 'completed',
+                            error_message: null,
+                            result: { baseline: { key: 'control' }, variants: [] },
+                        },
+                        {
+                            metric_uuid: 'secondary-a',
+                            status: 'completed',
+                            error_message: null,
+                            result: { baseline: { key: 'control' }, variants: [] },
+                        },
+                    ],
+                }
+                useMocks({
+                    get: {
+                        '/api/projects/:team/experiments/:id/metrics_recalculation/latest/': () => [200, terminalRun],
+                    },
+                    post: {
+                        '/api/projects/:team/experiments/:id/metrics_recalculation/': () => {
+                            requestsStartedAfterJourney &&= jest.mocked(startCustomerJourney).mock.calls.length > 0
+                            return [200, terminalRun]
+                        },
+                    },
+                })
+                featureFlagLogic.actions.setFeatureFlags(
+                    recalculation ? [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION] : [],
+                    {
+                        [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: recalculation,
+                    }
+                )
+                const metricsLogic = experimentMetricsLogic({ experiment: logic.values.experiment })
+                metricsLogic.mount()
+                await expectLogic(metricsLogic).toFinishAllListeners()
+                logic.actions.setExperimentResultsObserved(true)
+                await logic.asyncActions.refreshExperimentResults(true, 'manual', false, 'full_results_refresh')
+                await expectLogic(metricsLogic).toFinishAllListeners()
+                expect(requestsStartedAfterJourney).toBe(true)
+                expect(startCustomerJourney).toHaveBeenCalled()
+                expect(handle.finish).not.toHaveBeenCalled()
+                expect(logic.values.experimentRefreshReady).toMatchObject({
+                    attemptId: logic.values.currentRefresh?.refresh_id,
+                })
+                expect(handle.finish).not.toHaveBeenCalled()
+                logic.actions.experimentRefreshCommitted(logic.values.currentRefresh!.refresh_id)
+                expect(handle.finish).toHaveBeenCalledWith(
+                    'usable',
+                    expect.objectContaining({ exposures_response_cached: true })
+                )
+                handle.finish.mockClear()
+                useMocks({ post: { '/api/environments/:team/query/:kind': () => [500, {}] } })
+                await logic.asyncActions.refreshExperimentResults(true, 'manual', false, 'full_results_refresh')
+                expect(handle.finish).toHaveBeenCalledWith(
+                    'failed',
+                    expect.objectContaining({ error_type: expect.any(String) })
+                )
+                expect(handle.finish).toHaveBeenCalledTimes(1)
+                logic.actions.setExperimentResultsObserved(false)
+                jest.mocked(startCustomerJourney).mockClear()
+                await logic.asyncActions.refreshExperimentResults(true, 'manual', false, 'full_results_refresh')
+                expect(startCustomerJourney).not.toHaveBeenCalled()
+                await expectLogic(metricsLogic).toFinishAllListeners()
+                metricsLogic.unmount()
+                jest.mocked(startCustomerJourney).mockReset()
+            }
+        )
+
+        it.each([
+            { recalculation: false, mutation: 'variant' },
+            { recalculation: true, mutation: 'variant' },
+            { recalculation: false, mutation: 'breakdown' },
+            { recalculation: false, mutation: 'breakdown_limit' },
+        ])(
+            'supersedes at the actual $mutation mutation before persistence (recalculation=$recalculation)',
+            async ({ recalculation, mutation }) => {
+                logic.unmount()
+                logic = experimentLogic({ experimentId: experiment.id })
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+                const metric = (uuid: string): ExperimentMetric => ({
+                    kind: NodeKind.ExperimentMetric,
+                    uuid,
+                    metric_type: ExperimentMetricType.MEAN,
+                    source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                    breakdownFilter: { breakdowns: [] },
+                })
+                const currentExperiment = {
+                    ...experiment,
+                    metrics: [metric('primary-a')],
+                    metrics_secondary: [metric('secondary-a')],
+                    saved_metrics: [],
+                }
+                logic.actions.setExperiment(currentExperiment)
+                const run = (id: string, label: string): Record<string, unknown> => ({
+                    id,
+                    status: 'completed',
+                    failed_metrics: 0,
+                    metric_errors: {},
+                    total_metrics: 2,
+                    completed_metrics: 2,
+                    results: ['primary-a', 'secondary-a'].map((uuid) => ({
+                        metric_uuid: uuid,
+                        status: 'completed',
+                        error_message: null,
+                        result: { baseline: { key: 'control' }, label },
+                    })),
+                })
+                useMocks({
+                    get: {
+                        '/api/projects/:team/experiments/:id/metrics_recalculation/latest/': () => [
+                            200,
+                            run('initial-run', 'initial'),
+                        ],
+                    },
+                })
+                featureFlagLogic.actions.setFeatureFlags(
+                    recalculation ? [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION] : [],
+                    {
+                        [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: recalculation,
+                    }
+                )
+                const metricsLogic = experimentMetricsLogic({ experiment: currentExperiment })
+                metricsLogic.mount()
+                await expectLogic(metricsLogic).toFinishAllListeners()
+                const handle = { attemptId: 'unused', firstUseful: jest.fn(), finish: jest.fn(), dispose: jest.fn() }
+                jest.mocked(startCustomerJourney).mockImplementation((options) => ({
+                    ...handle,
+                    attemptId: options.attempt_id!,
+                }))
+                let releaseOld!: () => void
+                const oldPending = new Promise<void>((resolve) => {
+                    releaseOld = resolve
+                })
+                let releaseSave!: () => void
+                const savePending = new Promise<void>((resolve) => {
+                    releaseSave = resolve
+                })
+                let mutationStarted = false
+                let oldRequests = 0
+                let saves = 0
+                let creates = 0
+                const newMetricRequests: string[] = []
+                useMocks({
+                    patch: {
+                        '/api/projects/:team/experiments/:id': async ({ request }) => {
+                            saves++
+                            const update = (await request.json()) as Partial<Experiment>
+                            await savePending
+                            return [200, { ...currentExperiment, ...update }]
+                        },
+                    },
+                    post: {
+                        '/api/environments/:team/query/:kind': async ({ request }) => {
+                            const { query } = (await request.json()) as {
+                                query: { kind: string; metric?: ExperimentMetric }
+                            }
+                            const old = !mutationStarted
+                            if (old) {
+                                oldRequests++
+                                await oldPending
+                            }
+                            if (query.kind === 'ExperimentExposureQuery') {
+                                return [200, { timeseries: [], total_exposures: {} }]
+                            }
+                            if (!old) {
+                                newMetricRequests.push(query.metric!.uuid!)
+                            }
+                            return [200, { baseline: { key: 'control' }, label: old ? 'old' : 'new' }]
+                        },
+                        '/api/projects/:team/experiments/:id/metrics_recalculation/': async () => {
+                            creates++
+                            const old = creates === 1
+                            if (old) {
+                                oldRequests++
+                                await oldPending
+                            }
+                            return [200, run(old ? 'old-run' : 'new-run', old ? 'old' : 'new')]
+                        },
+                    },
+                })
+                logic.actions.setExperimentResultsObserved(true)
+                const refresh = logic.asyncActions.refreshExperimentResults(
+                    true,
+                    'manual',
+                    false,
+                    'full_results_refresh'
+                )
+                const refreshId = logic.values.currentRefresh!.refresh_id
+                await expectLogic(logic).toMatchValues({ primaryMetricsResultsLoading: !recalculation })
+                await waitFor(() => expect(oldRequests).toBe(recalculation ? 2 : 3))
+                mutationStarted = true
+                if (mutation === 'variant') {
+                    logic.actions.setVariantExcluded('test', true)
+                } else if (mutation === 'breakdown') {
+                    logic.actions.updateMetricBreakdown('primary-a', { property: '$browser', type: 'event' })
+                } else {
+                    logic.actions.updateMetricBreakdownLimit('primary-a', 5)
+                }
+                expect(handle.finish).toHaveBeenCalledWith(
+                    'superseded',
+                    expect.objectContaining({ end_reason: 'superseded' })
+                )
+                expect(handle.finish).toHaveBeenCalledTimes(1)
+                expect(logic.values.experimentRefreshReady).toBeNull()
+                releaseSave()
+                await expectLogic(logic).toDispatchActions(['updateExperimentSuccess'])
+                if (!recalculation) {
+                    await waitFor(() => expect(newMetricRequests).toHaveLength(mutation === 'variant' ? 2 : 1))
+                    expect(newMetricRequests).toEqual(
+                        mutation === 'variant' ? ['primary-a', 'secondary-a'] : ['primary-a']
+                    )
+                }
+                releaseOld()
+                await refresh
+                await expectLogic(logic).toFinishAllListeners()
+                await expectLogic(metricsLogic).toFinishAllListeners()
+                expect(saves).toBe(1)
+                if (!recalculation) {
+                    expect(logic.values.primaryMetricsResultsLoading).toBe(false)
+                    expect(logic.values.secondaryMetricsResultsLoading).toBe(false)
+                    if (mutation !== 'variant') {
+                        expect(logic.values.secondaryMetricsResults[0]).toMatchObject({ label: 'old' })
+                    }
+                }
+                expect(
+                    (recalculation ? metricsLogic.values.primaryMetricsResults : logic.values.primaryMetricsResults)[0]
+                ).toMatchObject({ label: 'new' })
+                logic.actions.experimentRefreshCommitted(refreshId)
+                logic.actions.setExperimentResultsObserved(false)
+                expect(handle.firstUseful).not.toHaveBeenCalled()
+                expect(handle.finish).toHaveBeenCalledTimes(1)
+                metricsLogic.unmount()
+                jest.mocked(startCustomerJourney).mockReset()
+            }
+        )
+
         it('waits for metric refreshes to complete before resolving', async () => {
             logic.actions.setExperiment(experiment)
 

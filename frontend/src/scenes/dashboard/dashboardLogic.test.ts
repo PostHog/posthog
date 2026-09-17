@@ -3,6 +3,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import * as dashboardWidgetUtils from '@posthog/products-dashboards/frontend/utils'
@@ -15,10 +16,11 @@ import { dayjs, now } from 'lib/dayjs'
 import * as featureFlagLib from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import * as appContext from 'lib/utils/getAppContext'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { parseDashboardId } from 'scenes/dashboard/Dashboard'
 import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
-import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic, RefreshDashboardItemsAction } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -45,6 +47,13 @@ import {
 import { DashboardGridCompaction } from 'products/dashboards/frontend/dashboardCustomization'
 
 import { dashboardResult, insightOnDashboard, tileFromInsight } from './dashboardLogic.testHelpers'
+
+const mockStartCustomerJourney = jest.fn()
+
+jest.mock('lib/customerJourneys/startCustomerJourney', () => ({
+    ...jest.requireActual('lib/customerJourneys/startCustomerJourney'),
+    startCustomerJourney: (...args: unknown[]) => mockStartCustomerJourney(...args),
+}))
 
 const TEXT_TILE: DashboardTile<QueryBasedInsightModel> = {
     id: 4,
@@ -112,6 +121,7 @@ describe('dashboardLogic', () => {
     let dashboards: Record<number, DashboardType<QueryBasedInsightModel>> = {}
 
     beforeEach(() => {
+        mockStartCustomerJourney.mockReset().mockReturnValue(null)
         jest.spyOn(api, 'update')
 
         const insights: Record<number, QueryBasedInsightModel> = {
@@ -322,6 +332,45 @@ describe('dashboardLogic', () => {
         initKeaTests()
         dashboardsModel.mount()
         insightsModel.mount()
+    })
+
+    it('gates the dashboard observer using enrollment and reevaluates when feature flags change', async () => {
+        const gatedLogic = dashboardLogic({ id: 5 })
+        gatedLogic.mount()
+        await expectLogic(gatedLogic).toFinishAllListeners()
+        const context = appContext.getAppContext()!
+        const contextSpy = jest.spyOn(appContext, 'getAppContext').mockReturnValue({
+            ...context,
+            preflight: { ...context.preflight, cloud: true, region: 'US' },
+        } as ReturnType<typeof appContext.getAppContext>)
+        const flagSpy = jest.spyOn(posthog, 'getFeatureFlagResult').mockReturnValue(undefined)
+        try {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_JOURNEY_TELEMETRY], {
+                [FEATURE_FLAGS.CUSTOMER_JOURNEY_TELEMETRY]: true,
+            })
+            expect(gatedLogic.values.customerJourneyTelemetryEnabled).toBe(false)
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CUSTOMER_JOURNEY_TELEMETRY]: false })
+            expect(gatedLogic.values.customerJourneyTelemetryEnabled).toBe(false)
+            flagSpy.mockReturnValue({
+                key: 'customer-journey-telemetry',
+                enabled: true,
+                variant: undefined,
+                payload: {
+                    schema_version: 1,
+                    registry_version: 'test-v1',
+                    organizations: [{ region: 'US', organization_id: context.current_team!.organization! }],
+                },
+            })
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_JOURNEY_TELEMETRY], {
+                [FEATURE_FLAGS.CUSTOMER_JOURNEY_TELEMETRY]: true,
+            })
+            expect(gatedLogic.values.customerJourneyTelemetryEnabled).toBe(true)
+            expect(mockStartCustomerJourney).not.toHaveBeenCalled()
+            expect(flagSpy).toHaveBeenLastCalledWith('customer-journey-telemetry', { send_event: false })
+        } finally {
+            contextSpy.mockRestore()
+            flagSpy.mockRestore()
+        }
     })
 
     describe('malformed dashboard id', () => {
@@ -2618,6 +2667,186 @@ describe('dashboardLogic', () => {
         })
 
         describe('insight refresh', () => {
+            it('does not start journey telemetry from a partial streaming tile inventory', async () => {
+                const partialDashboard = dashboardResult(5, [logic.values.insightTiles[0]])
+                logic.actions.loadDashboardMetadataSuccess(partialDashboard)
+                expect(logic.values.dashboardTileInventoryComplete).toBe(false)
+
+                const visibleTile = partialDashboard.tiles[0]
+                logic.actions.setDashboardTileJourneyVisibility(
+                    {
+                        tileId: visibleTile.id,
+                        insightShortId: visibleTile.insight!.short_id,
+                        insightType: 'RETENTION',
+                    },
+                    true
+                )
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerDashboardRefresh('manual')
+                }).toFinishAllListeners()
+
+                expect(mockStartCustomerJourney).not.toHaveBeenCalled()
+            })
+
+            it('does not start journey telemetry when every visible insight is duplicated in the full dashboard', async () => {
+                const duplicatedInsight = logic.values.insightTiles[0].insight!
+                const duplicatedDashboard = dashboardResult(5, [
+                    tileFromInsight(duplicatedInsight, 501),
+                    tileFromInsight(duplicatedInsight, 502),
+                ])
+                dashboardsModel.actions.updateDashboardSuccess(duplicatedDashboard)
+                for (const tile of duplicatedDashboard.tiles) {
+                    logic.actions.setDashboardTileJourneyVisibility(
+                        {
+                            tileId: tile.id,
+                            insightShortId: tile.insight!.short_id,
+                            insightType: 'RETENTION',
+                        },
+                        true
+                    )
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerDashboardRefresh('manual')
+                }).toFinishAllListeners()
+
+                expect(mockStartCustomerJourney).not.toHaveBeenCalled()
+            })
+
+            it.each(['success', 'query_error'] as const)(
+                'measures only a unique visible insight when an offscreen duplicate returns %s',
+                async (duplicateOutcome) => {
+                    const uniqueInsight = logic.values.insightTiles[0].insight!
+                    const duplicatedInsight = logic.values.insightTiles[1].insight!
+                    const uniqueTile = { ...tileFromInsight(uniqueInsight, 511), order: 0 }
+                    const visibleDuplicateTile = { ...tileFromInsight(duplicatedInsight, 512), order: 1 }
+                    const offscreenDuplicateTile = { ...tileFromInsight(duplicatedInsight, 513), order: 2 }
+                    dashboardsModel.actions.updateDashboardSuccess(
+                        dashboardResult(5, [uniqueTile, visibleDuplicateTile, offscreenDuplicateTile])
+                    )
+
+                    const journey = {
+                        attemptId: 'unique-attempt',
+                        firstUseful: jest.fn(),
+                        finish: jest.fn(),
+                        dispose: jest.fn(),
+                    }
+                    mockStartCustomerJourney.mockReturnValue(journey)
+                    logic.actions.setDashboardTileJourneyVisibility(
+                        {
+                            tileId: uniqueTile.id,
+                            insightShortId: uniqueInsight.short_id,
+                            insightType: 'RETENTION',
+                        },
+                        true
+                    )
+                    logic.actions.setDashboardTileJourneyVisibility(
+                        {
+                            tileId: visibleDuplicateTile.id,
+                            insightShortId: duplicatedInsight.short_id,
+                            insightType: 'TRENDS',
+                        },
+                        true
+                    )
+
+                    type DeferredResponse = {
+                        promise: Promise<QueryBasedInsightModel>
+                        resolve: (value: QueryBasedInsightModel) => void
+                    }
+                    const deferred = (): DeferredResponse => {
+                        let resolve!: DeferredResponse['resolve']
+                        const promise = new Promise<QueryBasedInsightModel>((res) => {
+                            resolve = res
+                        })
+                        return { promise, resolve }
+                    }
+                    const requests = [deferred(), deferred(), deferred()]
+                    let requestIndex = 0
+                    const getInsightWithRetrySpy = jest
+                        .spyOn(dashboardUtils, 'getInsightWithRetry')
+                        .mockImplementation(() => requests[requestIndex++].promise)
+                    const poll = async (condition: () => boolean, message: string): Promise<void> => {
+                        const deadline = Date.now() + 5000
+                        while (!condition()) {
+                            if (Date.now() > deadline) {
+                                throw new Error(message)
+                            }
+                            await new Promise((resolve) => setTimeout(resolve, 0))
+                        }
+                    }
+
+                    try {
+                        const refreshDone = expectLogic(logic, () => {
+                            logic.actions.triggerDashboardRefresh('manual')
+                        }).toFinishAllListeners()
+                        await poll(() => requestIndex === 3, 'manual refresh did not start all tile requests')
+
+                        requests[1].resolve({ ...duplicatedInsight, result: [{ count: 12 }] })
+                        requests[2].resolve(
+                            duplicateOutcome === 'success'
+                                ? { ...duplicatedInsight, result: [{ count: 13 }] }
+                                : {
+                                      ...duplicatedInsight,
+                                      result: null,
+                                      query_status: {
+                                          id: 'duplicate-error',
+                                          team_id: MOCK_TEAM_ID,
+                                          query_async: true,
+                                          complete: true,
+                                          error: true,
+                                          error_code: 'duplicate_query_error',
+                                          error_message: 'duplicate failed',
+                                      },
+                                  }
+                        )
+                        await new Promise((resolve) => setTimeout(resolve, 0))
+
+                        expect(logic.values.dashboardJourneyRenderReadiness).toEqual({})
+                        expect(journey.firstUseful).not.toHaveBeenCalled()
+                        expect(journey.finish).not.toHaveBeenCalled()
+
+                        const uniqueResult: unknown[] = []
+                        requests[0].resolve({ ...uniqueInsight, result: uniqueResult })
+                        await poll(
+                            () => !!logic.values.dashboardJourneyRenderReadiness[uniqueTile.id],
+                            'unique tile did not become render-ready'
+                        )
+                        expect(logic.values.dashboardJourneyRenderReadiness).toEqual({
+                            [uniqueTile.id]: expect.objectContaining({
+                                attemptId: 'unique-attempt',
+                                tileId: uniqueTile.id,
+                                expectedResult: uniqueResult,
+                            }),
+                        })
+                        expect(
+                            logic.values.insightTiles.find((tile) => tile.id === uniqueTile.id)?.insight?.result
+                        ).toBe(uniqueResult)
+
+                        logic.actions.dashboardJourneyTileRenderCommitted('unique-attempt', uniqueTile.id)
+                        expect(journey.firstUseful).toHaveBeenCalledTimes(1)
+                        expect(journey.finish).toHaveBeenCalledTimes(1)
+                        expect(journey.finish).toHaveBeenCalledWith(
+                            'usable',
+                            expect.objectContaining({
+                                total_count: 1,
+                                ready_count: 1,
+                                failed_count: 0,
+                                pending_count: 0,
+                                excluded_count: 1,
+                            })
+                        )
+
+                        await refreshDone
+                    } finally {
+                        requests[0].resolve({ ...uniqueInsight, result: [] })
+                        requests[1].resolve({ ...duplicatedInsight, result: [] })
+                        requests[2].resolve({ ...duplicatedInsight, result: [] })
+                        getInsightWithRetrySpy.mockRestore()
+                    }
+                }
+            )
+
             it('manual refresh reloads all insights', async () => {
                 const dashboard = dashboards[5]
                 const insight1 = dashboard.tiles[0].insight!
@@ -2901,6 +3130,112 @@ describe('dashboardLogic', () => {
 
                 getInsightWithRetrySpy.mockRestore()
             })
+
+            it.each(['success', 'query_error'] as const)(
+                'rejects a late failed-generation %s response after a non-journey refresh batch starts',
+                async (lateResponse) => {
+                    const [tile1, tile2] = logic.values.insightTiles
+                    const journey = {
+                        attemptId: 'attempt-a',
+                        firstUseful: jest.fn(),
+                        finish: jest.fn(),
+                        dispose: jest.fn(),
+                    }
+                    mockStartCustomerJourney.mockReturnValue(journey)
+                    logic.actions.setDashboardTileJourneyVisibility(
+                        { tileId: tile1.id, insightShortId: tile1.insight!.short_id, insightType: 'RETENTION' },
+                        true
+                    )
+                    logic.actions.setDashboardTileJourneyVisibility(
+                        { tileId: tile2.id, insightShortId: tile2.insight!.short_id, insightType: 'TRENDS' },
+                        true
+                    )
+
+                    type DeferredResponse = {
+                        promise: Promise<QueryBasedInsightModel>
+                        resolve: (value: QueryBasedInsightModel) => void
+                        reject: (error: Error) => void
+                    }
+                    const deferred = (): DeferredResponse => {
+                        let resolve!: DeferredResponse['resolve']
+                        let reject!: DeferredResponse['reject']
+                        const promise = new Promise<QueryBasedInsightModel>((res, rej) => {
+                            resolve = res
+                            reject = rej
+                        })
+                        return { promise, resolve, reject }
+                    }
+                    const requests = [deferred(), deferred(), deferred(), deferred()]
+                    let requestIndex = 0
+                    const getInsightWithRetrySpy = jest
+                        .spyOn(dashboardUtils, 'getInsightWithRetry')
+                        .mockImplementation(() => requests[requestIndex++].promise)
+                    const poll = async (condition: () => boolean, message: string): Promise<void> => {
+                        const deadline = Date.now() + 5000
+                        while (!condition()) {
+                            if (Date.now() > deadline) {
+                                throw new Error(message)
+                            }
+                            await new Promise((resolve) => setTimeout(resolve, 0))
+                        }
+                    }
+
+                    try {
+                        logic.actions.triggerDashboardRefresh('manual')
+                        await poll(() => requestIndex === 2, 'manual generation A did not start both tile requests')
+
+                        requests[0].reject(new Error('generation A failed'))
+                        await poll(() => journey.finish.mock.calls.length === 1, 'generation A did not finish failed')
+                        expect(journey.finish).toHaveBeenCalledWith(
+                            'failed',
+                            expect.objectContaining({ total_count: 2, failed_count: 1, pending_count: 1 })
+                        )
+
+                        logic.actions.refreshDashboardItems({
+                            action: RefreshDashboardItemsAction.Refresh,
+                            forceRefresh: true,
+                        })
+                        await poll(() => requestIndex === 4, 'replacement generation B did not start')
+
+                        const bResult1 = [{ count: 101 }]
+                        const bResult2 = [{ count: 202 }]
+                        requests[2].resolve({ ...tile1.insight!, result: bResult1 })
+                        requests[3].resolve({ ...tile2.insight!, result: bResult2 })
+                        await poll(
+                            () => logic.values.insightTiles[1].insight?.result === bResult2,
+                            'generation B did not commit its tile results'
+                        )
+
+                        requests[1].resolve(
+                            lateResponse === 'success'
+                                ? { ...tile2.insight!, result: [{ count: -1 }] }
+                                : {
+                                      ...tile2.insight!,
+                                      result: null,
+                                      query_status: {
+                                          id: 'late-a-error',
+                                          team_id: MOCK_TEAM_ID,
+                                          query_async: true,
+                                          complete: true,
+                                          error: true,
+                                          error_code: 'late_generation_error',
+                                          error_message: 'late generation A failed',
+                                      },
+                                  }
+                        )
+                        await expectLogic(logic).toFinishAllListeners()
+
+                        expect(logic.values.insightTiles[0].insight?.result).toBe(bResult1)
+                        expect(logic.values.insightTiles[1].insight?.result).toBe(bResult2)
+                        expect(logic.values.refreshStatus[tile2.insight!.short_id]?.errored).not.toBe(true)
+                    } finally {
+                        requests.forEach((request, index) =>
+                            request.resolve({ ...(index % 2 ? tile2.insight! : tile1.insight!), result: [] })
+                        )
+                        getInsightWithRetrySpy.mockRestore()
+                    }
+                }
+            )
 
             it('shows query status errors returned in serialized insights', async () => {
                 const dashboard = dashboards[5]

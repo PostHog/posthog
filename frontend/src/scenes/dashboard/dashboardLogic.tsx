@@ -38,6 +38,7 @@ import { ApiError, isAccessDeniedError } from 'lib/api-error'
 import { DataColorTheme } from 'lib/colors'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { isCustomerJourneyTelemetryEnabled } from 'lib/customerJourneys/startCustomerJourney'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
@@ -108,6 +109,11 @@ import {
 } from '~/types'
 
 import { DashboardGridCompaction } from 'products/dashboards/frontend/dashboardCustomization'
+import {
+    DashboardJourneyRenderReadiness,
+    DashboardJourneyTileContext,
+    DashboardRefreshJourneyController,
+} from 'products/dashboards/frontend/dashboardRefreshJourney'
 import {
     dashboardFiltersEqual,
     dashboardVariableValuesEqual,
@@ -298,11 +304,13 @@ export interface dashboardLogicValues {
     currentDashboardSettings: DashboardSettings
     currentDashboardVariables: Record<string, HogQLVariable>
     currentLayoutSize: 'sm' | 'xs'
+    customerJourneyTelemetryEnabled: boolean
     dashboard: DashboardType<QueryBasedInsightModel> | null
     dashboardCustomizeMenuOpen: boolean
     dashboardEditing: DashboardEditing | null
     dashboardFailedToLoad: boolean
     dashboardFiltersSaving: boolean
+    dashboardJourneyRenderReadiness: Record<number, DashboardJourneyRenderReadiness>
     dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>
     dashboardLoadData: {
         action: DashboardLoadAction | undefined
@@ -316,6 +324,7 @@ export interface dashboardLogicValues {
     dashboardSettingsDraft: DashboardSettings | null
     dashboardSettingsState: DashboardSettingsState
     dashboardStreaming: boolean
+    dashboardTileInventoryComplete: boolean
     dashboardTileSpacingSaving: boolean
     dashboardWidgetsEnabled: boolean
     dataColorTheme: DataColorTheme | null
@@ -464,6 +473,9 @@ export interface dashboardLogicActions {
     clearAddWidgetSelectedTypes: () => {
         value: true
     }
+    clearDashboardJourneyRenderReadiness: (tileId?: number) => {
+        tileId: number | undefined
+    }
     clearDashboardSettingsUrlOverrides: () => {
         value: true
     }
@@ -504,6 +516,13 @@ export interface dashboardLogicActions {
             toDashboard: number
             toDashboardName: string
         }
+    }
+    dashboardJourneyTileRenderCommitted: (
+        attemptId: string,
+        tileId: number
+    ) => {
+        attemptId: string
+        tileId: number
     }
     dashboardNotFound: () => {
         value: true
@@ -665,10 +684,14 @@ export interface dashboardLogicActions {
     refreshDashboardItems: (payload: {
         action: DashboardLoadAction | RefreshDashboardItemsAction
         forceRefresh?: boolean
+        journeyAttemptId?: string
+        journeyTileIds?: number[]
         previewUnsavedFilters?: boolean
     }) => {
         action: DashboardLoadAction | RefreshDashboardItemsAction
         forceRefresh?: boolean | undefined
+        journeyAttemptId?: string | undefined
+        journeyTileIds?: number[] | undefined
         previewUnsavedFilters?: boolean | undefined
     }
     refreshDashboardWidgets: (payload: { forceRefresh?: boolean; tileIds: number[] }) => {
@@ -830,6 +853,9 @@ export interface dashboardLogicActions {
     setDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
         layoutCompaction: DashboardGridCompaction
     }
+    setDashboardJourneyRenderReadiness: (readiness: DashboardJourneyRenderReadiness) => {
+        readiness: DashboardJourneyRenderReadiness
+    }
     setDashboardMode: (
         mode: DashboardMode | null,
         source: DashboardEventSource
@@ -842,6 +868,13 @@ export interface dashboardLogicActions {
     }
     setDashboardStreamFailed: () => {
         value: true
+    }
+    setDashboardTileJourneyVisibility: (
+        tile: DashboardJourneyTileContext,
+        visible: boolean
+    ) => {
+        tile: DashboardJourneyTileContext
+        visible: boolean
     }
     setDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => {
         tileSpacing: DashboardTileSpacing
@@ -978,8 +1011,9 @@ export interface dashboardLogicActions {
     toggleTileDescription: (tileId: number) => {
         tileId: number
     }
-    triggerDashboardRefresh: () => {
-        value: true
+    triggerDashboardRefresh: (source?: 'automatic' | 'manual') => {
+        refreshId: string
+        source: 'automatic' | 'manual'
     }
     triggerDashboardUpdate: (payload: any) => {
         payload: any
@@ -1180,6 +1214,7 @@ export interface dashboardLogicMeta {
             dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
         ) => DashboardTemplateEditorType | undefined
         placement: (arg: any) => DashboardPlacement
+        customerJourneyTelemetryEnabled: (featureFlags: FeatureFlagsSet) => boolean
         apiUrl: (
             id: number
         ) => (
@@ -1366,7 +1401,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /** Expose response size information about the current dashboard load in dashboardLoadData. */
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
         /** Manually refresh the entire dashboard. */
-        triggerDashboardRefresh: true,
+        triggerDashboardRefresh: (source: 'manual' | 'automatic' = 'manual') => ({ source, refreshId: uuid() }),
         /**
          * If the latest tile data is older than SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES,
          * queue a single force-blocking refresh on the next microtask. Reads
@@ -1380,6 +1415,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             action: RefreshDashboardItemsAction | DashboardLoadAction
             forceRefresh?: boolean
             previewUnsavedFilters?: boolean
+            journeyAttemptId?: string
+            journeyTileIds?: number[]
         }) => payload,
         refreshDashboardWidgets: (payload: { tileIds: number[]; forceRefresh?: boolean }) => payload,
         /** Debounced run_widgets refresh for a single tile (tile filters). */
@@ -1421,6 +1458,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         abortQuery: (payload: { queryId: string; queryStartTime: number; shortId: InsightShortId }) => payload,
         abortAnyRunningQuery: true,
         cancelDashboardRefresh: true,
+        setDashboardTileJourneyVisibility: (tile: DashboardJourneyTileContext, visible: boolean) => ({ tile, visible }),
+        setDashboardJourneyRenderReadiness: (readiness: DashboardJourneyRenderReadiness) => ({ readiness }),
+        clearDashboardJourneyRenderReadiness: (tileId?: number) => ({ tileId }),
+        dashboardJourneyTileRenderCommitted: (attemptId: string, tileId: number) => ({ attemptId, tileId }),
 
         /**
          * Auto-refresh while on page.
@@ -1951,6 +1992,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboardFailure: () => false,
             },
         ],
+        dashboardTileInventoryComplete: [
+            false,
+            {
+                // Streaming metadata contains only the first tiles. Treat the manifest as complete only after the
+                // explicit completion action; dashboardStreaming=false also covers failed, still-partial streams.
+                loadDashboard: () => false,
+                loadDashboardStreaming: () => false,
+                loadDashboardMetadataSuccess: () => false,
+                receiveTileFromStream: () => false,
+                loadDashboardSuccess: (_, { dashboard }) => !!dashboard,
+                loadDashboardFailure: () => false,
+                tileStreamingComplete: () => true,
+                tileStreamingFailure: () => false,
+                dashboardNotFound: () => false,
+                setAccessDeniedToDashboard: () => false,
+            },
+        ],
         dashboardFiltersSaving: [
             false,
             {
@@ -2328,6 +2386,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setRefreshTilesTotal: (_, { total }) => total,
                 refreshDashboardItems: () => null,
                 cancelDashboardRefresh: () => null,
+            },
+        ],
+        dashboardJourneyRenderReadiness: [
+            {} as Record<number, DashboardJourneyRenderReadiness>,
+            {
+                setDashboardJourneyRenderReadiness: (state, { readiness }) => ({
+                    ...state,
+                    [readiness.tileId]: readiness,
+                }),
+                clearDashboardJourneyRenderReadiness: (state, { tileId }) => {
+                    if (tileId === undefined) {
+                        return {}
+                    }
+                    const { [tileId]: _removed, ...rest } = state
+                    return rest
+                },
             },
         ],
         columns: [
@@ -2990,6 +3064,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             () => [(_, props) => props.placement],
             (placement): DashboardPlacement => placement || DashboardPlacement.Dashboard,
         ],
+        customerJourneyTelemetryEnabled: [
+            (s) => [s.featureFlags],
+            (_featureFlags: FeatureFlagsSet): boolean => isCustomerJourneyTelemetryEnabled(),
+        ],
         apiUrl: [
             (_, p) => [p.id],
             (id: number) => {
@@ -3456,6 +3534,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         beforeUnmount: () => {
             cache.widgetTileRefreshScheduler?.cancelAll()
+            ;(cache.dashboardRefreshJourneyController as DashboardRefreshJourneyController | undefined)?.dispose(
+                'observation_stopped'
+            )
             actions.abortAnyRunningQuery()
         },
     })),
@@ -4023,13 +4104,32 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
             cache.lastAutoForcedFor = currentRefreshKey
             queueMicrotask(() => {
-                void actions.triggerDashboardRefresh()
+                void actions.triggerDashboardRefresh('automatic')
             })
         },
         /** Triggered from dashboard refresh button, when user refreshes entire dashboard */
-        triggerDashboardRefresh: () => {
+        triggerDashboardRefresh: ({ source, refreshId }) => {
             actions.resetInterval()
-            actions.refreshDashboardItems({ action: RefreshDashboardItemsAction.Refresh, forceRefresh: true })
+            const controller = (cache.dashboardRefreshJourneyController ??=
+                new DashboardRefreshJourneyController()) as DashboardRefreshJourneyController
+            const dashboardTileManifest = values.dashboardTileInventoryComplete
+                ? values.insightTiles.map((tile) => ({
+                      tileId: tile.id,
+                      insightShortId: tile.insight!.short_id,
+                  }))
+                : null
+            const snapshot =
+                source === 'manual' && dashboardTileManifest
+                    ? controller.start(props.id, refreshId, dashboardTileManifest)
+                    : null
+            cache.acceptedDashboardJourneyAttemptId = snapshot?.attemptId ?? null
+            actions.clearDashboardJourneyRenderReadiness()
+            actions.refreshDashboardItems({
+                action: RefreshDashboardItemsAction.Refresh,
+                forceRefresh: true,
+                journeyAttemptId: snapshot?.attemptId,
+                journeyTileIds: snapshot ? Object.keys(snapshot.requiredTiles).map(Number) : undefined,
+            })
             if (
                 values.dashboardWidgetsEnabled &&
                 values.placement !== DashboardPlacement.Export &&
@@ -4104,7 +4204,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.setRefreshError(insight.short_id, e)
             }
         },
-        refreshDashboardItems: async ({ action, forceRefresh, previewUnsavedFilters }, breakpoint) => {
+        refreshDashboardItems: async (
+            { action, forceRefresh, previewUnsavedFilters, journeyAttemptId, journeyTileIds },
+            breakpoint
+        ) => {
+            const journeyController = (cache.dashboardRefreshJourneyController ??=
+                new DashboardRefreshJourneyController()) as DashboardRefreshJourneyController
+            const incomingJourneyAttemptId = journeyAttemptId ?? null
+            if (cache.acceptedDashboardJourneyAttemptId !== incomingJourneyAttemptId) {
+                if (journeyController.activeAttemptId && journeyController.activeAttemptId !== journeyAttemptId) {
+                    journeyController.dispose('superseded')
+                }
+                cache.acceptedDashboardJourneyAttemptId = incomingJourneyAttemptId
+                actions.clearDashboardJourneyRenderReadiness()
+            }
             const dashboardRefreshStartTime = performance.now()
             const settingsToRefresh = previewUnsavedFilters
                 ? values.currentDashboardSettings
@@ -4188,13 +4301,31 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tile.filters_overrides
                         )
 
+                        const isJourneyTile = !!journeyAttemptId && !!journeyTileIds?.includes(tile.id)
+                        if (isJourneyTile && cache.acceptedDashboardJourneyAttemptId !== journeyAttemptId) {
+                            return
+                        }
                         if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight)) {
                             const queryError = getInsightQueryError(refreshedInsight)
                             if (queryError) {
                                 actions.setRefreshError(insight.short_id, queryError)
+                                if (isJourneyTile) {
+                                    journeyController.failed(journeyAttemptId, tile.id, 'query_error')
+                                    actions.clearDashboardJourneyRenderReadiness()
+                                }
                                 tilesErroredCount++
                             } else {
                                 dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
+                                if (isJourneyTile) {
+                                    const readiness = journeyController.dataReady(
+                                        journeyAttemptId,
+                                        tile.id,
+                                        refreshedInsight.result
+                                    )
+                                    if (readiness) {
+                                        actions.setDashboardJourneyRenderReadiness(readiness)
+                                    }
+                                }
                                 actions.setRefreshStatus(insight.short_id)
                                 tilesRefreshedCount++
                                 if (refreshedInsight.is_cached) {
@@ -4211,15 +4342,30 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             }
                         } else {
                             actions.setRefreshError(insight.short_id)
+                            if (journeyAttemptId && journeyTileIds?.includes(tile.id)) {
+                                journeyController.failed(journeyAttemptId, tile.id, 'query_error')
+                                actions.clearDashboardJourneyRenderReadiness()
+                            }
                             tilesErroredCount++
                         }
                     } catch (e: any) {
+                        if (
+                            journeyAttemptId &&
+                            journeyTileIds?.includes(tile.id) &&
+                            cache.acceptedDashboardJourneyAttemptId !== journeyAttemptId
+                        ) {
+                            return
+                        }
                         if (shouldCancelQuery(e)) {
                             console.warn(`Insight refresh cancelled for ${insight.short_id} due to abort signal:`, e)
                             actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id })
                             tilesAbortedCount++
                         } else {
                             actions.setRefreshError(insight.short_id, e)
+                            if (journeyAttemptId && journeyTileIds?.includes(tile.id)) {
+                                journeyController.failed(journeyAttemptId, tile.id, 'load_error')
+                                actions.clearDashboardJourneyRenderReadiness()
+                            }
                             tilesErroredCount++
                         }
                     }
@@ -4679,7 +4825,26 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         cancelDashboardRefresh: () => {
+            ;(cache.dashboardRefreshJourneyController as DashboardRefreshJourneyController | undefined)?.dispose(
+                'cancelled'
+            )
+            cache.acceptedDashboardJourneyAttemptId = null
+            actions.clearDashboardJourneyRenderReadiness()
             actions.abortAnyRunningQuery()
+        },
+        setDashboardTileJourneyVisibility: ({ tile, visible }) => {
+            ;(
+                (cache.dashboardRefreshJourneyController ??=
+                    new DashboardRefreshJourneyController()) as DashboardRefreshJourneyController
+            ).setTileVisibility(tile, visible)
+        },
+        dashboardJourneyTileRenderCommitted: ({ attemptId, tileId }) => {
+            const committed = (
+                cache.dashboardRefreshJourneyController as DashboardRefreshJourneyController | undefined
+            )?.renderCommitted(attemptId, tileId)
+            if (committed) {
+                actions.clearDashboardJourneyRenderReadiness(tileId)
+            }
         },
         abortQuery: async ({ queryId, queryStartTime }) => {
             const { currentTeamId, dashboardLoadData } = values

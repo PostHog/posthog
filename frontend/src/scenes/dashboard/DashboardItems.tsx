@@ -36,6 +36,7 @@ import { DashboardLayoutSize, DashboardPlacement, DashboardType } from '~/types'
 
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
+import { getDashboardJourneyInsightType } from 'products/dashboards/frontend/dashboardRefreshJourney'
 
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
@@ -97,6 +98,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         widgetResultsByTileId,
         widgetRefreshStatus,
         scrollToBottomSignal,
+        customerJourneyTelemetryEnabled,
+        dashboardJourneyRenderReadiness,
     } = useValues(dashboardLogic)
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
@@ -115,6 +118,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         copyToDashboard,
         setTileOverride,
         setDashboardEditing,
+        setDashboardTileJourneyVisibility,
+        dashboardJourneyTileRenderCommitted,
     } = useActions(dashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
@@ -589,6 +594,21 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         dataColorThemeId={dataColorThemeId}
                                         surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
                                         showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}
+                                        onActualVisibilityChange={
+                                            customerJourneyTelemetryEnabled
+                                                ? (visible) =>
+                                                      setDashboardTileJourneyVisibility(
+                                                          {
+                                                              tileId: tile.id,
+                                                              insightShortId: insight.short_id,
+                                                              insightType: getDashboardJourneyInsightType(insight),
+                                                          },
+                                                          visible
+                                                      )
+                                                : undefined
+                                        }
+                                        customerJourneyRenderReadiness={dashboardJourneyRenderReadiness?.[tile.id]}
+                                        onCustomerJourneyRenderCommitted={dashboardJourneyTileRenderCommitted}
                                         {...commonTileProps}
                                     />
                                 )

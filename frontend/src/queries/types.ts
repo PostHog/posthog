@@ -93,6 +93,15 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
      * (e.g. the Error tracking insights tab) and the suggestions would not be actionable.
      */
     suppressSlowQuerySuggestions?: boolean
+    /** Dashboard manual-refresh response whose exact result must reach a committed visualization. */
+    dashboardJourneyRenderReadiness?: {
+        attemptId: string
+        tileId: number
+        insightShortId: string
+        insightType: 'TRENDS' | 'STICKINESS' | 'LIFECYCLE' | 'FUNNELS' | 'RETENTION' | 'PATHS'
+        expectedResult: unknown
+    }
+    onDashboardJourneyRenderCommitted?: (attemptId: string, tileId: number) => void
     /**
      * Let this table's event pickers offer events whose data is moving out of the `events` table.
      * Set it where the pick is thrown away with the page. A surface whose query gets saved (an
