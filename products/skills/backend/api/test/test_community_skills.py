@@ -375,7 +375,7 @@ class TestCommunitySkillAPI(APIBaseTest):
 
     def test_install_rechecks_the_kind_after_locking(self, _mock_flag) -> None:
         skill = _create_community_skill(slug="changes-to-scout")
-        skill.kind = "scout"
+        skill.kind = CommunitySkillKind.SCOUT
 
         with patch(
             "products.skills.backend.api.community_skill_services.CommunitySkill.objects.select_for_update"
