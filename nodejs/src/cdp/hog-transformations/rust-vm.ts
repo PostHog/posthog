@@ -22,6 +22,11 @@ export const UNSUPPORTED_EXT_FN_ERROR = 'unsupported_ext_fn:'
 export const UNKNOWN_FUNCTION_ERROR_PREFIX = 'Unknown function '
 export const UNKNOWN_GLOBAL_ERROR_PREFIX = 'Unknown Global '
 
+// A batch event whose globals couldn't cross the napi boundary (e.g. NaN/Infinity) never
+// executed; like a boundary throw on the sync path, that event falls back to the Node VM
+// (rust/common/hogvm/node/src/exec.rs `MARSHAL_ERROR_PREFIX`).
+export const MARSHAL_ERROR_PREFIX = 'marshal_error:'
+
 /**
  * True when the error means the Rust VM can't run this program (the Node VM can). The executor
  * uses this to hand the invocation to the Node VM. Real execution errors must never match — the
@@ -48,6 +53,11 @@ export interface RustExecResult {
 export interface HogvmNodeModule {
     init(options: { mmdbPath?: string; knownBotUaList?: string[]; knownBotIpList?: string[] }): void
     executeSync(program: unknown[], globals: unknown, options?: { maxSteps?: number }): RustExecResult
+    executeBatch(
+        program: unknown[],
+        events: unknown[],
+        options?: { parallel?: boolean; maxSteps?: number }
+    ): Promise<RustExecResult[]>
 }
 
 let cachedModule: HogvmNodeModule | null | undefined = undefined

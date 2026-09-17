@@ -46,19 +46,19 @@ export function LoginSessions(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col gap-2">
-            <div className="flex justify-end">
-                <LemonButton
-                    type="secondary"
-                    status="danger"
-                    size="small"
-                    loading={loginSessionsLoading}
-                    disabledReason={hasOtherSessions ? undefined : 'No other devices to log out'}
-                    onClick={handleRevokeOthers}
-                >
-                    Log out everywhere else
-                </LemonButton>
-            </div>
+        <div className="flex flex-col gap-4">
+            <LemonButton
+                type="secondary"
+                status="danger"
+                icon={<IconLeave />}
+                className="self-start"
+                loading={loginSessionsLoading}
+                disabledReason={hasOtherSessions ? undefined : 'No other devices to log out'}
+                onClick={handleRevokeOthers}
+                data-attr="login-sessions-revoke-others"
+            >
+                Log out everywhere else
+            </LemonButton>
             <LemonTable
                 dataSource={loginSessions}
                 loading={loginSessionsLoading}

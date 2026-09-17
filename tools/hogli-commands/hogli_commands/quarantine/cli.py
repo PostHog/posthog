@@ -6,7 +6,8 @@ Schema contract and selector grammar: ``hogli_commands.quarantine.core``.
     hogli test:quarantine add <id> --reason ... --owner ... [--issue ...] [--days 14] [--mode run|skip]
     hogli test:quarantine list [--json]
     hogli test:quarantine remove <id>
-    hogli test:quarantine check [--grace-days 7]
+    hogli test:quarantine check
+    hogli test:quarantine due --in-days 7 [--in-days 1] [--max-chars 3000]
 """
 
 from __future__ import annotations
@@ -123,24 +124,59 @@ def list_entries(path: Path, as_json: bool) -> None:
 
 
 @quarantine.command(name="check", help="Lint the quarantine file; exits 1 on violations (used by CI).")
-@click.option(
-    "--grace-days",
-    type=click.IntRange(min=0),
-    default=core.DEFAULT_GRACE_DAYS,
-    show_default=True,
-    help="Days an expired entry may linger before this check fails.",
-)
 @click.pass_obj
-def check(path: Path, grace_days: int) -> None:
+def check(path: Path) -> None:
     result = core.load(path)
-    violations, warnings = core.check(result, today=core.today_utc(), grace_days=grace_days)
-    for message in warnings:
+    check_result = core.check(result, today=core.today_utc())
+    for message in check_result.warnings:
         click.secho(f"warning: {message}", fg="yellow", err=True)
-    for message in violations:
+    for message in check_result.violations:
         click.secho(f"error: {message}", fg="red", err=True)
-    if violations:
+    if check_result.violations:
         raise SystemExit(1)
     click.echo(f"{path.name} OK ({len(result.entries)} entries).")
+
+
+@quarantine.command(name="due", help="List entries that start failing `check` in exactly the given number of days.")
+@click.option(
+    "--in-days",
+    type=click.IntRange(min=1),
+    multiple=True,
+    required=True,
+    help="Days until `check` fails. Repeat to match several distances.",
+)
+@click.option(
+    "--max-chars",
+    type=click.IntRange(min=1),
+    help="Keep the output within this many characters. The last line counts the entries left out.",
+)
+@click.pass_obj
+def due(path: Path, in_days: tuple[int, ...], max_chars: int | None) -> None:
+    result = core.load(path)
+    for message in result.errors:
+        click.secho(f"error: {message}", fg="red", err=True)
+    if result.errors:
+        raise SystemExit(1)
+
+    today = core.today_utc()
+    lines: list[str] = []
+    for entry in core.entries_failing_check_in(result.entries, today, in_days):
+        quarantine_state = "ends" if core.is_active(entry, today) else "ended"
+        lines.append(
+            f"• `{entry.id}` ({entry.owner}): quarantine {quarantine_state} {entry.expires.isoformat()}, "
+            f"`check` fails on {core.check_failure_date(entry).isoformat()}"
+        )
+    for line in _fit_within(lines, max_chars):
+        click.echo(line)
+
+
+def _fit_within(lines: list[str], max_chars: int | None) -> list[str]:
+    for shown in range(len(lines), -1, -1):
+        hidden = len(lines) - shown
+        fitted = lines[:shown] + ([f"• {hidden} more not shown"] if hidden else [])
+        if max_chars is None or len("\n".join(fitted)) <= max_chars:
+            return fitted
+    return []
 
 
 # Direct invocation needs only click + stdlib (used by test-quarantine.yml to

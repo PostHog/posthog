@@ -104,15 +104,12 @@ export function ErrorTrackingIngestionPrompt({
 
     return (
         <IntroductionComponent
-            productName="Error tracking"
             thingName="issue"
             titleOverride="You haven't captured any exceptions"
             description="PostHog captures exceptions from any of our SDKs. JavaScript apps can flip on exception autocapture; other platforms wire it up in code – the docs have per-SDK instructions."
             isEmpty={true}
-            productKey={ProductKey.ERROR_TRACKING}
             className={cn(introductionClassName, className)}
             {...(introductionStacked !== undefined ? { stacked: introductionStacked } : {})}
-            mcpSurfaceKey="error_tracking.assign"
             customHog={WarningHog}
             actionElementOverride={
                 <div className={actionElementClassName}>

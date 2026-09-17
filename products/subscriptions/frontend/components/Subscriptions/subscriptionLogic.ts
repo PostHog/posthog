@@ -7,12 +7,13 @@ import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { recordRecentSlackChannel, slackChannelId } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
-import { isEmail } from 'lib/utils/url'
+import { isEmail, isHttpsUrl } from 'lib/utils/url'
 import { getInsightId } from 'scenes/insights/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -23,16 +24,30 @@ import {
     subscriptionsDeliveriesList,
     subscriptionsTestDeliveryCreate,
 } from 'products/subscriptions/frontend/generated/api'
-import type { AIWindowConfigApi, SubscriptionDeliveryApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import {
+    SubscriptionTargetEnumApi,
+    type AIWindowConfigApi,
+    type SubscriptionApi,
+    type SubscriptionDeliveryApi,
+} from 'products/subscriptions/frontend/generated/api.schemas'
 
 import type { SubscriptionResourceType, UserBasicType, WeekdayType } from '../../../../../frontend/src/types'
 import type { OrganizationType, UserType } from '../../../../../frontend/src/types'
 import type { AIPromptConfigApi } from '../../generated/api.schemas'
-import type { AIWindowConfigModeEnumApi } from '../../generated/api.schemas'
+import type { SubscriptionAIWindowModeEnumApi } from '../../generated/api.schemas'
+import type { DeliveryConfigApi } from '../../generated/api.schemas'
+import { newSubscriptionTargetLogic } from '../../scenes/newSubscriptionTargetLogic'
 import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
 import { SUBSCRIPTION_PREFILL_PARAMS } from './subscriptionNudge'
 import { subscriptionsLogic } from './subscriptionsLogic'
-import { ALL_DAYS, AI_PROMPT_MAX_LENGTH, SubscriptionBaseProps, urlForSubscription } from './utils'
+import {
+    ALL_DAYS,
+    AI_PROMPT_MAX_LENGTH,
+    coerceDeliveryConfigForScope,
+    SubscriptionBaseProps,
+    targetTypeOptions,
+    urlForSubscription,
+} from './utils'
 
 // Spelled out rather than interpolated, so the event a metric is configured against is greppable.
 const EXPORT_NUDGE_CLICKED_EVENTS = {
@@ -93,16 +108,51 @@ function validateAiWindow(subscription: Partial<SubscriptionType>): {
     return {}
 }
 
-function validateTargetValue(target_type: string, target_value: string | undefined): string | undefined {
-    if (!target_value) {
-        return target_type === 'email'
-            ? 'At least one email is required'
-            : target_type === 'slack'
-              ? 'A channel is required'
-              : 'This field is required.'
+type SubscriptionTargetType = SubscriptionApi['target_type']
+
+// Taken from the destination select, so a type the form has no fields for is never accepted.
+const SUPPORTED_TARGET_TYPES: readonly SubscriptionTargetType[] = targetTypeOptions.map(({ value }) => value)
+
+function isSupportedTargetType(target_type: string): target_type is SubscriptionTargetType {
+    return SUPPORTED_TARGET_TYPES.some((supported) => supported === target_type)
+}
+
+const MISSING_TARGET_VALUE_ERROR: Record<SubscriptionTargetType, string> = {
+    [SubscriptionTargetEnumApi.Email]: 'At least one email is required',
+    [SubscriptionTargetEnumApi.Slack]: 'A channel is required',
+    [SubscriptionTargetEnumApi.Teams]: 'A webhook URL is required',
+}
+
+function isTeamsWebhookKept(target_type: string, storedTeamsWebhookHost: string | null): boolean {
+    return target_type === SubscriptionTargetEnumApi.Teams && storedTeamsWebhookHost !== null
+}
+
+function validateTargetValue(
+    target_type: string,
+    target_value: string | undefined,
+    webhookKept: boolean
+): string | undefined {
+    if (!isSupportedTargetType(target_type)) {
+        // `target_type` reports its own error, and there is nothing to say about a value for a
+        // destination this form cannot render.
+        return undefined
     }
-    if (target_type === 'email' && !target_value.split(',').every((email) => isEmail(email))) {
+    // The saved webhook URL is never sent to the browser, so an untouched field means "keep it".
+    if (webhookKept) {
+        return undefined
+    }
+    // Submit sends the trimmed value, so validate the same string the backend will receive.
+    const trimmed = target_value?.trim()
+    if (!trimmed) {
+        return MISSING_TARGET_VALUE_ERROR[target_type]
+    }
+    if (target_type === SubscriptionTargetEnumApi.Email && !trimmed.split(',').every((email) => isEmail(email))) {
         return 'All emails must be valid'
+    }
+    // The serializer owns the host allowlist and reports its own error on save. This check stays
+    // loose on purpose, so it cannot reject a URL the backend would have accepted.
+    if (target_type === SubscriptionTargetEnumApi.Teams && !isHttpsUrl(trimmed)) {
+        return 'The webhook URL must start with https://'
     }
     return undefined
 }
@@ -146,6 +196,53 @@ function validateFrequency(subscription: Partial<SubscriptionType>): string | nu
     return validateWeekdaySchedule(subscription)
 }
 
+const FIELD_SECTION_LABELS: Record<string, string> = {
+    title: 'Name',
+    target_type: 'Destination',
+    target_value: 'Destination',
+    integration_id: 'Destination',
+    dashboard_export_insights: 'Insights to include',
+    prompt: 'Prompt',
+    ai_prompt_config: 'Analysis window',
+    frequency: 'Recurrence',
+    interval: 'Recurrence',
+    byweekday: 'Recurrence',
+    bysetpos: 'Recurrence',
+    start_date: 'Recurrence',
+}
+
+function holdsAnError(value: unknown): boolean {
+    if (Array.isArray(value)) {
+        return value.some(holdsAnError)
+    }
+    if (value && typeof value === 'object') {
+        return Object.values(value).some(holdsAnError)
+    }
+    return !!value
+}
+
+function invalidFieldNames(allErrors: Record<string, any> | undefined): string[] {
+    return Object.entries(allErrors ?? {})
+        .filter(([, value]) => holdsAnError(value))
+        .map(([key]) => key)
+}
+
+function blockedSaveMessage(fieldNames: string[]): string {
+    const sections: string[] = []
+    for (const name of fieldNames) {
+        const section = FIELD_SECTION_LABELS[name]
+        if (section && !sections.includes(section)) {
+            sections.push(section)
+        }
+    }
+    if (!sections.length) {
+        return 'Check the form before saving.'
+    }
+    const listed =
+        sections.length > 1 ? `${sections.slice(0, -1).join(', ')} and ${sections[sections.length - 1]}` : sections[0]
+    return `Check ${listed} before saving.`
+}
+
 function subscriptionSaveErrorMessage(error: unknown): string {
     if (error instanceof ApiError) {
         const msg = (error.detail || error.message || '').trim()
@@ -174,6 +271,7 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     summary_enabled: false,
     summary_prompt_guide: '',
     ai_prompt_config: { window: { mode: 'since_last_sent' } },
+    delivery_config: { post_all_insights_in_main_message: false },
     send_test_now: true,
 }
 
@@ -198,6 +296,7 @@ export interface subscriptionLogicValues {
     previewImageUrl: string | null
     previewLoading: boolean
     showSubscriptionErrors: boolean
+    storedTeamsWebhookHost: string | null
     subscription: SubscriptionType
     subscriptionAllErrors: Record<string, any>
     subscriptionChanged: boolean
@@ -220,8 +319,14 @@ export interface subscriptionLogicValues {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface subscriptionLogicActions {
+    applyDefaultIntegration: (integrationId: number) => {
+        integrationId: number
+    }
     applyDefaultSelectedInsights: (selectedIds: number[]) => {
         selectedIds: number[]
+    }
+    clearStaleManualErrors: () => {
+        value: true
     }
     generatePreview: () => {
         value: true
@@ -259,6 +364,7 @@ export interface subscriptionLogicActions {
             dashboard?: number | undefined
             dashboard_export_insights?: number[] | undefined
             deleted?: boolean | undefined
+            delivery_config?: DeliveryConfigApi | undefined
             enabled?: boolean | undefined
             frequency?: 'daily' | 'monthly' | 'weekly' | 'yearly' | undefined
             id?: number | undefined
@@ -291,6 +397,7 @@ export interface subscriptionLogicActions {
             dashboard?: number | undefined
             dashboard_export_insights?: number[] | undefined
             deleted?: boolean | undefined
+            delivery_config?: DeliveryConfigApi | undefined
             enabled?: boolean | undefined
             frequency?: 'daily' | 'monthly' | 'weekly' | 'yearly' | undefined
             id?: number | undefined
@@ -337,11 +444,14 @@ export interface subscriptionLogicActions {
         }
         payload?: any
     }
+    replaceTeamsWebhook: () => {
+        value: true
+    }
     resetSubscription: (values?: SubscriptionType) => {
         values?: SubscriptionType
     }
     selectAiAnalysisWindow: (mode: AIWindowConfigApi['mode']) => {
-        mode: AIWindowConfigModeEnumApi | undefined
+        mode: SubscriptionAIWindowModeEnumApi | undefined
     }
     selectAiExamplePrompt: (
         prompt: string,
@@ -436,6 +546,9 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         setPreviewError: (error: string | null) => ({ error }),
         setPreviewImageUrl: (url: string | null) => ({ url }),
         applyDefaultSelectedInsights: (selectedIds: number[]) => ({ selectedIds }),
+        applyDefaultIntegration: (integrationId: number) => ({ integrationId }),
+        replaceTeamsWebhook: true,
+        clearStaleManualErrors: true,
         selectAiExamplePrompt: (prompt: string, label: string) => ({
             prompt,
             label,
@@ -444,6 +557,18 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     }),
 
     reducers({
+        // The host the API returned for a saved Teams subscription. Null once the user chooses to
+        // replace the URL, which is what puts the input back on screen and the validation back on.
+        storedTeamsWebhookHost: [
+            null as string | null,
+            {
+                loadSubscriptionSuccess: (_, { subscription }) =>
+                    subscription?.target_type === SubscriptionTargetEnumApi.Teams
+                        ? (subscription.target_value ?? null)
+                        : null,
+                replaceTeamsWebhook: () => null,
+            },
+        ],
         lastDeliveryLoadFailed: [
             false,
             {
@@ -545,7 +670,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    forms(({ props, actions, cache }) => ({
+    forms(({ props, actions, cache, values }) => ({
         subscription: {
             defaults: { enabled: NEW_SUBSCRIPTION.enabled } as unknown as SubscriptionType,
             errors: (subscription) => ({
@@ -553,21 +678,33 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 title: !subscription.title ? 'You need to give your subscription a name' : undefined,
                 interval: !subscription.interval ? 'You need to set an interval' : undefined,
                 start_date: !subscription.start_date ? 'You need to set a delivery time' : undefined,
-                target_type: !['slack', 'email'].includes(subscription.target_type)
-                    ? 'Unsupported target type'
-                    : undefined,
+                // The destination select cannot produce an unknown value, but a `target_type`
+                // search param can.
+                target_type: isSupportedTargetType(subscription.target_type) ? undefined : 'Unsupported target type',
                 prompt: validatePrompt(subscription.resource_type, subscription.prompt),
                 ...validateAiWindow(subscription),
-                target_value: validateTargetValue(subscription.target_type, subscription.target_value),
+                target_value: validateTargetValue(
+                    subscription.target_type,
+                    subscription.target_value,
+                    isTeamsWebhookKept(subscription.target_type, values.storedTeamsWebhookHost)
+                ),
                 dashboard_export_insights: validateDashboardExportInsights(subscription, props.dashboardId),
             }),
             submit: async (subscription, breakpoint) => {
                 const isAi = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
                 const insightId = !isAi && props.insightShortId ? await getInsightId(props.insightShortId) : undefined
 
+                const webhookKept = isTeamsWebhookKept(subscription.target_type, values.storedTeamsWebhookHost)
                 const payload = {
                     ...subscription,
+                    // Omitting it tells the backend to keep the stored URL. Sending the host back
+                    // is rejected, since it is not a URL anything could deliver to.
+                    target_value: webhookKept ? undefined : subscription.target_value?.trim(),
                     bysetpos: subscription.frequency === 'monthly' ? subscription.bysetpos : null,
+                    delivery_config: coerceDeliveryConfigForScope(
+                        subscription,
+                        integrationsLogic.findMounted()?.values.integrations
+                    ),
                     insight: isAi ? undefined : insightId,
                     dashboard: isAi ? undefined : props.dashboardId,
                     // AI subscriptions have no dashboard, so a carried-over insight selection would
@@ -577,6 +714,8 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     // toggling resource_type back) would be rejected by the backend, so drop it.
                     prompt: isAi ? subscription.prompt?.trim() : undefined,
                     ai_prompt_config: isAi ? subscription.ai_prompt_config : undefined,
+                    // No context editor here, and the API keeps stored contexts when the key is absent.
+                    contexts: undefined,
                 }
 
                 breakpoint()
@@ -671,6 +810,20 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             if (subscription?.target_type === 'slack' && subscription.target_value && subscription.integration_id) {
                 recordRecentSlackChannel(subscription.integration_id, slackChannelId(subscription.target_value))
             }
+            // A create started from the subscriptions scene routes to the new subscription's own
+            // page, so the picker never sees the modal close. Without this the next visit to
+            // /subscriptions/new reuses the target instead of asking for one.
+            newSubscriptionTargetLogic.findMounted()?.actions.reset()
+        },
+        replaceTeamsWebhook: () => {
+            actions.setSubscriptionValue('target_value', '')
+        },
+        // kea-forms clears a manual error only when its own field is touched, so one on a field this
+        // form does not render would block every later submit.
+        clearStaleManualErrors: () => {
+            if (Object.keys(values.subscriptionManualErrors).length) {
+                actions.setSubscriptionManualErrors({})
+            }
         },
         applyDefaultSelectedInsights: ({ selectedIds }) => {
             if (cache.prefillBaseline) {
@@ -685,6 +838,19 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             // Reset the form's "changed" state after auto-selecting defaults so it doesn't trip the
             // unsaved-changes warning; merge the IDs into the subscription to preserve them.
             actions.resetSubscription({ ...values.subscription, dashboard_export_insights: selectedIds })
+        },
+        // Auto-selecting the only connected workspace is the form reconciling itself, not an edit.
+        applyDefaultIntegration: ({ integrationId }) => {
+            if (cache.prefillBaseline) {
+                actions.setSubscriptionValue('integration_id', integrationId)
+                cache.prefillBaseline = { ...cache.prefillBaseline, integration_id: integrationId }
+                return
+            }
+            if (values.subscriptionChanged) {
+                actions.setSubscriptionValue('integration_id', integrationId)
+                return
+            }
+            actions.resetSubscription({ ...values.subscription, integration_id: integrationId })
         },
         loadSummaryQuotaSuccess: ({ summaryQuota }) => {
             // Nudge upsell, deferred until the quota answer exists: default the AI summary on for a
@@ -728,8 +894,15 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             actions.setSubscriptionValues({ ai_prompt_config: { ...config, window } })
         },
         submitSubscriptionFailure: ({ error }) => {
-            // Kea-forms emits this when client validation fails; fields already show errors.
+            // Not every error has a field that can render it, so name the section instead.
             if (error instanceof Error && error.message === 'Validation Failed') {
+                const fields = invalidFieldNames(values.subscriptionAllErrors)
+                posthog.capture('subscription save blocked', {
+                    fields,
+                    is_new: props.id === 'new',
+                    resource_type: values.subscription?.resource_type,
+                })
+                lemonToast.error(blockedSaveMessage(fields))
                 return
             }
             const message = subscriptionSaveErrorMessage(error)
@@ -739,13 +912,21 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             lemonToast.error(message)
         },
 
+        setSubscriptionValues: () => {
+            actions.clearStaleManualErrors()
+        },
+
         setSubscriptionValue: ({ name, value }, _breakpoint, _action, previousState) => {
+            actions.clearStaleManualErrors()
             const key = Array.isArray(name) ? name[0] : name
             if (key === 'frequency') {
                 if (value === 'daily') {
+                    // The day picker only renders for a one-day interval, so a longer one has no
+                    // control the user could correct an empty selection with.
+                    const hiddenDayPicker = (values.subscription.interval ?? 1) > 1
                     actions.setSubscriptionValues({
                         bysetpos: null,
-                        byweekday: ALL_DAYS.slice(0, 5),
+                        byweekday: hiddenDayPicker ? [...ALL_DAYS] : ALL_DAYS.slice(0, 5),
                     })
                 } else if (value === 'weekly') {
                     actions.setSubscriptionValues({
@@ -949,7 +1130,14 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             actions.loadSubscription()
         },
         '/subscriptions/new': (_, searchParams) => {
-            actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION, resource_type: SubscriptionResourceTypes.AiPrompt })
+            // The subscriptions scene can now pick an insight or dashboard to send, which
+            // arrives as props. Without one there is nothing to snapshot, so the only thing
+            // this route can create is a report from a prompt.
+            const isParentless = !props.insightShortId && !props.dashboardId
+            actions.loadSubscriptionSuccess({
+                ...NEW_SUBSCRIPTION,
+                ...(isParentless ? { resource_type: SubscriptionResourceTypes.AiPrompt } : {}),
+            })
             if (searchParams.target_type) {
                 actions.setSubscriptionValue('target_type', searchParams.target_type)
             }

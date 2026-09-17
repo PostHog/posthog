@@ -385,12 +385,31 @@ class TestFreeTierModelListing:
         assert premium["allowed"] is False
         assert premium["restriction_reason"] == "paid_plan_required"
         # exact, not subset: the default free model must survive the allowlist
-        # and the annotation, or free-tier callers have no usable model
-        assert {m["id"] for m in body["data"] if m["allowed"]} == {
-            "@cf/zai-org/glm-5.2",
-            "deepseek-ai/deepseek-v4-flash-0731",
-        }
+        assert {m["id"] for m in body["data"] if m["allowed"]} == {"@cf/zai-org/glm-5.2"}
         # codex reads the `models` mirror; the marks must be there too
+        assert body["models"] == body["data"]
+
+    @pytest.mark.parametrize(
+        "flag_enabled,listed",
+        [(True, True), (False, False), (None, False)],
+        ids=["flag_on", "flag_off", "flag_unavailable"],
+    )
+    def test_flag_gated_model_is_listed_only_when_its_flag_clears(
+        self, app, mock_db_pool, flag_enabled: bool | None, listed: bool
+    ):
+        _wire_authenticated_user(mock_db_pool, "gated-user")
+
+        evaluate = AsyncMock(side_effect=lambda flag_keys, _: dict.fromkeys(flag_keys, flag_enabled))
+        with (
+            patch("llm_gateway.api.models.evaluate_flags", evaluate),
+            TestClient(app) as c,
+        ):
+            response = c.get("/posthog_code/v1/models", headers={"Authorization": "Bearer phx_gated_models"})
+
+        assert response.status_code == 200
+        evaluate.assert_awaited_once()
+        body = response.json()
+        assert ("deepseek-ai/deepseek-v4-flash-0731" in {m["id"] for m in body["data"]}) is listed
         assert body["models"] == body["data"]
 
     def test_billed_org_sees_full_list(self, app, mock_db_pool):

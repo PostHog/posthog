@@ -5,10 +5,28 @@ import structlog
 from posthog.temporal.health_checks.alerts import emit_health_check_alert
 from posthog.temporal.health_checks.db import resolve_stale_issues_with_deltas, upsert_issues_with_deltas
 from posthog.temporal.health_checks.models import BatchDetectFn, BatchResult
+from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded, get_detect_fn
 from posthog.temporal.health_checks.signal_emitter import emit_health_check_signals
 from posthog.temporal.health_checks.validation import _validate_batch_output
 
 logger = structlog.get_logger(__name__)
+
+
+def run_check_for_team(kind: str, team_id: int) -> BatchResult:
+    """Run one registered check for one team, honoring the check's `dry_run`.
+
+    The one entry point for manual single-team paths (the Health page refresh task, agent
+    tools), so no caller can forget to forward the registration's `dry_run` again.
+
+    Raises KeyError for an unregistered kind.
+    """
+    ensure_registry_loaded()
+    return _process_batch_detection(
+        team_ids=[team_id],
+        kind=kind,
+        detect_fn=get_detect_fn(kind),
+        dry_run=HEALTH_CHECKS[kind].dry_run,
+    )
 
 
 def _process_batch_detection(

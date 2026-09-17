@@ -1,7 +1,19 @@
-import { describe, expect, it } from "vitest";
-import { activityReportIdFromHref } from "./activityDetailStore";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-describe("activityReportIdFromHref", () => {
+const navigate = vi.hoisted(() => vi.fn());
+
+vi.mock("@posthog/ui/router/routerRef", () => ({
+  getRouterOrNull: () => ({ navigate }),
+}));
+
+import {
+  activityReportIdFromHref,
+  clearActivitySelection,
+} from "./activityDetailStore";
+
+describe("activityDetailStore", () => {
+  beforeEach(() => navigate.mockClear());
+
   it("identifies persisted Activity report tabs", () => {
     expect(
       activityReportIdFromHref("/activity?item=report-1&report=report-1"),
@@ -9,5 +21,15 @@ describe("activityReportIdFromHref", () => {
     expect(
       activityReportIdFromHref("/activity?item=task-1&session=session-1"),
     ).toBeNull();
+  });
+
+  it("clears the selected item without leaving Activity", () => {
+    clearActivitySelection();
+
+    expect(navigate).toHaveBeenCalledWith({
+      to: "/activity",
+      search: {},
+      replace: true,
+    });
   });
 });

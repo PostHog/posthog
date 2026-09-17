@@ -614,6 +614,14 @@ describe('PostgresPersonRepository', () => {
                 ])
                 await expect(countLifecycleRows(opId)).resolves.toEqual({ ops: 1, persons: 1 })
 
+                const markRow = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    'SELECT mark_active FROM lifecycle_op_person WHERE op_id = $1',
+                    [opId],
+                    'checkMarkActive'
+                )
+                expect(markRow.rows[0].mark_active).toBe(true)
+
                 await repository.releaseLifecycleMarks(opId, team.id)
                 await expect(countLifecycleRows(opId)).resolves.toEqual({ ops: 0, persons: 0 })
             })
@@ -976,6 +984,51 @@ describe('PostgresPersonRepository', () => {
 
             // Should return empty array when person doesn't exist
             expect(messages).toHaveLength(0)
+        })
+    })
+
+    describe('fetchPersonDistinctIdMappings()', () => {
+        // Re-emission healing depends on this read carrying the committed pairing:
+        // a stale uuid or version 0 would overwrite or fail to repair ClickHouse.
+        it('returns the committed uuid and version per mapping, skipping deleted and missing ids', async () => {
+            const sourcePerson = await createTestPerson(team.id, 'anon')
+            const targetPerson = await createTestPerson(team.id, 'main')
+            const moveResult = await repository.moveDistinctIds(sourcePerson, targetPerson, undefined)
+            expect(moveResult.success).toBe(true)
+            await repository.addDistinctId(targetPerson, 'deleted-id', 1)
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'UPDATE posthog_persondistinctid SET is_deleted = true WHERE team_id = $1 AND distinct_id = $2',
+                [team.id, 'deleted-id'],
+                'markDeletedForTest'
+            )
+
+            const mappings = await repository.fetchPersonDistinctIdMappings(team.id, [
+                'anon',
+                'main',
+                'deleted-id',
+                'never-seen',
+            ])
+
+            const byDistinctId = Object.fromEntries(
+                mappings.map((mapping) => [mapping.distinctId, parseJSON(mapping.message.value!.toString())])
+            )
+            expect(Object.keys(byDistinctId).sort()).toEqual(['anon', 'main'])
+            expect(byDistinctId['anon']).toEqual({
+                team_id: team.id,
+                distinct_id: 'anon',
+                person_id: targetPerson.uuid,
+                version: 1,
+                is_deleted: 0,
+            })
+            expect(byDistinctId['main']).toEqual({
+                team_id: team.id,
+                distinct_id: 'main',
+                person_id: targetPerson.uuid,
+                version: 0,
+                is_deleted: 0,
+            })
+            expect(mappings.every((mapping) => mapping.message.output === PERSON_DISTINCT_IDS_OUTPUT)).toBe(true)
         })
     })
 

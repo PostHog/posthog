@@ -29,6 +29,8 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
     const ttlDays = trunkQuarantine?.ttlDays ?? 15
     const overdueCount = trunkQuarantine ? trunkQuarantine.teams.reduce((n, t) => n + t.overdueCount, 0) : null
     const oldestAgeDays = trunkQuarantine?.tests.length ? trunkQuarantine.tests[0].ageDays : null
+    const formatCappedCount = (count: number): string =>
+        `${humanFriendlyNumber(count)}${trunkQuarantine?.truncated ? '+' : ''}`
 
     const teamColumns: LemonTableColumns<TrunkQuarantineTeamRow> = [
         {
@@ -41,7 +43,7 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
             key: 'testCount',
             align: 'right',
             sorter: (a, b) => a.testCount - b.testCount,
-            render: (_, row) => humanFriendlyNumber(row.testCount),
+            render: (_, row) => formatCappedCount(row.testCount),
         },
         {
             title: 'Overdue',
@@ -51,9 +53,9 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
             sorter: (a, b) => a.overdueCount - b.overdueCount,
             render: (_, row) =>
                 row.overdueCount > 0 ? (
-                    <span className="font-semibold text-danger">{humanFriendlyNumber(row.overdueCount)}</span>
+                    <span className="font-semibold text-danger">{formatCappedCount(row.overdueCount)}</span>
                 ) : (
-                    '0'
+                    formatCappedCount(0)
                 ),
         },
         {
@@ -97,19 +99,19 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
             <div className="grid grid-cols-1 gap-3 @2xl/main-content:grid-cols-2 @5xl/main-content:grid-cols-4">
                 <StatCard
                     label="Quarantined tests"
-                    value={trunkQuarantine ? humanFriendlyNumber(trunkQuarantine.tests.length) : '—'}
+                    value={trunkQuarantine ? formatCappedCount(trunkQuarantine.tests.length) : '—'}
                     caption="currently masked in CI"
                     loading={trunkQuarantineLoading}
                 />
                 <StatCard
                     label="Overdue"
-                    value={overdueCount !== null ? humanFriendlyNumber(overdueCount) : '—'}
+                    value={overdueCount !== null ? formatCappedCount(overdueCount) : '—'}
                     caption={`quarantined over ${ttlDays} days`}
                     loading={trunkQuarantineLoading}
                 />
                 <StatCard
                     label="Teams affected"
-                    value={trunkQuarantine ? humanFriendlyNumber(trunkQuarantine.teams.length) : '—'}
+                    value={trunkQuarantine ? formatCappedCount(trunkQuarantine.teams.length) : '—'}
                     caption="own at least one quarantined test"
                     loading={trunkQuarantineLoading}
                 />
@@ -120,6 +122,18 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
                     loading={trunkQuarantineLoading}
                 />
             </div>
+            {trunkQuarantine?.truncated && (
+                <div className="text-xs text-tertiary">
+                    Showing the oldest {humanFriendlyNumber(trunkQuarantine.limit)} quarantined tests. The counts above
+                    are lower bounds.
+                </div>
+            )}
+            {trunkQuarantine && !trunkQuarantine.ownersResolved && (
+                <LemonBanner type="warning">
+                    We could not read {trunkQuarantine.repository}'s ownership files, so every test below is listed as
+                    unowned. Try again in a few minutes.
+                </LemonBanner>
+            )}
             <LemonTable
                 data-attr="engineering-analytics-trunk-debt-teams-table"
                 size="small"

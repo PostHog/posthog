@@ -13,6 +13,7 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             iconType: 'data_warehouse',
             description: 'Review and manage governed metrics, certifications, and relationships for your data.',
+            docsHref: 'https://posthog.com/docs/semantic-layer',
         },
         DataCatalogMetric: {
             import: () => import('./frontend/DataCatalogMetricScene'),
@@ -27,7 +28,8 @@ export const manifest: ProductManifest = {
     redirects: {},
     urls: {
         dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
-        dataCatalogMetric: (name: string): string => `/data-catalog/metrics/${name}`,
+        dataCatalogMetric: (name: string, tab?: 'definition' | 'tests'): string =>
+            `/data-catalog/metrics/${name}${tab === 'tests' ? '?tab=tests' : ''}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

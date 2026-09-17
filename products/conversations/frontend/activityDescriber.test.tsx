@@ -8,7 +8,7 @@ import { ticketActivityDescriber } from './activityDescriber'
 
 // WorkflowActivityLink resolves the workflow name from workflowsLogic; stub it so the describer
 // tests stay pure. Its own name-resolution behavior is covered in WorkflowActivityLink.test.tsx.
-jest.mock('./WorkflowActivityLink', () => ({
+jest.mock('./components/WorkflowActivityLink/WorkflowActivityLink', () => ({
     WorkflowActivityLink: ({ id }: { id: string }) => <span>workflow-actor:{id}</span>,
 }))
 

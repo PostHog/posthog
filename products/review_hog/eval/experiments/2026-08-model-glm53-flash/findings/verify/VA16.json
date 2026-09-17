@@ -1,0 +1,6 @@
+{
+    "id": "VA16",
+    "real": false,
+    "source": "reused-KA13",
+    "reasoning": "Identical claim to sol-experiment KA13 (verified false, high confidence); frozen tree matches its evidence. The publish is not unprotected: `process_inbox_pr_review.delay(...)` (products/stamphog/backend/facade/api.py:149-155) runs under Celery's default task_publish_retry=True (no posthog override found), so transient broker blips retry at publish time. The request is not lost after that either: the receiver deliberately re-fires on every later TaskRun save with the same target (receivers.py:232-236 docstring 'Repeat saves ... re-fire it deliberately'), and routine output syncs produce such saves; head-keyed dedupe makes the refire safe. Log-and-return (receivers.py:225-234) is the tested must-never-raise contract of the save path, mirrored by `_start_review`."
+}

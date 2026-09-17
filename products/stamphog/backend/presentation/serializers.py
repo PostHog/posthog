@@ -66,6 +66,25 @@ class _ReviewOutputSummarySerializer(serializers.Serializer):
 
 @extend_schema_serializer(component_name="StamphogRepoConfig")
 class StamphogRepoConfigSerializer(DataclassSerializer):
+    user_access_level = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "The caller's access level on the stamphog resource, resolved for the team that owns this "
+            "row. 'manager' is required to change enabled, review_mode, or trigger_label."
+        ),
+    )
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_user_access_level(self, _obj: contracts.RepoConfigDTO) -> str | None:
+        """The resource-wide level, not an object-level one: stamphog has no per-object rules.
+
+        The frontend gates the review settings on this rather than on the app context, which is
+        resolved for the environment in the URL while these rows belong to its parent project. The
+        view resolves it once per request, so every row on a page reports the same level.
+        """
+        view = self.context.get("view")
+        return view.stamphog_access_level if view else None
+
     def get_fields(self) -> dict[str, serializers.Field]:
         fields = super().get_fields()
         # provider + repository are the config's identity: they resolve inbound webhooks and anchor
@@ -97,6 +116,7 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
             "digest_enabled",
             "review_mode",
             "trigger_label",
+            "user_access_level",
             "created_at",
             "updated_at",
         ]
@@ -145,18 +165,18 @@ class StamphogInstallInfoSerializer(serializers.Serializer):
     install_url = serializers.CharField(
         read_only=True,
         help_text=(
-            "GitHub install URL (github.com/apps/<slug>/installations/new) the user opens to install the "
-            "App, or blank if the App slug is unconfigured. Used for the genuinely-not-installed case; the "
-            "primary 'Connect' button uses authorize_url instead."
+            "GitHub install URL (github.com/apps/<slug>/installations/new) the 'Connect' button opens. The "
+            "user picks a GitHub account there and chooses which repositories the App can reach, including "
+            "an account where the App is already installed. Blank if the App slug is unconfigured."
         ),
     )
     authorize_url = serializers.CharField(
         read_only=True,
         help_text=(
-            "GitHub authorize URL (github.com/login/oauth/authorize) the 'Connect' button opens. "
-            "Authorize-first: an already-installed user is redirected straight back with an OAuth code (no "
-            "installation_id), and sync_installation then discovers their installations server-side. Blank "
-            "if the App client id is unconfigured."
+            "GitHub authorize URL (github.com/login/oauth/authorize). GitHub's redirect after configuring an "
+            "existing installation carries no OAuth code, so the client passes through this URL once: an "
+            "installed App redirects straight back with a code, which sync_installation uses to prove "
+            "ownership. Blank if the App client id is unconfigured."
         ),
     )
 

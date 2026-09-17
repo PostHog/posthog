@@ -2,7 +2,6 @@ import type { ChannelTaskRecord } from "@posthog/core/canvas/channelTaskSchemas"
 import { useHostTRPC } from "@posthog/host-router/react";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
 import {
   SPACE_QUERY_GC_TIME_MS,
   SPACE_QUERY_REFETCH_INTERVAL_MS,
@@ -28,31 +27,6 @@ export function useChannelTasks(channelId: string | undefined): {
     ),
   );
   return { tasks: data ?? [], isLoading };
-}
-
-/**
- * Warm the filed-tasks cache for a channel ahead of opening it (e.g. on hover),
- * so expanding the channel doesn't cold-fetch its tasks. Respects the same
- * staleTime, so it no-ops when the data is already fresh.
- */
-export function usePrefetchChannelTasks(): (channelId: string) => void {
-  const trpc = useHostTRPC();
-  const queryClient = useQueryClient();
-  return useCallback(
-    (channelId: string) => {
-      void queryClient.prefetchQuery(
-        trpc.channelTasks.list.queryOptions(
-          { channelId },
-          {
-            gcTime: SPACE_QUERY_GC_TIME_MS,
-            meta: AUTH_SCOPED_QUERY_META,
-            staleTime: SPACE_QUERY_STALE_TIME_MS,
-          },
-        ),
-      );
-    },
-    [trpc, queryClient],
-  );
 }
 
 export function useChannelTaskMutations() {

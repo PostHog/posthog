@@ -3,16 +3,14 @@ from typing import Optional, cast
 import requests
 from google.auth.exceptions import RefreshError
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -183,7 +181,7 @@ class GoogleTagManagerSource(SimpleSource[GoogleTagManagerSourceConfig], OAuthMi
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GOOGLE_TAG_MANAGER,
+            name=ExternalDataSourceType.GOOGLETAGMANAGER,
             category=DataWarehouseSourceCategory.ANALYTICS,
             keywords=["gtm", "tag manager"],
             label="Google Tag Manager",

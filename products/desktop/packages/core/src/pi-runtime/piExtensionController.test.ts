@@ -1,11 +1,11 @@
 import type { PiRemoteRpcClient } from "@posthog/agent/pi/remote-rpc-client";
-import type { PiExtensionEvent } from "@posthog/agent/pi/types";
+import type { PiExtensionSessionEvent } from "@posthog/agent/pi/types";
 import { describe, expect, it, vi } from "vitest";
 import { PiExtensionController } from "./piExtensionController";
 import type { PiSession, PiSessionProvider } from "./piSessionController";
 
 interface ExtensionSubscriptionHandlers {
-  event: (event: PiExtensionEvent) => void;
+  event: (event: PiExtensionSessionEvent) => void;
   error: (error: unknown) => void;
   complete: () => void;
 }
@@ -86,6 +86,26 @@ describe("PiExtensionController", () => {
 
     expect(session.respondToExtensionUI).toHaveBeenCalledWith(response);
     expect(controller.store.getState().tasks["task-1"].dialogs).toEqual([]);
+
+    handlers[0].event({
+      type: "extension_ui_request",
+      id: "confirm-1",
+      method: "confirm",
+      title: "Continue?",
+      message: "Proceed?",
+    });
+    controller.acknowledgeEditorText("task-1", "editor-1");
+    handlers[0].event({
+      type: "extension_ui_request",
+      id: "editor-1",
+      method: "set_editor_text",
+      text: "draft",
+    });
+
+    expect(controller.store.getState().tasks["task-1"].dialogs).toEqual([]);
+    expect(
+      controller.store.getState().tasks["task-1"].editorText,
+    ).toBeUndefined();
   });
 
   it("expires timed dialogs without a custom lifecycle event", async () => {
@@ -171,7 +191,21 @@ describe("PiExtensionController", () => {
     expect(controller.store.getState().tasks["task-1"]).toBeUndefined();
   });
 
-  it("clears ephemeral state on reconnect and ignores stale callbacks", async () => {
+  it("ignores a missing Pi session when the extension subscription ends", async () => {
+    const handlers: ExtensionSubscriptionHandlers[] = [];
+    const session = createSession(handlers);
+    const controller = createController(session);
+    await controller.connect("task-1");
+
+    handlers[0].error(new Error("Pi session not found for task task-1"));
+
+    expect(controller.store.getState().tasks["task-1"].notifications).toEqual(
+      [],
+    );
+    controller.disconnect("task-1");
+  });
+
+  it("preserves pending state on reconnect and ignores stale callbacks", async () => {
     vi.useFakeTimers();
     try {
       const handlers: ExtensionSubscriptionHandlers[] = [];
@@ -188,7 +222,7 @@ describe("PiExtensionController", () => {
       handlers[0].error(new Error("stream closed"));
 
       expect(controller.store.getState().tasks["task-1"]).toMatchObject({
-        dialogs: [],
+        dialogs: [expect.objectContaining({ id: "old-dialog" })],
         statuses: {},
         widgets: {},
         notifications: [
@@ -197,13 +231,7 @@ describe("PiExtensionController", () => {
           }),
         ],
       });
-      await vi.waitFor(() =>
-        expect(session.respondToExtensionUI).toHaveBeenCalledWith({
-          type: "extension_ui_response",
-          id: "old-dialog",
-          cancelled: true,
-        }),
-      );
+      expect(session.respondToExtensionUI).not.toHaveBeenCalled();
 
       await vi.advanceTimersByTimeAsync(100);
       await vi.waitFor(() => expect(handlers).toHaveLength(2));
@@ -219,6 +247,11 @@ describe("PiExtensionController", () => {
         id: "new-dialog",
         method: "input",
         title: "Current",
+      });
+      handlers[1].event({
+        type: "extension_ui_response",
+        id: "old-dialog",
+        cancelled: true,
       });
 
       expect(

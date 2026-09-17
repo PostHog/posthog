@@ -42,6 +42,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/servers/:server/overview", get(overview))
         .route("/servers/:server/queries", get(top_queries))
         .route("/servers/:server/queries/:queryid", get(query_detail))
+        .route("/servers/:server/tags", get(tags))
         .route("/servers/:server/waits", get(waits))
         .route("/servers/:server/activity", get(activity))
         .route("/servers/:server/tables", get(tables))
@@ -78,6 +79,9 @@ struct TopQ {
     order: String,
     #[serde(default = "d_limit")]
     limit: i64,
+    /// `key=value,key2=value2`: only queries seen with these tags in the range. A comma
+    /// inside a value is sent as `%2C`.
+    tags: Option<String>,
 }
 fn d_order() -> String {
     "total_exec_time".into()
@@ -87,29 +91,49 @@ fn d_limit() -> i64 {
 }
 async fn top_queries(State(s): S, Path(server): Path<String>, Query(p): Query<TopQ>) -> R {
     let (f, t) = p.range.resolve()?;
+    let tags = q::parse_tag_filter(p.tags.as_deref().unwrap_or(""))?;
     Ok(Json(
         q::top_queries(
             &s.db,
             &server,
             f,
             t,
-            p.datname.as_deref(),
-            &p.order,
-            p.limit.clamp(1, 500),
+            q::QueryListOpts {
+                datname: p.datname.as_deref(),
+                order: &p.order,
+                limit: p.limit.clamp(1, 500),
+                tags: &tags,
+            },
         )
         .await?,
     ))
 }
-async fn query_detail(
-    State(s): S,
-    Path((server, queryid)): Path<(String, i64)>,
-    Query(r): Query<Range>,
-) -> R {
-    let (f, t) = r.resolve()?;
-    Ok(Json(q::query_detail(&s.db, &server, queryid, f, t).await?))
+#[derive(Deserialize)]
+struct TagsQ {
+    #[serde(flatten)]
+    range: Range,
+    key: Option<String>,
+    datname: Option<String>,
+    #[serde(default = "d_limit")]
+    limit: i64,
+}
+async fn tags(State(s): S, Path(server): Path<String>, Query(p): Query<TagsQ>) -> R {
+    let (f, t) = p.range.resolve()?;
+    Ok(Json(
+        q::tag_breakdown(
+            &s.db,
+            &server,
+            f,
+            t,
+            p.key.as_deref(),
+            p.datname.as_deref(),
+            p.limit,
+        )
+        .await?,
+    ))
 }
 #[derive(Deserialize)]
-struct WaitsQ {
+struct BucketQ {
     #[serde(flatten)]
     range: Range,
     #[serde(default = "d_bucket")]
@@ -118,7 +142,17 @@ struct WaitsQ {
 fn d_bucket() -> String {
     "1m".into()
 }
-async fn waits(State(s): S, Path(server): Path<String>, Query(p): Query<WaitsQ>) -> R {
+async fn query_detail(
+    State(s): S,
+    Path((server, queryid)): Path<(String, i64)>,
+    Query(p): Query<BucketQ>,
+) -> R {
+    let (f, t) = p.range.resolve()?;
+    Ok(Json(
+        q::query_detail(&s.db, &server, queryid, f, t, &p.bucket).await?,
+    ))
+}
+async fn waits(State(s): S, Path(server): Path<String>, Query(p): Query<BucketQ>) -> R {
     let (f, t) = p.range.resolve()?;
     Ok(Json(q::wait_events(&s.db, &server, f, t, &p.bucket).await?))
 }

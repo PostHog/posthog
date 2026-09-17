@@ -6,8 +6,7 @@ from unittest import mock
 import requests
 from google.auth.exceptions import RefreshError
 
-from posthog.schema import ReleaseStatus, SourceFieldOauthConfig
-
+from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldOauthConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googletagmanager import (
     GoogleTagManagerSourceConfig,

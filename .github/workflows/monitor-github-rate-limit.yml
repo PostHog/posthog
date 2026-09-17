@@ -39,8 +39,6 @@ on:
                 required: false
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY:
                 required: false
-            GH_APP_TELEMETRY_APP_ID:
-                required: false
             GH_APP_TELEMETRY_PRIVATE_KEY:
                 required: false
             GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY:
@@ -152,7 +150,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_TELEMETRY_APP_ID }}
+                  client-id: ${{ vars.GH_APP_TELEMETRY_APP_ID }}
                   private-key: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
 
             - name: Poll posthog-telemetry bucket and emit to PostHog
@@ -223,7 +221,7 @@ jobs:
                       [{"source":"posthog-devex-general","configured":${{ vars.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID != '' && secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY != '' }},"minted":${{ steps.devex-token.outputs.token != '' }}},
                       {"source":"posthog-tests","configured":${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID != '' && secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY != '' }},"minted":${{ steps.tests-token.outputs.token != '' }}},
                       {"source":"posthog-paths-filter","configured":${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID != '' && secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY != '' }},"minted":${{ steps.paths-filter-token.outputs.token != '' }}},
-                      {"source":"posthog-telemetry","configured":${{ secrets.GH_APP_TELEMETRY_APP_ID != '' && secrets.GH_APP_TELEMETRY_PRIVATE_KEY != '' }},"minted":${{ steps.telemetry-token.outputs.token != '' }}},
+                      {"source":"posthog-telemetry","configured":${{ vars.GH_APP_TELEMETRY_APP_ID != '' && secrets.GH_APP_TELEMETRY_PRIVATE_KEY != '' }},"minted":${{ steps.telemetry-token.outputs.token != '' }}},
                       {"source":"posthog-setup-actions","configured":${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID != '' && secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY != '' }},"minted":${{ steps.setup-actions-token.outputs.token != '' }}},
                       {"source":"posthog-product-tests","configured":${{ vars.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID != '' && secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY != '' }},"minted":${{ steps.product-tests-token.outputs.token != '' }}}]
               with:

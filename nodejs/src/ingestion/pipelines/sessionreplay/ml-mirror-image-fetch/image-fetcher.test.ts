@@ -56,6 +56,17 @@ describe('HttpImageFetcher', () => {
     })
     afterEach(() => jest.restoreAllMocks())
 
+    it('opts every image request into HTTP/2', async () => {
+        fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png'))
+
+        await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
+
+        expect(fetchStreamedMock).toHaveBeenCalledWith(
+            'https://cdn.example.com/a.png',
+            expect.objectContaining({ allowH2: true })
+        )
+    })
+
     it('identifies every request as PostHogImageFetcherBot', async () => {
         fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png'))
 
@@ -350,7 +361,12 @@ describe('HttpImageFetcher', () => {
                 requestNumber += 1
                 return requestNumber === 1
                     ? { ran: true as const, value: await request() }
-                    : { ran: false as const, reason: 'backoff' as const, waitMs: 90_000 }
+                    : {
+                          ran: false as const,
+                          reason: 'backoff' as const,
+                          blockingReason: 'retry_after' as const,
+                          waitMs: 90_000,
+                      }
             },
         })
 
@@ -359,6 +375,7 @@ describe('HttpImageFetcher', () => {
             redirects: 1,
             currentUrl: 'https://cdn.example.net/a.png',
             schedulingReason: 'backoff',
+            schedulingBlockingReason: 'retry_after',
             schedulingWaitMs: 90_000,
         })
         expect(fetchStreamedMock).toHaveBeenCalledTimes(1)

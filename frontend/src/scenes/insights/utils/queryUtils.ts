@@ -1,6 +1,5 @@
 import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils/objects'
 import { isValidRE2 } from 'lib/utils/regexp'
-import { isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } from 'scenes/funnels/funnelUtils'
 
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
@@ -33,6 +32,11 @@ import {
     isWebAnalyticsInsightQuery,
 } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType } from '~/types'
+
+import {
+    isFunnelWithEnoughSteps,
+    isFunnelWithIncompleteDataWarehouseStep,
+} from 'products/product_analytics/frontend/insights/funnels/funnelUtils'
 
 type CompareQueryOpts = { ignoreVisualizationOnlyChanges: boolean }
 
@@ -317,12 +321,14 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             showConfidenceIntervals: undefined,
             confidenceLevel: undefined,
             showTrendLines: undefined,
+            showMeanLine: undefined,
             showMovingAverage: undefined,
             movingAverageIntervals: undefined,
             stacked: undefined,
             detailedResultsAggregationType: undefined,
             excludeBoxPlotOutliers: undefined,
             showAnnotations: undefined,
+            annotationsScope: undefined,
             showFullUrls: undefined,
             selectedInterval: undefined,
             funnelStepReference: undefined,

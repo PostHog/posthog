@@ -16,6 +16,7 @@ export interface organizationIntegrationsLogicValues {
     getOrganizationIntegrationsByKind: (
         kinds: (
             | 'apns'
+            | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
             | 'bing-ads'
@@ -37,6 +38,7 @@ export interface organizationIntegrationsLogicValues {
             | 'google-search-console'
             | 'google-sheets'
             | 'google-tag-manager'
+            | 'helpscout'
             | 'hubspot'
             | 'instagram'
             | 'intercom'
@@ -85,12 +87,14 @@ export interface organizationIntegrationsLogicActions {
             created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
             installation_shared?: boolean | null | undefined
             installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -112,6 +116,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'google-tag-manager'
+                | 'helpscout'
                 | 'hubspot'
                 | 'instagram'
                 | 'intercom'
@@ -142,12 +147,14 @@ export interface organizationIntegrationsLogicActions {
             created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
             installation_shared?: boolean | null | undefined
             installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -169,6 +176,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'google-tag-manager'
+                | 'helpscout'
                 | 'hubspot'
                 | 'instagram'
                 | 'intercom'
@@ -204,6 +212,7 @@ export interface organizationIntegrationsLogicMeta {
         ) => (
             kinds: (
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -225,6 +234,7 @@ export interface organizationIntegrationsLogicMeta {
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'google-tag-manager'
+                | 'helpscout'
                 | 'hubspot'
                 | 'instagram'
                 | 'intercom'

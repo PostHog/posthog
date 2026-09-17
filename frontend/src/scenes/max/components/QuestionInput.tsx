@@ -20,6 +20,7 @@ import { ConversationQueueMessage } from '~/types'
 
 import { ContextDisplay } from '../Context'
 import { handsFreeLogic } from '../handsFreeLogic'
+import { MAX_MESSAGE_LENGTH, MESSAGE_TOO_LONG, messageLength } from '../max-constants'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
@@ -28,6 +29,12 @@ import { FillInHint } from './FillInHint'
 import { HandsFreeButton } from './HandsFreeButton'
 import { HandsFreeSurface } from './HandsFreeSurface'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
+
+/**
+ * Show the character counter only once the message gets close to the limit. A permanent counter
+ * under every composer would be noise: almost every message is a couple of hundred characters.
+ */
+const LENGTH_COUNTER_THRESHOLD = MAX_MESSAGE_LENGTH * 0.9
 
 interface QuestionInputProps {
     isSticky?: boolean
@@ -146,8 +153,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     ref
 ) {
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-    const { question, panelId: maxPanelId, fillInHint } = useValues(maxLogic)
-    const { setQuestion, setFillInHint } = useActions(maxLogic)
+    const { question, panelId: maxPanelId, fillInHint, typingSuggestion } = useValues(maxLogic)
+    const { setQuestion, setFillInHint, cancelSuggestionTyping } = useActions(maxLogic)
     const { user } = useValues(userLogic)
     const {
         conversation,
@@ -232,11 +239,26 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         // askMax reads the prompt arg directly and clears `question` afterwards, so drop any
         // pending debounce to stop it from re-populating the just-sent text.
         debouncedSetQuestion.cancel()
+        // A suggestion is still typing itself in. The user picked that suggestion, so send all of
+        // it rather than the prefix that happens to be on screen, and stop the animation writing
+        // the rest into the composer after the message has gone.
+        const content = typingSuggestion ?? prompt
+        if (typingSuggestion) {
+            cancelSuggestionTyping()
+        }
         if (fillInHint) {
             setFillInHint(null)
         }
-        askMax(prompt)
+        askMax(content)
     }
+
+    // Counting code points is O(n), so only pay for it near the limit. A string's UTF-16 length is
+    // never below its code point count, so a shorter one can't be over the limit.
+    const promptLength = useMemo(
+        () => (inputValue.length >= LENGTH_COUNTER_THRESHOLD ? messageLength(inputValue) : null),
+        [inputValue]
+    )
+    const isOverLengthLimit = promptLength !== null && promptLength > MAX_MESSAGE_LENGTH
 
     const hasQuestion = inputValue.trim().length > 0
     // A fill-in suggestion typed its prefix in and is waiting for the user to complete it.
@@ -250,7 +272,9 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         ? contextDisabledReason
         : !inputValue
           ? 'I need some input first'
-          : queueDisabledReason
+          : isOverLengthLimit
+            ? MESSAGE_TOO_LONG
+            : queueDisabledReason
 
     // Update autocomplete visibility when the input changes
     useEffect(() => {
@@ -487,6 +511,16 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         </div>
                                     ) : (
                                         <ContextDisplay size={contextDisplaySize} />
+                                    )}
+                                    {promptLength !== null && (
+                                        <div
+                                            className={cn(
+                                                'text-xs text-right pr-1 pt-1',
+                                                isOverLengthLimit ? 'text-error' : 'text-secondary'
+                                            )}
+                                        >
+                                            {promptLength.toLocaleString()} / {MAX_MESSAGE_LENGTH.toLocaleString()}
+                                        </div>
                                     )}
                                 </div>
                             )}

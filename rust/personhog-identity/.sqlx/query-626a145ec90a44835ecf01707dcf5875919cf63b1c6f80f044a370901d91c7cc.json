@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='delete_complete' */ UPDATE lifecycle_op_person_tmp SET status = $2, mark_active = false WHERE op_id = $1 AND status = 'sealed'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "626a145ec90a44835ecf01707dcf5875919cf63b1c6f80f044a370901d91c7cc"
+}

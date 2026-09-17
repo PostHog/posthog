@@ -1,9 +1,11 @@
+from datetime import datetime
 from functools import cached_property
 from typing import TYPE_CHECKING, Optional, cast
 from uuid import UUID
 
 from django.core.validators import MinLengthValidator
 from django.db import models, transaction
+from django.utils import timezone
 
 from posthog.models.utils import UpdatedMetaFields, sane_repr
 
@@ -90,6 +92,11 @@ class Project(UpdatedMetaFields):
         blank=True,
         help_text="Set to True when project deletion has been initiated. Blocks UI access to this project until the async task completes.",
     )
+    deletion_scheduled_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the scheduled project deletion will run.",
+    )
 
     objects: ProjectManager = ProjectManager()
 
@@ -99,6 +106,25 @@ class Project(UpdatedMetaFields):
         return str(self.pk)
 
     __repr__ = sane_repr("id", "name")
+
+    def is_deletion_pending(self) -> bool:
+        return bool(self.is_pending_deletion)
+
+    def can_cancel_deletion(self, *, at: datetime | None = None) -> bool:
+        return bool(
+            self.is_deletion_pending()
+            and self.deletion_scheduled_at
+            and self.deletion_scheduled_at > (at or timezone.now())
+        )
+
+    @property
+    def team_id(self) -> int:
+        """The id of this project's passthrough team, which a project shares.
+
+        Tag rows are team-scoped, so the shared tagging helpers reach the right namespace
+        through this attribute without loading the team.
+        """
+        return self.pk
 
     @cached_property
     def passthrough_team(self) -> "Team":

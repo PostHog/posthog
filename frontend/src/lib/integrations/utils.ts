@@ -20,6 +20,7 @@ import IconGoogleSheets from 'public/services/google-sheets.svg'
 import IconGoogleTagManager from 'public/services/google-tag-manager.png'
 import IconGoogleAnalytics from 'public/services/google_analytics.png'
 import IconGoogleCalendar from 'public/services/google_calendar.png'
+import IconHelpScout from 'public/services/helpscout.png'
 import IconHubspot from 'public/services/hubspot.png'
 import IconInstagram from 'public/services/instagram.png'
 import IconIntercom from 'public/services/intercom.png'
@@ -32,6 +33,7 @@ import IconPardot from 'public/services/pardot.png'
 import IconPinterest from 'public/services/pinterest_ads.png'
 import IconPostgres from 'public/services/postgres.png'
 import IconReddit from 'public/services/reddit.png'
+import IconRedshift from 'public/services/redshift.png'
 import IconS3Compatible from 'public/services/s3-compatible.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
@@ -62,6 +64,7 @@ export type IntegrationConnectSurface =
     | 'missing_scopes_reconnect'
     | 'warehouse_source_reconnect'
     | 'onboarding_wizard'
+    | 'inbox_welcome'
     | 'signals_agent_setup'
     | 'task_composer'
     | 'visual_review_settings'
@@ -84,6 +87,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     snapchat: IconSnapchat,
     stripe: IconStripe,
     intercom: IconIntercom,
+    helpscout: IconHelpScout,
     'linkedin-ads': IconLinkedIn,
     email: IconMailjet,
     linear: IconLinear,
@@ -109,6 +113,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     apns: IconApple,
     postgresql: IconPostgres,
     'aws-s3': IconAwsS3,
+    'aws-redshift': IconRedshift,
     's3-compatible': IconS3Compatible,
     snowflake: IconSnowflake,
     'youtube-analytics': IconYouTubeAnalytics,
@@ -152,6 +157,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'email'
         case 'github':
             return 'GitHub'
+        case 'helpscout':
+            return 'Help Scout'
         case 'firebase':
             return 'Firebase'
         case 'apns':
@@ -160,6 +167,9 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'PostgreSQL'
         case 'aws-s3':
             return 'AWS S3'
+        // Named after the batch export destination users already see, not the `aws-` kind prefix.
+        case 'aws-redshift':
+            return 'Redshift'
         case 's3-compatible':
             return 'S3-compatible storage'
         case 'youtube-analytics':

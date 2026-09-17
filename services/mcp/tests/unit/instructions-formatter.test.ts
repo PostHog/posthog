@@ -17,6 +17,8 @@ const realisticTools = [
     { name: 'feature-flag-create', category: 'Feature flags' },
     { name: 'feature-flag-get-all', category: 'Feature flags' },
     { name: 'execute-sql', category: 'SQL' },
+    { name: 'business-knowledge-documents-search', category: 'Business knowledge' },
+    { name: 'docs-search', category: 'Docs' },
     { name: 'query-trends', category: 'Query wrappers' },
     { name: 'query-funnel', category: 'Query wrappers' },
 ]
@@ -60,6 +62,11 @@ describe('InstructionsFormatter', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildToolsInstructions(fullCtx)
             expect(result).toContain('### Basic functionality')
+            expect(result).toContain('### Business knowledge, then PostHog docs')
+            expect(result).toContain('Before your first answer to every user request')
+            expect(result.indexOf('`business-knowledge-documents-search`')).toBeLessThan(
+                result.indexOf('`docs-search`')
+            )
             expect(result).toContain('### Retrieving data')
             expect(result).toContain('### Examples')
         })
@@ -82,6 +89,24 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('{metadata}')
         })
 
+        it('omits business knowledge guidance when search is unavailable', () => {
+            const formatter = new InstructionsFormatter()
+            expect(formatter.buildToolsInstructions({ guidelines: 'rules' })).not.toContain(
+                '### Business knowledge, then PostHog docs'
+            )
+        })
+
+        it('includes Inkeep guidance when only docs search is available', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildToolsInstructions({
+                guidelines: 'rules',
+                tools: [{ name: 'docs-search', category: 'Docs' }],
+            })
+
+            expect(result).toContain('### Business knowledge, then PostHog docs')
+            expect(result).toContain('check current PostHog documentation through Inkeep')
+        })
+
         it('always includes the agent-feedback section', () => {
             const formatter = new InstructionsFormatter()
             expect(formatter.buildToolsInstructions(fullCtx)).toContain('### Sharing feedback on PostHog')
@@ -96,7 +121,10 @@ describe('InstructionsFormatter', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecInstructions(fullCtx)
             // query-* tools surface as the single `query` domain, not a separate catalog line
-            expect(result).toContain('dashboard|execute-sql|feature-flag|query')
+            expect(result).toContain(
+                'business-knowledge-documents|dashboard|docs-search|execute-sql|feature-flag|query'
+            )
+            expect(result).not.toContain('### Business knowledge, then PostHog docs')
             expect(result).not.toContain('query-*:')
             // Env context is not here — it rides the exec command description, which has no
             // truncation cap, leaving this payload's whole budget to the domain index.
@@ -164,6 +192,30 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('Run `info <tool_name>` once if its schema is not in context.')
             expect(result).not.toContain('### Basic functionality')
             expect(result).not.toContain('### Examples')
+            expect(result).not.toContain('### Business knowledge, then PostHog docs')
+        })
+
+        it('includes business knowledge guidance when search is available', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildExecToolDescription({ knowledgeSearchEnabled: true })
+
+            expect(result).toContain('### Business knowledge, then PostHog docs')
+            expect(result.indexOf('### Business knowledge, then PostHog docs')).toBeLessThan(
+                result.indexOf('Using the `posthog` tool')
+            )
+        })
+
+        it('loads skills before checking business knowledge and docs', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildExecToolDescription({ skillsEnabled: true, knowledgeSearchEnabled: true })
+
+            expect(result.indexOf('SKILL-FIRST MANDATE')).toBeLessThan(
+                result.indexOf('### Business knowledge, then PostHog docs')
+            )
+            expect(result.indexOf('`business-knowledge-documents-search`')).toBeLessThan(
+                result.indexOf('`docs-search`')
+            )
+            expect(result.length).toBeLessThanOrEqual(2048)
         })
     })
 
@@ -173,6 +225,7 @@ describe('InstructionsFormatter', () => {
             for (const stripEnvContext of [true, false]) {
                 const result = formatter.buildExecCommandReference(fullCtx, { stripEnvContext })
                 expect(result).toContain('SCHEMA DRILL-DOWN RULE')
+                expect(result).not.toContain('### Business knowledge, then PostHog docs')
                 expect(result).toContain('### Basic functionality')
                 expect(result).toContain('### Examples')
             }
@@ -250,6 +303,10 @@ describe('InstructionsFormatter', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildClaudeExecCommandReference(fullCtx)
 
+            // Skills off is the shipped default: the reference must carry no skill syntax.
+            expect(result).not.toContain('(posthog|project):<skill>')
+            expect(result).not.toContain('SKILLS FIRST')
+
             expect(result).toContain('**LEARN FIRST: HARD REQUIREMENT**')
             expect(result).toContain('learn <topic...> - load one or more learning topics')
             expect(result).toContain('Topics are cumulative.')
@@ -287,17 +344,46 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toMatch(/\{help_topics\}|\{query_tools\}|\{metadata\}|\{defined_groups\}|\{guidelines\}/)
         })
 
+        it('advertises skill syntax inside the schema budget only when skills are enabled', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildClaudeExecCommandReference(fullCtx, { skillsEnabled: true })
+
+            expect(result).toContain('**SKILLS FIRST: HARD REQUIREMENT**')
+            expect(result).toContain('(posthog|project):<skill> [path...]')
+            // The compact variant, not the full routing paragraph, which belongs to the uncapped reference.
+            expect(result).not.toContain('never clone, grep, or web-search PostHog internals')
+            expect(result).toContain('- analytics:')
+            expect(result).toContain('learn <topic...> - load one or more learning topics')
+        })
+
+        it('keeps URL patterns inline when learn is unavailable', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildClaudeExecCommandReference(fullCtx, {
+                learnEnabled: false,
+                skillsEnabled: false,
+            })
+
+            expect(result).toContain('### URL patterns')
+            expect(result).not.toContain('- urls:')
+            expect(result).not.toContain('learn <topic...>')
+        })
+
+        it('adds the full skills-first routing to the uncapped reference only when enabled', () => {
+            const formatter = new InstructionsFormatter()
+            const off = formatter.buildExecCommandReference(fullCtx, { stripEnvContext: false })
+            const on = formatter.buildExecCommandReference(fullCtx, { stripEnvContext: false, learnEnabled: true })
+
+            expect(off).not.toContain('SKILLS FIRST')
+            expect(on).toContain('**SKILLS FIRST: HARD REQUIREMENT**')
+            expect(on).toContain('never clone, grep, or web-search PostHog internals')
+        })
+
         it('builds optional learning topics from their full guidance', () => {
             const formatter = new InstructionsFormatter()
-            const entries = formatter.buildClaudeExecHelpEntries(fullCtx)
+            const entries = formatter.buildClaudeExecLearnGuides(fullCtx)
             const analytics = entries.find((entry) => entry.id === 'analytics')
 
-            expect(entries.map(({ id, kind }) => ({ id, kind }))).toEqual([
-                { id: 'analytics', kind: 'guide' },
-                { id: 'visualizations', kind: 'guide' },
-                { id: 'urls', kind: 'guide' },
-                { id: 'feedback', kind: 'guide' },
-            ])
+            expect(entries.map(({ id }) => id)).toEqual(['analytics', 'visualizations', 'urls', 'feedback'])
             expect(analytics?.content).toContain('### Retrieving data')
             expect(analytics?.content).toContain('### Examples')
             expect(analytics?.content).toContain('- `query-trends` — time series')
@@ -317,7 +403,7 @@ describe('InstructionsFormatter', () => {
                 renderUiEnabled: false,
             }
 
-            expect(formatter.buildClaudeExecHelpEntries(ctx).map((entry) => entry.id)).toEqual([
+            expect(formatter.buildClaudeExecLearnGuides(ctx).map((entry) => entry.id)).toEqual([
                 'analytics',
                 'urls',
                 'feedback',
@@ -344,7 +430,7 @@ describe('InstructionsFormatter', () => {
             {
                 name: 'analytics learn topic content',
                 render: (formatter, ctx) =>
-                    formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.content,
+                    formatter.buildClaudeExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.content,
                 mustPrecede: ['### Retrieving data', '#### Schema-first workflow'],
             },
             {
@@ -359,7 +445,8 @@ describe('InstructionsFormatter', () => {
             const rendered = render(formatter, fullCtx)
             const metricRoutingPosition = rendered.indexOf('#### Metric discovery (semantic layer)')
             expect(metricRoutingPosition).toBeGreaterThanOrEqual(0)
-            expect(rendered).toContain('system.information_schema.metrics')
+            expect(rendered).toContain('metric-list')
+            expect(rendered).toContain('metric-describe')
             expect(rendered).toContain('data-catalog-metric-run')
             for (const genericGuidance of mustPrecede) {
                 expect(metricRoutingPosition).toBeLessThan(rendered.indexOf(genericGuidance))
@@ -369,7 +456,7 @@ describe('InstructionsFormatter', () => {
         it('advertises governed metrics in the analytics topic description', () => {
             const formatter = new InstructionsFormatter()
             const analyticsEntry = formatter
-                .buildClaudeExecHelpEntries(fullCtx)
+                .buildClaudeExecLearnGuides(fullCtx)
                 .find((entry) => entry.id === 'analytics')!
             expect(analyticsEntry.description).toContain('governed metrics')
         })
@@ -387,7 +474,7 @@ describe('InstructionsFormatter', () => {
             {
                 name: 'analytics learn topic content',
                 render: (formatter, ctx) =>
-                    formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.content,
+                    formatter.buildClaudeExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.content,
             },
             {
                 name: 'buildExecCommandReference',
@@ -442,7 +529,9 @@ describe('InstructionsFormatter', () => {
 
             if (supportsInstructions) {
                 // queries surface in instructions only as the `query` tool domain
-                expect(instructions).toContain('dashboard|execute-sql|feature-flag|query')
+                expect(instructions).toContain(
+                    'business-knowledge-documents|dashboard|docs-search|execute-sql|feature-flag|query'
+                )
                 expect(instructions).not.toContain('- `query-trends` — time series')
                 expect(instructions).not.toContain("The user's name is Jane Doe")
                 expect(instructions).not.toContain('Defined group types: organization')

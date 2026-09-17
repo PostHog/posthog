@@ -1,14 +1,16 @@
 from collections import defaultdict
 from typing import Any
+from uuid import uuid4
 
-from django.core.cache import cache
+from django.conf import settings
+from django.core.cache import cache, caches
 from django.db import transaction
 from django.db.models import Q, TextField
 from django.db.models.functions import Cast
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
-from prometheus_client import Counter
+from prometheus_client import Counter, Histogram
 from rest_framework.exceptions import ValidationError
 from structlog import get_logger
 
@@ -21,6 +23,19 @@ from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_t
 
 logger = get_logger(__name__)
 DEPENDENCY_CACHE_TIMEOUT = 7 * 24 * 60 * 60  # 1 week
+# Bounds the rescans one warm does while edges keep changing under it.
+DEPENDENCY_WARM_MAX_ATTEMPTS = 3
+
+# The dependency key families are read back in the request that writes them: on create,
+# `_on_cohort_changed` runs before `enqueue_calculation` reads `dependents` for the new cohort
+# (on_commit callbacks run FIFO). The default cache serves reads from a replica, and a replica-lag
+# miss on `dependents` rebuilds the whole team on the request path, which is the cost this module
+# exists to avoid. The behavioral-ids keys stay on the default cache: only the list endpoint reads
+# them.
+dependency_cache = caches["cohort_dependencies"]
+
+# A save that persists none of these fields cannot change a dependency edge.
+DEPENDENCY_FIELDS = frozenset({"filters", "groups", "deleted"})
 COHORT_BACKFILL_DEBOUNCE_SECONDS = 300  # 5 minutes
 # The lock expiring exactly as the task fires is what closes the lost-dispatch window: a TTL longer
 # than the countdown would swallow a save that lands after the task already read its state.
@@ -31,6 +46,18 @@ COHORT_DEPENDENCY_CACHE_COUNTER = Counter(
     "posthog_cohort_dependency_cache_requests_total",
     "Total number of cohort dependency cache requests",
     labelnames=["cache_type", "result"],
+)
+
+COHORT_DEPENDENCY_MAINTENANCE_COUNTER = Counter(
+    "posthog_cohort_dependency_maintenance_total",
+    "Cohort dependency cache maintenance operations, by change kind and whether any edge was involved",
+    labelnames=["operation", "path"],
+)
+
+COHORT_DEPENDENCY_WARM_COHORTS_SCANNED = Histogram(
+    "posthog_cohort_dependency_warm_cohorts_scanned",
+    "Cohorts scanned per team dependency cache warm",
+    buckets=(1, 10, 100, 1_000, 10_000, 100_000),
 )
 
 COHORT_REALTIME_STATE_ORPHANED_COUNTER = Counter(
@@ -55,6 +82,10 @@ def _cohort_dependencies_key(cohort_id: int) -> str:
 
 def _cohort_dependents_key(cohort_id: int) -> str:
     return f"cohort:dependents:{cohort_id}"
+
+
+def _team_dependency_generation_key(team_id: int) -> str:
+    return f"cohort:dependency_generation:{team_id}"
 
 
 # Set of behavioral (flag-incompatible) cohort ids per team, hidden from the feature-flag
@@ -204,12 +235,15 @@ def _invalidate_team_behavioral_cohort_cache(team_id: int) -> None:
 invalidate_team_behavioral_cohort_cache = _invalidate_team_behavioral_cohort_cache
 
 
-def extract_cohort_dependencies(cohort: Cohort) -> set[int]:
+def extract_cohort_dependencies(cohort: Cohort, *, ignore_deleted: bool = False) -> set[int]:
     """
     Extract cohort dependencies from the given cohort.
+
+    A deleted cohort has no dependencies unless `ignore_deleted` is set, which the delete path uses
+    to find the edges it tears down.
     """
     dependencies = set()
-    if not cohort.deleted:
+    if ignore_deleted or not cohort.deleted:
         try:
             for prop in cohort.properties.flat:
                 if prop.type == "cohort" and isinstance(prop.value, int) and prop.value != cohort.id:
@@ -220,32 +254,21 @@ def extract_cohort_dependencies(cohort: Cohort) -> set[int]:
     return dependencies
 
 
-def get_cohort_dependencies(cohort: Cohort, _warming: bool = False) -> list[int]:
+def get_cohort_dependencies(cohort: Cohort) -> list[int]:
     """
     Get the list of cohort IDs that the given cohort depends on.
     """
     cache_key = _cohort_dependencies_key(cohort.id)
 
-    # Check if value exists in cache first
-    cache_hit = cache.has_key(cache_key)
-
-    def compute_dependencies():
-        if not _warming:
-            COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="miss").inc()
-        return list(extract_cohort_dependencies(cohort))
-
-    if cache_hit and not _warming:
+    dependencies = dependency_cache.get(cache_key)
+    if dependencies is not None:
         COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="hit").inc()
+        return dependencies
 
-    result = cache.get_or_set(
-        cache_key,
-        compute_dependencies,
-        timeout=DEPENDENCY_CACHE_TIMEOUT,
-    )
-
-    if result is None:
-        logger.error("Cohort dependencies cache returned None", cohort_id=cohort.id)
-    return result or []
+    COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="miss").inc()
+    dependencies = list(extract_cohort_dependencies(cohort))
+    dependency_cache.set(cache_key, dependencies, timeout=DEPENDENCY_CACHE_TIMEOUT)
+    return dependencies
 
 
 def get_cohort_dependents(cohort: Cohort | int) -> list[int]:
@@ -257,78 +280,193 @@ def get_cohort_dependents(cohort: Cohort | int) -> list[int]:
     cohort_id = cohort.id if isinstance(cohort, Cohort) else cohort
     cache_key = _cohort_dependents_key(cohort_id)
 
-    # Check if value exists in cache first
-    cache_hit = cache.has_key(cache_key)
-
-    def compute_or_fallback() -> list[int]:
-        COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependents", result="miss").inc()
-        # If we only have an ID, query the database for team_id
-        if isinstance(cohort, int):
-            try:
-                team_id = Cohort.objects.filter(pk=cohort_id, deleted=False).values_list("team_id", flat=True).first()
-                if team_id is None:
-                    logger.warning("Cohort not found when computing dependents", cohort_id=cohort_id)
-                    return []
-            except Exception as e:
-                logger.exception("Failed to fetch team_id for cohort", cohort_id=cohort_id, error=str(e))
-                return []
-        else:
-            team_id = cohort.team_id
-
-        warm_team_cohort_dependency_cache(team_id)
-        return cache.get(cache_key, [])
-
-    if cache_hit:
+    dependents = dependency_cache.get(cache_key)
+    if dependents is not None:
         COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependents", result="hit").inc()
+        return dependents
+    COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependents", result="miss").inc()
 
-    result = cache.get_or_set(cache_key, compute_or_fallback, timeout=DEPENDENCY_CACHE_TIMEOUT)
-    if result is None:
-        logger.error("Cohort dependents cache returned None", cohort_id=cohort_id)
-    return result or []
+    # If we only have an ID, query the database for team_id. A soft-deleted cohort can still
+    # have live dependents, so the lookup must not filter on deleted.
+    if isinstance(cohort, int):
+        try:
+            team_id = Cohort.objects.filter(pk=cohort_id).values_list("team_id", flat=True).first()
+        except Exception as e:
+            logger.exception("Failed to fetch team_id for cohort", cohort_id=cohort_id, error=str(e))
+            return []
+    else:
+        team_id = cohort.team_id
+
+    if team_id is None:
+        logger.warning("Cohort not found when computing dependents", cohort_id=cohort_id)
+    else:
+        warm_team_cohort_dependency_cache(team_id)
+
+    dependents = dependency_cache.get(cache_key)
+    if dependents is None:
+        # The warm writes keys only for live cohorts and the cohorts they reference. Caching the
+        # empty list for anything else keeps a stale id in a reverse list from rescanning the team
+        # on every read.
+        dependents = []
+        dependency_cache.set(cache_key, dependents, timeout=DEPENDENCY_CACHE_TIMEOUT)
+    return dependents
 
 
-def warm_team_cohort_dependency_cache(team_id: int, batch_size: int = 1000):
+def warm_team_cohort_dependency_cache(team_id: int, batch_size: int = 1000) -> int:
     """
-    Preloads the cohort dependencies and dependents cache for a given team.
+    Rebuilds both key families for every live cohort of a team from Postgres. Returns the number of
+    cohorts scanned.
+
+    An edge change that commits during the scan bumps the team generation before it deletes any
+    reverse key. A scan that ends on a different generation than it started on may have published a
+    reverse list from pre-edit rows, so it runs again and overwrites its own output. Writers never
+    wait on a warm. The attempt bound caps the scans that continuous edge edits in one team can
+    force on a single read miss.
+    """
+    generation_key = _team_dependency_generation_key(team_id)
+    scanned = 0
+    for _ in range(DEPENDENCY_WARM_MAX_ATTEMPTS):
+        generation = dependency_cache.get(generation_key)
+        scanned = _publish_team_cohort_dependencies(team_id, batch_size)
+        if dependency_cache.get(generation_key) == generation:
+            return scanned
+    logger.warning("cohort_dependency_warm_unsettled", team_id=team_id, attempts=DEPENDENCY_WARM_MAX_ATTEMPTS)
+    return scanned
+
+
+def _publish_team_cohort_dependencies(team_id: int, batch_size: int) -> int:
+    """
+    One scan of a team's live cohorts that writes both key families. Returns the number of cohorts
+    scanned.
 
     Uses keyset pagination on id instead of .iterator(), which opens a named
     server-side cursor that can be invalidated by connection recycling between
     batches (e.g. behind a pooler) and raises InvalidCursorName mid-scan.
+
+    Forward keys are written per batch. The reverse map is written once at the end, because a
+    dependency's dependents can span batches and a per-batch write would overwrite the earlier
+    part of the list.
     """
     dependents_map: dict[str, list[int]] = {}
+    scanned = 0
     last_id = 0
     while True:
-        batch = list(Cohort.objects.filter(team_id=team_id, deleted=False, id__gt=last_id).order_by("id")[:batch_size])
+        batch = list(
+            Cohort.objects.filter(team_id=team_id, deleted=False, id__gt=last_id)
+            .order_by("id")
+            .only("id", "team_id", "deleted", "filters", "groups")[:batch_size]
+        )
         if not batch:
             break
+        dependencies_map: dict[str, list[int]] = {}
         for cohort in batch:
-            # Any invalidated dependencies cache is rebuilt here
+            dependencies = extract_cohort_dependencies(cohort)
+            dependencies_map[_cohort_dependencies_key(cohort.id)] = list(dependencies)
             dependents_map.setdefault(_cohort_dependents_key(cohort.id), [])
-            dependencies = get_cohort_dependencies(cohort, _warming=True)
-            # Dependency keys aren't fully invalidated; make sure they don't expire.
-            cache.touch(_cohort_dependencies_key(cohort.id), timeout=DEPENDENCY_CACHE_TIMEOUT)
-            # Build reverse map
             for dep_id in dependencies:
                 dependents_map.setdefault(_cohort_dependents_key(dep_id), []).append(cohort.id)
+        dependency_cache.set_many(dependencies_map, timeout=DEPENDENCY_CACHE_TIMEOUT)
+        scanned += len(batch)
         last_id = batch[-1].id
-    cache.set_many(dependents_map, timeout=DEPENDENCY_CACHE_TIMEOUT)
+
+    dependents_items = list(dependents_map.items())
+    for start in range(0, len(dependents_items), batch_size):
+        dependency_cache.set_many(dict(dependents_items[start : start + batch_size]), timeout=DEPENDENCY_CACHE_TIMEOUT)
+
+    COHORT_DEPENDENCY_WARM_COHORTS_SCANNED.observe(scanned)
+    return scanned
 
 
-def _on_cohort_changed(cohort: Cohort, always_invalidate: bool = False):
+def _on_cohort_changed(
+    cohort: Cohort,
+    *,
+    created: bool = False,
+    hard_deleted: bool = False,
+    update_fields: frozenset[str] | None = None,
+) -> None:
+    """
+    Keeps the dependency key families consistent with one cohort's save or delete.
+
+    Only the changed cohort's own keys are written. The reverse lists of the cohorts it started or
+    stopped referencing are deleted rather than edited: DEL is idempotent, so two concurrent writers
+    cannot lose each other's update, and the next reader rebuilds the list from Postgres. A warm that
+    overlaps those deletes is fenced by the team generation, see warm_team_cohort_dependency_cache.
+    """
+    if not settings.COHORT_DEPENDENCY_INCREMENTAL_MAINTENANCE:
+        _on_cohort_changed_full_warm(cohort, always_invalidate=hard_deleted)
+        return
+
+    if update_fields is not None and DEPENDENCY_FIELDS.isdisjoint(update_fields):
+        COHORT_DEPENDENCY_MAINTENANCE_COUNTER.labels(operation="skipped", path="no_edges").inc()
+        return
+
+    removed = hard_deleted or cohort.deleted
+    if created:
+        operation = "create"
+        # Nothing can reference an id that did not exist before this save.
+        old_dependencies: set[int] = set()
+    elif removed:
+        operation = "hard_delete" if hard_deleted else "soft_delete"
+        # The cached value may have expired, but the instance still carries the filters that
+        # describe the edges being torn down.
+        old_dependencies = extract_cohort_dependencies(cohort, ignore_deleted=True)
+    else:
+        operation = "update"
+        # An expired key reads as "no previous edges", which leaves this cohort in a former
+        # dependency's reverse list until the next warm. The cost is one unneeded recalculation
+        # of this cohort when that former dependency recalculates, never a missed one.
+        old_dependencies = set(dependency_cache.get(_cohort_dependencies_key(cohort.id)) or [])
+    new_dependencies = set() if removed else extract_cohort_dependencies(cohort)
+
+    dependencies_key = _cohort_dependencies_key(cohort.id)
+    if removed:
+        # A soft-deleted cohort keeps its own reverse list: live cohorts may still reference it,
+        # and the scheduler follows those edges.
+        own_keys = [dependencies_key]
+        if hard_deleted:
+            own_keys.append(_cohort_dependents_key(cohort.id))
+        dependency_cache.delete_many(own_keys)
+    elif created:
+        dependency_cache.set_many(
+            {dependencies_key: list(new_dependencies), _cohort_dependents_key(cohort.id): []},
+            timeout=DEPENDENCY_CACHE_TIMEOUT,
+        )
+    else:
+        dependency_cache.set(dependencies_key, list(new_dependencies), timeout=DEPENDENCY_CACHE_TIMEOUT)
+
+    changed_dependencies = old_dependencies ^ new_dependencies
+    if changed_dependencies:
+        # The bump precedes the deletes. A warm checks the generation after it publishes, so a bump
+        # that lands before that check forces a rescan. If the bump lands after the check, the
+        # deletes land after the publish too and remove the stale keys themselves.
+        dependency_cache.set(
+            _team_dependency_generation_key(cohort.team_id), uuid4().hex, timeout=DEPENDENCY_CACHE_TIMEOUT
+        )
+        dependency_cache.delete_many([_cohort_dependents_key(dep_id) for dep_id in changed_dependencies])
+
+    path = "edges" if old_dependencies or new_dependencies else "no_edges"
+    COHORT_DEPENDENCY_MAINTENANCE_COUNTER.labels(operation=operation, path=path).inc()
+
+
+def _on_cohort_changed_full_warm(cohort: Cohort, always_invalidate: bool = False) -> None:
+    """
+    Fallback behind the COHORT_DEPENDENCY_INCREMENTAL_MAINTENANCE kill switch: invalidates the
+    changed cohort's keys and rescans the whole team.
+    """
     new_dependencies = extract_cohort_dependencies(cohort)
-    existing_dependencies = cache.get(_cohort_dependencies_key(cohort.id))
+    existing_dependencies = dependency_cache.get(_cohort_dependencies_key(cohort.id))
     dependencies_changed = existing_dependencies is None or set(existing_dependencies) != new_dependencies
 
     # If the dependencies haven't changed, no need to refresh the cache
     if not always_invalidate and not cohort.deleted and not dependencies_changed:
         return
 
-    cache.delete(_cohort_dependencies_key(cohort.id))
-    cache.delete(_cohort_dependents_key(cohort.id))
+    dependency_cache.delete(_cohort_dependencies_key(cohort.id))
+    dependency_cache.delete(_cohort_dependents_key(cohort.id))
 
     if existing_dependencies:
         for dep_id in existing_dependencies:
-            cache.delete(_cohort_dependents_key(dep_id))
+            dependency_cache.delete(_cohort_dependents_key(dep_id))
 
     warm_team_cohort_dependency_cache(cohort.team_id)
 
@@ -442,7 +580,9 @@ def cohort_changed(sender, instance, **kwargs):
     if is_cohort_recalculation_only_save(kwargs):
         return
 
-    transaction.on_commit(lambda: _on_cohort_changed(instance))
+    created = kwargs.get("created", False)
+    update_fields = kwargs.get("update_fields")
+    transaction.on_commit(lambda: _on_cohort_changed(instance, created=created, update_fields=update_fields))
     transaction.on_commit(lambda: _invalidate_team_behavioral_cohort_cache(instance.team_id))
 
 
@@ -560,7 +700,7 @@ def cohort_deleted(sender, instance, **kwargs):
     """
     Clear and rebuild dependency caches when cohort is deleted.
     """
-    transaction.on_commit(lambda: _on_cohort_changed(instance, always_invalidate=True))
+    transaction.on_commit(lambda: _on_cohort_changed(instance, hard_deleted=True))
     transaction.on_commit(lambda: _invalidate_team_behavioral_cohort_cache(instance.team_id))
 
 
@@ -573,8 +713,8 @@ def clear_team_cohort_dependency_cache(sender, instance: Team, **kwargs):
     def clear_cache():
         team_cohorts = Cohort.objects.filter(team_id=instance.pk, deleted=False).values_list("id", flat=True)
         for cohort_id in team_cohorts:
-            cache.delete(_cohort_dependencies_key(cohort_id))
-            cache.delete(_cohort_dependents_key(cohort_id))
+            dependency_cache.delete(_cohort_dependencies_key(cohort_id))
+            dependency_cache.delete(_cohort_dependents_key(cohort_id))
         _invalidate_team_behavioral_cohort_cache(instance.pk)
 
     transaction.on_commit(clear_cache)

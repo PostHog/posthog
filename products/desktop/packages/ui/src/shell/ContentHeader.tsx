@@ -1,8 +1,8 @@
 import { TaskHeaderActions } from "@posthog/ui/features/task-detail/components/TaskHeaderActions";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { useHeaderStore } from "@posthog/ui/shell/headerStore";
-import { Flex } from "@radix-ui/themes";
 
 // The in-pane content header for the unified Bluebird chrome. Shows the active
 // view's title (pushed into the header store by each view) on the left and that
@@ -10,16 +10,17 @@ import { Flex } from "@radix-ui/themes";
 // review-panel toggle, skill buttons and task actions that
 // used to live in the Code header bar.
 //
-// This breadcrumb row is scoped to views that have somewhere to walk back to:
-// task detail, and the loop scenes (list / detail / form), which live outside
-// the space routes but can belong to a space. Every other page drops it (the
-// title bar search carries wayfinding instead). The /website (Channels) space
-// keeps its own header (ShellLayout), so it's unaffected — this is mounted
-// only outside it.
+// This breadcrumb row is scoped to views that name what you are looking at:
+// task detail, the loop scenes (list / detail / form), which live outside the
+// space routes but can belong to a space, and Self-driving with the reports it
+// opens, whose list moved into the rail's sidebar and left the pane with no
+// title of its own. Every other page drops it (the title bar search carries
+// wayfinding instead). The /website (Channels) space keeps its own header
+// (ShellLayout), so it's unaffected — this is mounted only outside it.
 //
 // A loop with no space pushes null, so the row collapses for it too: what a
 // view puts in the header store decides, this only says who may.
-const BREADCRUMB_VIEWS = new Set(["task-detail", "loops"]);
+const BREADCRUMB_VIEWS = new Set(["task-detail", "loops", "inbox", "report"]);
 
 export function ContentHeader() {
   const content = useHeaderStore((state) => state.content);
@@ -37,18 +38,14 @@ export function ContentHeader() {
   if (!content && !showTaskSection) return null;
 
   return (
-    <Flex align="center" className="h-10 shrink-0 border-border border-b px-3">
+    <ChromeBar inset="control">
       {content && (
-        <Flex
-          align="center"
-          justify="between"
-          className="h-full min-w-0 flex-1 overflow-hidden"
-        >
+        <div className="flex h-full min-w-0 flex-1 items-center justify-between overflow-hidden">
           {content}
-        </Flex>
+        </div>
       )}
 
       {showTaskSection && activeTask && <TaskHeaderActions task={activeTask} />}
-    </Flex>
+    </ChromeBar>
   );
 }
