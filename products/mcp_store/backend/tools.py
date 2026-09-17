@@ -13,11 +13,13 @@ from django.utils import timezone
 import httpx
 import structlog
 
+from posthog.security.pinned_httpx import pinned_client
+
 from .models import MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
 from .policy import SYNC_DEFAULT_APPROVAL_STATE
 from .proxy import build_upstream_auth_headers, validated_same_origin_redirect_url
-from .url_policy import check_mcp_url_policy, trust_environment_proxy
+from .url_policy import resolve_mcp_url_policy, trust_environment_proxy
 
 logger = structlog.get_logger(__name__)
 
@@ -77,9 +79,9 @@ def fetch_upstream_tools(installation: MCPServerInstallation) -> list[dict[str, 
     Shares the proxy's SSRF guard + timeout + auth-header builder so behavior stays
     consistent between proxy traffic and sync traffic.
     """
-    allowed, reason = check_mcp_url_policy(installation.url, installation.team_id)
-    if not allowed:
-        raise ToolsFetchError(f"URL not allowed: {reason}")
+    verdict = resolve_mcp_url_policy(installation.url, installation.team_id)
+    if not verdict.allowed:
+        raise ToolsFetchError(f"URL not allowed: {verdict.reason}")
 
     _ensure_valid_token_for_fetch(installation)
 
@@ -91,7 +93,9 @@ def fetch_upstream_tools(installation: MCPServerInstallation) -> list[dict[str, 
     }
 
     try:
-        with httpx.Client(
+        with pinned_client(
+            installation.url,
+            verdict.pinned_ips,
             timeout=HANDSHAKE_TIMEOUT,
             trust_env=trust_environment_proxy(installation.url, installation.team_id),
         ) as client:
@@ -129,9 +133,9 @@ def call_upstream_tool(
     the gateway's policy engine first (see ``enforce_tool_approval``), so this stays
     a transport concern.
     """
-    allowed, reason = check_mcp_url_policy(installation.url, installation.team_id)
-    if not allowed:
-        raise ToolCallError(f"URL not allowed: {reason}")
+    verdict = resolve_mcp_url_policy(installation.url, installation.team_id)
+    if not verdict.allowed:
+        raise ToolCallError(f"URL not allowed: {verdict.reason}")
 
     _ensure_valid_token_for_fetch(installation)
 
@@ -143,7 +147,9 @@ def call_upstream_tool(
     }
 
     try:
-        with httpx.Client(
+        with pinned_client(
+            installation.url,
+            verdict.pinned_ips,
             timeout=CALL_TIMEOUT,
             trust_env=trust_environment_proxy(installation.url, installation.team_id),
         ) as client:

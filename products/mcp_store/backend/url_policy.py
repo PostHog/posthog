@@ -9,7 +9,7 @@ sibling paths or grant another team access.
 
 from django.conf import settings
 
-from posthog.security.url_validation import is_url_allowed
+from posthog.security.url_validation import PinnedUrlVerdict, validate_url_and_pin_ips
 
 
 def is_internal_mcp_url(url: str, team_id: int | None) -> bool:
@@ -19,21 +19,29 @@ def is_internal_mcp_url(url: str, team_id: int | None) -> bool:
     return isinstance(urls, list) and url in urls
 
 
-def check_mcp_url_policy(url: str, team_id: int | None) -> tuple[bool, str | None]:
+def resolve_mcp_url_policy(url: str, team_id: int | None) -> PinnedUrlVerdict:
     """The single entry point for MCP URL policy: shared SSRF validation,
     overridden only by an exact team-scoped internal-allowlist match.
 
-    Call sites must use this rather than composing ``is_url_allowed`` with
-    ``allow_internal_mcp_url`` themselves — a caller that forgets one half (or
-    reorders the splatted positional results) silently drops the policy.
+    Call sites must use this rather than composing the SSRF validator with
+    ``is_internal_mcp_url`` themselves, because a caller that forgets one half
+    silently drops the policy.
+
+    A caller that opens a connection to the URL must connect to ``pinned_ips``
+    (see ``posthog.security.pinned_httpx``) instead of resolving the host again.
+    An internal endpoint is reached by name inside the cluster, so its verdict
+    pins nothing.
     """
-    return allow_internal_mcp_url(url, team_id, *is_url_allowed(url))
+    verdict = validate_url_and_pin_ips(url)
+    if verdict.allowed or not is_internal_mcp_url(url, team_id):
+        return verdict
+    return PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set())
 
 
-def allow_internal_mcp_url(url: str, team_id: int | None, allowed: bool, reason: str | None) -> tuple[bool, str | None]:
-    if not allowed and is_internal_mcp_url(url, team_id):
-        return True, None
-    return allowed, reason
+def check_mcp_url_policy(url: str, team_id: int | None) -> tuple[bool, str | None]:
+    """``resolve_mcp_url_policy`` for callers that only need the decision."""
+    verdict = resolve_mcp_url_policy(url, team_id)
+    return verdict.allowed, verdict.reason
 
 
 def trust_environment_proxy(url: str, team_id: int | None) -> bool:
