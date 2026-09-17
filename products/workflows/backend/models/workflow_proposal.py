@@ -37,10 +37,11 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDTModel):
     class Meta:
         constraints = [
             # An MCP retry or a re-emitted finding resolves to the same proposal instead of stacking
-            # duplicates in a human's queue. Only fenced when the producer named itself.
+            # duplicates in a human's queue. Only fenced when the producer named itself; a blank
+            # name is no name, so blanks never collide with each other.
             models.UniqueConstraint(
                 fields=["hog_flow", "source_id"],
-                condition=models.Q(source_id__isnull=False),
+                condition=models.Q(source_id__isnull=False) & ~models.Q(source_id=""),
                 name="unique_workflow_proposal_source",
             ),
         ]
