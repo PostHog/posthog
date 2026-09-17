@@ -703,6 +703,13 @@ describe('markdown round trip', () => {
             expect(document.nodes[0].id).not.toEqual('phb-outer')
         })
 
+        it('gives a left-behind anchor to no block', () => {
+            const document = parseMarkdownNotebook('<!--ph:phb-abc-->\n\n\nThe next paragraph.')
+
+            expect(document.nodes.map((node) => getNodeText(node))).toEqual(['The next paragraph.'])
+            expect(document.nodes[0].id).not.toEqual('phb-abc')
+        })
+
         it('keeps an anchored block out of the paragraph above it', () => {
             const document = parseMarkdownNotebook('First.\n<!--ph:phb-abc-->\nSecond.')
 

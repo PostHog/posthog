@@ -240,6 +240,11 @@ class TestMarkdownBlockSpans(SimpleTestCase):
         assert node_ids[0] == "phb-abc"
         assert len(set(node_ids)) == 2
 
+    def test_a_left_behind_anchor_names_no_block(self) -> None:
+        blocks = list(iter_markdown_blocks("<!--ph:phb-abc-->\n\n\nThe next paragraph.\n"))
+        assert [block.source for block in blocks] == ["The next paragraph."]
+        assert blocks[0].node_id != "phb-abc"
+
     def test_a_comment_that_is_not_a_stored_id_is_not_an_anchor(self) -> None:
         blocks = list(iter_markdown_blocks("<!--ph:note-->\n\nA paragraph."))
         assert [block.node_id for block in blocks] != ["note"]

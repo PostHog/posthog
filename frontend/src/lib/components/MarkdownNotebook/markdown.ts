@@ -191,6 +191,10 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
         }
 
         if (!line.trim()) {
+            // An anchor names only the block on the line below it. Text removed from under an
+            // anchor leaves the anchor behind, and carried over a blank line it would hand the id
+            // to the next block, so an edit by that id would reach a block its caller never read.
+            pendingAnchorId = null
             blankLinesBeforeBlock += 1
             lineIndex += 1
             continue

@@ -424,6 +424,10 @@ def iter_markdown_blocks(markdown: str, max_prose_blocks: int | None = None) -> 
 
     while line_index < len(lines):
         if not lines[line_index].strip():
+            # An anchor names only the block on the line below it. Text removed from under an
+            # anchor leaves the anchor behind, and carried over a blank line it would hand the id
+            # to the next block, so an edit by that id would reach a block its caller never read.
+            pending_anchor_id = None
             consume(line_index, line_index + 1)
             line_index += 1
             continue

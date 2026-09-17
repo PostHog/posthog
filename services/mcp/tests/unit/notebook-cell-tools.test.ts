@@ -738,30 +738,56 @@ describe('notebook cell tools', () => {
             expect(state.saveBodies).toHaveLength(0)
         })
 
-        // Relocation used to accept any unique occurrence of the source, so a paragraph that
-        // grew around the old text took the insert into its middle and split it in two.
-        // A stored id is written into the document, so it names its block even when a block that
-        // reads the same is inserted above it and the text search would find two candidates.
-        it('places a cell after a stored id when identical prose sits above it', async () => {
-            const state = makeState('<!--ph:phb-one-->\nShared text.\n\n\nShared text.\n')
-            // Offsets from before an edit above the block, so the lookup cannot take them.
-            state.stateCells = [{ node_id: 'phb-one', cell_type: 'markdown', code: 'Shared text.', start: 32, end: 44 }]
+        const FENCE = '```python\nx = 1\n\ny = 2\n```'
+
+        // Every row carries offsets from before an edit above the block, so the lookup cannot take
+        // them and must find the block by its stored id.
+        it.each([
+            {
+                label: 'identical prose sits nearby',
+                doc: '<!--ph:phb-one-->\nShared text.\n\n\nShared text.\n',
+                cell: { node_id: 'phb-one', cell_type: 'markdown', code: 'Shared text.', start: 32, end: 44 },
+                expected: (id: string) =>
+                    `<!--ph:phb-one-->\nShared text.\n\n\n<!--ph:${id}-->\nInserted note.\n\n\nShared text.\n`,
+            },
+            {
+                label: 'the block is a fence that holds a blank line',
+                doc: `<!--ph:phb-one-->\n${FENCE}\n\n\nTail.\n`,
+                cell: { node_id: 'phb-one', cell_type: 'markdown', code: FENCE, start: 2, end: 2 + FENCE.length },
+                expected: (id: string) =>
+                    `<!--ph:phb-one-->\n${FENCE}\n\n\n<!--ph:${id}-->\nInserted note.\n\n\nTail.\n`,
+            },
+        ])('places a cell after a stored id when $label', async ({ doc, cell, expected }) => {
+            const state = makeState(doc)
+            state.stateCells = [cell]
             const context = createMockContext(state)
 
-            await addCellHandler(context, {
+            const result = await addCellHandler(context, {
                 notebook_id: 'aBcD1234',
                 cell_type: 'markdown',
                 markdown: 'Inserted note.',
                 after_node_id: 'phb-one',
             })
 
-            const inserted = state.saveBodies[0].content.content[0].attrs.markdown
-            expect(inserted.indexOf('Inserted note.')).toBeLessThan(inserted.lastIndexOf('Shared text.'))
+            expect(state.saveBodies[0].content.content[0].attrs.markdown).toBe(expected(result.node_id!))
         })
 
-        it('refuses a source that survives only inside a longer paragraph', async () => {
-            const state = makeState('# Doc\n\n\nUpdated First paragraph. Now longer.\n')
-            state.stateCells = [FIRST]
+        it.each([
+            {
+                label: 'a derived id',
+                doc: '# Doc\n\n\nUpdated First paragraph. Now longer.\n',
+                cell: FIRST,
+                expected: /no longer a block of its own/,
+            },
+            {
+                label: 'a stored id',
+                doc: '# Doc\n\n\n<!--ph:phb-one-->\nFirst paragraph. Now longer.\n',
+                cell: { ...FIRST, node_id: 'phb-one' },
+                expected: /changed since it was read/,
+            },
+        ])('refuses $label whose block outgrew the text that was read', async ({ doc, cell, expected }) => {
+            const state = makeState(doc)
+            state.stateCells = [cell]
             const context = createMockContext(state)
 
             await expect(
@@ -769,9 +795,9 @@ describe('notebook cell tools', () => {
                     notebook_id: 'aBcD1234',
                     cell_type: 'markdown',
                     markdown: 'Inserted note.',
-                    after_node_id: FIRST.node_id,
+                    after_node_id: cell.node_id,
                 })
-            ).rejects.toThrow(/no longer a block of its own/)
+            ).rejects.toThrow(expected)
             expect(state.saveBodies).toHaveLength(0)
         })
 

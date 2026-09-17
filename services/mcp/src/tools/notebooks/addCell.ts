@@ -152,8 +152,8 @@ function locateProseAnchorEnd(markdown: string, anchor: ProseAnchor): number {
         return anchor.end
     }
     // A stored id is written into the document above its block, so it names the block exactly.
-    // Matching on it survives an edit to the block's own text, which the text search below
-    // cannot, and it never confuses two blocks that read the same.
+    // Matching on it never confuses two blocks that read the same, which the text search below
+    // can only refuse.
     if (anchor.nodeId.startsWith(STORED_NODE_ID_PREFIX)) {
         return locateStoredAnchorEnd(markdown, anchor)
     }
@@ -181,8 +181,9 @@ function locateProseAnchorEnd(markdown: string, anchor: ProseAnchor): number {
 }
 
 /**
- * Where the block under `<!--ph:id-->` ends, read from the anchor rather than from the block's
- * text. The block runs to the next blank line, which is what separates two blocks.
+ * Where the block under `<!--ph:id-->` ends. The anchor finds the block, and the source the read
+ * reported measures it, because a fenced block holds blank lines and a search for the next one
+ * would end the block inside the fence.
  */
 function locateStoredAnchorEnd(markdown: string, anchor: ProseAnchor): number {
     const marker = `<!--ph:${anchor.nodeId}-->\n`
@@ -198,8 +199,13 @@ function locateStoredAnchorEnd(markdown: string, anchor: ProseAnchor): number {
         )
     }
     const bodyStart = at + marker.length
-    const blankLine = markdown.slice(bodyStart).search(/\n[ \t]*\n/)
-    return blankLine === -1 ? markdown.length : bodyStart + blankLine
+    const bodyEnd = bodyStart + anchor.source.length
+    if (!markdown.startsWith(anchor.source, bodyStart) || !BLOCK_END_BOUNDARY.test(markdown.slice(bodyEnd))) {
+        throw new Error(
+            `Block ${anchor.nodeId} changed since it was read, so a cell cannot be placed after it. Read the notebook again with notebooks-get and retry.`
+        )
+    }
+    return bodyEnd
 }
 
 function insertBlock(
