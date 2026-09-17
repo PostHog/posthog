@@ -29,7 +29,7 @@ from products.notebooks.backend.models import (
     NotebookWidgetInstance,
 )
 from products.notebooks.backend.sql_v2 import SQLV2KernelNotRunning, SQLV2PageError, fetch_sql_v2_page
-from products.notebooks.backend.sql_v2_state import extract_cells
+from products.notebooks.backend.sql_v2_state import extract_cells, get_dataframe_owners
 from products.notebooks.backend.temporal.client import start_widget_generation_workflow
 from products.notebooks.backend.util import (
     _create_stable_markdown_node_id,
@@ -299,18 +299,7 @@ def assert_widget_node_exists(notebook: Notebook, node_id: str) -> None:
 
 
 def _dataframe_owners(notebook: Notebook) -> dict[str, str]:
-    cells = extract_cells(notebook.content)
-    eligible_cells = [cell for cell in cells if _INPUT_NAME.fullmatch(cell.dataframe_name)]
-    preferred_owners: dict[str, str] = {}
-    for cell_type in ("sql", "python"):
-        for cell in eligible_cells:
-            if cell.cell_type == cell_type:
-                preferred_owners.setdefault(cell.dataframe_name, cell.node_id)
-    owners: dict[str, str] = {}
-    for cell in eligible_cells:
-        if preferred_owners.get(cell.dataframe_name) == cell.node_id:
-            owners.setdefault(cell.dataframe_name, cell.node_id)
-    return owners
+    return get_dataframe_owners(extract_cells(notebook.content))
 
 
 def infer_widget_inputs(notebook: Notebook, node_id: str) -> list[str]:
@@ -340,6 +329,8 @@ def inspect_widget_inputs(
     inputs: list[str],
     authorize_run: Callable[[NotebookNodeRun], None],
     node_id: str | None = None,
+    *,
+    skip_unready: bool = False,
 ) -> WidgetInputInspection:
     normalized_inputs = normalize_widget_inputs(inputs)
     if node_id is not None:
@@ -358,7 +349,7 @@ def inspect_widget_inputs(
     )
     runs = {run.node_id: run for run in run_queryset.defer("envelope")}
     unresolved = [name for name in normalized_inputs if owners[name] not in runs]
-    if unresolved:
+    if unresolved and not skip_unready:
         raise WidgetConflictError(
             f'Run the cell that creates "{unresolved[0]}" before generating this widget.',
             "input_not_ready",
@@ -652,6 +643,33 @@ def _reconcile_stale_generation_job(job: GeneratedWidgetGenerationJob) -> None:
         job.refresh_from_db()
 
 
+def _improvement_input_contract(
+    instance: NotebookWidgetInstance,
+    base_version: GeneratedWidgetVersion,
+    inspection: WidgetInputInspection,
+) -> list[dict[str, object]]:
+    available = {item.name: item.contract for item in inspection.resolved_inputs}
+    bindings = instance.input_bindings if isinstance(instance.input_bindings, dict) else {}
+    required: list[dict[str, object]] = []
+    for item in base_version.input_contract:
+        slot = str(item["slot"])
+        binding = bindings.get(slot)
+        source = (
+            str(binding["source"])
+            if isinstance(binding, dict) and isinstance(binding.get("source"), str)
+            else str(item.get("sourceName") or slot)
+        )
+        if source not in available:
+            raise WidgetConflictError(
+                f'Run the cell that creates "{source}" before improving this widget.',
+                "input_not_ready",
+            )
+        # Existing source still uses these slots, including schemas supplied by input transformations.
+        required.append({**available[source], **item, "sourceName": source})
+    slots = {item["slot"] for item in required}
+    return required + [item for item in inspection.contract if item["slot"] not in slots]
+
+
 def start_widget_generation(
     *,
     notebook: Notebook,
@@ -780,6 +798,9 @@ def start_widget_generation(
         elif operation == GeneratedWidgetVersion.Operation.INITIAL:
             resolved_operation = GeneratedWidgetVersion.Operation.REGENERATE
         input_contract = input_contract_override if input_contract_override is not None else inspection.contract
+        if operation == GeneratedWidgetVersion.Operation.IMPROVE and input_contract_override is None:
+            assert base_version is not None
+            input_contract = _improvement_input_contract(locked_instance, base_version, inspection)
         job = GeneratedWidgetGenerationJob.objects.for_team(notebook.team_id).create(
             idempotency_key=generation_id,
             team_id=notebook.team_id,

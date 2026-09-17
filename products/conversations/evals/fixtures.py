@@ -28,6 +28,10 @@ class MockedDraft:
     citation_sources: tuple[str, ...]
     confidence: float
     excerpts: tuple[tuple[str, str], ...] = ()
+    verdict: str = "answerable"
+    clarifying_questions: tuple[str, ...] = ()
+    investigation_summary: str = ""
+    unknowns: tuple[str, ...] = ()
 
 
 @frozen
@@ -36,6 +40,7 @@ class MockedValidate:
     coverage: float
     confidence: float
     missing: tuple[str, ...] = ()
+    blocker: str = "none"
 
 
 @frozen
@@ -69,12 +74,6 @@ def expected_for(fixture: SupportReplyFixture) -> dict[str, Any]:
 
 
 _ANSWERABLE_VALIDATE = MockedValidate(grounded=True, coverage=0.9, confidence=0.9)
-_LOW_VALIDATE = MockedValidate(
-    grounded=False,
-    coverage=0.2,
-    confidence=0.2,
-    missing=("customer did not specify the missing fact",),
-)
 
 
 FIXTURES: tuple[SupportReplyFixture, ...] = (
@@ -157,8 +156,18 @@ FIXTURES: tuple[SupportReplyFixture, ...] = (
             reply="Which SDK are you using?",
             citation_sources=(),
             confidence=0.2,
+            verdict="blocked_on_customer",
+            clarifying_questions=("Which SDK are you using?",),
+            investigation_summary="The ticket does not name an SDK, so I cannot give install steps.",
+            unknowns=("SDK in use",),
         ),
-        mocked_validate=_LOW_VALIDATE,
+        mocked_validate=MockedValidate(
+            grounded=False,
+            coverage=0.2,
+            confidence=0.2,
+            missing=("customer did not specify the missing fact",),
+            blocker="customer_info",
+        ),
     ),
     SupportReplyFixture(
         name="diagnostic_its_broken",
@@ -172,8 +181,18 @@ FIXTURES: tuple[SupportReplyFixture, ...] = (
             reply="Which product surface is broken?",
             citation_sources=(),
             confidence=0.1,
+            verdict="blocked_on_customer",
+            clarifying_questions=("Which product surface is broken?",),
+            investigation_summary="The report does not say what is failing.",
+            unknowns=("affected product surface",),
         ),
-        mocked_validate=_LOW_VALIDATE,
+        mocked_validate=MockedValidate(
+            grounded=False,
+            coverage=0.2,
+            confidence=0.2,
+            missing=("customer did not specify the missing fact",),
+            blocker="customer_info",
+        ),
     ),
     SupportReplyFixture(
         name="account_billing_why_charged",
@@ -187,8 +206,18 @@ FIXTURES: tuple[SupportReplyFixture, ...] = (
             reply="Which organization is this for?",
             citation_sources=(),
             confidence=0.2,
+            verdict="blocked_on_customer",
+            clarifying_questions=("Which organization is this for?",),
+            investigation_summary="The charge question does not name an organization.",
+            unknowns=("organization",),
         ),
-        mocked_validate=_LOW_VALIDATE,
+        mocked_validate=MockedValidate(
+            grounded=False,
+            coverage=0.2,
+            confidence=0.2,
+            missing=("customer did not specify the missing fact",),
+            blocker="customer_info",
+        ),
     ),
     SupportReplyFixture(
         name="how_to_holographic_widget",
@@ -203,12 +232,16 @@ FIXTURES: tuple[SupportReplyFixture, ...] = (
             reply="I cannot find the holographic dashboard widget in the knowledge base.",
             citation_sources=(),
             confidence=0.0,
+            verdict="blocked_on_knowledge",
+            investigation_summary="Searched docs and the knowledge base. No holographic dashboard widget exists.",
+            unknowns=("how to enable holographic dashboard widget",),
         ),
         mocked_validate=MockedValidate(
             grounded=False,
             coverage=0.0,
             confidence=0.0,
             missing=("no documentation for holographic dashboard widget",),
+            blocker="knowledge",
         ),
     ),
     SupportReplyFixture(
@@ -237,6 +270,7 @@ FIXTURES: tuple[SupportReplyFixture, ...] = (
             coverage=0.5,
             confidence=0.4,
             missing=("why this project deleted at 3 days",),
+            blocker="contradiction",
         ),
     ),
     SupportReplyFixture(

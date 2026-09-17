@@ -10,6 +10,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
 import {
     ActionType,
@@ -106,6 +107,14 @@ describe('maxContextLogic', () => {
     })
 
     describe('core functionality', () => {
+        it('loads dashboards when the context picker opens', async () => {
+            expect(dashboardsModel.isMounted()).toBe(false)
+
+            logic.actions.openContextPicker()
+
+            await expectLogic(dashboardsModel).toDispatchActions(['loadDashboardsSuccess'])
+        })
+
         it('manages context data', async () => {
             await expectLogic(logic).toMatchValues({
                 contextInsights: [],

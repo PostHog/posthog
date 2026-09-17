@@ -51,6 +51,8 @@ type AllowedExperimentFields = Pick<
     | 'excluded_variants'
     | 'primary_metrics_ordered_uuids'
     | 'secondary_metrics_ordered_uuids'
+    | 'archived'
+    | 'description'
 > & {
     deleted: boolean
 }
@@ -150,6 +152,14 @@ export const getExperimentChangeDescription = (
                 }
             }
 
+            /**
+             * a start_date clear rewrites the whole row to the 'reset' activity in the backend
+             * handler, so this only renders for rows logged before that rewrite shipped
+             */
+            if (action === 'deleted') {
+                return 'reset experiment:'
+            }
+
             return 'changed the start date'
         })
         .with({ field: 'end_date' }, ({ action, before, after }) => {
@@ -158,6 +168,10 @@ export const getExperimentChangeDescription = (
              */
             if (action === 'created' && before === null && after !== null) {
                 return 'stopped experiment'
+            }
+
+            if (action === 'deleted') {
+                return 'removed the end date of'
             }
 
             return 'changed the end date'
@@ -183,8 +197,16 @@ export const getExperimentChangeDescription = (
                 )
             }
 
+            if (action === 'deleted') {
+                return 'removed the conclusion of'
+            }
+
             return 'changed the conclusion'
         })
+        .with({ field: 'archived' }, ({ after }) =>
+            after === true ? 'archived experiment:' : 'unarchived experiment:'
+        )
+        .with({ field: 'description' }, () => 'updated the description')
         .with({ field: 'metrics', action: 'created', before: null }, () => 'added the first metric to')
         .with({ field: 'metrics', action: 'changed' }, ({ before, after }) =>
             getMetricChanges(before as ExperimentMetric[], after as ExperimentMetric[])

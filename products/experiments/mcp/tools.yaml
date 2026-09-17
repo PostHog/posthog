@@ -30,12 +30,11 @@ tools:
             idempotent: true
         title: Get experiment change history
         description: >
-            Get the audit trail for a specific experiment by ID. Returns a paginated list of changes to the experiment
-            and its holdouts and shared metrics: who made each change, what was changed (field-level before/after
-            values), and when, newest first. Lifecycle actions (launch, end, ship variant, etc.) appear as updates to
-            the underlying fields (start_date, end_date, conclusion, ...). Use limit and page query params for
-            pagination. Note: changes to the experiment's linked feature flag (rollout, targeting) are logged on the
-            flag itself — use feature-flags-activity-retrieve with the flag's ID for those.
+            Get the audit trail for a specific experiment by ID. Returns a paginated list of changes to the experiment,
+            its holdouts and shared metrics, and its linked feature flag (rollout, targeting): who made each change,
+            what was changed (field-level before/after values), and when, newest first. Lifecycle actions (launch, end,
+            ship variant, etc.) appear as updates to the underlying fields (start_date, end_date, conclusion, ...). Use
+            limit and page query params for pagination.
         param_overrides:
             id:
                 cast: string-int
@@ -135,7 +134,6 @@ tools:
                 aliases:
                     - experimentId
                     - experiment_id
-        feature_flag: experiment-flag-cleanup-pr
         response:
             exclude:
                 - can_view_task
@@ -258,11 +256,12 @@ tools:
             - description
             - feature_flag_key
             - feature_flag
-            - parameters
+            - running_time_calculation
             - stats_config
             - holdout_id
             - allow_unknown_events
             - exposure_criteria
+            - tags
         param_overrides:
             feature_flag:
                 description: >
@@ -282,6 +281,12 @@ tools:
                     natural-language pair without naming explicit keys, key the baseline `control` and keep their
                     wording in the variant `name`. When the user asks for specific keys, use them as-is and put the
                     baseline first.
+            running_time_calculation:
+                description: >
+                    Persist a running-time / sample-size plan onto the experiment (the planning target shown in the
+                    experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage,
+                    e.g. 20 for a 20% lift), recommended_sample_size (total across all variants),
+                    recommended_running_time (days), and exposure_estimate_config.
         ui_app: experiment
         response:
             include:
@@ -295,11 +300,12 @@ tools:
                 - start_date
                 - end_date
                 - created_at
-                - parameters
+                - running_time_calculation
                 - metrics
                 - metrics_secondary
                 - conclusion
                 - conclusion_comment
+                - tags
     experiment-create-from-prompt:
         operation: experiments_create_from_prompt_create
         enabled: true
@@ -333,7 +339,6 @@ tools:
                 - start_date
                 - end_date
                 - created_at
-                - parameters
                 - metrics
                 - metrics_secondary
                 - conclusion
@@ -528,10 +533,10 @@ tools:
             deactivated, "exposure_frozen" when its flag's release groups are narrowed to the already-exposed cohort so
             enrollment is closed while metrics keep flowing), start_date and end_date, linked feature_flag (with
             variants, filters, active state), metrics and metrics_secondary arrays, conclusion and conclusion_comment if
-            ended, parameters (including feature_flag_variants and recommended_running_time), stats_config, type
-            (web/product), and resolved_exposure_event (the event exposures are counted on when no custom exposure event
-            is configured — resolved server-side to $feature_flag_called or $experiment_exposure; use it in SQL instead
-            of hardcoding either name).
+            ended, running_time_calculation (minimum detectable effect, recommended running time and sample size),
+            stats_config, type (web/product), and resolved_exposure_event (the event exposures are counted on when no
+            custom exposure event is configured — resolved server-side to $feature_flag_called or $experiment_exposure;
+            use it in SQL instead of hardcoding either name).
         param_overrides:
             id:
                 cast: string-int
@@ -735,10 +740,11 @@ tools:
 
 
             Supports filtering by status ("draft", "running", "paused", "exposure_frozen", "stopped", "complete" which
-            maps to stopped, or "all"), archived state (defaults to non-archived), feature_flag_id, created_by_id, and
-            free-text search on name. Supports ordering by an allowlisted set of fields (model fields plus computed
-            "duration" and "status"). Returns paginated results with each experiment's status, dates, feature flag key,
-            and metrics summary. Use the returned ID for get/update/lifecycle tools.
+            maps to stopped, or "all"), archived state (defaults to non-archived), feature_flag_id, created_by_id, tags
+            / excluded_tags (JSON-encoded lists of tag names), and free-text search on name. Supports ordering by an
+            allowlisted set of fields (model fields plus computed "duration" and "status"). Returns paginated results
+            with each experiment's status, dates, feature flag key, and metrics summary. Use the returned ID for
+            get/update/lifecycle tools.
         param_overrides:
             status:
                 description: >
@@ -767,6 +773,7 @@ tools:
                 - status
                 - created_at
                 - updated_at
+                - tags
     experiment-metrics-recalculation-create:
         operation: experiments_metrics_recalculation_create
         enabled: true
@@ -1414,7 +1421,6 @@ tools:
             - name
             - description
             - feature_flag
-            - parameters
             - running_time_calculation
             - excluded_variants
             - metrics
@@ -1428,6 +1434,7 @@ tools:
             - archived
             - allow_unknown_events
             - update_feature_flag_params
+            - tags
         param_overrides:
             id:
                 cast: string-int
@@ -1465,13 +1472,28 @@ tools:
                 - start_date
                 - end_date
                 - created_at
-                - parameters
                 - running_time_calculation
+                - excluded_variants
                 - metrics
                 - metrics_secondary
                 - saved_metrics
                 - conclusion
                 - conclusion_comment
+                - tags
+    experiments-bulk-update-tags-create:
+        operation: experiments_bulk_update_tags_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Bulk update tags on experiments
+        description: >
+            Add, remove, or replace tags on multiple experiments in one call. Provide `ids` (up to 500), an `action`
+            ('add', 'remove', or 'set'), and a list of tag names. Returns `updated` (per-experiment final tag list) and
+            `skipped` (experiments missing or without edit permission, with reason).
     experiments-create-exposure-cohort:
         operation: experiments_create_exposure_cohort_for_experiment_create
         enabled: false
@@ -1480,6 +1502,9 @@ tools:
         enabled: false
     experiments-in-session-exposure-retrieve:
         operation: experiments_in_session_exposure_retrieve
+        enabled: false
+    experiments-matching-ids-retrieve:
+        operation: experiments_matching_ids_retrieve
         enabled: false
     experiments-recalculate-timeseries:
         operation: experiments_recalculate_timeseries_create

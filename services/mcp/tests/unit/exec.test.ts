@@ -902,6 +902,54 @@ describe('exec tool', () => {
             )
         })
 
+        // A near-miss name is how a scout loses its bound skill: the store denies a
+        // name `skill-list` would show, and the run reads that as the store being
+        // inconsistent rather than as its own typo.
+        it('names the near-miss skill the store offered', async () => {
+            const exec = createExec([
+                makeSkillTool(
+                    'skill-get',
+                    JSON.stringify({
+                        detail: "Skill with name 'signals-scout-drive-session' not found. Did you mean 'signals-scout-drive-session-completion'?",
+                        type: 'skill_not_found',
+                        skill_name: 'signals-scout-drive-session',
+                        suggestions: ['signals-scout-drive-session-completion'],
+                    })
+                ),
+            ])
+
+            const result = (await exec.handler(mockContext, {
+                command: 'call skill-get {"skill_name":"signals-scout-drive-session","version":1}',
+            })) as string
+
+            expect(result).toContain("Did you mean 'signals-scout-drive-session-completion'?")
+            expect(result).toContain('Run `call skill-get {"skill_name": "signals-scout-drive-session-completion"}`')
+        })
+
+        it('names the versions the store holds when the pinned one is absent', async () => {
+            const exec = createExec([
+                makeSkillTool(
+                    'skill-get',
+                    JSON.stringify({
+                        detail: "Skill with name 'real-skill' has no version 7. Available versions: 1, 2.",
+                        type: 'skill_version_not_found',
+                        skill_name: 'real-skill',
+                        available_versions: [1, 2],
+                    })
+                ),
+            ])
+
+            const result = (await exec.handler(mockContext, {
+                command: 'call skill-get {"skill_name":"real-skill","version":7}',
+            })) as string
+
+            expect(result).toContain('Available versions: 1, 2.')
+            expect(result).toContain('Run `call skill-get {"skill_name": "real-skill", "version": 2}`')
+            // The store told the two lookups apart, so the message must not repeat the
+            // legacy caveat that a version miss could mean the skill is gone.
+            expect(result).not.toContain('answers the same way')
+        })
+
         // Built-in PostHog skills are a catalog the store never held, so a tool
         // description that says "load the `<name>` skill" sends an agent here and
         // the store answers 404. The message above points at `skill-list`, which
@@ -1166,6 +1214,30 @@ describe('exec tool', () => {
             const result = await exec.handler(mockContext, { command: 'call mock-tool' })
             expect(received[0]!.output_format).toBe('optimized')
             expect(result).toBe('Date|count\n2026-05-07|6')
+        })
+    })
+
+    describe('batched commands', () => {
+        it.each([
+            ['info mock-tool\ninfo other-tool', 2],
+            ['search flags\ncall mock-tool {}\ninfo mock-tool', 3],
+        ])('rejects %j and names each command', async (command, expected) => {
+            const exec = createExec()
+            await expect(exec.handler(mockContext, { command })).rejects.toThrow(
+                `exec runs one command per request, and this request held ${expected}.`
+            )
+        })
+
+        it.each([
+            ['a JSON body split over lines', 'call mock-tool {\n  "query": "SELECT 1"\n}'],
+            ['a JSON body with a key named after a verb', 'call mock-tool {\n  "search": "flags"\n}'],
+        ])('runs a single call with %s', async (_label, command) => {
+            const tool = makeMockTool({
+                schema: z.object({ query: z.string().optional(), search: z.string().optional() }),
+                handler: async () => ({ ok: true }),
+            })
+            const exec = createExec([tool])
+            await expect(exec.handler(mockContext, { command })).resolves.toBeDefined()
         })
     })
 
@@ -1884,7 +1956,7 @@ describe('exec tool', () => {
             const execTool = createExecTool(
                 v2Tools,
                 context,
-                formatter.buildExecToolDescription(),
+                formatter.buildExecToolDescription({ skillsEnabled: true, knowledgeSearchEnabled: true }),
                 commandReference,
                 undefined
             )

@@ -19,9 +19,10 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.schema import ExperimentQuery
 
+from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.event_usage import groups
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
@@ -612,6 +613,38 @@ def _capture_experiment_metric_event(
 # ---------------------------------------------------------------------------
 
 
+def _client_query_id(recalculation_id: str, metric_uuid: str, attempt: int) -> str:
+    """The ClickHouse client_query_id this metric's recalc query runs under.
+
+    The calculation path tags its query with this, and the cancellation path kills the query by it, so both
+    sides must derive it the same way.
+
+    The attempt keeps one attempt's cancellation off another attempt's query, which matters when Temporal
+    re-dispatches an activity whose previous attempt is still draining. It is zero-padded because the kill
+    matches the id as a LIKE prefix, where an unpadded "1" would also match attempt 12.
+
+    `get_live_query_progress` matches on the recalculation id, which sits before this suffix, so its prefix
+    still matches.
+    """
+    return f"experiment_metric_recalc_{recalculation_id}_{metric_uuid}_attempt{attempt:02d}"
+
+
+@database_sync_to_async_pool
+def _cancel_metric_query_sync(recalculation_id: str, metric_uuid: str, attempt: int) -> None:
+    """Kill the ClickHouse query the metric's calc left running, so the abandoned attempt stops reading."""
+    close_old_connections()
+    state = _get_recalc_state(recalculation_id)
+    # This runs in its own thread, so it inherits none of the calc body's tags. Untagged statements raise in
+    # local dev and log a stack trace each in production.
+    with tags_context(
+        trigger="warming/experiment_metrics_recalculation",
+        team_id=state.team_id,
+        product=Product.EXPERIMENTS,
+        feature=Feature.CACHE_WARMUP,
+    ):
+        cancel_query_on_cluster(state.team_id, _client_query_id(recalculation_id, metric_uuid, attempt))
+
+
 @database_sync_to_async_pool
 def _calculate_experiment_metric_for_recalculation_sync(
     experiment_id: int,
@@ -705,7 +738,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
             _clear_retry(recalculation_id, metric_uuid)
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
-        client_query_id = f"experiment_metric_recalc_{recalculation_id}_{metric_uuid}"
+        client_query_id = _client_query_id(recalculation_id, metric_uuid, attempt)
 
         calc_started_at = time.perf_counter()
         query_from = experiment.start_date

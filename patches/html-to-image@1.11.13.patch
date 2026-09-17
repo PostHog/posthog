@@ -1,0 +1,62 @@
+diff --git a/es/util.js b/es/util.js
+index 90a3cd19a6bcc763d98cbd476fde17f4bc0428fa..4c1f1b94da109566bb184e420ed158fdf74fc62d 100644
+--- a/es/util.js
++++ b/es/util.js
+@@ -11,16 +11,17 @@ export function resolveUrl(url, baseUrl) {
+     if (url.match(/^[a-z]+:/i)) {
+         return url;
+     }
+-    const doc = document.implementation.createHTMLDocument();
+-    const base = doc.createElement('base');
+-    const a = doc.createElement('a');
+-    doc.head.appendChild(base);
+-    doc.body.appendChild(a);
+-    if (baseUrl) {
+-        base.href = baseUrl;
++    // Assigning <base href> is judged against `base-uri` even on a detached document, so under a
++    // strict policy Chromium refuses it and the URL resolves against about:blank. The URL
++    // constructor does the same resolution with no element and no policy surface. The only
++    // caller guards on a truthy baseUrl, and a base the parser rejects returns the input
++    // unchanged, which is what the anchor did too.
++    try {
++        return new URL(url, baseUrl).href;
++    }
++    catch (_e) {
++        return url;
+     }
+-    a.href = url;
+-    return a.href;
+ }
+ export const uuid = (() => {
+     // generate uuid for className of pseudo elements.
+diff --git a/lib/util.js b/lib/util.js
+index 6a6ae9c8bd15b276d46773d853c2182aaba8326e..8e6a8aaf6e97a51c05f99aa698deb262a875f8f5 100644
+--- a/lib/util.js
++++ b/lib/util.js
+@@ -50,16 +50,17 @@ function resolveUrl(url, baseUrl) {
+     if (url.match(/^[a-z]+:/i)) {
+         return url;
+     }
+-    var doc = document.implementation.createHTMLDocument();
+-    var base = doc.createElement('base');
+-    var a = doc.createElement('a');
+-    doc.head.appendChild(base);
+-    doc.body.appendChild(a);
+-    if (baseUrl) {
+-        base.href = baseUrl;
++    // Assigning <base href> is judged against `base-uri` even on a detached document, so under a
++    // strict policy Chromium refuses it and the URL resolves against about:blank. The URL
++    // constructor does the same resolution with no element and no policy surface. The only
++    // caller guards on a truthy baseUrl, and a base the parser rejects returns the input
++    // unchanged, which is what the anchor did too.
++    try {
++        return new URL(url, baseUrl).href;
++    }
++    catch (_e) {
++        return url;
+     }
+-    a.href = url;
+-    return a.href;
+ }
+ exports.resolveUrl = resolveUrl;
+ exports.uuid = (function () {
