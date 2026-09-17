@@ -1,4 +1,3 @@
-import { readdirSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { AuthService } from "@posthog/core/auth/auth";
@@ -21,6 +20,7 @@ import { container } from "./di/container";
 import { AUTH_SERVICE, UPDATES_SERVICE } from "./di/tokens";
 import { isDevBuild } from "./utils/env";
 import { getLogFilePath } from "./utils/logger";
+import { listPendingCrashDumps } from "./utils/pending-crash-dumps";
 import { adjustWindowZoom, ZOOM_STEP } from "./zoom";
 
 function applyZoom(
@@ -32,27 +32,7 @@ function applyZoom(
 
 function findLatestCrashDump(): string | null {
   const pendingDir = path.join(app.getPath("crashDumps"), "pending");
-  let entries: string[];
-  try {
-    entries = readdirSync(pendingDir);
-  } catch {
-    return null;
-  }
-  let latest: { file: string; mtimeMs: number } | null = null;
-  for (const name of entries) {
-    if (!name.endsWith(".dmp")) continue;
-    const full = path.join(pendingDir, name);
-    let mtimeMs: number;
-    try {
-      mtimeMs = statSync(full).mtimeMs;
-    } catch {
-      continue;
-    }
-    if (!latest || mtimeMs > latest.mtimeMs) {
-      latest = { file: full, mtimeMs };
-    }
-  }
-  return latest?.file ?? null;
+  return listPendingCrashDumps(pendingDir)[0]?.filePath ?? null;
 }
 
 function getSystemInfo(): string {
