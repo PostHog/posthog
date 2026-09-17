@@ -1265,6 +1265,19 @@ Once the pull request exists, `link_report_tracker_issues` (scheduled from the t
 
 An irreversible end closes the tracker issue: a resolve asked for through the state API, a merged pull request (closed as done), or a deleted report. A suppressed or snoozed report keeps its issue open, because both come back, and so does a failed run, because its report stays in the inbox and the work item is still real.
 
+**One assignee per pull request** (`backend/reviewer_pr_assignment.py`).
+
+Every self-driving pull request opens with no assignee, so it never reaches a GitHub "Assigned to me" view. `schedule_reviewer_pr_assignment` runs when a pull request first reaches a report and applies two rules on a worker:
+
+- A suggested reviewer who turned on `SignalUserAutonomyConfig.github_assign_on_pull_request` is always added.
+- A pull request that still has no assignee gets exactly one directly responsible individual (DRI). The claimant of the report comes first (for a task claim, the user who started the task). The next candidates come from one of two sources:
+  - When the repository declares its ownership in `owners.yaml` files, the candidates are the members of the GitHub team that owns most of the changed files, in random order (`backend/pr_owning_team.py`). The engineering analytics facade (`resolve_path_owners`) resolves the team. GitHub teams are the canonical team identity, so the team members come from GitHub's team members API. That call needs the organization members read permission on the GitHub app.
+  - Otherwise, or when that team has no candidate, the candidates are the suggested reviewers in rank order.
+
+  A candidate must be an organization member with a connected GitHub account. Each candidate is checked with GitHub's read-only assignee check first, because the add-assignees call drops a login without push access instead of failing. A candidate GitHub cannot assign moves the walk to the next one, for up to four checks, and a failed check stops it.
+
+The DRI rule is involuntary on purpose. A pull request that several people could pick up diffuses responsibility, and a wrong owner costs one reassignment. It rolls out per organization behind the `signals-pr-dri-assignee` flag. Assignment is additive: nobody is unassigned, and a pull request somebody already assigned gets no DRI.
+
 **Fleet steering in the task description** (`load_report_steering` in `backend/report_steering.py`).
 
 Scouts read the team's steering notes at the start of every run, and the implementation run that acts on their report did not, so guidance like "this area is frozen" reached the agent that filed the report but never the agent that wrote the code. The description now carries it: the `HUMAN`-origin notes addressed to the whole fleet plus those addressed to the report's authoring scout (`scout_authorship.resolve_report_scout_skill`, the same emit-time resolution the dismissal path uses), newest first, capped at 10 notes and 1,000 characters each.
