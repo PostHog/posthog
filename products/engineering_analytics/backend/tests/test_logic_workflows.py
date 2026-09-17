@@ -1126,7 +1126,7 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert (all_jobs, main_jobs) == (3, 2)
 
         # A run scope narrows the same two job-level surfaces. job_aggregates scopes through a run-id
-        # subquery, because the jobs source carries no branch attribution.
+        # subquery, because jobs carry no PR attribution or merge-queue state.
         default_branch_jobs = sum(
             c.job_count
             for c in api.get_workflow_runner_costs(
