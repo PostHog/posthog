@@ -469,6 +469,28 @@ describe('ML session key batches', () => {
         }
     )
 
+    it('adopts a competing writer key when the refusal omits the stored row', async () => {
+        const send = boundary.send.bind(boundary)
+        jest.spyOn(boundary, 'send').mockImplementation((command) => {
+            if (command instanceof PutItemCommand) {
+                // An endpoint that does not implement ReturnValuesOnConditionCheckFailure refuses without the row.
+                delete (command.input as { ReturnValuesOnConditionCheckFailure?: string })
+                    .ReturnValuesOnConditionCheckFailure
+            }
+            return send(command)
+        })
+        const first = await store.prepare([session])
+        const second = await store.prepare([session])
+        await first.commit()
+        jest.useFakeTimers()
+        const committing = second.commit()
+        await jest.runAllTimersAsync()
+        await committing
+        expect(second.get(session.teamId, session.sessionId)!.session.plaintext).toEqual(
+            first.get(session.teamId, session.sessionId)!.session.plaintext
+        )
+    })
+
     it('adopts a competing writer key', async () => {
         const first = await store.prepare([session])
         const second = await store.prepare([session])
