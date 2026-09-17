@@ -61,10 +61,9 @@ export function FlatNavProducts(): JSX.Element {
                                 </div>
                             )}
                             {group.items.map((item) => {
-                                // Products can register an icon that carries dynamic state, such as the
-                                // support unread counter. Fall back to the static icon when none exists.
-                                // Custom icons still go through ProductIconWrapper, which is what keeps
-                                // this row's icons in their product colors.
+                                // A product can register an icon that carries live state, such as the
+                                // support unread counter. iconForType supplies the color wrapper itself,
+                                // so a registered icon needs that wrapper added around it.
                                 const CustomIcon = getCustomIcon(item.type)
                                 return (
                                     <NavLink
