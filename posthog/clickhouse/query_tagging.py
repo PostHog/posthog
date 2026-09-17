@@ -418,10 +418,12 @@ class QueryTags(BaseModel):
     workload: Optional[str] = None  # enum connection.Workload
     dashboard_id: Optional[int] = None
     insight_id: Optional[int] = None
+    lookup: Optional[str] = None  # a runner's internal lookup before its real query, e.g. "earliest_timestamp"
     scanner_id: Optional[str] = None  # replay-vision scanner, for per-scanner read metering
     exported_asset_id: Optional[int] = None
     export_format: Optional[str] = None
     chargeable: Optional[int] = None
+    api_queries_budgeted: Optional[bool] = None  # server-set only; request tags cannot reach it
     request_name: Optional[str] = None
     name: Optional[str] = None
     endpoint_version: Optional[int] = None  # Endpoints, the product
