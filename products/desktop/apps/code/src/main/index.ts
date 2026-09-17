@@ -1,6 +1,5 @@
 import "reflect-metadata";
 import os from "node:os";
-import path from "node:path";
 import { TypedEventEmitter } from "@posthog/shared";
 import type { WorkspaceClient } from "@posthog/workspace-client/client";
 import { createLazyWorkspaceClient } from "@posthog/workspace-client/client";
@@ -99,6 +98,7 @@ import {
   collectMemorySnapshot,
   flattenMemorySnapshot,
 } from "./utils/crash-diagnostics";
+import { reportCrashDumps } from "./utils/crash-dumps";
 import { ensureClaudeConfigDir } from "./utils/env";
 import {
   getChromiumLogFilePath,
@@ -109,7 +109,6 @@ import {
 import { isMacosPackagedUnsafeBundleLocation } from "./utils/macos-packaged-install-guard";
 import { installMainFetchLogging } from "./utils/network-fetch-logger";
 import { installRendererNetworkLogging } from "./utils/network-webrequest-logger";
-import { reportPendingCrashDumps } from "./utils/pending-crash-dumps";
 import { createWindow, onMainWindowClosed } from "./window";
 import { installYoutubeEmbedReferrer } from "./youtube-embed-referrer";
 
@@ -287,8 +286,8 @@ app.on("child-process-gone", (_event, details) => {
 // sees. Reporting on the next launch is the only chance to learn about it.
 function reportCrashDumpsFromPreviousRun(): void {
   try {
-    const report = reportPendingCrashDumps(
-      path.join(app.getPath("crashDumps"), "pending"),
+    const report = reportCrashDumps(
+      app.getPath("crashDumps"),
       (error, properties) =>
         posthogNodeAnalytics.captureException(error, properties),
     );

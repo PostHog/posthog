@@ -117,8 +117,8 @@ if (isDev) {
 
 // Upload stays off because there is no minidump intake to send to. The dumps
 // still matter: a native crash bypasses every JavaScript handler, so the next
-// launch reports the newest pending dumps as exceptions and prunes the rest
-// unreported (utils/pending-crash-dumps).
+// launch reports the newest dumps as exceptions and prunes the rest unreported
+// (utils/crash-dumps).
 crashReporter.start({ uploadToServer: false });
 
 // Force IPv4 resolution when "localhost" is used so the agent hits 127.0.0.1
