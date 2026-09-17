@@ -276,6 +276,31 @@ The only fix is a full `reset_pipeline` re-snapshot for that schema.
 Watch the age of the oldest unconsumed file per schema, not the file count. A schema with few files
 that are all thirteen days old is in trouble; one with thousands of fresh files is fine.
 
+## Retried capture attempts
+
+Temporal retries a capture attempt that dies, and the retry re-reads the WAL from the slot's
+confirmed position. Micro-batch boundaries are not stable across attempts, so the retry covers the
+same positions with differently-shaped files. Before its first write per schema, it removes every
+file that reaches the position it restarted from (`end_seq >= restart_seq`), because it is about to
+re-emit all of those positions.
+
+One file can straddle that position. A micro-flush is cut per event, so it can carry the head of a
+transaction; the slot then advances only to the previous transaction's end, and the retry re-reads
+the straddled transaction from its first row. That file holds settled positions the WAL no longer
+has beside the head the retry re-emits. Deleting it loses the settled rows. Keeping it hands the
+`_cdc` table a second copy of the head: the replay filter matches a batch row against what the
+table already holds, and when both files are read in one run the table holds neither copy yet, so
+both are appended. So the retry rewrites the file with its settled rows only, under the narrowed
+range and the same index. The replacement is staged under a `.staging` suffix the consumer never
+parses, the original is removed, and only then is the staged file promoted to its final name, so no
+listing ever holds both. A crash anywhere in that sequence is finished by the next attempt's
+cleanup: a staged file always holds settled rows, so it removes the original if it is still there
+and promotes the staged file.
+
+A cleanup failure fails the attempt. A superseded file that survives is a second copy of every
+position it holds once the retry writes them again, so the run retries rather than write beside it.
+`cdc_buffer_superseded_files_removed` in the capture logs carries `removed` and `trimmed` counts.
+
 ## Known gap: zombie-attempt file collision
 
 A Temporal activity attempt declared dead by heartbeat timeout can still be running and writing.
