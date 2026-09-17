@@ -67,6 +67,13 @@ export type CompletionSound = z.infer<typeof completionSoundSchema>;
 const text = z.string().max(20_000);
 const nullableText = text.nullable();
 const messagingMode = z.enum(["queue", "steer"]);
+// The voice ID goes into the ElevenLabs request path. Reject URL delimiters and
+// control characters so an imported backup cannot point the authenticated
+// request at another ElevenLabs route. An empty value selects the default voice.
+const voiceId = z
+  .string()
+  .max(64)
+  .regex(/^[A-Za-z0-9_-]*$/);
 
 // This allowlist is the portable contract. Account state, credentials, caches,
 // paths and preferences owned by the operating system must not cross machines.
@@ -112,7 +119,7 @@ export const portableSettingsSchema = z
     spokenNotifyCompletion: z.boolean(),
     spokenNotifyProgress: z.boolean(),
     spokenFocusMode: z.enum(["always", "unviewed_task", "app_unfocused"]),
-    elevenLabsVoiceId: text,
+    elevenLabsVoiceId: voiceId,
     autoConvertLongText: z.enum(["off", "1000", "2500", "5000", "10000"]),
     sendMessagesWith: z.enum(["enter", "cmd+enter"]),
     customInstructions: text,

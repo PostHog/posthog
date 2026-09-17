@@ -192,6 +192,30 @@ describe("SettingsBackupService", () => {
     });
   });
 
+  it.each<[string, string, boolean]>([
+    ["path traversal", "../convai/knowledge-base/text", false],
+    ["extra path segment", "voice/other", false],
+    ["query string", "voice?output_format=mp3", false],
+    ["fragment", "voice#tail", false],
+    ["plain token", "goT3UYdM9bhm0n2lmKQx", true],
+  ])(
+    "checks an imported voice id: %s",
+    async (_name, elevenLabsVoiceId, accepted) => {
+      const target = setup();
+      const review = target.service.inspect(
+        JSON.stringify(backup({ settings: { elevenLabsVoiceId } })),
+        "2.0.0",
+      );
+      expect(review.warnings).toEqual(
+        accepted ? [] : [{ key: "elevenLabsVoiceId", reason: "changed" }],
+      );
+      await target.service.importBackup(review, "all");
+      expect(target.read().settings.elevenLabsVoiceId).toBe(
+        accepted ? elevenLabsVoiceId : undefined,
+      );
+    },
+  );
+
   it.each([
     ["missing clip", [], "custom:clip-a"],
     ["empty random library", [], "random-custom"],
