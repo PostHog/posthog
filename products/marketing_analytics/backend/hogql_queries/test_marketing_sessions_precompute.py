@@ -64,3 +64,4 @@ class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert row["session_id"] == session_id
         assert row["min_event_timestamp"] == first_pageview
         assert row["max_event_timestamp"] == last_pageview
+        assert row["pageview_count"] == 2

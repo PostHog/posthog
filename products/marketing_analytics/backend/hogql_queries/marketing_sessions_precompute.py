@@ -59,7 +59,8 @@ SELECT
     any(toString(ifNull(events.session.$entry_utm_term, ''))) AS utm_term,
     any(toString(ifNull(events.session.$entry_utm_content, ''))) AS utm_content,
     any(toString(ifNull(events.session.$entry_referring_domain, ''))) AS referring_domain,
-    any(toString(ifNull(events.session.$entry_pathname, ''))) AS entry_pathname
+    any(toString(ifNull(events.session.$entry_pathname, ''))) AS entry_pathname,
+    count() AS pageview_count
 FROM events
 WHERE and(
     {classifier_version} = {classifier_version},
