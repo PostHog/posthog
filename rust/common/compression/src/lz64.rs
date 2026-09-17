@@ -45,12 +45,27 @@ pub fn decompress_lz64_capped(
     // bounding bytes by u32::MAX also bounds the unit count that indexes them.
     let limit = max_output_bytes.min(u32::MAX as usize);
 
+    // A reverse table; 255 marks a character outside the alphabet. Scanning the
+    // alphabet per character costs most of the decode time on a real event
+    // batch, where the output is about the size of the input.
+    const BASE64_VALUE: [u8; 256] = {
+        let mut table = [255u8; 256];
+        let mut i = 0;
+        while i < BASE64_KEY.len() {
+            table[BASE64_KEY[i] as usize] = i as u8;
+            i += 1;
+        }
+        table
+    };
+
     // Characters outside the alphabet are skipped, matching lz-string.
     let input = compressed.encode_utf16().filter_map(|c| {
-        BASE64_KEY
-            .iter()
-            .position(|k| u32::from(c) == u32::from(*k))
-            .map(|n| n as u16)
+        let value = if c < 256 {
+            BASE64_VALUE[c as usize]
+        } else {
+            255
+        };
+        (value != 255).then_some(u16::from(value))
     });
 
     let mut reader = match BitReader::new(input, BITS_PER_CHAR) {
