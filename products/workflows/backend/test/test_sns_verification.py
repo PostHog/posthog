@@ -141,7 +141,7 @@ class TestSigningCertFetch(SimpleTestCase):
         [
             ("connection_error", requests.ConnectionError("boom"), None),
             ("timeout", requests.Timeout("too slow"), None),
-            ("server_error", None, requests.HTTPError("503 Server Error")),
+            ("server_error", None, requests.HTTPError("503 Server Error", response=requests.Response())),
         ]
     )
     def test_a_certificate_that_could_not_be_fetched_is_unavailable_rather_than_a_bad_signature(
