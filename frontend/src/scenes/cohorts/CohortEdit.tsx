@@ -333,17 +333,15 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                             </ButtonPrimitive>
                         )}
 
-                        {!cohort.is_static && (
-                            <ButtonPrimitive
-                                onClick={() => router.actions.push(urls.cohortCalculationHistory(cohort.id))}
-                                disabledReasons={{
-                                    'Save the cohort first': isNewCohort,
-                                }}
-                                menuItem
-                            >
-                                <IconClock /> Calculation history
-                            </ButtonPrimitive>
-                        )}
+                        <ButtonPrimitive
+                            onClick={() => router.actions.push(urls.cohortCalculationHistory(cohort.id))}
+                            disabledReasons={{
+                                'Save the cohort first': isNewCohort,
+                            }}
+                            menuItem
+                        >
+                            <IconClock /> Calculation history
+                        </ButtonPrimitive>
                     </ScenePanelActionsSection>
                     {!isNewCohort && (
                         <>
@@ -541,21 +539,23 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                             </div>
                                         )}
 
-                                        {!isNewCohort && !cohort?.is_static && (
+                                        {!isNewCohort && (
                                             <div className="flex flex-col gap-y-2">
-                                                <div className="flex items-center gap-x-2 my-0">
-                                                    <strong>Last calculated:</strong>
-                                                    {isCalculatingOrPending ? (
-                                                        <div className="flex items-center gap-x-2">
-                                                            <Spinner size="small" />
-                                                            <span className="text-muted">In progress...</span>
-                                                        </div>
-                                                    ) : cohort.last_calculation ? (
-                                                        <TZLabel time={cohort.last_calculation} />
-                                                    ) : (
-                                                        <span className="text-muted">Not yet calculated</span>
-                                                    )}
-                                                </div>
+                                                {!cohort.is_static && (
+                                                    <div className="flex items-center gap-x-2 my-0">
+                                                        <strong>Last calculated:</strong>
+                                                        {isCalculatingOrPending ? (
+                                                            <div className="flex items-center gap-x-2">
+                                                                <Spinner size="small" />
+                                                                <span className="text-muted">In progress...</span>
+                                                            </div>
+                                                        ) : cohort.last_calculation ? (
+                                                            <TZLabel time={cohort.last_calculation} />
+                                                        ) : (
+                                                            <span className="text-muted">Not yet calculated</span>
+                                                        )}
+                                                    </div>
+                                                )}
 
                                                 {isCalculatingOrPending ? (
                                                     <LemonBanner type="warning">
@@ -570,15 +570,26 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 ) : cohort.errors_calculating ? (
                                                     <LemonBanner
                                                         type="error"
-                                                        action={{
-                                                            onClick: () => submitCohort(),
-                                                            children: 'Retry',
-                                                        }}
+                                                        // A static cohort is populated once from the source it was created
+                                                        // with, and the edit form does not resend that source, so saving the
+                                                        // cohort again would not run the population.
+                                                        action={
+                                                            cohort.is_static
+                                                                ? undefined
+                                                                : {
+                                                                      onClick: () => submitCohort(),
+                                                                      children: 'Retry',
+                                                                  }
+                                                        }
                                                     >
                                                         <strong>Calculation failed:</strong>{' '}
                                                         {cohort.last_error_message ||
-                                                            'Unable to calculate this cohort. Please check your matching criteria and try again.'}{' '}
-                                                        If it fails again,{' '}
+                                                            (cohort.is_static
+                                                                ? 'Unable to populate this cohort from its source.'
+                                                                : 'Unable to calculate this cohort. Please check your matching criteria and try again.')}{' '}
+                                                        {cohort.is_static
+                                                            ? 'If it keeps happening, '
+                                                            : 'If it fails again, '}
                                                         <Link
                                                             onClick={() =>
                                                                 openSidePanel(SidePanelTab.Support, 'bug:cohorts::true')

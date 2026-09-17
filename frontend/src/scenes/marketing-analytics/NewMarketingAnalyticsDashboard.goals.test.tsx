@@ -12,7 +12,10 @@ import { initKeaTests } from '~/test/init'
 
 import { NewMarketingAnalyticsDashboard } from 'products/marketing_analytics/frontend/dashboard/NewMarketingAnalyticsDashboard'
 
-jest.mock('scenes/web-analytics/tiles/WebAnalyticsTile', () => ({ webAnalyticsDataTableQueryContext: {} }))
+jest.mock('scenes/web-analytics/tiles/WebAnalyticsTile', () => ({
+    VariationCell: () => () => null,
+    webAnalyticsDataTableQueryContext: {},
+}))
 jest.mock('~/queries/Query/Query', () => ({ Query: () => null }))
 jest.mock('scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTable', () => ({
     AttributionTable: () => null,

@@ -58,6 +58,7 @@ export function useStartTaskFromWorktree(mainRepoPath: string) {
           );
         }
         track(ANALYTICS_EVENTS.TASK_CREATED, {
+          task_id: result.data.task.id,
           auto_run: false,
           created_from: "sidebar-worktree",
           workspace_mode: "worktree",

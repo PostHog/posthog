@@ -35,11 +35,11 @@ describe('SyncMethodForm', () => {
     })
 
     it.each([
-        ['no key, columns known', null, true, 'Select primary key columns, or use full table replication instead'],
-        ['no key, columns unknown', null, false, undefined],
-        ['key picked, columns known', ['id'], true, undefined],
-    ])('requires a merge key for incremental: %s', (_, mergeKey, columnsKnown, expected) => {
-        expect(getSaveDisabledReason('incremental', 'updated_at', null, mergeKey, columnsKnown)).toBe(expected)
+        ['no key, key required', null, true, 'Select primary key columns, or use full table replication instead'],
+        ['no key, source declares its own key', null, false, undefined],
+        ['key picked, key required', ['id'], true, undefined],
+    ])('requires a merge key for incremental: %s', (_, mergeKey, keyRequired, expected) => {
+        expect(getSaveDisabledReason('incremental', 'updated_at', null, mergeKey, keyRequired)).toBe(expected)
     })
 
     it.each([
