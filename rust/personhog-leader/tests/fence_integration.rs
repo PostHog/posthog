@@ -19,7 +19,7 @@ use personhog_leader::cache::{
 };
 use personhog_leader::emitted::EmittedVersions;
 use personhog_leader::fence::{
-    rebuild_partition_fences, FenceMap, FENCED_METADATA_KEY, FENCED_OP_ID_METADATA_KEY,
+    rebuild_partition_fences, FenceMap, FenceOrigin, FENCED_METADATA_KEY, FENCED_OP_ID_METADATA_KEY,
 };
 use personhog_leader::inflight::InflightTracker;
 use personhog_leader::pg::{LifecycleTables, PgFallback};
@@ -3092,11 +3092,14 @@ async fn a_takeover_fence_reads_the_row_not_the_snapshot() {
     let (team_id, partition, victim) = (harness.team_id, harness.partition, harness.person_id);
     let key = |person_id| PersonCacheKey { team_id, person_id };
 
-    let sibling = another_person_on_harness_partition(&harness, victim);
+    // The sibling lives on a partition the takeover does not touch, so its
+    // seal stays a seal and its release loads the op's snapshot.
+    let (sibling, sibling_partition) = person_on_other_partition(&harness);
+    harness.cache.create_partition(sibling_partition);
     let sibling_uuid = Uuid::now_v7().to_string();
     seed_person(
         &harness.cache,
-        partition,
+        sibling_partition,
         CachedPerson {
             id: sibling,
             team_id,
@@ -3126,17 +3129,16 @@ async fn a_takeover_fence_reads_the_row_not_the_snapshot() {
         .sealed
         .expect("sealed");
 
-    // This pod takes the partition over and rebuilds both fences from the rows.
+    // This pod takes the victim's partition over and rebuilds its fence from the row.
     rebuild_partition_fences(&fallback, &harness.fences, partition, NUM_PARTITIONS)
         .await
         .expect("scan runs");
 
-    // The sibling is sealed here, so its release loads the op's snapshot.
     let sibling_seal = harness
         .client
         .fence_person(with_partition(
             fence_request(team_id, sibling, &op),
-            partition,
+            sibling_partition,
         ))
         .await
         .expect("seal succeeds")
@@ -3155,7 +3157,7 @@ async fn a_takeover_fence_reads_the_row_not_the_snapshot() {
                 sealed_version: Some(sibling_seal.version),
                 created_at: sibling_seal.created_at,
             },
-            partition,
+            sibling_partition,
         ))
         .await
         .expect("the sibling's release succeeds");
@@ -3204,6 +3206,67 @@ async fn a_takeover_fence_reads_the_row_not_the_snapshot() {
     assert!(
         harness.fences.get(&key(victim)).is_none(),
         "the settled fence is dropped"
+    );
+
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op)
+        .execute(&pool)
+        .await
+        .expect("cleanup op");
+}
+
+#[tokio::test]
+async fn a_same_op_re_fence_keeps_its_takeover_origin() {
+    let pool = common::create_persons_pool().await;
+    let fallback = PgFallback {
+        pool: pool.clone(),
+        table: "posthog_person".to_string(),
+        lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
+    };
+    let mut harness = start_fence_harness(test_cached_person(), Some(fallback.clone())).await;
+    let (team_id, partition, victim) = (harness.team_id, harness.partition, harness.person_id);
+    let key = PersonCacheKey {
+        team_id,
+        person_id: victim,
+    };
+
+    let op = Uuid::now_v7();
+    insert_delete_marks(&pool, op, team_id, &[victim]).await;
+    sqlx::query("UPDATE lifecycle_op_person SET mark_active = true WHERE op_id = $1")
+        .bind(op)
+        .execute(&pool)
+        .await
+        .expect("activate marks");
+
+    rebuild_partition_fences(&fallback, &harness.fences, partition, NUM_PARTITIONS)
+        .await
+        .expect("scan runs");
+    assert_eq!(
+        harness
+            .fences
+            .get(&key)
+            .expect("takeover fence")
+            .installed_by,
+        FenceOrigin::Takeover
+    );
+
+    // The identity replays the op's fence call against the new owner.
+    harness
+        .client
+        .fence_person(with_partition(
+            fence_request(team_id, victim, &op),
+            partition,
+        ))
+        .await
+        .expect("the re-fence succeeds");
+    assert_eq!(
+        harness
+            .fences
+            .get(&key)
+            .expect("fence survives")
+            .installed_by,
+        FenceOrigin::Takeover,
+        "a same-op re-fence must not turn a takeover fence into a seal"
     );
 
     sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")

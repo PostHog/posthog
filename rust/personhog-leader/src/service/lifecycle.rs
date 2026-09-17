@@ -319,7 +319,7 @@ impl PersonHogLeaderService {
             .clone();
         let _guard = mutex.lock().await;
 
-        let refence = if let Some(entry) = self.fences.get(&cache_key) {
+        let existing = if let Some(entry) = self.fences.get(&cache_key) {
             if entry.op_id != op_id {
                 let holder = *entry.value();
                 drop(entry);
@@ -331,15 +331,15 @@ impl PersonHogLeaderService {
                 }
                 return Err(fenced_status(&holder));
             }
-            true
+            Some(entry.installed_by)
         } else {
-            false
+            None
         };
 
         // The map has no eviction, so a surge of ops is bounded by shedding
         // new fences; re-seals are exempt because refusing them frees
         // nothing. The saga's retry absorbs the backpressure.
-        if !refence && self.fences.len() >= self.fence_map_max_entries {
+        if existing.is_none() && self.fences.len() >= self.fence_map_max_entries {
             counter!("personhog_leader_fences_total", "action" => "shed_capacity").increment(1);
             return Err(Status::resource_exhausted(format!(
                 "fence map at capacity ({} live fences); retry later",
@@ -363,12 +363,14 @@ impl PersonHogLeaderService {
             .emitted_versions
             .floor_for(partition, &cache_key, person.version);
 
+        // A same-op re-fence keeps its origin, so a takeover fence that a
+        // replayed fence call re-seals still reads the row at release.
         self.fences.insert(
             cache_key,
             FenceState {
                 op_id,
                 op_type,
-                installed_by: FenceOrigin::Seal,
+                installed_by: existing.unwrap_or(FenceOrigin::Seal),
             },
         );
         counter!("personhog_leader_fences_total", "action" => "fenced").increment(1);
