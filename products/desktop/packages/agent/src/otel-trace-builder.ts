@@ -247,6 +247,14 @@ export class RunTraceBuilder {
       parentContext,
     );
     const context = trace.setSpan(parentContext, span);
+    // A tool call can arrive already terminal, as a memory recall does. No
+    // later update follows it, so settling it here keeps it out of the sweep,
+    // which would otherwise report a known outcome as unterminated.
+    const status = update.status;
+    if (status === "completed" || status === "failed") {
+      this.settleTool(span, status, time);
+      return context;
+    }
     if (toolCallId) {
       this.toolSpans.set(toolCallId, { span, context });
     } else {
@@ -254,6 +262,19 @@ export class RunTraceBuilder {
       span.end(time);
     }
     return context;
+  }
+
+  /** Records a terminal tool outcome on its span and ends it. */
+  private settleTool(
+    span: Span,
+    status: "completed" | "failed",
+    time: Date,
+  ): void {
+    span.setAttribute("tool_status", status);
+    span.setStatus({
+      code: status === "failed" ? SpanStatusCode.ERROR : SpanStatusCode.OK,
+    });
+    span.end(time);
   }
 
   private handleToolUpdate(
@@ -266,11 +287,7 @@ export class RunTraceBuilder {
 
     const status = update.status;
     if (status === "completed" || status === "failed") {
-      open.span.setAttribute("tool_status", status);
-      open.span.setStatus({
-        code: status === "failed" ? SpanStatusCode.ERROR : SpanStatusCode.OK,
-      });
-      open.span.end(time);
+      this.settleTool(open.span, status, time);
       this.toolSpans.delete(toolCallId);
     }
     return open.context;
@@ -298,12 +315,18 @@ export class RunTraceBuilder {
    * mid-flight) marks them errored so APM doesn't show a healthy-looking
    * active tool under a failed run; otherwise the outcome is unknown and the
    * status stays unset.
+   *
+   * A swept span's duration runs to the end of the turn instead of measuring
+   * the tool, so `unterminated` names it. Otherwise the sweep is
+   * indistinguishable from a slow tool and inflates the kind's percentiles.
    */
   private closeOpenTools(time: Date, opts?: { interrupted?: boolean }): void {
     for (const { span } of this.toolSpans.values()) {
       if (opts?.interrupted) {
         span.setAttribute("tool_status", "interrupted");
         span.setStatus({ code: SpanStatusCode.ERROR });
+      } else {
+        span.setAttribute("tool_status", "unterminated");
       }
       span.end(time);
     }
