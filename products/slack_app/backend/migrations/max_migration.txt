@@ -1,1 +1,1 @@
-0015_backfill_slack_thread_conversation_type
+0017_remove_slacksettings_ai_preferences

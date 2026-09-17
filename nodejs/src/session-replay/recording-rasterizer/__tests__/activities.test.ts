@@ -74,6 +74,9 @@ function baseRecordingResult(_videoPath: string, overrides: Partial<RecordingRes
         frame_count: 72,
         truncated: false,
         inactivity_periods: [{ ts_from_s: 0, ts_to_s: 10, active: true }],
+        frame_session_ms: [],
+        pre_roll_frames: 0,
+        output_fps: 3,
         timings: { setup_s: 1.5, capture_s: 3.2 },
         ...overrides,
     }
@@ -234,6 +237,24 @@ describe('rasterizeRecordingActivity', () => {
                 'No snapshots after processing',
                 'NO_SNAPSHOTS',
                 error
+            )
+            expect(ApplicationFailure.nonRetryable).not.toHaveBeenCalled()
+        })
+
+        it('classifies a raw puppeteer "Target closed" as a retryable TARGET_CLOSED failure', async () => {
+            // The Chrome target dying mid-render rejects the in-flight CDP call untyped; the activity
+            // boundary must turn it into one retryable code so it stops fragmenting into a fresh
+            // error-tracking issue per CDP method.
+            mockedRasterizeRecording.mockRejectedValue(
+                new Error('Protocol error (Page.captureScreenshot): Target closed')
+            )
+
+            await expect(rasterizeRecordingActivity(baseInput())).rejects.toThrow('chrome target closed mid-render')
+
+            expect(ApplicationFailure.retryable).toHaveBeenCalledWith(
+                'chrome target closed mid-render',
+                'TARGET_CLOSED',
+                expect.objectContaining({ code: 'TARGET_CLOSED' })
             )
             expect(ApplicationFailure.nonRetryable).not.toHaveBeenCalled()
         })

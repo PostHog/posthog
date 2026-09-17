@@ -1,6 +1,7 @@
 # stamphog — invariants for agents
 
-Read [README.md](README.md) for the product shape first. This file is the contract: the
+Read [README.md](README.md) for the product shape first, and [docs/digest.md](docs/digest.md) for
+the digest design. This file is the contract: the
 invariants below were each earned through a real review finding — do not relax one without
 understanding what it closes, and hold new code to all of them.
 
@@ -52,6 +53,16 @@ The one thing the text does not carry is binary content, which git renders as `B
 There is deliberately no "this file is harmless" rule, and adding one back needs a very good argument.
 Successive review passes found every candidate wrong in this repository: lockfiles select the dependency code that gets installed, tests run in CI with CI's credentials, a file under a `generated/` directory can be hand-edited and still compiles into a service, `docs/onboarding` is aliased into the production frontend, MDX compiles to JavaScript, snapshot files are JavaScript modules the test runner executes, and even plain Markdown ships, because `services/mcp` imports `.md` templates and product `tools.yaml` files compile `.md` prompts into shipped tool definitions.
 
+The digest carries the one narrow exception, and it is not a gate.
+`detect_ownership` counts each team's files under `products/<name>/frontend/generated/` and keeps them out of the team's path sample, and `backend/logic/audiences.py` subtracts that count, so a team's `owned_file_count` is the files a person edited.
+A team left with none of those is not a digest audience at all.
+`hogli build:openapi` rewrites those types whenever any shared serializer changes anywhere in the repo, so a team owning nothing else in a PR was not touched by it: that is how an error-tracking change reached the product analytics channel.
+Subtracting rather than only dropping the all-generated case came from the same channel getting swept again: one regenerated file next to one real one read as a two-file stake, which is above the graze rule's threshold, so the sweep looked like ownership.
+Three things keep it from being the harmless-file rule above.
+It decides who hears about a merge, never whether code is safe to approve.
+The root `CLAUDE.md` forbids hand-editing those files, so the hand-edited-and-still-ships case does not apply to this path.
+And it names one exact directory shape rather than any `generated/` directory, which is the match that would catch hand-editable code elsewhere.
+
 Both sides are read with `compare_diff`, from the base and head shas the run and the payload already fixed.
 That is load-bearing rather than incidental: `get_pr_files` answers for whichever head is live when the request runs, so a contributor could push the approved content, let the comparison run, and push the unreviewed head back.
 Retention must never consult that endpoint.
@@ -83,11 +94,13 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
 
 ## Sandbox credentials and egress
 
-- The sandbox holds NO long-lived secret. `_mint_reviewer_gateway_token` mints a per-run OAuth
-  token under the repo's connecting user with exactly `["llm_gateway:read", "internal_run:read"]`
-  and `include_internal_scopes=False`. Never switch to `include_internal_scopes=True` — that
-  drags `task:write` into a sandbox running an LLM over untrusted PR content. The
-  `internal_run:read` marker is what satisfies the gateway route's `requires_server_credential`.
+- The sandbox holds NO long-lived secret. `_mint_reviewer_scoped_token` mints a per-run `phe_`
+  from the Go ai-gateway (`POST /v1/tokens`) with the worker's `phs_` (`AI_GATEWAY_API_KEY`), pinned
+  to `product=aio_stamphog` and `obo=<customer team>`, capped at `cap_usd=5` and `ttl_seconds=3600`,
+  acting as the repo's connecting user. The `phs_` never enters the sandbox; a mint failure fails
+  the run (no shared-key fallback); the worker revokes the token once the sandbox is destroyed. Do
+  not widen the cap or TTL without a run-cost reason: they bound what a prompt-injected reviewer can
+  spend with a leaked token.
 - The raw-Anthropic fallback exists for a local `review_pr.py` run only; hosted runs fail closed
   without a gateway. No `ANTHROPIC_API_KEY` may enter the sandbox environment.
 - Egress is an explicit domain allowlist (`_sandbox_egress_allowlist`). Additions go through
@@ -160,19 +173,29 @@ narrow:
 
 ## Trust boundaries
 
+- The review-gating fields (`enabled`, `review_mode`, `trigger_label`) and the soft-delete need the
+  `manager` level on the `stamphog` resource, because they decide whether a pull request is reviewed
+  at all. Naming one of those fields on a create takes `manager` too. Connecting a repository
+  without them, and the digest toggle, stay at `editor`.
 - Review policy is read from the repo's **default branch**, never the PR head — a PR must not be
   able to rewrite the policy that gates it. Same for the `digest:` channel declaration and the
   root `owners.yaml` team registry the digest routes through.
-- A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts
-  it: its flags were set by someone who never proved GitHub access. Reinstall rebinds keep
-  settings — those were configured under a verified binding.
-- Auto-provisioned digest channels arrive **enabled**, a bare Slack name match included. Only
-  workspace members can create a channel, and a digest carries merged PR titles and summaries those
-  same people can read on the PRs, so gating a name match behind a human enable bought a silent
-  no-op — a channel row, no run row, no post, and an info log in a worker pod — rather than
-  protection. The exclusion that stays is the shared-channel one, the only path where a digest
-  leaves the workspace: only the repo's own `digest:` channel skips it, because the `owners.yaml`
-  registry can name a channel for a team the declaring repo does not own.
+- A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts it,
+  and its review policy (`review_mode`, `trigger_label`) resets to the model defaults: all of those
+  fields were set by someone who never proved GitHub access, so a pre-selected label mode would
+  otherwise go live the moment a manager enables the row. Reinstall rebinds keep settings — those
+  were configured under a verified binding. Such a row is also kept out of the digest candidates:
+  a blank installation can fetch no routing file, and every candidate is read, so leaving it in let
+  one placeholder silence the whole team's digest.
+- Digest routing is derived every run from the repositories and never stored, so nothing here can
+  go stale silently — and nothing degrades either. A registry that cannot be read stops the whole
+  team's run (`RoutingUnavailable`) rather than falling through to derived channel names: the
+  unreadable repo could be the one every other repo inherits from. A repo that is permanently
+  broken gets switched off, which drops it from the candidate list.
+- A name match binds an audience to a Slack channel nobody chose for it, so the shared-channel
+  guard stays on for it and for registry entries alike — that is the only path where a digest
+  leaves the workspace. Only the repo's own `digest:` channel skips the guard, because the
+  `owners.yaml` registry can name a channel for a team the declaring repo does not own.
 - The app is not a member of a channel it only matched by name, so `post_digest` joins on
   `not_in_channel` and retries the post once. The join is attempted, never gated on the scope:
   `conversations.join` needs `channels:join`, and whether an install granted it is invisible to the

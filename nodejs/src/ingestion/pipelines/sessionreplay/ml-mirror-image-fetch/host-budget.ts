@@ -1,3 +1,5 @@
+import type { ImageFetchBlockReason } from './block-reason'
+
 export interface HostBudgetOptions {
     requestsPerSecond: number
     burst: number
@@ -17,6 +19,7 @@ export type BudgetBlockReason =
     | 'origin_map_full'
     | 'registrable_domain_map_full'
 export type BudgetWaitScope = 'origin_crawl_delay' | 'registrable_domain_rate'
+export type HostBackoffReason = Extract<ImageFetchBlockReason, 'retry_after' | 'transient_backoff'>
 export type BudgetGrant =
     | {
           granted: true
@@ -25,7 +28,13 @@ export type BudgetGrant =
           halfOpenProbe: boolean
           reservedStartAtMs: number | null
       }
-    | { granted: false; reason: BudgetBlockReason; waitMs: number }
+    | {
+          granted: false
+          reason: BudgetBlockReason
+          waitMs: number
+          backoffReason?: HostBackoffReason
+          waitScope?: BudgetWaitScope
+      }
 
 const EVICTION_SCAN_LIMIT = 64
 
@@ -36,6 +45,7 @@ interface RegistrableDomainState {
     lastRefillMs: number
     consecutiveTransientFailures: number
     blockedUntilMs: number
+    backoffReason: HostBackoffReason | null
     breakerOpen: boolean
     halfOpenProbeInFlight: boolean
 }
@@ -55,8 +65,17 @@ export class HostBudget {
 
     constructor(private readonly options: HostBudgetOptions) {
         for (const [name, value] of Object.entries(options)) {
-            if (name !== 'random' && (!Number.isFinite(value) || (value as number) <= 0)) {
-                throw new Error(`the image fetch request budget needs a positive ${name}, got ${value}`)
+            if (name === 'random') {
+                continue
+            }
+            const number = value as number
+            const invalid = !Number.isFinite(number) || (name === 'requestsPerSecond' ? number < 0 : number <= 0)
+            if (invalid) {
+                const validRange =
+                    name === 'requestsPerSecond'
+                        ? 'a finite number greater than or equal to zero'
+                        : 'a finite number greater than zero'
+                throw new Error(`the image fetch request budget ${name} must be ${validRange}, got ${value}`)
             }
         }
         this.random = options.random ?? Math.random
@@ -80,10 +99,18 @@ export class HostBudget {
         let halfOpenProbe = false
         if (!ignoreImageDelay) {
             if (registrableDomainState.blockedUntilMs > nowMs) {
+                if (registrableDomainState.breakerOpen) {
+                    return {
+                        granted: false,
+                        reason: 'breaker_open',
+                        waitMs: registrableDomainState.blockedUntilMs - nowMs,
+                    }
+                }
                 return {
                     granted: false,
-                    reason: registrableDomainState.breakerOpen ? 'breaker_open' : 'backoff',
+                    reason: 'backoff',
                     waitMs: registrableDomainState.blockedUntilMs - nowMs,
+                    backoffReason: registrableDomainState.backoffReason ?? undefined,
                 }
             }
             if (registrableDomainState.breakerOpen) {
@@ -95,7 +122,7 @@ export class HostBudget {
         }
         this.refill(registrableDomainState, nowMs)
         const tokenWaitMs =
-            registrableDomainState.tokens >= 1
+            this.options.requestsPerSecond === 0 || registrableDomainState.tokens >= 1
                 ? 0
                 : Math.ceil(((1 - registrableDomainState.tokens) / this.options.requestsPerSecond) * 1000)
         const previousStartMs = originState.lastRequestStartedAtMs ?? Number.NEGATIVE_INFINITY
@@ -104,7 +131,7 @@ export class HostBudget {
         const waitScope: BudgetWaitScope | null =
             waitMs === 0 ? null : crawlWaitMs > tokenWaitMs ? 'origin_crawl_delay' : 'registrable_domain_rate'
         if (nowMs + waitMs > deadlineMs) {
-            return { granted: false, reason: 'deadline', waitMs }
+            return { granted: false, reason: 'deadline', waitMs, waitScope: waitScope ?? undefined }
         }
         if (waitMs > 0) {
             return {
@@ -118,7 +145,9 @@ export class HostBudget {
         if (halfOpenProbe) {
             registrableDomainState.halfOpenProbeInFlight = true
         }
-        registrableDomainState.tokens -= 1
+        if (this.options.requestsPerSecond > 0) {
+            registrableDomainState.tokens -= 1
+        }
         registrableDomainState.pendingGrants += 1
         const reservedStartAtMs = ignoreImageDelay ? null : nowMs
         if (reservedStartAtMs !== null) {
@@ -172,8 +201,10 @@ export class HostBudget {
             return
         }
         registrableDomainState.pendingGrants = Math.max(0, registrableDomainState.pendingGrants - 1)
-        this.refill(registrableDomainState, nowMs)
-        registrableDomainState.tokens = Math.min(this.options.burst, registrableDomainState.tokens + 1)
+        if (this.options.requestsPerSecond > 0) {
+            this.refill(registrableDomainState, nowMs)
+            registrableDomainState.tokens = Math.min(this.options.burst, registrableDomainState.tokens + 1)
+        }
         if (halfOpenProbe && registrableDomainState.breakerOpen) {
             registrableDomainState.halfOpenProbeInFlight = false
         }
@@ -188,6 +219,11 @@ export class HostBudget {
         registrableDomainState.inFlight += 1
         originState.inFlight += 1
         return true
+    }
+
+    public availableConnections(registrableDomain: string, connectionLimit = this.options.maxConcurrent): number {
+        const inFlight = this.registrableDomains.get(registrableDomain)?.inFlight ?? 0
+        return Math.max(0, Math.min(this.options.maxConcurrent, connectionLimit) - inFlight)
     }
 
     public releaseConnection(registrableDomain: string, origin: string): void {
@@ -222,7 +258,7 @@ export class HostBudget {
         if (!state) {
             return false
         }
-        state.crawlDelayMs = Math.max(1_000, crawlDelayMs)
+        state.crawlDelayMs = Math.max(0, crawlDelayMs)
         return true
     }
 
@@ -242,7 +278,11 @@ export class HostBudget {
             minimumDelayMs + Math.floor(this.random() * (maximumDelayMs - minimumDelayMs + 1))
         )
         const delayMs = Math.max(jitteredDelayMs, retryAfterMs ?? 0)
-        state.blockedUntilMs = Math.max(state.blockedUntilMs, nowMs + delayMs)
+        const blockedUntilMs = nowMs + delayMs
+        if (blockedUntilMs >= state.blockedUntilMs) {
+            state.backoffReason = retryAfterMs === undefined ? 'transient_backoff' : 'retry_after'
+        }
+        state.blockedUntilMs = Math.max(state.blockedUntilMs, blockedUntilMs)
         if (state.consecutiveTransientFailures >= this.options.breakerFailures) {
             state.breakerOpen = true
             state.halfOpenProbeInFlight = false
@@ -257,6 +297,9 @@ export class HostBudget {
         }
         state.consecutiveTransientFailures = 0
         state.blockedUntilMs = Math.max(state.blockedUntilMs, nowMs)
+        if (state.blockedUntilMs <= nowMs) {
+            state.backoffReason = null
+        }
         state.breakerOpen = false
         state.halfOpenProbeInFlight = false
     }
@@ -304,6 +347,7 @@ export class HostBudget {
             lastRefillMs: nowMs,
             consecutiveTransientFailures: 0,
             blockedUntilMs: 0,
+            backoffReason: null,
             breakerOpen: false,
             halfOpenProbeInFlight: false,
         }
@@ -326,7 +370,7 @@ export class HostBudget {
             pendingRequests: 0,
             lastRequestStartedAtMs: null,
             reservedStartTimesMs: [],
-            crawlDelayMs: 1_000,
+            crawlDelayMs: 0,
         }
         this.origins.set(origin, state)
         return state

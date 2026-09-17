@@ -2,6 +2,8 @@
 
 All analytics events tracked from the tasks backend via `posthoganalytics.capture()`.
 
+Update this document whenever a new event or property is added.
+
 All events include group analytics via `groups()` from `posthog.event_usage`, which sets `instance`, `organization`, `customer`, and `project` groups where available.
 
 ## Standard Properties
@@ -81,6 +83,79 @@ recipient's, even though the task's `created_by` has moved by then. Additional p
 | `from_user_id` | `int?` | User ID of the previous owner        |
 | `to_user_id`   | `int`  | User ID of the recipient (new owner) |
 
+## Channel / Space Configuration Events
+
+Source: `repository_config_analytics.py`, called from `facade/api.py`, `models.py`, and
+`presentation/views/channels_api.py`.
+
+These do **not** go through `Task.capture_event()`, so the "Task events" standard-property table
+above does not apply — they carry only the properties listed here plus `groups()`. `distinct_id`
+is the acting user, falling back to the team UUID.
+
+Neither `Channel` nor `Task` has an activity log, so before these events the only trace of a
+repository change was the row's own `updated_at`.
+
+### `repository_config_changed`
+
+Fires when a Space's or a Task's repository configuration changes. Nothing is captured when a
+write resubmits the same repository set and the same integration.
+
+| Property                         | Type    | Description                                                                                       |
+| -------------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
+| `subject`                        | `str`   | `space` or `task`                                                                                 |
+| `trigger`                        | `str`   | `space_settings_edit`, `task_settings_edit`, `task_created`, or `github_integration_disconnected` |
+| `team_id`                        | `int`   |                                                                                                   |
+| `channel_id`                     | `str?`  | Always set for `subject=space`; set for `subject=task` when the task has a channel                |
+| `task_id`                        | `str?`  | `subject=task` only                                                                               |
+| `origin_product`                 | `str?`  | `subject=task` only                                                                               |
+| `previous_repository_count`      | `int`   | The "from"                                                                                        |
+| `repository_count`               | `int`   | The "to"                                                                                          |
+| `added_count` / `removed_count`  | `int`   |                                                                                                   |
+| `is_first_configuration`         | `bool`  | Previous list was empty                                                                           |
+| `is_cleared`                     | `bool`  | New list is empty                                                                                 |
+| `github_integration_changed`     | `bool`  |                                                                                                   |
+| `github_integration_id`          | `int?`  | PostHog-side integration id                                                                       |
+| `previous_github_integration_id` | `int?`  |                                                                                                   |
+| `space_repository_count`         | `int?`  | `subject=task` only — the channel's current list size                                             |
+| `diverged_from_space`            | `bool?` | `subject=task` only — the new task list differs from the channel's                                |
+| `was_inherited_from_space`       | `bool?` | `subject=task` only — this edit is what broke inheritance                                         |
+| `affected_space_count`           | `int?`  | `trigger=github_integration_disconnected` only                                                    |
+
+`trigger=task_created` fires only when the caller overrode the Space default. A task that
+inherits its channel's repositories is already counted by `task_created`.
+
+`trigger=github_integration_disconnected` is one aggregate row for the whole
+`pre_delete` sweep, not one row per Space.
+
+Reading note: ticking "Use these repositories for the whole space" in the desktop repository
+dialog fires both a task-level and a space-level change from a single click. Two rows is correct
+— they are two config objects — but a "changes per user" metric counts objects, not intents.
+
+### `space_context_changed`
+
+Fires when a Space's CONTEXT.md is published or cleared. Carries byte counts only; CONTEXT.md is
+customer-authored free text.
+
+| Property                 | Type   | Description                                                         |
+| ------------------------ | ------ | ------------------------------------------------------------------- |
+| `action`                 | `str`  | `published` or `cleared`                                            |
+| `source`                 | `str`  | `user` or `agent`                                                   |
+| `storage`                | `str`  | `legacy_instructions` or `context_wiki`                             |
+| `actor_type`             | `str?` | `user_or_api`, `task_agent`, or `loop_agent` for context-wiki edits |
+| `team_id`                | `int`  |                                                                     |
+| `channel_id`             | `str`  |                                                                     |
+| `previous_version`       | `int?` | 0 when there was none; null for context-wiki commits                |
+| `new_version`            | `int?` | Null on `cleared`                                                   |
+| `is_first_version`       | `bool` |                                                                     |
+| `content_bytes`          | `int`  | Length only, never content                                          |
+| `previous_content_bytes` | `int?` | Gives edit magnitude                                                |
+| `base_version_provided`  | `bool` | Whether the client used the optimistic-concurrency guard            |
+| `versions_deleted`       | `int?` | `cleared` only                                                      |
+
+`source` is load-bearing: a loop configured with `update_context` republishes on every fire, so
+an hourly loop produces hundreds of rows a month for one Space. Filter to `source=user` for any
+human-edit question.
+
 ## TaskRun Model Events
 
 Source: `products/tasks/backend/models.py`
@@ -139,22 +214,77 @@ Tracked when the workflow begins execution.
 
 Tracked after sandbox and agent server are provisioned.
 
-| Property                | Type   | Description                                               |
-| ----------------------- | ------ | --------------------------------------------------------- |
-| `run_id`                | `str`  | UUID of the run                                           |
-| `task_id`               | `str`  | UUID of the task                                          |
-| `sandbox_id`            | `str`  | Sandbox identifier                                        |
-| `sandbox_url`           | `str`  | URL of the sandbox                                        |
-| `used_snapshot`         | `bool` | Whether a snapshot was used                               |
-| `repository`            | `str`  | Repository in `org/repo` format                           |
-| `boot_path`             | `str`  | Classic or overlapping clone boot                         |
-| `boot_total_ms`         | `int`  | Infrastructure boot time, excluding setup agent execution |
-| `sandbox_create_ms`     | `int`  | Sandbox creation time                                     |
-| `repo_clone_ms`         | `int`  | Repository clone time                                     |
-| `branch_checkout_ms`    | `int`  | Branch checkout time                                      |
-| `agent_launch_ms`       | `int`  | Agent server launch time                                  |
-| `agent_ready_wait_ms`   | `int`  | Time spent waiting for the agent server                   |
-| `agent_session_init_ms` | `int`  | Agent session initialization time                         |
+| Property                        | Type   | Description                                               |
+| ------------------------------- | ------ | --------------------------------------------------------- |
+| `run_id`                        | `str`  | UUID of the run                                           |
+| `task_id`                       | `str`  | UUID of the task                                          |
+| `sandbox_id`                    | `str`  | Sandbox identifier                                        |
+| `sandbox_url`                   | `str`  | URL of the sandbox                                        |
+| `used_snapshot`                 | `bool` | Whether a snapshot was used                               |
+| `repository`                    | `str`  | Repository in `org/repo` format                           |
+| `boot_path`                     | `str`  | Classic or overlapping clone boot                         |
+| `boot_total_ms`                 | `int`  | Infrastructure boot time, excluding setup agent execution |
+| `sandbox_create_ms`             | `int`  | Sandbox creation time                                     |
+| `repo_clone_ms`                 | `int`  | Repository clone time                                     |
+| `branch_checkout_ms`            | `int`  | Branch checkout time                                      |
+| `agent_launch_ms`               | `int`  | Agent server launch time                                  |
+| `agent_prepare_ms`              | `int`  | Backend launch configuration time                         |
+| `agent_invoke_ms`               | `int`  | Sandbox launcher and process start time                   |
+| `agent_health_poll_ms`          | `int`  | Time spent polling the agent health endpoint              |
+| `agent_ready_wait_ms`           | `int`  | Time spent waiting for the agent server                   |
+| `agent_session_init_ms`         | `int`  | Agent session initialization time                         |
+| `agent_server_total_ms`         | `int`  | Agent server initialization time                          |
+| `agent_server_http_ready_ms`    | `int`  | Time from agent process start to HTTP listen              |
+| `agent_launcher_to_process_ms`  | `int`  | Time from sandbox launch command to agent process start   |
+| `agent_context_fetch_ms`        | `int`  | Task and run context fetch time inside agent-server       |
+| `agent_acp_initialize_ms`       | `int`  | ACP process handshake time                                |
+| `agent_repository_ready_ms`     | `int`  | Time waiting on the repository-ready barrier              |
+| `agent_session_dependencies_ms` | `int`  | Skill, resume, relay, and PR checkout preparation         |
+| `agent_session_create_ms`       | `int`  | ACP session creation or resumption time                   |
+
+### `agent_shadow_observed`
+
+Tracked after the shadow observer finishes or the result read times out. Use `run_id`, `task_id`, and `sandbox_id` to correlate this event with `sandbox_started`.
+
+| Property              | Type   | Description                                  |
+| --------------------- | ------ | -------------------------------------------- |
+| `run_id`              | `str`  | UUID of the run                              |
+| `task_id`             | `str`  | UUID of the task                             |
+| `sandbox_id`          | `str`  | Sandbox identifier                           |
+| `launched`            | `bool` | Whether the matching observer launch started |
+| `outcome`             | `str`  | Observer outcome: `ready` or `failed`        |
+| `observed_ready_ms`   | `int`  | Observer readiness time on ready outcomes    |
+| `production_ready_ms` | `int`  | Production readiness time on ready outcomes  |
+| `failure_class`       | `str`  | Allowlisted observer failure category        |
+| `read_timed_out`      | `bool` | Whether result collection timed out          |
+
+### `agent_first_command_dispatched`
+
+Tracked once when the first non-steering agent command is dispatched.
+
+### `agent_first_activity_observed`
+
+Tracked once when the first agent-generated message, thought, or tool call is observed.
+
+Both first-interaction events include:
+
+| Property               | Type   | Description                       |
+| ---------------------- | ------ | --------------------------------- |
+| `run_id`               | `str`  | UUID of the run                   |
+| `task_id`              | `str`  | UUID of the task                  |
+| `sandbox_id`           | `str`  | Sandbox identifier                |
+| `elapsed_ms`           | `int`  | Time from the workflow start      |
+| `since_agent_ready_ms` | `int`  | Time from agent readiness         |
+| `boot_path`            | `str`  | Classic or overlapping clone boot |
+| `image_source`         | `str`  | Sandbox image source              |
+| `origin_product`       | `str`  | Product that created the task     |
+| `mode`                 | `str`  | Background or interactive         |
+| `task_runtime`         | `str`  | ACP or Pi runtime                 |
+| `runtime_adapter`      | `str`  | Runtime adapter                   |
+| `provider`             | `str`  | Model provider                    |
+| `sandbox_backend`      | `str`  | Sandbox provider                  |
+| `transport`            | `str`  | SSE or sequenced event ingest     |
+| `prewarmed`            | `bool` | Whether the run was prewarmed     |
 
 ### Modal VM rollout payload
 
@@ -216,9 +346,19 @@ These events use `TaskRun.capture_event()` so include all [TaskRun standard prop
 
 Tracked when a GitHub `pull_request.opened` webhook is received. Additional properties:
 
-| Property | Type  | Description   |
-| -------- | ----- | ------------- |
-| `pr_url` | `str` | GitHub PR URL |
+| Property                 | Type        | Description                                     |
+| ------------------------ | ----------- | ----------------------------------------------- |
+| `pr_url`                 | `str`       | GitHub PR URL                                   |
+| `pr_title`               | `str`       | PR title                                        |
+| `pr_body`                | `str`       | PR description, capped at 10,000 characters     |
+| `pr_body_truncated`      | `bool`      | Whether the cap removed part of the description |
+| `pr_labels`              | `list[str]` | Label names on the PR                           |
+| `pr_requested_reviewers` | `list[str]` | GitHub logins of the requested reviewers        |
+| `pr_is_draft`            | `bool`      | Whether the PR is a draft                       |
+
+The `pr_title`, `pr_body`, `pr_labels`, `pr_requested_reviewers`, and `pr_is_draft` properties
+carry a value only on task-authored PRs. An external PR's own words are customer business
+context, so those events get the same keys as `null`.
 
 ### `pr_merged`
 
@@ -227,14 +367,6 @@ Tracked when a GitHub `pull_request.closed` webhook is received with `merged=tru
 ### `pr_closed`
 
 Tracked when a GitHub `pull_request.closed` webhook is received with `merged=false`. Same additional properties as `pr_created`.
-
-## API Events
-
-Source: `products/tasks/backend/api.py`
-
-### `code_invite_redeemed`
-
-Tracked when a user redeems a Desktop invite. Includes `organization` group analytics. No additional properties.
 
 ## Activity Observability Events
 

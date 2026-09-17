@@ -204,6 +204,35 @@ describe('PropertiesTable inline editor', () => {
         })
     })
 
+    describe('values that link out', () => {
+        const renderEditable = (key: string, value: string): HTMLElement =>
+            render(
+                <Provider>
+                    <PropertiesTable
+                        type={PropertyDefinitionType.Person}
+                        properties={{ [key]: value }}
+                        rootKey="$set"
+                        onEdit={jest.fn()}
+                    />
+                </Provider>
+            ).container
+
+        it.each<[string, string, string | null]>([
+            ['eas/build_id', 'a-build', 'https://expo.dev/builds/a-build'],
+            ['eas/channel', 'production', null],
+            ['homepage', 'https://example.com/x', 'https://example.com/x'],
+        ])('%s = %s links to %s', (key, value, expected) => {
+            const link = renderEditable(key, value).querySelector('a.value-link')
+            expect(link?.getAttribute('href') ?? null).toBe(expected)
+        })
+
+        it('following the link does not start inline editing', () => {
+            const container = renderEditable('eas/build_id', 'a-build')
+            fireEvent.click(container.querySelector('a.value-link') as HTMLElement)
+            expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+        })
+    })
+
     describe('collapsible complex values', () => {
         const renderWith = (collapsible: boolean): ReturnType<typeof render> => {
             return render(

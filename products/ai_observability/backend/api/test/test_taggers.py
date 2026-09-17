@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -8,10 +9,9 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.models.provider_keys import LLMProvider
 from products.ai_observability.backend.models.taggers import Tagger, TaggerType
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def _setup_team():
@@ -50,6 +50,21 @@ def _make_tagger_config(**overrides):
 
 
 class TestTaggersApi(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        feature_flag_patch = patch(
+            "posthog.permissions.posthog_feature_flag_enabled",
+            return_value=True,
+        )
+        feature_flag_patch.start()
+        self.addCleanup(feature_flag_patch.stop)
+
+    def test_feature_flag_gates_the_api_server_side(self):
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=False):
+            response = self.client.get(f"/api/environments/{self.team.id}/taggers/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
     def test_unauthenticated_user_cannot_access_taggers(self):
         self.client.logout()
         response = self.client.get(f"/api/environments/{self.team.id}/taggers/")
@@ -377,10 +392,16 @@ class TestTaggersApi(APIBaseTest):
 
 class TestTaggersAccessControl(APIBaseTest):
     # Tagger has its own access control resource (see ACCESS_CONTROL_RESOURCES in
-    # posthog/rbac/user_access_control.py), independent of the `llm_analytics` resource
+    # products/access_control/backend/facade/user_access_control.py), independent of the `llm_analytics` resource
     # that Evaluations and Datasets inherit from.
     def setUp(self) -> None:
         super().setUp()
+        feature_flag_patch = patch(
+            "posthog.permissions.posthog_feature_flag_enabled",
+            return_value=True,
+        )
+        feature_flag_patch.start()
+        self.addCleanup(feature_flag_patch.stop)
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},

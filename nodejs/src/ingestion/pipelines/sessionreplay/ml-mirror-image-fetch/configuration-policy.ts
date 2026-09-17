@@ -7,6 +7,7 @@ import { fetchStreamed } from '~/common/utils/request'
 import { ConfigurationCacheItem, ConfigurationFile, HttpCacheMetadata, configurationCacheKey } from './crawl-history'
 import { ImageFetchRequestMetrics } from './metrics'
 import { canonicalizeUrl, politenessKey } from './politeness-key'
+import { ConfigurationFetchReason, ImageFetchProcessingMetrics } from './processing-metrics'
 import { WebBotAuthRequestSigner } from './web-bot-auth'
 import { wildcardPatternMatchesPathname } from './wildcard-pattern'
 
@@ -54,7 +55,7 @@ export interface ConfigurationRequestScheduler {
 
 type ConfigurationHop =
     | { kind: 'redirect'; location: string; cache: HttpCacheMetadata }
-    | { kind: 'done'; result: ConfigurationFetchResult }
+    | { kind: 'done'; result: ConfigurationFetchResult; reason?: ConfigurationFetchReason }
 
 export class HttpConfigurationFetcher {
     constructor(
@@ -64,13 +65,23 @@ export class HttpConfigurationFetcher {
     ) {}
 
     public async fetch(origin: string, file: ConfigurationFile): Promise<ConfigurationFetchResult> {
+        return await ImageFetchProcessingMetrics.measure('configuration_fetch', () =>
+            this.fetchConfiguration(origin, file)
+        )
+    }
+
+    private async fetchConfiguration(origin: string, file: ConfigurationFile): Promise<ConfigurationFetchResult> {
+        const complete = (
+            result: ConfigurationFetchResult,
+            reason: ConfigurationFetchReason = result.outcome
+        ): ConfigurationFetchResult => ImageFetchProcessingMetrics.observeConfigurationFetch(file, result, reason)
         const deadlineMs = Date.now() + this.timeoutMs
         let target = new URL(file === 'robots' ? '/robots.txt' : '/.well-known/tdmrep.json', origin)
         const registrableDomain = politenessKey(target.hostname)
         for (let redirects = 0; ; redirects++) {
             const canonical = canonicalizeUrl(target.toString())
             if (!canonical) {
-                return { outcome: 'refused' }
+                return complete({ outcome: 'refused' }, 'invalid_url')
             }
             target = new URL(canonical.fetch)
             let scheduled:
@@ -79,26 +90,26 @@ export class HttpConfigurationFetcher {
             try {
                 scheduled = await this.scheduler.run(target, deadlineMs, () => this.hop(target, file, deadlineMs))
             } catch {
-                return { outcome: 'unreachable' }
+                return complete({ outcome: 'unreachable' }, Date.now() >= deadlineMs ? 'timeout' : 'request_error')
             }
             if (!scheduled.ran) {
-                return { outcome: 'deferred', reason: scheduled.reason }
+                return complete({ outcome: 'deferred', reason: scheduled.reason })
             }
             const hop = scheduled.value
             if (hop.kind === 'done') {
-                return hop.result
+                return complete(hop.result, hop.reason)
             }
             if (redirects >= CONFIG_REDIRECT_LIMIT) {
-                return { outcome: 'unreachable', cache: hop.cache }
+                return complete({ outcome: 'unreachable', cache: hop.cache }, 'redirect_limit')
             }
             try {
                 const redirectTarget = new URL(hop.location, target)
                 if (politenessKey(redirectTarget.hostname) !== registrableDomain) {
-                    return { outcome: 'unreachable', cache: hop.cache }
+                    return complete({ outcome: 'unreachable', cache: hop.cache }, 'cross_domain_redirect')
                 }
                 target = redirectTarget
             } catch {
-                return { outcome: 'unreachable', cache: hop.cache }
+                return complete({ outcome: 'unreachable', cache: hop.cache }, 'invalid_redirect')
             }
         }
     }
@@ -110,6 +121,7 @@ export class HttpConfigurationFetcher {
         try {
             response = await fetchStreamed(target.toString(), {
                 timeoutMs: Math.max(1, deadlineMs - Date.now()),
+                allowH2: true,
                 headers: {
                     'user-agent': USER_AGENT,
                     accept: file === 'robots' ? 'text/plain,*/*;q=0.1' : 'application/json,*/*;q=0.1',
@@ -140,7 +152,7 @@ export class HttpConfigurationFetcher {
             return complete(
                 location
                     ? { kind: 'redirect', location, cache }
-                    : { kind: 'done', result: { outcome: 'unreachable', cache } }
+                    : { kind: 'done', result: { outcome: 'unreachable', cache }, reason: 'missing_location' }
             )
         }
         if (response.status === 404 || response.status === 410) {
@@ -149,7 +161,11 @@ export class HttpConfigurationFetcher {
         }
         if (response.status === 429 || response.status >= 500) {
             response.discard()
-            return complete({ kind: 'done', result: { outcome: 'unreachable', cache } })
+            return complete({
+                kind: 'done',
+                result: { outcome: 'unreachable', cache },
+                reason: response.status === 429 ? 'http_429' : 'http_5xx',
+            })
         }
         if (response.status >= 400 && response.status < 500) {
             response.discard()
@@ -157,15 +173,20 @@ export class HttpConfigurationFetcher {
         }
         if (response.status !== 200) {
             response.discard()
-            return complete({ kind: 'done', result: { outcome: 'unreachable', cache } })
+            return complete({ kind: 'done', result: { outcome: 'unreachable', cache }, reason: 'unexpected_status' })
         }
         const body = await response.read(CONFIG_BODY_LIMIT)
         if (body.overLimit && file === 'tdmrep') {
-            return complete({ kind: 'done', result: { outcome: 'unreachable', cache } })
+            return complete({ kind: 'done', result: { outcome: 'unreachable', cache }, reason: 'body_limit' })
         }
-        const text = body.bytes.toString('utf8')
+        let text: string
+        try {
+            text = new TextDecoder('utf-8', { fatal: true }).decode(body.bytes, { stream: body.overLimit })
+        } catch {
+            return complete({ kind: 'done', result: { outcome: 'unreachable', cache }, reason: 'invalid_utf8' })
+        }
         if (file === 'tdmrep' && !isValidTdmrepDocument(text)) {
-            return complete({ kind: 'done', result: { outcome: 'unreachable', cache } })
+            return complete({ kind: 'done', result: { outcome: 'unreachable', cache }, reason: 'invalid_document' })
         }
         return complete({ kind: 'done', result: { outcome: 'available', body: text, cache } })
     }
@@ -234,7 +255,7 @@ export class ConfigurationPolicyService {
                 allowed: false,
                 transient: false,
                 reason: 'robots_refused',
-                crawlDelayMs: 1_000,
+                crawlDelayMs: 0,
                 tdmrepReservation: false,
                 updates,
             }
@@ -244,7 +265,7 @@ export class ConfigurationPolicyService {
                 allowed: false,
                 transient: false,
                 reason: 'tdmrep_refused',
-                crawlDelayMs: 1_000,
+                crawlDelayMs: 0,
                 tdmrepReservation: false,
                 updates,
             }
@@ -272,7 +293,7 @@ export class ConfigurationPolicyService {
                 allowed: false,
                 transient: true,
                 reason: deferredReason,
-                crawlDelayMs: 1_000,
+                crawlDelayMs: 0,
                 tdmrepReservation: false,
                 updates,
             }
@@ -282,7 +303,7 @@ export class ConfigurationPolicyService {
                 allowed: false,
                 transient: true,
                 reason: 'configuration_unreachable',
-                crawlDelayMs: 1_000,
+                crawlDelayMs: 0,
                 tdmrepReservation: false,
                 updates,
             }
@@ -310,18 +331,25 @@ export class ConfigurationPolicyService {
             previous = undefined
         }
         if (previous && previous.refreshAtMs > nowMs) {
+            ImageFetchProcessingMetrics.observeConfigurationLookup(file, 'cache', previous.status)
             return { item: previous, updates: [] }
         }
         if (previous?.status === 'unreachable' && previous.retryAtMs > nowMs) {
+            ImageFetchProcessingMetrics.observeConfigurationLookup(file, 'cache', previous.status)
             return { item: previous, updates: [] }
         }
         const key = configurationCacheKey(origin, file)
         let request = this.inFlight.get(key)
+        const source = request ? 'shared' : 'network'
         if (!request) {
             request = this.fetcher.fetch(origin, file).finally(() => this.inFlight.delete(key))
             this.inFlight.set(key, request)
         }
-        const fetched = await request
+        const fetched = await request.catch((error) => {
+            ImageFetchProcessingMetrics.observeConfigurationLookup(file, source, 'error')
+            throw error
+        })
+        ImageFetchProcessingMetrics.observeConfigurationLookup(file, source, fetched.outcome)
         if (fetched.outcome === 'deferred') {
             return {
                 item: previous ?? unreachableItem(origin, file, nowMs),
@@ -453,7 +481,7 @@ function selectedExtensionFields(
 }
 
 function defaultRobotsPolicy(): { allowed: true; crawlDelayMs: number } {
-    return { allowed: true, crawlDelayMs: 1_000 }
+    return { allowed: true, crawlDelayMs: 0 }
 }
 
 export async function parseRobotsPolicy(
@@ -477,10 +505,10 @@ function evaluateRobotsPolicy(
     url: string
 ): { allowed: boolean; crawlDelayMs: number; reason?: RobotsPolicyRefusalReason } {
     if (!parsed.matcher.checkUrl(BOT_NAME, url).allowed) {
-        return { allowed: false, crawlDelayMs: 1_000, reason: 'robots_disallow' }
+        return { allowed: false, crawlDelayMs: 0, reason: 'robots_disallow' }
     }
     const crawlDelayMs = Math.max(
-        1_000,
+        0,
         ...parsed.fields
             .filter((field) => field.name === 'crawl-delay')
             .flatMap((field) => {
@@ -488,7 +516,8 @@ function evaluateRobotsPolicy(
                 if (!/^\d+(?:\.\d+)?$/.test(value)) {
                     return []
                 }
-                const milliseconds = Number(value) * 1000
+                // A decimal multiplied by 1000 is not always exact. 16.1 * 1000 is 16100.000000000002. The safe-integer guard below rejects that value, but README 7.9 accepts the delay.
+                const milliseconds = Math.round(Number(value) * 1000)
                 return Number.isSafeInteger(milliseconds) ? [milliseconds] : []
             })
     )
@@ -612,13 +641,20 @@ export function responseOptOutReason(
     return undefined
 }
 
+// X-Robots-Tag directives that carry a value, from https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag. A colon inside one of these does not start a bot scope.
+const VALUED_X_ROBOTS_DIRECTIVES = ['unavailable_after', 'max-snippet', 'max-image-preview', 'max-video-preview']
+
 function xRobotsTagRefuses(value: string): boolean {
     const lower = value.toLowerCase()
     const colon = lower.indexOf(':')
-    const directives = colon >= 0 ? lower.slice(colon + 1) : lower
-    if (colon >= 0 && lower.slice(0, colon).trim() !== BOT_NAME.toLowerCase()) {
+    // A bot scope is one token before the first colon. A valued directive looks the same, so the lane must tell the two apart. Otherwise it reads `unavailable_after: <date>, noai` as another bot's scope and ignores an opt-out that README 2.6 requires.
+    // A prefix that names no listed directive reads as a bot scope. This keeps another bot's scope intact. A new valued directive therefore needs an entry in the list above, because until then the lane skips a `noai` that follows it.
+    const prefix = colon >= 0 ? lower.slice(0, colon).trim() : ''
+    const scoped = colon >= 0 && !prefix.includes(',') && !VALUED_X_ROBOTS_DIRECTIVES.includes(prefix)
+    if (scoped && prefix !== BOT_NAME.toLowerCase()) {
         return false
     }
+    const directives = scoped ? lower.slice(colon + 1) : lower
     return directives.split(',').some((directive) => ['noai', 'noimageai'].includes(directive.trim()))
 }
 

@@ -1,16 +1,16 @@
-import ChartDataLabels from 'chartjs-plugin-datalabels'
-import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
 import { MakeLogicType, actions, afterMount, kea, path, reducers, selectors, useActions, useValues } from 'kea'
 import { loaders } from 'kea-loaders'
 import { useMemo, useState } from 'react'
 
 import { IconCodeInsert, IconCopy, IconRefresh } from '@posthog/icons'
+import { TimeSeriesComboChart } from '@posthog/quill-charts'
+import type { Series } from '@posthog/quill-charts'
 
 import api from 'lib/api'
-import { Chart, ChartConfiguration, ChartDataset } from 'lib/Chart'
+import { useChartTheme } from 'lib/charts/hooks'
+import { getColorVar } from 'lib/colors'
 import { LinkMetabaseQuery } from 'lib/components/MetabaseQueryLink'
 import { dayjs } from 'lib/dayjs'
-import { useChart } from 'lib/hooks/useChart'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
@@ -32,7 +32,7 @@ export interface Stats {
     exception_percentage: number | null
 }
 
-interface DataPoint {
+export interface DataPoint {
     hour: string
     successful_queries: number
     exceptions: number
@@ -176,89 +176,52 @@ const generateHourlyLabels = (days: number): string[] => {
     return labels.reverse()
 }
 
-const BarChartWithLine: React.FC<{ data: DataPoint[] }> = ({ data }) => {
-    const labels = generateHourlyLabels(14)
+export const BarChartWithLine = ({ data }: { data: DataPoint[] }): JSX.Element => {
+    const theme = useChartTheme()
+    const labels = useMemo(() => generateHourlyLabels(14), [])
 
-    Chart.register(ChartjsPluginStacked100, ChartDataLabels)
+    const series = useMemo<Series[]>(() => {
+        const dataMap = new Map(data.map((d) => [d.hour, d]))
+        return [
+            {
+                key: 'successful_queries',
+                label: 'Successful queries',
+                type: 'bar',
+                color: getColorVar('success'),
+                data: labels.map((label) => dataMap.get(label)?.successful_queries || 0),
+            },
+            {
+                key: 'exceptions',
+                label: 'Exceptions',
+                type: 'bar',
+                color: getColorVar('danger'),
+                data: labels.map((label) => dataMap.get(label)?.exceptions || 0),
+            },
+            {
+                key: 'avg_response_time',
+                label: 'Avg response time (ms)',
+                type: 'line',
+                yAxisId: 'right',
+                color: getColorVar('data-color-1'),
+                data: labels.map((label) => dataMap.get(label)?.avg_response_time_ms || 0),
+            },
+        ]
+    }, [data, labels, theme])
 
-    const { canvasRef } = useChart({
-        getConfig: () => {
-            const dataMap = new Map(data.map((d) => [d.hour, d]))
-
-            const successfulQueries = labels.map((label) => dataMap.get(label)?.successful_queries || 0)
-            const exceptions = labels.map((label) => dataMap.get(label)?.exceptions || 0)
-            const avgResponseTime = labels.map((label) => dataMap.get(label)?.avg_response_time_ms || 0)
-
-            const datasets: ChartDataset[] = [
-                {
-                    label: 'Successful Queries',
-                    data: successfulQueries,
-                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                    borderColor: 'rgba(75, 192, 192, 1)',
-                    borderWidth: 1,
-                    stack: 'Stack 0',
-                },
-                {
-                    label: 'Exceptions',
-                    data: exceptions,
-                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
-                    borderColor: 'rgba(255, 99, 132, 1)',
-                    borderWidth: 1,
-                    stack: 'Stack 0',
-                },
-                {
-                    label: 'Avg Response Time (ms)',
-                    data: avgResponseTime,
-                    type: 'line',
-                    fill: false,
-                    borderColor: 'rgba(153, 102, 255, 0.5)',
-                    yAxisID: 'y-axis-2',
-                },
-            ]
-
-            const maxQueryCount = Math.max(...successfulQueries, ...exceptions)
-            const maxResponseTime = Math.max(...avgResponseTime)
-            const options: ChartConfiguration['options'] = {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: {
-                        display: false,
-                    },
-                    y: {
-                        type: 'linear',
-                        display: true,
-                        position: 'left',
-                        max: maxQueryCount * 1.1,
-                    },
-                    'y-axis-2': {
-                        type: 'linear',
-                        display: true,
-                        position: 'right',
-                        grid: {
-                            drawOnChartArea: false,
-                        },
-                        max: maxResponseTime * 2,
-                    },
-                },
-                plugins: {
-                    // @ts-expect-error Types of library are out of date
-                    crosshair: false,
-                    datalabels: { display: false },
-                },
-            }
-
-            return {
-                type: 'bar' as const,
-                data: { labels, datasets },
-                options,
-                plugins: [ChartDataLabels],
-            }
-        },
-        deps: [data, labels],
-    })
-
-    return <canvas ref={canvasRef} className="h-[300px] w-full" />
+    return (
+        <div className="h-[300px] w-full flex flex-col">
+            <TimeSeriesComboChart
+                series={series}
+                labels={labels}
+                theme={theme}
+                config={{
+                    barLayout: 'stacked',
+                    xAxis: { hide: true },
+                    yAxis: [{ id: 'left' }, { id: 'right', position: 'right' }],
+                }}
+            />
+        </div>
+    )
 }
 
 export interface DebugCHQueriesProps {

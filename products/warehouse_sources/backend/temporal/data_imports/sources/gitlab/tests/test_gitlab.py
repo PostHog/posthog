@@ -286,6 +286,9 @@ class TestValidateCredentials:
             "https://gitlab.com/mygroup/",  # pasted URL
             "mygroup",  # bare group, no project and not a numeric id
             "some-dashboard",  # bare name
+            "/myproject",  # leading slash: encodes to an empty group segment
+            "mygroup/",  # trailing slash: encodes to an empty project segment
+            "mygroup//myproject",  # doubled slash: encodes to an empty middle segment
         ],
     )
     def test_malformed_project_gets_format_guidance(self, project):

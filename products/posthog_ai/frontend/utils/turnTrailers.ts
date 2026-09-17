@@ -9,6 +9,8 @@ export interface TurnTrailer {
     isLastTurn: boolean
     /** The turn's assistant text, concatenated across its message bubbles. */
     turnText: string
+    /** The turn's gateway trace id — `$ai_trace_id` on its generations and its feedback. */
+    traceId?: string
 }
 
 /**
@@ -28,7 +30,17 @@ export function computeTurnTrailers(threadItems: ThreadItem[]): Map<string, Turn
             // A crashed turn never emits its separator; its text must not leak into the next turn.
             textParts = []
         } else if (item.type === 'turn_separator') {
-            trailers.set(item.id, { turnIndex, isLastTurn: false, turnText: textParts.join('\n\n') })
+            // A separator with no answer behind it is a duplicate turn-end marker (the history/live
+            // seam can leak one); it is not a turn and gets no trailer.
+            if (textParts.length === 0) {
+                continue
+            }
+            trailers.set(item.id, {
+                turnIndex,
+                isLastTurn: false,
+                turnText: textParts.join('\n\n'),
+                traceId: item.traceId,
+            })
             lastSeparatorId = item.id
             turnIndex += 1
             textParts = []

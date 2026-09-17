@@ -1,4 +1,5 @@
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { useSpacesTabs } from "@posthog/ui/features/browser-tabs/useSpacesTabs";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useStarredChannelSlots } from "@posthog/ui/features/canvas/hooks/useStarredChannelSlots";
 import {
@@ -6,9 +7,8 @@ import {
   showChannelPane,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
-import { requestSpaceSearchFocus } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
+import { requestSidebarSearchFocus } from "@posthog/ui/features/canvas/stores/sidebarSearchStore";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
-import { useSpacesTabs } from "@posthog/ui/features/feature-flags/useSpacesTabs";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { navigateToChannel } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
@@ -67,11 +67,11 @@ export function ChannelHotkeys() {
   // slide it back to the list, and hand the keyboard to the search box, which
   // is also the tree's keyboard driver.
   useHotkeys(
-    SHORTCUTS.FOCUS_SPACE_SEARCH,
+    SHORTCUTS.FOCUS_SIDEBAR_SEARCH,
     () => {
       useSidebarStore.getState().setOpen(true);
       showChannelList();
-      requestSpaceSearchFocus();
+      requestSidebarSearchFocus();
     },
     {
       enabled: channelsLayout,

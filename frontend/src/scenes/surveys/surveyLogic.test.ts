@@ -12,6 +12,7 @@ import {
 import { OpenEndedColumnMap } from 'scenes/surveys/utils'
 
 import { useMocks } from '~/mocks/jest'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     AccessControlLevel,
@@ -1268,6 +1269,126 @@ describe('set response-based survey branching', () => {
                 .toMatchValues({
                     hasCycle: false,
                 })
+
+            // A price ladder that steps back to the cheaper question on a no, with every response routed.
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: 'at $9 per month',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: SurveyQuestionBranchingType.End, 1: 2 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.Rating,
+                    question: 'how does that price feel',
+                    description: '',
+                    display: 'number',
+                    scale: 5,
+                    lowerBoundLabel: 'Too expensive',
+                    upperBoundLabel: 'Good value',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: {
+                            negative: SurveyQuestionBranchingType.End,
+                            neutral: SurveyQuestionBranchingType.End,
+                            positive: SurveyQuestionBranchingType.End,
+                        },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: 'at $19 per month',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: SurveyQuestionBranchingType.End, 1: 1 },
+                    },
+                },
+            ]
+            await expectLogic(logic, () => {
+                // A fresh object, because hasCycle memoizes on the survey it is given.
+                logic.actions.loadSurveySuccess({ ...SURVEY })
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: false,
+                })
+
+            // The rule left by a deleted choice routes nobody, so its step back is unreachable.
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '0',
+                    description: '',
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '1',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: 2, 1: 2, 2: 0 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '2',
+                    description: '',
+                },
+            ]
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess({ ...SURVEY })
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: false,
+                })
+
+            // The first question is optional, so a skip falls through into the second, which steps back.
+            SURVEY.questions = [
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '0',
+                    description: '',
+                    optional: true,
+                    branching: {
+                        type: SurveyQuestionBranchingType.ResponseBased,
+                        responseValues: { 0: 2, 1: 2 },
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '1',
+                    description: '',
+                    branching: {
+                        type: SurveyQuestionBranchingType.SpecificQuestion,
+                        index: 0,
+                    },
+                },
+                {
+                    type: SurveyQuestionType.SingleChoice,
+                    choices: ['Yes', 'No'],
+                    question: '2',
+                    description: '',
+                },
+            ]
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess({ ...SURVEY })
+            })
+                .toDispatchActions(['loadSurveySuccess'])
+                .toMatchValues({
+                    hasCycle: true,
+                })
         })
     })
 })
@@ -1300,20 +1421,35 @@ describe('survey filters', () => {
                 propertyFilters: propertyFilters,
                 dataTableQuery: partial({
                     source: partial({
-                        properties: expect.arrayContaining([
-                            {
-                                key: 'email',
-                                value: 'test@posthog.com',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Person,
-                            },
-                        ]),
+                        filters: partial({
+                            properties: expect.arrayContaining([
+                                {
+                                    key: 'email',
+                                    value: 'test@posthog.com',
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Person,
+                                },
+                            ]),
+                        }),
                     }),
                 }),
             })
     })
 
-    it('collapses newlines in question text so the generated HogQL select stays single-line', async () => {
+    it.each([true, false])('merges all captured responses with partial collection set to %s', async (enabled) => {
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess({ ...MULTIPLE_CHOICE_SURVEY, enable_partial_responses: enabled })
+        }).toDispatchActions(['loadSurveySuccess'])
+        const source = logic.values.dataTableQuery?.source
+        expect(source).toMatchObject({ kind: NodeKind.HogQLQuery })
+        const query = (source as { query: string }).query
+        expect(query).toContain('GROUP BY submission_key')
+        expect(query).toContain("'survey dismissed', 'survey abandoned'")
+        expect(query).toContain('argMaxIf(')
+        expect(query).not.toContain('HAVING countIf(is_completed_event) > 0')
+    })
+
+    it('keeps question text out of the generated HogQL', async () => {
         // Regression for the "Unexpected character U+00E9" crash on the Survey Results tab: a question
         // whose text spans multiple lines used to leak past the `--` comment appended per response
         // column, turning the trailing (often accented) text into invalid HogQL.
@@ -1333,11 +1469,9 @@ describe('survey filters', () => {
             logic.actions.loadSurveySuccess(surveyWithMultilineQuestion)
         }).toDispatchActions(['loadSurveySuccess'])
 
-        const select = (logic.values.dataTableQuery as unknown as { source: { select: string[] } }).source.select
-        // The question text is still used as the column comment...
-        expect(select.some((col) => col.includes('Déjanos'))).toBe(true)
-        // ...but every generated column expression is single-line, so the `--` comment can't leak.
-        select.forEach((col) => expect(col).not.toMatch(/[\r\n]/))
+        const query = (logic.values.dataTableQuery?.source as { query: string }).query
+        expect(query).not.toContain('Déjanos')
+        expect(query).toContain('AS answer_0')
     })
 
     it('updates query filters when property filters change', async () => {
@@ -1360,14 +1494,16 @@ describe('survey filters', () => {
                 propertyFilters: initialFilters,
                 dataTableQuery: partial({
                     source: partial({
-                        properties: expect.arrayContaining([
-                            {
-                                key: 'email',
-                                value: 'test@posthog.com',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Person,
-                            },
-                        ]),
+                        filters: partial({
+                            properties: expect.arrayContaining([
+                                {
+                                    key: 'email',
+                                    value: 'test@posthog.com',
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Person,
+                                },
+                            ]),
+                        }),
                     }),
                 }),
             })
@@ -1390,14 +1526,16 @@ describe('survey filters', () => {
                 propertyFilters: updatedFilters,
                 dataTableQuery: partial({
                     source: partial({
-                        properties: expect.arrayContaining([
-                            {
-                                key: 'country',
-                                value: 'US',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Person,
-                            },
-                        ]),
+                        filters: partial({
+                            properties: expect.arrayContaining([
+                                {
+                                    key: 'country',
+                                    value: 'US',
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Person,
+                                },
+                            ]),
+                        }),
                     }),
                 }),
             })
@@ -1428,20 +1566,22 @@ describe('survey filters', () => {
                 propertyFilters: multipleFilters,
                 dataTableQuery: partial({
                     source: partial({
-                        properties: expect.arrayContaining([
-                            {
-                                key: 'email',
-                                value: 'test@posthog.com',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Person,
-                            },
-                            {
-                                key: 'country',
-                                value: 'US',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Person,
-                            },
-                        ]),
+                        filters: partial({
+                            properties: expect.arrayContaining([
+                                {
+                                    key: 'email',
+                                    value: 'test@posthog.com',
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Person,
+                                },
+                                {
+                                    key: 'country',
+                                    value: 'US',
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Person,
+                                },
+                            ]),
+                        }),
                     }),
                 }),
             })
@@ -1474,22 +1614,24 @@ describe('survey filters', () => {
                 propertyFilters: groupPropertyFilters,
                 dataTableQuery: partial({
                     source: partial({
-                        properties: expect.arrayContaining([
-                            {
-                                key: 'name',
-                                value: 'ACME Corp',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Group,
-                                group_type_index: 0,
-                            },
-                            {
-                                key: 'industry',
-                                value: 'technology',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Group,
-                                group_type_index: 0,
-                            },
-                        ]),
+                        filters: partial({
+                            properties: expect.arrayContaining([
+                                {
+                                    key: 'name',
+                                    value: 'ACME Corp',
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Group,
+                                    group_type_index: 0,
+                                },
+                                {
+                                    key: 'industry',
+                                    value: 'technology',
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Group,
+                                    group_type_index: 0,
+                                },
+                            ]),
+                        }),
                     }),
                 }),
             })
@@ -1521,21 +1663,23 @@ describe('survey filters', () => {
                 propertyFilters: mixedFilters,
                 dataTableQuery: partial({
                     source: partial({
-                        properties: expect.arrayContaining([
-                            {
-                                key: 'email',
-                                value: 'test@posthog.com',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Person,
-                            },
-                            {
-                                key: 'company_name',
-                                value: 'ACME Corp',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Group,
-                                group_type_index: 0,
-                            },
-                        ]),
+                        filters: partial({
+                            properties: expect.arrayContaining([
+                                {
+                                    key: 'email',
+                                    value: 'test@posthog.com',
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Person,
+                                },
+                                {
+                                    key: 'company_name',
+                                    value: 'ACME Corp',
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Group,
+                                    group_type_index: 0,
+                                },
+                            ]),
+                        }),
                     }),
                 }),
             })
@@ -1560,22 +1704,17 @@ describe('survey filters', () => {
                 propertyFilters: propertyFilters,
                 dataTableQuery: partial({
                     source: partial({
-                        properties: expect.arrayContaining([
-                            // Survey ID property should still be present
-                            {
-                                key: SurveyEventProperties.SURVEY_ID,
-                                operator: 'exact',
-                                type: 'event',
-                                value: MULTIPLE_CHOICE_SURVEY.id,
-                            },
-                            // Our new filter should be present
-                            {
-                                key: 'email',
-                                value: 'test@posthog.com',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Person,
-                            },
-                        ]),
+                        filters: partial({
+                            properties: expect.arrayContaining([
+                                // Our new filter should be present
+                                {
+                                    key: 'email',
+                                    value: 'test@posthog.com',
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Person,
+                                },
+                            ]),
+                        }),
                     }),
                 }),
             })
@@ -1591,15 +1730,8 @@ describe('survey filters', () => {
                 propertyFilters: [],
                 dataTableQuery: partial({
                     source: partial({
-                        // Should still have the survey ID property even with no filters
-                        properties: expect.arrayContaining([
-                            {
-                                key: SurveyEventProperties.SURVEY_ID,
-                                operator: 'exact',
-                                type: 'event',
-                                value: MULTIPLE_CHOICE_SURVEY.id,
-                            },
-                        ]),
+                        filters: { properties: [] },
+                        query: expect.stringContaining(MULTIPLE_CHOICE_SURVEY.id),
                     }),
                 }),
             })
@@ -1706,9 +1838,39 @@ describe('surveyLogic filters for surveys responses', () => {
         }).toDispatchActions(['setAnswerFilters', 'loadSurveyBaseStats', 'loadSurveyDismissedAndSentCount'])
     })
 
+    it.each<[EventPropertyFilter['value'], number]>([
+        [[], 0],
+        ['', 0],
+        [0, 1],
+        ['feedback', 1],
+        [['feedback', 'other'], 1],
+    ])('counts active answer filters for %j', async (value, count) => {
+        await expectLogic(logic, () => {
+            logic.actions.setAnswerFilters(
+                [
+                    {
+                        key: SurveyEventProperties.SURVEY_RESPONSE,
+                        value,
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                ],
+                false
+            )
+        }).toMatchValues({
+            activeAnswerFiltersCount: count,
+            activeResultsFilterCount: count,
+            hasActiveAnswerFilters: count > 0,
+        })
+    })
+
     it('clears filters with a single results reload', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+        }).toDispatchActions(['loadSurveySuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.setShowArchivedResponses(true)
             logic.actions.setAnswerFilters(
                 [
                     {
@@ -1738,18 +1900,22 @@ describe('surveyLogic filters for surveys responses', () => {
                 },
                 false
             )
-        }).toDispatchActions(['loadSurveySuccess'])
+        })
+            .toDispatchActions(['setAnswerFilters', 'setPropertyFilters'])
+            .toMatchValues({ activeResultsFilterCount: 3, showArchivedResponses: true })
 
         await expectLogic(logic, () => {
             logic.actions.clearFilters()
-        }).toDispatchActions([
-            'clearFilters',
-            'setAnswerFilters',
-            'setPropertyFilters',
-            'setDateRange',
-            'loadSurveyBaseStats',
-            'loadSurveyDismissedAndSentCount',
-        ])
+        })
+            .toDispatchActions([
+                'clearFilters',
+                'setAnswerFilters',
+                'setPropertyFilters',
+                'setDateRange',
+                'loadSurveyBaseStats',
+                'loadSurveyDismissedAndSentCount',
+            ])
+            .toMatchValues({ activeResultsFilterCount: 0, hasActiveFilters: false, showArchivedResponses: false })
     })
 
     describe('interval selection', () => {
@@ -1877,6 +2043,7 @@ describe('survey stats calculation', () => {
             logic.actions.setDismissedAndSentCount(null)
         }).toMatchValues({
             processedSurveyStats: null,
+            surveyResponseOutcomes: null,
             surveyRates: {
                 response_rate: 0.0,
                 dismissal_rate: 0.0,
@@ -1885,6 +2052,25 @@ describe('survey stats calculation', () => {
             },
         })
     })
+
+    it.each([true, false])(
+        'uses submissions for outcome percentages when counting people is %s',
+        async (countPeople) => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilterSurveyStatsByDistinctId(countPeople)
+                logic.actions.setBaseStatsResults([
+                    createBaseStat(SurveyEventName.SHOWN, 100, 80),
+                    [SurveyEventName.SENT, 5, 1, MOCK_FIRST_SEEN, MOCK_LAST_SEEN, [2, 1, 2]],
+                ])
+            }).toMatchValues({
+                surveyResponseOutcomes: [
+                    { label: 'Completed', count: 2, percentage: 0.4 },
+                    { label: 'Dismissed', count: 1, percentage: 0.2 },
+                    { label: 'Abandoned', count: 2, percentage: 0.4 },
+                ],
+            })
+        }
+    )
 
     it('should calculate stats correctly when only "survey shown" events exist', async () => {
         const baseStats = [createBaseStat(SurveyEventName.SHOWN, 100, 80)]

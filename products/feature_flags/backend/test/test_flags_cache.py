@@ -22,18 +22,22 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.core.management.base import OutputWrapper
 from django.db import connection
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
 from posthog.kafka_client.topics import KAFKA_FLAGS_CACHE_INVALIDATION
 from posthog.models import Team
-from posthog.storage.cache_expiry_manager import CacheRefreshCounts
+from posthog.storage.cache_expiry_manager import CacheRefreshCounts, RefreshPacing
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.flags_cache import (
+    FLAGS_HYPERCACHE_MANAGEMENT_CONFIG,
+    KAFKA_ROUTING_FLAG,
+    REFRESH_ROUTING_FLAG,
+    SHADOW_COMPARE_FLAG,
     _blank_inactive_filters,
     _compare_flag_fields,
     _compute_flag_dependencies,
@@ -49,7 +53,10 @@ from products.feature_flags.backend.flags_cache import (
     flags_hypercache,
     get_flags_from_cache,
     get_team_ids_with_recently_updated_flags,
+    get_team_primary_flags_writer,
     get_teams_with_flags_queryset,
+    publish_shadow_invalidation,
+    route_refresh_to_kafka,
     update_flags_cache,
     verify_team_flags,
 )
@@ -522,6 +529,79 @@ class TestServiceFlagsCache(BaseTest):
         assert len(result[other_team.id]["cohorts"]) == 1
         assert result[other_team.id]["cohorts"][0]["id"] == cohort_b.id
 
+    def _create_cohort(self, name: str) -> Cohort:
+        return Cohort.objects.create(
+            team=self.team,
+            name=name,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"type": "OR", "values": [{"key": "email", "value": "a@example.com", "type": "person"}]}
+                    ],
+                }
+            },
+        )
+
+    def test_get_feature_flags_for_service_reads_explicit_config_version_1_like_absent(self):
+        cohort = self._create_cohort("referenced")
+        target = FeatureFlag.objects.create(
+            team=self.team,
+            key="dependency-target",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        stored_filters = {
+            "version": 1,
+            "groups": [
+                {
+                    "properties": [
+                        {"type": "cohort", "value": cohort.id},
+                        {"type": "flag", "key": str(target.id), "value": ["true"], "operator": "exact"},
+                    ],
+                    "rollout_percentage": 100,
+                }
+            ],
+        }
+        flag = FeatureFlag.objects.create(
+            team=self.team, key="explicit-version-1", created_by=self.user, filters=stored_filters
+        )
+
+        result = _get_feature_flags_for_service(self.team)
+
+        assert {f["key"] for f in result["flags"]} == {"dependency-target", "explicit-version-1"}
+        assert [c["id"] for c in result["cohorts"]] == [cohort.id]
+        assert result["evaluation_metadata"]["dependency_stages"] == [[target.id], [flag.id]]
+        assert result["evaluation_metadata"]["transitive_deps"][str(flag.id)] == [target.id]
+        flag.refresh_from_db()
+        assert flag.filters == stored_filters
+
+    def test_update_flags_cache_keeps_existing_entry_when_a_flag_has_unsupported_format(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="v1-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        assert update_flags_cache(self.team) is True
+        etag_before = flags_hypercache.get_etag(self.team)
+
+        # A v2 discriminator over v1-looking groups: reading it as v1 would publish the
+        # document into the service payload instead of failing this team's rebuild.
+        unsupported_filters = {"version": 2, "groups": [{"properties": [], "rollout_percentage": 100}]}
+        unsupported = FeatureFlag.objects.create(
+            team=self.team, key="unsupported-format", created_by=self.user, filters=unsupported_filters
+        )
+
+        assert update_flags_cache(self.team) is False
+
+        cached = get_flags_from_cache(self.team)
+        assert cached is not None
+        assert [f["key"] for f in cached] == ["v1-flag"]
+        assert flags_hypercache.get_etag(self.team) == etag_before
+        unsupported.refresh_from_db()
+        assert unsupported.filters == unsupported_filters
+
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
 class TestHasExperimentField(BaseTest):
@@ -780,6 +860,10 @@ class TestServiceFlagsKafkaRouting(BaseTest):
         assert envelope.version == 1
         assert envelope.team_id == self.team.id
         assert envelope.operation == "invalidate"
+        # A builder that predates `source` rejects any message carrying it through
+        # deny_unknown_fields, and counts it as a parse error the DLQ does not keep.
+        # The edit path must stay on the default so it reaches those builders.
+        assert "source" not in data
 
     @patch("products.feature_flags.backend.flags_cache.producer_scope")
     @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
@@ -912,6 +996,298 @@ class TestServiceFlagsKafkaRouting(BaseTest):
         mock_produce.assert_not_called()
 
 
+@override_settings(FLAGS_CACHE_REFRESH_KAFKA_ENABLED=True)
+class TestRefreshRoutingHook(SimpleTestCase):
+    TEAM_ID = 11
+
+    @override_settings(FLAGS_CACHE_REFRESH_KAFKA_ENABLED=False)
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache.feature_enabled_or_false", return_value=True)
+    def test_the_deployment_switch_off_declines_the_team_without_reading_the_flag(self, mock_gate, mock_produce):
+        assert route_refresh_to_kafka(self.TEAM_ID) is False
+
+        # Checked before the flag, which resolves against one project key for every
+        # region and so cannot hold routing off in the lagging one.
+        mock_gate.assert_not_called()
+        mock_produce.assert_not_called()
+
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache.feature_enabled_or_false", return_value=False)
+    def test_gate_off_declines_the_team_and_produces_nothing(self, mock_gate, mock_produce):
+        assert route_refresh_to_kafka(self.TEAM_ID) is False
+
+        mock_produce.assert_not_called()
+        # The sweep must not read the edit path's flag, which is pinned at 100%.
+        assert mock_gate.call_args.args[0] == REFRESH_ROUTING_FLAG
+        assert REFRESH_ROUTING_FLAG != KAFKA_ROUTING_FLAG
+
+    @patch("products.feature_flags.backend.flags_cache.producer_scope")
+    @patch("products.feature_flags.backend.flags_cache.feature_enabled_or_false", return_value=True)
+    def test_gate_on_produces_a_message_the_builder_reads_as_a_refresh(self, mock_gate, mock_producer_scope):
+        mock_producer = MagicMock()
+        mock_producer_scope.return_value.__enter__.return_value = mock_producer
+
+        assert route_refresh_to_kafka(self.TEAM_ID) is True
+
+        produce_kwargs = mock_producer.produce.call_args.kwargs
+        assert produce_kwargs["key"] == str(self.TEAM_ID)
+        envelope = FlagsCacheInvalidation.model_validate(produce_kwargs["data"])
+        assert envelope.team_id == self.TEAM_ID
+        assert envelope.source == "refresh"
+        assert envelope.shadow is False
+
+    @patch("products.feature_flags.backend.flags_cache.TOMBSTONE_COUNTER")
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch(
+        "products.feature_flags.backend.flags_cache.feature_enabled_or_false",
+        side_effect=RuntimeError("posthoganalytics borked"),
+    )
+    def test_a_broken_gate_leaves_the_build_to_python_without_ticking_the_tombstone(
+        self, mock_gate, mock_produce, mock_tombstone
+    ):
+        assert route_refresh_to_kafka(self.TEAM_ID) is False
+
+        mock_produce.assert_not_called()
+        # A run evaluates the gate once per team, so a tick here would hold a constant
+        # rate on a panel that means "rare anomaly".
+        mock_tombstone.labels.assert_not_called()
+
+    @patch("products.feature_flags.backend.flags_cache.producer_scope")
+    @patch("products.feature_flags.backend.flags_cache.feature_enabled_or_false", return_value=True)
+    def test_a_produce_failure_is_reported_rather_than_counted_as_enqueued(self, mock_gate, mock_producer_scope):
+        mock_producer_scope.side_effect = RuntimeError("kafka cluster unreachable")
+
+        # Never True: the sweep counts a team as enqueued from this returning True, so
+        # returning it here would report a hand-off that never happened for every team
+        # of a run whose producer is down. The sweep turns the error into a failed team
+        # and still skips its own Python build, which the hook contract test in
+        # posthog/storage/test/test_cache_expiry_manager.py pins.
+        with pytest.raises(RuntimeError, match="kafka cluster unreachable"):
+            route_refresh_to_kafka(self.TEAM_ID)
+
+
+class TestShadowInvalidationPublishing(SimpleTestCase):
+    """Shadow parity publishing. It runs at the tail of the Celery build rather
+    than at invalidation time, so the Rust builder diffs against a cache entry
+    Python has already written."""
+
+    TEAM_ID = 7
+
+    @parameterized.expand([("gate_off", False), ("gate_on", True)])
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache._shadow_compare_enabled")
+    @patch("products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag", return_value=False)
+    def test_publishes_only_when_the_shadow_gate_is_open(
+        self, name, shadow_gate_open, mock_gate, mock_shadow_gate, mock_produce
+    ):
+        mock_shadow_gate.return_value = shadow_gate_open
+
+        publish_shadow_invalidation(self.TEAM_ID)
+
+        mock_shadow_gate.assert_called_once_with(self.TEAM_ID)
+        if shadow_gate_open:
+            mock_produce.assert_called_once_with(self.TEAM_ID, shadow=True)
+        else:
+            mock_produce.assert_not_called()
+
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache._shadow_compare_enabled", return_value=True)
+    @patch("products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag", return_value=True)
+    def test_kafka_owned_team_never_shadow_publishes(self, mock_gate, mock_shadow_gate, mock_produce):
+        # Cohort invalidation dispatches this build task for every team, so a team
+        # Rust already serves reaches here and would diff Rust output against itself.
+        publish_shadow_invalidation(self.TEAM_ID)
+
+        mock_shadow_gate.assert_not_called()
+        mock_produce.assert_not_called()
+
+    @patch("products.feature_flags.backend.flags_cache.producer_scope")
+    @patch("products.feature_flags.backend.flags_cache._shadow_compare_enabled", return_value=True)
+    @patch("products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag", return_value=False)
+    def test_shadow_message_carries_the_shadow_flag_on_the_wire(self, mock_gate, mock_shadow_gate, mock_producer_scope):
+        mock_producer = MagicMock()
+        mock_producer_scope.return_value.__enter__.return_value = mock_producer
+
+        publish_shadow_invalidation(self.TEAM_ID)
+
+        # The consumer reads this field to decide whether to write the cache, so a
+        # dropped `shadow` would make the Rust builder overwrite an entry Celery owns.
+        envelope = FlagsCacheInvalidation.model_validate(mock_producer.produce.call_args.kwargs["data"])
+        assert envelope.shadow is True
+
+    @patch(
+        "products.feature_flags.backend.flags_cache.producer_scope",
+        side_effect=RuntimeError("kafka cluster unreachable"),
+    )
+    @patch("products.feature_flags.backend.flags_cache._shadow_compare_enabled", return_value=True)
+    @patch("products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag", return_value=False)
+    @patch("products.feature_flags.backend.flags_cache.logger")
+    def test_produce_failure_does_not_raise_into_the_build(
+        self, mock_logger, mock_gate, mock_shadow_gate, mock_producer_scope
+    ):
+        # Parity evidence is telemetry, so an unhealthy Kafka must not raise back
+        # into the task that just wrote the cache.
+        publish_shadow_invalidation(self.TEAM_ID)
+
+        mock_producer_scope.assert_called_once()
+        # Real and shadow invalidations share a topic and a log event, so this field
+        # is the only thing telling on-call the lost message was telemetry.
+        assert mock_logger.warning.call_args.args[0] == "flags_cache_invalidation_produce_failed"
+        assert mock_logger.warning.call_args.kwargs["shadow"] is True
+
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled")
+    def test_inert_while_the_shadow_flag_does_not_exist(self, mock_feature_enabled, mock_produce):
+        # The state this ships in. The routing flag resolves, because it is live for
+        # the canary projects. SHADOW_COMPARE_FLAG does not exist yet, so local
+        # evaluation cannot resolve it and returns None.
+        mock_feature_enabled.side_effect = lambda key, *a, **kw: False if key == KAFKA_ROUTING_FLAG else None
+
+        publish_shadow_invalidation(self.TEAM_ID)
+
+        mock_produce.assert_not_called()
+
+    @patch("products.feature_flags.backend.flags_cache.TOMBSTONE_COUNTER")
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache._shadow_compare_enabled")
+    @patch("products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag", return_value=None)
+    def test_unresolved_ownership_skips_without_ticking_the_routing_tombstone(
+        self, mock_gate, mock_shadow_gate, mock_produce, mock_tombstone
+    ):
+        publish_shadow_invalidation(self.TEAM_ID)
+
+        # Cohort invalidation and the backfill finalizer dispatch this build task
+        # without reading the routing gate, so ticking its cold-cache counter here
+        # would spike a panel that means the flag polling thread is wedged.
+        mock_tombstone.labels.assert_not_called()
+        # Ownership is unknown, and shadow-building a team Rust owns would diff the
+        # Rust output against itself.
+        mock_shadow_gate.assert_not_called()
+        mock_produce.assert_not_called()
+
+    @patch("products.feature_flags.backend.flags_cache.logger")
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache._shadow_compare_enabled")
+    @patch(
+        "products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag",
+        side_effect=RuntimeError("flag client down"),
+    )
+    def test_routing_evaluation_failure_publishes_nothing(self, mock_gate, mock_shadow_gate, mock_produce, mock_logger):
+        # Not raising is the assertion. The task sets no autoretry_for, so an escape
+        # does not re-run the build. It marks the task FAILURE and posts a Sentry
+        # error per rebuild, fleet-wide, for a telemetry failure.
+        publish_shadow_invalidation(self.TEAM_ID)
+
+        mock_shadow_gate.assert_not_called()
+        mock_produce.assert_not_called()
+        # The shadow gate never runs, so its own warning cannot fire. This is the
+        # only record that the worker stopped publishing.
+        assert mock_logger.warning.call_args.args[0] == "flags_cache_shadow_routing_evaluation_failed"
+
+    @patch("products.feature_flags.backend.flags_cache.logger")
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch(
+        "products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled",
+        side_effect=RuntimeError("flag client down"),
+    )
+    @patch("products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag", return_value=False)
+    def test_shadow_gate_failure_publishes_nothing_and_warns(
+        self, mock_gate, mock_feature_enabled, mock_produce, mock_logger
+    ):
+        publish_shadow_invalidation(self.TEAM_ID)
+
+        mock_produce.assert_not_called()
+        # The warning is the only signal for a fleet-wide silent disable, because
+        # the gate reports its own failure as "shadow off".
+        assert mock_logger.warning.call_args.args[0] == "flags_cache_shadow_compare_flag_evaluation_failed"
+
+    @override_settings(FLAGS_CACHE_REFRESH_KAFKA_ENABLED=True)
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    # `_shadow_compare_enabled` reaches the SDK through ph_client rather than this
+    # module's import. Patching here still covers it, because both names resolve to
+    # the same posthoganalytics module object.
+    @patch("products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled", return_value=False)
+    def test_every_gate_evaluates_locally_and_captures_nothing(self, mock_feature_enabled, mock_produce):
+        publish_shadow_invalidation(self.TEAM_ID)
+        route_refresh_to_kafka(self.TEAM_ID)
+
+        # A remote evaluation would put a blocking flags-API call inside every cache
+        # build, and an event capture would bill each rebuild as product usage. The
+        # refresh gate runs once per team of every hourly run, so it costs the most.
+        assert {call.args[0] for call in mock_feature_enabled.call_args_list} == {
+            KAFKA_ROUTING_FLAG,
+            SHADOW_COMPARE_FLAG,
+            REFRESH_ROUTING_FLAG,
+        }
+        for call in mock_feature_enabled.call_args_list:
+            assert call.kwargs["only_evaluate_locally"] is True
+            assert call.kwargs["send_feature_flag_events"] is False
+        # Inert at 0%. This is the only test that runs the real gates, so nothing
+        # else catches one publishing while its flag is off.
+        mock_produce.assert_not_called()
+
+
+class TestGetTeamPrimaryFlagsWriter(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("routed_to_kafka", True, "rust"),
+            ("routed_to_celery", False, "python"),
+            ("flag_cache_cold", None, "unknown"),
+        ]
+    )
+    def test_maps_routing_flag_result_to_writer(self, _name, flag_result, expected_writer):
+        with (
+            patch(
+                "products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled",
+                return_value=flag_result,
+            ),
+            patch("products.feature_flags.backend.flags_cache.logger") as mock_logger,
+        ):
+            assert get_team_primary_flags_writer(42) == expected_writer
+        # A cold flag cache is expected at boot and must stay silent; only a raising
+        # client warrants the evaluation-failed warning.
+        mock_logger.warning.assert_not_called()
+
+    def test_flag_evaluation_error_is_unknown_and_warns(self):
+        with (
+            patch(
+                "products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled",
+                side_effect=RuntimeError("posthoganalytics borked"),
+            ),
+            patch("products.feature_flags.backend.flags_cache.logger") as mock_logger,
+        ):
+            assert get_team_primary_flags_writer(42) == "unknown"
+        mock_logger.warning.assert_called_once()
+        assert mock_logger.warning.call_args.args[0] == "flags_cache_writer_attribution_flag_evaluation_failed"
+        assert mock_logger.warning.call_args.kwargs["team_id"] == 42
+
+    def test_flags_config_attributes_fixes_via_the_routing_gate(self):
+        with patch(
+            "products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled",
+            return_value=True,
+        ) as mock_feature_enabled:
+            assert FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.get_primary_writer_fn is not None
+            assert FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.get_primary_writer_fn(42) == "rust"
+        assert mock_feature_enabled.call_args.args[1] == "team-42"
+
+    @override_settings(FLAGS_CACHE_REFRESH_KAFKA_ENABLED=True)
+    def test_flags_config_binds_the_refresh_routing_hook(self):
+        # The lambda on the config is the only wire between the sweep and the hook.
+        # Unbound, the sweep silently keeps building in Python and the enqueued gauge
+        # stays at zero, which looks the same as the flag being off.
+        with (
+            patch("products.feature_flags.backend.flags_cache._produce_invalidation") as mock_produce,
+            patch(
+                "products.feature_flags.backend.flags_cache.feature_enabled_or_false",
+                return_value=True,
+            ),
+        ):
+            assert FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.route_refresh_fn is not None
+            assert FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.route_refresh_fn(42) is True
+
+        assert mock_produce.call_args.kwargs["source"] == "refresh"
+
+
 @override_settings(FLAGS_REDIS_URL="redis://test")
 class TestServiceFlagsCeleryTasks(BaseTest):
     """Test Celery task integration for service flags cache updates."""
@@ -940,6 +1316,24 @@ class TestServiceFlagsCeleryTasks(BaseTest):
         assert flags is not None
         assert len(flags) == 1
         assert flags[0]["key"] == "test-flag"
+
+    @parameterized.expand([("build_succeeded", True), ("build_failed", False)])
+    @patch("products.feature_flags.backend.flags_cache.producer_scope")
+    @patch("products.feature_flags.backend.flags_cache._shadow_compare_enabled", return_value=True)
+    @patch("products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag", return_value=False)
+    @patch("products.feature_flags.backend.tasks.update_flags_cache")
+    def test_task_publishes_shadow_invalidation_only_after_a_successful_build(
+        self, name, build_succeeded, mock_update, mock_gate, mock_shadow_gate, mock_producer_scope
+    ):
+        from products.feature_flags.backend.tasks import update_team_service_flags_cache
+
+        mock_update.return_value = build_succeeded
+
+        update_team_service_flags_cache(self.team.id)
+
+        # A failed build leaves the stale entry live, so a shadow diff against it
+        # would report Python's failure as Rust drift.
+        assert mock_producer_scope.called is build_succeeded
 
     def test_update_team_service_flags_cache_task_team_not_found(self):
         """Test the Celery task handles missing team gracefully."""
@@ -1617,8 +2011,18 @@ class TestBatchOperations(BaseTest):
         self.assertEqual(counts.successful, 2)
         self.assertEqual(counts.failed, 0)
 
-        # Should call generic refresh_expiring_caches with correct config
-        mock_refresh.assert_called_once_with(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG, 24, settings.FLAGS_CACHE_REFRESH_LIMIT)
+        # Should call generic refresh_expiring_caches with correct config, and take the
+        # pacing for routed teams from settings rather than pinning it in code.
+        mock_refresh.assert_called_once_with(
+            FLAGS_HYPERCACHE_MANAGEMENT_CONFIG,
+            24,
+            settings.FLAGS_CACHE_REFRESH_LIMIT,
+            pacing=RefreshPacing(
+                chunk_size=settings.FLAGS_CACHE_REFRESH_KAFKA_CHUNK_SIZE,
+                delay_seconds=settings.FLAGS_CACHE_REFRESH_KAFKA_CHUNK_DELAY_SECONDS,
+                window_seconds=settings.FLAGS_CACHE_REFRESH_KAFKA_WINDOW_SECONDS,
+            ),
+        )
 
     @patch("posthog.storage.cache_expiry_manager.get_client")
     def test_cleanup_stale_expiry_tracking(self, mock_get_client):
@@ -2213,14 +2617,19 @@ class TestManagementCommands(BaseTest):
             created_by=self.user,
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
-        ctx = EvaluationContext.objects.create(team=self.team, name="original-context-name")
+        # Out of alphabetical order on purpose. The assertions below also cover the sort that
+        # ArrayAgg(distinct=True) applies, which the Rust builder matches with
+        # ARRAY_AGG(DISTINCT ...). Remove distinct=True and the two write different arrays.
+        ctx = EvaluationContext.objects.create(team=self.team, name="zulu-context")
+        other_ctx = EvaluationContext.objects.create(team=self.team, name="alpha-context")
         FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
+        FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=other_ctx)
 
         # Warm the cache
         update_flags_cache(self.team)
 
         # Rename the context directly in DB (bypassing signals to simulate stale cache)
-        EvaluationContext.objects.filter(id=ctx.id).update(name="renamed-context-name")
+        EvaluationContext.objects.filter(id=ctx.id).update(name="mike-context")
 
         # Verify should detect the mismatch
         result = verify_team_flags(self.team, verbose=True)
@@ -2232,8 +2641,8 @@ class TestManagementCommands(BaseTest):
 
         field_diffs = result["diffs"][0]["field_diffs"]
         eval_tag_diff = next(d for d in field_diffs if d["field"] == "evaluation_contexts")
-        self.assertEqual(eval_tag_diff["cached_value"], ["original-context-name"])
-        self.assertEqual(eval_tag_diff["db_value"], ["renamed-context-name"])
+        self.assertEqual(eval_tag_diff["cached_value"], ["alpha-context", "zulu-context"])
+        self.assertEqual(eval_tag_diff["db_value"], ["alpha-context", "mike-context"])
 
         # Mismatch result should include db_data for cache fix optimization
         self.assertIn("db_data", result)
@@ -3177,6 +3586,11 @@ class TestExtractDirectDependencyIds:
             ("inactive_flag_returns_empty", _make_flag(1, "flag_a", deps=[2], active=False), set()),
             ("deleted_flag_returns_empty", _make_flag(1, "flag_a", deps=[2], deleted=True), set()),
             (
+                "inactive_unsupported_format_returns_empty",
+                {**_make_flag(1, "flag_a", active=False), "filters": {"version": 2, **_dependency_filters(2)}},
+                set(),
+            ),
+            (
                 "non_flag_properties_ignored",
                 {
                     "id": 1,
@@ -3659,15 +4073,17 @@ class TestExtractCohortIdsFromFlagFilters(BaseTest):
 
     @parameterized.expand(
         [
-            ("inactive", {"active": False}),
-            ("deleted", {"active": True, "deleted": True}),
+            ("inactive", {"active": False}, {}),
+            ("deleted", {"active": True, "deleted": True}, {}),
+            ("inactive_unsupported_format", {"active": False}, {"version": 2}),
         ]
     )
-    def test_skips_excluded_flag(self, _name, flag_overrides):
+    def test_skips_excluded_flag(self, _name, flag_overrides, filters_overrides):
         flags_data = [
             {
                 **flag_overrides,
                 "filters": {
+                    **filters_overrides,
                     "groups": [{"properties": [{"type": "cohort", "value": 42}]}],
                 },
             }

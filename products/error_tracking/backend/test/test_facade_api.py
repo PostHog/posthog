@@ -13,6 +13,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from posthog.models import Team
 from posthog.models.integration import GitLabIntegrationError, Integration
 
+from products.access_control.backend.models.role import Role
 from products.error_tracking.backend.facade import api, contracts
 from products.error_tracking.backend.models import (
     ErrorTrackingExternalReference,
@@ -21,8 +22,6 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingSymbolSet,
 )
-
-from ee.models.rbac.role import Role
 
 
 class TestErrorTrackingFacadeAPI(BaseTest):
@@ -48,6 +47,14 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         assert issues[0].assignee is not None
         assert issues[0].assignee.id == self.user.id
         assert issues[0].assignee.type == "user"
+
+    def test_list_issues_caps_results_and_returns_newest_first(self):
+        self._create_issue(team=self.team, name="Older issue")
+        newer = self._create_issue(team=self.team, name="Newer issue")
+
+        issues = api.list_issues(team_id=self.team.id, limit=1)
+
+        assert [issue.id for issue in issues] == [newer.id]
 
     def test_get_issue_returns_contract(self):
         issue = self._create_issue(team=self.team, name="Unhandled TypeError")

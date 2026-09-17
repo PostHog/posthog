@@ -14,11 +14,11 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { isObject, isKeyOf } from 'lib/utils/guards'
 import { isURL } from 'lib/utils/url'
-import { NewProperty } from 'scenes/persons/NewProperty'
 import { urls } from 'scenes/urls'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import { getPropertyValueUrl } from '~/taxonomy/propertySources'
 import {
     KNOWN_PROMOTED_PROPERTY_PARENTS,
     POSTHOG_EVENT_PROMOTED_PROPERTIES,
@@ -26,6 +26,8 @@ import {
 } from '~/taxonomy/taxonomy'
 import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import { PropertyDefinitionType, PropertyType } from '~/types'
+
+import { NewProperty } from 'products/persons/frontend/components/NewProperty'
 
 import { CopyToClipboardInline } from '../CopyToClipboard'
 import { JSONViewer } from '../JSONViewer'
@@ -109,6 +111,8 @@ function ValueDisplay({
 
     const valueString: string = value === null ? 'null' : String(value) // typeof null returns 'object' ¯\_(ツ)_/¯
 
+    const externalUrl = getPropertyValueUrl(rootKey, value) ?? (isURL(value) ? String(value) : null)
+
     const handleValueChange = (newValue: any): void => {
         setEditing(false)
         if (rootKey !== undefined && onEdit && newValue != value) {
@@ -124,10 +128,17 @@ function ValueDisplay({
             )}
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
         >
-            {!isURL(value) ? (
+            {!externalUrl ? (
                 <span>{valueString}</span>
             ) : (
-                <Link to={value} target="_blank" className="value-link" targetBlankIcon>
+                <Link
+                    to={externalUrl}
+                    target="_blank"
+                    className="value-link"
+                    targetBlankIcon
+                    // The cell around the value starts inline editing on click, so keep the two apart
+                    onClick={(e) => e.stopPropagation()}
+                >
                     {valueString}
                 </Link>
             )}
@@ -267,6 +278,7 @@ export function PropertiesTable({
             [PropertyDefinitionType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
             [PropertyDefinitionType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
             [PropertyDefinitionType.Account]: TaxonomicFilterGroupType.AccountFields,
+            [PropertyDefinitionType.AccountRelationship]: TaxonomicFilterGroupType.AccountRelationships,
             [PropertyDefinitionType.AccountCustomProperty]: TaxonomicFilterGroupType.AccountCustomProperties,
             [PropertyDefinitionType.Person]: TaxonomicFilterGroupType.PersonProperties,
             [PropertyDefinitionType.PersonMetadata]: TaxonomicFilterGroupType.PersonMetadata,

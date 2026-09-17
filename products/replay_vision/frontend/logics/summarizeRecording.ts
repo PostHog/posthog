@@ -1,4 +1,14 @@
-import type { InlineScanRequestApi, ScanOutcomeEnumApi } from '../generated/api.schemas'
+import type { InlineScanRequestApi, ReplayScannerApi, ScanOutcomeEnumApi } from '../generated/api.schemas'
+import { isSummarizerScanner } from '../replay_scanners/types'
+
+/**
+ * The stored preference for "run the built-in prompt", as opposed to no preference at all.
+ *
+ * Scanner ids are UUIDs, so this cannot collide with one. The two cases have to stay distinct: a team
+ * with a single summarizer gets it by default, but must still be able to choose the built-in prompt
+ * and have that stick.
+ */
+export const BUILT_IN_SUMMARIZER = 'built-in'
 
 /**
  * The config behind "Summarize this recording".
@@ -19,6 +29,26 @@ export const SUMMARIZE_RECORDING_CONFIG: Pick<InlineScanRequestApi, 'prompt' | '
     scanner_type: 'summarizer',
     prompt: "Summarize what the user did in this session: which pages they visited, what they tried to accomplish, and any notable moments like errors, confusion, or successful completions. Be concrete and don't speculate.",
     scanner_config: { length: 'medium' },
+}
+
+/**
+ * Which summarizer the button runs, or null for the built-in prompt.
+ *
+ * A stored preference wins while the scanner it names still exists, so a deleted scanner falls back
+ * rather than leaving the button pointed at nothing. With no usable preference, a lone summarizer is
+ * an unambiguous choice and anything else is not: picking one of several deliberate prompts for the
+ * user would silently favor one, so that case runs the built-in prompt and says so.
+ */
+export function resolveSummarizer(scanners: ReplayScannerApi[], preferredId: string | null): ReplayScannerApi | null {
+    if (preferredId === BUILT_IN_SUMMARIZER) {
+        return null
+    }
+    const summarizers = scanners.filter(isSummarizerScanner)
+    const preferred = preferredId ? summarizers.find((scanner) => scanner.id === preferredId) : undefined
+    if (preferred) {
+        return preferred
+    }
+    return summarizers.length === 1 ? summarizers[0] : null
 }
 
 export interface SummarizeOutcomeMessage {

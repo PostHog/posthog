@@ -288,6 +288,22 @@ describe('markdown round trip', () => {
         })
     })
 
+    describe('repeated parses', () => {
+        it('gives duplicate tags distinct ids and never shares nodes between parses', () => {
+            // The component tag cache reuses parse results by raw source. If it handed out the
+            // cached node itself instead of a copy, the second occurrence (or a later parse of
+            // the same markdown) would overwrite the first one's id in place.
+            const markdown = '<SQLV2 code="select 1" />\n\n<SQLV2 code="select 1" />'
+            const first = parseMarkdownNotebook(markdown)
+            const second = parseMarkdownNotebook(markdown)
+
+            expect(first.nodes).toHaveLength(2)
+            expect(first.nodes[0].id).not.toEqual(first.nodes[1].id)
+            expect(second.nodes.map((node) => node.id)).toEqual(first.nodes.map((node) => node.id))
+            expect(second.nodes[0]).not.toBe(first.nodes[0])
+        })
+    })
+
     describe('html comments', () => {
         it('parses a standalone comment line into a Comment node', () => {
             const document = parseMarkdownNotebook('# Title\n\n<!-- reviewer note -->\n\nBody')

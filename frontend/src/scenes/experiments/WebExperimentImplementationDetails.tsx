@@ -29,27 +29,17 @@ export function WebExperimentImplementationDetails({ experiment }: WebExperiment
     }
 
     return (
-        <>
-            <div>
-                <div className="border p-6 rounded bg-surface-primary deprecated-space-y-2">
-                    <div className="font-semibold leading-tight text-base text-current">
-                        Define variant changes directly on your website
-                    </div>
-                    <div className="text-sm text-secondary">
-                        Use our toolbar to select elements and apply transformations for each variant.
-                    </div>
-                    <div>
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            onClick={onSelectElement}
-                            sideIcon={<IconOpenInApp />}
-                        >
-                            Launch toolbar on your website
-                        </LemonButton>
-                    </div>
-                </div>
+        <div className="space-y-2">
+            <h2 className="font-semibold text-lg mb-0">Implementation</h2>
+            <div className="text-sm text-secondary">
+                Define variant changes directly on your website. Use our toolbar to select elements and apply
+                transformations for each variant.
             </div>
-        </>
+            <div>
+                <LemonButton size="small" type="secondary" onClick={onSelectElement} sideIcon={<IconOpenInApp />}>
+                    Launch toolbar on your website
+                </LemonButton>
+            </div>
+        </div>
     )
 }

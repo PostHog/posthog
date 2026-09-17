@@ -15,17 +15,18 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.facade.models import Insight, InsightViewed
+from products.product_analytics.backend.facade.api import record_insight_views
+from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.context.entity_search import EntitySearchContext
-from ee.models.rbac.access_control import AccessControl
 
 if TYPE_CHECKING:
     from products.customer_analytics.backend.models import Account
@@ -259,6 +260,25 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert "deleted_flag" not in result_keys
         assert "deleted flag" not in result_names
 
+    async def test_feature_flag_filters_exclude_archived(self):
+        await FeatureFlag.objects.acreate(
+            team=self.team, key="active_flag", name="active flag", archived=False, created_by=self.user
+        )
+        await FeatureFlag.objects.acreate(
+            team=self.team,
+            key="archived_flag",
+            name="archived flag",
+            active=False,
+            archived=True,
+            created_by=self.user,
+        )
+
+        results, _ = await self.context.search_entities({"feature_flag"}, "flag")
+
+        result_keys = [r["extra_fields"].get("key", "") for r in results]
+        assert "active_flag" in result_keys
+        assert "archived_flag" not in result_keys
+
     async def test_action_filters_exclude_deleted(self):
         await Action.objects.acreate(team=self.team, name="active action", deleted=False, created_by=self.user)
         await Action.objects.acreate(team=self.team, name="deleted action", deleted=True, created_by=self.user)
@@ -330,11 +350,10 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             team=self.team, name="List Insight 2", deleted=False, saved=True, created_by=self.user
         )
         # list_entities for insights filters by recent views
-        await InsightViewed.objects.acreate(
-            team=self.team, user=self.user, insight=insight1, last_viewed_at=timezone.now()
-        )
-        await InsightViewed.objects.acreate(
-            team=self.team, user=self.user, insight=insight2, last_viewed_at=timezone.now()
+        await sync_to_async(record_insight_views)(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            last_viewed_at_by_insight_id={insight1.id: timezone.now(), insight2.id: timezone.now()},
         )
 
         entities, total = await self.context.list_entities("insight", limit=10, offset=0)
@@ -352,11 +371,10 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         insight2 = await Insight.objects.acreate(
             team=self.team, name="Restricted Insight", deleted=False, saved=True, created_by=self.user
         )
-        await InsightViewed.objects.acreate(
-            team=self.team, user=self.user, insight=insight1, last_viewed_at=timezone.now()
-        )
-        await InsightViewed.objects.acreate(
-            team=self.team, user=self.user, insight=insight2, last_viewed_at=timezone.now()
+        await sync_to_async(record_insight_views)(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            last_viewed_at_by_insight_id={insight1.id: timezone.now(), insight2.id: timezone.now()},
         )
 
         # Mock filter_queryset_by_access_level to filter out insight2
@@ -597,8 +615,8 @@ class TestEntitySearchContext(NonAtomicBaseTest):
                 team=self.team, name=f"Paginated Insight {i}", deleted=False, saved=True, created_by=self.user
             )
             # list_entities for insights filters by recent views
-            await InsightViewed.objects.acreate(
-                team=self.team, user=self.user, insight=insight, last_viewed_at=timezone.now()
+            await sync_to_async(record_insight_views)(
+                team_id=self.team.id, user_id=self.user.id, last_viewed_at_by_insight_id={insight.id: timezone.now()}
             )
 
         entities_page1, total = await self.context.list_entities("insight", limit=2, offset=0)

@@ -12,7 +12,7 @@ import * as zod from 'zod'
  * Recent ReviewHog reviews on this project: actively running reviews first (with the in-flight turn's stage), then the most recent completed ones — at most `limit` rows (default 5), plus `has_more` for whether a larger `limit` would reveal more. By default only the requesting user's reviews; `scope=everyone` lists every review on the project.
  * @summary List recent reviews
  */
-export const ReviewHogReviewsListParams = /* @__PURE__ */ zod.object({
+export const ReviewHogReviewsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -25,7 +25,7 @@ export const reviewHogReviewsListQueryLimitMax = 100
 
 export const reviewHogReviewsListQueryScopeDefault = `mine`
 
-export const ReviewHogReviewsListQueryParams = /* @__PURE__ */ zod.object({
+export const ReviewHogReviewsListQueryParams = () => zod.object({
     limit: zod
         .number()
         .min(1)
@@ -46,7 +46,7 @@ export const ReviewHogReviewsListQueryParams = /* @__PURE__ */ zod.object({
  * One completed ReviewHog review on this project, with the latest turn's validated findings, the findings the validator dismissed (and why), and the review body published to GitHub. Project-wide, so reviews listed under `scope=everyone` can be opened too.
  * @summary Retrieve one review's detail
  */
-export const ReviewHogReviewsRetrieveParams = /* @__PURE__ */ zod.object({
+export const ReviewHogReviewsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this review report.'),
     project_id: zod
         .string()
@@ -59,7 +59,7 @@ export const ReviewHogReviewsRetrieveParams = /* @__PURE__ */ zod.object({
  * Start a ReviewHog review of any pull request the project's GitHub App installation can access, and publish it back to the PR. The requesting user is the review's acting user: their enabled perspectives, blind-spot check, validator, urgency threshold, and resolution criteria drive the run, and it appears under their recent reviews. `run_mode` picks the variant: a review (which chains the resolution stage per the user's resolve_comments setting), a review without resolving, or resolution only. Nonexistent, closed, and fork PRs are rejected synchronously; a PR whose current commit already has a published review returns 'already_reviewed' without starting a run (resolve_only skips that check — settling threads on a reviewed head is its whole point), and triggering a PR whose run is currently in flight joins that run. Otherwise non-blocking: returns the Temporal workflow id immediately while the run executes in the worker.
  * @summary Start a review of a pull request
  */
-export const ReviewHogReviewsTriggerCreateParams = /* @__PURE__ */ zod.object({
+export const ReviewHogReviewsTriggerCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -69,7 +69,7 @@ export const ReviewHogReviewsTriggerCreateParams = /* @__PURE__ */ zod.object({
 
 export const reviewHogReviewsTriggerCreateBodyRunModeDefault = `review`
 
-export const ReviewHogReviewsTriggerCreateBody = /* @__PURE__ */ zod.object({
+export const ReviewHogReviewsTriggerCreateBody = () => zod.object({
     pr_url: zod
         .string()
         .describe(

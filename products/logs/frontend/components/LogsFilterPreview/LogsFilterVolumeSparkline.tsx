@@ -13,6 +13,8 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { UniversalFiltersGroup } from '~/types'
 
 import {
+    DEFAULT_PREVIEW_LOOKBACK,
+    LogsFilterPreviewLookback,
     LogsFilterPreviewMetric,
     LogsFilterPreviewPoint,
     LogsFilterPreviewSeriesData,
@@ -32,6 +34,8 @@ export interface LogsFilterVolumeSparklineRenderInfo extends LogsFilterPreviewSe
 export interface LogsFilterVolumeSparklineProps {
     filterGroup: UniversalFiltersGroup
     metric: LogsFilterPreviewMetric
+    /** How far back the preview looks; defaults to the last 24h. */
+    lookback?: LogsFilterPreviewLookback
     /** Overrides the auto-generated logic key; only needed by stories and tests. */
     previewKey?: string
     /** Threshold lines in the chart's own units, which depend on the resolved bucket width. */
@@ -57,6 +61,7 @@ function bucketInterval(bucketSeconds: number): TimeInterval {
 export function LogsFilterVolumeSparkline({
     filterGroup,
     metric,
+    lookback = DEFAULT_PREVIEW_LOOKBACK,
     previewKey,
     buildGoalLines,
     renderCaption,
@@ -72,12 +77,13 @@ export function LogsFilterVolumeSparkline({
     // Serialized so a re-render handing us a fresh-but-equal object doesn't re-fire the request.
     // Mounting runs this too, which covers the edit-mode case of opening a form with filters already set.
     // `metric` is a dependency because the backend ranks by it before collapsing the tail, so
-    // switching metric needs a fresh request to get the right top-N back.
+    // switching metric needs a fresh request to get the right top-N back. `lookback` changes the
+    // queried window, so it needs a fresh request too.
     const serializedFilterGroup = useMemo(() => JSON.stringify(filterGroup), [filterGroup])
     useEffect(() => {
-        setPreviewRequest(filterGroup, metric)
+        setPreviewRequest(filterGroup, metric, lookback)
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [serializedFilterGroup, metric])
+    }, [serializedFilterGroup, metric, lookback])
 
     const seriesData = useMemo(() => buildSparklineSeries(filterPreview, metric), [filterPreview, metric])
     const renderInfo = useMemo<LogsFilterVolumeSparklineRenderInfo>(
@@ -129,7 +135,7 @@ export function LogsFilterVolumeSparkline({
         <div className="mt-3 flex flex-col gap-1">
             <div className="flex items-center justify-between text-xs text-muted">
                 <span>
-                    Volume preview by service (last 24h, top {TOP_SERVICES_LIMIT}
+                    Volume preview by service (last {lookback}, top {TOP_SERVICES_LIMIT}
                     {metric === 'bytes' ? ', bytes' : ''})
                 </span>
                 {hasFilters && !filterPreviewLoading ? <span>{formattedTotal}</span> : null}
@@ -151,7 +157,7 @@ export function LogsFilterVolumeSparkline({
                     </div>
                 ) : series.length === 0 ? (
                     <div className="h-full flex items-center justify-center text-muted text-xs">
-                        No logs match these filters in the last 24h
+                        No logs match these filters in the last {lookback}
                     </div>
                 ) : (
                     <TimeSeriesBarChart

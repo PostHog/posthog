@@ -9,12 +9,12 @@
  */
 export interface DataQualitySuiteRunApi {
     readonly id: string
-    /** manual, materialization, or source_sync. */
+    /** manual, materialization, source_sync, or scheduled. */
     readonly trigger: string
     /** running, completed, failed, or empty (nothing matched the trigger). */
     readonly status: string
     /**
-     * 'table' or 'view' when the run targets exactly one subject, including a run of a single check on that subject; null for a run spanning several subjects.
+     * 'table', 'view', or 'metric' when the run targets exactly one subject, including a run of a single check on that subject; null for a run spanning several subjects.
      * @nullable
      */
     readonly subject_type: string | null
@@ -47,14 +47,22 @@ export interface PaginatedDataQualitySuiteRunListApi {
 }
 
 /**
+ * Config this run executed, snapshotted so an edit to the check cannot rewrite history. Null for runs recorded before snapshots existed -- unknown, not 'same as the check has now'.
+ * @nullable
+ */
+export type DataQualityCheckRunApiCheckConfig = { [key: string]: unknown } | null
+
+/**
  * * `table` - table
  * * `view` - view
+ * * `metric` - metric
  */
 export type SubjectTypeEnumApi = (typeof SubjectTypeEnumApi)[keyof typeof SubjectTypeEnumApi]
 
 export const SubjectTypeEnumApi = {
     Table: 'table',
     View: 'view',
+    Metric: 'metric',
 } as const
 
 /**
@@ -78,6 +86,18 @@ export const CheckTypeEnumApi = {
     CustomSql: 'custom_sql',
 } as const
 
+/**
+ * * `error` - error
+ * * `warn` - warn
+ */
+export type DataQualityCheckSeverityEnumApi =
+    (typeof DataQualityCheckSeverityEnumApi)[keyof typeof DataQualityCheckSeverityEnumApi]
+
+export const DataQualityCheckSeverityEnumApi = {
+    Error: 'error',
+    Warn: 'warn',
+} as const
+
 export interface DataQualityCheckRunApi {
     readonly id: string
     /**
@@ -85,6 +105,11 @@ export interface DataQualityCheckRunApi {
      * @nullable
      */
     readonly quality_check: string | null
+    /**
+     * Name the check carries now, so a run can be told from the others in its suite. Null when the check is unnamed, has been hard deleted, or is out of your reach today -- describe the run by check_type and column_name instead.
+     * @nullable
+     */
+    readonly check_name: string | null
     readonly suite_run: string
     readonly subject_type: SubjectTypeEnumApi
     readonly subject_uuid: string
@@ -100,6 +125,16 @@ export interface DataQualityCheckRunApi {
      * * `custom_sql` - custom_sql */
     readonly check_type: CheckTypeEnumApi
     readonly column_name: string
+    /**
+     * Config this run executed, snapshotted so an edit to the check cannot rewrite history. Null for runs recorded before snapshots existed -- unknown, not 'same as the check has now'.
+     * @nullable
+     */
+    readonly check_config: DataQualityCheckRunApiCheckConfig
+    /** Severity this run was judged at. Null for runs recorded before snapshots existed.
+     *
+     * * `error` - error
+     * * `warn` - warn */
+    readonly check_severity: DataQualityCheckSeverityEnumApi | null
     /** passed, failed, errored, or skipped. */
     readonly status: string
     /**
@@ -124,18 +159,6 @@ export interface DataQualityCheckRunApi {
     readonly finished_at: string | null
     readonly created_at: string
 }
-
-/**
- * * `error` - error
- * * `warn` - warn
- */
-export type DataQualityCheckSeverityEnumApi =
-    (typeof DataQualityCheckSeverityEnumApi)[keyof typeof DataQualityCheckSeverityEnumApi]
-
-export const DataQualityCheckSeverityEnumApi = {
-    Error: 'error',
-    Warn: 'warn',
-} as const
 
 /**
  * * `user` - user
@@ -215,21 +238,18 @@ export type DataQualityCheckApiConfig = { [key: string]: unknown }
  */
 export interface DataQualityCheckApi {
     readonly id: string
-    /**
-     * Optional identifier-safe handle, unique per project. Omit to address the check by id.
-     * @maxLength 128
-     * @pattern ^[A-Za-z][A-Za-z0-9_]*$
-     */
+    /** Optional identifier-safe handle, unique per project. Omit to address the check by id. */
     name?: string
     /** Why this check exists and what a failure means. */
     description?: string
-    /** Kind of catalog object being checked: 'table' (a synced warehouse table) or 'view' (a saved query).
+    /** Kind of catalog object being checked: 'table', 'view', or 'metric'.
      *
      * * `table` - table
-     * * `view` - view */
+     * * `view` - view
+     * * `metric` - metric */
     readonly subject_type: SubjectTypeEnumApi
     /**
-     * Id of the table or view being checked -- the parent resource in the URL.
+     * Id of the table, view, or metric being checked, from the parent resource in the URL.
      * @nullable
      */
     readonly subject_uuid: string | null
@@ -275,6 +295,16 @@ export interface DataQualityCheckApi {
     readonly last_run_at: string | null
     /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
     readonly last_status: string
+    /**
+     * When the check last passed. Read failing_since for how long a failing check has been failing. Null means it has not passed within the run retention window.
+     * @nullable
+     */
+    readonly last_succeeded_at: string | null
+    /**
+     * When the current streak of failing runs started, so a failing check can say how long it has been failing. Null when the check is not failing.
+     * @nullable
+     */
+    readonly failing_since: string | null
     /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
     readonly fingerprint: string
     /** Whether a human ('user') or an agent ('ai_generated') authored this check.
@@ -322,21 +352,18 @@ export type PatchedDataQualityCheckApiConfig = { [key: string]: unknown }
  */
 export interface PatchedDataQualityCheckApi {
     readonly id?: string
-    /**
-     * Optional identifier-safe handle, unique per project. Omit to address the check by id.
-     * @maxLength 128
-     * @pattern ^[A-Za-z][A-Za-z0-9_]*$
-     */
+    /** Optional identifier-safe handle, unique per project. Omit to address the check by id. */
     name?: string
     /** Why this check exists and what a failure means. */
     description?: string
-    /** Kind of catalog object being checked: 'table' (a synced warehouse table) or 'view' (a saved query).
+    /** Kind of catalog object being checked: 'table', 'view', or 'metric'.
      *
      * * `table` - table
-     * * `view` - view */
+     * * `view` - view
+     * * `metric` - metric */
     readonly subject_type?: SubjectTypeEnumApi
     /**
-     * Id of the table or view being checked -- the parent resource in the URL.
+     * Id of the table, view, or metric being checked, from the parent resource in the URL.
      * @nullable
      */
     readonly subject_uuid?: string | null
@@ -382,6 +409,16 @@ export interface PatchedDataQualityCheckApi {
     readonly last_run_at?: string | null
     /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
     readonly last_status?: string
+    /**
+     * When the check last passed. Read failing_since for how long a failing check has been failing. Null means it has not passed within the run retention window.
+     * @nullable
+     */
+    readonly last_succeeded_at?: string | null
+    /**
+     * When the current streak of failing runs started, so a failing check can say how long it has been failing. Null when the check is not failing.
+     * @nullable
+     */
+    readonly failing_since?: string | null
     /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
     readonly fingerprint?: string
     /** Whether a human ('user') or an agent ('ai_generated') authored this check.
@@ -433,9 +470,9 @@ export interface DataQualityCheckTypeApi {
  * Per-subject rollup, the same rule the information_schema.data_quality_health table uses.
  */
 export interface DataQualitySubjectHealthApi {
-    /** 'table' or 'view'. */
+    /** 'table', 'view', or 'metric'. */
     subject_type: string
-    /** Id of the table or view. */
+    /** Id of the table, view, or metric. */
     subject_uuid: string
     /** failing (an error-severity check failed), erroring (a check could not run), warn (only warn-severity failures), healthy, or unknown (nothing has run yet). */
     health: string
@@ -443,6 +480,281 @@ export interface DataQualitySubjectHealthApi {
     checks_total: number
     /** How many of those checks last reported a failure. */
     checks_failing: number
+}
+
+export interface DataQualityOutputColumnApi {
+    /** Output column name available through the {metric} relation. */
+    name: string
+    /**
+     * ClickHouse type, or null when it could not be inferred.
+     * @nullable
+     */
+    type: string | null
+}
+
+export interface DataQualityOutputSchemaApi {
+    /** Columns returned by the saved metric query. */
+    columns: DataQualityOutputColumnApi[]
+}
+
+/**
+ * * `1hour` - 1hour
+ * * `6hour` - 6hour
+ * * `12hour` - 12hour
+ * * `24hour` - 24hour
+ * * `7day` - 7day
+ */
+export type DataQualityScheduleIntervalEnumApi =
+    (typeof DataQualityScheduleIntervalEnumApi)[keyof typeof DataQualityScheduleIntervalEnumApi]
+
+export const DataQualityScheduleIntervalEnumApi = {
+    '1hour': '1hour',
+    '6hour': '6hour',
+    '12hour': '12hour',
+    '24hour': '24hour',
+    '7day': '7day',
+} as const
+
+export interface DataQualityCheckScheduleApi {
+    /** Schedule identifier. */
+    readonly id: string
+    /** How often the checks run.
+     *
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day */
+    readonly interval: DataQualityScheduleIntervalEnumApi
+    /** Whether the schedule runs automatically. */
+    readonly enabled: boolean
+    /**
+     * Next scheduled execution time, if enabled.
+     * @nullable
+     */
+    readonly next_run_at: string | null
+    /**
+     * Most recent visible scheduled suite execution time.
+     * @nullable
+     */
+    readonly last_run_at: string | null
+    /**
+     * Most recent visible scheduled suite.
+     * @nullable
+     */
+    readonly last_suite_run: string | null
+}
+
+export interface PatchedDataQualityCheckScheduleUpdateApi {
+    /** How often all enabled checks on the metric run.
+     *
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day */
+    interval?: DataQualityScheduleIntervalEnumApi
+    /** Whether checks run automatically on this schedule. */
+    enabled?: boolean
+}
+
+/**
+ * Type-specific configuration, validated against the check type's JSON schema.
+ */
+export type DataQualityOverviewCheckApiConfig = { [key: string]: unknown }
+
+/**
+ * A check plus where its subject can be opened, for the project-wide list.
+ *
+ * The per-subject surfaces already know their parent; only this one lists checks across every
+ * table and view, so only this one needs to say where each subject lives. The ids are resolved
+ * for a whole page at once and handed in through ``subject_locations`` in the context.
+ */
+export interface DataQualityOverviewCheckApi {
+    readonly id: string
+    /** Optional identifier-safe handle, unique per project. Omit to address the check by id. */
+    name?: string
+    /** Why this check exists and what a failure means. */
+    description?: string
+    /** Kind of catalog object being checked: 'table', 'view', or 'metric'.
+     *
+     * * `table` - table
+     * * `view` - view
+     * * `metric` - metric */
+    readonly subject_type: SubjectTypeEnumApi
+    /**
+     * Id of the table, view, or metric being checked, from the parent resource in the URL.
+     * @nullable
+     */
+    readonly subject_uuid: string | null
+    /** Queryable name of the subject, refreshed on every run. */
+    readonly subject_name: string
+    /** 'orphaned' once the subject stops resolving. Orphaned checks are skipped, not deleted. */
+    readonly subject_status: string
+    /**
+     * Column the check applies to. Omit for table-scoped types like row_count.
+     * @maxLength 400
+     */
+    column_name?: string
+    /** Which assertion to make. Determines the shape of config; see /check_types/.
+     *
+     * * `not_null` - not_null
+     * * `unique` - unique
+     * * `accepted_values` - accepted_values
+     * * `relationships` - relationships
+     * * `row_count` - row_count
+     * * `freshness` - freshness
+     * * `custom_sql` - custom_sql */
+    check_type: CheckTypeEnumApi
+    /** Type-specific configuration, validated against the check type's JSON schema. */
+    config?: DataQualityOverviewCheckApiConfig
+    /** 'error' failures mark the subject failing and notify; 'warn' failures only surface.
+     *
+     * * `error` - error
+     * * `warn` - warn */
+    severity?: DataQualityCheckSeverityEnumApi
+    /** Disabled checks are never run by any trigger. */
+    enabled?: boolean
+    /** Free-form string labels for grouping and filtering. */
+    tags?: string[]
+    /**
+     * Email of the human accountable for this check, or null.
+     * @nullable
+     */
+    readonly owner: string | null
+    /**
+     * When the check last executed.
+     * @nullable
+     */
+    readonly last_run_at: string | null
+    /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
+    readonly last_status: string
+    /**
+     * When the check last passed. Read failing_since for how long a failing check has been failing. Null means it has not passed within the run retention window.
+     * @nullable
+     */
+    readonly last_succeeded_at: string | null
+    /**
+     * When the current streak of failing runs started, so a failing check can say how long it has been failing. Null when the check is not failing.
+     * @nullable
+     */
+    readonly failing_since: string | null
+    /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
+    readonly fingerprint: string
+    /** Whether a human ('user') or an agent ('ai_generated') authored this check.
+     *
+     * * `user` - user
+     * * `ai_generated` - ai_generated */
+    created_source?: CreatedSourceEnumApi
+    /**
+     * Model that generated the check, if AI-authored.
+     * @maxLength 128
+     */
+    ai_model?: string
+    /**
+     * AI author's confidence in the check, 0-1.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    confidence?: number | null
+    /** AI author's reasoning, surfaced as review context. */
+    reasoning?: string
+    /** User who first created this check. */
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /**
+     * Data modeling node of the view this check audits, or null when it is on no DAG or the subject is a table.
+     * @nullable
+     */
+    readonly subject_node_id: string | null
+    /**
+     * Warehouse source of the table this check audits, or null when the subject is a view.
+     * @nullable
+     */
+    readonly subject_source_id: string | null
+    /**
+     * Warehouse source schema of the table this check audits, or null when the subject is a view.
+     * @nullable
+     */
+    readonly subject_schema_id: string | null
+    /**
+     * Current metric name for opening its Tests tab, or null for other subjects.
+     * @nullable
+     */
+    readonly subject_metric_name: string | null
+}
+
+export interface PaginatedDataQualityOverviewCheckListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataQualityOverviewCheckApi[]
+}
+
+export interface DataQualityMetricSubjectApi {
+    /** Metric identifier used by the nested check endpoints. */
+    id: string
+    /** Queryable metric name. */
+    name: string
+    /** Metric label shown in the data catalog. */
+    display_name: string
+}
+
+/**
+ * What to run in a project-wide suite run.
+ */
+export interface DataQualityRunRequestApi {
+    /** Ids of the checks to run. Omit to run every enabled check in the project. */
+    check_ids?: string[]
+}
+
+export type DataCatalogMetricsCheckSuiteRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type DataCatalogMetricsChecksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type DataQualityChecksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type DataQualityRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type WarehouseSavedQueriesCheckSuiteRunsListParams = {

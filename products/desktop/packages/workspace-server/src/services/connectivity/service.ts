@@ -1,5 +1,5 @@
 import { TypedEventEmitter } from "@posthog/shared";
-import { injectable } from "inversify";
+import { injectable, preDestroy } from "inversify";
 import {
   ConnectivityEvent,
   type ConnectivityEvents,
@@ -34,11 +34,19 @@ export class ConnectivityService extends TypedEventEmitter<ConnectivityEvents> {
     return { isOnline: this.isOnline };
   }
 
+  onStatusChange(
+    handler: (status: ConnectivityStatusOutput) => void,
+  ): () => void {
+    this.on(ConnectivityEvent.StatusChange, handler);
+    return () => this.off(ConnectivityEvent.StatusChange, handler);
+  }
+
   async checkNow(): Promise<ConnectivityStatusOutput> {
     await this.checkConnectivity();
     return { isOnline: this.isOnline };
   }
 
+  @preDestroy()
   stop(): void {
     if (this.pollTimeoutId) {
       clearTimeout(this.pollTimeoutId);

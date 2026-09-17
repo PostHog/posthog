@@ -1,132 +1,22 @@
-import json
+"""The inbound PandaDoc webhook for legal documents.
 
-from django.conf import settings
+Ingress verifies the HMAC over the raw body and fans each batched event out to
+`legal_documents_signatures` in `webhook_consumers.py`. A bad signature answers 404 rather
+than 403, so an attacker cannot tell a wrong secret from an unknown route.
 
-import structlog
-from drf_spectacular.utils import OpenApiTypes, extend_schema
-from rest_framework import status
-from rest_framework.decorators import api_view, authentication_classes, permission_classes
-from rest_framework.request import Request
-from rest_framework.response import Response
+There is no per-IP throttle: PandaDoc delivers from a small shared pool of egress IPs, so
+keying on them drops legitimate deliveries, and the HMAC check already proves provenance.
+"""
 
 from posthog.cloud_utils import is_cloud, is_dev_mode
-from posthog.exceptions_capture import capture_exception
-
-from ..facade import api
-
-logger = structlog.get_logger(__name__)
+from posthog.ingress.pandadoc.provider import build_pandadoc_provider
+from posthog.ingress.views import build_webhook_view
 
 
-# PandaDoc state-change events we care about. Everything else is ignored.
-_PANDADOC_STATE_CHANGED_EVENT = "document_state_changed"
-
-# `draft` fires once PandaDoc has finished processing the template and the
-# envelope is ready to be sent to the signer — this is our cue to dispatch
-# the signing email.
-_PANDADOC_DRAFT_STATUS = "document.draft"
-# `completed` fires once every recipient has signed.
-_PANDADOC_COMPLETED_STATUS = "document.completed"
+def _pandadoc_integration_is_served() -> bool:
+    # Self-hosted deployments do not run the PandaDoc integration, and the endpoint must never
+    # leak that it exists. Dev mode keeps it on for local testing.
+    return is_cloud() or is_dev_mode()
 
 
-@extend_schema(
-    tags=["legal_documents"],
-    operation_id="legal_document_pandadoc_webhook",
-    request=OpenApiTypes.OBJECT,
-    responses={200: OpenApiTypes.OBJECT, 204: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
-    description=(
-        "PandaDoc webhook receiver. Authenticates via HMAC-SHA256 over the raw "
-        "body. Handles two `document_state_changed` events: `document.draft` "
-        "dispatches the signing email, and `document.completed` records the "
-        "signature and schedules the signed-PDF archive as a background job. "
-        "Returns 200 when an event applied, 204 when the request is valid but "
-        "the document doesn't live on this cloud instance (PandaDoc fans the "
-        "webhook out to every instance, only one of which owns the row), "
-        "404 on a bad signature, 400 on an unparseable body. No per-IP throttle: "
-        "PandaDoc delivers from a small shared pool of egress IPs, so keying on "
-        "them drops legitimate deliveries; the HMAC check already proves "
-        "provenance."
-    ),
-)
-@api_view(["POST"])
-@authentication_classes([])
-@permission_classes([])
-def legal_document_pandadoc_webhook(request: Request) -> Response:
-    if not (is_cloud() or is_dev_mode()):
-        # Self-hosted deployments don't run the PandaDoc integration — never
-        # leak that this endpoint exists. Dev mode keeps it on for local testing.
-        return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-
-    raw_body = request.body or b""
-    signature = request.headers.get("X-PandaDoc-Signature") or request.query_params.get("signature") or ""
-    if not api.verify_pandadoc_webhook_signature(
-        secret=settings.PANDADOC_WEBHOOK_SECRET, body=raw_body, signature=signature
-    ):
-        # Return 404 (not 403) so an attacker can't distinguish "wrong secret"
-        # from "unknown route" via timing or status code.
-        return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-
-    try:
-        events = json.loads(raw_body.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError) as exc:
-        logger.warning("pandadoc_webhook_invalid_body", error=str(exc))
-        capture_exception(exc)
-        return Response({"detail": "Invalid body."}, status=status.HTTP_400_BAD_REQUEST)
-
-    # PandaDoc batches multiple events in a single webhook delivery.
-    if not isinstance(events, list):
-        events = [events]
-
-    processed_any = False
-
-    for event in events:
-        if not isinstance(event, dict):
-            continue
-        if event.get("event") != _PANDADOC_STATE_CHANGED_EVENT:
-            continue
-        data = event.get("data") or {}
-        if isinstance(data, list):
-            data = data[0] if data else {}
-        if not isinstance(data, dict):
-            continue
-
-        event_status = data.get("status")
-        pandadoc_document_id = data.get("id") or ""
-        template_id = (data.get("template") or {}).get("id") if isinstance(data.get("template"), dict) else ""
-
-        if not pandadoc_document_id:
-            logger.warning("pandadoc_webhook_event_missing_id", status=event_status)
-            continue
-
-        if event_status == _PANDADOC_DRAFT_STATUS:
-            # Envelope just finished template processing — dispatch the send.
-            dto = api.mark_envelope_ready_by_pandadoc_document_id(
-                pandadoc_document_id=pandadoc_document_id,
-                template_id=template_id or "",
-            )
-            if dto is None:
-                logger.info("pandadoc_webhook_no_matching_document", pandadoc_document_id=pandadoc_document_id)
-                continue
-            processed_any = True
-            continue
-
-        if event_status == _PANDADOC_COMPLETED_STATUS:
-            # Record the signature and schedule the PDF archive as a background
-            # job — the signature is never gated on the download succeeding.
-            dto = api.mark_signed_by_pandadoc_document_id(
-                pandadoc_document_id=pandadoc_document_id,
-                template_id=template_id or "",
-            )
-            if dto is None:
-                logger.info("pandadoc_webhook_no_matching_document", pandadoc_document_id=pandadoc_document_id)
-                continue
-            processed_any = True
-            continue
-
-        # Other states (document.sent, document.viewed, …) — nothing to do.
-
-    if processed_any:
-        return Response({"status": "ok"}, status=status.HTTP_200_OK)
-
-    # Nothing applied to this instance — 2xx so PandaDoc doesn't retry, since
-    # the sibling instance that owns the row will handle its own copy.
-    return Response(status=status.HTTP_204_NO_CONTENT)
+legal_document_pandadoc_webhook = build_webhook_view(build_pandadoc_provider(enabled=_pandadoc_integration_is_served))

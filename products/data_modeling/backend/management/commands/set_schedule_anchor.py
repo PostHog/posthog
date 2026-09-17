@@ -21,7 +21,7 @@ from products.data_modeling.backend.logic.node_frequency import (
     schedulable_nodes,
     set_declared_anchor,
 )
-from products.data_modeling.backend.logic.schedule_reconcile import reconcile_dag_schedules, tiered_schedules_enabled
+from products.data_modeling.backend.logic.schedule_reconcile import reconcile_dag_schedules
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node
@@ -82,10 +82,6 @@ class Command(BaseCommand):
             raise CommandError("Pass exactly one of --at or --clear")
         if options["clear"] and options["on"]:
             raise CommandError("--on has no effect with --clear")
-        if not tiered_schedules_enabled(team):
-            raise CommandError(
-                f"Team {team.pk} is not on the tiered-schedules flag; anchors only apply to cadence-tier schedules"
-            )
 
         anchor = None if options["clear"] else self._parse_anchor(options["at"], options["on"])
         nodes_by_dag = self._resolve_target_nodes(team, options)

@@ -6,14 +6,22 @@ import { LemonButton, LemonDialog, LemonMenu, LemonSwitch, LemonTable, LemonTag,
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { CheckRunsTable } from './CheckRunsTable'
-import { CHECK_STATUS_TAG_TYPES, SEVERITY_TAG_TYPES, checkDisplayName, checkTypeLabel } from './checksConstants'
+import { SEVERITY_TAG_TYPES, checkDisplayName, checkTypeLabel } from './checksConstants'
+import { CheckStatusCell } from './CheckStatusCell'
+import { dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
 import { DataQualityChecksLogicProps, dataQualityChecksLogic } from './dataQualityChecksLogic'
-import type { DataQualityCheckApi } from './generated/api.schemas'
+import type { DataQualityCheckApi, DataQualityOutputColumnApi } from './generated/api.schemas'
 
-export function ChecksTable(props: DataQualityChecksLogicProps): JSX.Element {
+interface ChecksTableProps extends DataQualityChecksLogicProps {
+    columns: string[]
+    outputSchema: DataQualityOutputColumnApi[]
+}
+
+export function ChecksTable({ columns, outputSchema, ...props }: ChecksTableProps): JSX.Element {
     const logic = dataQualityChecksLogic(props)
     const { sortedChecks, checksLoading, pendingCheckActions, checkRunsByCheckId } = useValues(logic)
-    const { openCheckModal, deleteCheck, toggleCheckEnabled, runCheck, loadCheckRuns } = useActions(logic)
+    const { deleteCheck, toggleCheckEnabled, runCheck, loadCheckRuns, openFailingRows } = useActions(logic)
+    const { openEditor } = useActions(dataQualityCheckEditorLogic)
 
     const confirmDelete = (check: DataQualityCheckApi): void => {
         LemonDialog.open({
@@ -40,6 +48,7 @@ export function ChecksTable(props: DataQualityChecksLogicProps): JSX.Element {
                     <div className="flex flex-col gap-2 py-2">
                         {check.description && <p className="mb-0 text-secondary">{check.description}</p>}
                         <CheckRunsTable
+                            subjectType={props.subjectType}
                             runs={checkRunsByCheckId[check.id] ?? []}
                             loading={pendingCheckActions.loadingRuns[check.id]}
                         />
@@ -98,17 +107,11 @@ export function ChecksTable(props: DataQualityChecksLogicProps): JSX.Element {
                 {
                     title: 'Last status',
                     key: 'last_status',
-                    render: (_, check) =>
-                        check.last_status ? (
-                            <LemonTag type={CHECK_STATUS_TAG_TYPES[check.last_status] ?? 'default'}>
-                                {check.last_status}
-                            </LemonTag>
-                        ) : (
-                            <LemonTag type="muted">Not run yet</LemonTag>
-                        ),
+                    render: (_, check) => <CheckStatusCell check={check} />,
                 },
                 {
                     title: 'Last run',
+                    tooltip: 'When the check last ran, not when the data was last synced.',
                     key: 'last_run_at',
                     render: (_, check) => (check.last_run_at ? <TZLabel time={check.last_run_at} /> : '-'),
                 },
@@ -125,7 +128,12 @@ export function ChecksTable(props: DataQualityChecksLogicProps): JSX.Element {
                                         ? 'This check is already starting'
                                         : undefined,
                                 },
-                                { label: 'Edit', onClick: () => openCheckModal(check) },
+                                { label: 'Edit', onClick: () => openEditor(check, props, columns, outputSchema) },
+                                {
+                                    label: 'Open failing rows in SQL editor',
+                                    tooltip: "The query behind this check's latest run",
+                                    onClick: () => openFailingRows(check.id),
+                                },
                                 {
                                     label: 'Delete',
                                     status: 'danger',

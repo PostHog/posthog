@@ -61,12 +61,13 @@ import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { DatabaseTablePreview } from 'lib/components/TablePreview/DatabaseTablePreview'
 import type { TablePreviewExpressionColumn } from 'lib/components/TablePreview/types'
 import { Link } from 'lib/lemon-ui/Link'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { urls } from 'scenes/urls'
 
 import type { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
+
+import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 
 import { defaultDataWarehousePopoverFields } from '../taxonomicFilterLogic'
 import { DataWarehousePopoverField, TaxonomicDefinitionTypes } from '../types'

@@ -7,7 +7,7 @@ import { logger } from '~/common/utils/logger'
 import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { execHog } from '../utils/hog-exec'
-import { LiquidRenderer } from '../utils/liquid'
+import { LiquidRenderBudget, LiquidRenderer } from '../utils/liquid'
 import { getDevicePushSubscriptionToken } from '../utils/push-subscription-utils'
 import { IntegrationManagerService } from './managers/integration-manager.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
@@ -41,11 +41,14 @@ export class HogInputsService {
             ...(await this.loadIntegrationInputs(hogFunction, newGlobals)),
         }
 
+        // One budget for the whole invocation, so many small liquid leaves cannot add up to a stall.
+        const liquidBudget = new LiquidRenderBudget()
+
         const _formatInput = async (input: CyclotronInputType, key: string): Promise<any> => {
             const templating = input.templating ?? 'hog'
 
             if (templating === 'liquid') {
-                return formatLiquidInput(input.value, newGlobals, key)
+                return formatLiquidInput(input.value, newGlobals, key, liquidBudget)
             }
             if (templating === 'hog' && input?.bytecode) {
                 return await formatHogInput(input.bytecode, newGlobals, key)
@@ -289,25 +292,26 @@ export const formatHogInput = async (
 export const formatLiquidInput = (
     value: unknown,
     globals: HogFunctionInvocationGlobalsWithInputs,
-    key?: string
+    key?: string,
+    budget: LiquidRenderBudget = new LiquidRenderBudget()
 ): any => {
     if (value === null || value === undefined) {
         return value
     }
 
     if (typeof value === 'string') {
-        return LiquidRenderer.renderWithHogFunctionGlobals(value, globals)
+        return LiquidRenderer.renderWithHogFunctionGlobals(value, globals, budget)
     }
 
     if (Array.isArray(value)) {
-        return value.map((item) => formatLiquidInput(item, globals, key))
+        return value.map((item) => formatLiquidInput(item, globals, key, budget))
     }
 
     if (typeof value === 'object' && value !== null) {
         return Object.fromEntries(
             Object.entries(value).map(([key2, value]) => [
                 key2,
-                formatLiquidInput(value, globals, key ? `${key}.${key2}` : key2),
+                formatLiquidInput(value, globals, key ? `${key}.${key2}` : key2, budget),
             ])
         )
     }

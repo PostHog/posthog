@@ -11,7 +11,8 @@ from posthog.auth import SharingAccessTokenAuthentication
 from posthog.constants import AvailableFeature
 from posthog.models import DataColorTheme
 from posthog.permissions import TeamMemberStrictManagementPermission
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 
 
 class GlobalThemePermission(BasePermission):

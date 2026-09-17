@@ -12,44 +12,35 @@ against it. Neither may hardcode a model list.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    # Importing this at runtime would execute `gateway_client`, pulling the Anthropic and OpenAI
-    # SDKs onto slack_app's import path. It is only ever used as an annotation.
-    from posthog.llm.gateway_client import Product
-
-
 from products.tasks.backend.facade.model_catalogue import (
     REASONING_EFFORT_DISPLAY_NAMES,
     RUNTIME_ADAPTER_DISPLAY_NAMES,
     ModelChoice,
     RuntimeGroup,
-    available_model_choices as _available_model_choices,
+    catalog_model_choices,
+    display_name_for_model,
     filter_unsupported_effort,
-    format_model_id,
     group_by_runtime,
     label_for,
     runtime_adapter_for,
 )
 
-SLACK_APP_GATEWAY_PRODUCT: Product = "slack_app"
-
 
 def available_model_choices() -> tuple[ModelChoice, ...]:
     """Every model a Slack-triggered run may use.
 
-    Empty when the gateway is unreachable — callers must treat that as "no choice to
-    offer" rather than falling back to a hardcoded list, so a gateway outage can't route
-    a run to a model the gateway would reject anyway.
+    Read from the catalog rather than the gateway. Slack asks only what the catalog
+    answers — whether a mention names a real model, which runtime drives it, and what
+    efforts it takes — so the list no longer depends on a network call that can come
+    back empty and leave a mention with nothing to match against.
     """
-    return _available_model_choices(SLACK_APP_GATEWAY_PRODUCT)
+    return catalog_model_choices()
 
 
 def describe_run_model(model: str | None, reasoning_effort: str | None) -> str:
     """Render the model a run is on, in one phrasing shared by the App Home card and
     the progress message in the Slack thread."""
-    label = format_model_id(model) if model else "—"
+    label = display_name_for_model(model) if model else "—"
     if not reasoning_effort:
         return f"*{label}*"
     return f"*{label}* · Reasoning: *{label_for(reasoning_effort, REASONING_EFFORT_DISPLAY_NAMES)}*"
@@ -63,7 +54,7 @@ __all__ = [
     "available_model_choices",
     "describe_run_model",
     "filter_unsupported_effort",
-    "format_model_id",
+    "display_name_for_model",
     "group_by_runtime",
     "label_for",
     "runtime_adapter_for",

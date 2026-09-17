@@ -1,13 +1,22 @@
 import re
 import dataclasses
+from collections.abc import Iterator
 from typing import Any, Optional
 
-from requests import Request, Response
+from requests import Request, Response, Session
 from requests.auth import HTTPBasicAuth
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm.settings import (
     AGILECRM_ENDPOINTS,
+    AGILECRM_FANOUT_ENDPOINTS,
     BASE_URL_TEMPLATE,
+    DEFAULT_PAGE_SIZE,
+    TICKETS_ALL_FILTER_NAME,
+    TICKETS_FILTERS_PATH,
+    TICKETS_LIST_PATH,
+    TICKETS_PRIMARY_KEYS,
+    TICKETS_SORT_KEY,
+    AgileCRMFanoutConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -95,6 +104,102 @@ def _strip_cursor(item: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in item.items() if k != "cursor"}
 
 
+def _basic_auth_session(email: str, api_key: str) -> Session:
+    session = make_tracked_session(headers={"Accept": "application/json"}, redact_values=(api_key,))
+    # Agile CRM authenticates with HTTP Basic: account email as username, API key as password.
+    session.auth = HTTPBasicAuth(email, api_key)
+    return session
+
+
+def _paginate(
+    session: Session, url: str, page_size: int, extra_params: Optional[dict[str, Any]] = None
+) -> Iterator[list[dict[str, Any]]]:
+    """Yield each page of a cursor-paginated list endpoint, following the `cursor` on its last item.
+
+    A missing cursor or a short page (fewer items than `page_size`) is terminal — the same rule the
+    `RESTAPIConfig`-driven endpoints use, reimplemented here because ticket and fan-out endpoints
+    need extra path/param handling the declarative resource config can't express.
+    """
+    cursor: Optional[str] = None
+    while True:
+        params: dict[str, Any] = {"page_size": page_size}
+        if extra_params:
+            params.update(extra_params)
+        if cursor is not None:
+            params["cursor"] = cursor
+
+        response = session.get(url, params=params)
+        response.raise_for_status()
+        body = response.json()
+        if not isinstance(body, list):
+            # Known list endpoints return a bare JSON array; an object body means the shape changed.
+            raise ValueError(f"Required a list response body from {url}, got {type(body).__name__}")
+        if not body:
+            return
+
+        yield [_strip_cursor(item) for item in body if isinstance(item, dict)]
+
+        last_item = body[-1]
+        cursor = last_item.get("cursor") if isinstance(last_item, dict) else None
+        if not cursor or len(body) < page_size:
+            return
+
+
+def _resolve_all_tickets_filter_id(session: Session, base: str) -> Optional[str]:
+    # `tickets/filter` needs a saved-filter id. Prefer the "All Tickets" system filter (returns every
+    # ticket); fall back to any default filter, then the first filter. None means no filters exist.
+    response = session.get(f"{base}/{TICKETS_FILTERS_PATH}")
+    response.raise_for_status()
+    filters = response.json()
+    if not isinstance(filters, list) or not filters:
+        return None
+
+    named = [f for f in filters if isinstance(f, dict) and f.get("name") == TICKETS_ALL_FILTER_NAME]
+    default = [f for f in filters if isinstance(f, dict) and f.get("is_default_filter")]
+    for candidate in (*named, *default, *filters):
+        if isinstance(candidate, dict) and candidate.get("id") is not None:
+            return str(candidate["id"])
+    return None
+
+
+def _ticket_pages(session: Session, base: str, page_size: int) -> Iterator[list[dict[str, Any]]]:
+    filter_id = _resolve_all_tickets_filter_id(session, base)
+    if filter_id is None:
+        return
+    yield from _paginate(
+        session,
+        f"{base}/{TICKETS_LIST_PATH}",
+        page_size,
+        {"filter_id": filter_id, "global_sort_key": TICKETS_SORT_KEY},
+    )
+
+
+def _iter_parent_ids(session: Session, base: str, config: AgileCRMFanoutConfig) -> Iterator[Any]:
+    if config.parent == "tickets":
+        pages = _ticket_pages(session, base, config.page_size)
+    else:
+        pages = _paginate(session, f"{base}/{config.parent_path}", config.page_size)
+    for page in pages:
+        for row in page:
+            parent_id = row.get("id")
+            if parent_id is not None:
+                yield parent_id
+
+
+def _fanout_pages(session: Session, base: str, config: AgileCRMFanoutConfig) -> Iterator[list[dict[str, Any]]]:
+    for parent_id in _iter_parent_ids(session, base, config):
+        child_url = f"{base}/{config.child_path_template.format(parent_id=parent_id)}"
+        response = session.get(child_url)
+        response.raise_for_status()
+        body = response.json()
+        # Child lists are bare arrays; a parent with no children can return an empty body.
+        if not isinstance(body, list):
+            continue
+        rows = [{**_strip_cursor(item), config.parent_id_field: parent_id} for item in body if isinstance(item, dict)]
+        if rows:
+            yield rows
+
+
 def agilecrm_source(
     domain: str,
     email: str,
@@ -105,11 +210,30 @@ def agilecrm_source(
     resumable_source_manager: ResumableSourceManager[AgileCRMResumeConfig],
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
+    base = base_url(domain)
+
+    # Tickets and fan-out tables need per-parent requests or filter resolution that the declarative
+    # resource config can't express, so they stream through a custom generator. All are full refresh.
+    if endpoint == "tickets":
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _ticket_pages(_basic_auth_session(email, api_key), base, DEFAULT_PAGE_SIZE),
+            primary_keys=list(TICKETS_PRIMARY_KEYS),
+        )
+
+    if endpoint in AGILECRM_FANOUT_ENDPOINTS:
+        fanout_config = AGILECRM_FANOUT_ENDPOINTS[endpoint]
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _fanout_pages(_basic_auth_session(email, api_key), base, fanout_config),
+            primary_keys=list(fanout_config.primary_keys),
+        )
+
     config = AGILECRM_ENDPOINTS[endpoint]
 
     rest_config: RESTAPIConfig = {
         "client": {
-            "base_url": base_url(domain),
+            "base_url": base,
             "headers": {"Accept": "application/json"},
             # Agile CRM authenticates with HTTP Basic: account email as username, API key as password.
             "auth": {"type": "http_basic", "username": email, "password": api_key},

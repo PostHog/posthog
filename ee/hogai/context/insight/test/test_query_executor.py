@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import Mock, patch
 
@@ -56,7 +56,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
     def setUp(self):
         super().setUp()
-        with freeze_time("2025-01-20T12:00:00Z"):
+        with time_machine.travel("2025-01-20T12:00:00Z", tick=False):
             self.query_runner = AssistantQueryExecutor(self.team, datetime.now(), user=self.user)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
@@ -130,6 +130,18 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertFalse(used_fallback)
         self.assertIn("count\n100\n200", result)
         mock_process_query.assert_called_once()
+
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_arun_format_and_capture_hands_back_the_response(self, mock_process_query):
+        response = {"results": [{"count": 100}], "columns": ["count"]}
+        mock_process_query.return_value = response
+
+        query = AssistantHogQLQuery(query="SELECT count() FROM events")
+        result = await self.query_runner.arun_format_and_capture(query)
+
+        self.assertIsInstance(result.formatted, str)
+        self.assertFalse(result.fallback_used)
+        self.assertEqual(result.response, response)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_data_visualization_sql(self, mock_process_query):
@@ -636,7 +648,7 @@ class TestAssistantQueryExecutorAsync(NonAtomicBaseTest):
 
     def setUp(self):
         super().setUp()
-        with freeze_time("2025-01-20T12:00:00Z"):
+        with time_machine.travel("2025-01-20T12:00:00Z", tick=False):
             self.query_runner = AssistantQueryExecutor(self.team, datetime.now(), user=self.user)
 
     async def test_runs_in_async_context(self):
@@ -662,7 +674,7 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
 
     def setUp(self):
         super().setUp()
-        with freeze_time("2025-01-20T12:00:00Z"):
+        with time_machine.travel("2025-01-20T12:00:00Z", tick=False):
             self.query_runner = AssistantQueryExecutor(self.team, datetime.now(), user=self.user)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")

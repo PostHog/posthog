@@ -1,13 +1,22 @@
 import { LibrdKafkaError, Message, TopicPartitionOffset } from 'node-rdkafka'
+import { setTimeout as waitForRetry } from 'node:timers/promises'
 
 import { findOffsetsToCommit, parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { logger } from '~/common/utils/logger'
+import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
+import {
+    INGESTION_VERSION_HEADER,
+    imageKeyId,
+    tableKeyString,
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
+import { MlDecodedMessage, ingestionVersion } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
 import { parseImageRef } from './content-ref'
 import { ImageShardStore, ScrubbedImage, ScrubbedUrlImage } from './image-shard-store'
 import {
+    CAPTURE_TIMESTAMP_HEADER,
     CONTENT_ENCODING_HEADER,
     CONTENT_TYPE_HEADER,
     InvalidImageTransportError,
@@ -63,13 +72,17 @@ const REVOKED_PARTITION_CODES = new Set([
 
 /** The batch index is what lets offsets advance across the messages planning skipped. */
 interface PlannedScrub {
+    sessionMonth?: string
+    encryptedValue?: Buffer
     index: number
     ref: string
+    teamId?: string
     pseudoTeam?: string
     hash: string
     source: 'bytes' | 'url'
     value: Buffer
     transportHeaders: Record<string, string>
+    capturedAtMs?: number
     /** Where this image came from, carried only so a parked one can be traced back to its source. */
     sourceTopic: string
     sourcePartition: number
@@ -88,6 +101,7 @@ interface ScrubbedRef {
     ref: string
     source: 'bytes' | 'url'
     image: ScrubbedImage | ScrubbedUrlImage
+    capturedAtMs?: number
 }
 
 /** Carries the window slot so a completion can be matched back to its position, which is what
@@ -152,7 +166,8 @@ export class ImageBatcher {
         private readonly scrubClient: ScrubClient,
         private readonly options: ImageBatcherOptions,
         nowMs: number,
-        private readonly deadLetters: DeadLetterSink | null = null
+        private readonly deadLetters: DeadLetterSink | null = null,
+        private readonly keyManager?: MlKeyManager
     ) {
         // 0 would admit nothing and spin the loop forever; NaN would skip it entirely, committing
         // offsets for unprocessed messages. Fail at boot rather than either.
@@ -184,12 +199,69 @@ export class ImageBatcher {
         if (this.stopping) {
             return
         }
+        const controller = new AbortController()
+        this.activeBatch = controller
+        this.partitionsRevoked = false
+        try {
+            await this.handleActiveBatch(messages, nowMs, controller)
+        } catch (error) {
+            if (!(this.stopping && error instanceof ScrubAborted)) {
+                throw error
+            }
+        } finally {
+            // Cleared here rather than on the success path: a throwing batch that left this set would
+            // have shutdown abort a controller belonging to a batch that is already over.
+            this.activeBatch = null
+        }
+    }
+
+    private async handleActiveBatch(messages: Message[], nowMs: number, controller: AbortController): Promise<void> {
         // Skips resolve up front so the window only ever holds real work: a duplicate admitted into a
         // slot would occupy it and complete instantly, spending the pod's concurrency on no-ops.
         if (messages.length) {
             ImageScrubConsumerMetrics.observeBatchMessages(messages.length)
         }
-        const planned = this.planBatch(messages)
+        const decoded: MlDecodedMessage[] = this.keyManager
+            ? await this.keyManager.kafka.read(messages, { bindKafkaKey: true })
+            : messages.map((message) => {
+                  const version = ingestionVersion(message)
+                  if (version === 2) {
+                      throw new Error('ML v2 images require key manager configuration')
+                  }
+                  return { message, original: message, version, invalid: undefined }
+              })
+        const decodedValid = decoded.filter((entry) => !entry.invalid && !entry.legacy)
+        const v2 = decodedValid.filter((entry) => entry.version === 2).length
+        ImageScrubConsumerMetrics.incrementVersion('2', v2)
+        ImageScrubConsumerMetrics.incrementVersion('1', decodedValid.length - v2)
+        for (const entry of decoded.filter((entry) => entry.invalid)) {
+            if (!this.deadLetters) {
+                throw new Error('An invalid ML image record requires a dead-letter destination')
+            }
+            await this.parkImageUntilAccepted(
+                {
+                    ref: entry.original.key?.toString() ?? '',
+                    bytes: entry.original.value ?? Buffer.alloc(0),
+                    headers: parseKafkaHeaders(entry.original.headers),
+                    detail: {
+                        reason: 'invalid_record',
+                        sourceTopic: entry.original.topic,
+                        sourcePartition: entry.original.partition,
+                        sourceOffset: entry.original.offset,
+                    },
+                },
+                controller.signal
+            )
+        }
+        const byOriginal = new Map(decodedValid.map((entry) => [entry.original, entry.message]))
+        const planned = this.planBatch(
+            messages.map((message) => byOriginal.get(message) ?? { ...message, value: null })
+        )
+        for (const item of planned) {
+            if (item.sessionMonth !== undefined) {
+                item.encryptedValue = messages[item.index].value ?? undefined
+            }
+        }
 
         // A sliding window rather than fixed groups: every completion immediately admits the next
         // image, so the sidecar never waits on the slowest member of a group before being given more
@@ -204,9 +276,6 @@ export class ImageBatcher {
         // so the batch takes as long as the sidecar needs and the next consume() happens that much
         // later, which is the whole backpressure mechanism. Every message this batch took is finished
         // before any offset moves past it.
-        const controller = new AbortController()
-        this.activeBatch = controller
-        this.partitionsRevoked = false
         const startedAt = performance.now()
         if (planned.length > 0) {
             ImageScrubConsumerMetrics.startBatch()
@@ -224,9 +293,6 @@ export class ImageBatcher {
                     (performance.now() - startedAt) / 1000
                 )
             }
-            // Cleared here rather than on the success path: a throwing batch that left this set would
-            // have shutdown abort a controller belonging to a batch that is already over.
-            this.activeBatch = null
         }
     }
 
@@ -361,22 +427,27 @@ export class ImageBatcher {
                 continue
             }
             const headers = parseKafkaHeaders(m.headers)
-            const transportHeaders =
+            const allowedTransportHeaders =
                 parsed.source === 'url'
-                    ? Object.fromEntries(
-                          [CONTENT_TYPE_HEADER, CONTENT_ENCODING_HEADER]
-                              .filter((header) => headers[header] !== undefined)
-                              .map((header) => [header, headers[header]])
-                      )
-                    : {}
+                    ? [CONTENT_TYPE_HEADER, CONTENT_ENCODING_HEADER, CAPTURE_TIMESTAMP_HEADER, INGESTION_VERSION_HEADER]
+                    : [CAPTURE_TIMESTAMP_HEADER, INGESTION_VERSION_HEADER]
+            const transportHeaders = Object.fromEntries(
+                allowedTransportHeaders
+                    .filter((header) => headers[header] !== undefined)
+                    .map((header) => [header, headers[header]])
+            )
+            const capturedAtMs = Number(transportHeaders[CAPTURE_TIMESTAMP_HEADER])
             const candidate: PlannedScrub = {
                 index,
                 ref,
+                teamId: parsed.teamId,
+                sessionMonth: parsed.sessionMonth,
                 pseudoTeam: parsed.pseudoTeam,
                 hash: parsed.hash,
                 source: parsed.source,
                 value: m.value,
                 transportHeaders,
+                capturedAtMs: Number.isSafeInteger(capturedAtMs) && capturedAtMs > 0 ? capturedAtMs : undefined,
                 sourceTopic: m.topic,
                 sourcePartition: m.partition,
                 sourceOffset: m.offset,
@@ -435,7 +506,7 @@ export class ImageBatcher {
             .then(
                 (image): SettledScrub => ({
                     slot,
-                    scrubbed: image ? { ref: p.ref, source: p.source, image } : null,
+                    scrubbed: image ? { ref: p.ref, source: p.source, image, capturedAtMs: p.capturedAtMs } : null,
                 }),
                 (error): SettledScrub => ({ slot, scrubbed: null, error: error ?? new Error('scrub failed') })
             )
@@ -467,7 +538,7 @@ export class ImageBatcher {
                     throw error
                 }
                 this.rememberContentAddressedRef(planned)
-                ImageScrubConsumerMetrics.incSkipped()
+                ImageScrubConsumerMetrics.incSkipped(error.reason)
                 return null
             }
         }
@@ -492,19 +563,27 @@ export class ImageBatcher {
             // Null is a verdict on these bytes. Inline refs are content-addressed, so their later
             // copies cannot succeed. URL refs stay eligible because a recrawl can carry new bytes.
             this.rememberContentAddressedRef(planned)
-            ImageScrubConsumerMetrics.incSkipped()
+            ImageScrubConsumerMetrics.incSkipped('sidecar_rejected')
             return null
         }
         ImageScrubConsumerMetrics.incScrubbed()
         if (planned.source === 'url') {
             return {
+                teamId: planned.teamId,
+                sessionMonth: planned.sessionMonth,
                 hash: planned.hash,
                 bytes,
                 sourcePartition: planned.sourcePartition,
                 sourceOffset: planned.sourceOffset,
             }
         }
-        return { pseudoTeam: planned.pseudoTeam!, hash: planned.hash, bytes }
+        return {
+            sessionMonth: planned.sessionMonth,
+            teamId: planned.teamId,
+            pseudoTeam: planned.pseudoTeam,
+            hash: planned.hash,
+            bytes,
+        }
     }
 
     private rememberContentAddressedRef(planned: PlannedScrub): void {
@@ -528,37 +607,54 @@ export class ImageBatcher {
         poisoned: ScrubPoisoned,
         signal: AbortSignal
     ): Promise<void> {
+        await this.parkImageUntilAccepted(
+            {
+                ref: planned.ref,
+                bytes: planned.encryptedValue ?? planned.value,
+                headers: planned.transportHeaders,
+                detail: {
+                    ...poisoned.detail,
+                    ...(planned.teamId ? { teamId: planned.teamId } : { pseudoTeam: planned.pseudoTeam }),
+                    hash: planned.hash,
+                    sourceTopic: planned.sourceTopic,
+                    sourcePartition: planned.sourcePartition,
+                    sourceOffset: planned.sourceOffset,
+                    // Carried back out, or the count restarts on every pass and the cap that
+                    // bounds replay round trips never binds.
+                    [REPLAY_COUNT_HEADER]: planned.replayCount,
+                },
+            },
+            signal
+        )
+    }
+
+    private async parkImageUntilAccepted(
+        image: Parameters<DeadLetterSink['park']>[0],
+        signal: AbortSignal
+    ): Promise<void> {
         for (let attempt = 0; ; attempt++) {
             if (signal.aborted) {
                 throw new ScrubAborted('scrub batch aborted')
             }
             try {
-                await this.deadLetters!.park({
-                    ref: planned.ref,
-                    bytes: planned.value,
-                    headers: planned.transportHeaders,
-                    detail: {
-                        ...poisoned.detail,
-                        pseudoTeam: planned.pseudoTeam,
-                        hash: planned.hash,
-                        sourceTopic: planned.sourceTopic,
-                        sourcePartition: planned.sourcePartition,
-                        sourceOffset: planned.sourceOffset,
-                        // Carried back out, or the count restarts on every pass and the cap that
-                        // bounds replay round trips never binds.
-                        [REPLAY_COUNT_HEADER]: planned.replayCount,
-                    },
-                })
+                await this.deadLetters!.park(image)
                 return
             } catch (error) {
                 ImageScrubConsumerMetrics.incDeadLetterFailed()
                 logger.error('☠️', 'image_scrub_dead_letter_failed', {
-                    ref: planned.ref,
-                    bytes: planned.value.length,
+                    ref: image.ref,
+                    bytes: image.bytes.length,
                     attempts: attempt + 1,
                     error: String(error),
                 })
-                await new Promise((resolve) => setTimeout(resolve, Math.min(30_000, 500 * 2 ** attempt)).unref())
+                try {
+                    await waitForRetry(Math.min(30_000, 500 * 2 ** attempt), undefined, { signal, ref: false })
+                } catch (retryError) {
+                    if (signal.aborted) {
+                        throw new ScrubAborted('scrub batch aborted')
+                    }
+                    throw retryError
+                }
             }
         }
     }
@@ -582,23 +678,76 @@ export class ImageBatcher {
     public async flush(nowMs: number): Promise<void> {
         this.lastFlushMs = nowMs
         if (this.buffer.length > 0) {
-            const inlineImages = this.buffer
-                .filter((item): item is ScrubbedRef & { image: ScrubbedImage } => item.source === 'bytes')
-                .map((item) => item.image)
-            const urlImages = this.buffer
-                .filter((item): item is ScrubbedRef & { image: ScrubbedUrlImage } => item.source === 'url')
-                .map((item) => item.image)
-            await Promise.all(
-                urlImages.map((image) =>
-                    this.scrubConcurrency.run({
-                        debugTag: image.hash,
-                        fn: () => this.store.writeUrlImage(image),
-                    })
-                )
+            const imageKeys = this.keyManager
+                ? await this.keyManager.reader.read(
+                      this.buffer.flatMap(({ image }) =>
+                          image.sessionMonth === undefined
+                              ? []
+                              : [imageKeyId(Number(image.teamId), image.sessionMonth!)]
+                      )
+                  )
+                : new Map()
+            this.buffer = this.buffer.filter(
+                ({ image }) =>
+                    image.sessionMonth === undefined ||
+                    imageKeys.has(tableKeyString(imageKeyId(Number(image.teamId), image.sessionMonth!)))
             )
-            if (inlineImages.length > 0) {
-                const { bytes } = await this.store.writeShard(inlineImages)
-                ImageScrubConsumerMetrics.observeShard(inlineImages.length, bytes)
+            const inlineItems = this.buffer.filter(
+                (item): item is ScrubbedRef & { image: ScrubbedImage } => item.source === 'bytes'
+            )
+            const urlItems = this.buffer.filter(
+                (item): item is ScrubbedRef & { image: ScrubbedUrlImage } => item.source === 'url'
+            )
+            await Promise.all(
+                urlItems.map(async (item) => {
+                    const outcome = await this.scrubConcurrency.run({
+                        debugTag: item.image.hash,
+                        fn: () =>
+                            this.store.writeUrlImage(
+                                item.image,
+                                item.image.sessionMonth === undefined
+                                    ? undefined
+                                    : imageKeys.get(
+                                          tableKeyString(
+                                              imageKeyId(Number(item.image.teamId), item.image.sessionMonth!)
+                                          )
+                                      )
+                            ),
+                    })
+                    if (outcome === 'created' && item.capturedAtMs !== undefined) {
+                        ImageScrubConsumerMetrics.observeCaptureToS3('url', item.capturedAtMs, Date.now())
+                    }
+                })
+            )
+            const groups = new Map<string, typeof inlineItems>()
+            for (const item of inlineItems) {
+                const groupId =
+                    item.image.sessionMonth === undefined
+                        ? String(item.image.teamId !== undefined)
+                        : `${item.image.teamId}:${item.image.sessionMonth}`
+                const group = groups.get(groupId) ?? []
+                group.push(item)
+                groups.set(groupId, group)
+            }
+            for (const items of groups.values()) {
+                if (items.length === 0) {
+                    continue
+                }
+                const { bytes } = await this.store.writeShard(
+                    items.map((item) => item.image),
+                    items[0].image.sessionMonth === undefined
+                        ? undefined
+                        : imageKeys.get(
+                              tableKeyString(imageKeyId(Number(items[0].image.teamId), items[0].image.sessionMonth!))
+                          )
+                )
+                const storedAtMs = Date.now()
+                for (const item of items) {
+                    if (item.capturedAtMs !== undefined) {
+                        ImageScrubConsumerMetrics.observeCaptureToS3('inline', item.capturedAtMs, storedAtMs)
+                    }
+                }
+                ImageScrubConsumerMetrics.observeShard(items.length, bytes)
             }
             this.buffer = []
             this.bufferBytes = 0

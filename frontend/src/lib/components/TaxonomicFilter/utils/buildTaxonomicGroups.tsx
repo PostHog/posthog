@@ -16,6 +16,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import { hiddenEventNames } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import { withKeywordShortcuts } from 'lib/components/TaxonomicFilter/utils/keywordShortcuts'
 import {
     MCP_TOOL_CALL_EVENT,
@@ -39,7 +40,6 @@ import {
     getRevenueAnalyticsDefinitionIcon,
 } from 'scenes/data-management/events/DefinitionHeader'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
-import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from 'scenes/feature-flags/constants'
 import {
     getProductEventFilterOptions,
@@ -73,7 +73,9 @@ import {
     TeamType,
 } from '~/types'
 
+import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
+import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
 import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
 
 import { InlineHogQLEditor } from '../InlineHogQLEditor'
@@ -167,12 +169,16 @@ export interface BuildTaxonomicGroupsContext {
     personMetadataPropertyDefinitions: PropertyDefinition[]
     maxContextOptions: MaxContextTaxonomicFilterOption[]
     hideBehavioralCohorts: boolean
+    /** Mark each cohort row with what feature flags can do with it. See `TaxonomicFilterProps`. */
+    showCohortFlagTargeting: boolean
     endpointFilters: Record<string, any> | undefined
     hogQLExpressionComponentProps: {
         globals?: Record<string, any>
         showBreakdownLabelHint: boolean
     }
     featureFlags: Record<string, boolean | string | undefined>
+    /** Keep offering events whose data is moving out of the `events` table. See `TaxonomicFilterProps`. */
+    includeHiddenEvents?: boolean
 }
 
 export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): TaxonomicFilterGroup[] {
@@ -192,9 +198,11 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
         personMetadataPropertyDefinitions,
         maxContextOptions,
         hideBehavioralCohorts,
+        showCohortFlagTargeting,
         endpointFilters,
         hogQLExpressionComponentProps,
         featureFlags,
+        includeHiddenEvents,
     } = ctx
     const { id: teamId } = currentTeam
     const { excludedProperties, propertyAllowList } = propertyFilters
@@ -215,7 +223,15 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 event_type: EventDefinitionType.Event,
                 exclude_hidden: true,
             }).url,
-            excludedProperties: excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? [],
+            // The caller's record already carries the hidden names. Appending them again keeps the
+            // group hiding them even if some future caller passes a record that skipped the fold,
+            // and the set drops the repeat so it stays out of `useGroupList`'s cache key.
+            excludedProperties: [
+                ...new Set([
+                    ...(excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? []),
+                    ...hiddenEventNames(featureFlags, includeHiddenEvents),
+                ]),
+            ],
             ...withKeywordShortcuts<Record<string, any>>(
                 {
                     getName: (eventDefinition) => eventDefinition.name,
@@ -546,6 +562,15 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getPopoverHeader: () => 'Account field',
         },
         {
+            name: 'Account relationships',
+            searchPlaceholder: 'account relationships',
+            type: TaxonomicFilterGroupType.AccountRelationships,
+            getIcon: getAccountFieldDefinitionIcon,
+            getName: (option: PropertyDefinition) => option.name,
+            getValue: (option: PropertyDefinition) => option.id,
+            getPopoverHeader: () => 'Account relationship',
+        },
+        {
             name: 'Account custom properties',
             searchPlaceholder: 'account custom properties',
             type: TaxonomicFilterGroupType.AccountCustomProperties,
@@ -763,6 +788,9 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             clientFilterFirstPage: true,
             getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
             getValue: (cohort: CohortType) => cohort.id,
+            getTag: showCohortFlagTargeting
+                ? (cohort: CohortType) => <CohortRealtimeTag realtime={cohort.realtime} />
+                : undefined,
             getPopoverHeader: (cohort: CohortType) => `${cohort.is_static ? 'Static' : 'Dynamic'} Cohort`,
             getIcon: function _getIcon(): JSX.Element {
                 return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
@@ -784,6 +812,9 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             options: COHORTS_WITH_ALL_USERS_OPTIONS,
             getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
             getValue: (cohort: CohortType) => cohort.id,
+            getTag: showCohortFlagTargeting
+                ? (cohort: CohortType) => <CohortRealtimeTag realtime={cohort.realtime} />
+                : undefined,
             getPopoverHeader: () => `All Users`,
             getIcon: function _getIcon(): JSX.Element {
                 return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />

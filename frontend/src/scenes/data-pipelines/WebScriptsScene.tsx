@@ -56,7 +56,7 @@ export function WebScriptsScene(): JSX.Element {
         {
             key: 'all',
             label: 'All web scripts',
-            content: <DataPipelinesHogFunctions kind="site_app" action={action} />,
+            content: <DataPipelinesHogFunctions kind="site_app" />,
         },
         {
             key: 'history',

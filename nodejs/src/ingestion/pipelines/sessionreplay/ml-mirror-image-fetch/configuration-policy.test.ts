@@ -1,3 +1,5 @@
+import { register } from 'prom-client'
+
 import { StreamedResponse, fetchStreamed } from '~/common/utils/request'
 
 import {
@@ -90,8 +92,14 @@ describe('robots policy', () => {
             allowed: false,
             reason: 'robots_disallow',
         })
-        await expect(parseRobotsPolicy(body, `${ORIGIN}/private/public.png`)).resolves.toMatchObject({ allowed: true })
-        await expect(parseRobotsPolicy(body, `${ORIGIN}/wildcard/image.png`)).resolves.toMatchObject({ allowed: true })
+        await expect(parseRobotsPolicy(body, `${ORIGIN}/private/public.png`)).resolves.toMatchObject({
+            allowed: true,
+            crawlDelayMs: 0,
+        })
+        await expect(parseRobotsPolicy(body, `${ORIGIN}/wildcard/image.png`)).resolves.toMatchObject({
+            allowed: true,
+            crawlDelayMs: 0,
+        })
     })
 
     it('uses the greatest valid crawl delay in every selected field line', async () => {
@@ -102,13 +110,15 @@ describe('robots policy', () => {
             'Crawl-delay: 0x10',
             'Crawl-delay: 1e3',
             'Crawl-delay: 2.5',
+            // 16.1 * 1000 is 16100.000000000002, which is not a safe integer.
+            'Crawl-delay: 16.1',
             'Allow: /',
         ].join('\n')
 
         const result = await parseRobotsPolicy(body, `${ORIGIN}/image.png`)
         expect(result).toMatchObject({
             allowed: true,
-            crawlDelayMs: 2_500,
+            crawlDelayMs: 16_100,
         })
     })
 
@@ -162,15 +172,37 @@ describe('response opt-out policy', () => {
         expect(responseOptOutReason([{ name: 'tdm-reservation', value: '1' }], false)).toBe('tdm_reservation')
     })
 
-    it('applies a bot-specific X-Robots-Tag refusal', () => {
-        expect(
-            responseOptOutReason([{ name: 'x-robots-tag', value: 'PostHogImageFetcherBot: noindex, noimageai' }], false)
-        ).toBe('x_robots_tag')
-        expect(responseOptOutReason([{ name: 'x-robots-tag', value: 'OtherBot: noai' }], false)).toBeUndefined()
+    it.each([
+        ['a scope for this bot', 'PostHogImageFetcherBot: noindex, noimageai', 'x_robots_tag'],
+        ['a scope for another bot', 'OtherBot: noai', undefined],
+        [
+            'no scope beside a colon-bearing directive',
+            'noai, unavailable_after: 25 Jun 2026 15:00:00 PST',
+            'x_robots_tag',
+        ],
+        [
+            'a scope for another bot beside a colon-bearing directive',
+            'OtherBot: noai, unavailable_after: 25 Jun 2026 15:00:00 PST',
+            undefined,
+        ],
+        [
+            'no scope after a leading valued directive',
+            'unavailable_after: 25 Jun 2026 15:00:00 PST, noai',
+            'x_robots_tag',
+        ],
+        ['no scope after a leading max-image-preview', 'max-image-preview: large, noai', 'x_robots_tag'],
+        [
+            'a scope for another bot before a valued directive',
+            'OtherBot: unavailable_after: 25 Jun 2026 15:00:00 PST, noai',
+            undefined,
+        ],
+    ])('applies an X-Robots-Tag value with %s', (_name, value, expected) => {
+        expect(responseOptOutReason([{ name: 'x-robots-tag', value }], false)).toBe(expected)
     })
 })
 
 describe('ConfigurationPolicyService', () => {
+    beforeEach(() => register.resetMetrics())
     it('checks both files before it allows an image request', async () => {
         const { policy, fetch } = service()
 
@@ -190,6 +222,36 @@ describe('ConfigurationPolicyService', () => {
 
         await expect(policy.check(`${ORIGIN}/image.png`, cache, NOW_MS)).resolves.toMatchObject({ allowed: true })
         expect(fetch).not.toHaveBeenCalled()
+        const lookups = await register.getSingleMetric('ml_image_fetch_configuration_lookups_total')!.get()
+        expect(lookups.values).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ labels: { file: 'robots', source: 'cache', outcome: 'absent' }, value: 1 }),
+                expect.objectContaining({ labels: { file: 'tdmrep', source: 'cache', outcome: 'absent' }, value: 1 }),
+            ])
+        )
+    })
+
+    it('counts shared configuration requests separately from new requests', async () => {
+        let resolve!: (result: ConfigurationFetchResult) => void
+        const pending = new Promise<ConfigurationFetchResult>((done) => {
+            resolve = done
+        })
+        const fetch = jest.fn(() => pending)
+        const policy = new ConfigurationPolicyService({ fetch } as unknown as HttpConfigurationFetcher)
+        const first = policy.check(`${ORIGIN}/first.png`, new Map(), NOW_MS)
+        const second = policy.check(`${ORIGIN}/second.png`, new Map(), NOW_MS)
+        expect(fetch).toHaveBeenCalledTimes(2)
+        resolve({ outcome: 'unreachable' })
+        await Promise.all([first, second])
+        const lookups = await register.getSingleMetric('ml_image_fetch_configuration_lookups_total')!.get()
+        for (const file of ['robots', 'tdmrep']) {
+            expect(lookups.values).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({ labels: { file, source: 'network', outcome: 'unreachable' }, value: 1 }),
+                    expect.objectContaining({ labels: { file, source: 'shared', outcome: 'unreachable' }, value: 1 }),
+                ])
+            )
+        }
     })
 
     it('parses each cached policy revision once in a fetch pass', async () => {
@@ -311,31 +373,50 @@ describe('ConfigurationPolicyService', () => {
 describe('HttpConfigurationFetcher', () => {
     beforeEach(() => {
         fetchStreamedMock.mockReset()
+        register.resetMetrics()
     })
 
     it.each([
-        [404, 'absent'],
-        [410, 'absent'],
-        [401, 'refused'],
-        [403, 'refused'],
-        [429, 'unreachable'],
-        [500, 'unreachable'],
-        [204, 'unreachable'],
-    ])('maps HTTP %s to %s', async (status, outcome) => {
+        [404, 'absent', 'absent'],
+        [410, 'absent', 'absent'],
+        [401, 'refused', 'refused'],
+        [403, 'refused', 'refused'],
+        [429, 'unreachable', 'http_429'],
+        [500, 'unreachable', 'http_5xx'],
+        [204, 'unreachable', 'unexpected_status'],
+    ])('maps HTTP %s to %s', async (status, outcome, reason) => {
         fetchStreamedMock.mockResolvedValue(response(status))
 
         await expect(httpFetcher().fetch(ORIGIN, 'robots')).resolves.toMatchObject({ outcome })
+        const fetches = await register.getSingleMetric('ml_image_fetch_configuration_fetches_total')!.get()
+        expect(fetches.values).toEqual([
+            expect.objectContaining({ labels: { file: 'robots', outcome, reason }, value: 1 }),
+        ])
     })
 
     it('uses the retained prefix when robots.txt exceeds its byte limit', async () => {
         fetchStreamedMock.mockResolvedValue(
-            response(200, [], { bytes: Buffer.from('User-agent: *\nDisallow: /private'), overLimit: true })
+            response(200, [], {
+                bytes: Buffer.concat([
+                    Buffer.from('User-agent: *\nDisallow: /private'),
+                    Buffer.from([0xf0, 0x9f, 0x98]),
+                ]),
+                overLimit: true,
+            })
         )
 
         await expect(httpFetcher().fetch(ORIGIN, 'robots')).resolves.toMatchObject({
             outcome: 'available',
             body: 'User-agent: *\nDisallow: /private',
         })
+    })
+
+    it('treats invalid UTF-8 configuration text as unreachable', async () => {
+        fetchStreamedMock.mockResolvedValue(
+            response(200, [], { bytes: Buffer.from([0x75, 0x73, 0x65, 0x72, 0xff]), overLimit: false })
+        )
+
+        await expect(httpFetcher().fetch(ORIGIN, 'robots')).resolves.toMatchObject({ outcome: 'unreachable' })
     })
 
     it('treats an oversized or invalid TDMRep document as unreachable', async () => {
@@ -345,6 +426,19 @@ describe('HttpConfigurationFetcher', () => {
 
         await expect(httpFetcher().fetch(ORIGIN, 'tdmrep')).resolves.toMatchObject({ outcome: 'unreachable' })
         await expect(httpFetcher().fetch(ORIGIN, 'tdmrep')).resolves.toMatchObject({ outcome: 'unreachable' })
+        const fetches = await register.getSingleMetric('ml_image_fetch_configuration_fetches_total')!.get()
+        expect(fetches.values).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    labels: { file: 'tdmrep', outcome: 'unreachable', reason: 'body_limit' },
+                    value: 1,
+                }),
+                expect.objectContaining({
+                    labels: { file: 'tdmrep', outcome: 'unreachable', reason: 'invalid_document' },
+                    value: 1,
+                }),
+            ])
+        )
     })
 
     it('treats repeated Location field lines as unreachable', async () => {
@@ -377,6 +471,7 @@ describe('HttpConfigurationFetcher', () => {
             ['https://example.com/robots.txt'],
             ['https://cdn.example.com/robots'],
         ])
+        expect(fetchStreamedMock.mock.calls.map(([, options]) => options.allowH2)).toEqual([true, true])
     })
 
     it('does not follow a configuration redirect to another registrable domain', async () => {

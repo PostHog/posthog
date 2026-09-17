@@ -7,9 +7,10 @@ from rest_framework.serializers import ValidationError as DRFValidationError
 
 from posthog.models import Team, User
 
+from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ..models.community_skills import CommunitySkill, CommunitySkillVote
 from ..models.skills import LLMSkill
-from .skill_serializers import validate_allowed_tool, validate_skill_file_path, validate_skill_name_value
+from .skill_serializers import validate_allowed_tool, validate_new_skill_name_value, validate_skill_file_path
 from .skill_services import MAX_SKILL_FILE_BYTES, create_skill
 from .skill_template_services import parse_template_variables, render_template_skill
 
@@ -39,8 +40,8 @@ class CommunitySkillNotFoundError(Exception):
 
 class CommunitySkillInvalidPayloadError(Exception):
     """The synced catalog entry can't be safely copied into a team — a traversal/reserved file path,
-    oversized file content, a whitespace-bearing tool name, an empty body, or a reserved privileged
-    namespace. Surfaced as a 400 rather than persisting a malformed team skill."""
+    oversized content, a whitespace-bearing tool name, an empty body, or a reserved privileged namespace.
+    Surfaced as a 400 rather than persisting a malformed team skill."""
 
     def __init__(self, detail: str) -> None:
         self.detail = detail
@@ -102,7 +103,7 @@ def install_community_skill(
         raise CommunitySkillNotFoundError()
 
     try:
-        target_name = validate_skill_name_value(new_name or community_skill.slug)
+        target_name = validate_new_skill_name_value(new_name or community_skill.slug)
     except DRFValidationError as err:
         raise CommunitySkillInvalidPayloadError(_first_error_detail(err)) from err
 
@@ -133,6 +134,11 @@ def install_community_skill(
         # fail export validation, so reject it here rather than persisting an un-exportable skill.
         if not (locked.description or "").strip():
             raise CommunitySkillInvalidPayloadError("This community skill has no description and can't be installed.")
+        if len(locked.description) > SPEC_DESCRIPTION_MAX_LENGTH:
+            raise CommunitySkillInvalidPayloadError(
+                f"This community skill has a description longer than {SPEC_DESCRIPTION_MAX_LENGTH} characters. "
+                "Ask its publisher to shorten it before installing."
+            )
         files = _validate_installable_files(locked)
         body = locked.body
 

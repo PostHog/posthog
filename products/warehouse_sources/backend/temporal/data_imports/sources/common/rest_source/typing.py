@@ -7,6 +7,8 @@ from requests import Session
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_telemetry import FanoutParentSource
+
 from .auth import (
     APIKeyAuth,
     AuthConfigBase,
@@ -348,6 +350,10 @@ class EndpointResourceBase(ResourceBase, total=False):
     # ``endpoint`` is kept only for dependency-graph bookkeeping. Used to drive a fan-out
     # child from an already-synced warehouse parent table.
     data_iterator: Optional[Callable[[], Iterator[list[dict[str, Any]]]]]
+    # Which source served this resource's rows, for fan-out telemetry. Set by
+    # ``build_dependent_resource`` only after the warehouse table resolves, so it names the parent
+    # the run actually read rather than the one its config asked for.
+    parent_source: Optional[FanoutParentSource]
 
 
 class EndpointResource(EndpointResourceBase, total=False):

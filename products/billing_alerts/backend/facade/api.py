@@ -14,12 +14,12 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
-from products.alerts.backend.facade.api import (
-    AlertDestinationData,
-    DestinationType,
+from products.alerts.backend.facade.contracts import AlertDestinationData, DestinationType
+from products.alerts.backend.facade.destinations import (
     build_alert_destination_config,
     create_alert_destination_hog_functions,
     soft_delete_alert_destinations,
+    soft_delete_alert_destinations_for_alerts,
     soft_delete_all_alert_destinations,
     validate_destination_data,
 )
@@ -157,6 +157,13 @@ def delete_alert_and_destinations(alert: BillingAlertConfiguration) -> None:
         alert.delete()
 
 
+def soft_delete_destinations_for_alerts(*, team_id: int, alert_ids: list[str]) -> None:
+    """Remove the destinations of several billing alerts at once."""
+    soft_delete_alert_destinations_for_alerts(
+        team_id=team_id, alert_ids=alert_ids, allowed_event_ids=BILLING_ALERT_EVENT_IDS
+    )
+
+
 def destinations_for_alerts(alerts: list[BillingAlertConfiguration]) -> dict[str, list[dict[str, Any]]]:
     alert_ids = {str(alert.id) for alert in alerts}
     team_ids = {alert.execution_team_id for alert in alerts if alert.team_id is not None}
@@ -183,6 +190,14 @@ def slack_integration_belongs_to_team(*, integration_id: int, team_id: int) -> b
     ).exists()
 
 
+def _raise_if_billing_alert_already_has_this_destination_type(
+    alert: BillingAlertConfiguration, destination_type: DestinationType
+) -> None:
+    existing_types = {destination["type"] for destination in destinations_for_alerts([alert]).get(str(alert.id), [])}
+    if destination_type.value in existing_types:
+        raise DRFValidationError({"type": f"A {destination_type.label} destination already exists."})
+
+
 def create_destination(alert: BillingAlertConfiguration, *, request: Any, data: dict[str, Any]) -> list[UUID]:
     destination_data = cast(AlertDestinationData, data)
     validate_destination_data(destination_data, allowed_destination_types=BILLING_DESTINATION_TYPES)
@@ -204,14 +219,9 @@ def create_destination(alert: BillingAlertConfiguration, *, request: Any, data: 
             raise DRFValidationError(
                 {"slack_workspace_id": "Slack integration does not belong to this billing alert execution team."}
             )
-        existing_types = {
-            destination["type"] for destination in destinations_for_alerts([locked_alert]).get(str(locked_alert.id), [])
-        }
-        if destination_data["type"].value in existing_types:
-            raise DRFValidationError({"type": f"A {destination_data['type'].label} destination already exists."})
+        _raise_if_billing_alert_already_has_this_destination_type(locked_alert, destination_data["type"])
         configs = [
             build_alert_destination_config(
-                team=locked_alert.team,
                 spec=EVENT_KIND_CONFIG[kind],
                 alert_id=str(locked_alert.id),
                 alert_name=locked_alert.name,
@@ -220,8 +230,14 @@ def create_destination(alert: BillingAlertConfiguration, *, request: Any, data: 
             )
             for kind in EVENT_KINDS
         ]
-        hog_functions = create_alert_destination_hog_functions(configs, request=request)
-        return [hog_function.id for hog_function in hog_functions]
+        hog_function_ids = create_alert_destination_hog_functions(
+            configs,
+            team_id=locked_alert.execution_team_id,
+            created_by_id=request.user.id,
+            alert_id=str(locked_alert.id),
+            allowed_event_ids=BILLING_ALERT_EVENT_IDS,
+        )
+        return list(hog_function_ids)
 
 
 def delete_destination(alert: BillingAlertConfiguration, hog_function_ids: list[UUID]) -> None:
@@ -273,6 +289,7 @@ __all__ = [
     "initialize_billing_alert_lifecycle",
     "reschedule_billing_alert_configuration",
     "slack_integration_belongs_to_team",
+    "soft_delete_destinations_for_alerts",
     "validate_threshold_configuration",
     "visible_events_for_alert",
 ]

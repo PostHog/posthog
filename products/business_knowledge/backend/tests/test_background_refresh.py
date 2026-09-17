@@ -1,9 +1,13 @@
 import datetime
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.models.scoping import team_scope
 
 from products.business_knowledge.backend import logic
@@ -14,7 +18,11 @@ from products.business_knowledge.backend.models import (
     SourceStatus,
     SourceType,
 )
-from products.business_knowledge.backend.temporal.coordinator import RefreshSourceInputs, _host_serialized_batches
+from products.business_knowledge.backend.temporal.coordinator import (
+    RefreshSourceInputs,
+    _host_serialized_batches,
+    _present_chunk_ids_in_clickhouse,
+)
 
 
 class TestDueRefreshSelection(BaseTest):
@@ -102,6 +110,23 @@ class TestHostSerializedBatches(BaseTest):
     def test_inputs_shape(self) -> None:
         batches = _host_serialized_batches([(7, "x", "x.com")], max_concurrent=25)
         assert batches == [[RefreshSourceInputs(team_id=7, source_id="x")]]
+
+
+class TestEmbeddingReconciliation(SimpleTestCase):
+    def test_uses_dedicated_offline_clickhouse_user(self) -> None:
+        chunk_id = uuid4()
+        with (
+            patch("products.business_knowledge.backend.temporal.coordinator.Team.objects.get"),
+            patch(
+                "products.business_knowledge.backend.temporal.coordinator.execute_hogql_query",
+                return_value=MagicMock(results=[[str(chunk_id)]]),
+            ) as execute_hogql_query,
+        ):
+            present = _present_chunk_ids_in_clickhouse(1, [chunk_id])
+
+            assert present == {str(chunk_id)}
+            assert execute_hogql_query.call_args.kwargs["ch_user"] == ClickHouseUser.BUSINESS_KNOWLEDGE
+            assert execute_hogql_query.call_args.kwargs["workload"] == Workload.OFFLINE
 
 
 class TestTombstoneSweep(BaseTest):

@@ -9,7 +9,6 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { cn } from 'lib/utils/css-classes'
 import { AiRegexHelper, AiRegexHelperButton } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
-import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 
 import { ingestionControlsLogic } from '../ingestionControlsLogic'
 import { UrlTriggerConfig } from '../types'
@@ -25,6 +24,7 @@ export function UrlConfig({
     checkUrl,
     checkUrlResults,
     setCheckUrl,
+    titleBadge,
     ...props
 }: {
     logic: LogicWrapper
@@ -33,6 +33,7 @@ export function UrlConfig({
     addUrl: (urlTriggerConfig: UrlTriggerConfig) => void
     validationWarning: string | null
     title: string
+    titleBadge?: JSX.Element
     description: string
     checkUrl: string
     checkUrlResults: { [key: number]: boolean }
@@ -56,7 +57,8 @@ export function UrlConfig({
         <div className="flex flex-col gap-y-2">
             <div className="flex items-center gap-2 justify-between">
                 <LemonLabel className="text-base">
-                    {title} <Since web={{ version: '1.171.0' }} />
+                    {title}
+                    {titleBadge ? <> {titleBadge}</> : null}
                 </LemonLabel>
                 <LemonButton
                     onClick={props.onAdd}

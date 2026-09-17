@@ -240,6 +240,11 @@ class FeatureFlagActionBase(BaseAction):
             if field in change:
                 gated_changes[field] = change[field]
 
+        # A caller exempt from the serializer's opportunistic filter cleanup stays exempt when
+        # the approved change replays, otherwise approving a lifecycle action strips the legacy
+        # keys the direct call preserves.
+        skip_cleanup = bool(getattr(request, "skip_opportunistic_filter_cleanup", False))
+
         if flag is None:
             # Create: no row yet — baseline is a disabled flag and the payload is the create body.
             return {
@@ -249,6 +254,7 @@ class FeatureFlagActionBase(BaseAction):
                 "gated_changes": gated_changes,
                 "full_request_data": dict(change),
                 "preconditions": {"version": None, "updated_at": None},
+                "skip_opportunistic_filter_cleanup": skip_cleanup,
             }
 
         return {
@@ -261,6 +267,7 @@ class FeatureFlagActionBase(BaseAction):
                 "version": flag.version,
                 "updated_at": flag.updated_at.isoformat() if flag.updated_at else None,
             },
+            "skip_opportunistic_filter_cleanup": skip_cleanup,
         }
 
     @classmethod
@@ -331,7 +338,10 @@ class EnableFeatureFlagAction(FeatureFlagActionBase):
         return {
             "description": f"Enable feature flag '{intent_data.get('flag_key', 'unknown')}'",
             "before": intent_data.get("current_state", {}),
-            "after": intent_data.get("gated_changes", {}),
+            # The applied change, not just the gated subset. Archiving an enabled flag writes
+            # `archived` alongside `active`, and only `active` is gated — showing `gated_changes`
+            # asked an approver to consent to a disable and then archived the flag too.
+            "after": intent_data.get("full_request_data") or intent_data.get("gated_changes", {}),
         }
 
 
@@ -348,7 +358,10 @@ class DisableFeatureFlagAction(FeatureFlagActionBase):
         return {
             "description": f"Disable feature flag '{intent_data.get('flag_key', 'unknown')}'",
             "before": intent_data.get("current_state", {}),
-            "after": intent_data.get("gated_changes", {}),
+            # The applied change, not just the gated subset. Archiving an enabled flag writes
+            # `archived` alongside `active`, and only `active` is gated — showing `gated_changes`
+            # asked an approver to consent to a disable and then archived the flag too.
+            "after": intent_data.get("full_request_data") or intent_data.get("gated_changes", {}),
         }
 
 

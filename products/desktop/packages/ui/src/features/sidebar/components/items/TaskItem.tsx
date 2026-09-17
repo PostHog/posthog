@@ -144,7 +144,10 @@ export function TaskItem({
   onEditCancel,
 }: TaskItemProps) {
   const icon = isArchiving ? (
-    <DotsCircleSpinner size={ICON_SIZE} className="text-gray-10" />
+    <>
+      <DotsCircleSpinner size={ICON_SIZE} className="text-gray-10" />
+      <span className="sr-only">Archiving</span>
+    </>
   ) : (
     <TaskIcon
       workspaceMode={workspaceMode}
@@ -164,7 +167,7 @@ export function TaskItem({
 
   const prRef = useMemo(() => (prUrl ? parseGithubUrl(prUrl) : null), [prUrl]);
   const prBadge =
-    prUrl && prRef?.kind === "pr" ? (
+    !isArchiving && prUrl && prRef?.kind === "pr" ? (
       <PrBadge url={prUrl} number={prRef.number} />
     ) : null;
 
@@ -206,7 +209,7 @@ export function TaskItem({
     [onDragStart, taskId],
   );
 
-  if (isEditing) {
+  if (isEditing && !isArchiving) {
     return (
       <InlineEditInput
         depth={depth}
@@ -227,15 +230,17 @@ export function TaskItem({
       subtitle={subtitle}
       isActive={isActive}
       isSelected={isSelected}
+      aria-busy={isArchiving || undefined}
       // Lets a drag-selection find the row and the session it stands for.
       {...{ [SESSION_ROW_ATTRIBUTE]: taskId }}
       isDimmed={isArchiving}
+      disabled={isArchiving}
       draggable={!isArchiving}
       onDragStart={handleDragStart}
       onDragEnd={onDragEnd}
-      onClick={onClick}
-      onDoubleClick={onDoubleClick}
-      onContextMenu={onContextMenu}
+      onClick={isArchiving ? undefined : onClick}
+      onDoubleClick={isArchiving ? undefined : onDoubleClick}
+      onContextMenu={isArchiving ? undefined : onContextMenu}
       endContent={endContent}
     />
   );

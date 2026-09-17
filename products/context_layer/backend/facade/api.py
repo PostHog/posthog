@@ -16,11 +16,18 @@ from posthog.dataclasses import frozen
 from posthog.permissions import posthog_feature_flag_enabled
 
 from products.context_layer.backend import store
-from products.context_layer.backend.enablement import (
-    RestrictedProjectsError,
-    enable_context_layer,
-    organization_has_private_projects,
+from products.context_layer.backend.dreams import (
+    DREAM_AI_STAGE,
+    ActiveDreamRun,
+    DreamFileDiff,
+    DreamNotFoundError,
+    DreamRun,
+    DreamRunDetail,
+    DreamRunList,
+    get_dream_run,
+    list_dream_runs,
 )
+from products.context_layer.backend.enablement import enable_context_layer
 from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.pages import (
     PAGE_MAX_BYTES,
@@ -33,17 +40,25 @@ from products.context_layer.backend.pages import (
     get_health_report,
     get_page,
     get_tree,
+    is_run_content_path,
     page_frontmatter_channel_id,
     proposed_channel_page_path,
     resolve_channel_page,
     resolve_page_channel,
     write_page,
 )
+from products.context_layer.backend.proposals import (
+    WikiPageProposalDTO,
+    apply_page_proposal,
+    create_page_proposal,
+    list_page_proposals,
+)
 from products.context_layer.backend.store import (
     DREAM_BRANCH_RE,
     BundleConflictError,
     CommitAuthor,
     ContextLayerStoreError,
+    DependencyUnavailableError,
     HeadConflictError,
     LintFailedError,
     RepoLockUnavailableError,
@@ -65,6 +80,12 @@ MOUNT_PATH_ENV_VAR = "POSTHOG_CONTEXT_LAYER_PATH"
 COMMITS_PATH_ENV_VAR = "POSTHOG_CONTEXT_LAYER_COMMITS_PATH"
 
 __all__ = [
+    "DREAM_AI_STAGE",
+    "WikiPageProposalDTO",
+    "apply_page_proposal",
+    "create_page_proposal",
+    "is_run_content_path",
+    "list_page_proposals",
     "COMMITS_PATH_ENV_VAR",
     "DREAM_BRANCH_RE",
     "CONTEXT_LAYER_FEATURE_FLAG",
@@ -75,13 +96,19 @@ __all__ = [
     "CommitAuthor",
     "ContextLayerMount",
     "ContextLayerStoreError",
+    "DependencyUnavailableError",
+    "ActiveDreamRun",
+    "DreamFileDiff",
+    "DreamNotFoundError",
+    "DreamRun",
+    "DreamRunDetail",
+    "DreamRunList",
     "HeadConflictError",
     "InvalidPagePathError",
     "LintFailedError",
     "PageNotFoundError",
     "RepoLockUnavailableError",
     "RepoNotFoundError",
-    "RestrictedProjectsError",
     "WikiPage",
     "WikiHealthFinding",
     "WikiHealthReport",
@@ -89,6 +116,7 @@ __all__ = [
     "enable_context_layer",
     "get_bundle_export",
     "get_config",
+    "get_dream_run",
     "get_page",
     "get_health_report",
     "get_sandbox_mount",
@@ -96,7 +124,7 @@ __all__ = [
     "is_context_layer_enabled",
     "land_commit_bundle",
     "land_dream_branch",
-    "organization_has_private_projects",
+    "list_dream_runs",
     "page_frontmatter_channel_id",
     "proposed_channel_page_path",
     "resolve_channel_page",
@@ -141,11 +169,6 @@ def get_sandbox_mount(organization_id: uuid.UUID | str) -> ContextLayerMount | N
     """A short-lived bundle URL for cloning the wiki into a sandbox, or None
     when the organization has no wiki. The presign is minted here, at clone
     time, so the sandbox never holds storage credentials."""
-    if organization_has_private_projects(organization_id):
-        # The wiki API goes dark when any project turns private; the sandbox
-        # mount must go dark with it or excluded members could read restricted
-        # context from any task's sandbox.
-        return None
     try:
         export = store.get_bundle_export(organization_id)
     except store.ContextLayerStoreError:

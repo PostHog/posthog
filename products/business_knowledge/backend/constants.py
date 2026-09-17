@@ -7,6 +7,9 @@ import datetime
 # Per-team caps. Enforced in the create endpoint, not at the DB layer — easier
 # to relax for a single paying customer without a migration.
 MAX_SOURCES_PER_TEAM = 500
+# Generated sources are excluded from MAX_SOURCES_PER_TEAM. This bounds the
+# sources list when learning publishes one text source per accepted topic.
+MAX_LEARNED_SOURCES_PER_TEAM = 10000
 MAX_CHUNKS_PER_TEAM = 100_000
 # 1 MB of raw text. Above this Stage 1 refuses the create; for longer docs the
 # customer is expected to split them or wait for Stage 2/3.
@@ -180,6 +183,13 @@ BK_RERANK_SNIPPET_CHARS = 500
 # Timeout (seconds) for the async embedding call on the query path. If the
 # embedding service is slow, FTS alone fires (graceful degradation).
 BK_QUERY_EMBEDDING_TIMEOUT = 5.0
+
+# --- Search endpoint bounds ---
+# Ranked-chunk count for the documents/search endpoint. The default when the
+# caller passes no `limit`, and the hard cap the view clamps `limit` to.
+# `search_knowledge` also clamps its anchor count to the max.
+BK_SEARCH_DEFAULT_LIMIT = 10
+BK_SEARCH_MAX_LIMIT = 20
 
 # --- Always-on context cap ---
 # Hard char cap for always-on sources injected into every support prompt.

@@ -17,8 +17,9 @@ import { CyclotronJobInvocationGlobals, FilterLogicalOperator, PersonType, Prope
 import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { HogflowTestResult } from '../../steps/types'
+import { createExampleEvent } from '../../testEventFactory'
 import type { HogFlow } from '../../types'
-import { createExampleEvent, createGlobalsFromResponse } from './hogFlowEditorTestLogic'
+import { createGlobalsFromResponse } from './hogFlowEditorTestLogic'
 import type { HogflowTestInvocation } from './hogFlowEditorTestLogic'
 
 // Time range constants for event search

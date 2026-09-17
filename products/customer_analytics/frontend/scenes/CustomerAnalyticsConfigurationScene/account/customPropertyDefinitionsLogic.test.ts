@@ -57,6 +57,7 @@ const buildDefinition = (overrides: Partial<CustomPropertyDefinitionApi> = {}): 
         is_big_number: true,
         source: null,
         references: [],
+        has_workflow_reference: false,
         created_at: '2026-01-01T00:00:00Z',
         created_by: 1,
         updated_at: '2026-01-01T00:00:00Z',
@@ -175,9 +176,13 @@ describe('customPropertyDefinitionsLogic', () => {
     it.each([
         [
             'workflow references',
-            { references: [{ id: 'flow-1', name: 'Flow', status: 'draft', type: 'workflow' }] },
+            {
+                has_workflow_reference: true,
+                references: [{ id: 'flow-1', name: 'Flow', status: 'draft', type: 'workflow' }],
+            },
             'workflow',
         ],
+        ['a redacted workflow reference', { has_workflow_reference: true }, 'workflow'],
         ['no source or references', {}, 'manual'],
     ] as [string, Partial<CustomPropertyDefinitionApi>, string][])(
         'derives the source mode when editing a definition with %s',
@@ -393,6 +398,40 @@ describe('customPropertyDefinitionsLogic', () => {
         expect(logic.values.serializedColumnDescriptions).toEqual({ plan: 'The plan tier' })
     })
 
+    it.each([
+        ['nothing is mapped', [{ column: '', property: '', description: '' }], 'Map at least one column to a property'],
+        [
+            'every complete row is the key column',
+            [{ column: 'org_id', property: 'org_id', description: '' }],
+            'Map a column other than the distinct ID column',
+        ],
+        [
+            'a column other than the key column is mapped',
+            [{ column: 'mrr', property: 'mrr', description: '' }],
+            undefined,
+        ],
+    ] as [string, Record<string, string>[], string | undefined][])(
+        'gates creating a person source when %s',
+        async (_, columnMappings, expectedReason) => {
+            // The submit button reads this. A row on the key column is dropped from
+            // column_property_map, so rows alone can look complete while the request carries an
+            // empty map, which the backend rejects once the definition is already created.
+            useMocks(defaultMocks())
+            mountLogic()
+            await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+                'loadWarehouseTablesSuccess',
+            ])
+            logic.actions.setCustomPropertyFormValues({
+                targetType: 'person',
+                warehouseSource: 'table:table-1',
+                keyColumn: 'org_id',
+                columnMappings,
+            })
+
+            expect(logic.values.profileMappingDisabledReason).toEqual(expectedReason)
+        }
+    )
+
     describe('mapping every column at once', () => {
         const openWithColumns = async (formValues: Record<string, any>): Promise<void> => {
             // oxlint-disable-next-line react-hooks/rules-of-hooks
@@ -455,16 +494,21 @@ describe('customPropertyDefinitionsLogic', () => {
             expect(logic.values.mappableColumns).toEqual([])
         })
 
-        it('never serializes the key column as a property, even after the key changes', async () => {
+        it('never serializes the key column as a property, and says so on the row', async () => {
             // Bulk mapping excludes whatever key column is set at the time, but the key can change
             // afterwards. The column_property_map is create-only, so writing the new identifier column as
-            // a property would be unrecoverable, and it must be dropped from the payload.
+            // a property would be unrecoverable, and it must be dropped from the payload. The row has to
+            // report that, otherwise the mapping looks saved and then disappears.
             await mapAll({ keyColumn: 'org_id' })
             expect(logic.values.serializedColumnPropertyMap).toEqual({ mrr: 'mrr' })
+            expect(logic.values.columnMappingWarnings).toEqual([null])
 
             logic.actions.setCustomPropertyFormValue('keyColumn', 'mrr')
 
             expect(logic.values.serializedColumnPropertyMap).toEqual({})
+            expect(logic.values.columnMappingWarnings).toEqual([
+                `"mrr" is the distinct ID column, so this mapping isn't saved. Map a different column.`,
+            ])
         })
 
         it('leaves the key column mappable until one is chosen', async () => {
@@ -525,6 +569,32 @@ describe('customPropertyDefinitionsLogic', () => {
         ])
         // A project with views but no synced tables can still map properties.
         expect(logic.values.hasWarehouseSourceOptions).toBe(true)
+    })
+
+    it('never offers a table whose schema carries no id', async () => {
+        useMocks({
+            ...defaultMocks(),
+            get: {
+                ...defaultMocks().get,
+                [WAREHOUSE_TABLES_URL]: {
+                    count: 2,
+                    results: [
+                        buildTable(),
+                        // An unsynced table: the API can report a schema object with no id, and binding
+                        // needs the id, so offering this gives the user a pick that fails at save.
+                        buildTable({ id: 'table-2', name: 'Intercom_split', external_schema: { name: '' } }),
+                    ],
+                },
+            },
+        })
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        expect(logic.values.warehouseSourceOptions).toEqual([
+            { value: 'table:table-1', label: 'users', kind: 'table' },
+            { value: 'view:view-1', label: 'billing_view', kind: 'view' },
+        ])
     })
 
     it("loads a view's columns from the saved query rather than fetching a table", async () => {

@@ -76,22 +76,33 @@ def ses_tenant_events_webhook(request: HttpRequest) -> HttpResponse:
 
     message_type = message.get("Type")
     if message_type == "SubscriptionConfirmation":
-        subscribe_url = message.get("SubscribeURL")
-        if not isinstance(subscribe_url, str) or not is_valid_sns_url(subscribe_url):
-            return HttpResponse("Invalid subscribe URL", status=400)
-        try:
-            requests.get(subscribe_url, timeout=5).raise_for_status()
-        except requests.RequestException:
-            # Non-2xx makes SNS retry the confirmation later.
-            logger.exception("ses_tenant_events_webhook_subscription_confirm_failed", topic=message.get("TopicArn"))
-            return HttpResponse("Subscription confirmation failed", status=502)
-        logger.info("ses_tenant_events_webhook_subscription_confirmed", topic=message.get("TopicArn"))
-        return HttpResponse(status=200)
-
+        return _confirm_subscription(message)
     if message_type != "Notification":
         # UnsubscribeConfirmation and anything unknown: ack so SNS stops retrying.
         return HttpResponse(status=200)
+    return _handle_notification(message)
 
+
+def _confirm_subscription(message: dict[str, Any]) -> HttpResponse:
+    """Call back the SubscribeURL AWS sent, which completes the SNS subscription handshake."""
+    subscribe_url = message.get("SubscribeURL")
+    if not isinstance(subscribe_url, str) or not is_valid_sns_url(subscribe_url):
+        return HttpResponse("Invalid subscribe URL", status=400)
+    try:
+        requests.get(subscribe_url, timeout=5).raise_for_status()
+    except requests.RequestException:
+        # Non-2xx makes SNS retry the confirmation later.
+        logger.exception("ses_tenant_events_webhook_subscription_confirm_failed", topic=message.get("TopicArn"))
+        return HttpResponse("Subscription confirmation failed", status=502)
+    logger.info("ses_tenant_events_webhook_subscription_confirmed", topic=message.get("TopicArn"))
+    return HttpResponse(status=200)
+
+
+def _handle_notification(message: dict[str, Any]) -> HttpResponse:
+    """Enqueue a tenant-state sync for the team the EventBridge event names.
+
+    Every unusable payload still acks, because a retry would deliver the same unusable payload.
+    """
     try:
         event = json.loads(message.get("Message", ""))
     except (json.JSONDecodeError, TypeError):
@@ -104,6 +115,9 @@ def ses_tenant_events_webhook(request: HttpRequest) -> HttpResponse:
         logger.warning("ses_tenant_events_webhook_no_tenant", detail_type=event.get("detail-type"))
         return HttpResponse(status=200)
 
+    # Logged because the only other line on this path is the failure one, which leaves a handled
+    # delivery and an ignored one looking identical from outside: both answer 2xx.
+    logger.info("ses_tenant_events_webhook_accepted", team_id=team_id, detail_type=event.get("detail-type"))
     # Ack fast; the sync fetches authoritative state and sends any transition emails.
     sync_ses_tenant_state_task.delay(team_id)
     return HttpResponse(status=202)

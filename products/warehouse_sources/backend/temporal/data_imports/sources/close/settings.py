@@ -16,7 +16,8 @@ def _date_incremental_field(name: str) -> IncrementalField:
 
 # Standard fields returned by the plain list endpoints. Advanced Filtering only returns the
 # fields you name, so these lists are what keeps the search-backed tables column-compatible with
-# the offset-paginated ones. Custom fields are appended at runtime from `/custom_field/<type>/`.
+# the offset-paginated ones. A single `custom` selector for every custom field is added at
+# runtime (see ALL_CUSTOM_FIELDS_SELECTOR).
 LEAD_SEARCH_FIELDS = [
     "addresses",
     "contact_ids",

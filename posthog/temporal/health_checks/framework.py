@@ -9,6 +9,7 @@ from django.conf import settings
 from posthog.clickhouse.query_tagging import Product
 from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
+from posthog.scopes import APIScopeObject
 from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY, HealthExecutionPolicy
 from posthog.temporal.health_checks.models import DEFAULT_ACTIVE_SINCE_DAYS, HealthCheckResult
 from posthog.temporal.health_checks.registry import _DETECT_FNS, HEALTH_CHECKS, ensure_registry_loaded
@@ -152,6 +153,7 @@ class HealthCheckRegistration:
     active_since_days: int | None
     product: Product | None
     remediation: Remediation | None
+    access_controlled_resource: APIScopeObject | None
 
     def __post_init__(self) -> None:
         # A fraction, not a percent: 50 here would silently skip the rollout filter and hit every team.
@@ -184,6 +186,7 @@ def _register_health_check(cls: type[HealthCheck]) -> None:
         active_since_days=cls.active_since_days,
         product=cls.product,
         remediation=cls.remediation,
+        access_controlled_resource=cls.access_controlled_resource,
     )
 
     HEALTH_CHECKS[cls.kind] = registration
@@ -217,6 +220,19 @@ class HealthCheck:
     #     (edit config, bump a dependency, add a route, etc.).
     # Be descriptive — each half doubles as a prompt for its audience.
     remediation: Remediation | None = None
+
+    # The access-controlled resource this check's issue payloads describe (an
+    # `ACCESS_CONTROL_RESOURCES` entry, e.g. "external_data_source"). Set it when
+    # payloads embed metadata about that resource — names, keys, errors — so the
+    # Health API hides the check's issues from members whose access to the
+    # resource is restricted. None means every team member sees the issues.
+    #
+    # Two limits. The gate is resource-level only: an `AccessControl` deny scoped
+    # to one object's `resource_id` is not consulted, so a member barred from a
+    # single source or view still sees its issues. And only the Health API reads
+    # this field: the Signals inbox emitter does not, so a check that also
+    # overrides `render_signal` still publishes its payload there.
+    access_controlled_resource: APIScopeObject | None = None
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
@@ -281,6 +297,20 @@ def render_alert_for_issue(issue: HealthIssue) -> AlertContent:
     if check_cls is None:
         return AlertContent(title=issue.kind, summary=f"{issue.kind} ({issue.severity})", link="/health")
     return check_cls.render_alert(issue)
+
+
+def access_controlled_resources_by_kind() -> dict[str, APIScopeObject]:
+    """Map check kind → the access-controlled resource its payloads describe.
+
+    Only kinds that declare `access_controlled_resource` appear; every other
+    kind is visible to all team members.
+    """
+    ensure_registry_loaded()
+    return {
+        kind: registration.access_controlled_resource
+        for kind, registration in HEALTH_CHECKS.items()
+        if registration.access_controlled_resource is not None
+    }
 
 
 def remediation_for_kind(kind: str) -> Remediation | None:

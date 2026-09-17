@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const BillingAlertsCreateParams = /* @__PURE__ */ zod.object({
+export const BillingAlertsCreateParams = () => zod.object({
     organization_id: zod
         .string()
         .describe(
@@ -29,10 +29,9 @@ export const billingAlertsCreateBodyEvaluationDelayHoursMax = 72
 export const billingAlertsCreateBodyCooldownHoursMin = 0
 export const billingAlertsCreateBodyCooldownHoursMax = 720
 
-export const billingAlertsCreateBodyDestinationChangesOneDeleteItemMin = 4
-export const billingAlertsCreateBodyDestinationChangesOneDeleteItemMax = 4
+export const billingAlertsCreateBodyDestinationChangesOneDeleteItemMax = 100
 
-export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
+export const BillingAlertsCreateBody = () => zod.object({
     name: zod.string().max(billingAlertsCreateBodyNameMax).describe('Display name for this billing alert.'),
     description: zod.string().optional().describe('Optional internal description.'),
     enabled: zod.boolean().optional().describe('Whether scheduled checks should evaluate this alert.'),
@@ -89,12 +88,7 @@ export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
     destination_changes: zod
         .object({
             delete: zod
-                .array(
-                    zod
-                        .array(zod.string())
-                        .min(billingAlertsCreateBodyDestinationChangesOneDeleteItemMin)
-                        .max(billingAlertsCreateBodyDestinationChangesOneDeleteItemMax)
-                )
+                .array(zod.array(zod.string()).min(1).max(billingAlertsCreateBodyDestinationChangesOneDeleteItemMax))
                 .optional(),
             create: zod
                 .array(
@@ -126,7 +120,7 @@ export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Destination groups to create or delete in the same transaction as this configuration write.'),
 })
 
-export const BillingAlertsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const BillingAlertsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this billing alert configuration.'),
     organization_id: zod
         .string()
@@ -148,10 +142,9 @@ export const billingAlertsPartialUpdateBodyEvaluationDelayHoursMax = 72
 export const billingAlertsPartialUpdateBodyCooldownHoursMin = 0
 export const billingAlertsPartialUpdateBodyCooldownHoursMax = 720
 
-export const billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMin = 4
-export const billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMax = 4
+export const billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMax = 100
 
-export const BillingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const BillingAlertsPartialUpdateBody = () => zod.object({
     name: zod
         .string()
         .max(billingAlertsPartialUpdateBodyNameMax)
@@ -213,10 +206,7 @@ export const BillingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .object({
             delete: zod
                 .array(
-                    zod
-                        .array(zod.string())
-                        .min(billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMin)
-                        .max(billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMax)
+                    zod.array(zod.string()).min(1).max(billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMax)
                 )
                 .optional(),
             create: zod

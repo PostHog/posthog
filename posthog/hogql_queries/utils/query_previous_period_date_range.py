@@ -1,14 +1,26 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
+from dateutil.relativedelta import relativedelta
+
 from posthog.schema import DateRange, IntervalType
 
 from posthog.hogql_queries.utils.query_date_range import DateRangeBounds, QueryDateRange
 from posthog.models.team import Team
 from posthog.utils import get_compare_period_dates, relative_date_parse_with_delta_mapping
 
+# Calendar-anchored ranges that run to now ("This week/month/quarter/year"). Their previous period
+# sits one calendar unit back, so the offset is a calendar delta rather than a fixed span of days,
+# because months, quarters and years vary in length and elapsed days cannot express them.
+_PREVIOUS_CALENDAR_UNITS = {
+    "wStart": {"weeks": 1},
+    "mStart": {"months": 1},
+    "qStart": {"months": 3},
+    "yStart": {"years": 1},
+}
 
-# Originally similar to posthog/queries/query_date_range.py but rewritten to be used in HogQL queries
+
+# Originally similar to the legacy QueryDateRange (now posthog/hogql_queries/properties_timeline/query_date_range.py) but rewritten to be used in HogQL queries
 class QueryPreviousPeriodDateRange(QueryDateRange):
     """Translation of the raw `date_from` and `date_to` filter values to datetimes."""
 
@@ -58,9 +70,40 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
             return delta_mapping
         return None
 
+    def previous_calendar_period(
+        self, current_period_date_from: datetime, current_period_date_to: datetime
+    ) -> Optional[DateRangeBounds]:
+        """The prior calendar unit for a "This week/month/quarter/year" range that runs to now.
+
+        Both ends move back by one calendar unit, so the previous period keeps its position inside
+        that unit: the same weekday of the previous week, the same day of the previous month. Sizing
+        the previous period by elapsed duration instead would end it at the close of the prior unit,
+        which puts a Sunday-to-Wednesday week against a Wednesday-to-Saturday one.
+
+        Chart paths set full_comparison_period and run the previous period to the end of that unit,
+        so the comparison line spans the canvas. Aggregate paths keep the shortened end, so a partial
+        current period is scored against an equally partial previous one.
+        """
+        if not self._date_range or self._date_range.date_to:
+            return None
+        unit = _PREVIOUS_CALENDAR_UNITS.get(self._date_range.date_from) if self._date_range.date_from else None
+        if unit is None:
+            return None
+        shift = relativedelta(**unit)  # type: ignore[arg-type]
+        return DateRangeBounds(
+            date_from=current_period_date_from - shift,
+            date_to=current_period_date_from - timedelta(microseconds=1)
+            if self._full_comparison_period
+            else current_period_date_to - shift,
+        )
+
     def dates(self) -> DateRangeBounds:
         current_period_date_from = super().date_from()
         current_period_date_to = super().date_to()
+
+        previous_calendar = self.previous_calendar_period(current_period_date_from, current_period_date_to)
+        if previous_calendar is not None:
+            return previous_calendar
 
         if self._date_range and self._date_range.date_from == "all":
             # "All time" starts at the earliest event, whose time of day is arbitrary, while
@@ -76,7 +119,7 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
 
         previous_period_date_from, previous_period_date_to = get_compare_period_dates(
             current_period_date_from,
-            current_period_date_to,
+            self.nominal_comparison_date_to(current_period_date_to),
             self.date_from_delta_mappings(),
             self.date_to_delta_mappings(),
             self.interval_name,

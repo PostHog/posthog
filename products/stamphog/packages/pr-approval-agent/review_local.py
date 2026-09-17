@@ -47,6 +47,7 @@ from familiarity import (
     AuthorFamiliarity,
     _band,
     _blame_overlap,
+    _BlameOverlap,
     _files_previously_modified,
     _merge_base,
     _parse_diff,
@@ -309,11 +310,12 @@ def _familiarity_offline(
     considered_paths = [f.path for f in considered if f.path]
 
     blame_sha = _merge_base(base_sha, head_sha, REPO_ROOT)
-    if blame_sha is not None:
-        owned, total, top_authors = _blame_overlap(considered, blame_sha, author_prs, REPO_ROOT)
-    else:
-        owned, total, top_authors = 0, 0, ()
-    blame_overlap_pct = (100.0 * owned / total) if total else 0.0
+    overlap = (
+        _blame_overlap(considered, blame_sha, author_prs, REPO_ROOT)
+        if blame_sha is not None
+        else _BlameOverlap(owned_lines=0, total_lines=0, incomplete_files=0, top_prior_authors=())
+    )
+    blame_overlap_pct = (100.0 * overlap.owned_lines / overlap.total_lines) if overlap.total_lines else 0.0
 
     prior_prs, days_since = _prior_prs_in_paths(considered_paths, author_prs, REPO_ROOT, now)
     files_prev_count, files_total = _files_previously_modified(considered, author_prs, REPO_ROOT)
@@ -322,14 +324,15 @@ def _familiarity_offline(
     return AuthorFamiliarity(
         band=band,
         blame_overlap_pct=blame_overlap_pct,
-        modified_lines_owned=owned,
-        modified_lines_total=total,
+        modified_lines_owned=overlap.owned_lines,
+        modified_lines_total=overlap.total_lines,
         prior_prs_in_paths=prior_prs,
         days_since_last_touch=days_since,
         files_prev_count=files_prev_count,
         files_total=files_total,
         capped=capped,
-        top_prior_authors=top_authors,
+        blame_incomplete_files=overlap.incomplete_files,
+        top_prior_authors=overlap.top_prior_authors,
     )
 
 

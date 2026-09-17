@@ -144,6 +144,41 @@ class TestGitHubSandboxCredential:
 
         assert outcome.next_refresh_seconds == 2 * 60 * 60
 
+    @pytest.mark.parametrize("repository", [None, "explore-science/paper-wizard-frontend"])
+    def test_read_only_run_re_mints_read_only_token(self, repository):
+        # The team integration is attached to every task, so this periodic refresh would otherwise
+        # resolve the full credential path and swap a downscoped token for the write-capable one
+        # partway through the run. It must hold whether or not the run cloned a repository,
+        # because a Signals scout with repositories pinned to it is read-only for its whole life.
+        sandbox = MagicMock()
+        sandbox.execute.return_value = _ok("")
+        sandbox.write_file.return_value = _ok()
+        repositories = [repository, "acme/second"] if repository else []
+        ctx = _context(repository=repository, state={"github_read_access": True, "repositories": repositories})
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.sandbox_credentials.get_readonly_github_token",
+                return_value="ghs_readonly",
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token"
+            ) as resolve_full,
+        ):
+            outcome = GitHubSandboxCredential().refresh(sandbox, ctx, MagicMock())
+
+        resolve_full.assert_not_called()
+        assert outcome.refreshed is True
+        assert b"ghs_readonly" in sandbox.write_file.call_args.args[1]
+        # Every cloned checkout embeds the token in its own `origin` URL, so a repo-backed refresh
+        # has to rewrite each remote or the expired token stays in the secondary checkouts and
+        # every later `git fetch` there fails.
+        rewritten = [
+            str(c.args[0]) for c in sandbox.execute.call_args_list if "x-access-token:ghs_readonly" in str(c.args[0])
+        ]
+        assert len(rewritten) == len(repositories)
+        assert all(any(repository in command for command in rewritten) for repository in repositories)
+
     def test_no_op_without_github_credentials(self):
         sandbox = MagicMock()
         ctx = _context(github_integration_id=None, github_user_integration_id=None)
@@ -262,7 +297,7 @@ class TestSharedUserIntegrationRefresh:
             assert outcome.refreshed is True
             assert outcome.next_refresh_seconds == USER_TOKEN_REFRESH_INTERVAL_SECONDS
             resolve.assert_called_once()
-            apply.assert_called_once_with(sandbox, "explore-science/paper-wizard-frontend", "ghu_fresh")
+            apply.assert_called_once_with(sandbox, ["explore-science/paper-wizard-frontend"], "ghu_fresh")
 
     def test_refresh_reports_not_refreshed_when_no_token(self):
         import contextlib
@@ -300,7 +335,7 @@ class TestSharedUserIntegrationRefresh:
             assert outcome.refreshed is True
             assert outcome.next_refresh_seconds == 20 * 60
             installation_token.assert_called_once_with(456)
-            apply.assert_called_once_with(sandbox, "explore-science/paper-wizard-frontend", "ghs_team")
+            apply.assert_called_once_with(sandbox, ["explore-science/paper-wizard-frontend"], "ghs_team")
 
     def test_reauthorization_without_team_integration_raises_credential_unavailable(self):
         import contextlib
@@ -339,7 +374,7 @@ class TestSharedUserIntegrationRefresh:
 
             assert outcome.refreshed is True
             resolve.assert_not_called()
-            apply.assert_called_once_with(sandbox, "explore-science/paper-wizard-frontend", "ghu_caller")
+            apply.assert_called_once_with(sandbox, ["explore-science/paper-wizard-frontend"], "ghu_caller")
 
 
 class TestApplyOwnerTokenLocked:
@@ -362,8 +397,8 @@ class TestApplyOwnerTokenLocked:
             sandbox = MagicMock()
             sandbox.id = "sb-1"
 
-            assert _apply_owner_token_locked(sandbox, "org/repo", "ghu_x", "run-1", {}, 7) is True
-            apply.assert_called_once_with(sandbox, "org/repo", "ghu_x")
+            assert _apply_owner_token_locked(sandbox, ["org/repo"], "ghu_x", "run-1", {}, 7) is True
+            apply.assert_called_once_with(sandbox, ["org/repo"], "ghu_x")
 
     def test_skips_when_a_transition_rebound_the_sandbox_to_another_actor(self):
         import contextlib
@@ -378,7 +413,7 @@ class TestApplyOwnerTokenLocked:
             sandbox = MagicMock()
             sandbox.id = "sb-1"
 
-            assert _apply_owner_token_locked(sandbox, "org/repo", "ghu_x", "run-1", {}, 7) is False
+            assert _apply_owner_token_locked(sandbox, ["org/repo"], "ghu_x", "run-1", {}, 7) is False
             apply.assert_not_called()
 
     def test_fails_closed_without_applying_when_the_lock_is_contended(self):
@@ -392,7 +427,7 @@ class TestApplyOwnerTokenLocked:
             sandbox = MagicMock()
             sandbox.id = "sb-1"
 
-            assert _apply_owner_token_locked(sandbox, "org/repo", "ghu_x", "run-1", {}, 7) is False
+            assert _apply_owner_token_locked(sandbox, ["org/repo"], "ghu_x", "run-1", {}, 7) is False
             apply.assert_not_called()
             lock.release.assert_not_called()
 
@@ -421,7 +456,7 @@ class TestApplyOwnerTokenLocked:
             sandbox = MagicMock()
             sandbox.id = "sb-1"
 
-            _apply_owner_token_locked(sandbox, "org/repo", "ghu_x", "run-1", {}, 7)
+            _apply_owner_token_locked(sandbox, ["org/repo"], "ghu_x", "run-1", {}, 7)
 
             # The lock is leased for the full worst-case write, not the old 30s.
             get_client.return_value.lock.assert_called_once()

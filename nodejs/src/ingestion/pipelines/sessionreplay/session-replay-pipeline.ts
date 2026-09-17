@@ -2,13 +2,13 @@ import { Message } from 'node-rdkafka'
 
 import { DlqOutput, IngestionWarningsOutput, OverflowOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { IngestionOverflowMode } from '~/ingestion/config'
 import { BatchingContext, BatchingPipeline } from '~/ingestion/framework/batching-pipeline'
 import { newBatchingPipeline } from '~/ingestion/framework/builders'
-import { TopHogRegistry, createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
+import { TopHogRegistry, createTopHogWrapper, timer } from '~/ingestion/framework/extensions/tophog'
 import { aggregateKafkaDebugContexts, createBatch } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { isOkResult, ok } from '~/ingestion/framework/results'
@@ -27,12 +27,12 @@ import { createParseMessageStep } from './parse-message-step'
 import { MessageContext } from './pipeline-types'
 import { createRecordSessionEventStep } from './record-session-event-step'
 import { SessionBatchContext } from './session-batch-context'
-import { createMarkSeenStep } from './session-batch-mark-seen-step'
-import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
-import { createTrackAndGateStep } from './session-batch-track-and-gate-step'
-import { createResolveKeyStep } from './session-resolve-key-step'
-import { createTeamFilterStep } from './team-filter-step'
-import { createValidateSessionReplayHeadersStep } from './validate-headers-step'
+import {
+    addSessionReplayPreprocessing,
+    addSessionReplaySessionResolution,
+    withSessionReplayRecordingMetrics,
+} from './session-replay-pipeline-stages'
+import { createRecordSessionUsageStep, trackUnbilledNewSessions } from './session-usage-step'
 
 export interface SessionReplayPipelineInput extends SessionBatchContext {
     message: Message
@@ -78,6 +78,7 @@ export interface SessionReplayPipelineConfig {
     topHog: TopHogRegistry
     /** Debug logging matcher for partition-based debugging. */
     isDebugLoggingEnabled: ValueMatcher<number>
+    usageBatch?: UsageRecordBatch
 }
 
 /**
@@ -92,20 +93,7 @@ export interface SessionReplayPipelineConfig {
  * 5. Record - Record parsed messages to the batch's recorder
  */
 export function createSessionReplayPipeline(config: SessionReplayPipelineConfig): SessionReplayPipeline {
-    const {
-        outputs,
-        eventIngestionRestrictionManager,
-        overflowMode,
-        promiseScheduler,
-        teamService,
-        retentionService,
-        sessionTracker,
-        sessionFilter,
-        keyStore,
-        sessionKeyResolutionMaxConcurrency,
-        topHog,
-        isDebugLoggingEnabled,
-    } = config
+    const { outputs, promiseScheduler, topHog, isDebugLoggingEnabled, usageBatch } = config
 
     const pipelineConfig: PipelineConfig<OverflowOutput> = {
         outputs,
@@ -129,58 +117,15 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
         (batch) =>
             batch
                 .messageAware((b) =>
-                    b
-                        .sequentially((b) =>
-                            b
-                                // Parse headers and apply restrictions (drop/overflow)
-                                .pipe(createParseHeadersStep())
-                                .pipe(
-                                    createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
-                                        overflowMode,
-                                        preservePartitionLocality: true, // Sessions must stay on the same partition
-                                        // Replay never reads or writes persons. The line above pins
-                                        // locality either way, so this only records the fact.
-                                        pipelineWritesPersons: false,
-                                    })
-                                )
-                                // Validate the headers capture guarantees (DLQ if missing) and narrow the type
-                                .pipe(createValidateSessionReplayHeadersStep())
-                                // Validate team ownership and enrich with team context
-                                .pipe(createTeamFilterStep(teamService))
-                        )
-                        // Resolve retention for the whole batch in one call, before the message is parsed and
-                        // recorded — keyed on the (validated) session_id header. Sessions with unresolvable
-                        // retention are dropped before any parse or write.
-                        .gather()
-                        .pipeChunk(createResolveRetentionStep(retentionService), {
-                            retry: { tries: 3, sleepMs: 100 },
-                        })
-                        // Track sessions and rate-limit new ones for the whole batch, tagging the survivors with
-                        // isNewSession and dropping the blocked ones right here (they carry no key, so nothing
-                        // downstream acts on them). Its own retry scope means a later key-resolution failure never
-                        // re-runs the rate limiter and double-charges the budget.
-                        .pipeChunk(createTrackAndGateStep(sessionTracker, sessionFilter), {
-                            retry: { tries: 3, sleepMs: 100 },
-                        })
-                        // Resolve each session's encryption key. Grouped by session so it runs once per session
-                        // (the cached keystore fans the key to its other messages) and concurrently across
-                        // sessions, capped to bound KMS/DynamoDB fan-out. Per-session retry isolates a transient
-                        // keystore blip to that one session. Deleted sessions are dropped here.
-                        .concurrentlyPerGroup(
-                            (element) => `${element.team.teamId}:${element.headers.session_id}`,
-                            (group) =>
-                                group.sequentially((b) =>
-                                    b.pipe(createResolveKeyStep(keyStore), {
-                                        retry: { name: 'resolve_session_key', tries: 3, sleepMs: 100 },
-                                    })
-                                ),
-                            { maxConcurrency: sessionKeyResolutionMaxConcurrency }
-                        )
-                        // Re-collect the per-session groups into one batch — both to mark the whole batch seen
-                        // in a single Redis write and as the barrier that guarantees every key is resolved first.
-                        .gather()
-                        // Mark the surviving new sessions seen, now that every key is durably resolved.
-                        .pipeChunk(createMarkSeenStep(sessionTracker))
+                    addSessionReplaySessionResolution(
+                        b
+                            .sequentially((b) => addSessionReplayPreprocessing(b, config))
+                            // Resolve retention for the whole batch in one call, before the message is parsed and
+                            // recorded — keyed on the (validated) session_id header. Sessions with unresolvable
+                            // retention are dropped before any parse or write.
+                            .gather(),
+                        config
+                    )
                         // Map TeamForReplay.teamId to context.team.id for handleIngestionWarnings
                         .filterMap(
                             (element) => ({
@@ -198,36 +143,26 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                                                 b
                                                     // Parse message content
                                                     .pipe(
-                                                        topHogWrapper(createParseMessageStep(), [
-                                                            timer('parse_time_ms_by_session_id', (input) => ({
-                                                                token: input.headers.token ?? 'unknown',
-                                                                session_id: input.headers.session_id ?? 'unknown',
-                                                            })),
-                                                        ])
+                                                        trackUnbilledNewSessions(
+                                                            topHogWrapper(createParseMessageStep(), [
+                                                                timer('parse_time_ms_by_session_id', (input) => ({
+                                                                    token: input.headers.token ?? 'unknown',
+                                                                    session_id: input.headers.session_id ?? 'unknown',
+                                                                })),
+                                                            ])
+                                                        )
                                                     )
                                                     // Monitor library version and emit warnings for old versions
                                                     .pipe(createLibVersionMonitorStep())
                                                     .pipe(
-                                                        topHogWrapper(
+                                                        withSessionReplayRecordingMetrics(
+                                                            topHog,
                                                             createRecordSessionEventStep({
                                                                 isDebugLoggingEnabled,
-                                                            }),
-                                                            [
-                                                                sum(
-                                                                    'message_size_by_session_id',
-                                                                    (input) => ({
-                                                                        token: input.parsedMessage.token ?? 'unknown',
-                                                                        session_id: input.parsedMessage.session_id,
-                                                                    }),
-                                                                    (input) => input.parsedMessage.metadata.rawSize
-                                                                ),
-                                                                timer('consume_time_ms_by_session_id', (input) => ({
-                                                                    token: input.parsedMessage.token ?? 'unknown',
-                                                                    session_id: input.parsedMessage.session_id,
-                                                                })),
-                                                            ]
+                                                            })
                                                         )
                                                     )
+                                                    .pipe(createRecordSessionUsageStep(usageBatch))
                                             )
                                             .gather()
                                     )

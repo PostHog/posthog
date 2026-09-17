@@ -1,15 +1,27 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
+import type { MlWireVersion } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
+
+import { type ImageTransportRejectionReason } from './image-transport'
 import { ScrubWaitReason } from './scrub-client'
 
+export type ImageScrubSkipReason = ImageTransportRejectionReason | 'sidecar_rejected'
+export type ImageScrubSource = 'inline' | 'url'
+
 export class ImageScrubConsumerMetrics {
+    private static readonly wireVersion = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_version_total',
+        help: 'Images accepted by wire format version, counted before scrubbing. Version 2 arrived as an encrypted envelope this consumer decrypted, version 1 as cleartext. The mirror stamps the version, so this is the consumer-side view of its switchover and the two rates should track each other across a deploy',
+        labelNames: ['version'],
+    })
     private static readonly scrubbed = new Counter({
         name: 'ml_mirror_image_scrub_consumer_scrubbed_total',
         help: 'Images scrubbed by the sidecar and buffered for a shard write',
     })
     private static readonly skipped = new Counter({
         name: 'ml_mirror_image_scrub_consumer_skipped_total',
-        help: 'Images skipped because the sidecar rejected them as undecodable (resolve to nothing)',
+        help: 'Images permanently skipped by bounded reason. sidecar_rejected is split by the sidecar outcome metrics',
+        labelNames: ['reason'],
     })
     private static readonly deduped = new Counter({
         name: 'ml_mirror_image_scrub_consumer_deduped_total',
@@ -46,6 +58,12 @@ export class ImageScrubConsumerMetrics {
         name: 'ml_mirror_image_scrub_consumer_shard_bytes_total',
         help: 'Scrubbed image bytes written into shards',
     })
+    private static readonly captureToS3 = new Histogram({
+        name: 'ml_mirror_image_scrub_consumer_capture_to_s3_seconds',
+        help: 'Wall time from the source replay Kafka timestamp to a successful S3 write, by image source',
+        labelNames: ['source'],
+        buckets: [0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600, 1800, 3600, 10800, 21600, 43200, 86400, 259200, 604800],
+    })
     /**
      * The saturation signal, and the one to alert on.
      *
@@ -57,7 +75,7 @@ export class ImageScrubConsumerMetrics {
      */
     private static readonly scrubWaits = new Counter({
         name: 'ml_mirror_image_scrub_consumer_scrub_waits_total',
-        help: 'Scrub attempts that returned no bytes and will be retried, by reason: "busy" (503, shed), "timeout" (no reply inside the request timeout), "transport" (socket refused or reset, or an unexpected status). Retried rather than dropped, so this is backpressure and not loss',
+        help: 'Scrub attempts that returned no bytes and will be retried, by reason: "busy" (503, shed), "timeout" (no reply inside the request timeout), "refused" (nothing listening on the sidecar port, so the sidecar is down or restarting), "reset" (a connection the sidecar accepted and then dropped before replying, which its shutdown does to idle sockets), "transport" (any other socket failure, so a sustained rate outside a rollout is a fault), "rejected" (a 5xx other than 503, a 408, a 429, or an empty 200). Retried rather than dropped, so this is backpressure and not loss. The unreachable alert selects "refused" and "transport"',
         labelNames: ['reason'],
     })
     /**
@@ -156,8 +174,8 @@ export class ImageScrubConsumerMetrics {
     public static incScrubbed(): void {
         this.scrubbed.inc()
     }
-    public static incSkipped(): void {
-        this.skipped.inc()
+    public static incSkipped(reason: ImageScrubSkipReason): void {
+        this.skipped.labels(reason).inc()
     }
     public static incScrubWait(reason: ScrubWaitReason): void {
         this.scrubWaits.labels(reason).inc()
@@ -198,6 +216,12 @@ export class ImageScrubConsumerMetrics {
     public static incInvalidKey(): void {
         this.invalidKey.inc()
     }
+    public static incrementVersion(version: MlWireVersion, count: number): void {
+        if (count > 0) {
+            this.wireVersion.labels(version).inc(count)
+        }
+    }
+
     public static observeBatchMessages(count: number): void {
         this.batchMessages.observe(count)
     }
@@ -205,5 +229,11 @@ export class ImageScrubConsumerMetrics {
         this.shardsWritten.inc()
         this.shardImages.inc(images)
         this.shardBytes.inc(bytes)
+    }
+    public static observeCaptureToS3(source: ImageScrubSource, capturedAtMs: number, storedAtMs: number): void {
+        if (!Number.isSafeInteger(capturedAtMs) || capturedAtMs <= 0 || !Number.isFinite(storedAtMs)) {
+            return
+        }
+        this.captureToS3.labels(source).observe(Math.max(0, storedAtMs - capturedAtMs) / 1000)
     }
 }

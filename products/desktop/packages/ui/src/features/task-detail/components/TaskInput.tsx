@@ -9,12 +9,27 @@ import type {
   PiModelSelection,
   PiThinkingLevel,
 } from "@posthog/core/pi-runtime/piSessionController";
-import { isValidConfigValue } from "@posthog/core/task-detail/configOptions";
+import {
+  harnessForModelValue,
+  isValidConfigValue,
+  modelOptionForHarness,
+  syntheticPiModelSelection,
+} from "@posthog/core/task-detail/configOptions";
+import { preferredRunsOnPi } from "@posthog/core/task-detail/previewConfig";
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { ButtonGroup } from "@posthog/quill";
-import { type AgentRuntime, ANALYTICS_EVENTS } from "@posthog/shared";
+import {
+  type AgentRuntime,
+  ANALYTICS_EVENTS,
+  adapterForModelId,
+  PI_HARNESS_FLAG,
+} from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import {
+  spendStopMessage,
+  useSpendStop,
+} from "@posthog/ui/features/billing/useSpendStop";
 import {
   TaskRepositoryChip,
   TaskRepositoryDialog,
@@ -26,8 +41,11 @@ import {
 } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
+import {
+  subscriptionModelAccess,
+  useAdapterSubscription,
+} from "@posthog/ui/features/settings/adapterSubscription";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
-import { NEW_TASK_COMPOSER_FADE_MS } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToInbox } from "@posthog/ui/router/navigationBridge";
@@ -48,7 +66,7 @@ import { useConnectivity } from "../../../hooks/useConnectivity";
 import { DotPatternBackground } from "../../../primitives/DotPatternBackground";
 import { toast } from "../../../primitives/toast";
 import { useActiveRepoStore } from "../../../shell/activeRepoStore";
-import { useHostCapabilities } from "../../../shell/useHostCapabilities";
+import { pendingTaskPromptStoreApi } from "../../../shell/pendingTaskPromptStore";
 import { FOCUSABLE_SELECTOR } from "../../../utils/overlay";
 import { useAuthStateValue } from "../../auth/store";
 import { AutoresearchComposerControls } from "../../autoresearch/AutoresearchComposerControls";
@@ -100,35 +118,41 @@ import { ReasoningLevelSelector } from "../../sessions/components/ReasoningLevel
 import { getCurrentModeFromConfigOptions } from "../../sessions/sessionStore";
 import {
   type AgentAdapter,
-  DEFAULT_WORKSPACE_MODE,
   useSettingsStore,
 } from "../../settings/settingsStore";
 import { useSkills } from "../../skills/useSkills";
-import { useCloudModeEnabled } from "../hooks/useCloudModeEnabled";
+import { cloudTargetIds } from "../cloudTargets";
+import { useCloudTargetSelection } from "../hooks/useCloudTarget";
 import {
   areReposReady,
   useInitialRepoSelectionFromFolderId,
 } from "../hooks/useInitialRepoSelectionFromFolderId";
 import { usePreviewConfig } from "../hooks/usePreviewConfig";
+import { useResolvedWorkspaceMode } from "../hooks/useResolvedWorkspaceMode";
 import { useTaskCreation } from "../hooks/useTaskCreation";
+import { useTaskRunDefaults } from "../hooks/useTaskRunDefaults";
 import { useWarmTask } from "../hooks/useWarmTask";
-import { resolveWorkspaceModePreference } from "../hooks/workspaceModePreference";
 import { ChannelContextChip } from "./ChannelContextChip";
-import { CloudGithubMissingNotice } from "./CloudGithubMissingNotice";
 import { NewTaskSuggestions } from "./ContinueCliSessions";
+import { shouldShowChannelContextChip } from "./channelContext";
 import {
   type SuggestedPrompt,
   SuggestedPromptCard,
 } from "./SuggestedPromptCard";
-import { type WorkspaceMode, WorkspaceModeSelect } from "./WorkspaceModeSelect";
+import { WorkspaceModeSelect } from "./WorkspaceModeSelect";
 
 interface TaskInputProps {
   sessionId?: string;
   onTaskCreated?: (task: Task) => void;
   onTaskCreatedEffect?: (task: Task) => void;
+  showNewTaskSuggestions?: boolean;
   initialPrompt?: string;
+  /** Full editor content to prefill (chips + attachments), preferred over initialPrompt. */
+  initialContent?: EditorContent;
+  /** Pending-prompt record to clear once this prefill is applied (interrupted-prompt recovery). */
+  recoveredFromKey?: string;
   initialPromptKey?: string;
-  initialCloudRepository?: string;
+  initialCloudRepository?: string | null;
   initialModel?: string;
   initialMode?: string;
   reportAssociation?: TaskInputReportAssociation;
@@ -194,7 +218,10 @@ export function TaskInput({
   sessionId = "task-input",
   onTaskCreated,
   onTaskCreatedEffect,
+  showNewTaskSuggestions = true,
   initialPrompt,
+  initialContent,
+  recoveredFromKey,
   initialPromptKey,
   initialCloudRepository,
   initialModel,
@@ -267,10 +294,7 @@ export function TaskInput({
     trpc.folders.getMostRecentlyAccessedRepository.queryOptions(),
   );
   const {
-    setLastUsedLocalWorkspaceMode,
     lastUsedLocalWorkspaceMode,
-    lastUsedWorkspaceMode,
-    setLastUsedWorkspaceMode,
     lastUsedAgentRuntime,
     setLastUsedAgentRuntime,
     lastUsedAdapter,
@@ -290,6 +314,7 @@ export function TaskInput({
     setLastUsedPiModel,
     _hasHydrated: settingsHydrated,
   } = useSettingsStore();
+  const spendStop = useSpendStop();
   const { data: skills } = useSkills();
 
   const editorRef = useRef<EditorHandle>(null);
@@ -334,19 +359,13 @@ export function TaskInput({
   const [selectedEnvironment, setSelectedEnvironmentRaw] = useState<
     string | null
   >(null);
-  const [selectedCloudEnvId, setSelectedCloudEnvId] = useState<string | null>(
-    null,
-  );
-  const [selectedCustomImageId, setSelectedCustomImageId] = useState<
-    string | null
-  >(null);
+  const { cloudTarget, setCloudTarget } = useCloudTargetSelection();
   const [activeReportAssociation, setActiveReportAssociation] = useState(
     reportAssociation ?? null,
   );
 
-  // Channel CONTEXT.md is included by default; the chip lets the user drop it
-  // from this task's prompt. Re-include whenever the source context changes
-  // (e.g. switching channels) so a dismissal doesn't stick across channels.
+  // Legacy CONTEXT.md is optional. A resolved context-layer page is a pointer
+  // into the session-wide mount and stays connected for the whole session.
   const [channelContextDismissed, setChannelContextDismissed] = useState(false);
   const channelContextSource = channelContextPath ?? channelContext;
   const lastChannelContextRef = useRef(channelContextSource);
@@ -357,26 +376,46 @@ export function TaskInput({
     }
   }, [channelContextSource]);
   const includeChannelContext =
-    !!channelContextSource && !channelContextDismissed;
+    !!channelContextPath || (!!channelContext && !channelContextDismissed);
 
   const adapter = lastUsedAdapter;
+  const codexSubscription = useAdapterSubscription("codex");
+  const claudeSubscription = useAdapterSubscription("claude");
   const prefillRequestKey = initialPromptKey ?? initialPrompt;
 
   // Applying a prefilled prompt replaces whatever the composer had, so it must
   // happen exactly once per request — not again on every remount, which would
-  // clobber a draft the user typed in between.
+  // clobber a draft the user typed in between. initialContent wins over
+  // initialPrompt so a recovered prompt keeps its chips and attachments.
   const lastAppliedPromptKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!initialPrompt || !prefillRequestKey) return;
+    if (!prefillRequestKey) return;
+    if (!initialContent && !initialPrompt) return;
     if (lastAppliedPromptKeyRef.current === prefillRequestKey) return;
     lastAppliedPromptKeyRef.current = prefillRequestKey;
-    useDraftStore.getState().actions.setPendingContent(sessionId, {
-      segments: [{ type: "text", text: initialPrompt }],
-    });
+    useDraftStore.getState().actions.setPendingContent(
+      sessionId,
+      initialContent ?? {
+        segments: [{ type: "text", text: initialPrompt ?? "" }],
+      },
+    );
+    // Clear the recovered prompt's durable record only now that its content is
+    // in the composer, so an interrupted-then-recovered prompt is never lost to
+    // a crash before this point.
+    if (recoveredFromKey) {
+      pendingTaskPromptStoreApi.clear(recoveredFromKey);
+    }
     if (initialPromptKey) {
       useTaskInputPrefillStore.getState().consumePrompt(initialPromptKey);
     }
-  }, [initialPrompt, initialPromptKey, prefillRequestKey, sessionId]);
+  }, [
+    initialContent,
+    initialPrompt,
+    initialPromptKey,
+    prefillRequestKey,
+    recoveredFromKey,
+    sessionId,
+  ]);
 
   useEffect(() => {
     reportInputHadContentRef.current = false;
@@ -442,16 +481,22 @@ export function TaskInput({
     getInstallationIdForRepo,
     getUserIntegrationIdForRepo,
     isLoadingRepos,
+    isLoadingIntegrations,
     isRefreshingRepos,
     refreshRepositories,
     hasGithubIntegration,
   } = useUserRepositoryIntegration();
 
-  // Force cloud mode on cloud-only hosts (web).
-  const { localWorkspaces } = useHostCapabilities();
-  const cloudModeEnabled = useCloudModeEnabled();
-  const piHarnessEnabled = useFeatureFlag("pi-harness");
+  const piHarnessEnabled = useFeatureFlag(PI_HARNESS_FLAG, import.meta.env.DEV);
   const flagsLoaded = useFeatureFlagsLoaded();
+  const { defaults: runDefaults, isSettled: runDefaultsSettled } =
+    useTaskRunDefaults();
+  const hasLocalModelPick = useSettingsStore(
+    (state) =>
+      state.lastUsedModel != null ||
+      state.lastUsedReasoningEffort != null ||
+      state.lastUsedPiModel != null,
+  );
   const reposReady = areReposReady({
     isLoadingRepos,
     repositoriesCount: repositories.length,
@@ -459,72 +504,62 @@ export function TaskInput({
   });
 
   useEffect(() => {
-    if (didResolveRuntimeRef.current || !settingsHydrated || !flagsLoaded) {
+    if (
+      didResolveRuntimeRef.current ||
+      !settingsHydrated ||
+      !flagsLoaded ||
+      !runDefaultsSettled
+    ) {
       return;
     }
     didResolveRuntimeRef.current = true;
-    setRuntime(
-      piHarnessEnabled && lastUsedAgentRuntime === "pi" ? "pi" : "acp",
-    );
-  }, [flagsLoaded, lastUsedAgentRuntime, piHarnessEnabled, settingsHydrated]);
-
-  const [workspaceMode, setWorkspaceModeState] = useState<WorkspaceMode>(() => {
-    if (initialCloudRepository) return "cloud";
-    if (!localWorkspaces) return "cloud";
-    return resolveWorkspaceModePreference({
-      preferredMode: lastUsedWorkspaceMode || DEFAULT_WORKSPACE_MODE,
-      cloudModeEnabled,
-      hasGithubIntegration,
-      lastUsedLocalWorkspaceMode,
-    });
-  });
-
-  // A positive flag or integration signal is final, but a negative one may
-  // just mean the async flag fetch or integrations query hasn't landed yet, so
-  // a cloud preference only resolves once each negative signal is settled.
-  const cloudSignalsSettled =
-    (cloudModeEnabled || flagsLoaded) &&
-    (hasGithubIntegration || !isLoadingRepos);
-
-  const didResolveWorkspaceModeRef = useRef(false);
-  useEffect(() => {
-    if (didResolveWorkspaceModeRef.current) return;
-    if (!settingsHydrated) return;
-    if (initialCloudRepository) {
-      didResolveWorkspaceModeRef.current = true;
-      return;
-    }
-    const preferredMode = lastUsedWorkspaceMode || DEFAULT_WORKSPACE_MODE;
-    if (preferredMode === "cloud" && !cloudSignalsSettled) return;
-    didResolveWorkspaceModeRef.current = true;
-    if (!localWorkspaces) return;
-    setWorkspaceModeState(
-      resolveWorkspaceModePreference({
-        preferredMode,
-        cloudModeEnabled,
-        hasGithubIntegration,
-        lastUsedLocalWorkspaceMode,
-      }),
-    );
+    const wantsPi =
+      lastUsedAgentRuntime === "pi" ||
+      (!hasLocalModelPick && preferredRunsOnPi(runDefaults));
+    setRuntime(piHarnessEnabled && wantsPi ? "pi" : "acp");
   }, [
+    flagsLoaded,
+    hasLocalModelPick,
+    lastUsedAgentRuntime,
+    piHarnessEnabled,
+    runDefaults,
+    runDefaultsSettled,
     settingsHydrated,
-    lastUsedWorkspaceMode,
-    initialCloudRepository,
-    localWorkspaces,
-    cloudSignalsSettled,
-    cloudModeEnabled,
-    hasGithubIntegration,
-    lastUsedLocalWorkspaceMode,
   ]);
 
-  const setWorkspaceMode = (mode: WorkspaceMode) => {
-    didResolveWorkspaceModeRef.current = true;
-    setWorkspaceModeState(mode);
-    setLastUsedWorkspaceMode(mode);
-    if (mode !== "cloud") {
-      setLastUsedLocalWorkspaceMode(mode);
-    }
-  };
+  const {
+    workspaceMode,
+    isResolved: isWorkspaceModeResolved,
+    setWorkspaceMode,
+    overrideWorkspaceMode,
+  } = useResolvedWorkspaceMode({
+    hasGithubIntegration,
+    isLoadingIntegrations,
+    pinCloud: initialCloudRepository !== undefined,
+  });
+  const localWorkspaceReady =
+    isWorkspaceModeResolved && workspaceMode !== "cloud";
+
+  const showCodexNotConnectedNotice =
+    runtime !== "pi" &&
+    adapter === "codex" &&
+    localWorkspaceReady &&
+    codexSubscription.needsConnection;
+
+  const showClaudeNotConnectedNotice =
+    runtime !== "pi" &&
+    adapter === "claude" &&
+    workspaceMode !== "cloud" &&
+    claudeSubscription.needsConnection;
+
+  const composerModelAccess =
+    runtime === "pi"
+      ? undefined
+      : subscriptionModelAccess(
+          adapter === "codex" ? codexSubscription : claudeSubscription,
+          workspaceMode,
+        );
+
   const {
     repositories: visibleCloudRepositories,
     isPending: cloudRepositoriesLoading,
@@ -534,9 +569,9 @@ export function TaskInput({
   } = useUserGithubRepositories(cloudRepoSearchQuery, isCloudRepoPickerOpen);
   const [selectedRepository, setSelectedRepository] = useState<string | null>(
     () =>
-      initialCloudRepository?.toLowerCase() ??
-      lastUsedCloudRepository?.toLowerCase() ??
-      null,
+      initialCloudRepository === undefined
+        ? (lastUsedCloudRepository?.toLowerCase() ?? null)
+        : (initialCloudRepository?.toLowerCase() ?? null),
   );
   const selectedCloudRepository = useMemo(() => {
     if (!selectedRepository) return null;
@@ -544,7 +579,7 @@ export function TaskInput({
     return repositories.includes(lower) ? lower : null;
   }, [selectedRepository, repositories]);
   const { currentBranch, branchLoading, defaultBranch, busyState } =
-    useGitQueries(selectedDirectory);
+    useGitQueries(selectedDirectory, { enabled: localWorkspaceReady });
 
   const selectedGithubUserIntegrationId = selectedCloudRepository
     ? getUserIntegrationIdForRepo(selectedCloudRepository)
@@ -652,10 +687,10 @@ export function TaskInput({
   );
 
   useEffect(() => {
-    if (!initialCloudRepository) return;
-    setWorkspaceModeState("cloud");
-    setSelectedRepository(initialCloudRepository.toLowerCase());
-  }, [initialCloudRepository]);
+    if (initialCloudRepository === undefined) return;
+    overrideWorkspaceMode("cloud");
+    setSelectedRepository(initialCloudRepository?.toLowerCase() ?? null);
+  }, [initialCloudRepository, overrideWorkspaceMode]);
 
   const handleRefreshRepositories = useCallback(() => {
     void refreshRepositories().catch((error) => {
@@ -710,7 +745,10 @@ export function TaskInput({
     fastModeOption,
     isLoading: isPreviewLoading,
     setConfigOption,
-  } = usePreviewConfig(adapter);
+    resetToDefault,
+    isDefaultSelection,
+    resetToDefaultDisabled,
+  } = usePreviewConfig(adapter, { allHarnessModels: true });
 
   const lastAppliedDeepLinkConfigKey = useRef<string | undefined>(undefined);
 
@@ -721,6 +759,15 @@ export function TaskInput({
     if (!initialModel && !initialMode) return;
 
     if (initialModel && isValidConfigValue(modelOption, initialModel)) {
+      // The list spans both harnesses, so a deep-linked model can belong to the
+      // other one. Switch harness first and leave the key unmarked: the reloaded
+      // config comes back around and applies the pick on the right harness.
+      const harness = harnessForModelValue(modelOption, initialModel);
+      if (harness && harness !== adapter) {
+        setLastUsedModel(initialModel);
+        setAdapter(harness);
+        return;
+      }
       setConfigOption(modelOption.id, initialModel);
     }
     if (initialMode && isValidConfigValue(modeOption, initialMode)) {
@@ -728,24 +775,31 @@ export function TaskInput({
     }
     lastAppliedDeepLinkConfigKey.current = initialPromptKey;
   }, [
+    adapter,
     isPreviewLoading,
     initialPromptKey,
     initialModel,
     initialMode,
     modelOption,
     modeOption,
+    setAdapter,
     setConfigOption,
+    setLastUsedModel,
   ]);
 
   const { folders, isLoaded: foldersLoaded } = useFolders();
 
   useEffect(() => {
-    if (selectedRepository || !lastUsedCloudRepository) {
+    if (
+      initialCloudRepository !== undefined ||
+      selectedRepository ||
+      !lastUsedCloudRepository
+    ) {
       return;
     }
 
     setSelectedRepository(lastUsedCloudRepository.toLowerCase());
-  }, [lastUsedCloudRepository, selectedRepository]);
+  }, [initialCloudRepository, lastUsedCloudRepository, selectedRepository]);
 
   useEffect(() => {
     // Clear `selectedRepository` only when the list has actually loaded AND the
@@ -776,14 +830,6 @@ export function TaskInput({
     setLastUsedCloudRepository,
   ]);
 
-  // Switch mode for a folder-scoped prefill ("+" in the sidebar) without persisting it as
-  // the user's mode preference. Marks the mode as resolved so the last-used resolver above
-  // doesn't override the explicit pick.
-  const switchWorkspaceModeForFolder = useCallback((mode: WorkspaceMode) => {
-    didResolveWorkspaceModeRef.current = true;
-    setWorkspaceModeState(mode);
-  }, []);
-
   useInitialRepoSelectionFromFolderId({
     folderId: view.folderId,
     folderRepository: view.folderRepository,
@@ -797,7 +843,7 @@ export function TaskInput({
     mostRecentEnvironment: view.folderRunEnvironment,
     setSelectedDirectory,
     setSelectedRepository,
-    switchWorkspaceMode: switchWorkspaceModeForFolder,
+    switchWorkspaceMode: overrideWorkspaceMode,
   });
 
   useEffect(() => {
@@ -828,6 +874,11 @@ export function TaskInput({
   }
 
   const effectiveWorkspaceMode = workspaceMode;
+  const cloudIds = workspaceMode === "cloud" ? cloudTargetIds(cloudTarget) : {};
+  const cloudGithubUnavailable =
+    effectiveWorkspaceMode === "cloud" &&
+    !isLoadingIntegrations &&
+    !hasGithubIntegration;
 
   const repoOptional = !!allowNoRepo && workspaceMode === "cloud";
 
@@ -847,16 +898,34 @@ export function TaskInput({
     modeFallback;
   const currentReasoningLevel =
     thoughtOption?.type === "select" ? thoughtOption.currentValue : undefined;
+  const preferredPiModelId =
+    !hasLocalModelPick && preferredRunsOnPi(runDefaults)
+      ? runDefaults.model
+      : null;
   const currentPiModel =
     piModelCatalog.find((model) => model.id === selectedPiModelId) ??
+    // Pi runs any gateway model, so a session pick outside Pi's curated
+    // catalog sticks instead of falling back to Pi's default.
+    (selectedPiModelId
+      ? syntheticPiModelSelection(modelOption, selectedPiModelId)
+      : undefined) ??
+    (preferredPiModelId
+      ? (piModelCatalog.find((model) => model.id === preferredPiModelId) ??
+        syntheticPiModelSelection(modelOption, preferredPiModelId))
+      : undefined) ??
     piModelCatalog.find((model) => model.id === lastUsedPiModel) ??
     piModelCatalog.find((model) => model.isDefault) ??
     piModelCatalog[0];
   const piThinkingLevels = currentPiModel?.thinkingLevels ?? [];
+  const preferredPiThinkingLevel =
+    preferredPiModelId && currentPiModel?.id === preferredPiModelId
+      ? (runDefaults.reasoning_effort as PiThinkingLevel | null)
+      : null;
+  const piThinkingFallback = preferredPiThinkingLevel ?? "high";
   const currentPiThinkingLevel = piThinkingLevels.includes(
-    selectedPiThinkingLevel ?? "high",
+    selectedPiThinkingLevel ?? piThinkingFallback,
   )
-    ? (selectedPiThinkingLevel ?? "high")
+    ? (selectedPiThinkingLevel ?? piThinkingFallback)
     : piThinkingLevels[0];
   const supportsPiThinking = piThinkingLevels.some((level) => level !== "off");
   const currentContextWindow =
@@ -896,6 +965,7 @@ export function TaskInput({
       : effectiveReasoningLevel;
 
   useWarmTask({
+    claudeModelAccess: adapter === "claude" ? composerModelAccess : undefined,
     workspaceMode,
     selectedRepository: selectedCloudRepository,
     repositories: repoOptional ? taskRepositories : undefined,
@@ -905,11 +975,12 @@ export function TaskInput({
     allowNoRepo: repoOptional,
     branch: workspaceMode === "cloud" ? selectedBranch : null,
     editorIsEmpty,
+    agentRuntime: runtime,
     runtimeAdapter: adapter ?? null,
     model: effectiveModel,
     reasoningEffort: effectiveReasoningLevel,
-    sandboxEnvironmentId: workspaceMode === "cloud" ? selectedCloudEnvId : null,
-    customImageId: workspaceMode === "cloud" ? selectedCustomImageId : null,
+    sandboxEnvironmentId: cloudIds.sandboxEnvironmentId ?? null,
+    customImageId: cloudIds.customImageId ?? null,
   });
 
   const branchForTaskCreation =
@@ -919,9 +990,11 @@ export function TaskInput({
 
   const autoresearchService =
     useServiceOptional<AutoresearchService>(AUTORESEARCH_SERVICE);
+  // The composer's picker spans both harnesses, but a stage model rides on the
+  // task's own harness with no way to switch, so the stages see only its models.
   const autoresearchModelOptions = useMemo(
-    () => toStageSelectOptions(modelOption),
-    [modelOption],
+    () => toStageSelectOptions(modelOptionForHarness(modelOption, adapter)),
+    [modelOption, adapter],
   );
   const autoresearchEffortOptions = useMemo(
     () => toStageSelectOptions(thoughtOption),
@@ -1020,7 +1093,6 @@ export function TaskInput({
 
   const {
     isCreatingTask,
-    isExitingComposer,
     canSubmit,
     handleSubmit,
     additionalDirectories,
@@ -1048,21 +1120,15 @@ export function TaskInput({
     onTaskCreated,
     onTaskCreatedEffect: handleTaskCreatedEffect,
     environmentId: selectedEnvironment,
-    sandboxEnvironmentId:
-      effectiveWorkspaceMode === "cloud" && selectedCloudEnvId
-        ? selectedCloudEnvId
-        : undefined,
-    customImageId:
-      effectiveWorkspaceMode === "cloud" && selectedCustomImageId
-        ? selectedCustomImageId
-        : undefined,
+    sandboxEnvironmentId: cloudIds.sandboxEnvironmentId,
+    customImageId: cloudIds.customImageId,
     signalReportId: activeReportAssociation?.reportId,
     channelContext: includeChannelContext ? channelContext : undefined,
     channelContextPath: includeChannelContext ? channelContextPath : undefined,
     channelName,
     channelId,
     channelContextId,
-    submissionBlocked: channelContextBlocked,
+    submissionBlocked: channelContextBlocked || !isWorkspaceModeResolved,
     allowNoRepo: repoOptional,
   });
 
@@ -1096,7 +1162,7 @@ export function TaskInput({
       ...resolvedRun,
       instructions: contentToXml(content).trim(),
     });
-    const submitted = await handleSubmit(override);
+    const submitted = await handleSubmit(override, content);
     if (submitted) {
       track(ANALYTICS_EVENTS.AUTORESEARCH_RUN_STARTED, {
         direction: resolvedRun.direction,
@@ -1146,9 +1212,12 @@ export function TaskInput({
 
   const handleModelChange = useCallback(
     (value: string) => {
+      // A harness switch clears the options while the new config loads, and
+      // the menu stays open through that window. Recording the pick first
+      // lets the reload restore it instead of dropping it silently.
+      setLastUsedModel(value);
       if (modelOption) {
         setConfigOption(modelOption.id, value);
-        setLastUsedModel(value);
       }
     },
     [modelOption, setConfigOption, setLastUsedModel],
@@ -1176,17 +1245,53 @@ export function TaskInput({
     [sessionId, setLastUsedAgentRuntime],
   );
 
+  // A manual harness switch keeps the selected model when the target harness
+  // runs it; otherwise the target falls back to its default.
   const handleHarnessChange = useCallback(
     (harness: AgentHarness) => {
       if (harness === "pi") {
+        if (runtime !== "pi" && currentModel) {
+          // Session-only, so the saved Pi pick is not clobbered.
+          setSelectedPiModelId(currentModel);
+        }
         handleRuntimeChange("pi");
         return;
       }
 
+      if (runtime === "pi") {
+        const carried = currentPiModel?.id;
+        if (carried && adapterForModelId(carried) === harness) {
+          setLastUsedModel(carried);
+          if (harness === adapter && isValidConfigValue(modelOption, carried)) {
+            // Same adapter means no config refetch, so apply the pick directly.
+            setConfigOption(modelOption.id, carried);
+          }
+        }
+      }
       handleRuntimeChange("acp");
       setAdapter(harness);
     },
-    [handleRuntimeChange, setAdapter],
+    [
+      adapter,
+      currentModel,
+      currentPiModel,
+      handleRuntimeChange,
+      modelOption,
+      runtime,
+      setAdapter,
+      setConfigOption,
+      setLastUsedModel,
+    ],
+  );
+
+  // Saving the model before the switch lets the new harness's config restore
+  // it instead of resetting to that harness's default.
+  const handleHarnessModelChange = useCallback(
+    (harness: AgentAdapter, model: string) => {
+      setLastUsedModel(model);
+      handleHarnessChange(harness);
+    },
+    [handleHarnessChange, setLastUsedModel],
   );
 
   const handlePiModelChange = useCallback(
@@ -1195,6 +1300,20 @@ export function TaskInput({
       setLastUsedPiModel(model.id);
     },
     [setLastUsedPiModel],
+  );
+
+  // Pi runs any gateway model, so a pick in the Pi menu never leaves Pi. A
+  // pick outside Pi's curated catalog applies session-only.
+  const handlePiGatewayModelSelect = useCallback(
+    (model: string) => {
+      const entry = piModelCatalog.find((candidate) => candidate.id === model);
+      if (entry) {
+        handlePiModelChange(entry);
+        return;
+      }
+      setSelectedPiModelId(model);
+    },
+    [handlePiModelChange, piModelCatalog],
   );
 
   const handlePiThinkingLevelChange = useCallback((level: PiThinkingLevel) => {
@@ -1290,7 +1409,7 @@ export function TaskInput({
     >
       <DropZoneOverlay isVisible={isDraggingFile} />
       <Flex height="100%" width="100%">
-        {previewFile && selectedDirectory && (
+        {localWorkspaceReady && previewFile && selectedDirectory && (
           <Box className="h-full min-w-0 flex-1 border-gray-4 border-r">
             <NewTaskFilePreview
               repoPath={selectedDirectory}
@@ -1311,41 +1430,130 @@ export function TaskInput({
                 // suggestions fade out (and back in when the prompt is cleared).
                 top: suggestions && suggestions.length > 0 ? "38%" : "50%",
                 transform: "translate(-50%, -50%)",
-                // Once the task is on its way, the whole composer fades out and
-                // the pending chat fades in over it.
-                opacity: isExitingComposer ? 0 : 1,
-                transitionProperty: "opacity",
-                transitionDuration: `${NEW_TASK_COMPOSER_FADE_MS}ms`,
-                transitionTimingFunction: "ease-out",
               }}
-              className={`absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2 ${
-                isExitingComposer ? "pointer-events-none" : ""
-              }`}
+              className="absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2"
             >
               <Flex
                 gap="2"
                 align="center"
-                className="absolute bottom-full left-0 mb-1 min-w-0 gap-1"
+                className="absolute bottom-full left-0 mb-2 min-w-0 gap-1"
               >
                 {spaceSelector?.({ disabled: isCreatingTask })}
-                <WorkspaceModeSelect
-                  value={workspaceMode}
-                  onChange={setWorkspaceMode}
-                  selectedCloudEnvironmentId={selectedCloudEnvId}
-                  onCloudEnvironmentChange={setSelectedCloudEnvId}
-                  selectedCustomImageId={selectedCustomImageId}
-                  onCustomImageChange={setSelectedCustomImageId}
-                  size="1"
-                />
-                {repoOptional && (
-                  <TaskRepositoryChip
-                    cloud={workspaceMode === "cloud"}
-                    repositoryCount={taskRepositories.length}
-                    hasFolder={!!taskFolder}
-                    disabled={isCreatingTask}
-                    onOpen={() => setRepositoryDialogOpen(true)}
+                {/* One group, so changing the location does not unmount the
+                    selector the user just used and take the focus with it. */}
+                <ButtonGroup
+                  ref={buttonGroupRef}
+                  data-tour={repoOptional ? undefined : "folder-picker"}
+                  data-tour-ready={
+                    !repoOptional &&
+                    (workspaceMode === "cloud"
+                      ? selectedRepository
+                      : selectedDirectory)
+                      ? "true"
+                      : undefined
+                  }
+                >
+                  <WorkspaceModeSelect
+                    value={workspaceMode}
+                    onChange={setWorkspaceMode}
+                    adapter={runtime === "pi" ? undefined : adapter}
+                    cloudTarget={cloudTarget}
+                    onCloudTargetChange={setCloudTarget}
+                    hasGithubIntegration={hasGithubIntegration}
+                    isLoadingGithubIntegration={isLoadingIntegrations}
+                    size="1"
                   />
-                )}
+                  {repoOptional ? (
+                    <TaskRepositoryChip
+                      cloud={workspaceMode === "cloud"}
+                      repositoryCount={taskRepositories.length}
+                      hasFolder={!!taskFolder}
+                      disabled={isCreatingTask || cloudGithubUnavailable}
+                      onOpen={() => setRepositoryDialogOpen(true)}
+                    />
+                  ) : (
+                    <>
+                      {workspaceMode === "cloud" ? (
+                        <GitHubRepoPicker
+                          value={selectedRepository}
+                          onChange={handleRepositorySelect}
+                          repositories={
+                            isCloudRepoPickerOpen
+                              ? visibleCloudRepositories
+                              : repositories
+                          }
+                          isLoading={
+                            isLoadingRepos ||
+                            (isCloudRepoPickerOpen && cloudRepositoriesLoading)
+                          }
+                          isLoadingMore={cloudRepositoriesFetchingMore}
+                          isRefreshing={isRefreshingRepos}
+                          onRefresh={handleRefreshRepositories}
+                          open={isCloudRepoPickerOpen}
+                          onOpenChange={handleCloudRepoPickerOpenChange}
+                          searchQuery={cloudRepoSearchQuery}
+                          onSearchQueryChange={handleCloudRepoSearchChange}
+                          hasMore={cloudRepositoriesHasMore}
+                          onLoadMore={handleLoadMoreCloudRepositories}
+                          placeholder="Select repository..."
+                          size="1"
+                          disabled={isCreatingTask}
+                        />
+                      ) : (
+                        <FolderPicker
+                          value={selectedDirectory}
+                          onChange={setSelectedDirectory}
+                          placeholder="Select repository..."
+                          anchor={buttonGroupRef}
+                        />
+                      )}
+                      <BranchSelector
+                        repoPath={
+                          workspaceMode === "cloud"
+                            ? selectedCloudRepository
+                            : localWorkspaceReady
+                              ? selectedDirectory
+                              : null
+                        }
+                        currentBranch={currentBranch}
+                        defaultBranch={
+                          workspaceMode === "cloud"
+                            ? cloudDefaultBranch
+                            : defaultBranch
+                        }
+                        disabled={
+                          isCreatingTask ||
+                          !isWorkspaceModeResolved ||
+                          (workspaceMode === "cloud" &&
+                            !selectedCloudRepository)
+                        }
+                        loading={
+                          workspaceMode === "cloud" ? false : branchLoading
+                        }
+                        workspaceMode={workspaceMode}
+                        selectedBranch={selectedBranch}
+                        onBranchSelect={setSelectedBranch}
+                        busyState={busyState}
+                        cloudBranches={cloudBranches}
+                        cloudBranchesLoading={cloudBranchesLoading}
+                        isRefreshing={cloudBranchesRefreshing}
+                        cloudBranchesFetchingMore={cloudBranchesFetchingMore}
+                        cloudBranchesHasMore={cloudBranchesHasMore}
+                        cloudSearchQuery={cloudBranchSearchQuery}
+                        onCloudPickerClose={handleCloudBranchPickerClose}
+                        onCloudSearchChange={handleCloudBranchSearchChange}
+                        onCloudBranchCommit={handleCloudBranchPickerClose}
+                        onCloudLoadMore={handleLoadMoreCloudBranches}
+                        onRefresh={
+                          workspaceMode === "cloud"
+                            ? handleRefreshBranches
+                            : undefined
+                        }
+                        anchor={buttonGroupRef}
+                      />
+                    </>
+                  )}
+                </ButtonGroup>
                 {!repoOptional && workspaceMode === "worktree" && (
                   <EnvironmentSelector
                     repoPath={effectiveRepoPath ?? null}
@@ -1359,97 +1567,7 @@ export function TaskInput({
                     }
                   />
                 )}
-                {!repoOptional && (
-                  <ButtonGroup
-                    ref={buttonGroupRef}
-                    data-tour="folder-picker"
-                    data-tour-ready={
-                      (
-                        workspaceMode === "cloud"
-                          ? selectedRepository
-                          : selectedDirectory
-                      )
-                        ? "true"
-                        : undefined
-                    }
-                  >
-                    {workspaceMode === "cloud" ? (
-                      <GitHubRepoPicker
-                        value={selectedRepository}
-                        onChange={handleRepositorySelect}
-                        repositories={
-                          isCloudRepoPickerOpen
-                            ? visibleCloudRepositories
-                            : repositories
-                        }
-                        isLoading={
-                          isLoadingRepos ||
-                          (isCloudRepoPickerOpen && cloudRepositoriesLoading)
-                        }
-                        isLoadingMore={cloudRepositoriesFetchingMore}
-                        isRefreshing={isRefreshingRepos}
-                        onRefresh={handleRefreshRepositories}
-                        open={isCloudRepoPickerOpen}
-                        onOpenChange={handleCloudRepoPickerOpenChange}
-                        searchQuery={cloudRepoSearchQuery}
-                        onSearchQueryChange={handleCloudRepoSearchChange}
-                        hasMore={cloudRepositoriesHasMore}
-                        onLoadMore={handleLoadMoreCloudRepositories}
-                        placeholder="Select repository..."
-                        size="1"
-                        disabled={isCreatingTask}
-                      />
-                    ) : (
-                      <FolderPicker
-                        value={selectedDirectory}
-                        onChange={setSelectedDirectory}
-                        placeholder="Select repository..."
-                        anchor={buttonGroupRef}
-                      />
-                    )}
-                    <BranchSelector
-                      repoPath={
-                        workspaceMode === "cloud"
-                          ? selectedCloudRepository
-                          : selectedDirectory
-                      }
-                      currentBranch={currentBranch}
-                      defaultBranch={
-                        workspaceMode === "cloud"
-                          ? cloudDefaultBranch
-                          : defaultBranch
-                      }
-                      disabled={
-                        isCreatingTask ||
-                        (workspaceMode === "cloud" && !selectedCloudRepository)
-                      }
-                      loading={
-                        workspaceMode === "cloud" ? false : branchLoading
-                      }
-                      workspaceMode={workspaceMode}
-                      selectedBranch={selectedBranch}
-                      onBranchSelect={setSelectedBranch}
-                      busyState={busyState}
-                      cloudBranches={cloudBranches}
-                      cloudBranchesLoading={cloudBranchesLoading}
-                      isRefreshing={cloudBranchesRefreshing}
-                      cloudBranchesFetchingMore={cloudBranchesFetchingMore}
-                      cloudBranchesHasMore={cloudBranchesHasMore}
-                      cloudSearchQuery={cloudBranchSearchQuery}
-                      onCloudPickerClose={handleCloudBranchPickerClose}
-                      onCloudSearchChange={handleCloudBranchSearchChange}
-                      onCloudBranchCommit={handleCloudBranchPickerClose}
-                      onCloudLoadMore={handleLoadMoreCloudBranches}
-                      onRefresh={
-                        workspaceMode === "cloud"
-                          ? handleRefreshBranches
-                          : undefined
-                      }
-                      anchor={buttonGroupRef}
-                    />
-                  </ButtonGroup>
-                )}
-                {!repoOptional && workspaceMode !== "cloud" && (
+                {!repoOptional && localWorkspaceReady && (
                   <AdditionalDirectoriesButton
                     values={additionalDirectories}
                     onChange={setAdditionalDirectories}
@@ -1510,7 +1628,11 @@ export function TaskInput({
                     channelContextBlocked ||
                     !isOnline ||
                     (runtime === "pi" ? isPiConfigLoading : isPreviewLoading) ||
-                    (runtime === "pi" && !currentPiModel)
+                    (runtime === "pi" && !currentPiModel) ||
+                    spendStop !== null
+                  }
+                  submitTooltipOverride={
+                    spendStop ? spendStopMessage(spendStop) : undefined
                   }
                   tourTarget="task-input"
                   submitAdornment={
@@ -1531,7 +1653,10 @@ export function TaskInput({
                           </button>
                         ) : null}
                       </span>
-                    ) : includeChannelContext ? (
+                    ) : shouldShowChannelContextChip(
+                        includeChannelContext,
+                        channelContextPath,
+                      ) ? (
                       <ChannelContextChip
                         channelName={channelName}
                         onView={onContextChipClick}
@@ -1571,6 +1696,8 @@ export function TaskInput({
                         onChange={handlePiModelChange}
                         onThinkingLevelChange={handlePiThinkingLevelChange}
                         onHarnessChange={handleHarnessChange}
+                        modelOption={modelOption}
+                        onGatewayModelSelect={handlePiGatewayModelSelect}
                         menuOpen={modelMenuOpen}
                         onMenuOpenChange={setModelMenuOpen}
                       />
@@ -1597,12 +1724,22 @@ export function TaskInput({
                         onHarnessChange={
                           piHarnessEnabled ? handleHarnessChange : undefined
                         }
+                        onHarnessModelChange={handleHarnessModelChange}
                         includePiHarness={piHarnessEnabled}
                         onConfigOptionChange={setConfigOption}
                         menuOpen={modelMenuOpen}
                         onMenuOpenChange={setModelMenuOpen}
                         disabled={isCreatingTask}
                         isLoading={isPreviewLoading}
+                        modelAccess={composerModelAccess}
+                        showBillingMenu
+                        workspaceMode={workspaceMode}
+                        isDefaultSelection={isDefaultSelection}
+                        onResetToDefault={resetToDefault}
+                        resetToDefaultDisabled={resetToDefaultDisabled}
+                        onOpenDefaultSettings={() =>
+                          openSettings("task-agent-defaults")
+                        }
                       />
                     )
                   }
@@ -1613,6 +1750,32 @@ export function TaskInput({
                     if (canSubmit) void submitTask();
                   }}
                 />
+                {showClaudeNotConnectedNotice && (
+                  <div className="mx-2 mt-1.5 text-[12px] text-gray-10">
+                    Claude is set to use your Claude plan, but no account is
+                    logged in. Sessions use PostHog credits.{" "}
+                    <button
+                      type="button"
+                      className="underline"
+                      onClick={() => openSettings("harness")}
+                    >
+                      Log in in Settings
+                    </button>
+                  </div>
+                )}
+                {showCodexNotConnectedNotice && (
+                  <div className="mx-2 mt-1.5 text-[12px] text-gray-10">
+                    Codex is set to use your ChatGPT plan, but no account is
+                    connected. Sessions use PostHog credits.{" "}
+                    <button
+                      type="button"
+                      className="underline"
+                      onClick={() => openSettings("harness")}
+                    >
+                      Connect in Settings
+                    </button>
+                  </div>
+                )}
                 {activeReportAssociation && (
                   <div className="-mt-px mx-2 flex select-none items-center justify-between gap-2 rounded-b-md border border-blue-6 border-t-0 bg-blue-2 px-2 py-1 text-[12px] text-blue-11">
                     <span className="flex min-w-0 flex-1 items-center gap-1">
@@ -1639,13 +1802,6 @@ export function TaskInput({
                     </Tooltip>
                   </div>
                 )}
-                {effectiveWorkspaceMode === "cloud" &&
-                  !isLoadingRepos &&
-                  !hasGithubIntegration && (
-                    <div className="mx-2 mt-2">
-                      <CloudGithubMissingNotice />
-                    </div>
-                  )}
               </Flex>
               <div className="absolute top-full right-0 left-0 z-10">
                 {suggestions ? (
@@ -1705,13 +1861,15 @@ export function TaskInput({
                       </motion.div>
                     )}
                   </AnimatePresence>
-                ) : (
+                ) : showNewTaskSuggestions ? (
                   <NewTaskSuggestions
-                    repoPath={selectedDirectory || null}
+                    repoPath={
+                      localWorkspaceReady ? selectedDirectory || null : null
+                    }
                     workspaceMode={effectiveWorkspaceMode}
                     disabled={isCreatingTask}
                   />
-                )}
+                ) : null}
               </div>
             </div>
           </Flex>
