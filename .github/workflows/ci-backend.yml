@@ -202,6 +202,7 @@ jobs:
                         - '!ee/frontend/**' # frontend code under ee/ must not trigger backend
                         - 'common/__init__.py'
                         - 'common/hogql_parser/**'
+                        - 'rust/hogql/parser/**'
                         - 'common/hogvm/**'
                         - 'common/ingestion/**'
                         - 'common/migration_utils/**'
@@ -298,6 +299,7 @@ jobs:
                         - '!ee/frontend/**' # frontend code under ee/ must not trigger backend
                         - 'common/__init__.py'
                         - 'common/hogql_parser/**'
+                        - 'rust/hogql/parser/**'
                         - 'common/hogvm/**'
                         - 'common/ingestion/**'
                         - 'common/migration_utils/**'
@@ -3023,7 +3025,11 @@ jobs:
                   git fetch --no-tags --prune --depth=1 origin master
                   changed=$(git diff --quiet HEAD origin/master -- common/hogql_parser/ && echo "false" || echo "true")
                   echo "changed=$changed" >> $GITHUB_OUTPUT
-                  rust_changed=$(git diff --quiet HEAD origin/master -- rust/hogql/parser/ && echo "false" || echo "true")
+                  # A branch that predates the crate has nothing to install, so presence gates the diff.
+                  rust_changed=false
+                  if [[ -f rust/hogql/parser/pyproject.toml ]] && ! git diff --quiet HEAD origin/master -- rust/hogql/parser/; then
+                      rust_changed=true
+                  fi
                   echo "rust_changed=$rust_changed" >> $GITHUB_OUTPUT
 
             # tests would intermittently fail in GH actions
