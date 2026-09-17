@@ -1414,8 +1414,15 @@ class CSPMiddleware:
                 "form-action 'self' https://accounts.google.com",
             ]
 
+            # Both values are read inside one narrowed block, so nothing below re-checks `user`.
             user = getattr(request, "user", None)
-            authenticated = user is not None and user.is_authenticated
+            if user is not None and user.is_authenticated:
+                is_staff = bool(getattr(user, "is_staff", False))
+                distinct_id = getattr(user, "distinct_id", None)
+            else:
+                is_staff = False
+                distinct_id = None
+
             # Staff get the policy enforced ahead of everyone else, so each violation they report is
             # something already broken for a colleague rather than one sample of a trend. At 0.1 we
             # would see one breakage in ten, which is the opposite of what the staff rollout is for.
@@ -1425,17 +1432,17 @@ class CSPMiddleware:
             # This keys on is_staff rather than on the enforcement flag, which would otherwise track
             # the enforced population exactly. The flag widens until it covers everyone, and would
             # silently take the whole fleet to unsampled reporting; staff stays bounded.
-            sample_rate = "1" if authenticated and getattr(user, "is_staff", False) else "0.1"
+            sample_rate = "1" if is_staff else "0.1"
 
             report_uri = csp_report_endpoint(sample_rate=sample_rate)
             if report_uri:
                 csp_parts += [f"report-uri {report_uri}", "report-to posthog"]
                 report_endpoint = report_uri
-                if authenticated and getattr(user, "distinct_id", None):
+                if distinct_id:
                     # Crash reports arrive after the tab already died, so the report body is the
                     # only chance to attribute them; carrying the distinct_id in the endpoint URL
                     # ties the event to the person instead of a random per-report id.
-                    report_endpoint = csp_report_endpoint(sample_rate=sample_rate, distinct_id=user.distinct_id)
+                    report_endpoint = csp_report_endpoint(sample_rate=sample_rate, distinct_id=distinct_id)
                 # Browsers only deliver crash reports to the endpoint named `default`; the CSP
                 # `report-to posthog` directive keeps routing violations to `posthog`.
                 response.headers["Reporting-Endpoints"] = f'posthog="{report_endpoint}", default="{report_endpoint}"'
