@@ -51,6 +51,7 @@ def _build_fields() -> dict[str, FieldOrTable]:
     }
     for name, description in _DIMENSIONS.items():
         fields[name] = StringDatabaseField(name=name, description=description)
+    fields["pageview_count"] = IntegerDatabaseField(name="pageview_count", description="Pageviews in the session.")
     fields["computed_at"] = DateTimeDatabaseField(
         name="computed_at", description="When this row was computed; also the ReplacingMergeTree version."
     )
