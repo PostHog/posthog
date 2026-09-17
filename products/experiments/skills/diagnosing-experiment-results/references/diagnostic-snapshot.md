@@ -112,7 +112,9 @@ experiment.
   `refresh: true` asks for. That mode computes a metric whose cache is missing or stale, and serves a
   fresh cache otherwise. So the plain pull above is not cache-only, `refresh: true` is not a forced
   recompute, and a populated row is no proof that the compute path ran. A second call carrying it
-  repeats the whole metric fan-out for the same result, and only adds rate-limit pressure.
+  repeats the whole metric fan-out for the same result, and only adds rate-limit pressure. The tool's
+  own description still offers `refresh=true` as a way to force fresh computation. That line
+  overstates the mode, so don't read a populated row as a recompute on the strength of it.
 - **To force a real recompute**, call `experiment-metrics-recalculation-create { id: <experiment_id> }`
   and keep the run `id` it returns. Poll that run with
   `experiment-metrics-recalculation-retrieve { id: <experiment_id>, recalculation_id: <run_id> }` until
@@ -120,8 +122,9 @@ experiment.
   `experiment-metrics-recalculation-latest-retrieve` for a run you just started.** It answers with the
   last run that already finished, and reports the new one only under `active_run`. So it says
   `completed` on the first poll, and hands back the same stale rows you are trying to explain. No
-  `refresh` value on `experiment-results-get` recalculates a metric whose cache is already fresh. This
-  path needs the `experiment:write` scope, unlike the read-only calls above.
+  `refresh` value on `experiment-results-get` recalculates a metric whose cache is already fresh.
+  Creating the run needs the `experiment:write` scope, and polling it needs `experiment:read`, so ask
+  for both.
 
 Two cautions:
 
