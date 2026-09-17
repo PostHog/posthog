@@ -96,7 +96,7 @@ SkipReason = Literal[
 ]
 
 
-def _is_mcp_run() -> bool:
+def is_mcp_run() -> bool:
     """An MCP agent authenticates with a personal API key, but it does read the findings in the
     block above its results, so the skip for API callers with nowhere to read advice leaves it
     out."""
@@ -144,7 +144,7 @@ def maybe_trigger_query_scan(
     # stopped, however fast it died, so a stopped run is analyzed at any duration.
     if duration_ms < flag.floor_ms and not killed:
         return "below_floor"
-    if is_api_key_access_method(get_query_tag_value("access_method")) and not _is_mcp_run():
+    if is_api_key_access_method(get_query_tag_value("access_method")) and not is_mcp_run():
         # An API caller has no surface to read the advice on, so the analysis would only cost.
         return "api_key"
     if getattr(query, "connectionId", None):

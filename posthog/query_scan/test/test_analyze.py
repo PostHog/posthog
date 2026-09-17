@@ -269,7 +269,7 @@ class TestAnalyze(SimpleTestCase):
                 "a read inside a saved view",
                 "plan_no_date_bound",
                 {"tree": facts(view_name="v_active")},
-                [("no_start_date/view", False)],
+                [("no_start_date/view", True)],
             ),
             (
                 "sql with no event condition at all",
@@ -356,7 +356,7 @@ class TestAnalyze(SimpleTestCase):
                     "range_granules": 400_000,
                     "event_filter": EventFilterOutcome(classification="not_used", reason="negated"),
                 },
-                [("no_event_filter/negated", False)],
+                [("no_event_filter/negated", True)],
             ),
             (
                 "an event filter inside an or",

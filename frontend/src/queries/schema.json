@@ -47998,7 +47998,7 @@
             "description": "The stored analysis of one query, kept for 30 days by cache key and put on every response for that query.",
             "properties": {
                 "assistant_prompt": {
-                    "description": "The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query.",
+                    "description": "The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query. For an API key or MCP caller it covers every finding, fixable or not.",
                     "type": "string"
                 },
                 "findings": {

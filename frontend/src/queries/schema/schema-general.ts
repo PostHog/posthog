@@ -625,7 +625,7 @@ export interface QueryScanAnalysis {
     range_share?: number
     /** How much of all the project's events the query read, 0 to 1. */
     project_share?: number
-    /** The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query. */
+    /** The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query. For an API key or MCP caller it covers every finding, fixable or not. */
     assistant_prompt?: string
 }
 

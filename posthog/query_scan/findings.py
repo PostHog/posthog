@@ -50,13 +50,12 @@ class FindingCause(StrEnum):
     START_DATE_NOT_USED_BY_CLICKHOUSE = "bound_not_used"
 
 
-# The causes that leave the person something to change. Every other cause, and every finding that is
-# by design or inside a saved view, gets the wording but no "Fix with AI".
 _FIXABLE_CAUSES: dict[QueryScanFindingKind, frozenset[FindingCause | None]] = {
     QueryScanFindingKind.NO_EVENT_FILTER: frozenset(
         {
             FindingCause.EVENT_FILTER_INSIDE_OR,
             FindingCause.EVENT_WRAPPED_IN_FUNCTION,
+            FindingCause.EVENT_FILTER_ONLY_EXCLUDES,
             FindingCause.EVENT_FILTER_NOT_USED_BY_CLICKHOUSE,
             FindingCause.PROPERTY_FILTER_WITHOUT_EVENT,
             FindingCause.UNFILTERED_HELPER_READ,
@@ -144,11 +143,12 @@ _NO_EVENT_FILTER_SQL_BY_CAUSE: dict[FindingCause, _Copy] = {
         ),
         advice="Explicitly enumerate the events you want instead.",
         fix=(
-            "The filter excludes events, and the index cannot use an exclusion, so it reads everything. "
-            'Exploration cannot reveal the intended set, because the query says "everything except". Ask whether '
-            "the person can name the events they want. If they can, replace the exclusion with `event IN (...)`; "
-            "if they cannot, keep the exclusion and add the time bound. Do not run exploratory queries for this "
-            "finding."
+            "The filter excludes events, and the index cannot use an exclusion, so it reads everything. Run one "
+            "query for what the rest of the query matches: `SELECT event, count() FROM events WHERE <the query's "
+            "conditions, the exclusion included> AND timestamp >= now() - interval 7 day GROUP BY event ORDER BY "
+            "count() DESC LIMIT 20`. If that is a few events, replace the exclusion with `event IN (<those "
+            "events>)` and say the result then covers only those. If it is many events, ask which events the "
+            "person wants. If they cannot say, keep the exclusion and add the time bound."
         ),
     ),
     FindingCause.EVENT_COMPARED_TO_COLUMN: _Copy(
@@ -417,12 +417,10 @@ def _copy_for(
     raise ValueError(f"No copy for finding kind {kind}")
 
 
-def is_actionable(
-    kind: QueryScanFindingKind, cause: FindingCause | None, *, is_sql: bool, by_design: bool, in_view: bool
-) -> bool:
-    """Whether the person can change the query so it reads less and still answers the same question.
-    A read inside a saved view is never actionable from the query that uses the view."""
-    if by_design or in_view:
+def is_actionable(kind: QueryScanFindingKind, cause: FindingCause | None, *, is_sql: bool, by_design: bool) -> bool:
+    """Whether the person can change something so the query reads less and still answers the same
+    question. A read inside a saved view counts: the person can edit the view."""
+    if by_design:
         return False
     if kind == QueryScanFindingKind.NO_EVENT_FILTER and cause is None:
         # An insight's All events series is a choice the person made in a picker. A SQL query that
@@ -490,7 +488,7 @@ def build_warning(
         message=f"{lead} {advice}",
         fix=fix,
         evidence=evidence,
-        actionable=is_actionable(kind, cause, is_sql=is_sql, by_design=by_design, in_view=view_name is not None),
+        actionable=is_actionable(kind, cause, is_sql=is_sql, by_design=by_design),
     )
 
 

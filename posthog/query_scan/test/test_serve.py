@@ -9,6 +9,7 @@ from parameterized import parameterized
 
 from posthog.schema import QueryScanSummary
 
+from posthog.clickhouse.query_tagging import AccessMethod, Feature, tags_context
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.serve import hydrate_response_scan, hydrate_scan_summary
 
@@ -26,6 +27,21 @@ STORED_ANALYSIS = json.dumps(
                     "message": "This query read every event in its date range.",
                     "fix": "Add an event filter naming the events this question is about.",
                     "actionable": True,
+                }
+            ],
+        },
+    }
+)
+BY_DESIGN_ANALYSIS = json.dumps(
+    {
+        "analysis": {
+            "findings": [
+                {
+                    "kind": "no_start_date",
+                    "by_design": True,
+                    "message": "This query finds a first event ever, so it reads all your data by design.",
+                    "fix": "Do not propose a time bound for that read.",
+                    "actionable": False,
                 }
             ],
         },
@@ -98,6 +114,27 @@ class TestHydrateScanSummary(BaseTest):
         assert response.query_scan is not None
         assert response.query_scan.analysis is None
         assert self.redis.get.call_count == redis_reads
+
+    @parameterized.expand(
+        [
+            ("a person in the app", {}, False),
+            ("an api key caller", {"access_method": AccessMethod.PERSONAL_API_KEY}, True),
+            ("the mcp server", {"feature": Feature.MCP}, True),
+        ]
+    )
+    def test_only_an_agent_gets_a_prompt_when_no_finding_can_be_fixed(
+        self, _name: str, tags: dict[str, Any], expects_prompt: bool
+    ) -> None:
+        self.redis.get.return_value = BY_DESIGN_ANALYSIS
+        response = self._cached_response()
+
+        with mock.patch("posthog.query_scan.serve.get_query_scan_flag", return_value=SHOW), tags_context(**tags):
+            hydrate_response_scan(self.team, response)
+
+        prompt = response.query_scan.analysis.assistant_prompt
+        assert (prompt is not None) is expects_prompt
+        if prompt is not None:
+            assert "Do not propose a time bound for that read." in prompt
 
     def test_the_prompt_describes_the_run_being_served(self) -> None:
         # The slot can hold the analysis of a run that finished while this one was stopped, and the

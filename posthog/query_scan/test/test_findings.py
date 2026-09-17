@@ -50,7 +50,7 @@ class TestFindings(SimpleTestCase):
                 {"cause": FindingCause.EVENT_FILTER_ONLY_EXCLUDES},
                 "HogQLQuery",
                 "only excludes",
-                "Do not run exploratory queries",
+                "replace the exclusion with `event IN",
             ),
             (
                 QueryScanFindingKind.NO_EVENT_FILTER,
@@ -192,12 +192,12 @@ class TestFindings(SimpleTestCase):
             (QueryScanFindingKind.NO_EVENT_FILTER, {}, True),
             (QueryScanFindingKind.NO_EVENT_FILTER, {"query_kind": "TrendsQuery"}, False),
             (QueryScanFindingKind.NO_EVENT_FILTER, {"cause": FindingCause.EVENT_FILTER_INSIDE_OR}, True),
-            (QueryScanFindingKind.NO_EVENT_FILTER, {"cause": FindingCause.EVENT_FILTER_ONLY_EXCLUDES}, False),
+            (QueryScanFindingKind.NO_EVENT_FILTER, {"cause": FindingCause.EVENT_FILTER_ONLY_EXCLUDES}, True),
             (QueryScanFindingKind.NO_EVENT_FILTER, {"cause": FindingCause.EVENT_COMPARED_TO_COLUMN}, False),
             (QueryScanFindingKind.NO_EVENT_FILTER, {"by_design": True}, False),
             (QueryScanFindingKind.NO_START_DATE, {}, True),
             (QueryScanFindingKind.NO_START_DATE, {"by_design": True}, False),
-            (QueryScanFindingKind.NO_START_DATE, {"view_name": "v_active"}, False),
+            (QueryScanFindingKind.NO_START_DATE, {"view_name": "v_active"}, True),
             (QueryScanFindingKind.PERSONS_JOIN, {}, True),
         ]
     )

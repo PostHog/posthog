@@ -12,10 +12,12 @@ import structlog
 
 from posthog.schema import QueryScanAnalysis, QueryScanSummary
 
+from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method
 from posthog.models.team.team import Team
 from posthog.query_scan.findings import assistant_prompt
 from posthog.query_scan.flag import QueryScanMode, get_query_scan_flag
 from posthog.query_scan.slot import get as get_slot
+from posthog.query_scan.trigger import is_mcp_run
 
 logger = structlog.get_logger(__name__)
 
@@ -65,8 +67,14 @@ def hydrate(team: Team, summary: QueryScanSummary, cache_key: str | None) -> Que
 def analysis_with_prompt(
     analysis: QueryScanAnalysis, *, rows_read: int | None = None, duration_ms: int | None = None, killed: bool = False
 ) -> QueryScanAnalysis:
-    """The analysis with the message "Fix with AI" sends, built here so no client keeps its own copy.
-    The run facts describe the run being served, not the run the analysis came from."""
+    """The analysis with its prompt, built here so no client keeps its own copy. The run facts
+    describe the run being served, not the run the analysis came from.
+
+    A person in the app reaches the prompt through "Fix with AI", so theirs holds only what the
+    assistant can change in the query. An API key or the MCP server runs the query for an agent,
+    which reads the prompt itself, so that one covers every finding.
+    """
+    reader_is_an_agent = is_api_key_access_method(get_query_tag_value("access_method")) or is_mcp_run()
     prompt = assistant_prompt(
         list(analysis.findings),
         rows_read=rows_read,
@@ -74,6 +82,6 @@ def analysis_with_prompt(
         range_share=analysis.range_share,
         project_share=analysis.project_share,
         killed=killed,
-        fixable_only=True,
+        fixable_only=not reader_is_an_agent,
     )
     return analysis.model_copy(update={"assistant_prompt": prompt})
