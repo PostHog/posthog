@@ -37,6 +37,9 @@ export const config = {
     beginFrameTimeoutMs: parsePositiveInt(process.env.BEGINFRAME_TIMEOUT_MS, 120_000),
     screenshotJpegQuality: parsePositiveInt(process.env.SCREENSHOT_JPEG_QUALITY, 80),
     metricsPort: parsePositiveInt(process.env.METRICS_PORT, 6738),
+    // Reject a render whose frames are all one flat tone instead of publishing it. BLANK_CAPTURE_CHECK=0
+    // is the escape hatch if the probe ever starts refusing legitimate renders.
+    blankCaptureCheck: process.env.BLANK_CAPTURE_CHECK !== '0',
 
     // Encryption
     secretKey: process.env.TEMPORAL_SECRET_KEY || process.env.SECRET_KEY,

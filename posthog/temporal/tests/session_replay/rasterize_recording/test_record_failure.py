@@ -51,6 +51,8 @@ class TestRecordRasterizationFailure:
             ("compositor_deadlock", "BEGINFRAME_DEADLOCK", FAILURE_TYPE_TIMEOUT_GENERATION),
             ("no_snapshots", "NO_SNAPSHOTS", FAILURE_TYPE_USER),
             ("upload_failed", "S3_UPLOAD_UNDECODABLE_RESPONSE", FAILURE_TYPE_SYSTEM),
+            # A render that drew nothing is our renderer's fault, so it must not land in the user bucket.
+            ("blank_capture", "BLANK_CAPTURE", FAILURE_TYPE_SYSTEM),
             ("target_closed", "TARGET_CLOSED", FAILURE_TYPE_SYSTEM),
             ("worker_death_timeout", "ACTIVITY_TIMEOUT", FAILURE_TYPE_TIMEOUT_GENERATION),
             # The renderer's catch-alls have their own buckets so they can't hide in "unknown".
