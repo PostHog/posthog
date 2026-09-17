@@ -19,16 +19,21 @@ from products.alerts.backend.facade.scheduling import (
 from products.alerts.backend.models import WIPAlert, WIPAlertConfiguration
 
 
-def _runtime_alerts(team_id: int, configurations: Sequence[WIPAlertConfiguration]) -> dict[str, WIPAlert]:
-    """One runtime row per configuration, creating any that has none yet.
+def _existing_alerts(team_id: int, configurations: Sequence[WIPAlertConfiguration]) -> dict[str, WIPAlert]:
+    """The runtime rows that exist. A configuration with none has never been evaluated.
 
     The grouping key is empty until a source groups its results, so today this is the whole of
     an alert's state and a real key needs no new table.
     """
-    existing = {
+    return {
         str(alert.configuration_id): alert
         for alert in WIPAlert.objects.for_team(team_id).filter(configuration__in=configurations, grouping_key="")
     }
+
+
+def _alerts_for_write(team_id: int, configurations: Sequence[WIPAlertConfiguration]) -> dict[str, WIPAlert]:
+    """The runtime rows, creating any configuration that has none yet."""
+    existing = _existing_alerts(team_id, configurations)
     missing = [c for c in configurations if str(c.id) not in existing]
     if missing:
         # ignore_conflicts leans on the unique constraint, so a concurrent cycle creating the
@@ -37,12 +42,7 @@ def _runtime_alerts(team_id: int, configurations: Sequence[WIPAlertConfiguration
             [WIPAlert(team_id=team_id, configuration=c, grouping_key="") for c in missing],
             ignore_conflicts=True,
         )
-        existing.update(
-            {
-                str(alert.configuration_id): alert
-                for alert in WIPAlert.objects.for_team(team_id).filter(configuration__in=missing, grouping_key="")
-            }
-        )
+        existing.update(_existing_alerts(team_id, missing))
     return existing
 
 
@@ -59,7 +59,7 @@ def due_checks(team_id: int, source_kind: str, slot: str, cutoff: datetime) -> t
     if not configurations:
         return ()
 
-    alerts = _runtime_alerts(team_id, configurations)
+    alerts = _existing_alerts(team_id, configurations)
     return tuple(
         WIPAlertCheck(
             id=c.id,
@@ -77,9 +77,9 @@ def due_checks(team_id: int, source_kind: str, slot: str, cutoff: datetime) -> t
             next_check_at=c.next_check_at,
             consecutive_failures=c.consecutive_failures,
             legacy_configuration_id=c.legacy_configuration_id,
-            state=alerts[str(c.id)].state,
-            last_notified_at=alerts[str(c.id)].last_notified_at,
-            snooze_until=alerts[str(c.id)].snooze_until,
+            state=alerts[str(c.id)].state if str(c.id) in alerts else WIPAlert.State.NOT_FIRING.value,
+            last_notified_at=alerts[str(c.id)].last_notified_at if str(c.id) in alerts else None,
+            snooze_until=alerts[str(c.id)].snooze_until if str(c.id) in alerts else None,
         )
         for c in configurations
     )
@@ -106,7 +106,7 @@ def record_outcomes(team_id: int, outcomes: Sequence[WIPAlertOutcome], now: date
         return
     by_id = {str(o.configuration_id): o for o in outcomes}
     configurations = list(WIPAlertConfiguration.objects.for_team(team_id).filter(id__in=by_id))
-    alerts = _runtime_alerts(team_id, configurations)
+    alerts = _alerts_for_write(team_id, configurations)
 
     for configuration in configurations:
         outcome = by_id[str(configuration.id)]

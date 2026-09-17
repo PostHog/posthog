@@ -149,7 +149,7 @@ def _evaluate_one(
 
 
 def _evaluate_cohort(
-    team: Team, checks: Sequence[WIPAlertCheck], key: tuple, *, now: datetime
+    team: Team, checks: Sequence[WIPAlertCheck], key: tuple, *, now: datetime, preview_budget: int
 ) -> tuple[list[WIPAlertOutcome], list[AlertDeliveryPreview]]:
     window_minutes, evaluation_periods, cadence_minutes, projection_eligible, date_to = key
     lookback = rolling_check_lookback_minutes(window_minutes, cadence_minutes, evaluation_periods)
@@ -184,7 +184,7 @@ def _evaluate_cohort(
             logger.exception("Failed to evaluate a logs alert; skipping it", check_id=str(check.id), error=str(error))
             continue
         outcomes.append(outcome)
-        if preview is not None and len(previews) < MAX_PREVIEWS_PER_CYCLE:
+        if preview is not None and len(previews) < preview_budget:
             previews.append(preview)
     return outcomes, previews
 
@@ -235,7 +235,9 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> tuple[Aler
         # Capped the way the production cohort query requires: one batched query carries one
         # countIf column per alert, so an uncapped cohort is an unbounded query.
         for chunk in batched(cohort, MAX_ALERT_COHORT_SIZE, strict=False):
-            chunk_outcomes, chunk_previews = _evaluate_cohort(team, list(chunk), key, now=cutoff)
+            chunk_outcomes, chunk_previews = _evaluate_cohort(
+                team, list(chunk), key, now=cutoff, preview_budget=MAX_PREVIEWS_PER_CYCLE - len(previews)
+            )
             outcomes.extend(chunk_outcomes)
             previews.extend(chunk_previews)
 
