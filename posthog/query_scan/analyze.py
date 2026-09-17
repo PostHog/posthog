@@ -163,12 +163,22 @@ def _findings_for_plan(
     # one click to change, so it is reported at any size.
     chose_all_time = run.all_time and subquery_index is None
     unbounded = next((read for read in plan.events_reads() if read.timestamp_bounds().lower is None), None)
+    reads_all_history = chose_all_time or (
+        unbounded is not None and _passes_start_date_gate(unbounded, team_granules, flag.start_date_ratio)
+    )
+    no_event_filter, event_cause = _no_event_filter(heaviest, event_filter)
+    reads_all_events = no_event_filter and _passes_event_gate(heaviest, range_share, flag.event_ratio)
+    # All history of a few events, or every event of a short period, is an ordinary by-design read,
+    # so there the query's shape is believed. Every event of all history is the most expensive read
+    # there is, and the shape cannot tell intent, so there the finding stays a warning.
+    believe_shape = not (reads_all_history and reads_all_events)
+
     if chose_all_time:
         findings.append(
             build_warning(
                 kind=QueryScanFindingKind.NO_START_DATE,
                 query_kind=query_kind,
-                by_design=_all_history_by_design(run),
+                by_design=_all_history_by_design(run, believe_shape=believe_shape),
                 fix_location=_all_time_location(run, is_sql=is_sql),
                 evidence=(
                     "The dashboard's date filter is set to All time, so the query starts at the project's first event."
@@ -178,8 +188,8 @@ def _findings_for_plan(
                 view_name=view_name,
             )
         )
-    elif unbounded is not None and _passes_start_date_gate(unbounded, team_granules, flag.start_date_ratio):
-        by_design = _all_history_by_design(run)
+    elif unbounded is not None and reads_all_history:
+        by_design = _all_history_by_design(run, believe_shape=believe_shape)
         open_filters_location = _open_filters_location(run, is_sql=is_sql)
         # A by-design read has nothing wrong in its text, and an open `{filters}` range is fixed
         # outside the text, so only a read that is neither can have a bound ClickHouse could not use.
@@ -197,8 +207,7 @@ def _findings_for_plan(
             )
         )
 
-    no_event_filter, event_cause = _no_event_filter(heaviest, event_filter)
-    if no_event_filter and _passes_event_gate(heaviest, range_share, flag.event_ratio):
+    if reads_all_events:
         if event_cause is None:
             sibling_uses_event_key = outer_uses_event_key or any(
                 read is not heaviest and read.uses_event_key() for read in plan.events_reads()
@@ -209,7 +218,7 @@ def _findings_for_plan(
                 kind=QueryScanFindingKind.NO_EVENT_FILTER,
                 query_kind=query_kind,
                 cause=event_cause,
-                by_design=event_cause is None and _all_events_by_design(run),
+                by_design=event_cause is None and _all_events_by_design(run, believe_shape=believe_shape),
                 evidence=_evidence(heaviest.primary_key(), subquery_index),
                 subquery_index=subquery_index,
                 view_name=view_name,
@@ -229,10 +238,10 @@ def _findings_for_plan(
     return findings
 
 
-def _all_history_by_design(run: RunFacts) -> bool:
+def _all_history_by_design(run: RunFacts, *, believe_shape: bool) -> bool:
     """Whether the read has to start at the project's first event. A first-time math says so in the
-    insight's settings, and a SQL query says so by its shape."""
-    return run.all_history_by_design or (run.tree is not None and run.tree.all_history)
+    insight's settings, which is a choice the person made. A SQL query says so only by its shape."""
+    return run.all_history_by_design or (believe_shape and run.tree is not None and run.tree.all_history)
 
 
 def _all_time_location(run: RunFacts, *, is_sql: bool) -> QueryScanFixLocation | None:
@@ -276,11 +285,13 @@ def _unfiltered_cause(run: RunFacts, *, is_sql: bool, sibling_uses_event_key: bo
     return None
 
 
-def _all_events_by_design(run: RunFacts) -> bool:
+def _all_events_by_design(run: RunFacts, *, believe_shape: bool) -> bool:
     """Whether a read with no event condition and no cause has to read every event: the answer is
-    the set of events itself, or a count of people or sessions over any event."""
+    the set of events itself, or a count of people or sessions over any event. The insight's
+    settings say so as a choice the person made. A SQL query says so only by its shape."""
     tree = run.tree
-    return run.all_events_by_design or (tree is not None and (tree.groups_by_event or tree.counts_any_event))
+    shape_says_so = tree is not None and (tree.groups_by_event or tree.counts_any_event)
+    return run.all_events_by_design or (believe_shape and shape_says_so)
 
 
 def _no_event_filter(

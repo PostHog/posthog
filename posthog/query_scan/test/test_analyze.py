@@ -272,10 +272,28 @@ class TestAnalyze(SimpleTestCase):
                 [("no_start_date/view", False)],
             ),
             (
-                "no event filter and nothing standing in for one",
+                "sql with no event condition at all",
                 "plan_no_event_filter",
                 {"range_granules": 1_000_000},
+                [("no_event_filter", True)],
+            ),
+            (
+                "an insight on all events",
+                "plan_no_event_filter",
+                {"range_granules": 1_000_000, "query_kind": "TrendsQuery"},
                 [("no_event_filter", False)],
+            ),
+            (
+                "a shape that reads every event of all history is not believed",
+                single_read_plan("true"),
+                {"tree": facts(all_history=True, counts_any_event=True)},
+                [("no_start_date", True), ("no_event_filter", True)],
+            ),
+            (
+                "an insight's settings are believed over every event of all history",
+                single_read_plan("true"),
+                {"query_kind": "TrendsQuery", "all_time": True, "all_history_by_design": True},
+                [("no_start_date/by_design", False), ("no_event_filter", False)],
             ),
             (
                 "a property filter standing in for an event name",

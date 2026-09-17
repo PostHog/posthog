@@ -59,9 +59,9 @@ class FindingCause(StrEnum):
 
 
 # The causes that leave the person a change to make. Every other cause, every by-design finding and
-# every finding inside a saved view gets the wording but no "Fix with AI". None is the plain case,
-# and it differs by kind: a query with no event condition at all is taken to be about every event,
-# while a missing start date and a persons join each have a fix.
+# every finding inside a saved view gets the wording but no "Fix with AI". None is the plain case: a
+# missing start date and a persons join each have a fix, and a query with no event condition at
+# all depends on the query kind, which `is_actionable` decides.
 _FIXABLE_CAUSES: dict[QueryScanFindingKind, frozenset[FindingCause | None]] = {
     QueryScanFindingKind.NO_EVENT_FILTER: frozenset(
         {
@@ -429,10 +429,18 @@ def _copy_for(
     raise ValueError(f"No copy for finding kind {kind}")
 
 
-def is_actionable(kind: QueryScanFindingKind, cause: FindingCause | None, *, by_design: bool, in_view: bool) -> bool:
+def is_actionable(
+    kind: QueryScanFindingKind, cause: FindingCause | None, *, is_sql: bool, by_design: bool, in_view: bool
+) -> bool:
     """Whether the person can change the query so it reads less and still answers the same question.
     A read inside a saved view is never actionable from the query that uses the view."""
-    return not by_design and not in_view and cause in _FIXABLE_CAUSES.get(kind, frozenset())
+    if by_design or in_view:
+        return False
+    if kind == QueryScanFindingKind.NO_EVENT_FILTER and cause is None:
+        # An insight's All events series is a choice the person made in a picker. A SQL query that
+        # names no events may have left them out, and nothing in it tells which, so it is a warning.
+        return is_sql
+    return cause in _FIXABLE_CAUSES.get(kind, frozenset())
 
 
 def _read_location(*, subquery_index: int | None, view_name: str | None) -> QueryScanFixLocation:
@@ -494,7 +502,7 @@ def build_warning(
         message=f"{lead} {advice}",
         fix=fix,
         evidence=evidence,
-        actionable=is_actionable(kind, cause, by_design=by_design, in_view=view_name is not None),
+        actionable=is_actionable(kind, cause, is_sql=is_sql, by_design=by_design, in_view=view_name is not None),
     )
 
 

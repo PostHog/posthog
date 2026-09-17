@@ -189,7 +189,8 @@ class TestFindings(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (QueryScanFindingKind.NO_EVENT_FILTER, {}, False),
+            (QueryScanFindingKind.NO_EVENT_FILTER, {}, True),
+            (QueryScanFindingKind.NO_EVENT_FILTER, {"query_kind": "TrendsQuery"}, False),
             (QueryScanFindingKind.NO_EVENT_FILTER, {"cause": FindingCause.IN_OR}, True),
             (QueryScanFindingKind.NO_EVENT_FILTER, {"cause": FindingCause.NEGATED}, False),
             (QueryScanFindingKind.NO_EVENT_FILTER, {"cause": FindingCause.DYNAMIC}, False),
@@ -203,7 +204,7 @@ class TestFindings(SimpleTestCase):
     def test_actionable_follows_the_facts(
         self, kind: QueryScanFindingKind, facts: dict[str, object], expected: bool
     ) -> None:
-        warning = build_warning(kind=kind, query_kind="HogQLQuery", **facts)  # type: ignore[arg-type]
+        warning = build_warning(**{"kind": kind, "query_kind": "HogQLQuery", **facts})  # type: ignore[arg-type]
 
         self.assertIs(warning.actionable, expected)
 
