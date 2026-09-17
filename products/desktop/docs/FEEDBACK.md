@@ -7,7 +7,7 @@ The form sends one authenticated request to the Desktop feedback endpoint. The e
 
 The app captures the current window before the form opens. The screenshot can be reviewed and stays off until selected. People can also attach up to two images. Recent app logs can be reviewed while they stay off, and are sent only when selected.
 
-Selected screenshots and images are stored in PostHog's internal media project, not the project selected in Desktop. The survey response contains image links instead of image data. If the response fails, the endpoint removes the new media. The feedback modal is excluded from Session Replay, so previews and logs do not enter the recording.
+Selected screenshots and images are stored in PostHog's internal media project, not the project selected in Desktop. The survey response contains authenticated image links instead of image data. Only people with access to the internal feedback project can open them, and the public media route returns `404`. Links stop working after 30 days, and a daily cleanup removes the stored media. If the response fails, the endpoint removes the new media. The feedback modal is excluded from Session Replay, so previews and logs do not enter the recording.
 
 The survey event keeps its normal session link, so authorized reviewers can inspect the app state before the modal opened.
 
