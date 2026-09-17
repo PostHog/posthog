@@ -90,6 +90,21 @@ To re-run a migration, you'll need to delete the entry from the `infi_clickhouse
 
 ## Ingestion layer
 
+### Metrics ingestion on APM nodes
+
+Cloud metrics ingestion uses `NodeRole.INGESTION_APM`, which matches the
+`hostClusterRole=apm` macro on `ingestion-apm` nodes. The migration topology must
+include these nodes. Use `require_hosts=True` before removing views from the
+previous cluster, so a missing APM role stops the migration.
+
+The metrics2 and metrics3 views read from the local `metrics2_input` Null table
+and write to `writable_*` Distributed tables. These tables send data to the
+`logs` storage cluster. Create downstream views before the Kafka input view.
+Remove only metrics views from logs nodes; keep log and trace views unchanged.
+
+Keep this cluster move cloud-only. Local single-node and multinode stacks keep
+their metrics views on the existing node, without writable proxies.
+
 We have extra nodes with a sole purpose of ingesting the data from Kafka topics into ClickHouse tables. The way to do that is to:
 
 1. Create your data table in ClickHouse main cluster.
