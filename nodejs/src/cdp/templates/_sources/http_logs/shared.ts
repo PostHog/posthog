@@ -93,7 +93,17 @@ if (notEmpty(url) and typeof(url) == 'string') {
         rest := substring(url, schemeIdx + 3, length(url) - schemeIdx - 2)
     }
     let slashIdx := position(rest, '/')
-    if (slashIdx > 0) {
+    let queryIdx := position(rest, '?')
+    if (queryIdx > 0 and (slashIdx == 0 or queryIdx < slashIdx)) {
+        // Root URL with the query straight after the authority (https://example.com?utm_source=x):
+        // there is no '/', so the host would otherwise swallow the query string.
+        if (empty(host)) {
+            host := substring(rest, 1, queryIdx - 1)
+        }
+        if (empty(pathWithQuery)) {
+            pathWithQuery := f'/{substring(rest, queryIdx, length(rest) - queryIdx + 1)}'
+        }
+    } else if (slashIdx > 0) {
         if (empty(host)) {
             host := substring(rest, 1, slashIdx - 1)
         }
@@ -225,7 +235,15 @@ if (strategy == 'rotating_salt') {
 } else if (strategy == 'fixed_salt') {
     distinctId := f'http_log_{shortHash(f'{salt}:{clientIp}:{host}:{userAgent}')}'
 } else if (strategy == 'ip') {
-    distinctId := f'http_log_{clientIp}'
+    if (empty(clientIp)) {
+        // A missing ip would mint the constant id 'http_log_' and collapse every such
+        // request onto one person, so fall back to the salted hash instead.
+        print('http log source: record has no ip for the ip strategy, falling back to rotating_salt')
+        distinctId := f'http_log_{shortHash(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
+        activeStrategy := 'rotating_salt_fallback'
+    } else {
+        distinctId := f'http_log_{clientIp}'
+    }
 } else if (strategy == 'custom') {
     let customTemplate := inputs.custom_template ?? ''
     if (empty(customTemplate)) {

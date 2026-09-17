@@ -165,6 +165,42 @@ describe('http log source templates', () => {
         expect(response.capturedPostHogEvents[0].properties.$raw_user_agent).toBeUndefined()
     })
 
+    it('falls back to a salted hash when the ip strategy gets a record without an ip', async () => {
+        // A missing ip would otherwise mint the constant id 'http_log_' and collapse
+        // every such request onto one person.
+        const response = await tester.invoke(
+            { distinct_id_strategy: 'ip' },
+            {
+                request: createRequest({
+                    url: 'https://example.com/a',
+                    user_agent: 'Mozilla/5.0',
+                }),
+            }
+        )
+
+        expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^http_log_[A-Za-z0-9+/]{22}$/)
+        expect(response.capturedPostHogEvents[0].properties.$distinct_id_strategy).toEqual('rotating_salt_fallback')
+    })
+
+    it('splits host and query for a root url whose query follows the authority directly', async () => {
+        // https://example.com?utm_source=x has no '/', so the host used to swallow the query.
+        const response = await tester.invoke(
+            {},
+            {
+                request: createRequest({
+                    url: 'https://example.com?utm_source=newsletter',
+                    user_agent: 'Mozilla/5.0',
+                }),
+            }
+        )
+
+        expect(response.capturedPostHogEvents[0].properties).toMatchObject({
+            $host: 'example.com',
+            $pathname: '/',
+            utm_source: 'newsletter',
+        })
+    })
+
     it('cloudflare template captures a worker-shaped payload with cloudflare properties', async () => {
         const response = await cloudflareTester.invoke(
             {},
