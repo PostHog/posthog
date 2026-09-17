@@ -1,5 +1,5 @@
-import threading
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from math import ceil
@@ -44,7 +44,12 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast, query_stats
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings, LimitContext
+from posthog.hogql.constants import (
+    INSIGHT_QUERY_FANOUT_CONCURRENCY,
+    MAX_SELECT_RETURNED_ROWS,
+    HogQLGlobalSettings,
+    LimitContext,
+)
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.query_stats import QueryStats
 from posthog.hogql.timings import HogQLTimings
@@ -73,7 +78,11 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPr
 from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
 from posthog.hogql_queries.utils.utils import get_response_hogql
-from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings, RequireAtLeastOneSeries
+from posthog.hogql_queries.validation.rules import (
+    DisallowUnsupportedDataWarehouseSettings,
+    RequireAtLeastOneSeries,
+    validate_series_fan_out,
+)
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
@@ -459,24 +468,26 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 for index, query in enumerate(queries):
                     run(index, query, self.timings.clone_for_subquery(index), False)
             else:
-                # A thread starts with an empty context, so the query tags and the query scan
+                # A worker thread starts with an empty context, so the query tags and the query scan
                 # accumulator are handed over explicitly.
-                jobs = [
-                    threading.Thread(
-                        target=run,
-                        args=(
+                parent_tags = query_tagging.get_query_tags().model_copy(deep=True)
+                parent_stats = query_stats.get_active()
+                max_workers = min(INSIGHT_QUERY_FANOUT_CONCURRENCY, len(queries))
+                with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="trends_series") as executor:
+                    futures = [
+                        executor.submit(
+                            run,
                             index,
                             query,
                             self.timings.clone_for_subquery(index),
                             True,
-                            query_tagging.get_query_tags().model_copy(deep=True),
-                            query_stats.get_active(),
-                        ),
-                    )
-                    for index, query in enumerate(queries)
-                ]
-                [j.start() for j in jobs]  # type:ignore
-                [j.join() for j in jobs]  # type:ignore
+                            parent_tags,
+                            parent_stats,
+                        )
+                        for index, query in enumerate(queries)
+                    ]
+                    for future in futures:
+                        future.result()
 
         # Raise any errors raised in a seperate thread
         if len(errors) > 0:
@@ -948,6 +959,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         )
 
     def setup_series(self) -> list[SeriesWithExtras]:
+        validate_series_fan_out(self.query)
+
         series_with_extras = [
             SeriesWithExtras(
                 series=series,

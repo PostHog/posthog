@@ -8,6 +8,7 @@ from posthog.schema import (
     Breakdown,
     BreakdownFilter,
     BreakdownType,
+    CompareFilter,
     DataWarehouseNode,
     DateRange,
     EventsNode,
@@ -24,6 +25,7 @@ from products.product_analytics.backend.hogql_queries.trends.trend_validation_ru
     DisallowUnsupportedPropertyMathForHistogramBreakdown,
     ValidateDataWarehouseBreakdown,
 )
+from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 
 
 class TestValidateDataWarehouseBreakdown(BaseTest):
@@ -370,3 +372,16 @@ class TestDisallowDaysOfWeekWithSmoothing(BaseTest):
             DisallowDaysOfWeekWithSmoothing().validate(self._context(query))
 
         self.assertEqual(context.exception.get_codes(), ["days_of_week_unsupported_with_smoothing"])
+
+
+class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
+    def test_runner_rejects_an_expansion_over_the_limit_before_it_expands_the_series(self) -> None:
+        query = TrendsQuery(
+            series=[EventsNode(event=f"event_{index}") for index in range(150)],
+            compareFilter=CompareFilter(compare=True),
+        )
+
+        with self.assertRaises(ValidationError) as context:
+            TrendsQueryRunner(query=query, team=self.team)
+
+        self.assertEqual(context.exception.get_codes(), ["insight_series_fan_out_too_large"])

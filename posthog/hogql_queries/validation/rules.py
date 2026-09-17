@@ -2,6 +2,8 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import EntityType, FunnelsQuery, LifecycleQuery, RetentionQuery, StickinessQuery, TrendsQuery
 
+from posthog.hogql.constants import MAX_EXPANDED_INSIGHT_QUERIES
+
 from posthog.hogql_queries.utils.entities import has_data_warehouse_node
 from posthog.hogql_queries.utils.properties import has_any_property_filters
 from posthog.hogql_queries.validation.utils import get_query_insight_name
@@ -60,3 +62,36 @@ def _query_has_data_warehouse_series(
         )
 
     return has_data_warehouse_node(query.series)
+
+
+SERIES_FAN_OUT_TOO_LARGE = "insight_series_fan_out_too_large"
+
+
+def expanded_series_count(query: TrendsQuery | StickinessQuery) -> int:
+    """How many ClickHouse queries this insight expands into, one per series after breakdown and compare."""
+    count = len(query.series)
+
+    breakdown_filter = getattr(query, "breakdownFilter", None)
+    if breakdown_filter is not None and breakdown_filter.breakdown_type == "cohort":
+        if isinstance(breakdown_filter.breakdown, list):
+            count *= max(1, len(breakdown_filter.breakdown))
+
+    if query.compareFilter is not None and query.compareFilter.compare:
+        count *= 2
+
+    return count
+
+
+def validate_series_fan_out(query: TrendsQuery | StickinessQuery) -> None:
+    """Reject an insight that expands into more queries than one request is allowed to run.
+
+    Runners call this from setup_series rather than from validators(), because setup_series copies
+    the whole query once per cohort and runs before the standard validation rules do.
+    """
+    count = expanded_series_count(query)
+    if count > MAX_EXPANDED_INSIGHT_QUERIES:
+        raise ValidationError(
+            f"This insight needs {count} queries to run, which is over the limit of {MAX_EXPANDED_INSIGHT_QUERIES}. "
+            f"Use fewer series, break down by fewer cohorts, or turn off comparing to the previous period.",
+            code=SERIES_FAN_OUT_TOO_LARGE,
+        )
