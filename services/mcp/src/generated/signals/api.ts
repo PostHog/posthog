@@ -435,7 +435,7 @@ export const SignalsReportArtefactsPartialUpdateBody = () => zod
     )
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `check_result`, `code_review`, `implementation_decision`, `implementation_handover`, `implementation_replacement`, `pull_request`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `check_result`, `code_review`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
  * @summary Delete an artefact
  */
 export const SignalsReportArtefactsDestroyParams = () => zod.object({
@@ -1554,7 +1554,7 @@ export const SignalsScoutRecordCheckResultBody = () => zod
     .describe('Request body for `scout-check-record-result`: the verdict on one dispatched report check.')
 
 /**
- * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Title/summary edits are best-effort: the pipeline may later re-research them.
+ * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Title/summary edits are best-effort: the pipeline may later re-research them. Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated predecessor PRs close only after the replacement completes with verified open PRs.
  * @summary Edit an existing report for a run
  */
 export const SignalsScoutEditReportParams = () => zod.object({
@@ -1632,6 +1632,12 @@ export const SignalsScoutEditReportBody = () => zod
             .max(signalsScoutEditReportBodyAppendNoteMax)
             .nullish()
             .describe("Optional free-form note to append to the report's work log (attributed to this scout)."),
+        corroboration_only: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Set only when append_note confirms the finding with no new information. After four confirmations, store only the count. Other notes remain in the work log.'
+            ),
         append_evidence: zod
             .array(
                 zod
@@ -1850,6 +1856,12 @@ export const SignalsScoutEditReportBody = () => zod
             .nullish()
             .describe(
                 "The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report."
+            ),
+        supersedes_implementation: zod
+            .boolean()
+            .optional()
+            .describe(
+                "Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement."
             ),
     })
     .describe(

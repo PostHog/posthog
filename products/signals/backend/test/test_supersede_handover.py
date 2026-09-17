@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from datetime import timedelta
 from types import SimpleNamespace
 from uuid import uuid4
@@ -14,10 +15,13 @@ from parameterized import parameterized
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     ImplementationDecision,
+    ImplementationDispatch,
     ImplementationHandover,
     ImplementationReplacement,
 )
 from products.signals.backend.auto_start import (
+    ImplementationReportContent,
+    ReportChangedDuringAutostart,
     _create_implementation_task_if_absent,
     _resolve_supersede,
     maybe_autostart_implementation_task,
@@ -27,6 +31,7 @@ from products.signals.backend.models import SignalReport, SignalReportArtefact, 
 from products.signals.backend.report_assignments import create_claim, release_claim, update_assignments_for_pull_request
 from products.signals.backend.report_claims import ReportClaim, get_active_claim
 from products.signals.backend.report_generation.research import ActionabilityAssessment, ActionabilityChoice
+from products.signals.backend.scout_harness.tools.report import record_implementation_decision
 from products.signals.backend.supersession import (
     MAX_HANDOVER_ATTEMPTS,
     TargetVerificationUnavailable,
@@ -127,6 +132,7 @@ class TestSupersedeHandover(BaseTest):
             targets=[target for target in context.candidates if target.pr_url == OLD_PR],
             research_run_count=context.run_count,
             research_started_at=context.started_at,
+            content_revision_count=context.content_revision_count,
         )
         SignalReportArtefact.append_status(
             team_id=self.team.id,
@@ -136,8 +142,10 @@ class TestSupersedeHandover(BaseTest):
         )
         return decision
 
-    def start_replacement(self) -> SignalReportArtefact:
-        decision = self.decision()
+    def start_replacement(
+        self, decision: ImplementationDecision | None = None, dispatch: ImplementationDispatch | None = None
+    ) -> SignalReportArtefact:
+        decision = decision or self.decision()
         supersede = _resolve_supersede(self.report, decision)
         assert supersede.allowed
 
@@ -167,15 +175,49 @@ class TestSupersedeHandover(BaseTest):
                     report_id=str(self.report.id),
                     title="Replacement",
                     description="Fix the changed layer",
+                    expected_content=ImplementationReportContent.from_report(self.report),
                     user_id=self.user.id,
                     repository="example/repo",
                     base_branch=None,
                     supersede=supersede,
+                    dispatch=dispatch,
                 )
                 for _ in range(2)
             ]
             assert outcomes == [True, False]
         return SignalReportArtefact.objects.get(report=self.report, type="implementation_replacement")
+
+    @parameterized.expand([("expired",), ("replaced",), ("current",)])
+    def test_dispatch_lease_fences_task_creation(self, lease: str) -> None:
+        decision = self.decision()
+        row = SignalReportArtefact.objects.get(report=self.report, type="implementation_decision")
+        reservation = ImplementationDispatch(
+            decision_id=row.id,
+            status="processing",
+            worker_token=uuid4(),
+            lease_until=timezone.now() + timedelta(seconds=300),
+        )
+        stored = reservation.model_copy()
+        if lease == "expired":
+            stored.lease_until = timezone.now() - timedelta(seconds=1)
+        elif lease == "replaced":
+            stored.worker_token = uuid4()
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(self.report.id),
+            content=stored,
+            attribution=ArtefactAttribution.system(),
+        )
+        if lease == "current":
+            replacement = self.start_replacement(decision, reservation)
+            assert ImplementationReplacement.model_validate_json(replacement.content).decision_id == row.id
+        else:
+            with self.assertRaises(ReportChangedDuringAutostart):
+                self.start_replacement(decision, reservation)
+            assert not SignalReportArtefact.objects.filter(
+                report=self.report, type="implementation_replacement"
+            ).exists()
+        self.github.close_pull_request.assert_not_called()
 
     def complete(self, replacement: SignalReportArtefact) -> TaskRun:
         content = ImplementationReplacement.model_validate_json(replacement.content)
@@ -185,6 +227,37 @@ class TestSupersedeHandover(BaseTest):
         run.output = {"pr_url": NEW_PR, "pr_state": "open"}
         run.save(update_fields=["status", "output"])
         return run
+
+    @parameterized.expand([("unchanged", False), ("revised_again", True)])
+    def test_scout_replacement_is_bound_to_its_content_revision(self, _name: str, revised_again: bool) -> None:
+        self.report.run_count = 0
+        self.report.implemented_at_run_count = 0
+        self.report.last_run_at = None
+        self.report.save()
+        context = research_implementation_context(self.team.id, str(self.report.id))
+        self.report.content_revision_count = 1
+        self.report.save(update_fields=["content_revision_count"])
+        record_implementation_decision(
+            team_id=self.team.id,
+            report_id=str(self.report.id),
+            supersede=True,
+            updated_fields=["summary"],
+            attribution=ArtefactAttribution.system(),
+            implementation_context=context,
+        )
+        row = SignalReportArtefact.objects.get(report=self.report, type="implementation_decision")
+        decision = ImplementationDecision.model_validate_json(row.content)
+        assert {target.pr_url for target in decision.targets} == {OLD_PR, KEPT_PR}
+        replacement = self.start_replacement(decision)
+        self.report.refresh_from_db()
+        assert self.report.implemented_at_revision_count == 1
+        self.complete(replacement)
+        if revised_again:
+            self.report.content_revision_count = 2
+            self.report.save(update_fields=["content_revision_count"])
+        assert not reconcile_replacement(self.team.id, str(replacement.id))
+        assert self.github.close_pull_request.call_count == (0 if revised_again else 2)
+        assert self.handover(replacement).status == ("needs_attention" if revised_again else "completed")
 
     def test_selective_handover_transfers_claim_and_is_idempotent(self) -> None:
         replacement = self.start_replacement()
@@ -271,12 +344,16 @@ class TestSupersedeHandover(BaseTest):
         SignalReport.objects.filter(id=self.report.id).update(
             **({"run_count": 3} if change == "new_pass" else {"status": "suppressed"})
         )
-        with patch("products.signals.backend.auto_start.tasks_facade.create_and_run_task") as create:
+        with (
+            patch("products.signals.backend.auto_start.tasks_facade.create_and_run_task") as create,
+            self.assertRaises(ReportChangedDuringAutostart) if change == "new_pass" else nullcontext(),
+        ):
             assert not _create_implementation_task_if_absent(
                 team_id=self.team.id,
                 report_id=str(self.report.id),
                 title="t",
                 description="d",
+                expected_content=ImplementationReportContent.from_report(self.report),
                 user_id=self.user.id,
                 repository="example/repo",
                 base_branch=None,
