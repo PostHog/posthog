@@ -734,13 +734,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     }
 
                     const response = await insightsApi.update(values.insight.id as number, metadataUpdate)
+                    if ('tags' in metadataUpdate) {
+                        actions.refreshTags()
+                    }
                     await breakpoint(300)
 
                     actions.reloadSavedInsights()
                     dashboardsModel.findMounted()?.actions.updateDashboardInsight(response)
-                    if ('tags' in metadataUpdate) {
-                        actions.refreshTags()
-                    }
 
                     refreshTreeItem('insight', values.insight.short_id)
                     lemonToast.success(`Updated insight`, {
