@@ -8020,11 +8020,27 @@ export interface CampaignFieldPreference {
 }
 
 /** Metric cards the marketing analytics Overview can show. Declaration order is the default card order. */
+/** The Overview shows one card per slot: acquisition, engagement, retention, conversion, other.
+ * `overview_metrics` is a list of five, one per slot in that order. */
 export enum MarketingAnalyticsOverviewMetric {
     Visitors = 'visitors',
+    NewVisitors = 'new_visitors',
+    NewVisitorShare = 'new_visitor_share',
+    Sessions = 'sessions',
+    Pageviews = 'pageviews',
     SessionDuration = 'session_duration',
+    PagesPerSession = 'pages_per_session',
+    PagesPerVisitor = 'pages_per_visitor',
+    SessionsPerVisitor = 'sessions_per_visitor',
+    BounceRate = 'bounce_rate',
+    ReturningVisitors = 'returning_visitors',
+    ReturnRate7d = 'return_rate_7d',
     ReturnRate30d = 'return_rate_30d',
+    MedianReturnDays = 'median_return_days',
+    Conversions = 'conversions',
     ConversionRate = 'conversion_rate',
+    ConversionValue = 'conversion_value',
+    AvgConversionValue = 'avg_conversion_value',
     Revenue = 'revenue',
 }
 

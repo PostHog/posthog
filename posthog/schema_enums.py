@@ -1889,9 +1889,23 @@ class MarketingAnalyticsOrderByEnum(StrEnum):
 
 class MarketingAnalyticsOverviewMetric(StrEnum):
     VISITORS = "visitors"
+    NEW_VISITORS = "new_visitors"
+    NEW_VISITOR_SHARE = "new_visitor_share"
+    SESSIONS = "sessions"
+    PAGEVIEWS = "pageviews"
     SESSION_DURATION = "session_duration"
+    PAGES_PER_SESSION = "pages_per_session"
+    PAGES_PER_VISITOR = "pages_per_visitor"
+    SESSIONS_PER_VISITOR = "sessions_per_visitor"
+    BOUNCE_RATE = "bounce_rate"
+    RETURNING_VISITORS = "returning_visitors"
+    RETURN_RATE_7D = "return_rate_7d"
     RETURN_RATE_30D = "return_rate_30d"
+    MEDIAN_RETURN_DAYS = "median_return_days"
+    CONVERSIONS = "conversions"
     CONVERSION_RATE = "conversion_rate"
+    CONVERSION_VALUE = "conversion_value"
+    AVG_CONVERSION_VALUE = "avg_conversion_value"
     REVENUE = "revenue"
 
 

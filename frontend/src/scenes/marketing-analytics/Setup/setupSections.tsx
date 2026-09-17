@@ -77,7 +77,7 @@ export const SETUP_SECTIONS: SetupSectionDef[] = [
     {
         key: SetupSection.OVERVIEW_METRICS,
         label: SECTION_LABEL[SetupSection.OVERVIEW_METRICS],
-        description: 'Which metric cards the Overview shows, and in what order.',
+        description: 'Which metric the Overview shows for each group.',
         content: <OverviewMetricsConfiguration />,
     },
     {

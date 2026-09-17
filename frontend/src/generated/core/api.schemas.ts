@@ -1775,18 +1775,46 @@ export interface MarketingAnalyticsCampaignFieldPreferencesApi {
 
 /**
  * * `visitors` - visitors
+ * * `new_visitors` - new_visitors
+ * * `new_visitor_share` - new_visitor_share
+ * * `sessions` - sessions
+ * * `pageviews` - pageviews
  * * `session_duration` - session_duration
+ * * `pages_per_session` - pages_per_session
+ * * `pages_per_visitor` - pages_per_visitor
+ * * `sessions_per_visitor` - sessions_per_visitor
+ * * `bounce_rate` - bounce_rate
+ * * `returning_visitors` - returning_visitors
+ * * `return_rate_7d` - return_rate_7d
  * * `return_rate_30d` - return_rate_30d
+ * * `median_return_days` - median_return_days
+ * * `conversions` - conversions
  * * `conversion_rate` - conversion_rate
+ * * `conversion_value` - conversion_value
+ * * `avg_conversion_value` - avg_conversion_value
  * * `revenue` - revenue
  */
 export type OverviewMetricsEnumApi = (typeof OverviewMetricsEnumApi)[keyof typeof OverviewMetricsEnumApi]
 
 export const OverviewMetricsEnumApi = {
     Visitors: 'visitors',
+    NewVisitors: 'new_visitors',
+    NewVisitorShare: 'new_visitor_share',
+    Sessions: 'sessions',
+    Pageviews: 'pageviews',
     SessionDuration: 'session_duration',
+    PagesPerSession: 'pages_per_session',
+    PagesPerVisitor: 'pages_per_visitor',
+    SessionsPerVisitor: 'sessions_per_visitor',
+    BounceRate: 'bounce_rate',
+    ReturningVisitors: 'returning_visitors',
+    ReturnRate7d: 'return_rate_7d',
     ReturnRate30d: 'return_rate_30d',
+    MedianReturnDays: 'median_return_days',
+    Conversions: 'conversions',
     ConversionRate: 'conversion_rate',
+    ConversionValue: 'conversion_value',
+    AvgConversionValue: 'avg_conversion_value',
     Revenue: 'revenue',
 } as const
 
@@ -1817,7 +1845,7 @@ export interface TeamMarketingAnalyticsConfigApi {
     custom_source_mappings?: MarketingAnalyticsCustomSourceMappingsApi
     /** Which field to match campaigns on per integration type, campaign_name or campaign_id. Manual mappings in campaign_name_mappings still take precedence. */
     campaign_field_preferences?: MarketingAnalyticsCampaignFieldPreferencesApi
-    /** Metric cards the marketing analytics Overview shows, in display order. Allowed keys: visitors, session_duration, return_rate_30d, conversion_rate, revenue. Send an empty list to restore the default, which is every metric in that order. Reads always return the effective list. */
+    /** Metric cards the marketing analytics Overview shows: exactly five, one per slot, in the order acquisition, engagement, retention, conversion, other. A metric may repeat, because the other slot can hold one another slot already shows. Send an empty list to restore the default. Reads always return the effective list. */
     overview_metrics?: OverviewMetricsEnumApi[]
 }
 

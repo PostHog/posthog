@@ -280,24 +280,39 @@ def validate_conversion_goals(conversion_goals: list) -> None:
 
 
 # Declaration order of the enum is the order the Overview renders its cards in.
-DEFAULT_OVERVIEW_METRICS: list[str] = [metric.value for metric in MarketingAnalyticsOverviewMetric]
+# One metric per slot: acquisition, engagement, retention, conversion, other. Which metrics a slot
+# offers is a presentation choice the frontend owns (OVERVIEW_METRIC_SLOTS); the API only checks the
+# shape, so adding a metric to a slot needs no backend change.
+OVERVIEW_METRIC_SLOT_COUNT = 5
+
+DEFAULT_OVERVIEW_METRICS: list[str] = [
+    MarketingAnalyticsOverviewMetric.VISITORS.value,
+    MarketingAnalyticsOverviewMetric.SESSION_DURATION.value,
+    MarketingAnalyticsOverviewMetric.RETURN_RATE_30D.value,
+    MarketingAnalyticsOverviewMetric.CONVERSION_RATE.value,
+    MarketingAnalyticsOverviewMetric.REVENUE.value,
+]
 
 
 def validate_overview_metrics(overview_metrics: list) -> None:
-    """Validate overview_metrics: an ordered, duplicate-free list of allow-listed metric keys."""
+    """Validate overview_metrics: one allow-listed metric key per slot, in slot order.
+
+    Repeats are allowed because the "other" slot can hold a metric another slot already shows.
+    """
     if not isinstance(overview_metrics, list):
         raise ValidationError("overview_metrics must be a list")
 
+    if overview_metrics and len(overview_metrics) != OVERVIEW_METRIC_SLOT_COUNT:
+        raise ValidationError(
+            f"overview_metrics must hold exactly {OVERVIEW_METRIC_SLOT_COUNT} metrics, or be empty for the default set"
+        )
+
     allowed = {metric.value for metric in MarketingAnalyticsOverviewMetric}
-    seen: set[str] = set()
     for metric in overview_metrics:
         if not isinstance(metric, str):
             raise ValidationError(f"Overview metric '{metric}' must be a string")
         if metric not in allowed:
             raise ValidationError(f"Unknown overview metric '{metric}'. Must be one of: {sorted(allowed)}")
-        if metric in seen:
-            raise ValidationError(f"Overview metric '{metric}' is listed more than once")
-        seen.add(metric)
 
 
 # Intentionally not inheriting from UUIDModel because we're using a OneToOneField

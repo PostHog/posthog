@@ -156,19 +156,90 @@ export const MIN_ATTRIBUTION_WINDOW_DAYS = 1
 export const DEFAULT_ATTRIBUTION_WINDOW_DAYS = 90
 export const DEFAULT_ATTRIBUTION_MODE = AttributionMode.LastTouch
 
-// Object.values on a string enum follows declaration order, which the backend also treats as the
-// default card order.
-export const DEFAULT_OVERVIEW_METRICS: MarketingAnalyticsOverviewMetric[] = Object.values(
-    MarketingAnalyticsOverviewMetric
-)
-
 export const OVERVIEW_METRIC_LABELS: Record<MarketingAnalyticsOverviewMetric, string> = {
-    [MarketingAnalyticsOverviewMetric.Visitors]: 'Visitors',
+    [MarketingAnalyticsOverviewMetric.Visitors]: 'Unique visitors',
+    [MarketingAnalyticsOverviewMetric.NewVisitors]: 'New visitors',
+    [MarketingAnalyticsOverviewMetric.NewVisitorShare]: 'New visitor share',
+    [MarketingAnalyticsOverviewMetric.Sessions]: 'Sessions',
+    [MarketingAnalyticsOverviewMetric.Pageviews]: 'Pageviews',
     [MarketingAnalyticsOverviewMetric.SessionDuration]: 'Avg. session duration',
+    [MarketingAnalyticsOverviewMetric.PagesPerSession]: 'Pages per session',
+    [MarketingAnalyticsOverviewMetric.PagesPerVisitor]: 'Pageviews per visitor',
+    [MarketingAnalyticsOverviewMetric.SessionsPerVisitor]: 'Sessions per visitor',
+    [MarketingAnalyticsOverviewMetric.BounceRate]: 'Bounce rate',
+    [MarketingAnalyticsOverviewMetric.ReturningVisitors]: 'Returning visitors',
+    [MarketingAnalyticsOverviewMetric.ReturnRate7d]: '7-day return rate',
     [MarketingAnalyticsOverviewMetric.ReturnRate30d]: '30-day return rate',
+    [MarketingAnalyticsOverviewMetric.MedianReturnDays]: 'Median days to return',
+    [MarketingAnalyticsOverviewMetric.Conversions]: 'Conversions',
     [MarketingAnalyticsOverviewMetric.ConversionRate]: 'Conversion rate',
+    [MarketingAnalyticsOverviewMetric.ConversionValue]: 'Conversion value',
+    [MarketingAnalyticsOverviewMetric.AvgConversionValue]: 'Avg. conversion value',
     [MarketingAnalyticsOverviewMetric.Revenue]: 'Revenue',
 }
+
+export interface OverviewMetricSlot {
+    label: string
+    options: MarketingAnalyticsOverviewMetric[]
+    default: MarketingAnalyticsOverviewMetric
+}
+
+/** One card per slot, in this order. "Other" takes any metric, so a team that cares about two
+ * engagement numbers can have them. */
+export const OVERVIEW_METRIC_SLOTS: OverviewMetricSlot[] = [
+    {
+        label: 'Acquisition',
+        options: [
+            MarketingAnalyticsOverviewMetric.Visitors,
+            MarketingAnalyticsOverviewMetric.NewVisitors,
+            MarketingAnalyticsOverviewMetric.NewVisitorShare,
+            MarketingAnalyticsOverviewMetric.Sessions,
+            MarketingAnalyticsOverviewMetric.Pageviews,
+        ],
+        default: MarketingAnalyticsOverviewMetric.Visitors,
+    },
+    {
+        label: 'Engagement',
+        options: [
+            MarketingAnalyticsOverviewMetric.SessionDuration,
+            MarketingAnalyticsOverviewMetric.PagesPerSession,
+            MarketingAnalyticsOverviewMetric.PagesPerVisitor,
+            MarketingAnalyticsOverviewMetric.SessionsPerVisitor,
+            MarketingAnalyticsOverviewMetric.BounceRate,
+        ],
+        default: MarketingAnalyticsOverviewMetric.SessionDuration,
+    },
+    {
+        label: 'Retention',
+        options: [
+            MarketingAnalyticsOverviewMetric.NewVisitors,
+            MarketingAnalyticsOverviewMetric.ReturningVisitors,
+            MarketingAnalyticsOverviewMetric.ReturnRate7d,
+            MarketingAnalyticsOverviewMetric.ReturnRate30d,
+            MarketingAnalyticsOverviewMetric.MedianReturnDays,
+        ],
+        default: MarketingAnalyticsOverviewMetric.ReturnRate30d,
+    },
+    {
+        label: 'Conversion',
+        options: [
+            MarketingAnalyticsOverviewMetric.Conversions,
+            MarketingAnalyticsOverviewMetric.ConversionRate,
+            MarketingAnalyticsOverviewMetric.ConversionValue,
+            MarketingAnalyticsOverviewMetric.AvgConversionValue,
+        ],
+        default: MarketingAnalyticsOverviewMetric.ConversionRate,
+    },
+    {
+        label: 'Other',
+        options: Object.values(MarketingAnalyticsOverviewMetric),
+        default: MarketingAnalyticsOverviewMetric.Revenue,
+    },
+]
+
+export const DEFAULT_OVERVIEW_METRICS: MarketingAnalyticsOverviewMetric[] = OVERVIEW_METRIC_SLOTS.map(
+    (slot) => slot.default
+)
 
 export const ATTRIBUTION_WINDOW_OPTIONS = [
     { value: 1, label: '1 day' },

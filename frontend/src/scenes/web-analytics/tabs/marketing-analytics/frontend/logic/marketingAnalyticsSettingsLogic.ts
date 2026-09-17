@@ -30,12 +30,7 @@ import type { PaginatedResponse } from '../../../../../../lib/api'
 import type { ProductIntentProperties } from '../../../../../../lib/utils/product-intents'
 import type { TeamPublicType, TeamType } from '../../../../../../types'
 import { IntegrationSettingsTab } from '../components/settings/IntegrationSettingsModal'
-import {
-    DEFAULT_ATTRIBUTION_WINDOW_DAYS,
-    DEFAULT_OVERVIEW_METRICS,
-    extractSchemaName,
-    generateUniqueName,
-} from './utils'
+import { DEFAULT_ATTRIBUTION_WINDOW_DAYS, OVERVIEW_METRIC_SLOTS, extractSchemaName, generateUniqueName } from './utils'
 
 export interface IntegrationSettingsModalState {
     isOpen: boolean
@@ -541,9 +536,13 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         ],
         overviewMetrics: [
             (s) => [s.overview_metrics],
-            (overviewMetrics: MarketingAnalyticsOverviewMetric[]): MarketingAnalyticsOverviewMetric[] => {
-                return overviewMetrics.length ? overviewMetrics : DEFAULT_OVERVIEW_METRICS
-            },
+            (overviewMetrics: MarketingAnalyticsOverviewMetric[]): MarketingAnalyticsOverviewMetric[] =>
+                // Resolved per slot so a stored list that is short, or that holds a metric no
+                // longer offered for its slot, still renders a full row of cards.
+                OVERVIEW_METRIC_SLOTS.map((slot, index) => {
+                    const stored = overviewMetrics[index]
+                    return stored && slot.options.includes(stored) ? stored : slot.default
+                }),
         ],
         integrationCampaignTables: [
             (s) => [s.dataWarehouseTables, s.dataWarehouseSources],

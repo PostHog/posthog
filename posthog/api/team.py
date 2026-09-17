@@ -790,9 +790,10 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
         required=False,
         allow_empty=True,
         help_text=(
-            "Metric cards the marketing analytics Overview shows, in display order. Allowed keys: visitors, "
-            "session_duration, return_rate_30d, conversion_rate, revenue. Send an empty list to restore the default, "
-            "which is every metric in that order. Reads always return the effective list."
+            "Metric cards the marketing analytics Overview shows: exactly five, one per slot, in the order "
+            "acquisition, engagement, retention, conversion, other. A metric may repeat, because the other slot can "
+            "hold one another slot already shows. Send an empty list to restore the default. Reads always return the "
+            "effective list."
         ),
     )
 

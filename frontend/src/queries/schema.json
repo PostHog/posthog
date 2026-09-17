@@ -34551,8 +34551,28 @@
             "type": "array"
         },
         "MarketingAnalyticsOverviewMetric": {
-            "description": "Metric cards the marketing analytics Overview can show. Declaration order is the default card order.",
-            "enum": ["visitors", "session_duration", "return_rate_30d", "conversion_rate", "revenue"],
+            "description": "The Overview shows one card per slot: acquisition, engagement, retention, conversion, other. `overview_metrics` is a list of five, one per slot in that order.",
+            "enum": [
+                "visitors",
+                "new_visitors",
+                "new_visitor_share",
+                "sessions",
+                "pageviews",
+                "session_duration",
+                "pages_per_session",
+                "pages_per_visitor",
+                "sessions_per_visitor",
+                "bounce_rate",
+                "returning_visitors",
+                "return_rate_7d",
+                "return_rate_30d",
+                "median_return_days",
+                "conversions",
+                "conversion_rate",
+                "conversion_value",
+                "avg_conversion_value",
+                "revenue"
+            ],
             "type": "string"
         },
         "MarketingAnalyticsRetentionCell": {

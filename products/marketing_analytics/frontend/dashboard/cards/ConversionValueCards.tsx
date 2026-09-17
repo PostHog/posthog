@@ -20,24 +20,33 @@ const LABELS: Record<string, string> = {
 
 const NO_VALUE_MESSAGE = 'No value associated with this conversion.'
 
+export type ConversionValueKey = 'conversion_value' | 'avg_conversion_value'
+
+const BOTH_KEYS: ConversionValueKey[] = ['conversion_value', 'avg_conversion_value']
+
+export interface ConversionValueCardsProps {
+    only?: ConversionValueKey
+}
+
 /** The value total and its average, or a pair of N/A notices when the goal totals no money
  * property. Both come from one query, so they cannot disagree with each other. */
-export function ConversionValueCards(): JSX.Element {
+export function ConversionValueCards({ only }: ConversionValueCardsProps = {}): JSX.Element {
     const { conversionValueQuery } = useValues(marketingDashboardLogic)
+    const keys = only ? [only] : BOTH_KEYS
 
     if (!conversionValueQuery) {
         return (
             <>
-                {(['conversion_value', 'avg_conversion_value'] as const).map((key) => (
+                {keys.map((key) => (
                     <MetricNoticeCard key={key} title={LABELS[key]} message={NO_VALUE_MESSAGE} value="N/A" />
                 ))}
             </>
         )
     }
-    return <ConversionValueLoaded query={conversionValueQuery} />
+    return <ConversionValueLoaded query={conversionValueQuery} keys={keys} />
 }
 
-function ConversionValueLoaded({ query }: { query: TrendsQuery }): JSX.Element {
+function ConversionValueLoaded({ query, keys }: { query: TrendsQuery; keys: ConversionValueKey[] }): JSX.Element {
     const logic = dataNodeLogic({
         query,
         key: 'marketing-dashboard-conversion-value',
@@ -80,17 +89,12 @@ function ConversionValueLoaded({ query }: { query: TrendsQuery }): JSX.Element {
     if (responseLoading) {
         return (
             <>
-                {(['conversion_value', 'avg_conversion_value'] as const).map((key) => (
+                {keys.map((key) => (
                     <MarketingMetricCard key={key} loading labelFromKey={(k) => LABELS[k] ?? k} />
                 ))}
             </>
         )
     }
 
-    return (
-        <>
-            {card('conversion_value', total)}
-            {card('avg_conversion_value', average)}
-        </>
-    )
+    return <>{keys.map((key) => card(key, key === 'conversion_value' ? total : average))}</>
 }

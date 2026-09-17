@@ -60,20 +60,18 @@ describe('marketing settings project changes', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        await expectLogic(logic, () =>
-            logic.actions.updateOverviewMetrics([
-                MarketingAnalyticsOverviewMetric.Revenue,
-                MarketingAnalyticsOverviewMetric.Visitors,
-            ])
-        )
+        const picked = [
+            MarketingAnalyticsOverviewMetric.Sessions,
+            MarketingAnalyticsOverviewMetric.BounceRate,
+            MarketingAnalyticsOverviewMetric.ReturnRate7d,
+            MarketingAnalyticsOverviewMetric.Conversions,
+            MarketingAnalyticsOverviewMetric.Revenue,
+        ]
+
+        await expectLogic(logic, () => logic.actions.updateOverviewMetrics(picked))
             .toDispatchActions([
                 teamLogic.actionCreators.updateCurrentTeam({
-                    marketing_analytics_config: {
-                        overview_metrics: [
-                            MarketingAnalyticsOverviewMetric.Revenue,
-                            MarketingAnalyticsOverviewMetric.Visitors,
-                        ],
-                    },
+                    marketing_analytics_config: { overview_metrics: picked },
                 }),
             ])
             .toFinishAllListeners()
@@ -87,6 +85,33 @@ describe('marketing settings project changes', () => {
 
         expect(logic.values.overview_metrics).toEqual([])
         expect(logic.values.overviewMetrics).toEqual(DEFAULT_OVERVIEW_METRICS)
+        logic.unmount()
+    })
+
+    // A metric that a slot stopped offering must not leave that card blank.
+    it('falls back per slot when a stored metric no longer belongs to its slot', async () => {
+        const logic = marketingAnalyticsSettingsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () =>
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...teamLogic.values.currentTeam!,
+                marketing_analytics_config: {
+                    // Revenue is not an acquisition metric, and the list is one slot short.
+                    overview_metrics: [
+                        MarketingAnalyticsOverviewMetric.Revenue,
+                        MarketingAnalyticsOverviewMetric.BounceRate,
+                    ],
+                },
+            } as TeamType)
+        ).toFinishAllListeners()
+
+        expect(logic.values.overviewMetrics).toEqual([
+            MarketingAnalyticsOverviewMetric.Visitors,
+            MarketingAnalyticsOverviewMetric.BounceRate,
+            ...DEFAULT_OVERVIEW_METRICS.slice(2),
+        ])
         logic.unmount()
     })
 })
