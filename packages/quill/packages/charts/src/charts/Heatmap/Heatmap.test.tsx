@@ -61,7 +61,6 @@ describe('Heatmap', () => {
         expect(chart.seriesCount).toBe(Y_LABELS.length)
     })
 
-    // The jsdom chart mounts at 800x400; coordinates well inside the plot area are safe for drags.
     describe('cellLabel', () => {
         function cellLabels(element: HTMLElement): HTMLElement[] {
             return Array.from(element.querySelectorAll('[data-attr="hog-chart-heatmap-cell-label"]'))
@@ -112,6 +111,7 @@ describe('Heatmap', () => {
         })
     })
 
+    // The jsdom chart mounts at 800x400; coordinates well inside the plot area are safe for drags.
     describe('onBrush', () => {
         async function brush(from: { x: number; y: number }, to: { x: number; y: number }): Promise<HeatmapBrushData> {
             const onBrush = jest.fn()
