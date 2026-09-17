@@ -5,6 +5,7 @@ import {
     marketingAnalyticsLogic,
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
+import { AskPostHogAi } from './askAi/AskPostHogAi'
 import { MarketingDashboardHeader } from './header/MarketingDashboardHeader'
 import { AcquisitionSection } from './sections/AcquisitionSection'
 import { ConversionSection } from './sections/ConversionSection'
@@ -30,6 +31,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
             {/* The trailing space keeps the last table off the bottom edge of the scene. */}
             <div id="marketing-dashboard-section" className="flex flex-col gap-4 pb-8">
                 <Section />
+                <AskPostHogAi />
             </div>
         </div>
     )
