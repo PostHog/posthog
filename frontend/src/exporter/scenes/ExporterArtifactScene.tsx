@@ -44,8 +44,9 @@ export default function ExporterArtifactScene({ artifact }: { artifact: SharedTa
         return (
             <div className="max-w-3xl mx-auto w-full">
                 {/* An agent wrote this file, and the page is public: a remote image would report
-                    every anonymous viewer back to whoever the URL points at. */}
-                <LemonMarkdown disableImages>{artifact.markdown}</LemonMarkdown>
+                    every anonymous viewer back to whoever the URL points at. "all" covers
+                    posthog.com hosts too, because our own ingestion endpoints log the caller. */}
+                <LemonMarkdown disableImages="all">{artifact.markdown}</LemonMarkdown>
             </div>
         )
     }
