@@ -18,6 +18,25 @@ import { ScannerType } from '../types'
 
 const roundScore = (value: number): number => Math.round(value * 100) / 100
 
+const PROBLEM_TYPE_LABELS: Record<string, string> = {
+    bug: 'bug',
+    crash: 'crash',
+    design_flaw: 'design flaw',
+    ux_friction: 'UX friction',
+}
+
+const problemTypeLabel = (problemType: string): string =>
+    PROBLEM_TYPE_LABELS[problemType] ?? problemType.replace(/_/g, ' ')
+
+// "bug" / "bug and crash" / "bug, crash, and design flaw".
+const joinWithAnd = (items: string[]): string => {
+    if (items.length <= 1) {
+        return items[0] ?? ''
+    }
+    const head = items.slice(0, -1).join(', ')
+    return `${head}${items.length > 2 ? ',' : ''} and ${items[items.length - 1]}`
+}
+
 export function watchReasonCopy(reason: WatchFeedReasonApi): string {
     // The scan wrote this sentence while watching the session, so it beats anything derived from the
     // reason kind. Absent on observations scanned before notability shipped, which fall through below.
@@ -25,10 +44,21 @@ export function watchReasonCopy(reason: WatchFeedReasonApi): string {
         return reason.notability_reason
     }
     switch (reason.kind) {
-        case 'signal_emitted':
-            return (reason.signals_count ?? 0) > 1
-                ? `The scanner raised ${reason.signals_count} signals from this session.`
-                : 'The scanner raised a signal from this session.'
+        case 'signal_emitted': {
+            const count = reason.signals_count ?? 0
+            const types = (reason.problem_types ?? []).map(problemTypeLabel)
+            if (types.length === 0) {
+                return count > 1
+                    ? `The scanner raised ${count} signals from this session.`
+                    : 'The scanner raised a signal from this session.'
+            }
+            if (types.length === 1) {
+                return count > 1
+                    ? `The scanner raised ${count} ${types[0]} signals from this session.`
+                    : `The scanner raised a ${types[0]} signal from this session.`
+            }
+            return `The scanner raised ${joinWithAnd(types)} signals from this session.`
+        }
         case 'unusual_verdict':
             return reason.verdict
                 ? `The scanner answered ${reason.verdict}, which is rare for it in this window.`

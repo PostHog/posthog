@@ -4315,6 +4315,24 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         self.assertEqual(items[3]["reason"], {"kind": "unviewed_recent"})
         assert plain_new and hit and signal and plain_old
 
+    def test_signal_reason_carries_the_persisted_problem_types(self) -> None:
+        # The card names what kind of issue a signal row carries, so the reason must surface the
+        # distinct problem types the scan persisted onto the row.
+        scanner = self._create_scanner(name="m")
+        self._succeeded_observation(
+            scanner,
+            "signal",
+            10,
+            {
+                "model_output": {"scanner_type": "monitor", "verdict": "no", "reasoning": "r", "confidence": 0.9},
+                "signals_count": 2,
+                "signal_problem_types": ["bug", "crash"],
+            },
+        )
+        reason = self.client.get(self.feed_url).json()["results"][0]["reason"]
+        self.assertEqual(reason["kind"], "signal_emitted")
+        self.assertEqual(reason["problem_types"], ["bug", "crash"])
+
     def test_minority_verdict_is_the_hit_regardless_of_prompt_polarity(self) -> None:
         # "Was the experience good?" answers yes almost always, so its rare "no" is the notable
         # one; a majority "yes" must not rank as a hit just for being yes.

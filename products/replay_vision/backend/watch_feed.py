@@ -82,6 +82,7 @@ class _Candidate:
     created_at: datetime
     viewed: bool
     signals_count: int
+    signal_problem_types: tuple[str, ...]
     scanner_type: str | None
     verdict: str | None
     score: float | None
@@ -100,6 +101,10 @@ def _parse_candidate(row: dict[str, Any]) -> _Candidate:
     if not isinstance(output, dict):
         output = {}
     signals_count = result.get("signals_count") if isinstance(result, dict) else 0
+    raw_problem_types = result.get("signal_problem_types") if isinstance(result, dict) else None
+    signal_problem_types = (
+        tuple(pt for pt in raw_problem_types if isinstance(pt, str)) if isinstance(raw_problem_types, list) else ()
+    )
     score = output.get("score")
     raw_tags = output.get("tags")
     raw_freeform = output.get("tags_freeform")
@@ -125,6 +130,7 @@ def _parse_candidate(row: dict[str, Any]) -> _Candidate:
         created_at=row["created_at"],
         viewed=bool(row.get("feed_viewed")),
         signals_count=signals_count if isinstance(signals_count, int) else 0,
+        signal_problem_types=signal_problem_types,
         scanner_type=scanner_type,
         verdict=verdict,
         score=float(score) if isinstance(score, int | float) else None,
@@ -300,6 +306,8 @@ def rank_watch_feed_candidates(rows: list[dict[str, Any]]) -> list[WatchFeedEntr
         notable = candidate.notability is not None and candidate.notability >= NOTABLE_MIN_SCORE
         if has_signal:
             reason: dict[str, Any] = {"kind": "signal_emitted", "signals_count": candidate.signals_count}
+            if candidate.signal_problem_types:
+                reason["problem_types"] = list(candidate.signal_problem_types)
         elif hit is not None:
             reason = hit
         elif notable:
