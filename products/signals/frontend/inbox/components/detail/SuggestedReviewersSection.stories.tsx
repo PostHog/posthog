@@ -106,7 +106,14 @@ export const NarrowPanel: Story = {
                 explanation:
                     'Changed example.com/services/request-processing/a-very-long-path-without-spaces/or-identifiers.',
             }),
-            ...codeHistorySuggestions.slice(0, 1),
+            reviewer('solo', 'Solo Scout', 'solo@example.com', {
+                source_label: 'Infrastructure reliability and request processing ownership scout',
+                explanation: 'Maintains the request path.',
+            }),
+            ...sharedReasonSuggestions.slice(0, 2).map((suggestion) => ({
+                ...suggestion,
+                source_label: 'Infrastructure reliability and request processing ownership scout',
+            })),
         ],
     },
 }

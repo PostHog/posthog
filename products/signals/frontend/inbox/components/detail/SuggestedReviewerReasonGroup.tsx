@@ -64,7 +64,7 @@ export function SuggestedReviewerReasonGroup({
                 <span className="min-w-0 text-xs leading-snug text-tertiary [overflow-wrap:anywhere]">{reason}</span>
                 <span className="flex shrink-0 flex-wrap justify-end gap-1">
                     {sourceLabels.map((sourceLabel) => (
-                        <LemonTag key={sourceLabel} type="muted" size="small">
+                        <LemonTag key={sourceLabel} type="muted" size="small" wrap className="max-w-32">
                             {sourceLabel}
                         </LemonTag>
                     ))}

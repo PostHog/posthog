@@ -1086,7 +1086,7 @@ Generated MCP tool names:
 - **`SignalReportArtefactSerializer`**
   - Exposes `id`, `type`, `content`, `created_at`
   - Parses JSON text into structured content
-- For `suggested_reviewers`, enriches the stored payload with fresh PostHog org-member data, a source label, and a concise explanation. Scout labels use the current team config display name when set. Reasons are limited to 500 characters on write, and older oversized reasons are omitted from the explanation on read. The inbox retains commit links and marks reviewers without a linked PostHog member.
+- For `suggested_reviewers`, enriches the stored payload with fresh PostHog org-member data, a source label, and a concise explanation. Scout labels use the current team config display name when set. Reasons are limited to 500 characters on write, and older oversized reasons are omitted from the explanation on read. The inbox marks reviewers without a linked PostHog member.
   - The inbox groups reviewers only when their displayed explanations match exactly, then shows the explanation once below the grouped people
 
 ---

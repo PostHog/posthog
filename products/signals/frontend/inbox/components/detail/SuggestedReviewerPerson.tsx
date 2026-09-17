@@ -63,7 +63,7 @@ export function SuggestedReviewerPerson({
                     <span className="text-xs leading-snug text-tertiary [overflow-wrap:anywhere]">{explanation}</span>
                 )}
             </div>
-            <LemonTag type="muted" size="small">
+            <LemonTag type="muted" size="small" wrap className="max-w-32">
                 {sourceLabel}
             </LemonTag>
             <LemonButton
