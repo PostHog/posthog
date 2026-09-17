@@ -1,3 +1,5 @@
+from uuid import UUID
+
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
@@ -21,6 +23,7 @@ from posthog.hogql import ast
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.test.utils import pretty_print_in_tests
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import PropertyDefinition
 from posthog.models.team.team_marketing_analytics_config import MAX_ATTRIBUTION_WINDOW_DAYS
@@ -28,6 +31,7 @@ from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.cohorts.backend.models.cohort import Cohort
 from products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner import (
     MarketingAnalyticsAttributionQueryRunner,
@@ -770,17 +774,28 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         person_arrays = ctes["person_arrays"].expr
         assert isinstance(person_arrays, ast.SelectQuery)
 
-        # The restriction is a join against the converters subquery. Asserting on the join rather than
-        # on a bare `IN` keeps the test about the property (only converters are scanned) instead of the
-        # operator that happens to express it.
-        join = person_arrays.select_from
-        assert join is not None
-        restrictions = []
-        while join is not None:
-            if isinstance(join.table, ast.SelectQuery):
-                restrictions.append(join)
-            join = join.next_join
-        self.assertTrue(restrictions, "person_arrays must restrict the events scan to converting persons")
+        # Asserts the restriction exists, not the shape it takes: a semi-join in the WHERE and a join
+        # against the converters subquery both pay for the scan, and which one is used is free to change.
+        class FindConverterSubquery(TraversingVisitor):
+            def __init__(self) -> None:
+                self.found = False
+
+            def visit_select_query(self, node: ast.SelectQuery) -> None:
+                if node is not person_arrays and _selects_person_id(node):
+                    self.found = True
+                super().visit_select_query(node)
+
+        def _selects_person_id(node: ast.SelectQuery) -> bool:
+            for column in node.select:
+                expr = column.expr if isinstance(column, ast.Alias) else column
+                if isinstance(expr, ast.Field) and expr.chain[-1] == "person_id":
+                    return True
+            return False
+
+        finder = FindConverterSubquery()
+        finder.visit(person_arrays.select_from)
+        finder.visit(person_arrays.where)
+        self.assertTrue(finder.found, "person_arrays must restrict the events scan to converting persons")
 
     def test_action_goals_credit_the_events_the_action_matches(self):
         # The action branch resolves the goal through Postgres and `action_to_expr` rather than a plain
@@ -1035,7 +1050,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         with self.assertRaises(ValueError):
             MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team).to_query()
 
-    def _printed_sql(self, breakdown: MarketingAnalyticsAttributionBreakdown) -> str:
+    def _printed_sql(self, breakdown: MarketingAnalyticsAttributionBreakdown, *, precomputed: bool = False) -> str:
         query = MarketingAnalyticsAttributionQuery(
             dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
             breakdownBy=breakdown,
@@ -1043,10 +1058,17 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             properties=[],
         )
         runner = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team)
+        runner.config.sessions_precomputation_enabled = precomputed
         context = runner._shared_hogql_context
         # execute_hogql_query flips this on the context it is handed; do the same to print the real query.
         context.enable_select_queries = True
-        printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+        ready = LazyComputationResult(ready=True, job_ids=[UUID(int=1)])
+        with patch(
+            "products.marketing_analytics.backend.hogql_queries.attribution_sessions_read.ensure_marketing_sessions_precomputed",
+            return_value=ready,
+        ):
+            printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+        assert runner._sessions_precompute_used == precomputed
         return pretty_print_in_tests(printed[0] if isinstance(printed, tuple) else printed, self.team.pk)
 
     # One breakdown per SQL shape. Campaign reads a stored property, and the five breakdowns not listed
@@ -1062,3 +1084,16 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_attribution_table_sql(self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown):
         assert self._printed_sql(breakdown) == self.snapshot
+
+    # The precomputed half of each pair must carry neither the channel classifier nor an argMinMerge
+    # over raw_sessions: resolving those at read time is what exhausts memory on a large team.
+    @parameterized.expand(
+        [
+            ("campaign", MarketingAnalyticsAttributionBreakdown.CAMPAIGN),
+            ("source", MarketingAnalyticsAttributionBreakdown.SOURCE),
+            ("channel", MarketingAnalyticsAttributionBreakdown.CHANNEL),
+        ]
+    )
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_precomputed_sessions_sql(self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown):
+        assert self._printed_sql(breakdown, precomputed=True) == self.snapshot
