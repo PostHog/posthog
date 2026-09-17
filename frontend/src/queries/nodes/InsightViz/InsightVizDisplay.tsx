@@ -101,6 +101,36 @@ function DashboardInsightRefreshHintOrLoading({
     return <InsightRefreshDataHint onRetry={onRetry} insightProps={insightProps} />
 }
 
+/**
+ * The "PostHog AI" section offers to explain the insight, so it only belongs next to results worth explaining.
+ * It stays up while the query is in flight so it doesn't appear only once the chart draws.
+ */
+export function shouldShowAIAnalysisSection({
+    editMode,
+    embedded,
+    inSharedMode,
+    hasQuerySource,
+    insightDataLoading,
+    hasBlockingEmptyState,
+    hasRenderableResults,
+}: {
+    editMode?: boolean
+    embedded?: boolean
+    inSharedMode?: boolean
+    hasQuerySource: boolean
+    insightDataLoading: boolean
+    hasBlockingEmptyState: boolean
+    hasRenderableResults: boolean
+}): boolean {
+    if (editMode || embedded || inSharedMode || !hasQuerySource) {
+        return false
+    }
+    if (insightDataLoading) {
+        return true
+    }
+    return !hasBlockingEmptyState && hasRenderableResults
+}
+
 /** Dashboard tile: show refresh when merged `result` is still nullish (empty success is `[]`, not `null`). */
 export function shouldShowDashboardInsightRefreshHint({
     isInDashboardContext,
@@ -476,22 +506,17 @@ export function InsightVizDisplay({
     }
 
     function renderAIAnalysisSection(): JSX.Element | null {
-        // Only show in view mode
-        if (editMode) {
-            return null
-        }
-
-        // Don't show in embedded or shared mode
-        if (embedded || inSharedMode) {
-            return null
-        }
-
-        // Only show for insight query nodes (use querySource which is the actual InsightQueryNode)
-        if (!querySource) {
-            return null
-        }
-
-        return <InsightAIAnalysis />
+        return shouldShowAIAnalysisSection({
+            editMode,
+            embedded,
+            inSharedMode,
+            hasQuerySource: !!querySource,
+            insightDataLoading,
+            hasBlockingEmptyState: !!BlockingEmptyState,
+            hasRenderableResults,
+        }) ? (
+            <InsightAIAnalysis />
+        ) : null
     }
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor

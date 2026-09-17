@@ -9230,42 +9230,6 @@ export const InsightsActivityRetrieveFormat = {
     Json: 'json',
 } as const
 
-export type InsightsAnalyzeRetrieveParams = {
-    format?: InsightsAnalyzeRetrieveFormat
-}
-
-export type InsightsAnalyzeRetrieveFormat =
-    (typeof InsightsAnalyzeRetrieveFormat)[keyof typeof InsightsAnalyzeRetrieveFormat]
-
-export const InsightsAnalyzeRetrieveFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
-export type InsightsSuggestionsRetrieveParams = {
-    format?: InsightsSuggestionsRetrieveFormat
-}
-
-export type InsightsSuggestionsRetrieveFormat =
-    (typeof InsightsSuggestionsRetrieveFormat)[keyof typeof InsightsSuggestionsRetrieveFormat]
-
-export const InsightsSuggestionsRetrieveFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
-export type InsightsSuggestionsCreateParams = {
-    format?: InsightsSuggestionsCreateFormat
-}
-
-export type InsightsSuggestionsCreateFormat =
-    (typeof InsightsSuggestionsCreateFormat)[keyof typeof InsightsSuggestionsCreateFormat]
-
-export const InsightsSuggestionsCreateFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
 export type InsightsAllActivityRetrieveParams = {
     format?: InsightsAllActivityRetrieveFormat
     /**
