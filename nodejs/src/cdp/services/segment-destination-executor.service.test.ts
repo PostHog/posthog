@@ -113,6 +113,32 @@ describe('SegmentDestinationExecutorService', () => {
             `)
         })
 
+        it('should redact a credential input that a stale stored schema leaves non-secret', async () => {
+            const fn = createHogFunction({
+                name: 'Plugin test',
+                template_id: 'segment-actions-amplitude',
+                inputs_schema: amplitudePlugin.template.inputs_schema.map((schema) => ({ ...schema, secret: false })),
+            })
+
+            const invocation = createExampleSegmentInvocation(fn, amplitudeInputs)
+
+            mockFetch.mockResolvedValue({
+                status: 200,
+                json: () => Promise.resolve({}),
+                text: () => Promise.resolve('{}'),
+                headers: {},
+                dump: () => Promise.resolve(),
+            })
+
+            const result = await service.execute(invocation)
+
+            expect(result.finished).toBe(true)
+            const logs = JSON.stringify(result.logs)
+            expect(logs).toContain('fetchOptions')
+            expect(logs).not.toContain(amplitudeInputs.apiKey)
+            expect(logs).not.toContain(amplitudeInputs.secretKey)
+        })
+
         it('should redact secrets in an error thrown by the destination', async () => {
             const fn = createHogFunction({
                 name: 'Plugin test',

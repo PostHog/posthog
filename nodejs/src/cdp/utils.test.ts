@@ -154,6 +154,11 @@ describe('Utils', () => {
             const hogFunction: any = { inputs_schema: [{ key: 'connection', type }] }
             expect(getSensitiveValues(hogFunction, { connection: value })).toContain('nested-private-key')
         })
+
+        it('masks a credential-named input that the stored schema leaves non-secret', () => {
+            const hogFunction: any = { inputs_schema: [{ key: 'apiKey', type: 'string', secret: false }] }
+            expect(getSensitiveValues(hogFunction, { apiKey: 'stale-schema-key' })).toEqual(['stale-schema-key'])
+        })
     })
 
     describe('createAddLogFunction', () => {

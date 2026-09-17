@@ -309,6 +309,11 @@ export function filterExists<T>(value: T): value is NonNullable<T> {
     return Boolean(value)
 }
 
+// Keys whose value is a credential however the request built it, for example a Basic `Authorization`
+// header that a destination derives from an API key. No collected input value matches a derived value.
+const LOGGED_CREDENTIAL_KEY =
+    /authorization|cookie|token|secret|password|passcode|credential|api[-_]?key|private[-_]?key|signing[-_]?key/i
+
 // Header names that carry a credential. Matched against the keys of a dictionary input, so a
 // free-form headers map still gets its credential masked without the whole map being treated as
 // secret (which would hide ordinary headers like Content-Type from the person configuring it).
@@ -366,8 +371,11 @@ export const getSensitiveValues = (hogFunction: HogFunctionType, inputs: Record<
         if (schema.type === 'dictionary' && !schema.secret) {
             collectCredentialHeaders(inputs[schema.key])
         }
+        // A function keeps the schema it was saved with, so a credential input that a later template
+        // version marks secret is still `secret: false` on older functions.
         if (
             schema.secret ||
+            LOGGED_CREDENTIAL_KEY.test(schema.key) ||
             schema.type === 'integration' ||
             schema.type === 'integration_multi' ||
             schema.type === 'push_subscription'
@@ -428,11 +436,6 @@ export const redactSensitiveValues = (message: string, sensitiveValues?: string[
     )
     return message.replace(pattern, REDACTED)
 }
-
-// Keys whose value is a credential however the request built it, for example a Basic `Authorization`
-// header that a destination derives from an API key. No collected input value matches a derived value.
-const LOGGED_CREDENTIAL_KEY =
-    /authorization|cookie|token|secret|password|passcode|credential|api[-_]?key|private[-_]?key|signing[-_]?key/i
 
 // Redacts each string before the outer JSON encoding. A value that is already a JSON string, such as a
 // request body, is otherwise escaped a second time and no longer matches the escaped secret.
