@@ -211,7 +211,7 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
                     placeholder,
                     placeholderClass,
                     triggerButtonProps,
-                    onClick: () => setArmed(true),
+                    onClick: () => arm('combobox'),
                 })
             )}
             <TaxonomicMenuToggle />
