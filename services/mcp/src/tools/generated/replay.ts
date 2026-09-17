@@ -5,7 +5,13 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/replay/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
-import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    omitResponseFields,
+    withPageOffsets,
+    type WithPostHogUrl,
+    type WithPageOffsets,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const SessionRecordingBulkDeleteSchema = () => {
@@ -194,7 +200,7 @@ const SessionRecordingPlaylistsListSchema = () => {
 
 const sessionRecordingPlaylistsList = (): ToolBase<
     ReturnType<typeof SessionRecordingPlaylistsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedSessionRecordingPlaylistList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedSessionRecordingPlaylistList>>
 > => ({
     name: 'session-recording-playlists-list',
     schema: SessionRecordingPlaylistsListSchema(),
@@ -210,7 +216,8 @@ const sessionRecordingPlaylistsList = (): ToolBase<
                 short_id: params.short_id,
             },
         })
-        return await withPostHogUrl(context, result, '/replay')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/replay')
     },
 })
 

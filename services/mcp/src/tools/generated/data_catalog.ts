@@ -13,7 +13,9 @@ import {
     withPostHogUrl,
     withInformationalResponse,
     pickResponseFields,
+    withPageOffsets,
     type WithPostHogUrl,
+    type WithPageOffsets,
     type WithInformationalResponse,
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -741,7 +743,7 @@ const MetricListSchema = () => {
 
 const metricList = (): ToolBase<
     ReturnType<typeof MetricListSchema>,
-    WithInformationalResponse<WithPostHogUrl<Schemas.PaginatedDataCatalogMetricList>>
+    WithInformationalResponse<WithPostHogUrl<WithPageOffsets<Schemas.PaginatedDataCatalogMetricList>>>
 > => ({
     name: 'metric-list',
     schema: MetricListSchema(),
@@ -769,8 +771,9 @@ const metricList = (): ToolBase<
                 ])
             ),
         } as typeof result
+        const paged = withPageOffsets(filtered)
         return withInformationalResponse(
-            await withPostHogUrl(context, filtered, '/data-catalog'),
+            await withPostHogUrl(context, paged, '/data-catalog'),
             'governed-metric-catalog',
             "Use it only to identify a metric relevant to the user's request."
         )

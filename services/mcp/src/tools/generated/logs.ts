@@ -3,7 +3,14 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/logs/api'
-import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    pickResponseFields,
+    withPageOffsets,
+    omitResponseFields,
+    type WithPostHogUrl,
+    type WithPageOffsets,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const LogsAlertsCreateSchema = () => {
@@ -195,7 +202,7 @@ const LogsAlertsEventsListSchema = () => {
 
 const logsAlertsEventsList = (): ToolBase<
     ReturnType<typeof LogsAlertsEventsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedLogsAlertEventList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedLogsAlertEventList>>
 > => ({
     name: 'logs-alerts-events-list',
     schema: LogsAlertsEventsListSchema(),
@@ -225,7 +232,8 @@ const logsAlertsEventsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/logs')
+        const paged = withPageOffsets(filtered)
+        return await withPostHogUrl(context, paged, '/logs')
     },
 })
 
@@ -236,7 +244,7 @@ const LogsAlertsListSchema = () => {
 
 const logsAlertsList = (): ToolBase<
     ReturnType<typeof LogsAlertsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedLogsAlertConfigurationList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedLogsAlertConfigurationList>>
 > => ({
     name: 'logs-alerts-list',
     schema: LogsAlertsListSchema(),
@@ -268,7 +276,8 @@ const logsAlertsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/logs')
+        const paged = withPageOffsets(filtered)
+        return await withPostHogUrl(context, paged, '/logs')
     },
 })
 

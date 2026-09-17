@@ -5,7 +5,7 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/workflows/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { WorkflowActionEmailPatchSchema, WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, withPageOffsets, type WithPostHogUrl, type WithPageOffsets } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const WorkflowsCreateSchema = () => {
@@ -171,7 +171,7 @@ const WorkflowsListSchema = () => {
 
 const workflowsList = (): ToolBase<
     ReturnType<typeof WorkflowsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedHogFlowMinimalList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedHogFlowMinimalList>>
 > =>
     withUiApp('workflow-list', {
         name: 'workflows-list',
@@ -195,7 +195,8 @@ const workflowsList = (): ToolBase<
                     updated_at: params.updated_at,
                 },
             })
-            return await withPostHogUrl(context, result, '/workflows')
+            const paged = withPageOffsets(result)
+            return await withPostHogUrl(context, paged, '/workflows')
         },
     })
 
@@ -260,7 +261,7 @@ const WorkflowsListRevisionsSchema = () => {
 
 const workflowsListRevisions = (): ToolBase<
     ReturnType<typeof WorkflowsListRevisionsSchema>,
-    WithPostHogUrl<Schemas.PaginatedHogFlowRevisionBasicList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedHogFlowRevisionBasicList>>
 > => ({
     name: 'workflows-list-revisions',
     schema: WorkflowsListRevisionsSchema(),
@@ -274,7 +275,8 @@ const workflowsListRevisions = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/workflows')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/workflows')
     },
 })
 

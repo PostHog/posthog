@@ -6,7 +6,13 @@ import * as orvalSchemas from '@/generated/feature_flags/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { validateDistinctIdPersonIdExclusive } from '@/schema/tool-inputs'
 import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    pickResponseFields,
+    withPageOffsets,
+    type WithPostHogUrl,
+    type WithPageOffsets,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CreateFeatureFlagSchema = () => {
@@ -214,7 +220,7 @@ const FeatureFlagGetAllSchema = () => {
 
 const featureFlagGetAll = (): ToolBase<
     ReturnType<typeof FeatureFlagGetAllSchema>,
-    WithPostHogUrl<Schemas.PaginatedFeatureFlagList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedFeatureFlagList>>
 > => ({
     name: 'feature-flag-get-all',
     schema: FeatureFlagGetAllSchema(),
@@ -246,12 +252,13 @@ const featureFlagGetAll = (): ToolBase<
                 pickResponseFields(item, ['id', 'key', 'name', 'updated_at', 'status', 'tags'])
             ),
         } as typeof result
+        const paged = withPageOffsets(filtered)
         return await withPostHogUrl(
             context,
             {
-                ...filtered,
+                ...paged,
                 results: await Promise.all(
-                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/feature_flags/${item.id}`))
+                    (paged.results ?? []).map((item) => withPostHogUrl(context, item, `/feature_flags/${item.id}`))
                 ),
             },
             '/feature_flags'
@@ -790,7 +797,7 @@ const ScheduledChangesListSchema = () => {
 
 const scheduledChangesList = (): ToolBase<
     ReturnType<typeof ScheduledChangesListSchema>,
-    WithPostHogUrl<Schemas.PaginatedScheduledChangeList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedScheduledChangeList>>
 > => ({
     name: 'scheduled-changes-list',
     schema: ScheduledChangesListSchema(),
@@ -806,7 +813,8 @@ const scheduledChangesList = (): ToolBase<
                 record_id: params.record_id,
             },
         })
-        return await withPostHogUrl(context, result, '/feature_flags')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/feature_flags')
     },
 })
 

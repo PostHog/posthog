@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/endpoints/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, withPageOffsets, type WithPostHogUrl, type WithPageOffsets } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const EndpointCreateSchema = () => {
@@ -319,7 +319,7 @@ const EndpointVersionsSchema = () => {
 
 const endpointVersions = (): ToolBase<
     ReturnType<typeof EndpointVersionsSchema>,
-    WithPostHogUrl<Schemas.PaginatedEndpointVersionResponseList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedEndpointVersionResponseList>>
 > => ({
     name: 'endpoint-versions',
     schema: EndpointVersionsSchema(),
@@ -335,12 +335,13 @@ const endpointVersions = (): ToolBase<
                 offset: params.offset,
             },
         })
+        const paged = withPageOffsets(result)
         return await withPostHogUrl(
             context,
             {
-                ...result,
+                ...paged,
                 results: await Promise.all(
-                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/endpoints/${item.name}`))
+                    (paged.results ?? []).map((item) => withPostHogUrl(context, item, `/endpoints/${item.name}`))
                 ),
             },
             '/endpoints'
@@ -355,7 +356,7 @@ const EndpointsGetAllSchema = () => {
 
 const endpointsGetAll = (): ToolBase<
     ReturnType<typeof EndpointsGetAllSchema>,
-    WithPostHogUrl<Schemas.PaginatedEndpointResponseList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedEndpointResponseList>>
 > => ({
     name: 'endpoints-get-all',
     schema: EndpointsGetAllSchema(),
@@ -371,12 +372,13 @@ const endpointsGetAll = (): ToolBase<
                 offset: params.offset,
             },
         })
+        const paged = withPageOffsets(result)
         return await withPostHogUrl(
             context,
             {
-                ...result,
+                ...paged,
                 results: await Promise.all(
-                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/endpoints/${item.name}`))
+                    (paged.results ?? []).map((item) => withPostHogUrl(context, item, `/endpoints/${item.name}`))
                 ),
             },
             '/endpoints'

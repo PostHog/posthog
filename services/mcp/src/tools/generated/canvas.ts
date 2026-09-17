@@ -8,6 +8,7 @@ import {
     CanvasStateReadLimitSchema,
     validateCanvasStateValueContinuation,
 } from '@/schema/tool-inputs'
+import { withPageOffsets, type WithPageOffsets } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CanvasBuildsRetrieveSchema = () => {
@@ -149,7 +150,7 @@ const CanvasDraftsRetrieveSchema = () => {
 
 const canvasDraftsRetrieve = (): ToolBase<
     ReturnType<typeof CanvasDraftsRetrieveSchema>,
-    Schemas.PaginatedCanvasDraftList
+    WithPageOffsets<Schemas.PaginatedCanvasDraftList>
 > => ({
     name: 'canvas-drafts-retrieve',
     schema: CanvasDraftsRetrieveSchema(),
@@ -163,7 +164,8 @@ const canvasDraftsRetrieve = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return result
+        const paged = withPageOffsets(result)
+        return paged
     },
 })
 
@@ -330,7 +332,7 @@ const CanvasListSchema = () => {
     })
 }
 
-const canvasList = (): ToolBase<ReturnType<typeof CanvasListSchema>, Schemas.PaginatedCanvasList> => ({
+const canvasList = (): ToolBase<ReturnType<typeof CanvasListSchema>, WithPageOffsets<Schemas.PaginatedCanvasList>> => ({
     name: 'canvas-list',
     schema: CanvasListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof CanvasListSchema>>) => {
@@ -346,7 +348,8 @@ const canvasList = (): ToolBase<ReturnType<typeof CanvasListSchema>, Schemas.Pag
                 search: params.search,
             },
         })
-        return result
+        const paged = withPageOffsets(result)
+        return paged
     },
 })
 

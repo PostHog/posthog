@@ -323,6 +323,26 @@ Product teams own their definitions and control which operations are exposed as 
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
 
+   #### Paginated responses
+
+   Codegen replaces a DRF paginated envelope's `next` / `previous` links with
+   `next_offset` / `previous_offset` when the endpoint also takes an `offset` param.
+   There is no YAML switch for it.
+   The links are absolute URLs built from the hostname the MCP server reached the API on,
+   which a deployment can route over a cluster-internal name, and an agent pages by calling
+   the tool again with `offset` rather than by fetching a URL.
+   So write the tool description against `count` and `next_offset`, never against `next`.
+
+   Every pagination class shares the one envelope type, so the `offset` param is what tells
+   them apart.
+   An endpoint that pages by `cursor` or by `page` keeps its links, because the token for the
+   next call lives inside them and no offset replaces it.
+   Write those tool descriptions against `next`.
+
+   A `response_type` override opts a tool out as well, because codegen reads the override in
+   place of the OpenAPI response and cannot see the envelope through a wrapper such as `Omit<>`.
+   That tool keeps its links too, so write its description against `next`.
+
    For generated list apps, `generate:ui-apps` also checks `detail_tool` and the
    `detail_args` keys against the tool's input schema snapshot, so a wrong argument
    name fails generation instead of silently dropping the argument at runtime.

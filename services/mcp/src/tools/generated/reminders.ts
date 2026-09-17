@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/reminders/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, withPageOffsets, type WithPostHogUrl, type WithPageOffsets } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ReminderCreateSchema = () => {
@@ -159,7 +159,7 @@ const RemindersListSchema = () => {
 
 const remindersList = (): ToolBase<
     ReturnType<typeof RemindersListSchema>,
-    WithPostHogUrl<Schemas.PaginatedReminderList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedReminderList>>
 > => ({
     name: 'reminders-list',
     schema: RemindersListSchema(),
@@ -172,7 +172,8 @@ const remindersList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/')
     },
 })
 

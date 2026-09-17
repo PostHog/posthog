@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/user_interviews/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, withPageOffsets, type WithPostHogUrl, type WithPageOffsets } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const UserInterviewTopicsAddIntervieweeSchema = () => {
@@ -203,7 +203,7 @@ const UserInterviewTopicsIntervieweesListSchema = () => {
 
 const userInterviewTopicsIntervieweesList = (): ToolBase<
     ReturnType<typeof UserInterviewTopicsIntervieweesListSchema>,
-    WithPostHogUrl<Schemas.PaginatedIntervieweeContextList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedIntervieweeContextList>>
 > => ({
     name: 'user-interview-topics-interviewees-list',
     schema: UserInterviewTopicsIntervieweesListSchema(),
@@ -220,7 +220,8 @@ const userInterviewTopicsIntervieweesList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/user_interviews')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/user_interviews')
     },
 })
 
@@ -283,7 +284,7 @@ const UserInterviewTopicsListSchema = () => {
 
 const userInterviewTopicsList = (): ToolBase<
     ReturnType<typeof UserInterviewTopicsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedUserInterviewTopicList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedUserInterviewTopicList>>
 > => ({
     name: 'user-interview-topics-list',
     schema: UserInterviewTopicsListSchema(),
@@ -298,7 +299,8 @@ const userInterviewTopicsList = (): ToolBase<
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, result, '/user_interviews')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/user_interviews')
     },
 })
 
@@ -478,7 +480,7 @@ const UserInterviewsListSchema = () => {
 
 const userInterviewsList = (): ToolBase<
     ReturnType<typeof UserInterviewsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedUserInterviewList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedUserInterviewList>>
 > => ({
     name: 'user-interviews-list',
     schema: UserInterviewsListSchema(),
@@ -494,7 +496,8 @@ const userInterviewsList = (): ToolBase<
                 topic: params.topic,
             },
         })
-        return await withPostHogUrl(context, result, '/user_interviews')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/user_interviews')
     },
 })
 

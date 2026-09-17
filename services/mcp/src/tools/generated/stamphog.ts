@@ -3,7 +3,13 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/stamphog/api'
-import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    withPageOffsets,
+    omitResponseFields,
+    type WithPostHogUrl,
+    type WithPageOffsets,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const StamphogDigestRunsListSchema = () => {
@@ -13,7 +19,7 @@ const StamphogDigestRunsListSchema = () => {
 
 const stamphogDigestRunsList = (): ToolBase<
     ReturnType<typeof StamphogDigestRunsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedDigestRunList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedDigestRunList>>
 > => ({
     name: 'stamphog-digest-runs-list',
     schema: StamphogDigestRunsListSchema(),
@@ -28,7 +34,8 @@ const stamphogDigestRunsList = (): ToolBase<
                 slack_channel_id: params.slack_channel_id,
             },
         })
-        return await withPostHogUrl(context, result, '/stamphog')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/stamphog')
     },
 })
 
@@ -60,7 +67,7 @@ const StamphogPullRequestsListSchema = () => {
 
 const stamphogPullRequestsList = (): ToolBase<
     ReturnType<typeof StamphogPullRequestsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedStamphogPullRequestList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedStamphogPullRequestList>>
 > => ({
     name: 'stamphog-pull-requests-list',
     schema: StamphogPullRequestsListSchema(),
@@ -76,7 +83,8 @@ const stamphogPullRequestsList = (): ToolBase<
                 pr_number: params.pr_number,
             },
         })
-        return await withPostHogUrl(context, result, '/stamphog')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/stamphog')
     },
 })
 
@@ -126,7 +134,7 @@ const StamphogRepoConfigsListSchema = () => {
 
 const stamphogRepoConfigsList = (): ToolBase<
     ReturnType<typeof StamphogRepoConfigsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedStamphogRepoConfigList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedStamphogRepoConfigList>>
 > => ({
     name: 'stamphog-repo-configs-list',
     schema: StamphogRepoConfigsListSchema(),
@@ -140,7 +148,8 @@ const stamphogRepoConfigsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/stamphog')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/stamphog')
     },
 })
 
@@ -169,7 +178,7 @@ const StamphogReviewRunsListSchema = () => {
 
 const stamphogReviewRunsList = (): ToolBase<
     ReturnType<typeof StamphogReviewRunsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedReviewRunList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedReviewRunList>>
 > => ({
     name: 'stamphog-review-runs-list',
     schema: StamphogReviewRunsListSchema(),
@@ -191,7 +200,8 @@ const stamphogReviewRunsList = (): ToolBase<
             ...result,
             results: (result.results ?? []).map((item: any) => omitResponseFields(item, ['output'])),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/stamphog')
+        const paged = withPageOffsets(filtered)
+        return await withPostHogUrl(context, paged, '/stamphog')
     },
 })
 
