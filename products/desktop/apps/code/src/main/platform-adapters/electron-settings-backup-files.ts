@@ -64,6 +64,8 @@ export class ElectronSettingsBackupFiles implements ISettingsBackupFiles {
       title: "Export settings and sounds",
       defaultPath: input.defaultName,
       filters: [{ name: "PostHog backup", extensions: ["json"] }],
+      // Without this, the Linux dialog can replace the chosen file with no prompt.
+      properties: ["showOverwriteConfirmation" as const],
     };
     const result = parent
       ? await dialog.showSaveDialog(parent, options)
