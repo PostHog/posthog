@@ -3054,6 +3054,7 @@ export const TasksRunsArtifactsReferencesCreateBody = /* @__PURE__ */ zod.object
                         'experiment',
                         'survey',
                         'ticket',
+                        'report',
                         'trace',
                         'eval',
                         'event',
@@ -3062,10 +3063,10 @@ export const TasksRunsArtifactsReferencesCreateBody = /* @__PURE__ */ zod.object
                         'person',
                     ])
                     .describe(
-                        '\* `insight` - insight\n\* `hogql` - hogql\n\* `dashboard` - dashboard\n\* `error` - error\n\* `replay` - replay\n\* `flag` - flag\n\* `experiment` - experiment\n\* `survey` - survey\n\* `ticket` - ticket\n\* `trace` - trace\n\* `eval` - eval\n\* `event` - event\n\* `cohort` - cohort\n\* `action` - action\n\* `person` - person'
+                        '\* `insight` - insight\n\* `hogql` - hogql\n\* `dashboard` - dashboard\n\* `error` - error\n\* `replay` - replay\n\* `flag` - flag\n\* `experiment` - experiment\n\* `survey` - survey\n\* `ticket` - ticket\n\* `report` - report\n\* `trace` - trace\n\* `eval` - eval\n\* `event` - event\n\* `cohort` - cohort\n\* `action` - action\n\* `person` - person'
                     )
                     .describe(
-                        'PostHog object kind used to resolve the reference.\n\n\* `insight` - insight\n\* `hogql` - hogql\n\* `dashboard` - dashboard\n\* `error` - error\n\* `replay` - replay\n\* `flag` - flag\n\* `experiment` - experiment\n\* `survey` - survey\n\* `ticket` - ticket\n\* `trace` - trace\n\* `eval` - eval\n\* `event` - event\n\* `cohort` - cohort\n\* `action` - action\n\* `person` - person'
+                        'PostHog object kind used to resolve the reference.\n\n\* `insight` - insight\n\* `hogql` - hogql\n\* `dashboard` - dashboard\n\* `error` - error\n\* `replay` - replay\n\* `flag` - flag\n\* `experiment` - experiment\n\* `survey` - survey\n\* `ticket` - ticket\n\* `report` - report\n\* `trace` - trace\n\* `eval` - eval\n\* `event` - event\n\* `cohort` - cohort\n\* `action` - action\n\* `person` - person'
                     ),
                 object_id: zod
                     .string()
@@ -3203,6 +3204,20 @@ export const TasksRunsSetOutputPartialUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe("Output data from the run. Validated against the task's json_schema if one is set."),
+})
+
+/**
+ * Replace the running summary for a task run.
+ * @summary Set task run summary
+ */
+export const tasksRunsSetSummaryPartialUpdateBodySummaryMax = 1500
+
+export const TasksRunsSetSummaryPartialUpdateBody = /* @__PURE__ */ zod.object({
+    summary: zod
+        .string()
+        .max(tasksRunsSetSummaryPartialUpdateBodySummaryMax)
+        .optional()
+        .describe('Complete running summary that replaces the prior summary.'),
 })
 
 /**

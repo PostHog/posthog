@@ -967,6 +967,7 @@ from .qualtrics.source import QualtricsSource
 from .qualys_vmdr.source import QualysVmdrSource
 from .quay.source import QuaySource
 from .quickbooks.source import QuickBooksSource
+from .quo.source import QuoSource
 from .railway.source import RailwaySource
 from .railz.source import RailzSource
 from .raisely.source import RaiselySource
