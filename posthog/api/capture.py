@@ -226,11 +226,32 @@ def _resolve_scalar(
 
 
 @frozen
+class EventIdentity:
+    """The two fields the routing checks had to read, kept named so a caller
+    cannot swap them: both are strings."""
+
+    event_name: str
+    distinct_id: str
+
+
+@frozen
 class NormalizedEventParts:
     options: dict[str, Any]
     session_id: Optional[str]
     window_id: Optional[str]
     properties: dict[str, Any]
+
+
+def _reject_unknown_option_keys(event_dict: dict[str, Any], *, event_source: str) -> None:
+    """Refuse option keys the v1 envelope has no field for.
+
+    Split out of normalization so the batch path can run it before publishing
+    anything. It is a set difference, so running it in both places is cheaper
+    than normalizing an event twice.
+    """
+    unknown = set((event_dict.get("options") or {}).keys()) - _VALID_OPTION_KEYS
+    if unknown:
+        raise CaptureInternalError(f"capture_internal ({event_source}): unknown option key(s): {sorted(unknown)}")
 
 
 def _normalize_options_and_properties(
@@ -246,9 +267,7 @@ def _normalize_options_and_properties(
     raw_options: dict[str, Any] = event_dict.get("options") or {}
     props: dict[str, Any] = dict(event_dict.get("properties") or {})
 
-    unknown = set(raw_options.keys()) - _VALID_OPTION_KEYS
-    if unknown:
-        raise CaptureInternalError(f"capture_internal ({event_source}): unknown option key(s): {sorted(unknown)}")
+    _reject_unknown_option_keys(event_dict, event_source=event_source)
 
     options: dict[str, Any] = {}
 
@@ -320,6 +339,50 @@ def _validate_batch_inputs(
         raise CaptureInternalError(f"{fn} ({event_source}): at least one event is required")
 
 
+def _validate_event(ev: dict[str, Any], *, event_source: str, ai_lane: bool) -> EventIdentity:
+    """Run every client-side check on one event, and return the two fields it read.
+
+    Every rejection capture_internal can decide without the server belongs here,
+    so `_capture_batch_impl` can clear a whole batch before submitting the first
+    chunk. A chunked batch would otherwise publish its early chunks and raise on
+    a later one, reporting failure after a partial ingestion.
+    """
+    fn = _lane_fn_name(ai_lane)
+
+    event_name: str = ev.get("event", "")
+    if not event_name:
+        raise CaptureInternalError(f"{fn} ({event_source}): event name is required")
+
+    if event_name in SESSION_RECORDING_EVENT_NAMES:
+        raise CaptureInternalError(
+            f"{fn} ({event_source}): '{event_name}' is a replay event; use the replay capture path"
+        )
+
+    # The `$ai_` prefix, matching capture's own v1 rule. A prefixed name capture
+    # does not recognise still reaches the AI endpoint and is reported there as
+    # `misrouted_event`, so the authority stays server-side.
+    is_ai_event_name = event_name.startswith(AI_EVENT_NAME_PREFIX)
+    if ai_lane and not is_ai_event_name:
+        raise CaptureInternalError(
+            f"capture_ai_internal ({event_source}): '{event_name}' is not an AI event; use capture_internal"
+        )
+    if is_ai_event_name and not ai_lane:
+        raise CaptureInternalError(
+            f"capture_internal ({event_source}): '{event_name}' is an AI event; use capture_ai_internal"
+        )
+
+    distinct_id: str = ev.get("distinct_id", "")
+    if not distinct_id:
+        props = ev.get("properties") or {}
+        distinct_id = props.get("distinct_id", "")
+    if not distinct_id:
+        raise CaptureInternalError(f"capture_internal ({event_source}, {event_name}): distinct_id is required")
+
+    _reject_unknown_option_keys(ev, event_source=event_source)
+
+    return EventIdentity(event_name=event_name, distinct_id=distinct_id)
+
+
 def prepare_capture_internal_batch(
     events: list[dict[str, Any]],
     *,
@@ -341,43 +404,12 @@ def prepare_capture_internal_batch(
     turns that into an immediate, actionable error at the call site instead.
     """
     _validate_batch_inputs(events, token=token, event_source=event_source, ai_lane=ai_lane)
-    fn = _lane_fn_name(ai_lane)
 
     batch: list[dict[str, Any]] = []
     uuids: list[str] = []
 
     for ev in events:
-        event_name: str = ev.get("event", "")
-        if not event_name:
-            raise CaptureInternalError(f"{fn} ({event_source}): event name is required")
-
-        if event_name in SESSION_RECORDING_EVENT_NAMES:
-            raise CaptureInternalError(
-                f"{fn} ({event_source}): '{event_name}' is a replay event; use the replay capture path"
-            )
-
-        # Lane check. Deliberately the `$ai_` prefix, not capture's narrower
-        # 11-name allowlist: keeping a copy of that list in Django would be a
-        # fourth place to drift, and every AI event this codebase emits is
-        # allowlisted anyway. A prefixed name that capture does not recognise
-        # still reaches the AI endpoint and is reported there as
-        # `misrouted_event` -- the authority stays server-side either way.
-        is_ai_event_name = event_name.startswith(AI_EVENT_NAME_PREFIX)
-        if ai_lane and not is_ai_event_name:
-            raise CaptureInternalError(
-                f"capture_ai_internal ({event_source}): '{event_name}' is not an AI event; use capture_internal"
-            )
-        if is_ai_event_name and not ai_lane:
-            raise CaptureInternalError(
-                f"capture_internal ({event_source}): '{event_name}' is an AI event; use capture_ai_internal"
-            )
-
-        distinct_id: str = ev.get("distinct_id", "")
-        if not distinct_id:
-            props = ev.get("properties") or {}
-            distinct_id = props.get("distinct_id", "")
-        if not distinct_id:
-            raise CaptureInternalError(f"capture_internal ({event_source}, {event_name}): distinct_id is required")
+        identity = _validate_event(ev, event_source=event_source, ai_lane=ai_lane)
 
         event_uuid: str = ev.get("event_uuid") or ev.get("uuid") or str(uuid4())
         uuids.append(event_uuid)
@@ -397,9 +429,9 @@ def prepare_capture_internal_batch(
         )
 
         entry: dict[str, Any] = {
-            "event": event_name,
+            "event": identity.event_name,
             "uuid": event_uuid,
-            "distinct_id": distinct_id,
+            "distinct_id": identity.distinct_id,
             "timestamp": timestamp_str,
             "properties": parts.properties,
         }
@@ -639,9 +671,15 @@ def _capture_batch_impl(
             ai_lane=ai_lane,
         )
 
-    # Hot path: small batch — submit directly, no threading overhead.
+    # Hot path: small batch — submit directly, no threading overhead. One chunk
+    # validates and posts in that order, so it needs no pre-pass.
     if len(events) <= chunk_size:
         return _submit_chunk(events)
+
+    # Each worker validates only its own chunk, so clear the whole batch first
+    # or a rejected event can follow chunks that already published.
+    for ev in events:
+        _validate_event(ev, event_source=event_source, ai_lane=ai_lane)
 
     # Large batch: chunk and fan out concurrently.
     chunks = [events[i : i + chunk_size] for i in range(0, len(events), chunk_size)]

@@ -1204,6 +1204,53 @@ class TestBatchChunking(SimpleTestCase):
             assert call["json"]["historical_migration"] is True
             assert call["json"]["capture_internal"] is True
 
+    @parameterized.expand(
+        [
+            ("analytics_lane", "$ai_generation", False),
+            ("ai_lane", "$pageview", True),
+        ]
+    )
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", 200)
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_MAX_WORKERS", 8)
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_misrouted_event_in_a_later_chunk_stops_the_whole_batch(
+        self,
+        _name: str,
+        misrouted_event_name: str,
+        ai_lane: bool,
+        mock_session_fn: MagicMock,
+    ) -> None:
+        # Without the whole-batch pre-pass the first chunk publishes and the
+        # caller is told the batch failed after 200 events already landed.
+        events = _make_batch(201)
+        if ai_lane:
+            for ev in events[:200]:
+                ev["event"] = "$ai_generation"
+        events[200]["event"] = misrouted_event_name
+        entry_point = capture_batch_ai_internal if ai_lane else capture_batch_internal
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results())])
+
+        with self.assertRaises(CaptureInternalError):
+            entry_point(events=events, token="tok", event_source="mixed_lanes")
+
+        assert spy.calls == [], "a batch that fails validation must not publish any chunk"
+
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", 200)
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_MAX_WORKERS", 8)
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_bad_option_key_in_a_later_chunk_stops_the_whole_batch(self, mock_session_fn: MagicMock) -> None:
+        # The routing checks are not the only client-side rejection: an unknown
+        # option key is caught during normalization, which runs per chunk.
+        events = _make_batch(201)
+        events[200]["options"] = {"bogus_key": True}
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results())])
+
+        with self.assertRaises(CaptureInternalError) as ctx:
+            capture_batch_internal(events=events, token="tok", event_source="bad_option")
+
+        assert "unknown option key" in str(ctx.exception)
+        assert spy.calls == [], "a batch that fails validation must not publish any chunk"
+
 
 class TestMergeResults(SimpleTestCase):
     def test_merge_all_success(self) -> None:
