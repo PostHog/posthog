@@ -19,6 +19,7 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { HogInvocations } from 'scenes/hog-functions/invocations/HogInvocations'
+import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { OccurrencesList } from './hogflows/steps/components/OccurrencesList'
@@ -108,6 +109,11 @@ function BatchRunHeader({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlowId: s
     )
 }
 
+/**
+ * The table below lists one row per person the run reached. Anything the run itself recorded,
+ * such as an audience cut short at the batch limit, belongs to the run and to no person, so it
+ * has no row there. The run log carries those entries.
+ */
 function BatchRunInvocations({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlowId: string }): JSX.Element {
     const { workflow } = useValues(workflowLogic)
 
@@ -121,6 +127,21 @@ function BatchRunInvocations({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlow
                 <span className="text-muted">Job filters</span>
                 <PropertyFiltersDisplay
                     filters={Array.isArray(job.filters?.properties) ? job.filters.properties : []}
+                />
+            </div>
+            <div className="flex flex-col gap-2">
+                <span className="text-muted">Run log</span>
+                <LogsViewer
+                    logicKey={`batch-run-log-${job.id}`}
+                    sourceType="hog_flow"
+                    sourceId={job.id}
+                    instanceLabel="run"
+                    hideLevelsFilter
+                    hideDateFilter
+                    hideInstanceIdColumn
+                    groupByInstanceId={false}
+                    defaultAscending
+                    defaultFilters={{ instanceId: job.id }}
                 />
             </div>
             <div className="flex flex-col gap-2">
