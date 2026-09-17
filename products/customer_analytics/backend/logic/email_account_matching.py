@@ -159,6 +159,16 @@ def _match_accounts_for_emails(
         source=KNOWN_EMAIL_MATCH,
         value_for_email=lambda email: email,
     )
+    domain_matches, domain_ambiguous = _match_accounts_by_account_property(
+        team,
+        _unresolved_emails(normalized_emails, matched, ambiguous),
+        find_accounts=_find_accounts_by_email_domain,
+        source=EMAIL_DOMAIN_MATCH,
+        value_for_email=lambda email: email.rsplit("@", 1)[-1],
+    )
+    matched.update(domain_matches)
+    ambiguous.update(domain_ambiguous)
+
     person_group_matches, person_group_ambiguous = _match_accounts_by_person_group(
         team,
         _unresolved_emails(normalized_emails, matched, ambiguous),
@@ -174,14 +184,6 @@ def _match_accounts_for_emails(
         matched.update(organization_matches)
         ambiguous.update(organization_ambiguous)
 
-    domain_matches, _ = _match_accounts_by_account_property(
-        team,
-        _unresolved_emails(normalized_emails, matched, ambiguous),
-        find_accounts=_find_accounts_by_email_domain,
-        source=EMAIL_DOMAIN_MATCH,
-        value_for_email=lambda email: email.rsplit("@", 1)[-1],
-    )
-    matched.update(domain_matches)
     return matched
 
 

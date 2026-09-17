@@ -1525,6 +1525,7 @@ export const ReferenceTypeEnumApi = {
  * * `experiment` - experiment
  * * `survey` - survey
  * * `ticket` - ticket
+ * * `report` - report
  * * `trace` - trace
  * * `eval` - eval
  * * `event` - event
@@ -1544,6 +1545,7 @@ export const ObjectKindEnumApi = {
     Experiment: 'experiment',
     Survey: 'survey',
     Ticket: 'ticket',
+    Report: 'report',
     Trace: 'trace',
     Eval: 'eval',
     Event: 'event',
@@ -1568,6 +1570,7 @@ export interface TaskRunPostHogReferenceMetadataApi {
      * * `experiment` - experiment
      * * `survey` - survey
      * * `ticket` - ticket
+     * * `report` - report
      * * `trace` - trace
      * * `eval` - eval
      * * `event` - event
@@ -3910,6 +3913,7 @@ export interface TaskRunPostHogReferenceApi {
      * * `experiment` - experiment
      * * `survey` - survey
      * * `ticket` - ticket
+     * * `report` - report
      * * `trace` - trace
      * * `eval` - eval
      * * `event` - event

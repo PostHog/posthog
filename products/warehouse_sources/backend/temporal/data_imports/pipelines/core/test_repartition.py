@@ -592,6 +592,37 @@ class TestRewriteIntoTemp:
         for key in new_sizes:
             assert key is not None and len(key) == len("2024-01-05")
 
+    def test_the_live_tables_properties_travel_with_its_rows(self, tmp_path):
+        # A buffered CDC history table reads its resume point from a statistic one property
+        # declares. A rebuilt table that lost it reports no position and replays the buffer into
+        # an append-only table.
+        rows = [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
+        old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
+        old_delta.alter.set_table_properties({"delta.dataSkippingStatsColumns": "id"})
+        old_delta = deltalake.DeltaTable(str(tmp_path / "src"))
+        temp_uri = str(tmp_path / "tmp")
+
+        asyncio.run(
+            _rewrite_into_temp(
+                old_delta=old_delta,
+                temp_uri=temp_uri,
+                storage_options={},
+                target=RepartitionTarget(
+                    partition_keys=["created_at"],
+                    trigger_reason="test",
+                    partition_mode="datetime",
+                    partition_format="day",
+                ),
+                batch_size=1,
+                logger=logger,
+            )
+        )
+
+        rebuilt = deltalake.DeltaTable(temp_uri)
+        assert rebuilt.metadata().configuration.get("delta.dataSkippingStatsColumns") == "id"
+        # And the statistic itself is on the rewritten files, not just the declaration.
+        assert "max.id" in rebuilt.get_add_actions(flatten=True).column_names
+
     def test_reports_buffered_bytes_to_the_workload_reporter(self, tmp_path):
         # Dropping this hook makes rewrites invisible to the OOM classifier's culprit rule.
         rows = [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 1, 20))]
@@ -1050,6 +1081,7 @@ class TestRewriteIntoTemp:
                 return self._batches.pop(0)
 
         old_delta = SimpleNamespace(
+            metadata=lambda: SimpleNamespace(configuration={}),
             to_pyarrow_dataset=lambda: SimpleNamespace(
                 scanner=lambda **kwargs: SimpleNamespace(to_reader=lambda: _FakeReader(batch_table))
             ),
@@ -1848,6 +1880,54 @@ class TestRewriteCheckpointResume:
         assert rewrite.await_args_list[0].kwargs["skip_rows"] == 1
         schema.clear_repartition_rewrite.assert_called_once()  # obsolete once temp is complete
         assert result["outcome"] == "completed"
+
+    def test_a_resumed_rewrite_checkpoints_what_temp_holds_not_what_it_appended(self, tmp_path):
+        # The checkpoint records the rows temp holds, and the rewrite reports only the rows it appended
+        # itself, so a resume has to add back the prefix it inherited. Recording the appended count
+        # alone makes the checkpoint go backwards, which reads as a rewrite that stopped advancing:
+        # the retry of a killed attempt stands down, the next sync's merge invalidates the checkpoint,
+        # and the rewrite restarts from row 0 until the attempt cap abandons the table.
+        live = _write_month_partitioned(
+            str(tmp_path / "live"),
+            [
+                (1, datetime.datetime(2024, 1, 5)),
+                (2, datetime.datetime(2024, 2, 2)),
+                (3, datetime.datetime(2024, 3, 3)),
+            ],
+        )
+        table_ref = _make_table_ref(get_delta_table=AsyncMock(return_value=live))
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+        schema = self._base_schema(
+            repartition_rewrite={
+                "temp_uri": "s3://bucket/live__repartitioned_old",
+                "rows_written": 1,
+                "target": target.to_dict(),
+                "live_version": live.version(),
+            },
+        )
+
+        async def rewrite_appending_two(**kwargs):
+            await kwargs["save_checkpoint"](2, target)
+            return 2, target
+
+        with (
+            patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
+            patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            _patch_finalize(),
+            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(side_effect=[1, 3])),
+            patch.object(repartition_module, "save_repartition_checkpoint_if_claimed", return_value=True) as saved,
+            patch.object(repartition_module, "_rewrite_into_temp", new=AsyncMock(side_effect=rewrite_appending_two)),
+            patch.object(repartition_module, "_swap_temp_into_live", new=AsyncMock()),
+        ):
+            asyncio.run(
+                repartition_table_in_place(
+                    table_ref=table_ref, schema=schema, target=target, logger=logger, claim_token="tok"
+                )
+            )
+
+        assert saved.call_args.kwargs["checkpoint"]["rows_written"] == 3
 
     def test_discards_the_checkpoint_when_the_live_version_moved_on(self, tmp_path):
         # Version moved on (a merge committed between attempts) → the recorded prefix no longer lines up

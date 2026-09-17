@@ -60,8 +60,6 @@ from products.signals.backend.scout_harness.limits import (
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import (
     _EXTERNAL_MCP_LISTING_CAP,
-    _GOVERNED_METRIC_LISTING_CAP,
-    _METRICS_CATALOG_SUPERSEDES_CACHE as _SUPERSEDES_CACHED_ENTRIES,
     _REPORT_CHARTS,
     HARNESS_PROMPT_VERSION,
     _checkout_section,
@@ -438,7 +436,7 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
             github_read_access=github_read_access,
             business_knowledge_maintained=business_knowledge_maintained,
-            governed_metric_names=["mrr_probe_metric"],
+            project_has_governed_metrics=True,
             write_scopes=["dashboard:write"],
             structured_output_schema={"type": "object", "properties": {"verdict": {"type": "string"}}},
             mcp_server_names=["Datadog (EU)"],
@@ -466,7 +464,6 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             "2026-05-01T12:34:56+00:00",
             "987654",
             "signals-scout-prefix-probe",
-            "mrr_probe_metric",
             "Datadog",
             "acme-co/service",
             '"verdict"',
@@ -948,15 +945,15 @@ class TestPromptBuilder(BaseTest):
         )
         assert "Code-derived reviewer evidence" not in signal_prompt
 
-    # The rule lives in the shared run-works head, and each channel assembles its own tail from
-    # that head, so a channel can lose it independently.
     @parameterized.expand(
         [
             ("signal_channel", []),
             ("report_channel", ["emit_report", "edit_report"]),
         ]
     )
-    def test_catalog_rule_renders_on_every_channel(self, name: str, allowed_tools: list[str]) -> None:
+    def test_catalog_text_renders_only_for_a_project_with_governed_metrics(
+        self, name: str, allowed_tools: list[str]
+    ) -> None:
         skill_name = f"signals-scout-catalog-{name}"
         LLMSkill.objects.create(
             team=self.team,
@@ -972,47 +969,18 @@ class TestPromptBuilder(BaseTest):
             "started_at": datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
         }
 
-        prompt = build_run_prompt(loaded, **kwargs)
-        assert "system.information_schema.metrics" in prompt
-        assert "data-catalog-metric-run" in prompt
+        nudged = build_run_prompt(loaded, **kwargs, project_has_governed_metrics=True)
+        assert "# Governed metrics" in nudged
+        assert "data-catalog-metric-run" in nudged
 
-    def test_prefetched_catalog_listing_replaces_the_probe_instruction(self) -> None:
-        LLMSkill.objects.create(team=self.team, name="signals-scout-catalog-listing", description="s", body="watch")
-        loaded = load_skill_for_run(self.team, "signals-scout-catalog-listing")
-        kwargs: dict = {
-            "run_id": "00000000-0000-0000-0000-000000000abc",
-            "team_id": self.team.id,
-            "started_at": datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
-        }
-        names = ["scout_cost_per_run", "scout_run_fail_pct"]
-
-        listed = build_run_prompt(loaded, **kwargs, governed_metric_names=names)
-        assert "`scout_run_fail_pct`" in listed
-        assert "`scout_cost_per_run`" in listed
-        assert "data-catalog-metric-run" in listed
-        assert "Cache the lookup outcome" not in listed
-        assert _SUPERSEDES_CACHED_ENTRIES in listed
-        assert "governed catalog consulted: no listed metric matched" in listed
-
-        empty = build_run_prompt(loaded, **kwargs, governed_metric_names=[])
-        assert "no approved metrics" in empty
-        assert "Cache the lookup outcome" not in empty
-        assert _SUPERSEDES_CACHED_ENTRIES in empty
-        assert "governed catalog consulted: empty, no metric matches" in empty
-
-        fallback = build_run_prompt(loaded, **kwargs, governed_metric_names=None)
-        assert "Cache the lookup outcome" in fallback
-        assert _SUPERSEDES_CACHED_ENTRIES not in fallback
-        assert "governed catalog consulted: no listed metric matched" in fallback
-
-        # The cap is what keeps this injection to a handful of tokens in every run, and past it the
-        # listing stops being the whole catalog, so it has to say a lookup is still warranted for an
-        # unlisted measure.
-        overflowing = [f"metric_{index:03d}" for index in range(_GOVERNED_METRIC_LISTING_CAP + 3)]
-        capped = build_run_prompt(loaded, **kwargs, governed_metric_names=overflowing)
-        assert "`metric_000`" in capped
-        assert f"`metric_{_GOVERNED_METRIC_LISTING_CAP:03d}`" not in capped
-        assert "and 3 more this listing omits" in capped
+        for unused in (
+            build_run_prompt(loaded, **kwargs),
+            build_run_prompt(loaded, **kwargs, project_has_governed_metrics=False),
+        ):
+            assert "# Governed metrics" not in unused
+            assert "data-catalog-metric-run" not in unused
+            assert "metric-list" not in unused
+            assert "information_schema.metrics" not in unused
 
     def test_report_channel_renders_report_persona_and_guidance(self) -> None:
         LLMSkill.objects.create(
@@ -1704,13 +1672,14 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "names,expected_marker",
+    "names,expect_nudge",
     [
-        pytest.param(["scout_run_fail_pct"], "scout_run_fail_pct", id="listing_injected"),
-        pytest.param(RuntimeError("catalog read down"), "Cache the lookup outcome", id="lookup_error_falls_back"),
+        pytest.param(["scout_run_fail_pct"], True, id="approved_metrics_nudge"),
+        pytest.param([], False, id="empty_catalog_renders_nothing"),
+        pytest.param(RuntimeError("catalog read down"), False, id="lookup_error_renders_nothing"),
     ],
 )
-async def test_governed_listing_reaches_the_prompt_from_the_catalog(ateam, aerrors_skill, names, expected_marker):
+async def test_catalog_nudge_follows_the_projects_approved_metrics(ateam, aerrors_skill, names, expect_nudge):
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     acting_user = await sync_to_async(User.objects.create_and_join)(
         organization=ateam.organization,
@@ -1741,10 +1710,10 @@ async def test_governed_listing_reaches_the_prompt_from_the_catalog(ateam, aerro
         run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
     assert run_result.status == apps.get_model("tasks", "TaskRun").Status.COMPLETED.value
-    assert expected_marker in captured["prompt"]
-    # The listing must be resolved as the run's acting user, or it could be wider than what the run
-    # could have queried for itself; the access check lives behind the facade call, so passing the
-    # user is the only part of that the runner owns.
+    assert ("# Governed metrics" in captured["prompt"]) is expect_nudge
+    # The check must be resolved as the run's acting user, or the prompt could point a run at
+    # metrics it cannot read; the access check lives behind the facade call, so passing the user is
+    # the only part of that the runner owns.
     assert names_mock.call_args.args == (ateam, acting_user)
 
 

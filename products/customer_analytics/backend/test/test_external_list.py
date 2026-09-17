@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -13,10 +14,12 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.utils import generate_random_token_secret
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models.utils import generate_random_token_personal, generate_random_token_secret, hash_key_value
 from posthog.test.api_keys import create_project_secret_api_key
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.facade import api as facade
 from products.customer_analytics.backend.models import AccountRelationship, AccountRelationshipDefinition
 from products.customer_analytics.backend.test.factories import create_account, enroll_account
@@ -42,6 +45,17 @@ class TestExternalAccountListAPI(APIBaseTest):
     def _create_psak_token(self, scopes, label="external-list"):
         _, token = create_project_secret_api_key(self.team, label=label, scopes=scopes)
         return token
+
+    def _create_personal_token(self, scopes: list[str]) -> tuple[PersonalAPIKey, str]:
+        token = generate_random_token_personal()
+        key = PersonalAPIKey.objects.create(
+            user=self.user,
+            label="external-list",
+            secure_value=hash_key_value(token),
+            scopes=scopes,
+            scoped_teams=[self.team.id],
+        )
+        return key, token
 
     def _create_definition(self, name, **kwargs):
         return AccountRelationshipDefinition.objects.for_team(self.team.id).create(
@@ -103,7 +117,7 @@ class TestExternalAccountListAPI(APIBaseTest):
 
     def test_rejects_team_secret_api_token(self):
         # The team-wide secret token is readable by any project member, so it must
-        # not unlock this bulk export; only a scoped project secret API key may.
+        # not unlock this bulk export without API scope checks.
         self.team.secret_api_token = generate_random_token_secret()
         self.team.save(update_fields=["secret_api_token"])
 
@@ -111,12 +125,131 @@ class TestExternalAccountListAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_rejects_key_without_account_read_scope(self):
-        token = self._create_psak_token(scopes=["endpoint:read"], label="wrong-scope")
+    @parameterized.expand([("project",), ("personal",)])
+    def test_rejects_key_without_account_read_scope(self, key_type: str) -> None:
+        if key_type == "personal":
+            _, token = self._create_personal_token(scopes=["endpoint:read"])
+        else:
+            token = self._create_psak_token(scopes=["endpoint:read"], label="wrong-scope")
 
-        response = self._get(token=token)
+        response = self._get(params={"project_id": self.team.id}, token=token)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        message = "API key missing required scope 'account:read'"
+        self.assertEqual(
+            response.json(), self.permission_denied_response(message) if key_type == "personal" else {"error": message}
+        )
+
+    @parameterized.expand([("missing", None), ("invalid", "abc"), ("negative", -1)])
+    def test_personal_key_requires_valid_project_id(self, _name: str, project_id: str | int | None) -> None:
+        _, token = self._create_personal_token(scopes=["account:read"])
+        response = self._get(params={} if project_id is None else {"project_id": project_id}, token=token)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_personal_key_returns_not_found_for_deleted_project(self) -> None:
+        project = Team.objects.create(organization=self.organization, name="Deleted project")
+        project_id = project.id
+        project.delete()
+        _, token = self._create_personal_token(scopes=["account:read"])
+
+        response = self._get(params={"project_id": project_id}, token=token)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json(), self.not_found_response("Project not found."))
+
+    @parameterized.expand([("project_scope",), ("organization_scope",), ("membership",), ("resource_access",)])
+    def test_personal_key_enforces_access(self, restriction: str) -> None:
+        key, token = self._create_personal_token(scopes=["account:read"])
+        if restriction == "project_scope":
+            other_team = Team.objects.create(organization=self.organization, name="Other project")
+            key.scoped_teams = [other_team.id]
+            key.save()
+        elif restriction == "organization_scope":
+            other_org = Organization.objects.create(name="Other organization")
+            key.scoped_organizations = [str(other_org.id)]
+            key.save()
+        elif restriction == "membership":
+            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).delete()
+        else:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+                {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+            ]
+            self.organization.save()
+            membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+            membership.level = OrganizationMembership.Level.MEMBER
+            membership.save()
+            AccessControl.objects.create(
+                team=self.team, resource="customer_analytics", access_level="none", organization_member=membership
+            )
+
+        response = self._get(params={"project_id": self.team.id}, token=token)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand(
+        [
+            ("all", False, False),
+            ("managed", True, False),
+            ("all_resource_denied", False, True),
+            ("managed_resource_denied", True, True),
+        ]
+    )
+    def test_personal_key_filters_account_access_before_pagination(
+        self, _name: str, managed_only: bool, resource_denied: bool
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+        if resource_denied:
+            AccessControl.objects.create(
+                team=self.team, resource="customer_analytics", access_level="none", organization_member=membership
+            )
+        hidden = create_account(
+            team_id=self.team.id,
+            name="Hidden",
+            external_id="hidden-account",
+            created_by=self.user if resource_denied else None,
+        )
+        visible = create_account(team_id=self.team.id, name="Visible", external_id="visible-account")
+        if managed_only:
+            self.csm_definition.is_controlled = True
+            self.csm_definition.save(update_fields=["is_controlled"])
+            enroll_account(hidden, self.csm_definition, controlled_at=ENDED_AT)
+            enroll_account(visible, self.csm_definition, controlled_at=ENDED_AT)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(visible.id if resource_denied else hidden.id),
+            access_level="viewer" if resource_denied else "none",
+            organization_member=membership,
+        )
+        _, token = self._create_personal_token(scopes=["account:read"])
+
+        response = self._get(
+            params={"project_id": self.team.id, "limit": 1, "managed_only": str(managed_only).lower()}, token=token
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [row["external_id"] for row in response.json()["results"]], [] if resource_denied else [visible.external_id]
+        )
+        self.assertIsNone(response.json()["next_cursor"])
+
+    def test_personal_key_respects_feature_gate(self) -> None:
+        _, token = self._create_personal_token(scopes=["account:read"])
+        self.mock_csp_enabled.return_value = False
+        self.assertEqual(
+            self._get(params={"project_id": self.team.id}, token=token).status_code, status.HTTP_401_UNAUTHORIZED
+        )
+
+    def test_project_key_cannot_select_another_project(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        self.assertEqual(self._get(params={"project_id": other_team.id}).status_code, status.HTTP_403_FORBIDDEN)
 
     def test_disabled_feature_does_not_reveal_key_validity_or_scopes(self):
         wrong_scope_token = self._create_psak_token(scopes=["endpoint:read"], label="wrong-scope-disabled")
@@ -137,17 +270,21 @@ class TestExternalAccountListAPI(APIBaseTest):
             self.assertEqual(self._get().status_code, status.HTTP_200_OK)
             self.assertEqual(self._get(token=second_token).status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
-    def test_invalid_tokens_share_ip_rate_limit(self):
+    @parameterized.expand(
+        [("project", "project"), ("personal", "personal"), ("project", "personal"), ("personal", "project")]
+    )
+    def test_invalid_tokens_share_ip_rate_limit(self, first_key_type: str, second_key_type: str) -> None:
         cache.clear()
         self.addCleanup(cache.clear)
+        token_generators = {"project": generate_random_token_secret, "personal": generate_random_token_personal}
 
         with self._rate_limits(key_rate="1/minute", team_rate="100/minute"):
             self.assertEqual(
-                self._get(token=generate_random_token_secret()).status_code,
+                self._get(token=token_generators[first_key_type]()).status_code,
                 status.HTTP_401_UNAUTHORIZED,
             )
             self.assertEqual(
-                self._get(token=generate_random_token_secret()).status_code,
+                self._get(token=token_generators[second_key_type]()).status_code,
                 status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
@@ -165,7 +302,19 @@ class TestExternalAccountListAPI(APIBaseTest):
 
     # -- Listing ----------------------------------------------------------
 
-    def test_lists_accounts_with_relationship_assignments(self):
+    @parameterized.expand(
+        [
+            ("project",),
+            ("personal_read",),
+            ("personal_write",),
+            ("personal_all",),
+            ("personal_legacy",),
+            ("personal_whitespace",),
+            ("personal_query",),
+            ("personal_body",),
+        ]
+    )
+    def test_lists_accounts_with_relationship_assignments(self, key_type: str) -> None:
         self.user.first_name = "Anna"
         self.user.last_name = "Exec"
         self.user.save(update_fields=["first_name", "last_name"])
@@ -181,7 +330,29 @@ class TestExternalAccountListAPI(APIBaseTest):
         self._assign(account, self.user, definition=ae_definition)
         self._assign(account, colleague, definition=ae_definition)
 
-        response = self._get()
+        if key_type == "project":
+            response = self._get()
+        else:
+            scope = {"personal_write": "account:write", "personal_all": "*"}.get(key_type, "account:read")
+            key, token = self._create_personal_token(scopes=[scope])
+            if key_type == "personal_legacy":
+                token = token.removeprefix("phx_")
+                key.secure_value = hash_key_value(token)
+                key.save(update_fields=["secure_value"])
+            if key_type == "personal_query":
+                response = self.client.get(self.url, data={"project_id": str(self.team.id), "personal_api_key": token})
+            elif key_type == "personal_body":
+                response = self.client.generic(
+                    "GET",
+                    f"{self.url}?project_id={self.team.id}",
+                    data=json.dumps({"personal_api_key": token}),
+                    content_type="application/json",
+                )
+            else:
+                separator = "\t " if key_type == "personal_whitespace" else " "
+                response = self.client.get(
+                    self.url, data={"project_id": self.team.id}, HTTP_AUTHORIZATION=f"Bearer{separator}{token}"
+                )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
