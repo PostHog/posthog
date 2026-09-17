@@ -108,9 +108,10 @@ export function ReadyToMergeCard({
                         </span>
                     </div>
                     <div className="flex flex-col gap-1.5">
-                        {shown.map((row) => (
+                        {shown.map((row, index) => (
                             <ComparisonBarRow
-                                key={row.label}
+                                // A handle can equal a team slug, so the label alone is no unique key.
+                                key={`${index}:${row.label}`}
                                 label={row.label}
                                 labelTooltip={row.labelTooltip}
                                 value={compactAgeLabel(row.seconds)}
