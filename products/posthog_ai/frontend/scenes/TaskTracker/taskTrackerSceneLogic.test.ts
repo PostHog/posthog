@@ -660,6 +660,7 @@ describe('taskTrackerSceneLogic', () => {
                     log_url: null,
                     error_message: null,
                     output: null,
+                    task_summary: null,
                     state: {},
                     artifacts: [],
                     created_at: '2026-01-01T00:00:00Z',
