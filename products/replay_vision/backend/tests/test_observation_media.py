@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -13,7 +13,6 @@ from posthog.models.utils import uuid7
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observations import ReplayObservationSerializer
-from products.replay_vision.backend.media_expiry import expire_media_for_observations, expire_media_for_scanner
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -30,7 +29,6 @@ from products.replay_vision.backend.temporal.media_types import (
     ExtractThumbnailActivityOutput,
     FinalizeObservationThumbnailInputs,
     ObservationMediaInputs,
-    PrepareObservationThumbnailInputs,
 )
 from products.replay_vision.backend.tests.helpers import snapshot_for
 
@@ -75,9 +73,7 @@ class TestObservationMedia(BaseTest):
             "analysis_asset_id": self.analysis_asset.id,
         }
         fields.update(overrides)
-        return async_to_sync(prepare_observation_thumbnail_activity)(
-            PrepareObservationThumbnailInputs(inputs=ObservationMediaInputs(**fields))
-        )
+        return async_to_sync(prepare_observation_thumbnail_activity)(ObservationMediaInputs(**fields))
 
     def test_media_object_is_written_outside_the_exports_prefix(self) -> None:
         prepared = self._prepare()
@@ -87,8 +83,9 @@ class TestObservationMedia(BaseTest):
         )
         asset = ExportedAsset.objects.get(pk=prepared.media_asset_id)
         assert asset.is_system is True
-        assert asset.export_context["observation_id"] == str(self.observation.id)
-        assert asset.export_context["session_recording_id"] == self.session_id
+        assert (asset.export_context or {})["observation_id"] == str(self.observation.id)
+        assert (asset.export_context or {})["session_recording_id"] == self.session_id
+        assert asset.expires_after is not None
         assert 89 <= (asset.expires_after - asset.created_at).days <= 90
 
     def test_the_models_pick_wins_over_every_fallback(self) -> None:
@@ -139,7 +136,7 @@ class TestObservationMedia(BaseTest):
         media = ReplayObservationMedia.objects.for_team(self.team.id).get(observation_id=self.observation.id)
         assert media.kind == ReplayObservationMedia.Kind.THUMBNAIL
         assert media.asset_id == prepared.media_asset_id
-        assert media.asset.content_location.startswith("replay-vision/media/")
+        assert (media.asset.content_location or "").startswith("replay-vision/media/")
 
 
 class TestObservationMediaExpiry(BaseTest):
@@ -161,7 +158,7 @@ class TestObservationMediaExpiry(BaseTest):
             scanner_snapshot=snapshot_for(self.scanner),
             triggered_by=ObservationTrigger.SCHEDULE,
         )
-        self.media_asset = ExportedAsset.objects.create(
+        self.asset = ExportedAsset.objects.create(
             team=self.team,
             export_format=ExportedAsset.ExportFormat.PNG,
             export_context={"observation_id": str(self.observation.id)},
@@ -169,32 +166,37 @@ class TestObservationMediaExpiry(BaseTest):
             expires_after=timezone.now() + timedelta(days=90),
             is_system=True,
         )
-        self.other_asset = ExportedAsset.objects.create(
-            team=self.team,
-            export_format=ExportedAsset.ExportFormat.PNG,
-            export_context={"observation_id": str(uuid7())},
-            expires_after=timezone.now() + timedelta(days=90),
-            is_system=True,
+        ReplayObservationMedia.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            observation=self.observation,
+            asset=self.asset,
+            kind=ReplayObservationMedia.Kind.THUMBNAIL,
+            position=0,
+            video_start_ms=1000,
         )
 
-    def _expires_after(self, asset: ExportedAsset) -> Any:
-        return ExportedAsset.objects_including_ttl_deleted.get(pk=asset.pk).expires_after
+    def _expires_after(self) -> datetime:
+        expires_after = ExportedAsset.objects_including_ttl_deleted.get(pk=self.asset.pk).expires_after
+        assert expires_after is not None
+        return expires_after
 
-    def test_only_the_named_observations_media_is_expired(self) -> None:
-        expire_media_for_observations(self.team.id, [self.observation.id])
+    @parameterized.expand(
+        [
+            # Every path that removes an observation reaches the media row through a cascade.
+            ("observation delete, as a retry does", lambda self: self.observation.delete()),
+            ("scanner delete", lambda self: self.scanner.delete()),
+        ]
+    )
+    def test_media_is_expired_when_its_observation_goes_away(self, _name: str, delete) -> None:
+        delete(self)
 
-        assert self._expires_after(self.media_asset) <= timezone.now()
-        assert self._expires_after(self.other_asset) > timezone.now()
+        assert self._expires_after() <= timezone.now()
+        assert ExportedAsset.objects_including_ttl_deleted.filter(pk=self.asset.pk).exists()
 
-    def test_a_scanners_whole_set_is_expired(self) -> None:
-        expire_media_for_scanner(self.team.id, self.scanner.observations.all())
+    def test_the_sweeps_own_delete_is_not_undone(self) -> None:
+        self.asset.delete()
 
-        assert self._expires_after(self.media_asset) <= timezone.now()
-
-    def test_the_row_survives_so_the_sweep_can_delete_the_object(self) -> None:
-        expire_media_for_observations(self.team.id, [self.observation.id])
-
-        assert ExportedAsset.objects_including_ttl_deleted.filter(pk=self.media_asset.pk).exists()
+        assert not ExportedAsset.objects_including_ttl_deleted.filter(pk=self.asset.pk).exists()
 
 
 class TestObservationMediaSerialization(BaseTest):

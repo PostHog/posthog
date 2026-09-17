@@ -96,7 +96,6 @@ from products.replay_vision.backend.impact import (
     compute_scanner_impact,
     create_affected_cohort,
 )
-from products.replay_vision.backend.media_expiry import expire_media_for_scanner
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -1992,8 +1991,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
     def perform_destroy(self, instance: ReplayScanner) -> None:
         # Snapshot lifecycle props before the row is deleted.
         properties = scanner_lifecycle_properties(instance)
-        # Before the cascade, which takes the media rows and leaves their objects unreferenced.
-        expire_media_for_scanner(instance.team_id, instance.observations.all())
         super().perform_destroy(instance)
         report_user_action(
             cast(User, self.request.user),

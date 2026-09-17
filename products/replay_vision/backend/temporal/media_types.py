@@ -42,10 +42,6 @@ class ExtractThumbnailActivityOutput(BaseModel, frozen=True):
     file_size_bytes: int = 0
 
 
-class PrepareObservationThumbnailInputs(BaseModel, frozen=True):
-    inputs: ObservationMediaInputs
-
-
 class PrepareObservationThumbnailOutput(BaseModel, frozen=True):
     media_asset_id: int
     activity_input: ExtractThumbnailActivityInput

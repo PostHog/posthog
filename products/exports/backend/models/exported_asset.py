@@ -150,12 +150,6 @@ class ExportedAsset(models.Model):
                 KeyTransform("session_recording_id", "export_context"),
                 name="exportedasset_session",
             ),
-            # Replay Vision expires an observation's media by this key when the observation goes away.
-            models.Index(
-                models.F("team_id"),
-                KeyTransform("observation_id", "export_context"),
-                name="exportedasset_observation",
-            ),
         ]
 
     def save(self, *args, **kwargs):

@@ -16,7 +16,6 @@ with wf.unsafe.imports_passed_through():
         ExtractThumbnailActivityOutput,
         FinalizeObservationThumbnailInputs,
         ObservationMediaInputs,
-        PrepareObservationThumbnailInputs,
         PrepareObservationThumbnailOutput,
     )
 
@@ -34,7 +33,7 @@ class ObservationMediaWorkflow(PostHogWorkflow):
     async def run(self, inputs: ObservationMediaInputs) -> None:
         prepared: PrepareObservationThumbnailOutput = await wf.execute_activity(
             prepare_observation_thumbnail_activity,
-            PrepareObservationThumbnailInputs(inputs=inputs),
+            inputs,
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=_STATE_RETRY,
         )

@@ -10,6 +10,8 @@ from asgiref.sync import sync_to_async
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from posthog.temporal.session_replay.rasterize_recording.storage_keys import content_location_from_s3_uri
+
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
@@ -21,7 +23,6 @@ from products.replay_vision.backend.temporal.media_types import (
     ExtractThumbnailActivityInput,
     FinalizeObservationThumbnailInputs,
     ObservationMediaInputs,
-    PrepareObservationThumbnailInputs,
     PrepareObservationThumbnailOutput,
 )
 from products.replay_vision.backend.temporal.video_clock import VideoClock, video_clock_from_export_context
@@ -66,11 +67,9 @@ def _pick_video_time_s(
 
 @activity.defn
 @track_activity()
-async def prepare_observation_thumbnail_activity(
-    inputs: PrepareObservationThumbnailInputs,
-) -> PrepareObservationThumbnailOutput:
+async def prepare_observation_thumbnail_activity(inputs: ObservationMediaInputs) -> PrepareObservationThumbnailOutput:
     """Pick the frame to cut and create the `is_system` PNG asset the Node activity uploads into."""
-    media_inputs = inputs.inputs
+    media_inputs = inputs
     asset = await ExportedAsset.objects.aget(pk=media_inputs.analysis_asset_id, team_id=media_inputs.team_id)
     if not asset.content_location:
         # The analysis render is long finished by now, so an empty location is a lost object, not a race.
@@ -90,19 +89,35 @@ async def prepare_observation_thumbnail_activity(
     video_time_s = _pick_video_time_s(media_inputs, scanner_result.get("model_output"), clock, duration_s)
     rec_start_ms = clock.video_s_to_session_ms(video_time_s) if clock else None
 
-    media_asset = await ExportedAsset.objects.acreate(
-        team_id=media_inputs.team_id,
-        export_format=ExportedAsset.ExportFormat.PNG,
-        export_context={
-            # The recording id serves the recording-delete cascade, the observation id every other expiry.
-            "session_recording_id": media_inputs.session_id,
-            "observation_id": str(media_inputs.observation_id),
-            "media_kind": ReplayObservationMedia.Kind.THUMBNAIL.value,
-        },
-        # Explicit because the PNG default is six months.
-        expires_after=now() + _MEDIA_EXPIRY,
-        is_system=True,
+    export_context = {
+        # The recording id serves the recording-delete cascade, the observation id every other expiry.
+        # The recording id serves the recording-delete cascade, the observation id every other expiry.
+        "session_recording_id": media_inputs.session_id,
+        "observation_id": str(media_inputs.observation_id),
+        "media_kind": ReplayObservationMedia.Kind.THUMBNAIL.value,
+    }
+    # Get-or-create: a retried activity would otherwise leave a second asset and object behind.
+    media_asset = (
+        await ExportedAsset.objects.filter(
+            team_id=media_inputs.team_id,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context__session_recording_id=media_inputs.session_id,
+            export_context__observation_id=str(media_inputs.observation_id),
+            export_context__media_kind=ReplayObservationMedia.Kind.THUMBNAIL.value,
+            is_system=True,
+        )
+        .order_by("id")
+        .afirst()
     )
+    if media_asset is None:
+        media_asset = await ExportedAsset.objects.acreate(
+            team_id=media_inputs.team_id,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context=export_context,
+            # Explicit because the PNG default is six months.
+            expires_after=now() + _MEDIA_EXPIRY,
+            is_system=True,
+        )
 
     return PrepareObservationThumbnailOutput(
         media_asset_id=media_asset.id,
@@ -121,7 +136,7 @@ async def prepare_observation_thumbnail_activity(
 
 
 def _link_media(inputs: FinalizeObservationThumbnailInputs, asset: ExportedAsset) -> None:
-    ReplayObservationMedia.objects.for_team(inputs.team_id).update_or_create(
+    ReplayObservationMedia.objects.for_team(inputs.team_id, canonical=True).update_or_create(
         observation_id=inputs.observation_id,
         kind=ReplayObservationMedia.Kind.THUMBNAIL,
         position=0,
@@ -138,12 +153,13 @@ def _link_media(inputs: FinalizeObservationThumbnailInputs, asset: ExportedAsset
 @track_activity()
 async def finalize_observation_thumbnail_activity(inputs: FinalizeObservationThumbnailInputs) -> None:
     """Point the asset at the uploaded PNG and link it to the observation."""
-    prefix = f"s3://{settings.OBJECT_STORAGE_BUCKET}/"
-    if not inputs.result.s3_uri.startswith(prefix):
-        raise ApplicationError(f"Unexpected s3_uri prefix: {inputs.result.s3_uri}", non_retryable=True)
+    try:
+        content_location = content_location_from_s3_uri(inputs.result.s3_uri)
+    except ValueError as error:
+        raise ApplicationError(str(error), non_retryable=True) from error
 
     asset = await ExportedAsset.objects.aget(pk=inputs.media_asset_id, team_id=inputs.team_id)
-    asset.content_location = inputs.result.s3_uri[len(prefix) :]
+    asset.content_location = content_location
     await asset.asave(update_fields=["content_location"])
 
     # `for_team` resolves the canonical team with a synchronous query of its own.

@@ -1135,12 +1135,14 @@ class ReplayObservationViewSet(
     def thumbnail(self, request: Request, **kwargs: Any) -> HttpResponseBase:
         """Redirect to the frame that illustrates this observation, so a caller with only the observation id can show it."""
         observation = self.get_object()
-        media = (
-            ReplayObservationMedia.objects.for_team(observation.team_id)
-            .filter(observation_id=observation.id, kind=ReplayObservationMedia.Kind.THUMBNAIL)
-            .exclude(asset__content_location=None)
-            .order_by("position")
-            .first()
+        # `get_object` already prefetched the observation's media with their assets, so this reads no rows.
+        media = next(
+            (
+                entry
+                for entry in observation.media.all()
+                if entry.kind == ReplayObservationMedia.Kind.THUMBNAIL and entry.asset.content_location
+            ),
+            None,
         )
         if media is None:
             raise NotFound("This observation has no thumbnail.")
