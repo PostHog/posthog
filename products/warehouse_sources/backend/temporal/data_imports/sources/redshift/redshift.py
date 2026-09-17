@@ -1506,6 +1506,15 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             # Propagate it so the activity's retry path handles it; these are transient and stay
             # retryable. Mirrors the equivalent Postgres source.
             raise
+        except psycopg.errors.InsufficientPrivilege as e:
+            # The connecting role can SELECT the table itself but Redshift also gates a
+            # materialized view's base relation(s) separately (SQLSTATE 42501) — the same
+            # permission gap `get_non_retryable_errors` stops the sync for. The duplicate-key
+            # probe is best-effort and already treats "could not run" as inconclusive rather than
+            # clean, so skip gracefully instead of reporting the expected, non-actionable error to
+            # error tracking. Mirrors `get_rows_to_sync`/`fetch_table_stats`.
+            logger.debug(f"has_duplicate_primary_keys: no privilege to run duplicate-key probe, skipping check: {e}")
+            return None
         except Exception as e:
             # A Redshift system-requested query abort (error code 1020, "system requested abort")
             # is the cluster's WLM/QMR cancelling the query — the same transient, non-actionable
