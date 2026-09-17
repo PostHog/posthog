@@ -1539,8 +1539,19 @@ def _backfill_thread_replies(
 # Must stay in step with ticket_deep_link, which writes the URLs this matches.
 _TICKET_URL_PATH_RE = re.compile(r"^/project/(?P<project_id>\d+)/support/tickets/(?P<ticket_number>\d+)/?$")
 
-# Shared with another organization, or invited to be.
-_EXTERNALLY_SHARED_FLAGS = ("is_ext_shared", "is_pending_ext_shared")
+# Anything that puts someone outside this workspace in the room: Slack Connect, an invitation
+# to it, Enterprise Grid cross-workspace sharing, and direct messages. A DM cannot reach us
+# today (link_shared needs im:history/mpim:history, which SupportHog does not request), but
+# the rule belongs in this gate rather than in the scope list, where a later feature could
+# widen it by accident.
+_NON_INTERNAL_CHANNEL_FLAGS = (
+    "is_ext_shared",
+    "is_pending_ext_shared",
+    "is_org_shared",
+    "is_shared",
+    "is_im",
+    "is_mpim",
+)
 
 MAX_UNFURLS_PER_MESSAGE = 5
 
@@ -1599,10 +1610,19 @@ def ticket_unfurl(ticket: "Ticket", team: Team) -> dict:
 
 
 def _is_internal_channel(client: WebClient, channel: str) -> bool:
-    """Whether `channel` belongs to this organization alone.
+    """Whether `channel` is an ordinary channel of this workspace alone.
 
-    Fails closed. A channel we cannot read is one we cannot prove is internal, and an unfurl
-    is irreversible once it renders for an external guest.
+    Fails closed, twice over: a channel we cannot read is one we cannot prove is internal, and
+    only a payload that positively identifies itself as a channel or private group passes, so
+    an unfamiliar shape is rejected rather than read as "no external flags, so internal". An
+    unfurl is irreversible once it renders for someone outside the organization.
+
+    Known residual: a Slack guest invited straight into the workspace (single- or
+    multi-channel) is a workspace member as far as these flags go, so a channel holding one
+    still counts as internal. Slack offers no per-channel guest signal, and proving every
+    member belongs to the organization would mean paginating the member list on every pasted
+    link. The card carries metadata only and the link itself was already posted by a member,
+    so the incremental exposure is status and timings rather than a ticket.
     """
     if not channel:
         return False
@@ -1612,10 +1632,9 @@ def _is_internal_channel(client: WebClient, channel: str) -> bool:
         logger.warning("slack_support_unfurl_channel_lookup_failed", slack_channel_id=channel)
         return False
     info = response.get("channel") or {}
-    if not info:
-        logger.warning("slack_support_unfurl_channel_missing", slack_channel_id=channel)
+    if any(info.get(flag) for flag in _NON_INTERNAL_CHANNEL_FLAGS):
         return False
-    return not any(info.get(flag) for flag in _EXTERNALLY_SHARED_FLAGS)
+    return bool(info.get("is_channel") or info.get("is_group"))
 
 
 def handle_link_shared(event: dict, team: Team, slack_team_id: str) -> None:

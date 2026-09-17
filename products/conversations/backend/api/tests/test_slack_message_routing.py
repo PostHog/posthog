@@ -1551,14 +1551,28 @@ class TestTicketLinkUnfurl(BaseTest):
 
     @parameterized.expand(
         [
-            ("shared_with_another_org", {"is_ext_shared": True}),
-            ("invited_to_be_shared", {"is_pending_ext_shared": True}),
+            # Slack Connect, and an invitation to it that has not been accepted yet.
+            ("shared_with_another_org", {"is_channel": True, "is_ext_shared": True}),
+            ("invited_to_be_shared", {"is_channel": True, "is_pending_ext_shared": True}),
+            # Another workspace in the same Enterprise Grid org is still not this workspace.
+            ("shared_across_a_grid_org", {"is_channel": True, "is_org_shared": True}),
+            ("shared_flag_set", {"is_channel": True, "is_shared": True}),
+            # No flag marks these as external, so only rejecting them by type works.
+            ("direct_message", {"is_im": True}),
+            ("group_direct_message", {"is_mpim": True}),
+            # An ok-but-empty or unfamiliar payload must not read as internal.
+            ("unrecognized_payload", {}),
         ]
     )
-    def test_external_channel_gets_nothing(self, _name, channel_info):
+    def test_only_an_ordinary_channel_of_this_workspace_gets_a_card(self, _name, channel_info):
         client = self._run(self._event(), channel_info=channel_info)
 
         client.chat_unfurl.assert_not_called()
+
+    def test_a_private_channel_of_this_workspace_gets_a_card(self):
+        client = self._run(self._event(), channel_info={"id": "C_PRIVATE", "is_group": True})
+
+        client.chat_unfurl.assert_called_once()
 
     def test_unreadable_channel_fails_closed(self):
         # Cannot prove the channel is internal, and an unfurl cannot be taken back.
@@ -1615,12 +1629,6 @@ class TestTicketLinkUnfurl(BaseTest):
         assert set(unfurls) == {self.url, other_url}
         assert f"Ticket #{self.ticket.ticket_number}" in json.dumps(unfurls[self.url])
         assert f"Ticket #{other.ticket_number}" in json.dumps(unfurls[other_url])
-
-    def test_channel_lookup_without_a_channel_fails_closed(self):
-        # ok-but-empty should never read as "no external flags, so internal".
-        client = self._run(self._event(), channel_info={})
-
-        client.chat_unfurl.assert_not_called()
 
     def test_unfurl_id_is_preferred_when_slack_sends_one(self):
         client = self._run(self._event(unfurl_id="abc123", source="conversations_history"))
