@@ -5,7 +5,13 @@ import time
 import structlog
 
 from posthog.exceptions_capture import capture_exception
-from posthog.ingress.contracts import DeliveryDispatch, DeliveryOwnership, WebhookConsumer, WebhookDelivery
+from posthog.ingress.contracts import (
+    DeliveryDispatch,
+    DeliveryOwnership,
+    DeliveryOwnershipAnswers,
+    WebhookConsumer,
+    WebhookDelivery,
+)
 from posthog.ingress.dispatch.budget import DeliveryBudget, delivery_budget_seconds
 from posthog.ingress.dispatch.dedup import DeliveryClaim, DeliveryDedup
 from posthog.ingress.dispatch.registry import ConsumerRegistry
@@ -101,8 +107,8 @@ class WebhookDispatcher:
         try:
             answer = consumer.ownership(delivery)
         except Exception as error:
-            # Isolated like a handler is: a consumer that cannot answer must not cost the delivery
-            # the receipt it already earned by signing, nor stop another consumer from answering.
+            # Isolated like a handler is: one consumer that cannot answer never stops another from
+            # answering. What it costs the request is the transport's call, in the view.
             logger.exception(
                 "ingress_ownership_failed",
                 provider=delivery.provider,
@@ -111,35 +117,31 @@ class WebhookDispatcher:
                 delivery_id=delivery.delivery_id,
             )
             capture_exception(error)
-            observe_ownership(provider=delivery.provider, consumer=consumer.name, outcome="failed")
-            return DeliveryOwnership.UNDECIDED
+            answer = DeliveryOwnership.FAILED
         observe_ownership(provider=delivery.provider, consumer=consumer.name, outcome=answer.value)
         return answer
 
-    def ownership_of(self, delivery: WebhookDelivery) -> tuple[DeliveryOwnership, tuple[str, ...]]:
-        """Where this delivery's resource lives, and which consumers said it lives elsewhere.
+    def ownership_of(self, delivery: WebhookDelivery) -> DeliveryOwnershipAnswers:
+        """Which consumers said this delivery's resource lives elsewhere, and whose lookup failed.
 
         Any one consumer answering `ELSEWHERE` is enough to forward the request, because the
         forward is the whole request rather than one consumer's share of it. A `LOCAL` answer
         changes nothing: local dispatch runs either way.
         """
-        answers: list[DeliveryOwnership] = []
         elsewhere: list[str] = []
+        failed: list[str] = []
         for consumer in self._registry.consumers_for(
             provider=delivery.provider, app=delivery.app, event_type=delivery.event_type
         ):
             if consumer.ownership is None:
                 continue
             answer = self._ask_ownership(consumer, delivery)
-            answers.append(answer)
             if answer is DeliveryOwnership.ELSEWHERE:
                 elsewhere.append(consumer.name)
+            elif answer is DeliveryOwnership.FAILED:
+                failed.append(consumer.name)
 
-        if elsewhere:
-            return DeliveryOwnership.ELSEWHERE, tuple(elsewhere)
-        if DeliveryOwnership.LOCAL in answers:
-            return DeliveryOwnership.LOCAL, ()
-        return DeliveryOwnership.UNDECIDED, ()
+        return DeliveryOwnershipAnswers(elsewhere_consumers=tuple(elsewhere), failed_consumers=tuple(failed))
 
     def dispatch(self, delivery: WebhookDelivery, *, budget: DeliveryBudget | None = None) -> DeliveryDispatch:
         """Run this delivery's consumers, and answer which of them did not accept it.
