@@ -421,11 +421,10 @@ def set_feature_request_github_sync(
         changes: list[contracts.FeatureRequestHistoryChange] = []
         if not current.sync_enabled:
             changes.append({"field": "github_sync", "before": False, "after": True})
-        before = _issue_snapshot(current)
         current.sync_enabled = True
         current.sync_enabled_by_id = actor_id
         changes.extend(_apply_state(request, current, issue))
-        changed = bool(changes or before != _issue_snapshot(current))
+        changed = bool(changes)
         if changed:
             _save_change(request, changes, actor_id)
         _log_manual_action_after_commit(
@@ -629,11 +628,10 @@ def process_github_issue_update(
                                 logger.debug("feature_request_github_target_skipped", reason="duplicate")
                                 continue
                             _ensure_initial_history(request)
-                            before = _issue_snapshot(current)
                             status_before = request.status
                             changes = _apply_state(request, current, current_issue)
                             changed = bool(changes)
-                            if changes or before != _issue_snapshot(current):
+                            if changes:
                                 _save_change(request, changes, None)
                             committed_context = get_contextvars()
                             transaction.on_commit(

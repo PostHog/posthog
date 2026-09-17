@@ -13,6 +13,7 @@ A feature request can link to one GitHub issue through a GitHub integration conn
 - A manual request status update pauses GitHub sync and clears the saved pre-close status. Resuming a closed issue saves the current manual status as the new restore point.
 - Pause sync preserves the pre-close status. If the issue reopens while paused, Resume sync restores that status.
 - GitHub never overwrites the request title or description. Multiple requests can link to the same issue.
+- GitHub metadata-only updates refresh the link without changing the request version, update timestamp, attribution, or history. Status and sync-control changes still update the request.
 - Unlink issue preserves the request status and history. An existing link must be removed before another issue can be linked.
 - Link, pause, resume, unlink, and GitHub status changes are recorded in feature request history. GitHub-sourced history uses `change_source: "github"`.
 - Archived requests reject link controls. Background updates for archived requests do nothing.

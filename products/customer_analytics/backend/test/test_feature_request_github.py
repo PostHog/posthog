@@ -486,6 +486,7 @@ class TestFeatureRequestGitHubAPI(APIBaseTest):
         )
         resumed = self.client.post(f"{self.url}resume_github/", {"expected_version": version}, format="json")
         self.assertEqual(resumed.status_code, 200)
+        self.assertEqual(resumed.json()["version"], version + 1)
         self.assertEqual(resumed.json()["request_status"], "wont_fix" if state == "closed" else restored_status)
         self.assertTrue(resumed.json()["github_link"]["sync_enabled"])
         self.assertEqual(resumed.json()["title"], self.request.title)
