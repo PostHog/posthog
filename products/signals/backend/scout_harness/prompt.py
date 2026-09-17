@@ -148,71 +148,27 @@ def _report_intro(*, can_emit: bool, can_edit: bool) -> str:
 
 # Steps 1-3 are channel-agnostic (read prior context, check the fleet, investigate), so both personas
 # share this head and append their own decide/close-out steps — keep run initialisation defined once.
-_HOW_A_RUN_WORKS_HEAD = """# How a run works
+_HOW_A_RUN_WORKS = """# How a run works
 
 1. **Read your own prior context.** Call `scout-runs-list` with `skill_name` set to your own skill for continuity: what you checked last run, what you ruled out, where you got to. Call `scout-scratchpad-search` for durable team memories ("known noise", "already addressed", "ignore X"), and `scout-notes-list` with your own `skill_name` for steering notes humans left you (see *Notes left for you*). Prior context is a jumping-off point: fresh evidence on a known topic often beats fresh investigation on a stale one.
 2. **Check what the rest of the fleet has seen.** Call `scout-runs-list` again without `skill_name`, passing `text=<the entity or topic>` once per thing you're about to investigate. That filter is load-bearing: the call returns 20 rows by default, so on a full fleet an unfiltered page covers barely a day and a relevant sibling sorts out of view before you read it. Nothing matches? Move on, rather than reading the fleet's whole recent output. On a match, follow that run's `emitted_report_ids` / `edited_report_ids` into `inbox-reports-retrieve`, or its `emitted_finding_ids` via `scout-runs-emissions-list` for a sibling still on the signal channel, and read the evidence rather than the prose summary. This read is context-gathering only: ignore the tool output's guidance about claiming a report, which applies to a run actually working a report and would staple your run onto a sibling's.
 3. **Investigate.** Use the PostHog MCP read tools to gather evidence, discovering what's available at run time. Your skill body tells you *what* to look at."""
 
-# Rendered into the head's investigate step, steering hypotheses that rest on a named measure at
-# `system.information_schema.metrics` and `data-catalog-metric-run` instead of a hand-derived query.
-# The pointer is static prose; the catalog state itself is per-team, so the three mutually exclusive
-# variants below render in the per-run block at the end of the prompt (see `build_run_prompt`).
-_METRICS_CATALOG_SCOPE = "When a hypothesis rests on a named, reusable measure, business (revenue, MRR, churn, activation) or operational telemetry computed to monitor or report (cost per run, failure or error rates, latency, throughput),"
+# Worded as a nudge rather than a rule: the catalog is an optional product, so the harness only
+# says it exists and leaves the decision to use it with the scout and its skill body.
+_GOVERNED_METRICS_NUDGE = """# Governed metrics
 
-_METRICS_CATALOG_POINTER = f""" {_METRICS_CATALOG_SCOPE} run it through the governed metrics catalog rather than hand-deriving the number; *Governed metrics* at the end of this prompt says how this run reaches the catalog."""
-
-_METRICS_CATALOG_RULE = """# Governed metrics
-
-Check the governed metrics catalog first – `SELECT name, description, status, is_drifted FROM system.information_schema.metrics` via `execute-sql` – and run an approved, non-drifted match with `data-catalog-metric-run` rather than hand-deriving it, even when your skill body ships its own SQL for that measure: a governed definition outranks a playbook query, and a number derived outside it must be labeled noncanonical. Cache the lookup outcome in your scratchpad (`catalog:<scope>:<measure>`, match or no-match plus date) and reuse a fresh entry instead of re-querying every run; re-verify an entry roughly a day old, and immediately when a canonical run reports drift or a status change. When the no-match came from a cached entry rather than an in-run lookup, open the derived query's stated context with `governed catalog consulted: no listed metric matched <measure> (noncanonical)` – the scratchpad is invisible to the trace. Schema, availability, and freshness checks stay schema-first; no catalog detour for those."""
-
-# Shared by both pre-fetched variants, so it has to read correctly with and without a listing above it.
-_METRICS_CATALOG_SUPERSEDES_CACHE = "What this run was handed above is the current catalog state and supersedes any `catalog:<scope>:<measure>` scratchpad entry an earlier run cached under the old probe-and-cache rule: where a cached entry disagrees, that entry is stale, so correct or forget it rather than acting on it."
-
-_METRICS_CATALOG_PREFETCHED = f"""# Governed metrics
-
-This run's catalog lookup is already done – the approved, non-drifted metrics right now are: {{listing}}. Do not re-run the lookup query for a measure a listed name already covers. When a listed name matches the measure you need, read its definition (`SELECT name, description, unit FROM system.information_schema.metrics WHERE name = '<name>'` via `execute-sql`) and run it with `data-catalog-metric-run` rather than hand-deriving it, even when your skill body ships its own SQL for that measure: a governed definition outranks a playbook query. A measure that matches nothing in the catalog has no canonical definition today – derive it by hand, and open that query's stated context with `governed catalog consulted: no listed metric matched <measure> (noncanonical)`. That opening line is the only trace-visible evidence of the listing this run was handed – a bare `noncanonical` label without it leaves the derivation unauditable. {_METRICS_CATALOG_SUPERSEDES_CACHE} Schema, availability, and freshness checks stay schema-first; no catalog detour for those."""
-
-_METRICS_CATALOG_EMPTY = f"""# Governed metrics
-
-This run's catalog lookup is already done and the governed metrics catalog holds no approved metrics right now: derive each measure by hand, open each such query's stated context with `governed catalog consulted: empty, no metric matches <measure> (noncanonical)`, and do not re-run the lookup query (`system.information_schema.metrics` via `execute-sql`) this run. {_METRICS_CATALOG_SUPERSEDES_CACHE}"""
-
-# Steps 1-3 with the catalog pointer appended to the investigate step. Static on every run.
-_HOW_A_RUN_WORKS = _HOW_A_RUN_WORKS_HEAD + _METRICS_CATALOG_POINTER
-
-_GOVERNED_METRIC_LISTING_CAP = 40
+This project keeps approved metric definitions in its data catalog. When your work rests on a measure one of them may already define, `metric-list` shows what exists and `data-catalog-metric-run` runs one, so your number matches the one the team already reports."""
 
 
-def _governed_metric_listing(governed_metric_names: Sequence[str]) -> str:
-    """The names, capped, with the truncation stated as the one case that still warrants a lookup.
+def _governed_metrics_section(project_has_governed_metrics: bool) -> str:
+    """The catalog nudge for a project that has approved metrics, and nothing for any other project.
 
-    The cap keeps the injection to a handful of tokens. Past it the listing is no longer the whole
-    catalog, so the overflow clause has to name the lookup as an exception; otherwise it would
-    contradict the paragraph's rule against re-running the query.
+    Rendered in the per-run block at the end of the prompt because it varies by team: in the
+    investigate step, where it would read most naturally, it would split the shared prefix and
+    leave the stable prose after it uncacheable.
     """
-    listing = ", ".join(f"`{name}`" for name in governed_metric_names[:_GOVERNED_METRIC_LISTING_CAP])
-    overflow = len(governed_metric_names) - _GOVERNED_METRIC_LISTING_CAP
-    if overflow > 0:
-        listing += (
-            f", and {overflow} more this listing omits, so when a measure matches no name above, query "
-            "`system.information_schema.metrics` for it before concluding it has no canonical definition"
-        )
-    return listing
-
-
-def _governed_metrics_section(governed_metric_names: Sequence[str] | None) -> str:
-    """The catalog state this run was handed, as one of three mutually exclusive sections.
-
-    Per-run composed and rendered at the end of the prompt, because the listing is per-team data
-    rather than a template: interpolated into the investigate step, where the rule it qualifies
-    lives, it would break the shared prefix a few hundred characters in and leave the stable prose
-    after it uncacheable.
-    """
-    if governed_metric_names is None:
-        return _METRICS_CATALOG_RULE
-    if not governed_metric_names:
-        return _METRICS_CATALOG_EMPTY
-    return _METRICS_CATALOG_PREFETCHED.format(listing=_governed_metric_listing(governed_metric_names))
+    return _GOVERNED_METRICS_NUDGE if project_has_governed_metrics else ""
 
 
 # The close-out step is identical on every channel bar the word for what the run produces, and it is
@@ -504,6 +460,22 @@ This run updates reports that already exist; it can't author new ones. Find the 
 - **Route an unrouted report.** If a report surfaced assigned to no one, set `suggested_reviewers` to route it to an owner: each reviewer an object, `{{user_uuid}}` (preferred — it names a PostHog member directly, with or without a GitHub account) or `{{github_login}}` (a bare lowercase login, no `@`), never a bare string. If the owner isn't named in the report, call `scout-members-list` for this project's members (the org-scoped `org-member-get-github-login` / `org-members-list` tools aren't available in a scout run). This replaces the report's reviewer list and re-runs autostart, so a report that already has a repo and priority but lacked a qualifying reviewer can now open a draft PR. Only set a reviewer you're confident owns the area; an empty list is a no-op.
 {_EDIT_REPOSITORY_BULLET}
 - **Don't retry blindly.** `edit_report` is NOT idempotent. A retried `append_note` adds a second note. A retried `append_evidence` adds duplicate signals and increases the report counters again. If unsure whether an edit landed, re-read the report rather than re-sending."""
+
+# Rendered for every persona that holds `edit_report`, since both of its rules live on that call.
+# The counters it names are enforced server-side (`scout_report/persistence.py`), so a scout that
+# ignores this section can't overrun them; the section is here so it knows what its call did.
+_REVISING_A_REPORT = """# Revising a report that already has a pull request
+
+A report that autostarted has an open draft pull request built from the summary as it read at the time. When your rewrite changes **what the fix should be** (a different root cause, a different file or layer, a materially wider or narrower scope), pass `supersedes_implementation: true` on the same `scout-edit-report` call. This records a replacement decision for a ready report. Autostart checks the current policy and eligibility before starting a replacement from your new summary. Technical failures retry automatically; a policy block waits for a new edit or research trigger. The existing pull request stays open until the replacement succeeds with a verified open pull request.
+
+- **More evidence for the same fix is not a reason to set it.** The open pull request already implements that fix, and replacing it throws away review someone may already have done. Use `append_note` there instead.
+- **It rides on a real rewrite.** It is ignored unless the same call actually changed the `title` or `summary`. Restating text the report already holds, appending a note, and setting reviewers all count for nothing; the response's `is_content_revision` tells you whether yours counted.
+- **Only the first four content revisions can request replacements.** Every title or summary rewrite counts, including one that did not request a replacement. Past that your rewrite still lands, but it cannot request a replacement. The response's `supersedes_implementation` is true only when the decision was recorded.
+
+# Re-confirming a report still holds
+
+Use `append_note` for new information, recovery details, or observations that exceed the evidence cap. These notes always remain in the work log. For a confirmation with nothing new to add, also set `corroboration_only: true`. Only these confirmations count towards the four-entry cap; later confirmations increase the corroboration count and set `corroboration_collapsed` in the response. Notes never spend a content revision."""
+
 
 # Heading matches the cross-reference in the authoring sections exactly; "not a copy" lives in the
 # body, which is where the rule it names is actually stated.
@@ -1016,6 +988,7 @@ def _report_tail_sections(
         how_a_run_works = f"{_HOW_A_RUN_WORKS}\n{_REPORT_STEPS_BOTH}\n{_REPORT_CLOSE_OUT_STEP}"
         channel_sections = [
             _AUTHORING_VS_EDITING_REPORT_BOTH,
+            _REVISING_A_REPORT,
             _REPORT_SCRATCHPAD_POINTER,
             _SUGGESTED_REVIEWERS_REPORT,
             *([_github_evidence_section(can_emit=can_emit)] if github_read_access else []),
@@ -1040,6 +1013,7 @@ def _report_tail_sections(
         how_a_run_works = f"{_HOW_A_RUN_WORKS}\n{_REPORT_STEPS_EDIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
         channel_sections = [
             _EDITING_REPORT_EDIT_ONLY,
+            _REVISING_A_REPORT,
             _REPORT_SCRATCHPAD_POINTER,
             *([_github_evidence_section(can_emit=can_emit)] if github_read_access else []),
             _REPORT_METRICS,
@@ -1221,7 +1195,7 @@ def build_run_prompt(
     github_read_access: bool = False,
     structured_output_schema: dict | None = None,
     write_scopes: Sequence[str] | None = None,
-    governed_metric_names: Sequence[str] | None = None,
+    project_has_governed_metrics: bool = False,
     mcp_server_names: Sequence[str] | None = None,
     business_knowledge_maintained: bool = False,
     run_note: str | None = None,
@@ -1286,10 +1260,10 @@ def build_run_prompt(
     Empty or None renders nothing, so a scout with the fleet posture is never steered at a write the
     MCP server would refuse.
 
-    `governed_metric_names` is the harness-side pre-fetch of the team's approved, non-drifted metric
-    names: a list (even empty) renders the injected listing so the run is catalog-aware without a
-    probe query, and `None` means the lookup was unavailable, falling back to the prose
-    probe-and-cache rule.
+    `project_has_governed_metrics` is the harness-side check that the team has at least one
+    approved, non-drifted metric the run's acting user may see. True renders a short nudge that the
+    catalog exists; False renders nothing, so a project that does not use the data catalog pays no
+    tokens for it. A failed check is False, because an outage must cost steering only.
 
     `business_knowledge_maintained` must mirror `business_knowledge.is_maintained_for_team`: it
     renders the business-knowledge section, which names tools that only exist in the run's toolset
@@ -1368,7 +1342,7 @@ def build_run_prompt(
     run_block = "\n\n".join(
         section
         for section in (
-            _governed_metrics_section(governed_metric_names),
+            _governed_metrics_section(project_has_governed_metrics),
             _external_mcp_servers_paragraph(mcp_server_names) if mcp_server_names else "",
             write_access_section,
             checkout_section,

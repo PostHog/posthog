@@ -65,7 +65,9 @@ fn maps_labels_to_name_service_and_attributes() {
         "\"10.0.0.1:9100\""
     );
     assert_eq!(row.attributes.get("mode").unwrap(), "\"idle\"");
-    // __name__/job/instance are not duplicated into the attributes map.
+    // `instance` stays in the attributes map so Prometheus-style filters keep working.
+    assert_eq!(row.attributes.get("instance").unwrap(), "\"10.0.0.1:9100\"");
+    // __name__/job are not duplicated into the attributes map.
     assert!(!row.attributes.contains_key("__name__"));
     assert!(!row.attributes.contains_key("job"));
 }
