@@ -15,9 +15,8 @@ describe('scannerScout', () => {
     const scannerId = '0198B7C4-1111-2222-3333-444455556666'
 
     it('derives the skill name from the scanner and the template, never from the typed name', () => {
-        // The skill name is an id: unique per team, fixed at creation, capped at 64 characters. It
-        // used to be slugified from the typed name, which is what pushed that cap onto the name
-        // field. The derivation no longer takes a name at all, so no name can overrun it.
+        // The skill name is an id: unique per team, fixed at creation, capped at 64 characters.
+        // Because the derivation takes no name at all, no typed name can overrun the cap.
         const name = scoutSkillName('Rage clicks on checkout', 'daily-digest', [])
         expect(name).toBe('signals-scout-rage-clicks-on-checkout-daily-digest')
         expect(validateSkillName(name)).toBeUndefined()
@@ -36,7 +35,7 @@ describe('scannerScout', () => {
 
     it('keeps the template key whole when the scanner name would overrun the cap', () => {
         // Only the scanner gives way to the cap, and only inside the id. A scanner named past the
-        // cap must still leave a valid skill name that says which template the scout came from —
+        // cap must still leave a valid skill name that says which template the scout came from:
         // cut mid-word, a slug ends in a hyphen, which fails skill name validation. The keys come
         // from the templates themselves, so a new template joins the invariant without a change here.
         for (const { key } of scannerScoutTemplates(scannerId, 'monitor', '')) {
@@ -48,13 +47,13 @@ describe('scannerScout', () => {
     })
 
     it('fits the cap when a template key alone leaves no room for the scanner', () => {
-        // No key is this long today, but the clamp must subtract the 14-char prefix, not just the
+        // No current key is this long, but the clamp must subtract the 14-char prefix, not just the
         // collision suffix: a 60-char key plus the prefix would otherwise reach 75 against a 64 cap.
         const longKey = 'x'.repeat(60) as ScannerScoutTemplate['key']
         expect(scoutSkillName('Rage clicks on checkout', longKey, []).length).toBeLessThanOrEqual(64)
     })
 
-    it('leads the default name with the scanner, since the id no longer carries it', () => {
+    it('leads the default name with the scanner, since the id is not shown', () => {
         // The scout lands in the Signals fleet beside every other product's, where four scanners'
         // "Daily digest" is four rows of the same name.
         const templates = scannerScoutTemplates(scannerId, 'monitor', 'Rage clicks on checkout')

@@ -211,9 +211,9 @@ describe('scannerScoutLogic', () => {
     })
 
     it('records the typed name and gives the scout an id that does not depend on it', async () => {
-        // The name is no longer slugified into the skill name, so a name of any length survives
-        // whole — and the id stays the scanner's and the template's, which is what keeps it
-        // readable and unique per team.
+        // Because nothing is slugified from the typed name, a name of any length survives whole,
+        // and the id stays the scanner's and the template's, which is what keeps it readable and
+        // unique per team.
         await mountWithReports([])
         const typed = 'Robot: Replay Vision intent and friction report, every weekday morning'
         const config = makeConfig({ output_destinations: {} })
@@ -239,8 +239,8 @@ describe('scannerScoutLogic', () => {
     })
 
     it('creates the scout even when its display name cannot be recorded', async () => {
-        // The scout is already created by then, so a failed rename must not read as a failed create
-        // — but the toast must not claim an unqualified success either.
+        // The scout is already created by then, so a failed rename must not read as a failed
+        // create, but the toast must not claim an unqualified success either.
         await mountWithReports([])
         mockScoutsCreate.mockResolvedValueOnce({
             created: true,

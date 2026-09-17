@@ -709,8 +709,8 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
             }
         }
 
-        /** Records the name the person typed. Nothing else keeps it — the skill name is derived from
-         * the scanner and the template — so this runs for every scout rather than only the ones with
+        /** Records the name the person typed. Nothing else keeps it (the skill name is derived from
+         * the scanner and the template), so this runs for every scout rather than only the ones with
          * a name too long to slug. Best-effort: the scout is already created by this point, so a
          * failure here leaves it named after its skill rather than unsaved. Returns whether the name
          * was recorded, so the create toast can say when it was not. */

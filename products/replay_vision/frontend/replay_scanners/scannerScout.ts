@@ -42,20 +42,19 @@ function slugify(value: string): string {
 
 /** The scout's skill name, which is its id: fixed at creation, unique per team, and what the
  * runtime loads the scout's prompt by. Derived from the scanner and the template the person picked,
- * never from the name they typed — a name nothing is derived from is a name nothing has to bound,
- * which is why the form can take one of any length. Suffixes while taken.
+ * never from the name they typed, so nothing has to bound that name and the form can take one of
+ * any length. Suffixes while taken.
  *
  * The scanner is in the slug because skill names are unique per team, not per scanner. Without it
  * the second scanner's daily digest becomes `signals-scout-daily-digest-2`, which reads as a second
  * digest on that scanner rather than the first, and the numbering climbs with every scanner a team
  * sets up. Template keys are already valid slugs and short, so only the scanner gives way to the
- * cap — and shortening it shortens the id alone, never a name anyone reads. */
+ * cap, and shortening it shortens the id alone, never a name anyone reads. */
 export function scoutSkillName(
     scannerName: string,
     templateKey: ScannerScoutTemplateKey,
     takenNames: string[]
 ): string {
-    // The 64-char cap, less the prefix and the collision suffix.
     const budget = SKILL_NAME_MAX_LENGTH - SIGNALS_SCOUT_SKILL_PREFIX.length - COLLISION_SUFFIX_LENGTH
     // Reserve the join dash and the whole template key, so only the scanner slug is trimmed.
     const scannerSlug = slugify(scannerName)
@@ -250,8 +249,8 @@ const TREND_LENSES: Record<ScannerTypeEnumApi, TrendLens> = {
 
 /** The name the create form starts with. It leads with the scanner because the scout also lands in
  * the Signals fleet beside every other product's, where "Daily digest" on its own doesn't say which
- * scanner files it. The skill name used to carry the scanner into that list; now that the displayed
- * name is the person's own, the default is where the scanner belongs. Editable like any other. */
+ * scanner files it. The displayed name is the person's own, so the default is where the scanner
+ * belongs. Editable like any other. */
 function scoutDefaultName(scannerName: string, phrase: string): string {
     const scanner = scannerName.trim()
     const named = scanner && /[\p{L}\p{N}]/u.test(scanner)
