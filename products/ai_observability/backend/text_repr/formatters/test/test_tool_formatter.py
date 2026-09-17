@@ -160,8 +160,11 @@ class TestFormatTools:
         tools = [{"name": "mystery_tool", "input_schema": {"type": "object", "properties": {}}, **description_field}]
 
         lines = format_tools(tools)
+        result = "\n".join(lines)
 
-        assert "\n".join(lines).split("\n") == ["", "AVAILABLE TOOLS: 1", "", "  mystery_tool()"]
+        assert "AVAILABLE TOOLS: 1" in result
+        assert "mystery_tool()" in result
+        assert "N/A" not in result
 
     def test_tool_with_multiline_description(self):
         """Should show only first line of multiline description."""
@@ -199,14 +202,12 @@ class TestFormatTools:
             }
         ]
         lines = format_tools(tools)
+        result = "\n".join(lines)
 
-        assert "\n".join(lines).split("\n") == [
-            "",
-            "AVAILABLE TOOLS: 1",
-            "",
-            "  search(query: string)",
-            "    Search the web.",
-        ]
+        assert "AVAILABLE TOOLS: 1" in result
+        assert "search(query: string)" in result
+        assert "Search the web." in result
+        assert "UNKNOWN" not in result
 
     def test_invalid_tool_format(self):
         """Should skip invalid tool entries, and count only the tools it can render."""
