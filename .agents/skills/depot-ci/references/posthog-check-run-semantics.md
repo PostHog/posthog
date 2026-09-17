@@ -54,6 +54,10 @@ Depot names each check `<workflow name> / <job name>`. GitHub Actions names it `
 
 Matrix jobs differ: GitHub Actions posts one check per cell and appends the cell to the name, Depot posts one check for the whole job. Depot also posts internal expansion checks named `<file>:<job key>:_dynamicMatrix` for matrices built from `fromJSON`.
 
+## When a check run appears
+
+Depot creates a job's check run when it resolves the job, not when it creates the run: a job that starts gets its check in the same second as Depot's own `started_at` for the job, and a job that is skipped gets a `skipped` check when its dependencies settle. A job behind a long dependency chain therefore has no check run at all until it starts. Measured 2026-09-17 on three runs of `Backend CI on Depot` (for example run `bbtwxmr3b5`): the first job's check appeared 53 to 65 seconds after the run was created, and the gate job's check appeared 21 minutes later, when the matrix finished. GitHub Actions differs: it posts every job's check as `queued` when the run is created. A poller that treats "no check run yet" as "the run does not exist" is wrong on Depot; poll the first job in the `needs` graph to learn whether Depot picked the event up, and the gate to learn the verdict.
+
 ## Reruns
 
 Retrying a failed Depot job updates the existing check run: same check run id, new timestamps and conclusion. GitHub Actions instead creates a fresh check run per attempt and leaves the old one behind, which is why a superseded GitHub Actions run can show a stale red check beside a green one of the same name. Read the latest check run per name when you script against either engine.
