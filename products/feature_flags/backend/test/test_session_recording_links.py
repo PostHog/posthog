@@ -226,6 +226,21 @@ class TestAHardDeleteTakesTheReferenceWithIt(BaseTest):
             "key": "replay-gate",
         }
 
+    def test_a_surviving_environment_loses_its_reference_when_the_flags_own_team_goes(self) -> None:
+        # Deleting one environment keeps the project and its other environments. The flag picker
+        # is project-scoped, so a surviving environment can gate on the deleted one's flag, and
+        # the cascade takes that flag with no team left to resolve the project from.
+        owner = Team.objects.create(organization=self.organization, project=self.project)
+        FeatureFlag.objects.create(team=owner, created_by=self.user, key="replay-gate")
+        sibling = Team.objects.create(organization=self.organization, project=self.project)
+        set_trigger_groups(sibling, {"flag": "replay-gate"})
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Team.objects.filter(pk=owner.pk).delete()
+
+        sibling.refresh_from_db()
+        assert sibling.session_recording_trigger_groups is None
+
     def test_another_projects_team_keeps_its_own_flag(self) -> None:
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
         other_team = Team.objects.create(organization=self.organization)

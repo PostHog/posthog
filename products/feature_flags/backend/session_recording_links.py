@@ -544,12 +544,15 @@ def relink_teams(feature_flag: FeatureFlag, *, old_key: str) -> None:
             capture_exception()
 
 
-def clear_replay_gates(*, flag_id: int, key: str, team_id: int) -> None:
+def clear_replay_gates(*, flag_id: int, key: str, project_id: int) -> None:
     """Drop every reference to a hard-deleted flag from the teams that gate replay on it.
 
     A hard delete leaves the reference naming a flag that no longer exists, and no key to move it
     onto, so the only repair left is to take the reference out. `repair_replay_linked_flag_keys`
     can only report such a row, as flag_missing.
+
+    The project is passed in rather than read from the flag's own team, because a cascade can take
+    that team with the flag. The teams that keep a reference are the ones that survive.
     """
 
     def clear(team: Team) -> ReplayGateRewrite:
@@ -579,16 +582,11 @@ def clear_replay_gates(*, flag_id: int, key: str, team_id: int) -> None:
         )
 
     try:
-        project_id = Team.objects.filter(pk=team_id).values_list("project_id", flat=True).first()
-        if project_id is None:
-            # The flag's own team is gone too, so this is a team or project delete cascading. Every
-            # team that could hold a reference is going with it.
-            return
         team_ids = list(
             teams_gating_replay(project_id=project_id, flag_id=flag_id, key=key).values_list("pk", flat=True)
         )
     except Exception:
-        # These reads run after the delete has committed, so a fault here must not raise for the
+        # This read runs after the delete has committed, so a fault here must not raise for the
         # same reason a write failure below must not: it would fail a request that already
         # succeeded.
         logger.exception("replay_gate_clear_lookup_failed", flag_id=flag_id)
@@ -609,12 +607,18 @@ def clear_replay_gates_on_delete(sender: type[FeatureFlag], instance: FeatureFla
     # writers that go around it: a management command, a cascade, and the Django admin. Wired to
     # the model signal for the reason `relink_teams_on_key_change` is.
     #
-    # The id, key and team are read here rather than in the callback because Django clears the id
-    # off the instance once the collector finishes, which is before the callback runs.
+    # The id and key are read here rather than in the callback because Django clears the id off the
+    # instance once the collector finishes, which is before the callback runs.
     flag_id = instance.pk
     key = instance.key
-    team_id = instance.team_id
-    transaction.on_commit(lambda: clear_replay_gates(flag_id=flag_id, key=key, team_id=team_id))
+    # The project is resolved here for a second reason: deleting one environment keeps the project
+    # and its other environments, and the cascade takes this flag's own team with it. Resolving the
+    # project from that team after the commit would find nothing, and the surviving environments
+    # would keep a reference to a flag that no longer exists.
+    project_id = Team.objects.filter(pk=instance.team_id).values_list("project_id", flat=True).first()
+    if project_id is None:
+        return
+    transaction.on_commit(lambda: clear_replay_gates(flag_id=flag_id, key=key, project_id=project_id))
 
 
 _KEY_BEFORE_SAVE_ATTR = "_replay_link_key_before_save"
