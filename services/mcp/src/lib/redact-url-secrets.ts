@@ -28,8 +28,12 @@ const SENSITIVE_NAME_PARTS = [
 /** Names that are credentials on their own, but read as false positives inside longer words. */
 const SENSITIVE_NAMES = new Set(['auth', 'oauth', 'code', 'sig', 'pass', 'pwd'])
 
-/** `scheme://user:password@host`, where the credentials sit before the first `/`, `?`, `#` or `@`. */
-const USERINFO = /^([a-z][a-z0-9+.-]*:\/\/)[^/?#@]*@/i
+/**
+ * `scheme://user:password@host`, where the credentials sit before the host. The match is greedy
+ * up to the last `@` in the authority, because a raw password can hold an `@` of its own. A `@`
+ * in the path cannot match, because the authority ends at the first `/`.
+ */
+const USERINFO = /^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i
 
 /** One `name=value` pair of a query string or a query-shaped fragment. */
 const PARAM = /([^&=]+)=([^&]*)/g

@@ -47,6 +47,16 @@ const cases: { name: string; url: string; expected: string }[] = [
         expected: 'https://internal.example.com/dashboard',
     },
     {
+        name: 'drops the whole userinfo when the password holds an at sign',
+        url: 'https://someone:fake@password@internal.example.com/dashboard',
+        expected: 'https://internal.example.com/dashboard',
+    },
+    {
+        name: 'keeps an at sign that belongs to the path',
+        url: 'https://app.example.com/posts/@someone/drafts',
+        expected: 'https://app.example.com/posts/@someone/drafts',
+    },
+    {
         name: 'redacts a JWT anywhere in the URL',
         url: 'https://app.example.com/verify/eyJhbGciOiJmYWtlIn0.eyJzdWIiOiJmYWtlIn0.c2lnbmF0dXJl',
         expected: 'https://app.example.com/verify/[redacted]',
