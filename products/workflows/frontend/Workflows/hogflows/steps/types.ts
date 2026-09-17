@@ -232,7 +232,6 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                     name: z.string().optional(), // Custom name for the condition
                 })
             ),
-            delay_duration: z.string().optional(),
         }),
     }),
     z.object({
