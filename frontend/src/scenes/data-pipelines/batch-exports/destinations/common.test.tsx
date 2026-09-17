@@ -1,23 +1,26 @@
 import { ParquetExtensionField, shouldShowParquetExtensionField } from './common'
 
 describe('shouldShowParquetExtensionField', () => {
-    const savedParquet = { file_format: 'Parquet' }
+    const savedParquet = { file_format: 'Parquet', compression: 'zstd' }
+    const shown = { isNew: false, fileFormat: 'Parquet', compression: 'zstd', savedConfig: savedParquet }
 
     it.each([
-        ['a new export has nothing to grandfather', { isNew: true, fileFormat: 'Parquet', savedConfig: savedParquet }],
-        ['the export has not loaded yet', { isNew: false, fileFormat: 'Parquet', savedConfig: null }],
+        ['a new export has nothing to grandfather', { ...shown, isNew: true }],
+        ['the export has not loaded yet', { ...shown, savedConfig: null }],
         [
             'the export has only ever written JSON Lines',
-            { isNew: false, fileFormat: 'Parquet', savedConfig: { file_format: 'JSONLines' } },
+            { ...shown, savedConfig: { file_format: 'JSONLines', compression: 'gzip' } },
+        ],
+        [
+            'the export has only ever written uncompressed Parquet',
+            { ...shown, savedConfig: { file_format: 'Parquet', compression: null } },
         ],
         [
             'the export already opted in to the standard extension',
-            { isNew: false, fileFormat: 'Parquet', savedConfig: { ...savedParquet, legacy_parquet_extension: false } },
+            { ...shown, savedConfig: { ...savedParquet, legacy_parquet_extension: false } },
         ],
-        [
-            'the format is being switched away from Parquet',
-            { isNew: false, fileFormat: 'JSONLines', savedConfig: savedParquet },
-        ],
+        ['the format is being switched away from Parquet', { ...shown, fileFormat: 'JSONLines' }],
+        ['compression is being turned off, so the name carries no codec either way', { ...shown, compression: null }],
     ])('is false when %s', (_, props) => {
         expect(shouldShowParquetExtensionField(props)).toBe(false)
     })
@@ -26,12 +29,12 @@ describe('shouldShowParquetExtensionField', () => {
         ['the flag has not been stamped yet', savedParquet],
         ['the flag is explicitly on', { ...savedParquet, legacy_parquet_extension: true }],
     ])('is true for a grandfathered Parquet export when %s', (_, savedConfig) => {
-        expect(shouldShowParquetExtensionField({ isNew: false, fileFormat: 'Parquet', savedConfig })).toBe(true)
+        expect(shouldShowParquetExtensionField({ ...shown, savedConfig })).toBe(true)
     })
 
     // Called directly rather than rendered, because the LemonField body needs a surrounding kea form.
     it('decides whether the field renders', () => {
-        expect(ParquetExtensionField({ isNew: true, fileFormat: 'Parquet', savedConfig: savedParquet })).toBeNull()
-        expect(ParquetExtensionField({ isNew: false, fileFormat: 'Parquet', savedConfig: savedParquet })).not.toBeNull()
+        expect(ParquetExtensionField({ ...shown, isNew: true })).toBeNull()
+        expect(ParquetExtensionField(shown)).not.toBeNull()
     })
 })

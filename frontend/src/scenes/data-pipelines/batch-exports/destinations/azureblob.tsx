@@ -77,7 +77,12 @@ export const azureBlobDefinition: DestinationDefinition = {
 
                 <CompressionField fileFormat={formValues.file_format} />
 
-                <ParquetExtensionField isNew={isNew} fileFormat={formValues.file_format} savedConfig={savedConfig} />
+                <ParquetExtensionField
+                    isNew={isNew}
+                    fileFormat={formValues.file_format}
+                    compression={formValues.compression}
+                    savedConfig={savedConfig}
+                />
             </>
         )
     },

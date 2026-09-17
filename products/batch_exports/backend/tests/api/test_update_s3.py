@@ -186,22 +186,30 @@ def test_updating_s3_family_batch_export_preserves_legacy_parquet_extension(
 
 
 @pytest.mark.parametrize(
-    "stored_file_format,expected",
-    [("Parquet", True), ("JSONLines", False)],
+    "stored_file_format,stored_compression,expected",
+    [
+        ("Parquet", "zstd", True),
+        ("JSONLines", "gzip", False),
+        ("Parquet", None, False),
+    ],
 )
-def test_updating_s3_family_batch_export_pins_naming_from_the_stored_format(
-    client: HttpClient, temporal, organization, team, user, stored_file_format, expected
+def test_updating_s3_family_batch_export_pins_naming_from_the_stored_config(
+    client: HttpClient, temporal, organization, team, user, stored_file_format, stored_compression, expected
 ):
-    """An export with no stored value records its naming from the format it was already running.
+    """An export with no stored value records its naming from what it was already writing.
 
-    An export that has only ever written JSON Lines has no Parquet files to grandfather, so
-    switching it to Parquet must produce '.parquet'. One that already wrote Parquet keeps the
-    names its downstream pipeline matches on.
+    Only an export already writing compressed Parquet has names carrying a codec. One on JSON
+    Lines, or on Parquet with no compression, has none, so moving it to compressed Parquet must
+    produce '.parquet'.
     """
     destination_type, kind, integration_config = _S3_FAMILY_INTEGRATIONS[0]
     _, batch_export = _create_integration_backed_export(client, team, user, destination_type, kind, integration_config)
     destination = BatchExportDestination.objects.get(batchexport__id=batch_export["id"])
-    destination.config = {**destination.config, "file_format": stored_file_format}
+    destination.config = {
+        **destination.config,
+        "file_format": stored_file_format,
+        "compression": stored_compression,
+    }
     # remove any stored value for legacy_parquet_extension to mimic an existing batch export
     destination.config.pop("legacy_parquet_extension", None)
     destination.save()
@@ -210,7 +218,7 @@ def test_updating_s3_family_batch_export_pins_naming_from_the_stored_format(
         client,
         team.pk,
         batch_export["id"],
-        {"destination": {"type": destination_type, "config": {"file_format": "Parquet"}}},
+        {"destination": {"type": destination_type, "config": {"file_format": "Parquet", "compression": "zstd"}}},
     )
 
     assert response.status_code == status.HTTP_200_OK, response.json()

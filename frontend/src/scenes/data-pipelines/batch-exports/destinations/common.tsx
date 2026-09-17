@@ -203,6 +203,15 @@ const JSONLINES_COMPRESSION_OPTIONS = [
     { value: null, label: 'No compression' },
 ]
 
+// Mirrors COMPRESSION_EXTENSIONS in the backend's destinations/constants.py.
+const COMPRESSION_EXTENSIONS: Record<string, string> = {
+    gzip: 'gz',
+    snappy: 'sz',
+    brotli: 'br',
+    zstd: 'zst',
+    lz4: 'lz4',
+}
+
 export function isSelectedCompressionOptionValid(fileFormat: string | undefined, value: string | null): boolean {
     if (fileFormat === 'Parquet') {
         return PARQUET_COMPRESSION_OPTIONS.some((option) => option.value === value)
@@ -249,27 +258,26 @@ export function FileFormatField(): JSX.Element {
 interface ParquetExtensionFieldProps {
     isNew: boolean
     fileFormat: string | undefined
+    compression: string | null | undefined
     savedConfig?: Record<string, any> | null
 }
 
-// Two different formats matter here. `fileFormat` is the one currently selected in the form, which
-// the user may not have saved. `savedConfig.file_format` is the one the export last saved, so it is
-// the format the export has actually been writing. Both must be Parquet.
+// The setting only changes a name that carries a codec, so it needs compressed Parquet on both
+// sides: the form values say what the export is about to write, `savedConfig` what it has been
+// writing. Without a codec the name is `.parquet` either way and the switch would do nothing.
 //
-// Requiring the saved format keeps the field hidden for an export that has only ever written JSON
-// Lines and is being switched to Parquet in the form. That export has no Parquet files to
-// grandfather, so the switch would state a setting that does not apply to it. Reading the saved
-// setting rather than the form value also stops the field disappearing the moment the user
-// switches it off.
+// Reading the saved side also stops the field disappearing the moment the user switches it on.
 export function shouldShowParquetExtensionField({
     isNew,
     fileFormat,
+    compression,
     savedConfig,
 }: ParquetExtensionFieldProps): boolean {
-    if (isNew || fileFormat !== 'Parquet') {
+    if (isNew || fileFormat !== 'Parquet' || !compression || !COMPRESSION_EXTENSIONS[compression]) {
         return false
     }
-    return savedConfig?.file_format === 'Parquet' && savedConfig.legacy_parquet_extension !== false
+    const wroteCompressedParquet = savedConfig?.file_format === 'Parquet' && !!savedConfig.compression
+    return wroteCompressedParquet && savedConfig?.legacy_parquet_extension !== false
 }
 
 export function ParquetExtensionField(props: ParquetExtensionFieldProps): JSX.Element | null {
@@ -277,27 +285,29 @@ export function ParquetExtensionField(props: ParquetExtensionFieldProps): JSX.El
         return null
     }
 
+    const legacyExtension = `.parquet.${COMPRESSION_EXTENSIONS[props.compression as string]}`
+
     return (
         <LemonField
             name="legacy_parquet_extension"
             label="File extension"
-            help="Switching this off cannot be undone here. After you save, the setting no longer appears for this export."
+            help="Note: switching this on cannot be undone here; after you save, the setting no longer appears for this export."
             info={
                 <>
                     Parquet records the compression codec inside the file, so the standard extension is{' '}
-                    <code>.parquet</code> regardless of the codec. This export writes names like{' '}
-                    <code>.parquet.zst</code> instead. Turn this off to name new files <code>.parquet</code>. Files
-                    already exported keep their names.
+                    <code>.parquet</code> regardless of the codec. This export writes <code>{legacyExtension}</code>{' '}
+                    instead. Turn this on to name new files <code>.parquet</code>. Files already exported keep their
+                    names.
                 </>
             }
         >
             {({ value, onChange }) => (
                 <LemonSwitch
-                    label="Add the compression codec to the file extension"
-                    // An export that predates the setting stores no value, and the workflow inputs
-                    // read a missing value as the legacy naming. Show what the export actually does.
-                    checked={value ?? true}
-                    onChange={onChange}
+                    label={`Use the standard .parquet extension rather than ${legacyExtension}`}
+                    // The stored setting names the legacy behaviour, so the switch reads the other
+                    // way round: turning it on opts the export out of that behaviour.
+                    checked={value === false}
+                    onChange={(checked) => onChange(!checked)}
                     fullWidth
                     bordered
                 />
@@ -455,13 +465,17 @@ export function S3FamilyFields({
                 )}
             </div>
 
-            <ParquetExtensionField isNew={isNew} fileFormat={formValues.file_format} savedConfig={savedConfig} />
+            <ParquetExtensionField
+                isNew={isNew}
+                fileFormat={formValues.file_format}
+                compression={formValues.compression}
+                savedConfig={savedConfig}
+            />
 
             {showVirtualStyleAddressing && (
                 <LemonField
                     name="use_virtual_style_addressing"
                     label="Virtual style addressing"
-                    showOptional
                     info={
                         <>
                             Some non-AWS S3-compatible destinations may require this setting enabled. Check your

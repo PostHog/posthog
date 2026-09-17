@@ -877,18 +877,22 @@ def pin_existing_parquet_extension(destination_type: str, stored_config: dict[st
     """Record what an export's file names already look like, before a patch can change its format.
 
     An export that predates this setting has no value for it, and a missing value reads as the
-    legacy naming. That is correct only while the export keeps writing the format it has always
-    written. An export that has only ever written JSON Lines has no Parquet files to grandfather,
-    so switching it to Parquet has to produce `.parquet`, not `.parquet.zst`.
+    legacy naming. That is correct only for an export that already writes names carrying a codec,
+    which means Parquet with a compression codec set. An export on JSON Lines, or on Parquet with
+    no compression, has no such names to keep, so moving it to compressed Parquet has to produce
+    `.parquet` rather than `.parquet.zst`.
 
-    Takes the config as stored, before the incoming patch merges into it, so the value reflects the
-    format the export has been running rather than the one it is moving to. An explicit value in
-    the patch still wins, because the merge applies afterwards.
+    Takes the config as stored, before the incoming patch merges into it, so the value reflects
+    what the export has been running rather than what it is moving to. An explicit value in the
+    patch still wins, because the merge applies afterwards.
     """
     if destination_type not in OBJECT_STORAGE_DESTINATIONS:
         return
 
-    stored_config.setdefault("legacy_parquet_extension", stored_config.get("file_format") == "Parquet")
+    wrote_compressed_parquet = (
+        stored_config.get("file_format") == "Parquet" and stored_config.get("compression") is not None
+    )
+    stored_config.setdefault("legacy_parquet_extension", wrote_compressed_parquet)
 
 
 def _coerce_integration_id(value: typing.Any) -> int | None:
