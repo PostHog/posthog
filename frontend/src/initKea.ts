@@ -60,6 +60,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadFullEmail', // Its failure listener shows a retry toast and closes the modal
     'addToPlaylist', // The replay collection popover toasts its own add failure
     'removeFromPlaylist', // The replay collection popover toasts its own remove failure
+    'onPinnedChange', // The collection scene toasts its own pin/unpin failure
     'draftScannerFromGoal', // replayScannerLogic's failure listener toasts and routes back to the goal questions
     'loadRunDiff', // The Wizard run drawer renders its own diff error banner with a retry
     'loadRunArtifacts', // The Wizard run drawer renders its own artifact error banner with a retry
