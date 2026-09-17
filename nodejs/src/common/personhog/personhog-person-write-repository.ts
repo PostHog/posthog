@@ -5,12 +5,13 @@ import { withRetry } from './grpc-retry'
 import {
     DistinctIdKey,
     GetOrCreatePersonEntry,
+    GetOrCreatePersonOutcome,
     MergeSagaRequest,
     MergeSagaResult,
     PersonhogIdentityOperations,
 } from './identity'
 import { timedGrpc } from './metrics'
-import { FoldedPersonUpdate } from './persons'
+import { FoldedPersonUpdate, PersonIdentity } from './persons'
 
 /**
  * Write-side person repository backed by personhog gRPC, the
@@ -36,14 +37,13 @@ export class PersonHogPersonWriteRepository {
 
     /**
      * Primary-backed distinct-id resolution; never creates. Results in
-     * request order, null person for an unresolved key. State freshness
-     * is writer-applied — callers that need the leader's view fetch the
-     * person by id afterwards.
+     * request order, null person for an unresolved key. Identity only:
+     * callers that need state fetch the person by id from its leader.
      */
     resolvePersonsByDistinctIds(
         keys: DistinctIdKey[],
         callerTag?: string
-    ): Promise<{ teamId: number; distinctId: string; person: InternalPerson | null }[]> {
+    ): Promise<{ teamId: number; distinctId: string; person: PersonIdentity | null }[]> {
         const method = 'resolvePersonsByDistinctIds'
         return withRetry(
             () => timedGrpc(this.clientLabel, method, () => this.identity.getPersonsByDistinctIds(keys, callerTag)),
@@ -105,7 +105,7 @@ export class PersonHogPersonWriteRepository {
     getOrCreatePersonByDistinctId(
         entry: GetOrCreatePersonEntry,
         callerTag?: string
-    ): Promise<{ person: InternalPerson; created: boolean }> {
+    ): Promise<GetOrCreatePersonOutcome> {
         const method = 'getOrCreatePersonByDistinctId'
         return withRetry(
             () =>

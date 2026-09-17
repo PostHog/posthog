@@ -86,7 +86,6 @@ import {
 } from 'scenes/hog-functions/filters/HogFunctionFiltersInternal'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { NotebookType } from 'scenes/notebooks/types'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { projectLogic } from 'scenes/projectLogic'
 import { SavedFiltersTaxonomicGroup } from 'scenes/session-recordings/filters/SavedFiltersTaxonomicGroup'
 import { teamLogic } from 'scenes/teamLogic'
@@ -119,8 +118,10 @@ import {
     TeamType,
 } from '~/types'
 
+import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
+import { groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
 import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
 
 import type { Noun } from '../../../models/groupsModel'
@@ -172,6 +173,10 @@ const PROMOTED_SHORTCUT_GROUP_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.Screens,
     TaxonomicFilterGroupType.EmailAddresses,
 ]
+
+function requestsGroup(props: TaxonomicFilterLogicProps, groupType: TaxonomicFilterGroupType): boolean {
+    return !props.taxonomicGroupTypes || props.taxonomicGroupTypes.includes(groupType)
+}
 
 /** Drop the group types no group serves, and the second half of every mutually exclusive pair. */
 export function resolveAvailableGroupTypes(
@@ -515,6 +520,10 @@ export interface taxonomicFilterLogicValues {
     allowNonCapturedEvents: boolean
     anyGroupLoading: boolean
     anyGroupStale: boolean
+    cohortGroupOptions: {
+        hideBehavioralCohorts: boolean
+        showCohortFlagTargeting: boolean
+    }
     currentTabIndex: number
     dataWarehousePopoverFields: any
     endpointFilters: Record<string, any>
@@ -565,6 +574,7 @@ export interface taxonomicFilterLogicValues {
     searchQuery: string
     selectedItemMeta: any
     selectedProperties: TaxonomicFilterGroupValueMap
+    showCohortFlagTargeting: boolean
     showNumericalPropsOnly: any
     suggestedFilterGroupOrder: TaxonomicFilterGroupType[]
     suggestedFiltersLabel: any
@@ -684,6 +694,14 @@ export interface taxonomicFilterLogicMeta {
         }
         allowNonCapturedEvents: (arg: any) => boolean
         hideBehavioralCohorts: (arg: any) => boolean
+        showCohortFlagTargeting: (arg: any) => boolean
+        cohortGroupOptions: (
+            hideBehavioralCohorts: boolean,
+            showCohortFlagTargeting: boolean
+        ) => {
+            hideBehavioralCohorts: boolean
+            showCohortFlagTargeting: boolean
+        }
         hogQLExpressionComponentProps: (
             arg: any,
             arg2: any
@@ -723,7 +741,10 @@ export interface taxonomicFilterLogicMeta {
                 person: PropertyDefinition[]
             },
             maxContextOptions: any,
-            hideBehavioralCohorts: boolean,
+            cohortGroupOptions: {
+                hideBehavioralCohorts: boolean
+                showCohortFlagTargeting: boolean
+            },
             endpointFilters: Record<string, any>,
             hogQLExpressionComponentProps: {
                 globals?: Record<string, any>
@@ -835,10 +856,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         actions: [primaryEventPropertiesModel, ['ensureLoadedForEvents']],
         logic: [
-            actionsModel({
-                shouldLoad:
-                    !props.taxonomicGroupTypes || props.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Actions),
-            }),
+            actionsModel({ shouldLoad: requestsGroup(props, TaxonomicFilterGroupType.Actions) }),
+            ...(requestsGroup(props, TaxonomicFilterGroupType.Dashboards) ? [dashboardsModel] : []),
         ],
     })),
     actions(() => ({
@@ -1065,6 +1084,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.hideBehavioralCohorts],
             (hideBehavioralCohorts: boolean | undefined) => hideBehavioralCohorts ?? false,
         ],
+        showCohortFlagTargeting: [
+            () => [(_, props) => props.showCohortFlagTargeting],
+            (showCohortFlagTargeting: boolean | undefined) => showCohortFlagTargeting ?? false,
+        ],
+        // The two cohort-group props travel as one input because `taxonomicGroups` already sits at
+        // kea's ceiling of 16 selector inputs.
+        cohortGroupOptions: [
+            (s) => [s.hideBehavioralCohorts, s.showCohortFlagTargeting],
+            (hideBehavioralCohorts: boolean, showCohortFlagTargeting: boolean) => ({
+                hideBehavioralCohorts,
+                showCohortFlagTargeting,
+            }),
+        ],
         hogQLExpressionComponentProps: [
             () => [(_, props) => props.hogQLGlobals, (_, props) => props.hogQLExpressionShowBreakdownLabelHint],
             (
@@ -1104,7 +1136,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.propertyFilters,
                 s.metadataPropertyDefinitionsByType,
                 s.maxContextOptions,
-                s.hideBehavioralCohorts,
+                s.cohortGroupOptions,
                 s.endpointFilters,
                 s.hogQLExpressionComponentProps,
                 s.featureFlags,
@@ -1138,7 +1170,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     person: PropertyDefinition[]
                 },
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
-                hideBehavioralCohorts: boolean,
+                {
+                    hideBehavioralCohorts,
+                    showCohortFlagTargeting,
+                }: {
+                    hideBehavioralCohorts: boolean
+                    showCohortFlagTargeting: boolean
+                },
                 endpointFilters: Record<string, any> | undefined,
                 hogQLExpressionComponentProps: {
                     globals?: Record<string, any>
@@ -1777,6 +1815,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         clientFilterFirstPage: true,
                         getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
                         getValue: (cohort: CohortType) => cohort.id,
+                        getTag: showCohortFlagTargeting
+                            ? (cohort: CohortType) => <CohortRealtimeTag realtime={cohort.realtime} />
+                            : undefined,
                         getPopoverHeader: (cohort: CohortType) => `${cohort.is_static ? 'Static' : 'Dynamic'} Cohort`,
                         getIcon: function _getIcon(): JSX.Element {
                             return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
@@ -1798,6 +1839,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         options: COHORTS_WITH_ALL_USERS_OPTIONS,
                         getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
                         getValue: (cohort: CohortType) => cohort.id,
+                        getTag: showCohortFlagTargeting
+                            ? (cohort: CohortType) => <CohortRealtimeTag realtime={cohort.realtime} />
+                            : undefined,
                         getPopoverHeader: () => `All Users`,
                         getIcon: function _getIcon(): JSX.Element {
                             return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
@@ -1975,6 +2019,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.Dashboards,
                         logic: dashboardsModel,
                         value: 'nameSortedDashboards',
+                        valueLoading: 'dashboardsLoading',
                         getName: (dashboard: DashboardType) => dashboard.name,
                         getValue: (dashboard: DashboardType) => dashboard.id,
                         getPopoverHeader: () => `Dashboards`,
@@ -2488,6 +2533,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         // Initial fire — the model dedupes against taxonomy defaults and already-loaded names.
         if (props.eventNames?.length) {
             actions.ensureLoadedForEvents(props.eventNames)
+        }
+        if (requestsGroup(props, TaxonomicFilterGroupType.Dashboards)) {
+            dashboardsModel.actions.loadDashboardsIfNeeded()
         }
         // If we land with an initial search query (e.g. deep-linked filter), arm the same
         // 5s reveal-barrier timer as a normal keystroke would — the `setSearchQuery`

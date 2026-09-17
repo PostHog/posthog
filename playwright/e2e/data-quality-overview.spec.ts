@@ -11,7 +11,7 @@ const CHECK_NAME = 'orders_has_rows'
 const SUBJECT_NAME = 'orders_e2e'
 
 test('edits and deletes a check from Data Ops', async ({ page, playwrightSetup }) => {
-    const workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true })
+    const workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
     const auth = {
         headers: {
             Authorization: `Bearer ${workspace.personal_api_key}`,

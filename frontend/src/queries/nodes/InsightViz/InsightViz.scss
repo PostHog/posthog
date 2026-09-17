@@ -66,6 +66,17 @@
                     .ActionFilterGroup--events-list .TaxonomicPropertyFilter__row-items {
                         flex-basis: 100%;
                     }
+
+                    // The empty row keeps "where + Filter" as one unit so the suffix button wraps below it
+                    .ActionFilterGroup--events-list .property-filter-row--with-suffix .TaxonomicPropertyFilter__row {
+                        flex-wrap: nowrap;
+                    }
+
+                    .ActionFilterGroup--events-list
+                        .property-filter-row--with-suffix
+                        .TaxonomicPropertyFilter__row-items {
+                        flex-basis: auto;
+                    }
                 }
 
                 @container editor-panel (max-width: 400px) {
@@ -85,6 +96,14 @@
 
                     .ActionFilterRow-filters .TaxonomicPropertyFilter__row-operator--empty {
                         display: none;
+                    }
+
+                    .ActionFilterRow-filters .property-filter-row--with-suffix .TaxonomicPropertyFilter__row {
+                        flex-wrap: nowrap;
+                    }
+
+                    .ActionFilterRow-filters .property-filter-row--with-suffix .TaxonomicPropertyFilter__row-items {
+                        flex-basis: auto;
                     }
                 }
             }

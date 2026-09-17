@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -119,6 +120,7 @@ class TestKernelRuntimeService(BaseTest):
 
         assert sandbox_config.template.value == "notebook_base"
         assert sandbox_config.name == f"notebook-kernel-{notebook.short_id}"
+        assert sandbox_config.metadata == {"team_id": str(self.team.id), "product": "notebooks"}
         for key, value in expected.items():
             assert getattr(sandbox_config, key) == value
 
@@ -193,6 +195,43 @@ class TestKernelRuntimeService(BaseTest):
         with patch.dict("os.environ", {}, clear=True):
             with self.assertRaisesMessage(RuntimeError, "Modal credentials are required to start notebook kernels"):
                 service._get_backend(require_credentials=True)
+
+    @parameterized.expand([("destroyed", False), ("destroy_failed", True)])
+    @patch("products.notebooks.backend.kernel_sandbox_usage.report_user_or_team_action")
+    def test_shutdown_reports_whether_the_sandbox_still_runs(
+        self, _name: str, destroy_fails: bool, mock_report: MagicMock
+    ) -> None:
+        notebook = Notebook.objects.create(team=self.team)
+        runtime = KernelRuntime.objects.create(
+            team=self.team,
+            notebook=notebook,
+            notebook_short_id=notebook.short_id,
+            user=self.user,
+            status=KernelRuntime.Status.RUNNING,
+            backend=KernelRuntime.Backend.MODAL,
+            sandbox_id="sb-notebook-kernel",
+            provisioned_cpu_cores=1,
+            provisioned_memory_gb=2,
+        )
+        KernelRuntime.objects.filter(pk=runtime.pk).update(ttl_expires_at=runtime.created_at + timedelta(hours=1))
+        sandbox = MagicMock()
+        if destroy_fails:
+            sandbox.destroy.side_effect = RuntimeError("provider unavailable")
+        sandbox_class = MagicMock()
+        sandbox_class.get_by_id.return_value = sandbox
+        service = KernelRuntimeService()
+
+        with (
+            patch.object(service, "_acquire_lock", return_value=_DummyLock()),
+            patch.object(service, "_get_sandbox_class", return_value=sandbox_class),
+        ):
+            assert service.shutdown_kernel(notebook, self.user)
+
+        mock_report.assert_called_once()
+        event, properties = mock_report.call_args[0]
+        assert event == "notebook kernel sandbox ended"
+        assert properties["ended_reason"] == KernelRuntime.Status.STOPPED
+        assert properties["sandbox_still_running"] is destroy_fails
 
     def test_execute_filters_invalid_variable_names(self) -> None:
         service = KernelRuntimeService()

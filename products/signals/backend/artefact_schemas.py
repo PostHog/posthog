@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from datetime import datetime
 from enum import Enum
 from typing import Any, Literal, cast
 from uuid import UUID
@@ -74,7 +75,8 @@ class SignalFinding(BaseModel):
         json_schema_extra={"minProperties": 1},
         description=(
             "A mapping of 'git commit short SHA (7 characters)' -> 'reason'. "
-            "Values are short explanations of WHY each commit is relevant. "
+            "Each value is one sentence of at most 12 words that explains why the commit is relevant. "
+            "Name the affected surface or behavior instead of listing implementation details. "
             "Use `git blame --ignore-revs-file $(git rev-parse --show-toplevel)/.git-blame-ignore-revs` on "
             "the most critical code paths to identify commits that caused, or are most closely related to, "
             "the issue described by this report. Prioritize causative commits (e.g. the commit that introduced a bug) "
@@ -430,6 +432,10 @@ class TaskRunArtefact(BaseModel):
 
     task_id: str = Field(description="UUID of the `tasks.Task` this run belongs to.")
     run_id: str | None = Field(default=None, description="UUID of the specific `TaskRun`, if known.")
+    automation_branch: str | None = Field(
+        default=None,
+        description="Server-generated branch for this automatically started implementation run. Absent on manual runs.",
+    )
     product: str = Field(
         description="Product that ran the task — `signals` for the built-in pipeline, or a custom agent's "
         "product identifier."
@@ -579,6 +585,79 @@ class RelatedTo(BaseModel):
         return v
 
 
+class ImplementationTarget(BaseModel):
+    task_id: UUID
+    run_id: UUID
+    claim_id: UUID | None = None
+    pr_url: str
+    head_sha: str = Field(min_length=1)
+    automation_artefact_id: UUID
+
+
+class ImplementationAssessment(BaseModel):
+    obsolete_pr_urls: list[str] = Field(
+        description="Only URLs from the supplied PostHog candidates whose fixes must be replaced. Empty means keep them all."
+    )
+    reason: str = Field(min_length=1, description="What changed and why these specific fixes no longer fit.")
+
+
+class ImplementationDecision(BaseModel):
+    """Server-bound research recommendation, protected because it authorizes replacement work."""
+
+    supersede: bool = Field(
+        description=(
+            "True only when what you found changes what the fix should be — a different root cause, "
+            "a different file or layer, a materially wider or narrower scope. More evidence for the "
+            "same fix is not a reason to set this, because the open pull request already implements "
+            "that fix. A true decision can start an automated replacement; selected predecessors "
+            "close only after the replacement completes with verified open PRs."
+        )
+    )
+    reason: str = Field(
+        description="One or two sentences naming what changed and why the existing pull request no longer fits."
+    )
+    targets: list[ImplementationTarget] = Field(default_factory=list)
+    research_run_count: int | None = None
+    research_started_at: datetime | None = None
+    content_revision_count: int = 0
+    blocked_reason: Literal["revision_limit"] | None = None
+
+    @field_validator("reason")
+    @classmethod
+    def reason_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+
+class ImplementationReplacement(BaseModel):
+    decision_id: UUID
+    decision: ImplementationDecision
+    run_id: UUID
+
+
+class ImplementationDispatch(BaseModel):
+    decision_id: UUID
+    source_skill: str | None = None
+    status: Literal["pending", "processing", "retrying", "blocked", "started", "cancelled"] = "pending"
+    attempt: int = 0
+    next_retry_at: datetime | None = None
+    worker_token: UUID | None = None
+    lease_until: datetime | None = None
+    reason: str = ""
+
+
+class ImplementationHandover(BaseModel):
+    replacement_id: UUID
+    status: Literal["processing", "completed", "failed", "cancelled", "needs_attention"]
+    results: dict[str, Literal["closed", "already_closed", "skipped"]] = Field(default_factory=dict)
+    replacement_pr_urls: list[str] = Field(default_factory=list)
+    explanation: str = ""
+    attempt: int = 0
+    worker_token: UUID | None = None
+    lease_until: datetime | None = None
+
+
 class CodeReviewCounts(BaseModel):
     """One review turn's valid findings by effective priority (threshold-independent)."""
 
@@ -631,6 +710,41 @@ class PullRequestLink(BaseModel):
     url: str = Field(description="Canonical GitHub pull request URL.")
 
 
+class CheckResult(BaseModel):
+    """Content schema for a `check_result` artefact: one run of a `SignalReportCheck`.
+
+    The forward-looking half of a report's log. A report says what was true when it was written; a
+    check result says whether that still holds, measured on the check's own schedule. System-generated
+    — the check executor is the only writer, so the type is read-only through the generic artefact API.
+    """
+
+    check_id: str = Field(description="UUID of the SignalReportCheck this run belongs to.")
+    kind: str = Field(description="The check's kind, e.g. `metric_threshold`.")
+    title: str = Field(description="The check's title, copied so the log entry reads on its own.")
+    outcome: Literal["passed", "failed", "errored"] = Field(
+        description=(
+            "`passed` (the expectation held), `failed` (it did not), or `errored` (the check could not be measured)."
+        )
+    )
+    explanation: str = Field(description="One line saying what was measured and how it compared.")
+    observed_value: float | None = Field(default=None, description="The measured value; absent when the run errored.")
+    baseline_value: float | None = Field(
+        default=None, description="The value recorded when the check was written, when the author gave one."
+    )
+    threshold: str | None = Field(default=None, description="The expectation the value was compared against.")
+    run_id: str | None = Field(
+        default=None,
+        description="Scout run that answered an `agent` check. Absent on a deterministic run, which has none.",
+    )
+
+    @field_validator("explanation")
+    @classmethod
+    def explanation_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+
 # ── Type mapping ─────────────────────────────────────────────────────────────────
 
 # Content models that describe the report's current state (latest row of each type wins) vs
@@ -643,6 +757,8 @@ StatusArtefactContent = (
     | RepoSelectionResult
     | SuggestedReviewers
     | ChannelAssignment
+    | ImplementationDecision
+    | ImplementationDispatch
 )
 LogArtefactContent = (
     CodeReference
@@ -656,6 +772,9 @@ LogArtefactContent = (
     | WorkClaim
     | WorkRelease
     | PullRequestLink
+    | CheckResult
+    | ImplementationReplacement
+    | ImplementationHandover
 )
 ArtefactContent = StatusArtefactContent | LogArtefactContent | SignalFinding | Dismissal | VideoSegment
 
@@ -682,6 +801,11 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "work_claim": WorkClaim,
     "work_release": WorkRelease,
     "pull_request": PullRequestLink,
+    "check_result": CheckResult,
+    "implementation_decision": ImplementationDecision,
+    "implementation_dispatch": ImplementationDispatch,
+    "implementation_replacement": ImplementationReplacement,
+    "implementation_handover": ImplementationHandover,
 }
 
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
@@ -694,8 +818,12 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # is their only writer, so accepting them through the generic API would let a caller fabricate edits
 # that never happened. They stay readable (and so show up in the report's artefact log) but cannot
 # be created or edited directly.
+# `check_result` is likewise system-generated — the check executor is its only writer; accepting it
+# through the API would let a caller fabricate a verdict for a soak that never ran.
 # `code_review` is likewise system-generated — the ReviewHog workflow is its only writer; accepting
 # it through the API would let a caller fabricate review receipts for reviews that never ran.
+# Replacement decisions, reservations, and outcomes authorize GitHub closures. Only the server
+# may write them; API writes would let callers fabricate automation provenance or completion.
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
     {
         "task_run",
@@ -706,6 +834,11 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "work_claim",
         "work_release",
         "pull_request",
+        "check_result",
+        "implementation_decision",
+        "implementation_dispatch",
+        "implementation_replacement",
+        "implementation_handover",
     }
 )
 

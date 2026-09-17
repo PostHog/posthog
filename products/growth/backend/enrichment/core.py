@@ -10,6 +10,7 @@ score (fit_score.py) on its own `icp_fit_*` keys. The clay path retires once its
 consumers migrate to the fit keys.
 """
 
+import datetime as dt
 import dataclasses
 from typing import Any, Optional
 
@@ -54,13 +55,15 @@ class EnrichmentOutcome:
     matched/upgraded reporting reads. fit is the ICP fit evaluation, present whenever fit
     scoring ran (its status distinguishes scored/insufficient_data/not_found/disqualified);
     None only when it degraded (no active curated-lists row, or an unexpected error).
-    enrichment_status is the polled status of the org's previously archived tracking URN
-    (recheck only; always None on a first attempt), so callers can report it without a
-    second read of the archive.
+    fit_evaluated_at is the timestamp the record stores for that evaluation, so an event
+    can carry the same value the record does. enrichment_status is the polled status of
+    the org's previously archived tracking URN (recheck only; always None on a first
+    attempt), so callers can report it without a second read of the archive.
     """
 
     provider_fields: Optional[EnrichmentFields] = None
     fit: Optional[IcpFitResult] = None
+    fit_evaluated_at: Optional[dt.datetime] = None
     enrichment_status: Optional[str] = None
 
 
@@ -357,6 +360,7 @@ async def enrich_organization(
     fit, fit_mirror_distinct_id = await sync_to_async(_score_fit)(
         ctx, bridge_inputs=bridge_inputs, raw_payload=lookup.raw_payload
     )
+    fit_evaluated_at = dt.datetime.now(dt.UTC) if fit is not None else None
 
     if fields is None and fit is None:
         return EnrichmentOutcome(provider_fields=None, fit=None, enrichment_status=enrichment_status)
@@ -368,6 +372,10 @@ async def enrich_organization(
         icp_score=icp_score,
         mirror_distinct_id=mirror_distinct_id,
         fit=fit,
+        fit_evaluation_kind=ctx.phase.fit_evaluation_kind,
+        fit_evaluated_at=fit_evaluated_at,
         fit_mirror_distinct_id=fit_mirror_distinct_id,
     )
-    return EnrichmentOutcome(provider_fields=lookup.fields, fit=fit, enrichment_status=enrichment_status)
+    return EnrichmentOutcome(
+        provider_fields=lookup.fields, fit=fit, fit_evaluated_at=fit_evaluated_at, enrichment_status=enrichment_status
+    )

@@ -11,17 +11,14 @@ import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlObjectModal } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObjectModal'
 import { DataWarehouseSavedQueryOrigin } from '~/queries/schema/schema-general'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    DataWarehouseSavedQuery,
-    DataWarehouseSavedQueryRunHistory,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, DataWarehouseSavedQueryRunHistory } from '~/types'
 
+import { endpointModelUrl, parseEndpointModelName } from 'products/data_modeling/frontend/endpointModelName'
 import { NodeSuspensionApi } from 'products/data_modeling/frontend/generated/api.schemas'
 import { statusBackgroundClass } from 'products/data_modeling/frontend/lineage/nodeStyles'
 import { SEARCH_SYNTAX_HELP } from 'products/data_modeling/frontend/lineage/SearchSyntaxHelp'
@@ -30,7 +27,7 @@ import { StatusTag } from 'products/data_modeling/frontend/lineage/StatusTag'
 import { TableCertificationTag } from '../TableCertificationBadge'
 import { PAGE_SIZE, ViewTypeFilter, viewsTabLogic } from './viewsTabLogic'
 
-type ViewColumn = LemonTableColumn<DataWarehouseSavedQuery, keyof DataWarehouseSavedQuery | undefined>
+type ViewColumn = LemonTableColumn<DataWarehouseSavedQuerySummary, keyof DataWarehouseSavedQuerySummary | undefined>
 
 const VIEW_TYPE_TOOLTIPS = {
     materialized: 'Refreshed on a schedule and stored as a table, so a read hits stored rows.',
@@ -43,7 +40,7 @@ const TYPE_FILTER_OPTIONS: { value: ViewTypeFilter; label: string }[] = [
     { value: 'view', label: 'Views' },
 ]
 
-const getDisabledReason = (view: DataWarehouseSavedQuery): string | undefined => {
+const getDisabledReason = (view: DataWarehouseSavedQuerySummary): string | undefined => {
     if (view.managed_viewset_kind !== null) {
         return `Cannot delete a view that belongs to a managed viewset. You can turn the viewset off in the ${urls.dataWarehouseManagedViewsets()} page.`
     }
@@ -91,7 +88,7 @@ function StatusCell({
     view,
     suspension,
 }: {
-    view: DataWarehouseSavedQuery
+    view: DataWarehouseSavedQuerySummary
     suspension?: NodeSuspensionApi
 }): JSX.Element {
     if (!view.is_materialized) {
@@ -127,7 +124,7 @@ function StatusCell({
 
 interface ViewsTabProps {
     /** Optional function to build the URL when clicking on a view. Defaults to SQL editor. */
-    getViewUrl?: (view: DataWarehouseSavedQuery) => string
+    getViewUrl?: (view: DataWarehouseSavedQuerySummary) => string
     /** Saved query id -> suspension. List responses carry no suspension, so the scene passes it in. */
     suspensionByViewId?: Record<string, NodeSuspensionApi | undefined>
 }
@@ -158,9 +155,10 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
 
     const warehouseAccessControlEnabled = !!featureFlags[FEATURE_FLAGS.HOGQL_WAREHOUSE_ACCESS_CONTROL]
 
-    const viewLink = (view: DataWarehouseSavedQuery): { to: string; description?: string } => {
+    const viewLink = (view: DataWarehouseSavedQuerySummary): { to: string; description?: string } => {
         if (view.origin === DataWarehouseSavedQueryOrigin.ENDPOINT) {
-            return { to: urls.endpoint(view.name), description: `Created by the ${view.name} endpoint` }
+            const endpointName = parseEndpointModelName(view.name)?.endpointName ?? view.name
+            return { to: endpointModelUrl(view.name), description: `Created by the ${endpointName} endpoint` }
         }
         if (view.managed_viewset_kind !== null) {
             return {
@@ -171,18 +169,27 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
         return { to: getViewUrl?.(view) ?? urls.sqlEditor({ view_id: view.id }) }
     }
 
-    const columns: LemonTableColumns<DataWarehouseSavedQuery> = [
+    const columns: LemonTableColumns<DataWarehouseSavedQuerySummary> = [
         {
             title: 'Name',
             key: 'name',
             render: (_, view) => {
                 const { to, description } = viewLink(view)
+                const endpointModel =
+                    view.origin === DataWarehouseSavedQueryOrigin.ENDPOINT ? parseEndpointModelName(view.name) : null
                 return (
                     <LemonTableLink
                         to={to}
                         title={
                             <>
-                                {view.name}
+                                {endpointModel?.endpointName ?? view.name}
+                                {endpointModel && (
+                                    <Tooltip title={`Version ${endpointModel.version} of this endpoint`}>
+                                        <LemonTag type="muted" size="small">
+                                            v{endpointModel.version}
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
                                 <Tooltip
                                     title={
                                         view.is_materialized ? VIEW_TYPE_TOOLTIPS.materialized : VIEW_TYPE_TOOLTIPS.view
@@ -234,8 +241,8 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
                     <span className="text-muted">-</span>
                 ),
         } as ViewColumn,
-        createdByColumn<DataWarehouseSavedQuery>() as ViewColumn,
-        createdAtColumn<DataWarehouseSavedQuery>() as ViewColumn,
+        createdByColumn<DataWarehouseSavedQuerySummary>() as ViewColumn,
+        createdAtColumn<DataWarehouseSavedQuerySummary>() as ViewColumn,
         {
             key: 'actions',
             width: 0,
@@ -249,6 +256,7 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
                                     minAccessLevel={AccessControlLevel.Editor}
                                 >
                                     <LemonButton
+                                        fullWidth
                                         onClick={() => runMaterialization(view.id)}
                                         disabledReason={
                                             view.status === 'Running' ? 'Materialization is already running' : undefined
@@ -259,7 +267,9 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
                                 </AccessControlAction>
                             )}
                             {warehouseAccessControlEnabled && view.managed_viewset_kind === null && (
-                                <LemonButton onClick={() => openAccessControlModal(view)}>Access control</LemonButton>
+                                <LemonButton fullWidth onClick={() => openAccessControlModal(view)}>
+                                    Access control
+                                </LemonButton>
                             )}
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.WarehouseObjects}
@@ -267,6 +277,7 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
                                 userAccessLevel={view.user_access_level}
                             >
                                 <LemonButton
+                                    fullWidth
                                     status="danger"
                                     onClick={() => deleteView(view.id)}
                                     disabledReason={getDisabledReason(view)}

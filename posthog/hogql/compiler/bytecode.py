@@ -588,6 +588,12 @@ class BytecodeCompiler(Visitor):
         response.append(Operation.POP)
         return response
 
+    def visit_type_cast(self, node: ast.TypeCast) -> list[Any]:
+        raise QueryError("Type casts are not supported in Hog. Use a conversion function such as toInt instead.")
+
+    def visit_try_cast(self, node: ast.TryCast) -> list[Any]:
+        raise QueryError("try_cast is not supported in Hog. Use a conversion function such as toInt instead.")
+
     def visit_return_statement(self, node: ast.ReturnStatement):
         if node.expr:
             response = self.visit(node.expr)

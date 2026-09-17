@@ -411,20 +411,6 @@ export const dataModelingNodesRunCreate = async (
     })
 }
 
-export const getDataModelingNodesDagIdsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_modeling_nodes/dag_ids/`
-}
-
-/**
- * Get all distinct DAGs for the team.
- */
-export const dataModelingNodesDagIdsRetrieve = async (projectId: string, options?: RequestInit): Promise<NodeApi> => {
-    return apiMutator<NodeApi>(getDataModelingNodesDagIdsRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getDataModelingNodesLineageRetrieveUrl = (
     projectId: string,
     params?: DataModelingNodesLineageRetrieveParams

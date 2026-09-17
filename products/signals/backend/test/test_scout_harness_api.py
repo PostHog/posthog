@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
 from django.core.cache import cache
@@ -18,6 +19,7 @@ from rest_framework import status
 from social_django.models import UserSocialAuth
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.egress.browserless.transport import BrowserlessEgressBudgetExhausted
 from posthog.models import OAuthApplication
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
@@ -62,6 +64,7 @@ from products.signals.backend.scout_harness.serializers import (
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
 from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
+from products.signals.backend.scout_harness.tools.lighthouse import MAX_AUDITS_PER_RUN, RUN_AUDIT_COUNT_KEY
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
@@ -2179,12 +2182,36 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/project_profile/current/"
 
+    # A client that truncates a long tool result keeps the prefix, so the emit gate has to sit
+    # inside a small leading slice of the response however large the inventory grows.
+    GATE_PREFIX_CHARS = 2000
+
     def _seed_profile(self, *, team: Team | None = None) -> str:
         """Persist a real, schema-valid profile via the build path so a later read hits the
         cache, and return its profile_id. Building here is fine — the behavior under test is
         that the *read* doesn't build, not that nothing ever builds.
         """
         return compute_project_profile(team=team or self.team).profile_id
+
+    def _pad_stored_inventory(self, *, entries: int) -> None:
+        """Inflate the cached profile with schema-valid `recent_dashboards` rows.
+
+        Creating hundreds of real dashboards would buy a slow test for a property of the
+        response shape; padding the stored payload produces the same oversized inventory.
+        """
+        row = SignalProjectProfile.objects.filter(team=self.team).order_by("-computed_at").first()
+        assert row is not None
+        row.payload["inventory"]["recent_dashboards"] = [
+            {
+                "id": index,
+                "name": f"Dashboard {index} " + "long enough to add up " * 8,
+                "last_accessed_at": "2026-01-01T00:00:00+00:00",
+                "last_refresh": None,
+                "created_at": "2026-01-01T00:00:00+00:00",
+            }
+            for index in range(entries)
+        ]
+        row.save(update_fields=["payload"])
 
     # --- untrusted (session) callers: read-only, never build ---
 
@@ -2203,7 +2230,7 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert body["profile_id"] == seeded_id
-        assert {"profile_id", "computed_at", "expires_at", "source_version"} <= set(body.keys())
+        assert {"summary", "profile_id", "computed_at", "expires_at", "source_version"} <= set(body.keys())
         assert "inventory" in body["payload"]
         # Read-only: no new row written.
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
@@ -2275,6 +2302,44 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
             "recent_reviewer_corrections",
             "top_events",
         }
+
+    def test_emit_gate_stays_in_the_response_prefix_for_a_large_profile(self) -> None:
+        # The gate is the scout's first read and a long response can reach it truncated, so it
+        # must arrive ahead of the inventory rather than buried behind it.
+        _authenticate_as_scout(self)
+        self._seed_profile()
+        self._pad_stored_inventory(entries=500)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        rendered = response.content.decode()
+        assert len(rendered) > 20 * self.GATE_PREFIX_CHARS, "padding did not produce an oversized profile"
+        body = response.json()
+        # The envelope repeats the inventory rather than carrying a second, drifting copy.
+        assert body["summary"]["emit_eligibility"] == body["payload"]["inventory"]["emit_eligibility"]
+        assert body["summary"]["existing_inbox_reports"] == body["payload"]["inventory"]["existing_inbox_reports"]
+        prefix = rendered[: self.GATE_PREFIX_CHARS]
+        assert f'"can_emit":{json.dumps(body["summary"]["emit_eligibility"]["can_emit"])}' in prefix
+        assert '"remediation"' in prefix
+        assert '"existing_inbox_reports"' in prefix
+
+    def test_summary_only_drops_the_payload_and_keeps_the_gate(self) -> None:
+        _authenticate_as_scout(self)
+        self._seed_profile()
+
+        response = self.client.get(self._list_url(), {"summary_only": "true"})
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert "payload" not in body
+        assert set(body["summary"]["emit_eligibility"]) == {
+            "ai_processing_approved",
+            "source_enabled",
+            "can_emit",
+            "remediation",
+        }
+        assert set(body["summary"]["existing_inbox_reports"]) == {"total", "by_status"}
 
 
 class TestRunCronScheduleValidation(SimpleTestCase):
@@ -2387,6 +2452,38 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert body[0]["emit"] is True
         assert body[0]["run_interval_minutes"] == 1440
 
+    def test_list_orders_by_the_name_each_scout_displays_under(self) -> None:
+        # A renamed scout has to sort where the reader sees it, not where its slug puts it —
+        # ordering by the identifier files "Alpha" under S for `signals-scout-zeta`.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-zeta", display_name="Alpha watch")
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-beta")
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [c["skill_name"] for c in response.json()] == ["signals-scout-zeta", "signals-scout-beta"]
+
+    @parameterized.expand(
+        [
+            ("by display name", "checkout", ["signals-scout-zeta"]),
+            ("by skill name", "beta", ["signals-scout-beta"]),
+            ("case-insensitively", "CHECKOUT", ["signals-scout-zeta"]),
+            ("matching neither", "nothing here", []),
+        ]
+    )
+    def test_list_search_matches_either_name(self, _name: str, search: str, expected: list[str]) -> None:
+        # The two audiences know a scout by different names: a person types the label, a stored
+        # client types the identifier. Matching only one leaves the other unable to find it.
+        SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-zeta", display_name="Checkout failures"
+        )
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-beta")
+
+        response = self.client.get(self._list_url(), data={"search": search})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [c["skill_name"] for c in response.json()] == expected
+
     def test_list_excludes_withheld_config(self) -> None:
         # A held-back scout that still has a row (previously seeded, then withheld) is not surfaced
         # in the config list — the read surface stays consistent with the seeding + dispatch gates.
@@ -2484,6 +2581,30 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["scout_origin"] == expected_origin
+
+    @parameterized.expand(
+        [
+            # Both names are real on-disk canonical scouts, one of each role.
+            (
+                "operational_canonical",
+                "signals-scout-inbox-validation",
+                {"seeded_by": HARNESS_SEEDED_BY},
+                "operational",
+            ),
+            ("specialist_canonical", "signals-scout-general", {"seeded_by": HARNESS_SEEDED_BY}, "specialist"),
+            ("hand_authored_lookalike", "signals-scout-inbox-validation", {}, "specialist"),
+        ]
+    )
+    def test_list_classifies_role_from_the_canonical_fleet(
+        self, _name: str, skill_name: str, metadata: dict, expected_role: str
+    ) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name)
+        LLMSkill.objects.create(team=self.team, name=skill_name, description="d", body="...", metadata=metadata)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["scout_role"] == expected_role
 
     @parameterized.expand(["list", "partial_update", "sync"])
     def test_config_responses_carry_the_skills_owners(self, action: str) -> None:
@@ -2583,6 +2704,105 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         config.refresh_from_db()
         # The JSON column must hold canonical strings, or the row save crashes on UUID instances.
         assert config.mcp_gateway_server_ids == [server_id]
+
+    @parameterized.expand(
+        [
+            (
+                "normalized",
+                ["PostHog/PostHog", " posthog/posthog-js "],
+                status.HTTP_200_OK,
+                ["posthog/posthog", "posthog/posthog-js"],
+            ),
+            ("malformed", ["posthog"], status.HTTP_400_BAD_REQUEST, None),
+            ("duplicated", ["posthog/posthog", "PostHog/PostHog"], status.HTTP_400_BAD_REQUEST, None),
+            ("unreachable", ["posthog/secret"], status.HTTP_400_BAD_REQUEST, None),
+        ]
+    )
+    def test_partial_update_pins_repositories_the_scout_can_reach(
+        self, _name: str, repositories: list[str], expected_status: int, expected_stored: list[str] | None
+    ) -> None:
+        # A pin the sandbox cannot clone must be refused on save. Discovered mid-run instead, it
+        # costs the scout a whole run and trips the failure breaker on a fixable typo.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        integration = Integration.objects.create(team=self.team, kind="github", config={"account": {"type": "org"}})
+
+        with (
+            patch(
+                "products.tasks.backend.facade.api.readonly_github_integration_id",
+                return_value=integration.id,
+            ),
+            patch(
+                "products.tasks.backend.github_repository_access.GitHubIntegration.list_all_cached_repositories",
+                return_value=[{"full_name": "PostHog/posthog"}, {"full_name": "posthog/posthog-js"}],
+            ),
+        ):
+            response = self.client.patch(
+                self._detail_url(str(config.id)),
+                data={"repositories": repositories},
+                format="json",
+            )
+
+        assert response.status_code == expected_status
+        config.refresh_from_db()
+        assert config.repositories == (expected_stored or [])
+
+    def test_partial_update_refuses_repositories_without_a_github_connection(self) -> None:
+        # Nothing to clone with means the scout would run repo-less no matter what it holds, so the
+        # pin is refused rather than silently ignored on every run.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"repositories": ["posthog/posthog"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        config.refresh_from_db()
+        assert config.repositories == []
+
+    def test_partial_update_resending_stored_repositories_skips_the_github_check(self) -> None:
+        # The settings form and an MCP update resend the whole config on every save. Re-checking
+        # an unchanged pin against GitHub on each of them is a network call for nothing, and it
+        # turns a GitHub outage into a save that fails for a scout whose pins did not change.
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-foo", repositories=["posthog/posthog"]
+        )
+
+        with patch("products.tasks.backend.facade.api.readonly_github_integration_id") as resolve_integration:
+            response = self.client.patch(
+                self._detail_url(str(config.id)),
+                data={"repositories": ["PostHog/posthog"], "emit": False},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        resolve_integration.assert_not_called()
+        config.refresh_from_db()
+        assert config.repositories == ["posthog/posthog"]
+        assert config.emit is False
+
+    def test_partial_update_checks_repositories_against_the_canonical_team(self) -> None:
+        # Scout configs live on the parent team and a run mints from the parent's installation, so
+        # a PATCH that arrives on a child-environment URL has to check the pin there too, or a
+        # connected project refuses every pin made from one of its environments.
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        Integration.objects.create(team=self.team, kind="github", config={"account": {"type": "org"}})
+
+        with patch(
+            "products.tasks.backend.github_repository_access.GitHubIntegration.list_all_cached_repositories",
+            return_value=[{"full_name": "PostHog/posthog"}],
+        ):
+            response = self.client.patch(
+                f"/api/projects/{env.id}/signals/scout/configs/{config.id}/",
+                data={"repositories": ["posthog/posthog"]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        config.refresh_from_db()
+        assert config.repositories == ["posthog/posthog"]
 
     def test_partial_update_disable_records_a_user_pause(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
@@ -3053,6 +3273,23 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not SignalScoutConfig.all_teams.filter(id=config.id).exists()
+
+    @parameterized.expand([(False,), (True,)])
+    def test_destroy_refuses_an_operational_scout(self, archived: bool) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-inbox-validation")
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-inbox-validation",
+            description="d",
+            body="...",
+            metadata={"seeded_by": HARNESS_SEEDED_BY},
+            deleted=archived,
+        )
+
+        response = self.client.delete(self._detail_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert SignalScoutConfig.all_teams.filter(id=config.id).exists()
 
     def test_destroy_unknown_id_returns_404(self) -> None:
         response = self.client.delete(self._detail_url("00000000-0000-0000-0000-000000000000"))
@@ -4310,3 +4547,187 @@ class TestSignalScoutSlackDestinationSerializerValidation(SimpleTestCase):
         )
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["users"] == ["U0123ABC|@a", "W0456DEF|@b"]
+
+
+_LIGHTHOUSE_API_SETTINGS = {
+    "LIGHTHOUSE_BROWSERLESS_URL": "https://browserless.example.com",
+    "LIGHTHOUSE_BROWSERLESS_TOKEN": "secret-token",
+    "SIGNALS_LIGHTHOUSE_ALLOWED_HOSTS": {"posthog.com"},
+}
+
+_LIGHTHOUSE_REPORT = {
+    "data": {
+        "lighthouseVersion": "13.4.1",
+        "finalDisplayedUrl": "https://posthog.com/pricing",
+        "categories": {"performance": {"score": 0.28}},
+        "audits": {"largest-contentful-paint": {"numericValue": 4553.2}},
+    }
+}
+
+
+# The endpoint's metering lives here rather than in the tool tests because the ordering under
+# test — validate, then reserve under the row lock, then load the page — lives in the view.
+class TestScoutHarnessLighthouseAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # lighthouse-audit requires `signal_scout_internal:write` — session auth is rejected.
+        _authenticate_as_scout(self)
+
+    def _audit_url(self, run_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/lighthouse-audit/"
+
+    def _post(self, run: SignalScoutRun, url: str = "https://posthog.com/pricing", **setting_overrides):
+        response = MagicMock(status_code=200, content=b"{}")
+        response.json.return_value = _LIGHTHOUSE_REPORT
+        settings_used = {
+            **_LIGHTHOUSE_API_SETTINGS,
+            "SIGNALS_LIGHTHOUSE_TEAM_IDS": {self.team.id},
+            **setting_overrides,
+        }
+        with self.settings(**settings_used):
+            with patch(
+                "products.signals.backend.scout_harness.tools.lighthouse.posthoganalytics.get_feature_flag_payload",
+                return_value=None,
+            ):
+                with patch(
+                    "products.signals.backend.scout_harness.tools.lighthouse.browserless_request", return_value=response
+                ) as browserless:
+                    return (
+                        self.client.post(self._audit_url(str(run.id)), data={"url": url}, format="json"),
+                        browserless,
+                    )
+
+    def _spent(self, run: SignalScoutRun) -> int:
+        run.refresh_from_db()
+        return (run.metadata or {}).get(RUN_AUDIT_COUNT_KEY, 0)
+
+    def test_a_successful_audit_spends_exactly_one_slot(self) -> None:
+        run = _make_run(self.team)
+
+        response, browserless = self._post(run)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["audits_remaining"] == MAX_AUDITS_PER_RUN - 1
+        assert self._spent(run) == 1
+        assert browserless.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("off_allowlist_host", "https://example.com/pricing", {}),
+            ("not_https", "http://posthog.com/pricing", {}),
+            ("team_not_enabled", "https://posthog.com/pricing", {"SIGNALS_LIGHTHOUSE_TEAM_IDS": set()}),
+        ]
+    )
+    def test_a_rejection_that_never_loads_a_page_costs_no_budget(self, _name: str, url: str, overrides: dict) -> None:
+        # A scout that misread the host rule would otherwise burn all five slots on instant
+        # round-trips and then be told it had spent them on audits.
+        run = _make_run(self.team)
+
+        response, browserless = self._post(run, url=url, **overrides)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        browserless.assert_not_called()
+        assert self._spent(run) == 0
+        # The remaining count rides in the message, so a scout can tell a rejection
+        # (budget intact) from an exhausted budget.
+        assert f"{MAX_AUDITS_PER_RUN} of {MAX_AUDITS_PER_RUN} audits still available" in response.json()["detail"]
+
+    def test_the_per_run_cap_is_enforced_without_reaching_browserless(self) -> None:
+        run = _make_run(self.team, metadata={RUN_AUDIT_COUNT_KEY: MAX_AUDITS_PER_RUN})
+
+        response, browserless = self._post(run)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "0 still available" in response.json()["detail"]
+        browserless.assert_not_called()
+
+    def test_a_failed_page_load_still_spends_its_slot(self) -> None:
+        # The runaway case the cap exists for is a scout retrying a page that cannot load.
+        run = _make_run(self.team)
+        broken = MagicMock(status_code=500, content=b"")
+        broken.text = "upstream error"
+        with self.settings(**_LIGHTHOUSE_API_SETTINGS, SIGNALS_LIGHTHOUSE_TEAM_IDS={self.team.id}):
+            with patch(
+                "products.signals.backend.scout_harness.tools.lighthouse.posthoganalytics.get_feature_flag_payload",
+                return_value=None,
+            ):
+                with patch(
+                    "products.signals.backend.scout_harness.tools.lighthouse.browserless_request", return_value=broken
+                ):
+                    response = self.client.post(
+                        self._audit_url(str(run.id)),
+                        data={"url": "https://posthog.com/pricing"},
+                        format="json",
+                    )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert self._spent(run) == 1
+
+    def test_a_fleet_at_capacity_gives_the_slot_back(self) -> None:
+        # The egress gate refuses before a browser starts, so five refusals must not read as five
+        # audits — a busy fleet would otherwise empty a run's budget without measuring anything.
+        run = _make_run(self.team)
+        with self.settings(**_LIGHTHOUSE_API_SETTINGS, SIGNALS_LIGHTHOUSE_TEAM_IDS={self.team.id}):
+            with patch(
+                "products.signals.backend.scout_harness.tools.lighthouse.posthoganalytics.get_feature_flag_payload",
+                return_value=None,
+            ):
+                with patch(
+                    "products.signals.backend.scout_harness.tools.lighthouse.browserless_request",
+                    side_effect=BrowserlessEgressBudgetExhausted("Browserless egress budget exhausted"),
+                ):
+                    response = self.client.post(
+                        self._audit_url(str(run.id)),
+                        data={"url": "https://posthog.com/pricing"},
+                        format="json",
+                    )
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert self._spent(run) == 0
+        assert f"{MAX_AUDITS_PER_RUN} of {MAX_AUDITS_PER_RUN} audits still available" in response.json()["detail"]
+
+    def test_returns_501_when_the_deployment_has_no_browserless(self) -> None:
+        run = _make_run(self.team)
+
+        response, browserless = self._post(run, LIGHTHOUSE_BROWSERLESS_URL="")
+
+        assert response.status_code == status.HTTP_501_NOT_IMPLEMENTED
+        browserless.assert_not_called()
+        assert self._spent(run) == 0
+
+    def test_rejects_a_run_that_is_not_in_progress(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        run = _make_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
+
+        response, browserless = self._post(run)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        browserless.assert_not_called()
+
+    def test_another_teams_run_is_not_auditable(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        run = _make_run(other_team)
+
+        response, browserless = self._post(run)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        browserless.assert_not_called()
+
+    def test_a_sandbox_token_may_only_spend_its_own_runs_budget(self) -> None:
+        # Team scoping alone leaves the per-run cap in name only: a scout can list its siblings
+        # and spend each one's five slots, and every slot is a real browser session. Both halves
+        # matter — without the first, refusing everything would pass just as well.
+        own_run = _make_run(self.team)
+        sibling_run = _make_run(self.team)
+        _authenticate_as_scout(self, sandbox_task_id=own_run.task_run.task_id)
+
+        allowed, browserless_for_own = self._post(own_run)
+        refused, browserless_for_sibling = self._post(sibling_run)
+
+        assert allowed.status_code == status.HTTP_200_OK, allowed.json()
+        assert browserless_for_own.call_count == 1
+        assert self._spent(own_run) == 1
+
+        assert refused.status_code == status.HTTP_404_NOT_FOUND
+        browserless_for_sibling.assert_not_called()
+        assert self._spent(sibling_run) == 0

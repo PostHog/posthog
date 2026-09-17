@@ -1,6 +1,8 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useState } from 'react'
+import { flushSync } from 'react-dom'
 
 import { IconChevronDown, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
 
@@ -22,6 +24,7 @@ export function CategoryDropdown({
     onAfterChange?: () => void
     joinedToInput?: boolean
 }): JSX.Element | null {
+    const [menuVisible, setMenuVisible] = useState(false)
     const { activeTab, taxonomicGroups, taxonomicGroupTypes } = useValues(taxonomicFilterLogic)
     const { markUserInteraction, setActiveTab } = useActions(taxonomicFilterLogic)
     const { categoryRailPinned } = useValues(taxonomicFilterCategoryLayoutLogic)
@@ -29,6 +32,7 @@ export function CategoryDropdown({
     const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
 
     const onVisibilityChange = (visible: boolean): void => {
+        setMenuVisible(visible)
         if (visible) {
             markUserInteraction()
             posthog.capture('taxonomic filter category dropdown opened', {
@@ -70,6 +74,7 @@ export function CategoryDropdown({
                     icon: categoryRailPinned ? <IconSidebarClose /> : <IconSidebarOpen />,
                     'data-attr': 'taxonomic-category-rail-toggle',
                     onClick: () => {
+                        flushSync(() => setMenuVisible(false))
                         markUserInteraction()
                         setCategoryRailPinned(!categoryRailPinned)
                         onAfterChange?.()
@@ -84,6 +89,7 @@ export function CategoryDropdown({
     return (
         <LemonMenu
             items={items}
+            visible={menuVisible}
             onVisibilityChange={onVisibilityChange}
             activeItemIndex={activeItemIndex >= 0 ? activeItemIndex : undefined}
             placement="bottom-start"
