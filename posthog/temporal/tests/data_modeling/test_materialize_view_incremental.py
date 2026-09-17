@@ -23,7 +23,10 @@ import deltalake
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.activities import MaterializeViewInputs, materialize_view_activity
 from posthog.temporal.data_modeling.activities.incremental_write import IncrementalWriteError
-from posthog.temporal.data_modeling.activities.materialize_view import get_aws_storage_options
+from posthog.temporal.data_modeling.activities.materialize_view import (
+    FAILED_UPDATE_REASON_PREFIX,
+    get_aws_storage_options,
+)
 
 from products.data_modeling.backend.facade.api import get_incremental_state
 
@@ -328,6 +331,40 @@ class TestIncrementalMaterialization:
         )
         assert stored == [(DAY1, 10, 1), (DAY2, 20, 200)]
 
+    async def test_a_rebuild_after_a_failed_update_is_not_labelled_a_first_run(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+
+        with _settings(bucket_name):
+            await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1], [10]))
+
+            with pytest.raises(IncrementalWriteError):
+                await _run(
+                    activity_environment,
+                    ateam,
+                    anode,
+                    ajob,
+                    adag,
+                    _batch([DAY2], [20], value_column="renamed"),
+                    value_column="renamed",
+                )
+
+            await _run(
+                activity_environment,
+                ateam,
+                anode,
+                ajob,
+                adag,
+                _batch([DAY2], [20], value_column="renamed"),
+                value_column="renamed",
+            )
+
+        await database_sync_to_async(ajob.refresh_from_db)()
+        assert ajob.run_mode == "full_refresh"
+        assert ajob.full_refresh_reason is not None
+        assert ajob.full_refresh_reason.startswith(FAILED_UPDATE_REASON_PREFIX)
+
     async def test_a_definition_change_forces_a_rebuild(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
     ):
@@ -346,6 +383,9 @@ class TestIncrementalMaterialization:
 
         await database_sync_to_async(asaved_query.refresh_from_db)()
         assert get_incremental_state(asaved_query).last_run_mode == "full_refresh"
+
+        await database_sync_to_async(ajob.refresh_from_db)()
+        assert ajob.full_refresh_reason == "definition changed"
 
     async def test_a_zero_row_window_leaves_the_table_and_watermark_alone(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
