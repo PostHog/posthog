@@ -16,7 +16,6 @@ import {
 import {
     LemonBanner,
     LemonButton,
-    LemonCheckbox,
     LemonCollapse,
     LemonDivider,
     LemonDropdown,

@@ -141,6 +141,7 @@ class HogFlow(UUIDTModel):
 
     class Kind(models.TextChoices):
         BROADCAST = "broadcast"
+
     class OriginProduct(models.TextChoices):
         LOOPS = "loops", "Loops"
 

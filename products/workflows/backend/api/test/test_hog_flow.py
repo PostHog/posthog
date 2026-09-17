@@ -302,6 +302,7 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?kind=broadcast")
         assert response.status_code == 200, response.json()
         assert [flow["kind"] for flow in response.json()["results"]] == ["broadcast"]
+
     def test_list_filter_by_origin_product(self):
         HogFlow.objects.create(team=self.team, name="Loop", created_by=self.user, origin_product="loops")
         HogFlow.objects.create(team=self.team, name="Hand built", created_by=self.user)
