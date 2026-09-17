@@ -201,6 +201,24 @@ def scan_placeholders(
     return placeholders
 
 
+def rerun_recovered_job_attempts(*, scan_from: str) -> str:
+    """``(run_id, run_attempt, runner_name)``, as strings, of every pytest job attempt whose in-process
+    retry recovered a test. That job concludes as a success, but its log still holds the failure.
+
+    ``scan_from`` is a HogQL expression for the earliest span to read. The caller binds ``{repository}``.
+    """
+    return f"""
+        SELECT resource_attributes['ci.run_id'], resource_attributes['ci.run_attempt'],
+               attributes['test.runner_name']
+        FROM posthog.trace_spans
+        WHERE service_name = '{PYTEST_CI_SERVICE_NAME}'
+          AND lower(resource_attributes['ci.repository']) = lower({{repository}})
+          AND timestamp >= ({scan_from})
+          AND attributes['test.outcome'] = 'rerun_passed'
+          AND notEmpty(coalesce(attributes['test.runner_name'], ''))
+    """
+
+
 def selector_from_nodeid(nodeid: str) -> str:
     """Best-effort runnable pytest selector for a span the CI reporter emitted before it stamped
     ``test.selector``. The nodeid folds the file/class boundary into '/' and drops '.py'
