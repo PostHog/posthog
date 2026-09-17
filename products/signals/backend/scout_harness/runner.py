@@ -1531,9 +1531,10 @@ def _attach_run_shape_props(
     agent-server default served it; `service_tier` likewise only when a slice or pipeline pin asked
     for an OpenAI queue, so a flex arm and its standard control split without joining through
     `$ai_generation`. `network_access` follows the same absent-means-default
-    convention (attached only for `full` and `custom`, the latter with its `allowed_domains`
-    list), so an event-based readout never pools runs with different egress capabilities under
-    one model or prompt. `write_scopes` is attached only for a scout
+    convention (attached only for `full` and `custom`), so an event-based readout never pools runs
+    with different egress capabilities under one model or prompt. A custom run carries only
+    `allowed_domains_count`: the hosts can name customer systems, so they stay on the team-scoped
+    run row and never reach product analytics. `write_scopes` is attached only for a scout
     granted extra write access, so a readout can separate runs that could change project objects from
     runs that could not. `triggered_by` follows the run row's
     own absent-means-schedule convention (`_create_run_row`), so the started/finished streams can
@@ -1550,7 +1551,7 @@ def _attach_run_shape_props(
     if sandbox_env.network_access != SignalScoutConfig.NetworkAccess.TRUSTED:
         properties["network_access"] = sandbox_env.network_access
         if sandbox_env.allowed_domains is not None:
-            properties["allowed_domains"] = sandbox_env.allowed_domains
+            properties["allowed_domains_count"] = len(sandbox_env.allowed_domains)
     if granted_write_scopes := _granted_write_scopes(config):
         properties["write_scopes"] = granted_write_scopes
     if model is not None:
