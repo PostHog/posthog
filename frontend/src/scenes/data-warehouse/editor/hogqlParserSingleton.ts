@@ -1,6 +1,9 @@
+import posthog from 'posthog-js'
+
 import type { HogQLParser } from '@posthog/hogql-parser'
 
 let parserPromise: Promise<HogQLParser> | null = null
+let initFailureReported = false
 
 function getParser(): Promise<HogQLParser> {
     if (!parserPromise) {
@@ -9,6 +12,13 @@ function getParser(): Promise<HogQLParser> {
             .catch((error) => {
                 // Reset so next call retries initialization
                 parserPromise = null
+                // The editor's main-thread fallback swallows this rejection, so without a report a
+                // broken parser only shows up as missing highlighting. A CSP that blocks the glue's
+                // eval fails every retry the same way, so report it once per page load.
+                if (!initFailureReported) {
+                    initFailureReported = true
+                    posthog.captureException(error, { feature: 'hogql-parser-init' })
+                }
                 throw error
             })
     }
