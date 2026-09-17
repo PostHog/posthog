@@ -7,6 +7,7 @@ use crate::pools::{IdentityPools, Lane};
 use crate::storage::error::StorageResult;
 use crate::storage::postgres::{person_columns, person_from_row};
 use crate::storage::types::Person;
+use personhog_common::query_tag;
 
 /// Batch-resolve (team_id, distinct_id) keys to their live persons on the
 /// primary. Tombstoned mappings and persons are invisible; unresolved keys
@@ -40,7 +41,7 @@ pub(super) async fn resolve_distinct_ids(
         person_table = tables.person,
     );
     let mut conn = pools.acquire(Lane::Fast).await?;
-    let rows = sqlx::query(&sql)
+    let rows = sqlx::query(&query_tag!("resolve_persons", sql))
         .bind(&team_ids)
         .bind(&distinct_ids)
         .fetch_all(&mut *conn)

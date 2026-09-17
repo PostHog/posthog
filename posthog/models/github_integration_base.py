@@ -98,6 +98,17 @@ class GitHubCommitAuthor:
     is_bot: bool = False
 
 
+@frozen
+class GitHubAuthorLastCommit:
+    """When an account last landed a commit on a repository's default branch.
+
+    ``last_commit_at`` is None when GitHub answered and the account has no commit there. A
+    caller that could not ask GitHub at all gets no instance, so the two cases stay apart.
+    """
+
+    last_commit_at: datetime | None
+
+
 @dataclass(frozen=True)
 class GitHubCommitAttribution:
     """GitHub's own commit→account attribution, from the commits listing."""
@@ -939,6 +950,60 @@ class GitHubIntegrationBase:
             file_paths=file_paths,
             is_bot=author.get("type") == "Bot",
         )
+
+    def get_author_last_commit(self, repository: str, login: str) -> GitHubAuthorLastCommit | None:
+        """When ``login`` last committed to ``repository``'s default branch.
+
+        Returns None when GitHub could not be asked or did not answer in a readable shape, so a
+        caller can hold its behavior instead of acting on a failed probe. Rate limits raise
+        ``GitHubRateLimitError`` (from ``api_request``).
+        """
+        response = self._installation_authenticated_get(
+            f"https://api.github.com/repos/{repository}/commits",
+            endpoint="/repos/{owner}/{repo}/commits",
+            params={"author": login, "per_page": 1},
+        )
+        if response is None:
+            return None
+        if response.status_code != 200:
+            logger.info(
+                "GitHub API non-200 for author last-commit lookup",
+                status_code=response.status_code,
+                repository=repository,
+            )
+            return None
+        try:
+            body = response.json()
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: failed to parse author last-commit JSON", repository=repository, exc_info=True
+            )
+            return None
+        if not isinstance(body, list):
+            return None
+        if not body:
+            return GitHubAuthorLastCommit(last_commit_at=None)
+        commit = body[0].get("commit") if isinstance(body[0], dict) else None
+        if not isinstance(commit, dict):
+            return None
+        author = commit.get("author")
+        committer = commit.get("committer")
+        raw_date = (author.get("date") if isinstance(author, dict) else None) or (
+            committer.get("date") if isinstance(committer, dict) else None
+        )
+        if not isinstance(raw_date, str):
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw_date)
+        except ValueError:
+            logger.warning(
+                "GitHubIntegration: unparseable author last-commit date", repository=repository, exc_info=True
+            )
+            return None
+        # Every GitHub commit date carries a zone; a naive one would break the caller's arithmetic.
+        if parsed.tzinfo is None:
+            return None
+        return GitHubAuthorLastCommit(last_commit_at=parsed)
 
     def list_commit_attributions(
         self,

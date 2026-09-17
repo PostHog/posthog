@@ -22,6 +22,18 @@ Unread reports show a small blue dot in the list. Open a report to mark it as re
 Select the dot or use the right-click menu to mark a report as read or unread. Read reports stay in the list.
 Read state is saved on this device for the current user and project. It does not sync across devices or recover earlier report visits.
 Select Triage mode to review reports in sequence.
+Create PR starts the task in the background. Triage advances only after the task starts successfully.
+The confirmation offers View task. It does not open a chat panel or navigate away.
+Reports with an active implementation task stay in the list with a Creating PR label, but leave the triage queue.
+This uses the saved task assignment and survives reopening the app. It does not dismiss, resolve, or change the report read state.
+A failed or stopped task, a task that finishes without a PR, or a report waiting for input returns to triage with a status message.
+If task status cannot be loaded, the report stays in triage. An attached PR remains available for review.
+Task status refreshes in batches while the list is open. Rows use the same status results as triage.
+The batch response supplies the latest run's PR URL and state, including changes after task completion.
+Completed tasks need no separate detail requests when these fields are present. Null fields mean that the run has no PR.
+Older servers that omit either field use cached task details instead. The cache expires after five minutes.
+The triage count includes only loaded reports that need a decision. Load more reports to check the next page.
+A callback error after task startup does not change a successful start into a failed start. Older servers without task assignments keep their existing queue behavior.
 Triage hides the sidebar. Exiting triage or opening a report restores it without changing its saved width or open setting.
 Press T from the report list or an open report to start triage when triage is enabled. The shortcut does not run while you type in a field.
 
@@ -29,3 +41,12 @@ To filter reports for a user, open Filter reports, then hover over Scope.
 Hover opens the user list without moving keyboard focus. Click the search field to type, or use the keyboard to open Scope and focus the search field.
 The search starts empty and shows up to 20 options, including For you and Entire project.
 Search by name or email across all users. The search field stays visible above the results.
+
+## Storybook previews
+
+The `Inbox/Reports` stories cover the sidebar, report list, report detail, and triage mode.
+They use local report and task fixtures, including active work, failed tasks, and requests for input.
+PR stories include draft and failed-check states and a rendered code diff.
+Interactive stories cover user search, read state, summary navigation, and sidebar restoration.
+The `inbox` story tag selects these previews for visual checks in both themes.
+Cloud task startup, refunds, and GitHub writes are not connected to live services in these previews.
