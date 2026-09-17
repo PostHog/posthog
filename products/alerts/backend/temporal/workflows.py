@@ -5,7 +5,13 @@ from dataclasses import replace
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, SearchAttributeKey
-from temporalio.exceptions import ActivityError, ApplicationError, TimeoutError, TimeoutType
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    TimeoutError,
+    TimeoutType,
+    WorkflowAlreadyStartedError,
+)
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
@@ -159,10 +165,10 @@ class AlertsProductEvaluateWorkflow(PostHogWorkflow):
 @workflow.defn(name="alerts-product-source-dispatch")
 class AlertsProductSourceDispatchWorkflow(PostHogWorkflow):
     """One run per source per page. Receives all of the source's remaining demand, starts one
-    evaluation child for it, and reports what it did not take. Today it takes everything: no
-    adapter has said yet how much one evaluation can hold, so nothing remains and a tick is one page.
+    evaluation child per batch key up to `MAX_EVALUATIONS_PER_DISPATCH`, and reports the keys it
+    did not take so a later page picks them up.
 
-    Never waits for evaluation. The child is started with ABANDON so it outlives this
+    Never waits for evaluation. Children are started with ABANDON so they outlive this
     workflow and the tick that owns it.
     """
 
@@ -173,35 +179,51 @@ class AlertsProductSourceDispatchWorkflow(PostHogWorkflow):
         taken = inputs.batch_keys[:MAX_EVALUATIONS_PER_DISPATCH]
         remaining = inputs.batch_keys[MAX_EVALUATIONS_PER_DISPATCH:]
         source_workflow = SOURCE_EVALUATION_WORKFLOWS.get(inputs.source)
-        evaluation_workflow_ids = [f"alerts-eval-{inputs.source.value}-{key.team_id}-{key.slot}" for key in taken]
-        for key, evaluation_workflow_id in zip(taken, evaluation_workflow_ids):
-            if source_workflow is None:
-                # No adapter yet. The key is not passed to the noop, and the probe path stays as is.
-                await workflow.start_child_workflow(
-                    AlertsProductEvaluateWorkflow.run,
-                    AlertsProductInputs(),
-                    id=evaluation_workflow_id,
-                    task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
-                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                    execution_timeout=dt.timedelta(seconds=40),
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
-            else:
-                await workflow.start_child_workflow(
-                    source_workflow,
-                    SourceEvaluationInputs(source=inputs.source, cutoff=inputs.cutoff, batch_key=key),
-                    id=evaluation_workflow_id,
-                    task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
-                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                    execution_timeout=dt.timedelta(seconds=40),
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
+
+        started_ids: list[str] = []
+        already_running = 0
+        for key in taken:
+            evaluation_workflow_id = f"alerts-eval-{inputs.source.value}-{key.team_id}-{key.slot}"
+            try:
+                if source_workflow is None:
+                    # No adapter yet. The key is not passed to the noop, and the probe path stays as is.
+                    await workflow.start_child_workflow(
+                        AlertsProductEvaluateWorkflow.run,
+                        AlertsProductInputs(),
+                        id=evaluation_workflow_id,
+                        task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+                        parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                        execution_timeout=dt.timedelta(seconds=40),
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    )
+                else:
+                    await workflow.start_child_workflow(
+                        source_workflow,
+                        SourceEvaluationInputs(source=inputs.source, cutoff=inputs.cutoff, batch_key=key),
+                        id=evaluation_workflow_id,
+                        task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+                        parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                        execution_timeout=dt.timedelta(seconds=40),
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    )
+            except WorkflowAlreadyStartedError:
+                # Skipping is how a slow evaluation blocks its own re-dispatch. Letting the error
+                # escape would fail this page, and the orchestrator awaits its pages, so the tick.
+                already_running += 1
+                continue
+            started_ids.append(evaluation_workflow_id)
+
+        if already_running:
+            workflow.logger.info(
+                "Skipped %d %s evaluations still running from an earlier tick", already_running, inputs.source.value
+            )
         return SourceDispatchReport(
             source=inputs.source,
             page=inputs.page,
-            dispatched=len(taken),
+            dispatched=len(started_ids),
             remaining_keys=remaining,
-            evaluation_workflow_ids=evaluation_workflow_ids,
+            evaluation_workflow_ids=started_ids,
+            already_running=already_running,
         )
 
 

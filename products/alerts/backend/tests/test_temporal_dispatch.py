@@ -92,6 +92,16 @@ class PagingDispatcher:
         )
 
 
+@workflow.defn(name="test-blocking-evaluation")
+class BlockingEvaluation:
+    """Occupies an evaluation workflow id for as long as the test needs it."""
+
+    @workflow.run
+    async def run(self) -> None:
+        # No timeout, so it registers no timer and the time-skipping server cannot skip past it.
+        await workflow.wait_condition(lambda: False)
+
+
 @pytest_asyncio.fixture(scope="module")
 async def environment() -> AsyncIterator[WorkflowEnvironment]:
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -226,6 +236,43 @@ async def test_real_dispatcher_takes_everything_and_abandons_one_evaluation(envi
         evaluation = client.get_workflow_handle(f"alerts-eval-logs-{key('a').team_id}-{key('a').slot}")
         assert await evaluation.result() is None
         assert (await evaluation.describe()).status == WorkflowExecutionStatus.COMPLETED
+
+
+async def test_a_key_whose_evaluation_still_runs_is_skipped_without_losing_the_page(
+    environment: WorkflowEnvironment,
+) -> None:
+    client = environment.client
+    held, free = key("held"), key("free")
+    held_id = f"alerts-eval-logs-{held.team_id}-{held.slot}"
+    async with Worker(
+        client,
+        task_queue=EVALUATION_QUEUE,
+        workflows=[*EVALUATION_WORKFLOWS, BlockingEvaluation],
+        activities=EVALUATION_ACTIVITIES,
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        blocker = await client.start_workflow(BlockingEvaluation.run, id=held_id, task_queue=EVALUATION_QUEUE)
+        try:
+            report: SourceDispatchReport = await client.execute_workflow(
+                AlertsProductSourceDispatchWorkflow.run,
+                SourceDispatchInputs(
+                    tick_id="tick",
+                    source=SourceKind.LOGS,
+                    page=0,
+                    batch_keys=[held, free],
+                    cutoff="2026-09-16T10:00:00+00:00",
+                ),
+                id=f"dispatch-{uuid.uuid4()}",
+                task_queue=EVALUATION_QUEUE,
+                execution_timeout=dt.timedelta(seconds=30),
+            )
+        finally:
+            await blocker.terminate()
+
+    assert report.already_running == 1
+    assert report.dispatched == 1
+    assert report.evaluation_workflow_ids == [f"alerts-eval-logs-{free.team_id}-{free.slot}"]
+    assert report.remaining_keys == []
 
 
 async def test_tick_with_real_dispatchers_is_one_page(environment: WorkflowEnvironment) -> None:

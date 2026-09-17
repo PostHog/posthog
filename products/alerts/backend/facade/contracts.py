@@ -66,6 +66,8 @@ class SourceDispatchReport:
     dispatched: int
     remaining_keys: list[AlertBatchKey]
     evaluation_workflow_ids: list[str]
+    # Not remaining: the run that already holds the key is still working it.
+    already_running: int = 0
 
 
 @frozen

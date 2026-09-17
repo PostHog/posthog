@@ -37,7 +37,7 @@ async def evaluate_logs_alerts_activity(inputs: SourceEvaluationInputs) -> tuple
 @workflow.defn(name=WORKFLOW_NAME)
 class LogsAlertEvaluateWorkflow(PostHogWorkflow):
     """Evaluates one batch key, then previews one delivery per notification.
-    Writes nothing: the production logs fleet owns these alerts."""
+    Writes only the shared platform's own rows: the production logs fleet owns the logs tables."""
 
     inputs_cls = SourceEvaluationInputs
 
@@ -68,12 +68,14 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
             ),
             return_exceptions=True,
         )
+        started = 0
         for result in results:
             if isinstance(result, WorkflowAlreadyStartedError):
                 continue
             if isinstance(result, BaseException):
                 raise result
-        return len(previews)
+            started += 1
+        return started
 
 
 SOURCE_EVALUATION_WORKFLOWS = [LogsAlertEvaluateWorkflow]
