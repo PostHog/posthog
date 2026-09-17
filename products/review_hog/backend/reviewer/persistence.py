@@ -416,7 +416,9 @@ def persist_perspective_results(
 
 def load_perspective_results(
     *, team_id: int, report_id: str, head_sha: str, review_model: str
-) -> dict[tuple[int, int], IssuesReview]:
+) -> dict[  # nosemgrep: tuple-return-prefer-dataclass -- Shared (pass, chunk) cache keys.
+    tuple[int, int], IssuesReview
+]:
     """The (pass, chunk) reviews already computed for this turn by `review_model` (latest wins per key).
 
     The cache is per commit, so results another model wrote at the same commit (a flash turn before a

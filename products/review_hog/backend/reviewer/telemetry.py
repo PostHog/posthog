@@ -4,6 +4,7 @@ from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import (
     RESOLUTION_MODEL,
     RESOLUTION_REASONING_EFFORT,
+    REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     resolve_review_arm,
     review_arm_for_mode,
@@ -53,7 +54,7 @@ def review_routing_properties(report: ReviewReport, *, review_mode: str | None =
         # instead of its tier's arm; per-tier dashboards must exclude these contaminated turns.
         # The whole bundle is compared because a failed assignment can share the default arm's model
         # string while differing on adapter or effort. Pre-arm rows (all NULL) stay False.
-        "review_arm_fallback": any(persisted) and resolved != persisted,
+        "review_arm_fallback": mode != REVIEW_MODE_FLASH and any(persisted) and resolved != persisted,
         "validator_model": validator.model,
         "validator_reasoning_effort": validator.reasoning_effort.value,
         "resolution_model": RESOLUTION_MODEL,

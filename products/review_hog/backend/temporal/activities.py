@@ -271,7 +271,7 @@ class GenerateSchemasInput:
     pass
 
 
-@dataclass
+@dataclass(frozen=False)
 class SandboxStageInput:
     """Shared identity + turn scope for a sandbox-turn activity."""
 
@@ -370,7 +370,7 @@ class BuildBodyInput:
     will_publish: bool = False
 
 
-@dataclass
+@dataclass(frozen=False)
 class PublishInput:
     team_id: int
     report_id: str
@@ -455,7 +455,7 @@ class TrackReviewFailedInput:
     review_mode: str = REVIEW_MODE_FULL
 
 
-@dataclass
+@dataclass(frozen=False)
 class StatusCommentInput:
     """Kickoff / failure edits of the PR's status comment; owner/repo/pr come off the report row."""
 
