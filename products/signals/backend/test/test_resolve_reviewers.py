@@ -169,6 +169,16 @@ def test_enriches_reviewer_sources_and_explanations():
                 "relevant_commits": [],
                 "reason": "Added as a reviewer by Avery Chen on Jan 1, 2026",
             },
+            {
+                "github_login": "verbose-commit-author",
+                "relevant_commits": [
+                    {
+                        "sha": "def5678",
+                        "url": "https://example.com",
+                        "reason": " ".join(["retry"] * 400),
+                    }
+                ],
+            },
         ],
         login_to_user={},
         uuid_to_user={},
@@ -181,6 +191,8 @@ def test_enriches_reviewer_sources_and_explanations():
     assert enriched[2]["explanation"] == shared_reason
     assert enriched[3]["source_label"] == "Added by teammate"
     assert enriched[3]["explanation"] is None
+    assert enriched[4]["source_label"] == "Code history"
+    assert enriched[4]["explanation"] == "Authored a relevant change to the affected code."
 
 
 @pytest.mark.django_db

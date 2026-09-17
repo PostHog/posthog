@@ -169,7 +169,9 @@ def _prettify_scout_name(skill_name: str) -> str:
 def _commit_explanation(commits: list[object]) -> str:
     if len(commits) == 1 and isinstance(commits[0], dict):
         reason = commits[0].get("reason")
-        if isinstance(reason, str) and 0 < len(reason.split()) <= 12:
+        # maxsplit caps the allocation: stored artefact content has no length bound, and the
+        # count past 12 doesn't change the answer.
+        if isinstance(reason, str) and 0 < len(reason.split(maxsplit=12)) <= 12:
             return reason.strip()
     if len(commits) == 1:
         return "Authored a relevant change to the affected code."
