@@ -94,7 +94,9 @@ class Command(BaseCommand):
                         result.removed += 1
                     else:
                         result.degraded += 1
-            result.stranded = self._stranded_nodes(team).delete()[0]
+            stranded_nodes = self._stranded_nodes(team)
+            result.stranded = stranded_nodes.count()
+            stranded_nodes.delete()
         return result
 
     def _stranded_nodes(self, team: Team):
