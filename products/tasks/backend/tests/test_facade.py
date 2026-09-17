@@ -717,6 +717,30 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(open_ids, [resumed.id])
         self.assertEqual(merged_ids, [merged.id])
 
+    @patch("products.tasks.backend.facade.api._task_run_log_url", return_value="https://presigned/log")
+    def test_task_detail_inherits_a_pr_without_restoring_a_suppressed_log_url(self, _mock_log_url):
+        """The degraded `start_task_run` fallback omits the log URL, and inheriting a PR must keep it out.
+
+        The backfill rebuilds the run DTO, so the caller's gate has to be applied where that DTO is
+        built rather than at the `latest_run` keyword, or the fallback silently regains the
+        presigned-URL I/O it exists to avoid.
+        """
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": "https://x/pull/4"}
+        )
+        latest = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        suppressed = facade._task_detail_to_dto(task, latest_run=latest, include_latest_run_log_url=False)
+        allowed = facade._task_detail_to_dto(task, latest_run=latest)
+
+        assert suppressed.latest_run is not None and suppressed.latest_run.output is not None
+        self.assertIsNone(suppressed.latest_run.log_url)
+        self.assertEqual(suppressed.latest_run.output["pr_url"], "https://x/pull/4")
+        # The open-gate call proves the assertion above isn't passing for want of a URL to begin with.
+        assert allowed.latest_run is not None
+        self.assertEqual(allowed.latest_run.log_url, "https://presigned/log")
+
     def test_list_tasks_resolves_inherited_prs_in_one_query(self):
         tasks = [self._make_task(title=f"pr-task-{i}") for i in range(4)]
         for index, task in enumerate(tasks):
