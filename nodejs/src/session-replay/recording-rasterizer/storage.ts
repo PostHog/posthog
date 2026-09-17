@@ -4,6 +4,8 @@ import { Upload } from '@aws-sdk/lib-storage'
 import { NodeHttpHandler } from '@smithy/node-http-handler'
 import * as fs from 'fs'
 import { HttpsProxyAgent } from 'https-proxy-agent'
+import { Readable } from 'stream'
+import { pipeline } from 'stream/promises'
 
 import { config } from './config'
 import { resolveEgressProxyUrl } from './egress-proxy'
@@ -129,15 +131,16 @@ export async function downloadFromS3(bucket: string, key: string, localPath: str
         if (!res.Body) {
             throw new RasterizationError(`S3 object is empty: s3://${bucket}/${key}`, false, 'S3_DOWNLOAD_EMPTY')
         }
-        await fs.promises.writeFile(localPath, await res.Body.transformToByteArray())
+        // Streamed, not buffered: the media worker reads several tens-of-megabytes MP4s at once.
+        await pipeline(res.Body as Readable, fs.createWriteStream(localPath))
     } catch (err) {
         if (err instanceof RasterizationError) {
             throw err
         }
         const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode
         log.warn({ bucket, key, status, err: (err as Error)?.message }, 'S3 download failed')
-        // A missing object is permanent: the analysis MP4 expired or was deleted, and no retry recovers it.
-        const retryable = status !== 404 && status !== 403
+        // Only a missing object is permanent; a 403 is the credential-refresh race the upload path allows for.
+        const retryable = status !== 404
         throw new RasterizationError(
             `S3 download failed${status ? ` (status ${status})` : ''}: ${(err as Error)?.message ?? String(err)}`,
             retryable,

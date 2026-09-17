@@ -328,6 +328,8 @@ async def run_scan(
         signals=signals,
         verification=outcome.verification,
         thumbnail_video_s=_clamp_thumbnail(outcome.thumbnail_video_s, video_clock, duration_ms),
+        # Read off `outcome.signals`, which is still on the video clock; `signals` above is not.
+        signal_video_spans=[(s.start_time, s.end_time) for s in outcome.signals],
     )
 
 
@@ -812,21 +814,29 @@ async def _run_steps(
     for step in steps:
         checkpoint = len(convo)
         convo.append(types.Part(text=step.instruction))
-        result = await _run_step(
-            client=client,
-            model=model,
-            step=step,
-            convo=convo,
-            cache_name=cache_name,
-            video_part=video_part,
-            preamble_text=preamble_text,
-            dispatch=dispatch,
-            team_id=team_id,
-            tools=tools,
-            metric_labels=metric_labels,
-            trace_id=trace_id,
-            on_round=on_round,
-        )
+        try:
+            result = await _run_step(
+                client=client,
+                model=model,
+                step=step,
+                convo=convo,
+                cache_name=cache_name,
+                video_part=video_part,
+                preamble_text=preamble_text,
+                dispatch=dispatch,
+                team_id=team_id,
+                tools=tools,
+                metric_labels=metric_labels,
+                trace_id=trace_id,
+                on_round=on_round,
+            )
+        except Exception as exc:
+            if step.required:
+                raise
+            # A provider error arrives here, not as an empty output, and must not sink a paid-for scan.
+            logger.warning("replay_vision.call_scanner_provider.optional_step_failed", step=step.name, error=str(exc))
+            del convo[checkpoint:]
+            continue
         if result.output is None:
             # Roll the failed step's half-finished exchange back so the next instruction follows the last good
             # model turn, not a dangling correction/tool call (which would leave two user turns in a row).

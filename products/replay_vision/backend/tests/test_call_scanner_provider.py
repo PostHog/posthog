@@ -442,6 +442,44 @@ async def test_signal_timestamps_use_recording_duration(
 
 
 @pytest.mark.asyncio
+async def test_a_provider_error_on_a_non_required_step_leaves_the_scan_standing() -> None:
+    # A provider blip on the last, optional turn used to fail the whole paid-for scan.
+    steps = [
+        MissionStep(name="summary", instruction="sum", response_model=_Core),
+        MissionStep(name="media", instruction="pick", response_model=_Side, required=False),
+    ]
+
+    class _ExplodingModels(_FakeModels):
+        async def generate_content(self, **kwargs: Any) -> _Resp:
+            if len(self.calls) >= 1:
+                raise RuntimeError("provider is down")
+            return await super().generate_content(**kwargs)
+
+    client = _FakeClient([_Resp(text='{"verdict":"yes"}')])
+    client.models = _ExplodingModels([_Resp(text='{"verdict":"yes"}')])
+
+    out = await _run(client, steps)
+
+    assert "summary" in out
+    assert "media" not in out
+
+
+@pytest.mark.asyncio
+async def test_a_provider_error_on_a_required_step_still_fails_the_scan() -> None:
+    steps = [MissionStep(name="summary", instruction="sum", response_model=_Core)]
+
+    class _ExplodingModels(_FakeModels):
+        async def generate_content(self, **kwargs: Any) -> _Resp:
+            raise RuntimeError("provider is down")
+
+    client = _FakeClient([])
+    client.models = _ExplodingModels([])
+
+    with pytest.raises(RuntimeError):
+        await _run(client, steps)
+
+
+@pytest.mark.asyncio
 async def test_failed_non_required_step_is_rolled_back_so_the_next_step_stays_clean() -> None:
     # extras (non-required) fails both attempts; signals must still run against a clean convo, with the failed
     # extras exchange rolled back rather than left as two consecutive user turns.

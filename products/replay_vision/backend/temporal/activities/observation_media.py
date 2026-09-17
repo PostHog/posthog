@@ -80,11 +80,15 @@ async def prepare_observation_thumbnail_activity(inputs: ObservationMediaInputs)
     if duration_s <= 0:
         raise ApplicationError(f"Analysis asset {asset.id} has no video duration", non_retryable=True)
 
-    scanner_result = (
+    # Read before the asset is created, so a deleted observation leaves no asset behind.
+    observation = (
         await ReplayObservation.objects.filter(pk=media_inputs.observation_id, team_id=media_inputs.team_id)
         .values_list("scanner_result", flat=True)
         .afirst()
-    ) or {}
+    )
+    if observation is None:
+        raise ApplicationError(f"Observation {media_inputs.observation_id} is gone", non_retryable=True)
+    scanner_result = observation or {}
     clock = video_clock_from_export_context(context)
     video_time_s = _pick_video_time_s(media_inputs, scanner_result.get("model_output"), clock, duration_s)
     rec_start_ms = clock.video_s_to_session_ms(video_time_s) if clock else None
@@ -161,6 +165,11 @@ async def finalize_observation_thumbnail_activity(inputs: FinalizeObservationThu
     asset = await ExportedAsset.objects.aget(pk=inputs.media_asset_id, team_id=inputs.team_id)
     asset.content_location = content_location
     await asset.asave(update_fields=["content_location"])
+
+    if not await ReplayObservation.objects.filter(pk=inputs.observation_id, team_id=inputs.team_id).aexists():
+        # Deleted while the frame rendered, so nothing will ever point at the object.
+        await ExportedAsset.objects.filter(pk=asset.id).aupdate(expires_after=now())
+        return
 
     # `for_team` resolves the canonical team with a synchronous query of its own.
     await sync_to_async(_link_media)(inputs, asset)

@@ -18,7 +18,9 @@ interface ObservationThumbnailProps {
 /** The frame the scan picked out of the session, as a 16:9 poster. */
 export function ObservationThumbnail({ observation, className, children }: ObservationThumbnailProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
-    const [failed, setFailed] = useState(false)
+    const [failedId, setFailedId] = useState<string | null>(null)
+    // Keyed by observation, because a table row's component instance is reused as the page changes.
+    const failed = failedId === observation.id
 
     // Gated on the media the list response already carried, so a page of observations without one costs
     // no requests. The URL is the endpoint rather than the asset, so a re-render after a retry still resolves.
@@ -37,7 +39,7 @@ export function ObservationThumbnail({ observation, className, children }: Obser
                     className="absolute inset-0 size-full object-cover"
                     loading="lazy"
                     decoding="async"
-                    onError={() => setFailed(true)}
+                    onError={() => setFailedId(observation.id)}
                 />
             )}
             <div className="absolute inset-0 flex items-center justify-center">

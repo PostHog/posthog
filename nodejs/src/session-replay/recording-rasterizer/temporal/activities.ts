@@ -227,6 +227,12 @@ export function createActivities(pool: BrowserPool, playerHtml: string) {
     return {
         'rasterize-recording': (input: RasterizeRecordingInput) => rasterizeRecordingActivity(pool, playerHtml, input),
         // No browser and no pool: this one reads an MP4 the rasterizer already produced.
-        'extract-thumbnail': (input: ExtractThumbnailInput) => extractThumbnail(input),
+        'extract-thumbnail': async (input: ExtractThumbnailInput) => {
+            try {
+                return await extractThumbnail(input)
+            } catch (err) {
+                throw toActivityError(asRasterizationError(err) ?? err)
+            }
+        },
     }
 }

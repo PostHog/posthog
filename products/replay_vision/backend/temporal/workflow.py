@@ -560,7 +560,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     observation_id=observation_id,
                     session_id=inputs.session_id,
                     analysis_asset_id=analysis_asset_id,
-                    signal_video_times=[(s.start_time, s.end_time) for s in call_output.signals],
+                    signal_video_times=call_output.signal_video_spans,
                     thumbnail_video_s=call_output.thumbnail_video_s,
                 ),
                 id=f"replay-vision-media-{observation_id}",
