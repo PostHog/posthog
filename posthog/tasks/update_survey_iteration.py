@@ -15,7 +15,11 @@ def _update_survey_iteration(survey: Survey) -> None:
     if survey.iteration_start_dates is None or survey.end_date is not None:
         return
 
-    if _has_final_iteration_ended(survey):
+    # `schedule` is the user's intent; the iteration_* columns are only the machinery for a
+    # recurring schedule. They can outlive the schedule (a survey that predates the `schedule`
+    # field, or an API client that sends `schedule` alone), so a survey the UI shows as "Once"
+    # must never be closed here — the edit form promises no auto-close for it.
+    if survey.schedule == Survey.Schedule.RECURRING and _has_final_iteration_ended(survey):
         survey.end_date = timezone.now()
         survey.save(update_fields=["end_date"])
         _log_survey_closed_by_schedule(survey)
@@ -147,7 +151,7 @@ def _get_current_iteration(survey: Survey) -> int:
 def update_survey_iteration() -> None:
     surveys_with_recurring_schedules = Survey.objects.filter(
         start_date__isnull=False, end_date__isnull=True, iteration_count__isnull=False
-    ).only("id", "iteration_count", "iteration_start_dates")
+    ).only("id", "iteration_count", "iteration_start_dates", "schedule")
 
     for survey in list(surveys_with_recurring_schedules):
         _update_survey_iteration(survey)
