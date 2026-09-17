@@ -481,11 +481,6 @@ class S3CompatibleDestinationConfigSerializer(S3FamilyDestinationConfigSerialize
     )
 
 
-SNOWFLAKE_CREDENTIAL_FIELDS = frozenset(
-    {"account", "user", "authentication_type", "password", "private_key", "private_key_passphrase"}
-)
-
-
 class SnowflakeDestinationConfigSerializer(serializers.Serializer):
     """Typed configuration for a Snowflake batch-export destination.
 
@@ -1369,13 +1364,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(f"Invalid destination URL: {url}")
 
         if destination_type == BatchExportDestination.Destination.SNOWFLAKE:
-            # Still declared on `SnowflakeBatchExportInputs`, so the generic unknown-field check
-            # lets them through. Raise its message, so dropping them there changes no error text.
-            inline_credentials = sorted(config.keys() & SNOWFLAKE_CREDENTIAL_FIELDS)
-            if inline_credentials:
-                str_fields = ", ".join(f"'{field}'" for field in inline_credentials)
-                raise serializers.ValidationError(f"Configuration has unknown field/s: {str_fields}")
-
             integration: Integration | None = destination_attrs.get("integration")
             if integration is None and "integration" not in destination_attrs and instance is not None:
                 # A PATCH may send config alone, which keeps the export's existing integration.
