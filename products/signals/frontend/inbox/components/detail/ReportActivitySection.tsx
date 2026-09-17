@@ -5,13 +5,14 @@ import { IconClockRewind } from '@posthog/icons'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
 import { ArtefactLogList } from './ArtefactLogList'
+import { selectVisibleReportActivity } from './artefactTypes'
 import { DetailSection } from './DetailSection'
 
 /**
  * The report's chronological work-log: every artefact (judgments, findings, code references, diffs,
  * commits, task runs, notes, reviewers) rendered as a timeline entry. Reads the artefacts the detail
  * logic already loads (and polls while the report is active), so it stays in sync with the rest of
- * the detail view. Hidden entirely until at least one artefact exists. Mirrors desktop
+ * the detail view. Hidden entirely until at least one artefact is worth showing. Mirrors desktop
  * `ReportActivitySection`.
  */
 export function ReportActivitySection({ report }: { report: SignalReport }): JSX.Element | null {
@@ -19,7 +20,10 @@ export function ReportActivitySection({ report }: { report: SignalReport }): JSX
         inboxReportDetailLogic({ reportId: report.id, report })
     )
 
-    if (!reportArtefacts || reportArtefacts.length === 0) {
+    // The badge counts what the log renders: `ArtefactLogList` hides internal retry records, so a
+    // raw artefact count would promise entries the timeline never shows.
+    const artefacts = selectVisibleReportActivity(reportArtefacts ?? [])
+    if (artefacts.length === 0) {
         return null
     }
 
@@ -36,15 +40,16 @@ export function ReportActivitySection({ report }: { report: SignalReport }): JSX
             defaultCollapsed
             meta={
                 <span className="text-xs text-tertiary tabular-nums">
-                    {reportArtefacts.length} {reportArtefacts.length === 1 ? 'entry' : 'entries'}
+                    {artefacts.length} {artefacts.length === 1 ? 'entry' : 'entries'}
                 </span>
             }
         >
             <ArtefactLogList
                 reportId={report.id}
-                artefacts={reportArtefacts}
+                artefacts={artefacts}
                 knownTasks={knownTasks}
                 knownSignals={knownSignals}
+                pullRequests={report.pull_requests}
             />
         </DetailSection>
     )

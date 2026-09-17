@@ -10208,6 +10208,26 @@ snapshots:
         hash: v1.k794b7964.3362f7e3189434319ec363172447f3fbbe529b2d745ef0ddf7f8e8c494fcd4a2.2bUlzu2lgIJbm8s_5ic3TtAcZ9hHX4_JFAE8hd9fQVk
     scenes-app-sidepanels--side-panel-support--light:
         hash: v1.k794b7964.deb388fad6d54211a52bf0228e80a62f18903b5a91ed77f47408f1fbb9137480.c8bN-QxTmTOSLWxd37aThlQhlWmlZ9r6N1YUBjhRsU8
+    scenes-app-signals-artefactloglist--narrow--dark:
+        hash: v1.k794b7964.126364946b3e155e64e07b61da407de2075b63f5449d9b64c0c2228daa055a13.QMcKZPlik4titSS_IK7VuTRw0QAxfbl1sKiuFzmechU
+    scenes-app-signals-artefactloglist--narrow--light:
+        hash: v1.k794b7964.6da5e2a893a09fc8fd8eaad261e700c8f512c5a148d9ee91d27da51365272916.CuzGlvcecyewPGOerRSG4ECX65Wr9lHoI4w9MqEEAME
+    scenes-app-signals-artefactloglist--replacement-lifecycle--dark:
+        hash: v1.k794b7964.f723b2160bdf85cd5a827fa3dac4c281d75950f47555cdef7fc01f2ef689dfc6.wAOg7AG2Pf4mYO8EjKdD8lFlC1Ulv4MhkXIEMkzfCrg
+    scenes-app-signals-artefactloglist--replacement-lifecycle--light:
+        hash: v1.k794b7964.9c43f6666a1a6a374d7de2874e8041d143d372b268675b7effc129b4759c676f.1ksfg48ORs-DX0VjvAFzGKg98c7Ikzp_Cr-tksdqVZ8
+    scenes-app-signals-artefactpullrequest--open--dark:
+        hash: v1.k794b7964.9cdaa27967468d3b2fc4431b8833b9cc184af6584881b783b28be6d504695272.v-TYHIq6zFNHT_YPm60gY4WyJE45sSXL_JmtDGW5h8M
+    scenes-app-signals-artefactpullrequest--open--light:
+        hash: v1.k794b7964.325bf63cc8459150e081a8800a2ebee6547e5e6aae9ab91ecb67c323ca4aea95.Xs-wKbMTQ_OhCnCcQli4vHZM6q-T8wpMT3lfr3Yo2QE
+    scenes-app-signals-artefactpullrequest--retained--dark:
+        hash: v1.k794b7964.b0694e8790c69316bc016a40de09f54dbeeac77f9132b49d84b50957b921ba36.WqQRmmtznQJ_tTGp7eG6zgfImI7-hngZ6kV_6VaO6kI
+    scenes-app-signals-artefactpullrequest--retained--light:
+        hash: v1.k794b7964.2eb4005ef1e0861609cdbb7550787aa7eee39162821168dbd15e93ecdce6368c.gtM_qyVWouINIV8yclftkdYM1sjV9xb3iQEHIVbfUkw
+    scenes-app-signals-artefactpullrequest--unavailable--dark:
+        hash: v1.k794b7964.8bca744fcb51be6795aa95ece6da147a4d51caacea3cd34251e718304a0e4eb0.3LneGKM_Ko2glKtNmGR5o5EDx5H-c8hdiELkeznpxbQ
+    scenes-app-signals-artefactpullrequest--unavailable--light:
+        hash: v1.k794b7964.fb824f885add3c67bd3c571d61ba98614ba5e8b9c3f609a3ac6eed2f1ae2d15d.Nu_ivpkmsG1PWtMaSbr6Cqebz_4srs-HfQm7tTolStQ
     scenes-app-signals-scratchpadpanel--empty--dark:
         hash: v1.k794b7964.757324c1b54ffaecee38977f672fd4472cdb48b03afd4e5dde2a6ffe6886be4c.hdnPdcSaYr7gkhjrtlmibhVPZ1eLWM15qg3ZUCaBlig
     scenes-app-signals-scratchpadpanel--empty--light:
