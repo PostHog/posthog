@@ -953,10 +953,10 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                     if (Object.keys(configUpdates).length > 0) {
                         const updated = await signalsScoutConfigUpdate(String(teamId), config.id, configUpdates)
                         // The list refresh below is a round trip, and the instructions can be
-                        // rejected before it lands. The user is then told to reopen the settings,
-                        // and that form reads its name, schedule and delivery from the store, so
-                        // the store has to already hold what this call saved. Seeding from the
-                        // pre-save row would make the next save write those values back.
+                        // rejected before it lands. The form stays open on that rejection, and the
+                        // retry reads its name, schedule and delivery from the store, so the store
+                        // has to already hold what this call saved. A store left on the pre-save
+                        // row would make the retry write those values back.
                         actions.patchScoutConfigLocally(config.id, updated)
                         actions.loadScoutConfigs()
                     }
@@ -1000,10 +1000,20 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                         actions.closeScoutSettings()
                     }
                 } catch (error: any) {
+                    if (error?.status !== 409) {
+                        lemonToast.error(`Couldn't save the scout${error?.detail ? `: ${error.detail}` : ''}`)
+                        return
+                    }
+                    // Only the instructions can conflict, and only their version is stale. Reading
+                    // the skill again moves latestVersion to the current one. The modal seeds its
+                    // body once, so the user's edit stays in the form and the next save publishes
+                    // it against that version. Sending the user to reopen the settings would drop
+                    // the edit with the form.
+                    if (values.settingsFormId === formId) {
+                        actions.loadSkillPrompt()
+                    }
                     lemonToast.error(
-                        error?.status === 409
-                            ? 'These instructions changed somewhere else while you were editing. Copy your edits, then close the settings and open them again to work from the current version.'
-                            : `Couldn't save the scout${error?.detail ? `: ${error.detail}` : ''}`
+                        'These instructions changed somewhere else while you were editing. Your edits are still here. Save again to publish them over the current version.'
                     )
                 } finally {
                     actions.saveScoutSettingsFinished()

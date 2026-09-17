@@ -165,6 +165,13 @@ describe('scannerScoutLogic', () => {
         jest.mocked(signalsScoutConfigUpdate).mockResolvedValue({ ...config, display_name: 'Checkout / daily digest' })
         mockHogFunctionsCreate.mockResolvedValue({ id: 'hog-new' } as any)
         jest.mocked(llmSkillsNamePartialUpdate).mockRejectedValue({ status: 409 })
+        mockSkillRetrieve.mockResolvedValue({
+            body: 'Watch this scanner.',
+            body_total_length: 'Watch this scanner.'.length,
+            body_next_offset: null,
+            version: 4,
+            latest_version: 4,
+        } as any)
 
         logic.actions.saveScoutSettings({
             name: 'Checkout / daily digest',
@@ -182,13 +189,14 @@ describe('scannerScoutLogic', () => {
         expect(logic.values.settingsSkillName).toBe(SKILL_NAME)
     })
 
-    it('holds the saved config when the instructions conflict sends the user back to a fresh form', async () => {
-        // The conflict toast tells the user to reopen the settings, and that form seeds its name,
-        // schedule and delivery from the store. The list refresh the save dispatched is still a
-        // round trip away, so a store left on the pre-save row would hand the retry the old values
-        // and write them back over what this save already kept.
+    it('keeps the draft and moves to the current version when the instructions conflict', async () => {
+        // The conflict leaves the form open with the user's edit in it, so the retry has to publish
+        // against the version that rejected the first save. The retry also reads its name, schedule
+        // and delivery from the store while the list refresh is still a round trip away, so the
+        // store has to hold what the first save kept, or the retry writes the old values back.
         await mountWithReports([])
         const config = makeConfig({ output_destinations: { webhook: null } })
+        const revised = 'Watch this scanner, revised elsewhere.'
         scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([config])
         logic.actions.openScoutSettings(SKILL_NAME)
         await expectLogic(logic).toFinishAllListeners()
@@ -199,6 +207,13 @@ describe('scannerScoutLogic', () => {
             run_cron_schedule: '0 7 * * *',
         })
         jest.mocked(llmSkillsNamePartialUpdate).mockRejectedValue({ status: 409 })
+        mockSkillRetrieve.mockResolvedValue({
+            body: revised,
+            body_total_length: revised.length,
+            body_next_offset: null,
+            version: 5,
+            latest_version: 5,
+        } as any)
 
         logic.actions.saveScoutSettings({
             name: 'Checkout / daily digest',
@@ -209,17 +224,15 @@ describe('scannerScoutLogic', () => {
         })
         await expectLogic(logic).toFinishAllListeners()
 
+        expect(logic.values.settingsSkillName).toBe(SKILL_NAME)
+        expect(logic.values.skillPrompt).toEqual({ skillName: SKILL_NAME, body: revised, latestVersion: 5 })
         // The list refresh never landed, so this row is the one the save recorded itself.
         const saved = logic.values.scoutConfigsForScanner[0]
         expect(scoutDisplayName(saved)).toBe('Checkout / daily digest')
         expect(saved.run_cron_schedule).toBe('0 7 * * *')
 
-        // The reopened form seeds from that row, so the retry has nothing left to write.
         jest.mocked(signalsScoutConfigUpdate).mockClear()
-        jest.mocked(llmSkillsNamePartialUpdate).mockResolvedValue({ body: 'Watch checkout.', version: 4 } as any)
-        logic.actions.openScoutSettings(SKILL_NAME)
-        await expectLogic(logic).toFinishAllListeners()
-        logic.actions.loadSkillPromptSuccess({ skillName: SKILL_NAME, body: 'Watch this scanner.', latestVersion: 3 })
+        jest.mocked(llmSkillsNamePartialUpdate).mockResolvedValue({ body: 'Watch checkout.', version: 6 } as any)
         logic.actions.saveScoutSettings({
             name: scoutDisplayName(saved),
             body: 'Watch checkout.',
@@ -229,6 +242,10 @@ describe('scannerScoutLogic', () => {
         })
         await expectLogic(logic).toFinishAllListeners()
 
+        expect(llmSkillsNamePartialUpdate).toHaveBeenLastCalledWith(expect.any(String), SKILL_NAME, {
+            body: 'Watch checkout.',
+            base_version: 5,
+        })
         expect(signalsScoutConfigUpdate).not.toHaveBeenCalled()
     })
 
