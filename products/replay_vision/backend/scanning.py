@@ -25,6 +25,7 @@ from products.replay_vision.backend.enqueue_claims import (
     release_enqueue_claim,
 )
 from products.replay_vision.backend.inline_scan import create_inline_scanner, find_inline_scanner, inline_scan_key
+from products.replay_vision.backend.media_expiry import expire_media_for_observations
 from products.replay_vision.backend.models.replay_observation import TERMINAL_STATUSES, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.quota import compute_scanner_budget, quota_state
@@ -353,6 +354,8 @@ def retry_observation(*, observation: ReplayObservation, user: User) -> tuple[Re
         _, claimed = claim_apply_scanner_slot(scanner, session_id)
         if not claimed:
             return RetryOutcome.CAPPED, workflow_id
+        # Before the delete cascades the media rows away, so the objects they point at still get swept.
+        expire_media_for_observations(scanner.team_id, [original_pk])
         try:
             # Free the UNIQUE(scanner, session_id) slot; the ledger is immutable, so the failed attempt
             # stays counted.

@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -11,6 +12,7 @@ from parameterized import parameterized
 from posthog.models.utils import uuid7
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.replay_vision.backend.media_expiry import expire_media_for_observations, expire_media_for_scanner
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -126,3 +128,58 @@ class TestObservationMedia(BaseTest):
         assert media.kind == ReplayObservationMedia.Kind.THUMBNAIL
         assert media.asset_id == prepared.media_asset_id
         assert media.asset.content_location.startswith("replay-vision/media/")
+
+
+class TestObservationMediaExpiry(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="Checkout monitor",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "did the user check out?"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+        )
+        self.observation = ReplayObservation.objects.create(
+            scanner=self.scanner,
+            team=self.team,
+            session_id=f"s-{uuid7()}",
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            scanner_snapshot=snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+        )
+        self.media_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={"observation_id": str(self.observation.id)},
+            content_location=f"replay-vision/media/team-{self.team.id}/{self.observation.id}/x.png",
+            expires_after=timezone.now() + timedelta(days=90),
+            is_system=True,
+        )
+        self.other_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={"observation_id": str(uuid7())},
+            expires_after=timezone.now() + timedelta(days=90),
+            is_system=True,
+        )
+
+    def _expires_after(self, asset: ExportedAsset) -> Any:
+        return ExportedAsset.objects_including_ttl_deleted.get(pk=asset.pk).expires_after
+
+    def test_only_the_named_observations_media_is_expired(self) -> None:
+        expire_media_for_observations(self.team.id, [self.observation.id])
+
+        assert self._expires_after(self.media_asset) <= timezone.now()
+        assert self._expires_after(self.other_asset) > timezone.now()
+
+    def test_a_scanners_whole_set_is_expired(self) -> None:
+        expire_media_for_scanner(self.team.id, self.scanner.observations.all())
+
+        assert self._expires_after(self.media_asset) <= timezone.now()
+
+    def test_the_row_survives_so_the_sweep_can_delete_the_object(self) -> None:
+        expire_media_for_observations(self.team.id, [self.observation.id])
+
+        assert ExportedAsset.objects_including_ttl_deleted.filter(pk=self.media_asset.pk).exists()
