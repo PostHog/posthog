@@ -9,6 +9,7 @@ from llm_gateway.metrics.prometheus import (
     PRODUCT_COST_LIMIT_USD,
     PRODUCT_COST_WINDOW_SECONDS,
     PRODUCT_COST_WINDOW_USD,
+    PRODUCT_COST_WINDOW_UTILIZATION,
 )
 from llm_gateway.rate_limiting.cost_gauge_publisher import _publish_once
 from llm_gateway.rate_limiting.cost_throttles import CostStatus, ProductCostThrottle
@@ -34,6 +35,7 @@ async def test_publish_once_sets_gauges_for_each_product() -> None:
         assert PRODUCT_COST_WINDOW_USD.labels(product=product)._value.get() == 100.0
         assert PRODUCT_COST_LIMIT_USD.labels(product=product)._value.get() == 1000.0
         assert PRODUCT_COST_WINDOW_SECONDS.labels(product=product)._value.get() == 3600
+        assert PRODUCT_COST_WINDOW_UTILIZATION.labels(product=product)._value.get() == 0.1
     get_settings.cache_clear()
 
 

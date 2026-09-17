@@ -122,6 +122,17 @@ PRODUCT_COST_LIMIT_USD = Gauge(
     labelnames=["product"],
 )
 
+PRODUCT_COST_WINDOW_UTILIZATION = Gauge(
+    "llm_gateway_product_cost_window_utilization",
+    (
+        "Share of a product's shared-pool cost cap already spent in the current window, as a "
+        "fraction of the base (multiplier=1) cap. Reaching 1 is the point the throttle starts to "
+        "refuse every caller of that pool, so alert on this rather than on absolute spend, which "
+        "means nothing without the pool it meters against."
+    ),
+    labelnames=["product"],
+)
+
 PRODUCT_COST_WINDOW_SECONDS = Gauge(
     "llm_gateway_product_cost_window_seconds",
     (

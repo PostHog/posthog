@@ -65,6 +65,7 @@ APIScopeObject = Literal[
     "heatmap",
     "hog_flow",
     "hog_function",
+    "implementation_run",
     "ingestion_warning",
     "insight",
     "insight_variable",
@@ -164,6 +165,11 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # Grants Context Wiki writes only to write-enabled sandbox runs. Kept
         # separate from internal_run because read-only runs carry that marker.
         "context_layer_internal",
+        # Narrows `internal_run` the other way from `interactive_run`: the run behind this token
+        # is the report pipeline's implementation stage. Minted server-side from the stage the
+        # pipeline stamped, so it cannot be self-granted. The LLM gateway meters it against the
+        # implementation pool, so its growth cannot refuse scout scanning and research calls.
+        "implementation_run",
         # Narrows `internal_run`: the run behind this token was started by a person
         # pressing a button, not by one of PostHog's own schedulers. Both markers are
         # minted server-side, so neither can be self-granted; the LLM gateway meters

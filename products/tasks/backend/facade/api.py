@@ -99,6 +99,7 @@ from products.tasks.backend.logic.services.workflow_step_resume import resume_wo
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     MCP_CREDENTIAL_OWNER_STATE_KEY,
+    SIGNALS_IMPLEMENTATION_AI_STAGE,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
     ChannelContextGeneration,
@@ -803,7 +804,7 @@ def find_signal_implementation_run(
     task = run.task
     # Belt and braces: only signals' auto_start stamps the branch key today, but the ai_stage and
     # signal-report checks keep a future writer of the key from silently widening the carve-out.
-    if task.signal_report_id is None or (run.state or {}).get("ai_stage") != "implementation":
+    if task.signal_report_id is None or (run.state or {}).get("ai_stage") != SIGNALS_IMPLEMENTATION_AI_STAGE:
         return None
     return contracts.SignalImplementationRunDTO(
         run_id=run.id,

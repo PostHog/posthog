@@ -444,9 +444,15 @@ INTERACTIVE_RUN_SCOPE: Final[str] = "interactive_run:read"
 # another product route that accepts the same OAuth application.
 SLACK_RUN_SCOPE: Final[str] = "slack_run:read"
 
-# Not a product: no caller can declare it, and it never appears in PRODUCTS. It only names a
+# Server-minted marker for the report pipeline's implementation stage (IMPLEMENTATION_RUN_SCOPE
+# in posthog/temporal/oauth.py). Also an internal scope. Used to pick the budget, never to
+# grant access.
+IMPLEMENTATION_RUN_SCOPE: Final[str] = "implementation_run:read"
+
+# Not products: no caller can declare them, and they never appear in PRODUCTS. They only name a
 # budget in product_cost_limits / user_cost_limits, resolved from the token by resolve_cost_key.
 SIGNALS_INTERACTIVE_COST_KEY: Final[str] = "signals_interactive"
+SIGNALS_IMPLEMENTATION_COST_KEY: Final[str] = "signals_implementation"
 
 
 def check_free_tier_model_access(
@@ -514,18 +520,23 @@ def resolve_cost_key(product: str, scopes: list[str] | None) -> str:
     """The budget a request meters against, which is not always its product.
 
     Provenance markers pin budgets that cannot safely depend on the product the caller declares,
-    which a sandbox is free to choose. Slack tokens always resolve to `slack_app`; Signals uses a
-    separate key only for runs a person started.
+    which a sandbox is free to choose. Slack tokens always resolve to `slack_app`; Signals uses
+    separate keys for runs a person started and for the pipeline's implementation stage, whose
+    volume grows on its own and would otherwise refuse scout scanning and research calls with it.
 
     Each marker decides alone, without also requiring its matching declared product. Pairing the
     two would let a sandbox choose another allowed route and leave its per-run spend limit. Only
-    Slack tasks receive `slack_run`, and only interactive Signals runs receive `interactive_run`,
-    so either scope is sufficient provenance for its budget.
+    Slack tasks receive `slack_run`, only interactive Signals runs receive `interactive_run`, and
+    only implementation runs receive `implementation_run`, so each scope is sufficient provenance
+    for its budget. Interactive wins over implementation: a token can only carry one of the two,
+    and the interactive budget is the smaller one to fall back to.
     """
     if SLACK_RUN_SCOPE in (scopes or []):
         return "slack_app"
     if INTERACTIVE_RUN_SCOPE in (scopes or []):
         return SIGNALS_INTERACTIVE_COST_KEY
+    if IMPLEMENTATION_RUN_SCOPE in (scopes or []):
+        return SIGNALS_IMPLEMENTATION_COST_KEY
     return resolve_product_alias(product)
 
 

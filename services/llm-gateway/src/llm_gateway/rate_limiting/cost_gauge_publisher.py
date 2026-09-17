@@ -9,6 +9,7 @@ from llm_gateway.metrics.prometheus import (
     PRODUCT_COST_LIMIT_USD,
     PRODUCT_COST_WINDOW_SECONDS,
     PRODUCT_COST_WINDOW_USD,
+    PRODUCT_COST_WINDOW_UTILIZATION,
 )
 from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle
 
@@ -27,6 +28,7 @@ async def _publish_once(throttle: ProductCostThrottle) -> None:
             PRODUCT_COST_WINDOW_USD.labels(product=product).set(status.used_usd)
             PRODUCT_COST_LIMIT_USD.labels(product=product).set(status.limit_usd)
             PRODUCT_COST_WINDOW_SECONDS.labels(product=product).set(status.resets_in_seconds)
+            PRODUCT_COST_WINDOW_UTILIZATION.labels(product=product).set(status.used_fraction)
         except Exception:
             logger.exception("product_cost_gauge_publish_failed", product=product)
 
@@ -38,6 +40,9 @@ async def publish_product_cost_gauges_loop(
     """Periodically read each product's shared-pool spend from Redis and publish
     it as Prometheus gauges, so alerting can compare current spend to the cap
     without tying freshness to request traffic.
+
+    Utilization is published next to the raw spend so a pool filling up is visible before it
+    binds: the throttle refuses every caller of a pool the moment it reaches its cap.
     """
     logger.info("product_cost_gauge_publisher_started", interval_seconds=interval_seconds)
 

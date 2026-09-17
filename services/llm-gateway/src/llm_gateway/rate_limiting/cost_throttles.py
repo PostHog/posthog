@@ -32,6 +32,13 @@ class CostStatus:
     resets_in_seconds: int
     exceeded: bool
 
+    @property
+    def used_fraction(self) -> float:
+        """Share of the cap already spent. A cap of zero never refills, so it reads as full."""
+        if self.limit_usd <= 0:
+            return 1.0
+        return min(1.0, self.used_usd / self.limit_usd)
+
 
 class CostThrottle(Throttle):
     scope: str
