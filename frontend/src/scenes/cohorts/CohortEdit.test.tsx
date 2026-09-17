@@ -9,6 +9,7 @@ import { NEW_COHORT } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { urls } from 'scenes/urls'
 
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -524,6 +525,56 @@ describe('cohortEditLogic', () => {
                 })
             }
         )
+    })
+
+    describe('calculation history action', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        // ScenePanel portals its actions into the host element the app layout registers. A
+        // standalone render never creates one, so the panel stays empty without this.
+        function renderWithScenePanel(cohortId: number): void {
+            const panelHost = document.createElement('div')
+            document.body.appendChild(panelHost)
+            const layoutLogic = sceneLayoutLogic()
+            layoutLogic.mount()
+            layoutLogic.actions.registerScenePanelElement(panelHost)
+            render(<CohortEdit id={cohortId} />)
+        }
+
+        it.each([
+            { type: 'static', isStatic: true },
+            { type: 'dynamic', isStatic: false },
+        ])('offers calculation history for a saved $type cohort', async ({ isStatic }) => {
+            const cohortId = 8
+
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        id: cohortId,
+                        name: 'Test Cohort',
+                        is_static: isStatic,
+                        filters: { properties: { type: 'AND', values: [] } },
+                        version: null,
+                        pending_version: null,
+                        is_calculating: false,
+                        errors_calculating: 0,
+                        last_calculation: null,
+                    },
+                },
+            })
+
+            renderWithScenePanel(cohortId)
+
+            // The panel fills in once the cohort resolves. Waiting on a sibling action separates a
+            // panel that never rendered from one that rendered without this entry.
+            await screen.findByText('Message this cohort')
+
+            // Both cohort types record calculation history, so neither may have the tab that lists
+            // it gated away.
+            expect(screen.getByText('Calculation history')).toBeInTheDocument()
+        })
     })
 
     describe('import warning', () => {
