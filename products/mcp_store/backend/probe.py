@@ -72,6 +72,12 @@ class ProbeResult:
         # protected endpoint), so it may not auto-activate.
         return self.auth_flavor == "open"
 
+    @property
+    def dcr_registration_refused(self) -> bool:
+        """Whether the server answered, served its OAuth metadata, and still would not mint
+        a client for us. A probe that never reached the server proves nothing instead."""
+        return self.speaks_mcp and self.auth_flavor == "oauth_shared"
+
 
 def probe_mcp_server(
     url: str,

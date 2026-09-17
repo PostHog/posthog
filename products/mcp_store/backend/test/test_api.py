@@ -3478,6 +3478,33 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         assert installation.sensitive_configuration["dcr_is_user_provided"] in (False, "False")
 
     @ALLOW_URL
+    @patch("products.mcp_store.backend.presentation.views.report_user_action")
+    @patch("products.mcp_store.backend.presentation.views.register_dcr_client")
+    @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
+    def test_install_custom_dcr_rejection_is_counted(self, mock_discover, mock_dcr, mock_report, _allow):
+        # The url is the only thing that says which vendor refused us on this path, so the
+        # event carries it — a catalog entry is identified by its template instead.
+        mock_discover.return_value = {
+            "issuer": "https://auth.legit.com",
+            "authorization_endpoint": "https://auth.legit.com/authorize",
+            "token_endpoint": "https://auth.legit.com/token",
+            "registration_endpoint": "https://auth.legit.com/register",
+        }
+        mock_dcr.side_effect = DCRRegistrationRejectedError("The server rejected registration", 403)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={"name": "Legit", "url": "https://mcp.legit.com/mcp", "auth_type": "oauth"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not MCPServerInstallation.objects.filter(url="https://mcp.legit.com/mcp").exists()
+        assert mock_report.call_args.args[1] == "mcp_store oauth registration failed"
+        assert mock_report.call_args.kwargs["properties"]["source"] == "custom"
+        assert mock_report.call_args.kwargs["properties"]["server_url"] == "https://mcp.legit.com/mcp"
+
+    @ALLOW_URL
     @patch("products.mcp_store.backend.presentation.views.register_dcr_client")
     @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
     def test_install_custom_persists_dcr_minted_client_secret(self, mock_discover, mock_dcr, _allow):
@@ -4083,18 +4110,23 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
     def test_install_template_dcr_not_supported_returns_400_and_cleans_up(self, _discover, _register):
         template = self._template(oauth_credentials={}, oauth_metadata={})
 
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
-            data={"template_id": str(template.id)},
-            format="json",
-        )
+        with patch("products.mcp_store.backend.presentation.views.report_user_action") as mock_report:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+                data={"template_id": str(template.id)},
+                format="json",
+            )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         # A half-created installation should not linger after DCR failure.
         assert not MCPServerInstallation.objects.filter(url=template.url, user=self.user).exists()
+        assert mock_report.call_args.args[1] == "mcp_store oauth registration failed"
+        assert mock_report.call_args.kwargs["properties"]["failure_reason"] == "dcr_not_supported"
 
-    @patch(
-        "products.mcp_store.backend.presentation.views.register_dcr_client",
-        side_effect=DCRRegistrationRejectedError("The server rejected registration: client_name is invalid"),
+    @parameterized.expand(
+        [
+            ("refused", 403, "doesn't accept app registrations from PostHog"),
+            ("provider_fault", 502, "Try again"),
+        ]
     )
     @patch(
         "products.mcp_store.backend.presentation.views.discover_oauth_metadata",
@@ -4104,18 +4136,38 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
             "registration_endpoint": "https://auth.discovered.example.com/register",
         },
     )
-    def test_install_template_dcr_rejection_surfaces_provider_message(self, _discover, _register):
+    def test_install_template_dcr_rejection_explains_the_refusal(
+        self, _name: str, provider_status: int, expected_copy: str, _discover
+    ):
+        # The provider's own message ("client_name is invalid") is written for a client
+        # developer, so it must stay in the logs rather than reach the connect dialog.
         template = self._template(oauth_credentials={}, oauth_metadata={})
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
-            data={"template_id": str(template.id)},
-            format="json",
+        rejection = DCRRegistrationRejectedError(
+            "The server rejected registration: client_name is invalid", provider_status
         )
 
+        with (
+            patch(
+                "products.mcp_store.backend.presentation.views.register_dcr_client",
+                side_effect=rejection,
+            ),
+            patch("products.mcp_store.backend.presentation.views.report_user_action") as mock_report,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+                data={"template_id": str(template.id)},
+                format="json",
+            )
+
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "client_name is invalid" in response.json()["detail"]
+        assert expected_copy in response.json()["detail"]
+        assert "client_name is invalid" not in response.json()["detail"]
         assert not MCPServerInstallation.objects.filter(url=template.url, user=self.user).exists()
+        # Without this event the attempt is invisible: it never reaches "oauth started".
+        assert mock_report.call_args.args[1] == "mcp_store oauth registration failed"
+        assert mock_report.call_args.kwargs["properties"]["failure_reason"] == "dcr_rejected"
+        assert mock_report.call_args.kwargs["properties"]["provider_status"] == provider_status
+        assert mock_report.call_args.kwargs["properties"]["template_id"] == str(template.id)
 
     @parameterized.expand([("row_disabled",), ("default_disabled",)])
     def test_install_template_refused_when_server_disabled_for_team(self, scenario: str) -> None:

@@ -111,18 +111,14 @@ class DCRNotSupportedError(Exception):
 class DCRRegistrationFailedError(Exception):
     """Raised when Dynamic Client Registration fails.
 
-    `detail` holds a short, user-safe message from the provider when one exists.
+    `provider_status` holds the HTTP status the provider answered with, when the request
+    reached it. The provider's own message stays in the logs: it is written for a client
+    developer, not for the person clicking connect.
     """
 
-    def __init__(self, detail: str | None = None) -> None:
-        super().__init__(detail or "")
-        self.detail = detail
-
-
-def _dcr_failed_detail(error: "DCRRegistrationFailedError") -> str:
-    if error.detail:
-        return f"OAuth registration failed. {error.detail}"
-    return "OAuth registration failed."
+    def __init__(self, provider_status: int | None = None) -> None:
+        super().__init__("")
+        self.provider_status = provider_status
 
 
 def _hash_oauth_state_token(token: str) -> str:
@@ -1019,12 +1015,60 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             raise DCRNotSupportedError from e
         except DCRRegistrationRejectedError as e:
             log_context["error"] = str(e)
-            logger.warning("DCR registration rejected by provider", **log_context)
-            raise DCRRegistrationFailedError(e.provider_message) from e
+            logger.warning("DCR registration rejected by provider", status=e.status_code, **log_context)
+            raise DCRRegistrationFailedError(e.status_code) from e
         except Exception as e:
             log_context["error"] = str(e)
             logger.exception("DCR registration failed", **log_context)
             raise DCRRegistrationFailedError from e
+
+    def _dcr_failure_response(
+        self,
+        request: Request,
+        error: DCRNotSupportedError | DCRRegistrationFailedError,
+        *,
+        server_url: str,
+        install_source: str,
+        source: str,
+        template: MCPServerTemplate | None = None,
+    ) -> Response:
+        """Build the 400 the user sees, and count the attempt.
+
+        These installs never reach "mcp_store oauth started", so without an event here a
+        server that refuses our client looks exactly like a server nobody tried to connect.
+        """
+        if isinstance(error, DCRNotSupportedError):
+            failure_reason = "dcr_not_supported"
+            provider_status = None
+            detail = "This MCP server does not support Dynamic Client Registration (DCR)."
+        else:
+            failure_reason = "dcr_rejected"
+            provider_status = error.provider_status
+            if provider_status is not None and 400 <= provider_status < 500:
+                detail = (
+                    "This server doesn't accept app registrations from PostHog, so we can't connect it here. "
+                    "Connect it from a client the vendor supports, or ask them to allow PostHog."
+                )
+            else:
+                detail = "Couldn't register with this server. Try again, and if it keeps happening contact support."
+        properties: dict[str, Any] = {
+            "server_url": server_url,
+            "install_source": install_source,
+            "source": source,
+            "failure_reason": failure_reason,
+            "provider_status": provider_status,
+        }
+        if template is not None:
+            properties["server_name"] = template.name
+            properties["template_id"] = str(template.id)
+        report_user_action(
+            request.user,
+            "mcp_store oauth registration failed",
+            properties=properties,
+            team=self.team,
+            request=request,
+        )
+        return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
 
     def _build_authorize_url_from_metadata(
         self,
@@ -1471,17 +1515,17 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     server_url=template.url,
                     scope_allowlist=template.oauth_scope_allowlist,
                 )
-            except DCRNotSupportedError:
+            except (DCRNotSupportedError, DCRRegistrationFailedError) as e:
                 if created:
                     installation.delete()
-                return Response(
-                    {"detail": "This MCP server does not support Dynamic Client Registration (DCR)."},
-                    status=status.HTTP_400_BAD_REQUEST,
+                return self._dcr_failure_response(
+                    request,
+                    e,
+                    server_url=template.url,
+                    install_source=install_source,
+                    source="template",
+                    template=template,
                 )
-            except DCRRegistrationFailedError as e:
-                if created:
-                    installation.delete()
-                return Response({"detail": _dcr_failed_detail(e)}, status=status.HTTP_400_BAD_REQUEST)
             client_id = registration.client_id
 
             # Cache the discovered metadata and minted per-user client on the
@@ -1752,17 +1796,16 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         else:
             try:
                 registration = self._register_dcr_client_or_raise(metadata, redirect_uri, server_url=mcp_url)
-            except DCRNotSupportedError:
+            except (DCRNotSupportedError, DCRRegistrationFailedError) as e:
                 if created:
                     installation.delete()
-                return Response(
-                    {"detail": "This MCP server does not support Dynamic Client Registration (DCR)."},
-                    status=status.HTTP_400_BAD_REQUEST,
+                return self._dcr_failure_response(
+                    request,
+                    e,
+                    server_url=mcp_url,
+                    install_source=install_source,
+                    source="custom",
                 )
-            except DCRRegistrationFailedError as e:
-                if created:
-                    installation.delete()
-                return Response({"detail": _dcr_failed_detail(e)}, status=status.HTTP_400_BAD_REQUEST)
             client_id = registration.client_id
             dcr_client_secret = registration.client_secret
             token_endpoint_auth_method = registration.token_endpoint_auth_method

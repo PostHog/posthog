@@ -42,12 +42,15 @@ class OAuthAuthorizeURLError(Exception):
 class DCRRegistrationRejectedError(Exception):
     """The authorization server rejected the Dynamic Client Registration request.
 
-    Carries a short, provider-supplied message that is safe to show the user.
+    ``provider_message`` is a short description of the rejection for the logs.
+    ``status_code`` separates a refusal (4xx, e.g. a server that only accepts
+    allowlisted clients) from a server-side fault that is worth a retry.
     """
 
-    def __init__(self, provider_message: str) -> None:
+    def __init__(self, provider_message: str, status_code: int) -> None:
         super().__init__(provider_message)
         self.provider_message = provider_message
+        self.status_code = status_code
 
 
 def _validate_url(url: str) -> None:
@@ -339,7 +342,7 @@ class DcrClientRegistration:
 
 
 def _describe_dcr_rejection(resp: requests.Response) -> str:
-    """Build a short, user-safe message from an RFC 7591 error response."""
+    """Build a short description of an RFC 7591 error response for the logs."""
     try:
         body = resp.json()
     except ValueError:
@@ -394,7 +397,7 @@ def register_dcr_client(
             body=resp.text[:500],
             registration_endpoint=registration_endpoint,
         )
-        raise DCRRegistrationRejectedError(_describe_dcr_rejection(resp))
+        raise DCRRegistrationRejectedError(_describe_dcr_rejection(resp), resp.status_code)
     data = resp.json()
 
     client_id = data.get("client_id")
