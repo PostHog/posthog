@@ -55,18 +55,19 @@ The owning team for each batch is in `ee/owners.yaml`, and for a product destina
 
 These carry no Django model, so they are a rename plus an import rewrite.
 
-| Batch                                              | Files | Import sites | Destination                   |
-| -------------------------------------------------- | ----- | ------------ | ----------------------------- |
-| `ee/surveys`                                       | 2     | 1            | `products/surveys`            |
-| `ee/api/rbac`                                      | 1     | 0            | `products/access_control`     |
-| `ee/support_sidebar_max`                           | 5     | 0            | core                          |
-| `ee/admin`                                         | 2     | 2            | core                          |
-| `ee/clickhouse/materialized_columns`               | 7     | 55           | `products/analytics_platform` |
-| `ee/clickhouse/views` experiment views and tests   | ~10   | 9            | `products/experiments`        |
-| `ee/tasks/subscriptions`                           | 8     | 22           | `products/product_analytics`  |
-| `ee/benchmarks`                                    | 6     | 0            | `tools/`                      |
-| `ee/partners/stripe`, `ee/vercel`, `ee/api/vercel` | 65    | 3            | `products/partners`           |
-| `ee/api/agentic_provisioning`                      | 47    | 0            | `products/provisioning`       |
+| Batch                                            | Files | Import sites | Destination                   |
+| ------------------------------------------------ | ----- | ------------ | ----------------------------- |
+| `ee/surveys`                                     | 2     | 1            | `products/surveys`            |
+| `ee/api/rbac`                                    | 1     | 0            | `products/access_control`     |
+| `ee/support_sidebar_max`                         | 5     | 0            | core                          |
+| `ee/admin`                                       | 2     | 2            | core                          |
+| `ee/clickhouse/materialized_columns`             | 7     | 55           | `products/analytics_platform` |
+| `ee/clickhouse/views` experiment views and tests | ~10   | 9            | `products/experiments`        |
+| `ee/tasks/subscriptions`                         | 8     | 22           | `products/product_analytics`  |
+| `ee/benchmarks`                                  | 6     | 0            | `tools/`                      |
+| `ee/partners` (Stripe provisioning)              | 31    | 0            | `products/partners`           |
+| `ee/vercel`, `ee/api/vercel`                     | 34    | 6            | `products/partners`           |
+| `ee/api/agentic_provisioning`                    | 47    | 3            | `products/provisioning`       |
 
 Notes that decide how a row lands:
 
@@ -74,7 +75,7 @@ Notes that decide how a row lands:
 - `ee/tasks/subscriptions` goes to `products/product_analytics`, which owns it. Its callers do not live there: 8 of the 9 import sites are in `products/exports`, so that product's imports change in the same PR.
 - `ee/benchmarks` has to still run after the move. It is an asv suite, and `asv.conf.json`, `measure.sh` and the benchmark discovery paths all name the current location.
 - Neither `products/partners` nor `products/provisioning` exists yet. Create both with `hogli product:bootstrap`, which scaffolds them already isolated.
-- `ee/partners/stripe/api/provisioning` and `ee/api/agentic_provisioning` are parallel implementations of the same job, down to matching `analytics`, `authentication`, `constants`, `exceptions`, `region_proxy` and `serializers` modules. Decide whether they consolidate before the split, not after.
+- Stripe provisioning and non-Stripe provisioning stay apart. `ee/partners/stripe/api/provisioning` and `ee/api/agentic_provisioning` carry matching module names, and that is not duplication to collapse. Land them as separate batches into separate products.
 - `ee/management/commands` is not one batch. Each command rides with the code it drives: the two `materialize_columns` commands with materialized columns, `backfill_vercel_secrets` with Vercel, `backfill_scim_request_log_config` with SCIM, and `consume_sqs` with billing. Anything left over goes to core.
 
 ### Batches that move database state
@@ -101,14 +102,26 @@ Decide what a build without `ee/` should then see before starting this batch.
 
 ## What stays
 
-`ee/` does not go away. These stay under the Enterprise License:
+`ee/` does not go away.
+What stays is the code the directory's license exists for, and it is all live.
 
-- `ee/models/license.py`, `ee/api/license.py`, `ee/tasks/send_license_usage.py`. The license key itself.
-- `ee/api/billing.py`, `ee/api/quota_limits.py`, `ee/billing/`. Entitlement and quota enforcement, cloud-only. `ee/billing` alone has 80 import sites.
-- `ee/api/authentication.py`. SAML and SSO, which are entitled features.
-- `ee/sqs/`. Queue plumbing for billing. Its consumers are `ee/billing/queue/BillingConsumer.py` and usage reporting, so it follows billing.
-- `ee/migrations/`. The `ee` app label owns these tables. The migrations stay wherever the app label stays, whatever moves out of the Python tree.
-- `ee/LICENSE`, `ee/apps.py`, `ee/settings.py`, `ee/urls.py`, `ee/middleware.py`, `ee/conftest.py`. The app itself.
+- **The license key.** `ee/models/license.py`, `ee/api/license.py`, `ee/tasks/send_license_usage.py`.
+  `ee/urls.py` mounts `LicenseViewSet` at `api/license`.
+  `posthog/cloud_utils.py` reads `License.objects.first_valid()` and creates a dev license in dev mode.
+  `posthog/models/organization.py` reads it to resolve `available_product_features` and the billing plan.
+  `posthog/tasks/scheduled.py` runs `clickhouse_send_license_usage` twice a day when `EE_AVAILABLE`, and its body runs only when `is_cloud()` is false.
+  So this path serves self-hosted deployments. Cloud takes its features from the billing service instead.
+- **Entitlement and quota enforcement.** `ee/api/billing.py`, `ee/api/quota_limits.py`, `ee/billing/`.
+  `ee/billing` alone has 80 import sites, the widest in the directory, reaching `posthog/temporal`, `products/tasks`, `posthog/models`, `posthog/api`, `products/growth` and more.
+- **SAML and SSO.** `ee/api/authentication.py`. Both are entitled features.
+- **Queue plumbing for billing.** `ee/sqs/`. Consumed by `ee/billing/queue/BillingConsumer.py` and usage reporting, so it follows billing.
+- **The app itself.** `ee/LICENSE`, `ee/apps.py`, `ee/settings.py`, `ee/urls.py`, `ee/middleware.py`, `ee/conftest.py`.
+- **`ee/migrations/`.** The `ee` app label owns these tables. The migrations stay wherever the app label stays, whatever moves out of the Python tree.
+
+Nothing forces this code to sit in `ee/` either.
+It stays because the license boundary is a directory path, so `ee/` is the only place code can be non-MIT.
+Moving billing and licensing out would relicense PostHog's own paid-feature enforcement under MIT.
+That is the one part of the directory where the boundary does the job it was drawn for.
 
 ## Rules while this is in progress
 
