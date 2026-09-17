@@ -35,7 +35,8 @@
                     "type": "null"
                 }
             ],
-            "description": "Optional. The object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Omit for the project or a whole tool."
+            "default": null,
+            "description": "The object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Null for the project or a whole tool."
         }
     },
     "required": ["resource", "access_level", "member_id"],

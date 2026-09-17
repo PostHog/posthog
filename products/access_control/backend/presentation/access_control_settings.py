@@ -873,6 +873,20 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         membership_id = membership.id if membership else None
         role_id = role.id if role else None
         try:
+            if access_level is None:
+                try:
+                    api.delete_property_access_control(
+                        team_id=team.id,
+                        input=DeletePropertyAccessControlInput(
+                            property_definition_id=property_definition_id,
+                            organization_member_id=membership_id,
+                            role_id=role_id,
+                        ),
+                    )
+                except api.PropertyAccessControlRuleNotFoundError:
+                    # Nothing to clear, including a rule a concurrent clear removed first
+                    return self._property_rule_response("noop", None)
+                return self._property_rule_response("cleared", None)
             existing = next(
                 (
                     rule
@@ -883,18 +897,6 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 ),
                 None,
             )
-            if access_level is None:
-                if existing is None:
-                    return self._property_rule_response("noop", None)
-                api.delete_property_access_control(
-                    team_id=team.id,
-                    input=DeletePropertyAccessControlInput(
-                        property_definition_id=property_definition_id,
-                        organization_member_id=membership_id,
-                        role_id=role_id,
-                    ),
-                )
-                return self._property_rule_response("cleared", None)
             rule = api.upsert_property_access_control(
                 team_id=team.id,
                 created_by_id=self.request.user.pk if self.request.user.is_authenticated else None,  # type: ignore[attr-defined]
