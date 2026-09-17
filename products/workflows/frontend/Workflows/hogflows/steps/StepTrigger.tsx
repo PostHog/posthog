@@ -60,7 +60,7 @@ import { TriggerFrequencyOption, getRegisteredTriggerTypes } from '../registry/t
 import { HogFlowAction } from '../types'
 import { createAccountAssignmentFilterUpdate, parseAccountAssignmentFilter } from './accountAssignmentFilter'
 import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './batchTriggerLogic'
-import { HogFlowDuration } from './components/HogFlowDuration'
+import { HogFlowDuration, MAX_CONVERSION_WINDOW_FOR_DURATION_UNIT } from './components/HogFlowDuration'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
 import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
@@ -925,16 +925,30 @@ function FrequencySection({
 }
 
 const DEFAULT_CONVERSION_WINDOW = '90d'
+// The worker measures a legacy window_minutes at most this long, so a longer stored value is shown
+// as what it actually measures rather than as a number the API would now reject.
+const LEGACY_CONVERSION_WINDOW_CEILING_MINUTES = 90 * 24 * 60
+
+function conversionWindowFromMinutes(minutes: number): string {
+    const capped = Math.min(minutes, LEGACY_CONVERSION_WINDOW_CEILING_MINUTES)
+    if (capped % (24 * 60) === 0) {
+        return `${capped / (24 * 60)}d`
+    }
+    if (capped % 60 === 0) {
+        return `${capped / 60}h`
+    }
+    return `${capped}m`
+}
 
 function ConversionGoalSection(): JSX.Element {
     const { setWorkflowValue } = useActions(workflowLogic)
     const { workflow } = useValues(workflowLogic)
 
     const conversionEventFilters = workflow.conversion?.events?.[0]?.filters ?? {}
-    // What the worker measures when a workflow sets no window of its own
-    // (DEFAULT_CONVERSION_WINDOW_MINUTES in nodejs conversion-watcher.ts). Showing it makes the
-    // effective window visible; nothing is written until someone changes it.
-    const conversionWindow = workflow.conversion?.window ?? DEFAULT_CONVERSION_WINDOW
+    const legacyWindowMinutes = workflow.conversion?.window_minutes
+    const conversionWindow =
+        workflow.conversion?.window ??
+        (legacyWindowMinutes ? conversionWindowFromMinutes(legacyWindowMinutes) : DEFAULT_CONVERSION_WINDOW)
 
     return (
         <div className="flex flex-col py-2 w-full">
@@ -994,10 +1008,13 @@ function ConversionGoalSection(): JSX.Element {
                     </span>
                     <HogFlowDuration
                         value={conversionWindow}
-                        onChange={(window) => setWorkflowValue('conversion', { ...workflow.conversion, window })}
-                        // A conversion window runs to 365 days, so it must not take the per-unit
-                        // ceilings that bound how long a single delay step waits.
-                        allowUnbounded
+                        onChange={(window) => {
+                            // The API rejects a conversion that carries both forms, so writing the
+                            // duration string drops the deprecated one this workflow may still hold.
+                            const { window_minutes, ...conversion } = workflow.conversion ?? {}
+                            setWorkflowValue('conversion', { ...conversion, window })
+                        }}
+                        maxValueForUnit={MAX_CONVERSION_WINDOW_FOR_DURATION_UNIT}
                     />
                 </div>
             </div>
