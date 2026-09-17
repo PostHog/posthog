@@ -1,0 +1,47 @@
+"""Conversations' consumers on the customer-facing GitHub App and the SupportHog Slack app.
+
+The registry imports this module on the first delivery, so it stays cheap: every callable defers
+its own product import.
+"""
+
+from posthog.ingress.contracts import DeliveryOwnership, WebhookConsumer, WebhookDelivery
+from posthog.ingress.slack.provider import SLACK_EVENT_TYPES
+
+
+def _run_conversations(delivery: WebhookDelivery) -> None:
+    from products.conversations.backend.facade.api import accept_github_event  # noqa: PLC0415
+
+    accept_github_event(delivery)
+
+
+def _run_slack_events(delivery: WebhookDelivery) -> None:
+    from products.conversations.backend.facade.api import accept_slack_event  # noqa: PLC0415
+
+    accept_slack_event(delivery)
+
+
+def _slack_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    from products.conversations.backend.facade.api import slack_delivery_ownership  # noqa: PLC0415
+
+    return slack_delivery_ownership(delivery)
+
+
+WEBHOOK_CONSUMERS = (
+    WebhookConsumer(
+        name="conversations",
+        provider="github",
+        app="posthog",
+        event_types=frozenset({"issues", "issue_comment"}),
+        handler=_run_conversations,
+    ),
+    WebhookConsumer(
+        name="conversations_slack",
+        provider="slack",
+        app="supporthog",
+        event_types=SLACK_EVENT_TYPES,
+        handler=_run_slack_events,
+        # The unique inbound receipt row is the idempotency here, so a redelivery must reach it.
+        dedup=False,
+        ownership=_slack_ownership,
+    ),
+)

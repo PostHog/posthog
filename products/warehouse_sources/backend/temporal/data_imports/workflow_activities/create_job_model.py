@@ -40,7 +40,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.d
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     get_v3_pipeline_lock_holder,
 )
-from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_fast_return_enabled
 
 WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
 
@@ -219,8 +218,6 @@ def _fast_return_eligible(
     that always fast-returns, so anything outstanding forces the full path, and
     FAST_RETURN_FULL_RUN_INTERVAL forces one anyway for whatever this list cannot see.
     """
-    if not is_fast_return_enabled(schema):
-        return False
     if not (schema.is_incremental or schema.is_append):
         return False
     # xmin and CDC keep their cursor outside `incremental_field_last_value`, and a webhook

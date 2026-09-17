@@ -1,5 +1,6 @@
 ---
 name: signals-scout-skills-store
+scout-display-name: Skills store
 description: >
   Skill-hygiene scout for the team's PostHog skills store. Watches recently-changed and most-
   used skills for authoring violations — vague descriptions, bloated bodies, dead file links,

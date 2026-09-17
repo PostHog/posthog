@@ -4852,6 +4852,7 @@ const api = {
         async sqlV2Run(
             notebookId: NotebookType['short_id'],
             data: {
+                reuse_results?: boolean
                 node_id: string
                 code: string
                 refs?: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
@@ -6600,10 +6601,13 @@ const api = {
             // `stage_draft` routes content edits on an active workflow into its staged draft instead of
             // the live config; publish promotes them. Ignored on non-active workflows.
             // `base_live_updated_at` fences a staged save's live metadata write the same way.
+            // `includes_staged_draft` marks a full save on a non-active workflow that carries its staged
+            // draft, so the server clears that draft.
             data: Partial<HogFlow> & {
                 base_updated_at?: string | null
                 stage_draft?: boolean
                 base_live_updated_at?: string | null
+                includes_staged_draft?: boolean
             }
         ): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).update({ data })

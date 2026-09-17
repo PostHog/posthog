@@ -5,6 +5,7 @@ from parameterized import parameterized
 from rest_framework.request import Request
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.oauth_provenance import SANDBOX_ORIGIN_HEADER, is_sandbox_oauth_request, is_sandbox_origin_request
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_EU,
@@ -99,3 +100,9 @@ class TestTaskClientProvenance:
 
     def test_missing_authentication_provenance_fails_closed(self) -> None:
         assert get_task_client_provenance(cast(Request, SimpleNamespace())) is None
+
+    def test_forwarded_sandbox_origin_does_not_grant_sandbox_identity(self) -> None:
+        request = cast(Request, SimpleNamespace(headers={SANDBOX_ORIGIN_HEADER: "1"}))
+
+        assert is_sandbox_origin_request(request)
+        assert not is_sandbox_oauth_request(request)

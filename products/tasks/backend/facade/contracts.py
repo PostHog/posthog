@@ -207,6 +207,11 @@ class TaskDetailDTO:
 
 
 @dataclass(frozen=True)
+class TaskCreateResponseDTO(TaskDetailDTO):
+    run_error: str | None = None
+
+
+@dataclass(frozen=True)
 class ChannelDTO:
     """The HTTP representation of a task channel."""
 
@@ -384,6 +389,7 @@ class TaskLatestRunSummaryDTO:
     mode: Literal["interactive", "background"]
     pr_url: str | None = None
     pr_state: str | None = None
+    task_summary: str | None = None
 
 
 @dataclass(frozen=True)
@@ -436,6 +442,7 @@ class TaskRunResult:
 
     task: "TaskDetailDTO | None" = None
     error: TaskValidationError | None = None
+    run_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -584,6 +591,7 @@ class TaskRunDetailDTO:
     log_url: str | None
     error_message: str | None
     output: dict | None
+    task_summary: str | None
     state: dict
     artifacts: list = Field(default_factory=list)
     created_at: datetime | None = None

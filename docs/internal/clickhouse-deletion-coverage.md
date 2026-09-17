@@ -12,13 +12,17 @@ It is a property of every table that stores rows attributable to a person.
 | ------------------------ | -------------------------------- | -------------------------------------------------- |
 | Person deletion (async)  | `deletes_job` → `delete_events`  | `team_id`, `person_id`, `timestamp`, `inserted_at` |
 | Team deletion            | `deletes_job` → `delete_events`  | `team_id`                                          |
+| Event deletion (async)   | `deletes_job` → `delete_events`  | `team_id`, `uuid`                                  |
 | Queued uuid drain        | `deletes_job` → `delete_events`  | `team_id`, `uuid`, `inserted_at`                   |
 | Person removal request   | `delete_person_events_op`        | `team_id`, `person_id`, `timestamp`                |
 | Event removal request    | `execute_event_deletion`         | `team_id`, `timestamp`, `event`, + HogQL           |
 | Property removal request | `process_property_removal_shard` | `properties`, `person_properties`, + HogQL         |
 
-The first four use only columns every target declares, so they apply unchanged to any registered table.
+The first five use only columns every target declares, so they apply unchanged to any registered table.
 The last two need more, which is what the capability fields on `DeletionTarget` express.
+
+The event arm deletes one row by `(team_id, uuid)` from an `AsyncDeletion` row of type `Event`, which any Postgres writer can queue in the same transaction as its own delete.
+Replay Vision writes those rows: the recording-api inserts one per `$recording_observed` event in the same statement that deletes the recording's observations, so the queue entry and the observation delete commit together.
 
 Team deletion for tables that are replicated rather than sharded runs through a separate per-table loop (`delete_team_data_from`), which dispatches to a single host.
 A sharded table must not be registered there — it would sweep one shard.
@@ -89,6 +93,7 @@ Skipping one of those tables is worse than under-deleting: the overrides that re
 - `sharded_events` — all sweeps.
 - `sharded_events_json` — all sweeps. Optional: only present after the native-JSON migration.
 - `sharded_flag_evaluations` — person, team, queued-uuid and event removal. Not property removal (below). Optional.
+- `sharded_posthog_document_embeddings_<model>` — event and team deletion, through `delete_event_documents`. An embedded document is keyed by the id of the thing it describes (`document_id`), and an Event deletion's key is that same id, so the pending dictionary is joined on `(team_id, Event, document_id)`. Every per-model table listed by the error tracking facade's `document_embedding_tables` is swept and counted.
 
 ## Tables on TTL alone
 

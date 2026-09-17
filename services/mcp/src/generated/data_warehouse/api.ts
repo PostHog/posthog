@@ -297,7 +297,13 @@ export const WarehouseSavedQueriesListParams = () => zod.object({
         ),
 })
 
+export const warehouseSavedQueriesListQueryIncludeColumnsDefault = true
+
 export const WarehouseSavedQueriesListQueryParams = () => zod.object({
+    include_columns: zod
+        .boolean()
+        .default(warehouseSavedQueriesListQueryIncludeColumnsDefault)
+        .describe('Include column definitions. Set to false for table-only lists.'),
     page: zod.number().optional().describe('A page number within the paginated result set.'),
     search: zod.string().optional().describe('A search term.'),
 })
