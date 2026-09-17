@@ -45,7 +45,6 @@ import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { isSurveyableFunnelInsight, SurveyableFunnelInsight } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTooltip'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
@@ -95,6 +94,7 @@ interface InsightMetaProps extends Pick<
     | 'setOverride'
     | 'duplicate'
     | 'dashboardId'
+    | 'canEditDashboard'
     | 'moveToDashboard'
     | 'copyToDashboard'
     | 'showEditingControls'
@@ -123,6 +123,7 @@ export function InsightMeta({
     insight,
     ribbonColor,
     dashboardId,
+    canEditDashboard,
     updateColor,
     toggleShowDescription,
     filtersOverride,
@@ -179,7 +180,6 @@ export function InsightMeta({
     )
     const { samplingFactor, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightLogicProps))
     const { retentionApplies, retentionMonths, retentionPeriodLabel } = useValues(dataRetentionBannerLogic)
-    const { nameSortedDashboards } = useValues(dashboardsModel)
     const dashboardWidgetMenusLogicProps = {
         instanceKey: insight.short_id,
         dashboardId,
@@ -290,15 +290,7 @@ export function InsightMeta({
     const canShowCopyToDashboardTile = showCompactTile && !!copyToDashboard && canViewInsight
     const hasDashboardPlacementActions = canShowCopyToDashboardTile || !!moveToDashboard || !!removeFromDashboard
 
-    // For dashboard-specific actions (remove from dashboard, change tile color), check dashboard permissions
-    const currentDashboard = dashboardId ? nameSortedDashboards.find((d) => d.id === dashboardId) : null
-    const canEditDashboard = currentDashboard?.user_access_level
-        ? accessLevelSatisfied(
-              AccessControlResourceType.Dashboard,
-              currentDashboard.user_access_level,
-              AccessControlLevel.Editor
-          )
-        : true
+    const canEditCurrentDashboard = canEditDashboard ?? !dashboardId
 
     // Feedback buttons for Customer Analytics
     const feedbackButtons =
@@ -571,7 +563,7 @@ export function InsightMeta({
                             />
                         )}
 
-                        {canShowCopyToDashboardTile && !canEditDashboard && (
+                        {canShowCopyToDashboardTile && !canEditCurrentDashboard && (
                             <>
                                 <LemonDivider />
                                 <h5 className="mx-2 my-1">Dashboard</h5>
@@ -588,7 +580,7 @@ export function InsightMeta({
                         )}
 
                         {/* Dashboard related */}
-                        {canEditDashboard && (
+                        {canEditCurrentDashboard && (
                             <>
                                 <LemonDivider />
                                 {showCompactTile && toggleShowDescription && !!insight.description && (
