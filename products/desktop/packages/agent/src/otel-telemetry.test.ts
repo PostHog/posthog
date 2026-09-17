@@ -726,6 +726,9 @@ describe("OtelRunTelemetry", () => {
           .map((span) => span.name)
           .sort(),
       ).toEqual(["task_run", "tool_call:read", "turn"]);
+      expect(spanByName("tool_call:read").attributes).toMatchObject({
+        tool_status: "unterminated",
+      });
     });
   });
 });

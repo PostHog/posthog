@@ -298,12 +298,17 @@ export class RunTraceBuilder {
    * mid-flight) marks them errored so APM doesn't show a healthy-looking
    * active tool under a failed run; otherwise the outcome is unknown and the
    * status stays unset.
+   * A swept span's duration runs to the end of the turn instead of measuring
+   * the tool, so `unterminated` names it — otherwise the sweep is
+   * indistinguishable from a slow tool and inflates the kind's percentiles.
    */
   private closeOpenTools(time: Date, opts?: { interrupted?: boolean }): void {
     for (const { span } of this.toolSpans.values()) {
       if (opts?.interrupted) {
         span.setAttribute("tool_status", "interrupted");
         span.setStatus({ code: SpanStatusCode.ERROR });
+      } else {
+        span.setAttribute("tool_status", "unterminated");
       }
       span.end(time);
     }

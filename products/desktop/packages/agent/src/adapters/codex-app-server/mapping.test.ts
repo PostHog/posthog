@@ -142,6 +142,23 @@ describe("mapAppServerNotification", () => {
     expect(queryless?.update).toMatchObject({ title: "Web search" });
   });
 
+  it("completes a statusless item, so a webSearch does not stay in progress", () => {
+    const result = mapAppServerNotification(
+      "s-1",
+      APP_SERVER_NOTIFICATIONS.ITEM_COMPLETED,
+      { item: { type: "webSearch", id: "w1", query: "posthog hogql docs" } },
+    );
+
+    expect(result).toEqual({
+      sessionId: "s-1",
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "w1",
+        status: "completed",
+      },
+    });
+  });
+
   it("maps a declined completion to a failed tool_call_update", () => {
     const result = mapAppServerNotification(
       "s-1",
