@@ -617,7 +617,15 @@ ignore_imports = [
     "products.tracing.backend.presentation.views_api -> products.tracing.backend.models",
     "products.user_interviews.backend.presentation.views -> products.user_interviews.backend.models",
     "products.user_interviews.backend.presentation.views -> products.user_interviews.backend.invite_email",
+    # The public interview view still resolves a share token itself and reads the team, the
+    # interviewee context and the topic off the ORM rows, so it takes the share lookup and the
+    # respondent-field helpers from logic directly. A facade read would have to hand back the
+    # SharingConfiguration, which §5 forbids.
+    "products.user_interviews.backend.presentation.webhooks -> products.user_interviews.backend.logic",
     "products.user_interviews.backend.presentation.webhooks -> products.user_interviews.backend.models",
+    # The webhook view still holds the request handling for the Vapi delivery, so it calls the
+    # event module directly. The line goes when the handling moves off the request path.
+    "products.user_interviews.backend.presentation.webhooks -> products.user_interviews.backend.vapi_events",
     # logs presentation isolation (temporary): the moved viewsets still reach in-product
     # internals directly. Removed by the follow-up that thins each viewset to go through
     # the facade.
