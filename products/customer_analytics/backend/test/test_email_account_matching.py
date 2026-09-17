@@ -72,6 +72,31 @@ class TestEmailAccountMatching(BaseTest):
             (str(domain.id), "email_domain"),
         }
 
+    @parameterized.expand([("known_email",), ("person_group",), ("email_domain",)])
+    @patch("products.customer_analytics.backend.logic.email_account_matching.resolve_group_keys_by_email")
+    def test_posthog_email_is_excluded_from_all_matching_steps(self, source: str, mock_group_keys: MagicMock) -> None:
+        self.team.customer_analytics_config.account_group_type_index = 0
+        self.team.customer_analytics_config.save(update_fields=["account_group_type_index"])
+        self._create_account(
+            name="Internal account",
+            external_id="internal-account",
+            known_emails=["member@posthog.com"] if source == "known_email" else [],
+            email_domains=["posthog.com"] if source == "email_domain" else [],
+        )
+        customer = self._create_account(name="Customer", external_id="customer", email_domains=["example.com"])
+        mock_group_keys.side_effect = lambda _team_id, emails, _index: {
+            email: "internal-account" for email in emails if email == "member@posthog.com" and source == "person_group"
+        }
+
+        matches = match_email_accounts(self.team.id, [" Member@PostHog.com ", "contact@example.com"])
+
+        assert [(match.account_id, match.match_source) for match in matches] == [(str(customer.id), "email_domain")]
+        assert match_email_accounts(self.team.id, ["member@posthog.com"]) == []
+        gmail_matches = match_accounts_for_gmail_emails(self.team, [" Member@PostHog.com ", "contact@example.com"])
+        assert [(email, match.account.id, match.source) for email, match in gmail_matches.items()] == [
+            ("contact@example.com", customer.id, "email_domain")
+        ]
+
     def _create_account_member(self, *, email: str, organization: Organization | None = None) -> User:
         member = User.objects.create(email=email)
         OrganizationMembership.objects.create(user=member, organization=organization or self.organization)

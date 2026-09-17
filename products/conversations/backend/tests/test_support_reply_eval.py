@@ -27,6 +27,13 @@ class TestEvalOutcomeFromTriage(SimpleTestCase):
         [
             ("persisted_is_answerable", {"status": "done", "result": "persisted"}, "answerable"),
             ("escalated_with_best", {"status": "done", "result": "escalated_with_best"}, "escalate"),
+            ("suggested_is_escalate", {"status": "done", "result": "suggested"}, "escalate"),
+            ("findings_is_escalate", {"status": "done", "result": "escalated_with_findings"}, "escalate"),
+            (
+                "customer_info_blocker_is_clarification",
+                {"status": "done", "result": "escalated_with_findings", "blocker": "customer_info"},
+                "needs_clarification",
+            ),
             ("skipped_unactionable", {"status": "done", "result": "skipped_unactionable"}, "escalate"),
             ("unknown_result_is_unscored", {"status": "done", "result": "mystery"}, None),
             (
@@ -35,6 +42,26 @@ class TestEvalOutcomeFromTriage(SimpleTestCase):
                 "needs_clarification",
             ),
             ("unfinished_run", {"status": "in_progress"}, None),
+            (
+                "unfinished_run_keeps_stale_blocker_unscored",
+                {"status": "in_progress", "blocker": "customer_info", "verdict": "blocked_on_customer"},
+                None,
+            ),
+            (
+                "blocked_on_customer_verdict_is_clarification",
+                {"status": "done", "result": "escalated_with_findings", "verdict": "blocked_on_customer"},
+                "needs_clarification",
+            ),
+            (
+                "clarified_result_is_clarification",
+                {"status": "awaiting_clarification", "result": "clarified"},
+                "needs_clarification",
+            ),
+            (
+                "suggested_clarification_result",
+                {"status": "done", "result": "suggested_clarification"},
+                "needs_clarification",
+            ),
         ]
     )
     def test_maps_triage(self, _name, triage, expected):

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from unittest.mock import Mock, patch
@@ -7,9 +8,9 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.ingress.contracts import ProviderSpec, WebhookConsumer, WebhookDelivery
+from posthog.ingress.contracts import DeliveryOwnership, ProviderSpec, WebhookConsumer, WebhookDelivery
 from posthog.ingress.dispatch.budget import DEFAULT_DELIVERY_BUDGET_SECONDS, DeliveryBudget, delivery_budget_seconds
-from posthog.ingress.dispatch.dedup import DeliveryDedup
+from posthog.ingress.dispatch.dedup import DeliveryClaim, DeliveryDedup
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
 from posthog.ingress.dispatch.registry import ConsumerRegistry
 
@@ -28,7 +29,7 @@ def _delivery(delivery_id: str | None = "delivery-1") -> WebhookDelivery:
     )
 
 
-def _consumer(name: str, handler, *, dedup: bool = True) -> WebhookConsumer:
+def _consumer(name: str, handler, *, dedup: bool = True, ownership=None) -> WebhookConsumer:
     return WebhookConsumer(
         name=name,
         provider="github",
@@ -36,7 +37,17 @@ def _consumer(name: str, handler, *, dedup: bool = True) -> WebhookConsumer:
         event_types=frozenset({"pull_request"}),
         handler=handler,
         dedup=dedup,
+        ownership=ownership,
     )
+
+
+def _ownership(answer):
+    def lookup(delivery: WebhookDelivery) -> DeliveryOwnership:
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    return lookup
 
 
 def _dispatcher(consumers: list[WebhookConsumer], *, budget_seconds: float | None = None) -> WebhookDispatcher:
@@ -50,6 +61,23 @@ def _dispatcher(consumers: list[WebhookConsumer], *, budget_seconds: float | Non
 class TestWebhookDispatcher(SimpleTestCase):
     def setUp(self) -> None:
         cache.clear()
+
+    @parameterized.expand(
+        [
+            ("an_app_no_incarnation_declares", "other", "pull_request"),
+            ("an_event_type_no_consumer_registered_for", "posthog", "issues"),
+        ]
+    )
+    def test_a_delivery_with_nothing_to_run_names_no_unaccepted_consumer(
+        self, _name: str, app: str, event_type: str
+    ) -> None:
+        dispatcher = _dispatcher([_consumer("alpha", Mock())])
+
+        dispatched = dispatcher.dispatch(replace(_delivery(), app=app, event_type=event_type))
+
+        # Nothing ran, so nothing failed: a provider that redelivers must not be asked to send
+        # an event no consumer wants all over again.
+        self.assertEqual(dispatched.unaccepted_consumers, ())
 
     def test_runs_consumers_in_name_order(self) -> None:
         ran: list[str] = []
@@ -78,16 +106,19 @@ class TestWebhookDispatcher(SimpleTestCase):
         dispatcher = _dispatcher([_consumer("alpha", failing), _consumer("zulu", succeeding)])
 
         with patch("posthog.ingress.dispatch.dispatcher.capture_exception"):
-            dispatcher.dispatch(_delivery())
+            dispatched = dispatcher.dispatch(_delivery())
 
+        self.assertEqual(dispatched.unaccepted_consumers, ("alpha",))
         self.assertIsNone(cache.get(DeliveryDedup.key(provider="github", consumer="alpha", delivery_id="delivery-1")))
         self.assertTrue(cache.get(DeliveryDedup.key(provider="github", consumer="zulu", delivery_id="delivery-1")))
 
         with patch("posthog.ingress.dispatch.dispatcher.capture_exception"):
-            dispatcher.dispatch(_delivery())
+            dispatched = dispatcher.dispatch(_delivery())
 
         self.assertEqual(failing.call_count, 2)
         self.assertEqual(succeeding.call_count, 1)
+        # The deduped one accepted the earlier delivery, so only the failure is named again.
+        self.assertEqual(dispatched.unaccepted_consumers, ("alpha",))
 
     def test_a_provider_without_a_delivery_id_skips_dedup(self) -> None:
         handler = Mock()
@@ -130,9 +161,10 @@ class TestWebhookDispatcher(SimpleTestCase):
             patch("time.monotonic", lambda: elapsed["seconds"]),
             patch("posthog.ingress.dispatch.dispatcher.observe_consumer_run") as observe,
         ):
-            dispatcher.dispatch(_delivery())
+            dispatched = dispatcher.dispatch(_delivery())
 
         skipped.assert_not_called()
+        self.assertEqual(dispatched.unaccepted_consumers, ("zulu",))
         self.assertIn(
             {"provider": "github", "consumer": "zulu", "outcome": "budget_exceeded"},
             [call.kwargs for call in observe.call_args_list],
@@ -158,6 +190,78 @@ class TestWebhookDispatcher(SimpleTestCase):
             _dispatcher([_consumer("alpha", second)]).dispatch(_delivery(delivery_id="delivery-2"), budget=budget)
 
         second.assert_not_called()
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class TestDeliveryDedup(SimpleTestCase):
+    def setUp(self) -> None:
+        cache.clear()
+        self.mark = {"provider": "github", "consumer": "alpha", "delivery_id": "delivery-1"}
+
+    def test_the_mark_reports_the_state_its_holder_left_it_in(self) -> None:
+        dedup = DeliveryDedup()
+
+        self.assertEqual(dedup.claim(**self.mark), DeliveryClaim.CLAIMED)
+        # A redelivery that arrives before the first run settles must not read this as done. That
+        # run can still raise, and a receipt now stops the provider sending the delivery again.
+        self.assertEqual(dedup.claim(**self.mark), DeliveryClaim.IN_PROGRESS)
+
+        dedup.complete(**self.mark)
+        self.assertEqual(dedup.claim(**self.mark), DeliveryClaim.DONE)
+
+        dedup.release(**self.mark)
+        self.assertEqual(dedup.claim(**self.mark), DeliveryClaim.CLAIMED)
+
+    def test_a_mark_written_before_the_state_existed_still_dedupes(self) -> None:
+        cache.set(DeliveryDedup.key(**self.mark), True)
+
+        # Marks live for 24 hours, so a rollout meets the old ones. Reading one as in flight would
+        # cost a receipt for every delivery still holding it.
+        self.assertEqual(DeliveryDedup().claim(**self.mark), DeliveryClaim.DONE)
+
+
+class TestDeliveryOwnership(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("nobody_declares_one", [], DeliveryOwnership.UNDECIDED, ()),
+            ("every_answer_is_local", [DeliveryOwnership.LOCAL] * 2, DeliveryOwnership.LOCAL, ()),
+            (
+                "one_elsewhere_decides_the_request",
+                [DeliveryOwnership.LOCAL, DeliveryOwnership.ELSEWHERE],
+                DeliveryOwnership.ELSEWHERE,
+                ("consumer-1",),
+            ),
+            (
+                "a_lookup_that_raises_leaves_the_others_deciding",
+                [RuntimeError("lookup failed"), DeliveryOwnership.ELSEWHERE],
+                DeliveryOwnership.ELSEWHERE,
+                ("consumer-1",),
+            ),
+            (
+                "a_lookup_that_raises_alone_is_undecided",
+                [RuntimeError("lookup failed")],
+                DeliveryOwnership.UNDECIDED,
+                (),
+            ),
+        ]
+    )
+    def test_any_consumer_answering_elsewhere_forwards_the_request(
+        self, _name: str, answers: list, expected: DeliveryOwnership, expected_names: tuple[str, ...]
+    ) -> None:
+        consumers = [
+            _consumer(f"consumer-{index}", Mock(), ownership=_ownership(answer)) for index, answer in enumerate(answers)
+        ]
+
+        with patch("posthog.ingress.dispatch.dispatcher.capture_exception"):
+            self.assertEqual(_dispatcher(consumers).ownership_of(_delivery()), (expected, expected_names))
+
+    def test_a_consumer_without_an_ownership_lookup_is_never_asked(self) -> None:
+        asked = Mock(return_value=DeliveryOwnership.LOCAL)
+        consumers = [_consumer("alpha", Mock()), _consumer("zulu", Mock(), ownership=asked)]
+
+        _dispatcher(consumers).ownership_of(_delivery())
+
+        asked.assert_called_once()
 
 
 class TestDeliveryBudgetSeconds(SimpleTestCase):

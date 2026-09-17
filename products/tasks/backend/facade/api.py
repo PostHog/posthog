@@ -46,6 +46,7 @@ import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
+from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import Team, User
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
@@ -98,7 +99,9 @@ from products.tasks.backend.logic.services.workflow_step_resume import resume_wo
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     MCP_CREDENTIAL_OWNER_STATE_KEY,
+    PRIOR_RUN_SUMMARY_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
+    TASK_RUN_SUMMARY_STATE_KEY,
     Channel,
     ChannelContextGeneration,
     ChannelFeedMessage,
@@ -128,6 +131,7 @@ from products.tasks.backend.models import (
 )
 from products.tasks.backend.pr_urls import (
     merge_pr_output,
+    read_head_branches,
     read_pr_urls as read_pr_urls,
 )
 from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
@@ -289,6 +293,7 @@ __all__ = [
     "send_cancel",
     "select_repository_for_message",
     "set_task_run_output",
+    "set_task_run_summary",
     "set_task_title",
     "slack_actor_state_updates",
     "signal_report_queryset",
@@ -505,8 +510,28 @@ def _task_run_log_url(run: TaskRun) -> str | None:
     return presigned_url
 
 
+def _task_run_summary_for_viewer(
+    run: TaskRun,
+    *,
+    task: Task | None = None,
+    user_id: int | None = None,
+    include_agent_state: bool = False,
+) -> str | None:
+    if include_agent_state:
+        return run.task_summary
+    parent = task if task is not None else run.task
+    if parent.origin_product == Task.OriginProduct.WORKFLOW and parent.created_by_id != user_id:
+        return None
+    return run.task_summary
+
+
 def _task_run_detail_to_dto(
-    run: TaskRun, *, include_agent_state: bool = False, include_log_url: bool = True
+    run: TaskRun,
+    *,
+    task: Task | None = None,
+    include_agent_state: bool = False,
+    user_id: int | None = None,
+    include_log_url: bool = True,
 ) -> contracts.TaskRunDetailDTO:
     """Map a ``TaskRun`` to its HTTP detail DTO.
 
@@ -533,6 +558,9 @@ def _task_run_detail_to_dto(
         log_url=_task_run_log_url(run) if include_log_url else None,
         error_message=run.error_message,
         output=run.output,
+        task_summary=_task_run_summary_for_viewer(
+            run, task=task, user_id=user_id, include_agent_state=include_agent_state
+        ),
         state=_public_task_run_state(run.state, include_agent_keys=include_agent_state),
         artifacts=run.artifacts or [],
         created_at=run.created_at,
@@ -639,6 +667,7 @@ def has_slack_thread_reference(
 def _task_detail_to_dto(
     task: Task,
     *,
+    user_id: int | None = None,
     include_latest_run: bool = True,
     latest_run: TaskRun | None | _LatestRunUnset = _LATEST_RUN_UNSET,
     include_latest_run_log_url: bool = True,
@@ -673,7 +702,9 @@ def _task_detail_to_dto(
         archived_at=task.archived_at,
         ci_prompt=task.ci_prompt,
         latest_run=(
-            _task_run_detail_to_dto(resolved_latest_run, include_log_url=include_latest_run_log_url)
+            _task_run_detail_to_dto(
+                resolved_latest_run, task=task, user_id=user_id, include_log_url=include_latest_run_log_url
+            )
             if resolved_latest_run is not None
             else None
         ),
@@ -1165,28 +1196,35 @@ def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunDTO | N
     return None
 
 
-def get_latest_active_internal_task_run_for_organization(
-    organization_id: str | UUID, *, ai_stage: str
+def get_latest_internal_task_run_for_organization(
+    organization_id: str | UUID, *, ai_stage: str, active_only: bool = False, terminal_only: bool = False
 ) -> contracts.TaskRunDTO | None:
-    """Return the newest active cloud run for a server-owned organization flow."""
-    run = (
-        TaskRun.objects.filter(
-            team__organization_id=organization_id,
-            task__team__organization_id=organization_id,
-            task__internal=True,
-            environment=TaskRun.Environment.CLOUD,
-            state__ai_stage=ai_stage,
+    runs = TaskRun.objects.filter(
+        team__organization_id=organization_id,
+        task__team__organization_id=organization_id,
+        task__internal=True,
+        environment=TaskRun.Environment.CLOUD,
+        state__ai_stage=ai_stage,
+    )
+    if active_only:
+        runs = runs.filter(
             status__in=[
                 TaskRun.Status.NOT_STARTED,
                 TaskRun.Status.QUEUED,
                 TaskRun.Status.IN_PROGRESS,
-            ],
+            ]
         )
-        .select_related("task", "task__created_by")
-        .order_by("-created_at", "-id")
-        .first()
-    )
+    if terminal_only:
+        runs = runs.filter(status__in=_TERMINAL_TASK_RUN_STATUSES)
+    run = runs.select_related("task", "task__created_by").order_by("-created_at", "-id").first()
     return _task_run_to_dto(run) if run is not None else None
+
+
+def get_latest_active_internal_task_run_for_organization(
+    organization_id: str | UUID, *, ai_stage: str
+) -> contracts.TaskRunDTO | None:
+    """Return the newest active cloud run for a server-owned organization flow."""
+    return get_latest_internal_task_run_for_organization(organization_id, ai_stage=ai_stage, active_only=True)
 
 
 def get_stale_queued_task_run_ids(
@@ -2253,6 +2291,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "pr_authorship_mode",
         "repositories",
         "verified_pr_urls",
+        TASK_RUN_SUMMARY_STATE_KEY,
+        PRIOR_RUN_SUMMARY_STATE_KEY,
         "sandbox_id",
         # Sandbox connection state is written only by the provisioning activity. A PATCHable
         # sandbox_backend/sandbox_url would let a task controller point the account-wide hogland
@@ -2491,10 +2531,12 @@ def task_accessible_for_run_view(
     return task_filter.exists()
 
 
-def list_task_runs(task_id: str | UUID, team_id: int) -> list[contracts.TaskRunDetailDTO]:
+def list_task_runs(
+    task_id: str | UUID, team_id: int, *, user_id: int | None = None
+) -> list[contracts.TaskRunDetailDTO]:
     """All runs for a task, team-scoped. Caller enforces task visibility."""
     runs = _task_run_queryset().filter(team_id=team_id, task_id=task_id)
-    return [_task_run_detail_to_dto(run) for run in runs]
+    return [_task_run_detail_to_dto(run, user_id=user_id) for run in runs]
 
 
 def get_task_run_source(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
@@ -2514,7 +2556,12 @@ def get_task_run_claude_model_access(run_id: str | UUID, task_id: str | UUID, te
 
 
 def get_task_run_detail(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, include_agent_state: bool = False
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    include_agent_state: bool = False,
+    user_id: int | None = None,
 ) -> contracts.TaskRunDetailDTO | None:
     """A single run as a detail DTO, scoped to its task + team.
 
@@ -2522,7 +2569,11 @@ def get_task_run_detail(
     boot-prompt keys that are withheld from human readers.
     """
     run = _get_visible_run(run_id, task_id, team_id)
-    return _task_run_detail_to_dto(run, include_agent_state=include_agent_state) if run is not None else None
+    return (
+        _task_run_detail_to_dto(run, include_agent_state=include_agent_state, user_id=user_id)
+        if run is not None
+        else None
+    )
 
 
 def get_task_run_stream_info(
@@ -2976,6 +3027,9 @@ def update_task_run(
     return _task_run_detail_to_dto(run)
 
 
+TASK_RUN_SUMMARY_MAX_CHARS = 1500
+
+
 def validate_set_output(run_id: str | UUID, task_id: str | UUID, team_id: int, *, output: dict) -> str | None:
     """Validate output against the task's json_schema. Returns an error message or ``None``."""
     import jsonschema  # noqa: PLC0415 — only needed when a json_schema is set
@@ -3015,6 +3069,24 @@ def set_task_run_output(
     if merged.get("pr_url"):
         post_pr_created_thread_update(run, merged["pr_url"])
     return _task_run_detail_to_dto(run)
+
+
+def set_task_run_summary(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    summary: str,
+    include_agent_state: bool = False,
+    user_id: int | None = None,
+) -> contracts.TaskRunDetailDTO | None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    run.state = TaskRun.update_state_atomic(run.id, updates={TASK_RUN_SUMMARY_STATE_KEY: summary})
+    run.refresh_from_db()
+    run.publish_stream_state_event()
+    return _task_run_detail_to_dto(run, include_agent_state=include_agent_state, user_id=user_id)
 
 
 def _entries_show_agent_activity(entries: list[dict]) -> bool:
@@ -5365,7 +5437,7 @@ def get_task_detail(
         .filter(id=task_id)
         .first()
     )
-    return _task_detail_to_dto(task) if task is not None else None
+    return _task_detail_to_dto(task, user_id=user_id) if task is not None else None
 
 
 def get_conversation_task_dtos(
@@ -5389,7 +5461,7 @@ def get_conversation_task_dtos(
         .prefetch_related(Prefetch("team", queryset=Team.objects.only("id", "name")))
         .annotate(_latest_run_id=Subquery(latest_run_id_sq))
     )
-    return {task.id: _task_detail_to_dto(task, include_latest_run=False) for task in tasks}
+    return {task.id: _task_detail_to_dto(task, user_id=user_id, include_latest_run=False) for task in tasks}
 
 
 def pi_cloud_runtime_enabled(team: Team, user: User) -> bool:
@@ -5696,15 +5768,17 @@ def _latest_runs_by_task_id(task_ids: Iterable[UUID], team_id: int) -> dict[UUID
     return {run.task_id: run for run in runs}
 
 
-def _tasks_to_dtos(tasks: Iterable[Task], team_id: int) -> list[contracts.TaskDetailDTO]:
+def _tasks_to_dtos(tasks: Iterable[Task], team_id: int, user_id: int | None = None) -> list[contracts.TaskDetailDTO]:
     task_list = list(tasks)
     latest_runs_by_task_id = _latest_runs_by_task_id((task.id for task in task_list), team_id)
-    return [_task_detail_to_dto(task, latest_run=latest_runs_by_task_id.get(task.id)) for task in task_list]
+    return [
+        _task_detail_to_dto(task, user_id=user_id, latest_run=latest_runs_by_task_id.get(task.id)) for task in task_list
+    ]
 
 
 def list_tasks(team_id: int, user_id: int | None, *, filters: dict) -> list[contracts.TaskDetailDTO]:
     """All visible tasks for the team as DTOs, mirroring the task list view filters."""
-    return _tasks_to_dtos(_list_tasks_queryset(team_id, user_id, filters=filters), team_id)
+    return _tasks_to_dtos(_list_tasks_queryset(team_id, user_id, filters=filters), team_id, user_id)
 
 
 _SEARCH_KIND_ORDER = (
@@ -5852,7 +5926,7 @@ def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:
     return sorted(set(plural) | {repository for repository in legacy if repository})
 
 
-def _latest_run_summary(raw: object) -> contracts.TaskLatestRunSummaryDTO | None:
+def _latest_run_summary(raw: object, *, can_read_summary: bool) -> contracts.TaskLatestRunSummaryDTO | None:
     if not isinstance(raw, dict):
         return None
     pr_url = raw.get("pr_url")
@@ -5864,10 +5938,13 @@ def _latest_run_summary(raw: object) -> contracts.TaskLatestRunSummaryDTO | None
         mode=raw.get("mode", "background"),
         pr_url=pr_url,
         pr_state=_pull_request_state(raw) if pr_url else None,
+        task_summary=(raw.get("task_summary") or raw.get("prior_run_summary")) if can_read_summary else None,
     )
 
 
-def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[contracts.TaskSummaryDTO]:
+def get_task_summaries(
+    team_id: int, user_id: int | None, *, ids: list, limit: int | None = None, offset: int = 0
+) -> tuple[list[contracts.TaskSummaryDTO], int]:
     """Summary fields for the requested tasks, mirroring ``TaskViewSet.summaries``."""
     from django.db.models.functions import JSONObject  # noqa: PLC0415
 
@@ -5888,6 +5965,8 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
                 pr_url=KeyTransform("pr_url", "output"),
                 pr_state=KeyTransform("pr_state", "output"),
                 pr_merged=KeyTransform("pr_merged", "output"),
+                task_summary="state__task_summary",
+                prior_run_summary="state__prior_run_summary",
             ),
         )
     )
@@ -5897,19 +5976,27 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
         .annotate(_latest_run=Subquery(latest_run.values("_data")[:1]))
         .order_by("-created_at", "id")
     )
-    return [
-        contracts.TaskSummaryDTO(
-            id=task.id,
-            title=task.title,
-            repository=task.repository,
-            created_by_id=task.created_by_id,
-            created_at=task.created_at,
-            updated_at=task.updated_at,
-            origin_product=task.origin_product,
-            latest_run=_latest_run_summary(getattr(task, "_latest_run", None)),
+    count = tasks.count()
+    if limit is not None:
+        tasks = tasks[offset : offset + limit]
+    summaries: list[contracts.TaskSummaryDTO] = []
+    for task in tasks:
+        raw = getattr(task, "_latest_run", None)
+        can_read_summary = task.origin_product != Task.OriginProduct.WORKFLOW or task.created_by_id == user_id
+        latest = _latest_run_summary(raw, can_read_summary=can_read_summary)
+        summaries.append(
+            contracts.TaskSummaryDTO(
+                id=task.id,
+                title=task.title,
+                repository=task.repository,
+                created_by_id=task.created_by_id,
+                created_at=task.created_at,
+                updated_at=task.updated_at,
+                origin_product=task.origin_product,
+                latest_run=latest,
+            )
         )
-        for task in tasks
-    ]
+    return summaries, count
 
 
 def compute_repository_readiness(team_id: int, *, repository: str, window_days: int, refresh: bool) -> dict:
@@ -7417,6 +7504,17 @@ def warm_task_resume_sandbox(
 # --- Task run (the ``run`` action) ---
 
 
+def _branches_worked_on(run: TaskRun) -> set[str]:
+    output = run.output if isinstance(run.output, dict) else {}
+    branches = {entry["branch"] for entry in read_head_branches(output)}
+    head_branch = output.get("head_branch")
+    if isinstance(head_branch, str) and head_branch:
+        branches.add(head_branch)
+    if run.branch:
+        branches.add(run.branch)
+    return branches
+
+
 def run_task(
     task_id: str | UUID,
     team_id: int,
@@ -7503,7 +7601,7 @@ def run_task(
         if previous_state.run_source == RunSource.AGENT:
             run_source = RunSource.AGENT
         previous_branch = previous_state.pr_base_branch
-        if branch is not None and branch != previous_branch:
+        if branch is not None and branch != previous_branch and branch not in _branches_worked_on(previous_run):
             return contracts.TaskRunResult(
                 error=contracts.TaskValidationError(
                     kind="detail", detail="A resumed run must use its previous base branch. Omit branch to resume."
@@ -7681,6 +7779,8 @@ def run_task(
         assert previous_run is not None and previous_state is not None
         prev_state = previous_state
         extra_state = extra_state or {}
+        if previous_run.task_summary:
+            extra_state[PRIOR_RUN_SUMMARY_STATE_KEY] = previous_run.task_summary
         if not is_pi_task:
             extra_state["resume_from_run_id"] = str(resume_from_run_id)
             extra_state.update(prev_state.resume_snapshot_carry_state())
@@ -10136,3 +10236,30 @@ def post_pr_created_thread_update(run: TaskRun, pr_url: str) -> None:
             )
     except Exception:
         logger.exception("Failed to post pr-created thread update", extra={"task_id": str(run.task_id)})
+
+
+# --- Inbound GitHub App deliveries (entered from backend/webhook_consumers.py) ---
+
+
+def accept_github_pull_request(delivery: WebhookDelivery) -> None:
+    """The PR backstop that records a pull request the agent output never reported."""
+    # Deferred to keep the GitHub client off the facade import path.
+    from products.tasks.backend.webhooks import handle_pull_request_event  # noqa: PLC0415
+
+    handle_pull_request_event(dict(delivery.payload))
+
+
+def accept_github_pull_request_review(delivery: WebhookDelivery) -> None:
+    """A review on a PR a task opened, which can resume the run that is waiting on it."""
+    # Deferred to keep the GitHub client off the facade import path.
+    from products.tasks.backend.webhooks import handle_pull_request_review_event  # noqa: PLC0415
+
+    handle_pull_request_review_event(dict(delivery.payload))
+
+
+def accept_github_event_for_loops(delivery: WebhookDelivery) -> None:
+    """Every event type a loop trigger can match on, which fires the loops whose filters accept it."""
+    # Deferred to keep the Redis client off the facade import path.
+    from products.tasks.backend.loop_github_events import handle_github_event_for_loops  # noqa: PLC0415
+
+    handle_github_event_for_loops(delivery.event_type, dict(delivery.payload), delivery.delivery_id or "")

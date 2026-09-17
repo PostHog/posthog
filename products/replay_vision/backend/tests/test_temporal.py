@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 from django.db import IntegrityError, OperationalError, connections, transaction
+from django.test import override_settings
 from django.utils import timezone
 
 import httpx
@@ -77,6 +78,7 @@ from products.replay_vision.backend.temporal.activities.emit_observation_signal 
 )
 from products.replay_vision.backend.temporal.activities.ensure_session_asset import ensure_session_asset_activity
 from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_events_activity
+from products.replay_vision.backend.temporal.activities.fetch_session_network import fetch_session_network_activity
 from products.replay_vision.backend.temporal.activities.observation_state import (
     mark_observation_failed_activity,
     mark_observation_ineligible_activity,
@@ -128,6 +130,7 @@ from products.replay_vision.backend.temporal.types import (
     EnsureSessionAssetOutput,
     EventTable,
     FetchSessionEventsInputs,
+    FetchSessionNetworkInputs,
     MarkObservationFailedInputs,
     MarkObservationIneligibleInputs,
     MarkObservationRunningInputs,
@@ -140,6 +143,7 @@ from products.replay_vision.backend.temporal.types import (
     UploadedVideo,
     UploadVideoToGeminiInputs,
 )
+from products.replay_vision.backend.temporal.video_clock import VideoClock
 from products.replay_vision.backend.temporal.workflow import (
     _activity_timeout_kind,
     _extract_kind_for_type,
@@ -963,6 +967,7 @@ class TestEgressConsentRecheck:
                     CallScannerProviderInputs(
                         team_id=team.id,
                         observation_id=uuid.uuid4(),
+                        exported_asset_id=1,
                         file_uri="gemini://files/x",
                         mime_type="video/mp4",
                     ),
@@ -1049,7 +1054,11 @@ class TestKnownFreeformTags:
     @pytest.mark.asyncio
     async def test_injection_is_gated_and_best_effort(self) -> None:
         inputs = CallScannerProviderInputs(
-            team_id=1, observation_id=uuid.uuid4(), file_uri="gemini://files/x", mime_type="video/mp4"
+            team_id=1,
+            observation_id=uuid.uuid4(),
+            exported_asset_id=1,
+            file_uri="gemini://files/x",
+            mime_type="video/mp4",
         )
         monitor = MonitorScanner(prompt="x")
         no_freeform = ClassifierScanner(prompt="x", tags=["a"])
@@ -1082,6 +1091,13 @@ class TestKnownFreeformTags:
             ),
         )
 
+        asset = await sync_to_async(ExportedAsset.objects.create)(
+            team_id=target.team_id,
+            export_format="video/mp4",
+            is_system=True,
+            export_context={"session_recording_id": target.session_id, "inactivity_periods": []},
+        )
+
         with (
             patch(
                 "products.replay_vision.backend.temporal.activities.call_scanner_provider._run_mission",
@@ -1099,6 +1115,7 @@ class TestKnownFreeformTags:
                 CallScannerProviderInputs(
                     team_id=target.team_id,
                     observation_id=target.id,
+                    exported_asset_id=asset.id,
                     file_uri="gemini://files/x",
                     mime_type="video/mp4",
                 ),
@@ -2299,6 +2316,19 @@ class TestFetchSessionEventsActivity:
             assert "3" in str(exc_info.value)
 
 
+class TestFetchSessionNetworkActivity:
+    @pytest.mark.asyncio
+    async def test_unconfigured_recording_api_fails_without_retry(self) -> None:
+        with override_settings(RECORDING_API_URL=""):
+            with pytest.raises(ApplicationError) as exc_info:
+                await fetch_session_network_activity(
+                    FetchSessionNetworkInputs(observation_id=uuid.uuid4(), team_id=1, session_id="sess-1")
+                )
+
+        assert exc_info.value.non_retryable is True
+        assert "RECORDING_API_URL" in str(exc_info.value)
+
+
 @pytest.mark.django_db(transaction=True)
 class TestEnsureSessionAssetActivity:
     @pytest.mark.asyncio
@@ -2498,10 +2528,14 @@ async def test_apply_scanner_workflow_drives_full_success_pipeline() -> None:
 
     activity_order = [fn for fn, _ in mocks.activity_calls]
     assert activity_order[:2] == [create_observation_activity, mark_observation_running_activity]
-    # fetch + ensure_asset run in parallel — order between them is non-deterministic.
-    assert set(activity_order[2:4]) == {fetch_session_events_activity, ensure_session_asset_activity}
+    # fetch + network + ensure_asset run in parallel — order between them is non-deterministic.
+    assert set(activity_order[2:5]) == {
+        fetch_session_events_activity,
+        fetch_session_network_activity,
+        ensure_session_asset_activity,
+    }
     # Success is persisted before any downstream emission so a late transient failure can't discard the result.
-    assert activity_order[4:] == [
+    assert activity_order[5:] == [
         upload_video_to_gemini_activity,
         call_scanner_provider_activity,
         mark_observation_succeeded_activity,
@@ -3319,7 +3353,11 @@ class TestGeminiErrorRedaction:
                 await ActivityEnvironment().run(
                     call_scanner_provider_activity,
                     CallScannerProviderInputs(
-                        team_id=1, observation_id=uuid.uuid4(), file_uri="gemini://files/x", mime_type="video/mp4"
+                        team_id=1,
+                        observation_id=uuid.uuid4(),
+                        exported_asset_id=1,
+                        file_uri="gemini://files/x",
+                        mime_type="video/mp4",
                     ),
                 )
         assert exc_info.value.kind is FailureKind.PROVIDER_REJECTED
@@ -3350,7 +3388,11 @@ class TestGeminiErrorRedaction:
                 await ActivityEnvironment().run(
                     call_scanner_provider_activity,
                     CallScannerProviderInputs(
-                        team_id=1, observation_id=uuid.uuid4(), file_uri="gemini://files/x", mime_type="video/mp4"
+                        team_id=1,
+                        observation_id=uuid.uuid4(),
+                        exported_asset_id=1,
+                        file_uri="gemini://files/x",
+                        mime_type="video/mp4",
                     ),
                 )
         assert exc_info.value.kind is FailureKind.PROVIDER_TRANSIENT
@@ -3431,6 +3473,7 @@ class TestWorkflowErrorHelpers:
 
 
 _DURATION_MS = 600_000  # 10-minute recording for the citation tests
+_IDENTITY_CLOCK = VideoClock(spans=())
 
 
 def _monitor_scanner() -> MonitorScanner:
@@ -3528,7 +3571,7 @@ class TestExtractSegments:
         ],
     )
     def test_extract_segments(self, text: str, expected_plain: str, expected_segments: list[Segment]) -> None:
-        plain, segments = _extract_segments(text, _DURATION_MS)
+        plain, segments = _extract_segments(text, _DURATION_MS, _IDENTITY_CLOCK)
         assert plain == expected_plain
         assert segments == expected_segments
 
@@ -3536,7 +3579,7 @@ class TestExtractSegments:
 class TestResolveCitations:
     def test_populates_field_and_segments(self) -> None:
         finalized = MonitorOutput(verdict="yes", reasoning="User retried (t 12) twice.", confidence=0.9)
-        resolved = _resolve_citations(finalized, _monitor_scanner(), _DURATION_MS)
+        resolved = _resolve_citations(finalized, _monitor_scanner(), _DURATION_MS, _IDENTITY_CLOCK)
         assert isinstance(resolved, MonitorOutput)
         assert resolved.reasoning == "User retried twice."
         assert resolved.reasoning_segments == [
@@ -3547,14 +3590,14 @@ class TestResolveCitations:
 
     def test_summarizer_uses_summary_field(self) -> None:
         finalized = SummarizerOutput(title="t", summary="They tried X (t 7).", confidence=0.9)
-        resolved = _resolve_citations(finalized, _summarizer_scanner(), _DURATION_MS)
+        resolved = _resolve_citations(finalized, _summarizer_scanner(), _DURATION_MS, _IDENTITY_CLOCK)
         assert isinstance(resolved, SummarizerOutput)
         assert resolved.summary == "They tried X."
         assert any(isinstance(s, ChipSegment) and s.timestamp_ms == 7_000 for s in resolved.summary_segments)
 
     def test_no_citations_in_text_yields_single_text_segment(self) -> None:
         finalized = MonitorOutput(verdict="yes", reasoning="No citations here.", confidence=0.9)
-        resolved = _resolve_citations(finalized, _monitor_scanner(), _DURATION_MS)
+        resolved = _resolve_citations(finalized, _monitor_scanner(), _DURATION_MS, _IDENTITY_CLOCK)
         assert isinstance(resolved, MonitorOutput)
         assert resolved.reasoning == "No citations here."
         assert resolved.reasoning_segments == [TextSegment(value="No citations here.")]

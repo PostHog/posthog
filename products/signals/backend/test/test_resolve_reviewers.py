@@ -4,19 +4,21 @@ from datetime import timedelta
 import pytest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from social_django.models import UserSocialAuth
 
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models import Organization, Team, User
-from posthog.models.github_integration_base import GitHubCommitAuthor
+from posthog.models.github_integration_base import GitHubAuthorLastCommit, GitHubCommitAuthor
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.models import SignalRepositoryAreaActivity
+from products.signals.backend.report_generation.author_activity import AUTHOR_ACTIVITY_WINDOW_DAYS
 from products.signals.backend.report_generation.repo_activity import ACTIVITY_WINDOW_DAYS, ContributorActivity
 from products.signals.backend.report_generation.resolve_reviewers import (
     MAX_CONTRIBUTORS_FOR_OWNERSHIP,
@@ -33,6 +35,12 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_suggested_reviewers,
     resolve_suggested_reviewers_with_diagnostics,
 )
+
+
+@pytest.fixture(autouse=True)
+def clear_caches():
+    # The resolver caches its author-activity verdicts, which would otherwise carry between tests.
+    cache.clear()
 
 
 @pytest.fixture
@@ -404,6 +412,10 @@ class TestResolveSuggestedReviewersEndToEnd:
                     file_paths=("products/signals/backend/models.py",),
                 )
 
+            def get_author_last_commit(self, repository, login):
+                # Still committing, just not in this area — demoted, not excluded.
+                return GitHubAuthorLastCommit(last_commit_at=timezone.now() - timedelta(days=120))
+
         activity = {
             "products/signals": [
                 ContributorActivity(
@@ -550,6 +562,9 @@ class TestResolveSuggestedReviewersEndToEnd:
                     file_paths=("products/signals/backend/models.py",),
                 )
 
+            def get_author_last_commit(self, repository, login):
+                return GitHubAuthorLastCommit(last_commit_at=timezone.now() - timedelta(days=120))
+
         # The blame author is in the area cache but their last commit has aged past the window
         # (the cache is served while a rebuild is scheduled). They are not a live reviewer, so the
         # fresh area owner must still surface rather than being suppressed by a stale cache entry.
@@ -593,6 +608,187 @@ class TestResolveSuggestedReviewersEndToEnd:
         logins = [r.login for r in reviewers]
         assert "fresh-owner" in logins
         assert logins.index("fresh-owner") < logins.index("aged-author")
+
+
+@pytest.mark.django_db
+class TestDepartedCommitAuthors:
+    """Commit authorship outlives a person, so a blame author is probed for recent repository work."""
+
+    @staticmethod
+    def _fake_github(blame_login: str, last_commit_at, *, probed: list[str] | None = None, raises=None):
+        class FakeGitHub:
+            def get_commit_author_info(self, repository, sha):
+                return GitHubCommitAuthor(
+                    login=blame_login,
+                    name="Blame Author",
+                    commit_url=f"https://github.com/acme/app/commit/{sha}",
+                    file_paths=("products/signals/backend/models.py",),
+                )
+
+            def get_author_last_commit(self, repository, login):
+                if probed is not None:
+                    probed.append(login)
+                if raises is not None:
+                    raise raises
+                return last_commit_at
+
+        return FakeGitHub()
+
+    @staticmethod
+    def _resolve(team, github, activity):
+        with (
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.GitHubIntegration.first_for_team_repository",
+                return_value=github,
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.get_area_activity",
+                return_value=activity,
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.repository_activity_needs_rebuild",
+                return_value=False,
+            ),
+        ):
+            return resolve_suggested_reviewers_with_diagnostics(team.id, "acme/app", {"d" * 7: "introduced the bug"})
+
+    @staticmethod
+    def _active_owner_activity():
+        return {
+            "products/signals": [
+                ContributorActivity(
+                    login="active-owner",
+                    name="Active Owner",
+                    commit_count=15,
+                    last_commit_at=timezone.now() - timedelta(days=2),
+                    last_commit_sha="c" * 7,
+                    last_commit_url="https://github.com/acme/app/commit/ccccccc",
+                ),
+            ]
+        }
+
+    def test_author_who_left_the_repository_is_replaced_by_an_active_owner(self, team):
+        # The reported regression: a years-old commit still routed its author onto a report, and
+        # the person had long since stopped committing.
+        github = self._fake_github(
+            "departed-author",
+            GitHubAuthorLastCommit(last_commit_at=timezone.now() - timedelta(days=AUTHOR_ACTIVITY_WINDOW_DAYS + 30)),
+        )
+
+        resolution = self._resolve(team, github, self._active_owner_activity())
+
+        assert [r.login for r in resolution.reviewers] == ["active-owner"]
+        assert resolution.diagnostics.inactive_author_count == 1
+
+    def test_the_only_candidate_leaving_names_its_cause(self, team):
+        github = self._fake_github(
+            "departed-author",
+            GitHubAuthorLastCommit(last_commit_at=timezone.now() - timedelta(days=AUTHOR_ACTIVITY_WINDOW_DAYS + 1)),
+        )
+
+        resolution = self._resolve(team, github, {})
+
+        assert resolution.reviewers == []
+        assert resolution.diagnostics.outcome == "only_inactive_authors"
+        assert resolution.diagnostics.blame_login_count == 1
+        assert resolution.diagnostics.inactive_author_count == 1
+
+    @pytest.mark.parametrize(
+        ("case", "probe_result", "raises"),
+        [
+            ("still_committing", GitHubAuthorLastCommit(last_commit_at=timezone.now() - timedelta(days=200)), None),
+            ("probe_could_not_answer", None, None),
+            ("no_attributed_commit", GitHubAuthorLastCommit(last_commit_at=None), None),
+            ("probe_rate_limited", None, GitHubRateLimitError("rate limited")),
+        ],
+    )
+    def test_author_is_kept_unless_github_shows_them_gone(self, team, case, probe_result, raises):
+        github = self._fake_github("blame-author", probe_result, raises=raises)
+
+        resolution = self._resolve(team, github, self._active_owner_activity())
+
+        assert "blame-author" in [r.login for r in resolution.reviewers]
+        assert resolution.diagnostics.inactive_author_count == 0
+
+    def test_cached_area_activity_spares_the_probe(self, team):
+        probed: list[str] = []
+        activity = {
+            "products/signals": [
+                ContributorActivity(
+                    login="blame-author",
+                    name="Blame Author",
+                    commit_count=8,
+                    last_commit_at=timezone.now() - timedelta(days=3),
+                    last_commit_sha="a" * 7,
+                    last_commit_url="https://github.com/acme/app/commit/aaaaaaa",
+                ),
+            ]
+        }
+        github = self._fake_github("blame-author", None, probed=probed)
+
+        resolution = self._resolve(team, github, activity)
+
+        assert [r.login for r in resolution.reviewers] == ["blame-author"]
+        assert probed == []
+
+    def test_a_stored_verdict_answers_for_a_second_report(self, team):
+        probed: list[str] = []
+        github = self._fake_github(
+            "departed-author",
+            GitHubAuthorLastCommit(last_commit_at=timezone.now() - timedelta(days=AUTHOR_ACTIVITY_WINDOW_DAYS + 30)),
+            probed=probed,
+        )
+
+        first = self._resolve(team, github, self._active_owner_activity())
+        second = self._resolve(team, github, self._active_owner_activity())
+
+        assert probed == ["departed-author"]
+        assert [r.login for r in first.reviewers] == [r.login for r in second.reviewers]
+        assert second.diagnostics.inactive_author_count == 1
+
+    def test_an_unattributed_account_is_asked_about_once(self, team):
+        # GitHub answered, so the answer caches even though it keeps the author. Leaving the key
+        # absent would re-ask on every later report for the same repository.
+        probed: list[str] = []
+        github = self._fake_github("blame-author", GitHubAuthorLastCommit(last_commit_at=None), probed=probed)
+
+        first = self._resolve(team, github, self._active_owner_activity())
+        second = self._resolve(team, github, self._active_owner_activity())
+
+        assert probed == ["blame-author"]
+        assert "blame-author" in [r.login for r in second.reviewers]
+        assert first.diagnostics.inactive_author_count == 0
+        assert second.diagnostics.inactive_author_count == 0
+
+    def test_agent_proposed_candidates_are_not_probed(self, team):
+        # Only commit evidence claims someone owns an area because they once wrote it. A manually
+        # named or agent-proposed reviewer is an ownership statement in its own right, so this path
+        # must keep its candidates and make no activity probe.
+        probed: list[str] = []
+        github = self._fake_github(
+            "named-reviewer",
+            GitHubAuthorLastCommit(last_commit_at=timezone.now() - timedelta(days=AUTHOR_ACTIVITY_WINDOW_DAYS + 30)),
+            probed=probed,
+        )
+
+        with (
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.GitHubIntegration.first_for_team_repository",
+                return_value=github,
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.get_area_activity",
+                return_value={},
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.repository_activity_needs_rebuild",
+                return_value=False,
+            ),
+        ):
+            ranked = rank_assignee_candidates(team.id, "acme/app", ["named-reviewer"], [])
+
+        assert [r.login for r in ranked] == ["named-reviewer"]
+        assert probed == []
 
 
 @pytest.mark.django_db

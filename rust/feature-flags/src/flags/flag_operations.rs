@@ -51,10 +51,11 @@ impl FeatureFlag {
 
     /// Returns true if this flag has experience continuity enabled and is eligible for it.
     ///
-    /// Experience continuity is only supported for person-based flags using distinct_id bucketing.
+    /// Experience continuity is only supported for v1 person-based flags using distinct_id bucketing.
     /// Group-based flags and device_id bucketing flags are not eligible.
     pub fn has_experience_continuity(&self) -> bool {
-        self.ensure_experience_continuity.unwrap_or(false)
+        self.filters.is_v1()
+            && self.ensure_experience_continuity.unwrap_or(false)
             && self.get_group_type_index().is_none()
             && self.get_bucketing_identifier() == BucketingIdentifier::DistinctId
     }
@@ -1646,6 +1647,13 @@ mod tests {
         }];
         // Partial rollout needs consistent bucketing
         assert!(flag.needs_hash_key_override());
+        assert!(flag.has_experience_continuity());
+
+        for version in [serde_json::json!(2), serde_json::json!(3)] {
+            flag.filters.extra.insert("version".to_string(), version);
+            assert!(!flag.has_experience_continuity());
+            assert!(!flag.needs_hash_key_override());
+        }
     }
 
     #[test]

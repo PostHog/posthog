@@ -25,8 +25,11 @@ from products.error_tracking.backend.logic.lifecycle_events import (
     ISSUE_SPLIT_EVENT,
     ISSUE_UNASSIGNED_EVENT,
     STATUS_CHANGE_EVENTS,
+    PendingLifecycleEvent,
     assignee_property,
+    prepare_issue_lifecycle_event,
     produce_issue_lifecycle_event_on_commit,
+    produce_issue_lifecycle_events_on_commit,
     status_label,
 )
 from products.error_tracking.backend.models import (
@@ -256,11 +259,12 @@ def assign_issue(
 ) -> None:
     with transaction.atomic():
         issue = _get_issue(team_id, issue_id, select_related=("team__organization",))
-        assignment_changed = _assign_one(issue, assignee, issue.team.organization, user, team_id, was_impersonated)
-        if assignment_changed:
+        transition = _assign_one(issue, assignee, issue.team.organization, user, team_id, was_impersonated)
+        if transition is not None:
+            produce_issue_lifecycle_events_on_commit([transition])
             _stamp_issue_state(team_id=team_id, issue_ids=[issue.id])
 
-    if assignment_changed:
+    if transition is not None:
         sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)
 
 
@@ -284,6 +288,7 @@ def bulk_update_issues(
             new_status = _status_from_string(status) if status is not None else None
             if new_status is None:
                 raise InvalidIssueStatusError
+            transitions = []
             for issue in issues:
                 if issue.status == new_status:
                     continue
@@ -310,21 +315,28 @@ def bulk_update_issues(
                     ),
                 )
                 if new_status in STATUS_CHANGE_EVENTS:
-                    produce_issue_lifecycle_event_on_commit(
-                        event=STATUS_CHANGE_EVENTS[new_status],
-                        issue=issue,
-                        user=user,
-                        status=new_status,
-                        extra_properties={"previous_status": status_label(issue.status)},
+                    transitions.append(
+                        prepare_issue_lifecycle_event(
+                            event=STATUS_CHANGE_EVENTS[new_status],
+                            issue=issue,
+                            user=user,
+                            status=new_status,
+                            extra_properties={"previous_status": status_label(issue.status)},
+                        )
                     )
+            produce_issue_lifecycle_events_on_commit(transitions)
             if changed_issue_ids:
                 ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=changed_issue_ids).update(
                     status=new_status, state_updated_at=timezone.now()
                 )
         elif action == "assign":
+            transitions = []
             for issue in issues:
-                if _assign_one(issue, assignee, issue.team.organization, user, team_id, was_impersonated):
+                transition = _assign_one(issue, assignee, issue.team.organization, user, team_id, was_impersonated)
+                if transition is not None:
+                    transitions.append(transition)
                     changed_issue_ids.append(issue.id)
+            produce_issue_lifecycle_events_on_commit(transitions)
             _stamp_issue_state(team_id=team_id, issue_ids=changed_issue_ids)
 
     sync_issues_to_clickhouse(issue_ids=changed_issue_ids, team_id=team_id)
@@ -346,7 +358,8 @@ def _assign_one(
     user: User,
     team_id: int,
     was_impersonated: bool,
-) -> bool:
+) -> PendingLifecycleEvent | None:
+    """Apply one assignment change; returns its lifecycle transition for the caller to queue, or None if nothing changed."""
     assignment_before = ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id).first()
     serialized_assignment_before = _assignment_repr(assignment_before)
 
@@ -363,7 +376,7 @@ def _assign_one(
             "type": assignee["type"],
         }
         if serialized_assignment_before == serialized_assignment_after:
-            return False
+            return None
 
         # nosemgrep: idor-lookup-without-team (assignee validated against org above)
         assignment_after, _ = ErrorTrackingIssueAssignment.objects.update_or_create(
@@ -383,7 +396,7 @@ def _assign_one(
             assigner=user,
         )
 
-        produce_issue_lifecycle_event_on_commit(
+        transition = prepare_issue_lifecycle_event(
             event=ISSUE_ASSIGNED_EVENT,
             issue=issue,
             user=user,
@@ -391,14 +404,14 @@ def _assign_one(
         )
     else:
         if assignment_before is None:
-            return False
+            return None
         assignment_before.delete()
         serialized_assignment_after = None
 
         extra_properties = None
         if serialized_assignment_before and serialized_assignment_before.get("id") is not None:
             extra_properties = {"previous_assignee": assignee_property(serialized_assignment_before)}
-        produce_issue_lifecycle_event_on_commit(
+        transition = prepare_issue_lifecycle_event(
             event=ISSUE_UNASSIGNED_EVENT,
             issue=issue,
             user=user,
@@ -426,4 +439,4 @@ def _assign_one(
             ],
         ),
     )
-    return True
+    return transition

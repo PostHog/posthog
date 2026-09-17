@@ -35,6 +35,7 @@ import {
     type FormModes,
     experimentLogic,
 } from './experimentLogic'
+import { EXPERIMENT_RECORDINGS_DEEP_LINK_PARAMS } from './ExperimentView/experimentRecordingsDeepLink'
 import { stepStorageKey } from './ExperimentWizard/experimentWizardLogic'
 import { modalsLogic } from './modalsLogic'
 import { isLegacyExperiment } from './utils'
@@ -457,13 +458,20 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
 
             // 'new' keeps the full search so the ?metric=/?name= prefill survives, while numeric ids
             // keep only the params this scene owns: shared links (?tab=, ?activity=) survive the
-            // initial setSceneState, and the create flow still drops the prefill params.
+            // initial setSceneState, and the create flow still drops the prefill params. The
+            // recordings tab's deep-link params are kept for the same reason: the tab consumes them
+            // on mount and removes them itself (see `experimentRecordingsDeepLink.ts`).
             const currentSearch = router.values.currentLocation.searchParams
             const search =
                 id === 'new'
                     ? currentSearch
                     : Object.fromEntries(
-                          Object.entries(currentSearch).filter(([key]) => key === 'tab' || key === 'activity')
+                          Object.entries(currentSearch).filter(
+                              ([key]) =>
+                                  key === 'tab' ||
+                                  key === 'activity' ||
+                                  EXPERIMENT_RECORDINGS_DEEP_LINK_PARAMS.some((param) => param === key)
+                          )
                       )
             return [urls.experiment(id, effectiveFormMode), search, router.values.hashParams]
         }
