@@ -44,6 +44,16 @@ from . import incremental_config, sync_cadence, view_description, view_state
 logger = structlog.get_logger(__name__)
 
 
+def _as_uuid(value: object) -> uuid.UUID | None:
+    # Clients echo the revision back in whatever UUID form their stack produces, so parse both
+    # sides before comparing. A raw string comparison rejects an uppercase or unhyphenated spelling
+    # of the same revision as a foreign edit.
+    try:
+        return uuid.UUID(str(value))
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
 def _view_types_validation_error(e: Exception) -> serializers.ValidationError:
     # Column inference runs the HogQL-to-ClickHouse path, so a raw exception can carry stack
     # traces, internal table or column names, and S3 URIs. Surface only the errors already marked
@@ -360,7 +370,7 @@ class DataWarehouseSavedQuerySerializer(
 
             if query_changed and not soft_update and locked_instance.query_revision is not None:
                 edited_history_id = self.context["request"].data.get("edited_history_id", None)
-                if str(edited_history_id) != str(locked_instance.query_revision):
+                if _as_uuid(edited_history_id) != locked_instance.query_revision:
                     raise serializers.ValidationError("The query was modified by someone else.")
 
             if query_changed:

@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Any, cast
 
 from posthog.test.base import NonAtomicAPIBaseTest
@@ -96,6 +97,15 @@ class TestSavedQueryConflictToken(NonAtomicAPIBaseTest):
         response = self._patch_query(created["id"], created["query"]["query"], token)
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["latest_history_id"], token)
+
+    @parameterized.expand([("uppercase", str.upper), ("unhyphenated", lambda token: token.replace("-", ""))])
+    def test_token_is_accepted_in_any_uuid_spelling(self, _name: str, reshape: Callable[[str], str]) -> None:
+        created = self._create()
+
+        response = self._patch_query(
+            created["id"], "select event from events limit 10", reshape(created["latest_history_id"])
+        )
+        self.assertEqual(response.status_code, 200, response.content)
 
     def test_row_without_a_revision_accepts_any_token_once(self) -> None:
         created = self._create()
