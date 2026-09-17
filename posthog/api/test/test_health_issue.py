@@ -55,6 +55,26 @@ class TestHealthIssueAPI(APIBaseTest):
         self.assertEqual(results[1]["id"], str(warning.id))
         self.assertEqual(results[2]["id"], str(info.id))
 
+    def test_list_pages_tied_issues_without_skipping_or_repeating(self):
+        shared_created_at = datetime.now(UTC)
+        issues = [
+            self._create_issue(
+                severity=HealthIssue.Severity.WARNING,
+                unique_hash=f"h{index}",
+                created_at=shared_created_at,
+            )
+            for index in range(6)
+        ]
+
+        paged_ids = []
+        for offset in range(0, len(issues), 2):
+            response = self.client.get(self._url(), {"limit": 2, "offset": offset})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            paged_ids.extend(result["id"] for result in response.json()["results"])
+
+        expected_ids = [str(issue.id) for issue in sorted(issues, key=lambda issue: issue.id, reverse=True)]
+        self.assertEqual(paged_ids, expected_ids)
+
     @parameterized.expand(
         [
             ("status", "active", 2),
