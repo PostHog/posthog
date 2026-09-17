@@ -711,6 +711,11 @@ ignore_imports = [
     "products.experiments.backend.presentation.views -> products.experiments.backend.temporal.models",
     "products.experiments.backend.presentation.views -> products.feature_flags.backend.models.evaluation_context",
     "products.experiments.backend.presentation.views -> products.feature_flags.backend.models.feature_flag",
+    "products.experiments.backend.presentation.experiment_holdouts -> products.feature_flags.backend.api.feature_flag",
+    "products.experiments.backend.presentation.experiment_holdouts -> products.experiments.backend.models.experiment",
+    "products.experiments.backend.presentation.experiment_saved_metrics -> products.experiments.backend.experiment_saved_metric_service",
+    "products.experiments.backend.presentation.experiment_saved_metrics -> products.experiments.backend.metric_utils",
+    "products.experiments.backend.presentation.experiment_saved_metrics -> products.experiments.backend.models.experiment",
     # TODO: data_warehouse presentation wave — the structural move landed the viewsets under
     # presentation/views/ but they still reach in-product internals and sibling products
     # (warehouse_sources, data_modeling, data_tools, cdp, revenue_analytics, batch_exports)

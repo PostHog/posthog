@@ -70,11 +70,11 @@ pub struct Holdout {
 
 ## Key files
 
-| Component         | Path                                            |
-| ----------------- | ----------------------------------------------- |
-| Model             | `posthog/models/experiment.py`                  |
-| Serializer        | `ee/clickhouse/views/experiment_holdouts.py`    |
-| Rust evaluation   | `rust/feature-flags/src/flags/flag_matching.rs` |
-| Rust type         | `rust/feature-flags/src/flags/flag_models.rs`   |
-| Python evaluation | `posthog/models/feature_flag/flag_matching.py`  |
-| Frontend types    | `frontend/src/types.ts`                         |
+| Component         | Path                                                               |
+| ----------------- | ------------------------------------------------------------------ |
+| Model             | `posthog/models/experiment.py`                                     |
+| Serializer        | `products/experiments/backend/presentation/experiment_holdouts.py` |
+| Rust evaluation   | `rust/feature-flags/src/flags/flag_matching.rs`                    |
+| Rust type         | `rust/feature-flags/src/flags/flag_models.rs`                      |
+| Python evaluation | `posthog/models/feature_flag/flag_matching.py`                     |
+| Frontend types    | `frontend/src/types.ts`                                            |

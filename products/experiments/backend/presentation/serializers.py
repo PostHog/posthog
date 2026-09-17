@@ -47,6 +47,8 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricsRecalculation,
     experiment_has_legacy_metrics,
 )
+from products.experiments.backend.presentation.experiment_holdouts import ExperimentHoldoutSerializer
+from products.experiments.backend.presentation.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
 from products.experiments.backend.session_buckets import MAX_BUCKET_SCAN_DAYS, MAX_SESSION_BUCKET_LIMIT, SessionBucket
 from products.experiments.backend.session_context import MAX_SESSION_CONTEXT_BATCH
@@ -61,9 +63,6 @@ from products.experiments.backend.session_event_deltas import (
 )
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
-
-from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
-from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 tracer = trace.get_tracer(__name__)
 
