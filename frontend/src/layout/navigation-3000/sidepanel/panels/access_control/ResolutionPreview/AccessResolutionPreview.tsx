@@ -185,8 +185,8 @@ export function AccessResolutionPreview(): JSX.Element {
                 <WhyExplainer />
                 {!alreadyEnabled && (
                     <LemonBanner type="success">
-                        No access rules resolve differently in the projects you administer. Nothing changes when the new
-                        resolution takes effect.
+                        We're changing access control to use the most specific rule when a member matches several rules.
+                        Nothing changes for your organization.
                     </LemonBanner>
                 )}
                 {footer}
