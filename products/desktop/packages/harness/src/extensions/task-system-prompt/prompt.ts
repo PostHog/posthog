@@ -23,6 +23,10 @@ export function buildTaskContextPrompt(taskId: string): string {
 This is task ${taskId}. Keep material provided as task context, including customer conversations, support tickets, logs, and internal threads, out of code, tests, comments, commit messages, and pull request text. Rewriting or anonymizing that material does not make it safe to publish.`;
 }
 
+export function buildCompactionContinuationPrompt(): string {
+  return "Compaction is complete. Continue working on the task from the compacted context, following the user's instructions from the /compact command.";
+}
+
 export function buildAttributionPrompt(
   taskId: string,
   environment: TaskContext["environment"],
