@@ -759,11 +759,14 @@ export function OverviewTab({
     )
 }
 
-function FeatureFlagNotificationsTab(): JSX.Element {
+function ProjectFeatureFlagNotificationsTab(): JSX.Element {
     return (
         <NotificationsPane
-            subTemplateId="feature-flag-change"
-            description="Get notified when feature flags are created, updated, or deleted."
+            triggers={[
+                { subTemplateId: 'feature-flag-change', label: 'A flag is created, updated, or deleted' },
+                { subTemplateId: 'feature-flag-stale', label: 'A flag becomes stale' },
+            ]}
+            description="Get notified when feature flags are created, updated, or deleted, or when a flag becomes stale: not evaluated for 30 days, or fully rolled out with no usage data."
             dialogTitle="New feature flag notification"
             returnTo={urls.featureFlags(FeatureFlagsTab.NOTIFICATIONS)}
         />
@@ -864,7 +867,7 @@ export function FeatureFlags(): JSX.Element {
                               {
                                   key: FeatureFlagsTab.NOTIFICATIONS,
                                   label: 'Notifications',
-                                  content: <FeatureFlagNotificationsTab />,
+                                  content: <ProjectFeatureFlagNotificationsTab />,
                               },
                           ]
                         : []),

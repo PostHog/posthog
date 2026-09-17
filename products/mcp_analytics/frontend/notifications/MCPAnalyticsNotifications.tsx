@@ -181,7 +181,10 @@ export function MCPAnalyticsNotifications(): JSX.Element {
 
     // One dialog logic per use case, called in a fixed order so the hook calls stay stable.
     const { openDialog: openToolErrorDialog } = useActions(
-        newNotificationDialogLogic({ subTemplateId: 'mcp-tool-error', onCreated })
+        newNotificationDialogLogic({
+            triggers: [{ subTemplateId: 'mcp-tool-error', label: 'MCP tool error' }],
+            onCreated,
+        })
     )
     const openDialogFor: Record<MCPNotificationSubTemplateId, () => void> = {
         'mcp-tool-error': openToolErrorDialog,
@@ -252,7 +255,7 @@ export function MCPAnalyticsNotifications(): JSX.Element {
             {USE_CASES.map((config) => (
                 <NewNotificationDialog
                     key={config.subTemplateId}
-                    subTemplateId={config.subTemplateId}
+                    triggers={[{ subTemplateId: config.subTemplateId, label: config.dialogTitle }]}
                     onCreated={onCreated}
                     title={config.dialogTitle}
                 />
