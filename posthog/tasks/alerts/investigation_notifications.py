@@ -48,6 +48,10 @@ INVESTIGATION_NOTIFY_GRACE_MINUTES = 5
 # force-dispatch that would fire a notification the verdict gate was meant to hold.
 INVESTIGATION_RUNNING_GRACE_MINUTES = 90
 
+# Candidates are read in chunks so their alerts come back in one query per chunk rather
+# than one query per candidate. The sweep runs every minute and has no candidate ceiling.
+SWEEP_CHUNK_SIZE = 100
+
 
 def run_investigation_notification_safety_net() -> int:
     """Dispatch notifications for gated AlertChecks whose investigation stalled.
@@ -66,31 +70,36 @@ def run_investigation_notification_safety_net() -> int:
     # The scan deliberately does not select_related the alert: selecting every
     # AlertConfiguration column lets a column the database has not migrated yet fail the sweep
     # before it reads a row. The filter joins for `investigation_agent_enabled` without
-    # selecting from the table, and each candidate loads its own alert below.
-    candidates = AlertCheck.objects.filter(
-        state=AlertState.FIRING,
-        notification_sent_at__isnull=True,
-        notification_suppressed_by_agent=False,
-        # Pre-PR-3 `notify_alert` populated `targets_notified` without setting
-        # `notification_sent_at`. New code writes both atomically, so the combination
-        # (targets_notified populated, notification_sent_at NULL) only occurs in
-        # legacy data delivered before this safety net existed; skip it.
-        targets_notified={},
-        alert_configuration__investigation_agent_enabled=True,
-    ).filter(
-        # Terminal investigation states (DONE / FAILED): the workflow is not coming
-        # back, so a 5-min grace gets stuck dispatches through quickly. Non-terminal
-        # states (RUNNING / PENDING / SKIPPED / null): wait past the activity's
-        # full retry budget so we don't race a healthy long-running investigation.
-        Q(
-            investigation_status__in=[InvestigationStatus.DONE, InvestigationStatus.FAILED],
-            created_at__lte=terminal_cutoff,
+    # selecting from the table, and prefetch_related loads the candidates' alerts in one
+    # follow-up query per chunk. A sweep that finds nothing runs no follow-up query at all.
+    candidates = (
+        AlertCheck.objects.filter(
+            state=AlertState.FIRING,
+            notification_sent_at__isnull=True,
+            notification_suppressed_by_agent=False,
+            # Pre-PR-3 `notify_alert` populated `targets_notified` without setting
+            # `notification_sent_at`. New code writes both atomically, so the combination
+            # (targets_notified populated, notification_sent_at NULL) only occurs in
+            # legacy data delivered before this safety net existed; skip it.
+            targets_notified={},
+            alert_configuration__investigation_agent_enabled=True,
         )
-        | Q(created_at__lte=running_cutoff)
+        .filter(
+            # Terminal investigation states (DONE / FAILED): the workflow is not coming
+            # back, so a 5-min grace gets stuck dispatches through quickly. Non-terminal
+            # states (RUNNING / PENDING / SKIPPED / null): wait past the activity's
+            # full retry budget so we don't race a healthy long-running investigation.
+            Q(
+                investigation_status__in=[InvestigationStatus.DONE, InvestigationStatus.FAILED],
+                created_at__lte=terminal_cutoff,
+            )
+            | Q(created_at__lte=running_cutoff)
+        )
+        .prefetch_related("alert_configuration")
     )
 
     notified = 0
-    for check in candidates.iterator():
+    for check in candidates.iterator(chunk_size=SWEEP_CHUNK_SIZE):
         alert = check.alert_configuration
         if alert is None or not alert.enabled:
             continue
