@@ -131,3 +131,16 @@ export const NarrowPanelMixedSources: Story = {
         })),
     },
 }
+
+export const NarrowPanelLongReason: Story = {
+    parameters: { mockupWidth: 'narrow' },
+    args: {
+        suggestions: [
+            reviewer('casey', 'Casey Morgan', 'casey@example.com', {
+                source_label: 'Agent feedback scout',
+                explanation:
+                    'Recently maintained the request parser and retry handling. Review the long configuration path before release because it affects several report views.',
+            }),
+        ],
+    },
+}

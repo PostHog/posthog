@@ -40,8 +40,8 @@ export function SuggestedReviewerPerson({
     const sourceLabel = getReviewerSourceLabel(reviewer)
 
     return (
-        <div className="group relative grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2 rounded px-1.5 py-1.5">
-            <div className={`flex min-w-0 flex-col gap-0.5 ${reviewer.user ? '' : 'opacity-75'}`}>
+        <div className="group relative grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-0.5 rounded px-1.5 py-1.5">
+            <div className={`min-w-0 ${reviewer.user ? '' : 'opacity-75'}`}>
                 <Tooltip
                     title={
                         reviewer.user
@@ -59,13 +59,17 @@ export function SuggestedReviewerPerson({
                         />
                     </span>
                 </Tooltip>
-                {explanation && (
-                    <span className="text-xs leading-snug text-tertiary [overflow-wrap:anywhere]">{explanation}</span>
-                )}
             </div>
             <LemonTag type="muted" size="small" wrap className="max-w-32">
                 {sourceLabel}
             </LemonTag>
+            {explanation && (
+                <span
+                    className={`col-span-2 min-w-0 text-xs leading-snug text-tertiary [overflow-wrap:anywhere] ${reviewer.user ? '' : 'opacity-75'}`}
+                >
+                    {explanation}
+                </span>
+            )}
             <LemonButton
                 type="tertiary"
                 size="xsmall"
