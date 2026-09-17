@@ -4,7 +4,7 @@ External API endpoints for the Customer analytics product.
 The single-account endpoints are used by the CDP worker for workflow actions and
 authenticate via the team secret API token passed as a Bearer token in the
 Authorization header. The bulk account list instead authenticates via a project
-secret API key carrying the ``account:read`` scope, because the team token is
+secret API key or personal API key carrying the ``account:read`` scope, because the team token is
 readable by every project member and must not unlock a team-wide account export.
 The single-account GET accepts either credential; its writes stay team-token only.
 
@@ -32,16 +32,19 @@ from django.http import HttpRequest
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, PolymorphicProxySerializer, extend_schema
 from rest_framework import serializers, status
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
+from rest_framework.viewsets import GenericViewSet
 
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ErrorResponseSerializer
-from posthog.auth import ProjectSecretAPIKeyAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.models import Team
 from posthog.permissions import get_authenticator_scopes, is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
@@ -139,6 +142,30 @@ class ExternalAccountProjectSecretAPIKeyAuthentication(ProjectSecretAPIKeyAuthen
         if result is None or not _customer_analytics_enabled(self.project_secret_api_key.team):
             return None
         return result
+
+
+class ExternalAccountPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
+    def authenticate(self, request: HttpRequest | Request) -> tuple[Any, None] | None:
+        try:
+            return super().authenticate(request)
+        except AuthenticationFailed:
+            # DRF must reach the IP throttle before the view rejects an invalid key.
+            return None
+
+
+class ExternalAccountPersonalKeyAccess(TeamAndOrgViewSetMixin, GenericViewSet):
+    """Use the project API permission chain for a project selected on the external route."""
+
+    scope_object = "account"
+    action = "list"
+
+    @classmethod
+    def authorize(cls, request: Request, project_id: int) -> "ExternalAccountPersonalKeyAccess":
+        access = cls()
+        access.request = request
+        access.kwargs = {"parent_lookup_team_id": project_id}
+        access.check_permissions(request)
+        return access
 
 
 def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Response]:
@@ -341,6 +368,11 @@ class ExternalAccountView(APIView):
 
 
 class ExternalAccountListQuerySerializer(serializers.Serializer):
+    project_id = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Project ID. Required for personal API keys. Project secret API keys use their bound project.",
+    )
     limit = serializers.IntegerField(
         required=False,
         default=EXTERNAL_ACCOUNT_LIST_MAX_LIMIT,
@@ -441,6 +473,20 @@ class ExternalAccountListValidationErrorSerializer(serializers.Serializer):
     )
 
 
+class ExternalAccountListPermissionErrorSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="Error category.")
+    code = serializers.CharField(help_text="Machine-readable error code.")
+    detail = serializers.CharField(help_text="Error message.")
+    attr = serializers.CharField(allow_null=True, help_text="Request field associated with the error, if any.")
+
+
+_ExternalAccountListAuthError = PolymorphicProxySerializer(
+    component_name="ExternalAccountListAuthError",
+    serializers=[ErrorResponseSerializer, ExternalAccountListPermissionErrorSerializer],
+    resource_type_field_name=None,
+)
+
+
 class ExternalAccountListView(APIView):
     """
     GET /api/customer_analytics/external/accounts — List accounts with their relationship assignments
@@ -449,14 +495,18 @@ class ExternalAccountListView(APIView):
     to accounts with at least one active relationship assignment, which is what
     the billing service's ownership sync consumes.
 
-    Authenticated via a project secret API key (Bearer ``phs_...``) carrying the
-    ``account:read`` scope, not the team secret_api_token the sibling views
+    Authenticated via a project secret API key (Bearer ``phs_...``) or a personal
+    API key (Bearer ``phx_...``) carrying the ``account:read`` scope. Personal keys
+    require ``project_id`` and follow the user's project and account permissions.
+    This route does not accept the team secret_api_token the sibling views
     accept. The team token is readable by any project member, so it must not
-    grant this team-wide export; a PSAK is a service credential minted with an
-    explicit scope.
+    grant this team-wide export.
     """
 
-    authentication_classes = [ExternalAccountProjectSecretAPIKeyAuthentication]
+    authentication_classes = [
+        ExternalAccountProjectSecretAPIKeyAuthentication,
+        ExternalAccountPersonalAPIKeyAuthentication,
+    ]
     permission_classes = [AllowAny]
     throttle_classes = [
         ExternalAccountListBurstThrottle,
@@ -474,10 +524,14 @@ class ExternalAccountListView(APIView):
                 response=ExternalAccountListValidationErrorSerializer,
                 description="Invalid query parameters.",
             ),
-            401: OpenApiResponse(response=ErrorResponseSerializer, description="Authentication failed."),
+            401: OpenApiResponse(response=_ExternalAccountListAuthError, description="Authentication failed."),
             403: OpenApiResponse(
-                response=ErrorResponseSerializer,
-                description="API key does not carry the account:read scope.",
+                response=_ExternalAccountListAuthError,
+                description="API key lacks the required scope or access to the selected project or accounts.",
+            ),
+            404: OpenApiResponse(
+                response=ExternalAccountListPermissionErrorSerializer,
+                description="The project selected with a personal API key does not exist.",
             ),
         },
         summary="List external customer analytics accounts",
@@ -485,21 +539,40 @@ class ExternalAccountListView(APIView):
             "List tracked accounts with external IDs, lifecycle timestamps, controlled relationship "
             "ownership, and active relationship assignments. Set `include_ignored=true` to include "
             "ignored accounts and `managed_only=true` to read only the accounts customer analytics "
-            "holds ownership authority for. Requires a project secret API key with the `account:read` "
-            "scope."
+            "holds ownership authority for. Requires a project secret API key or personal API key with the "
+            "`account:read` scope. Personal API keys also require `project_id` and return only "
+            "accounts the key owner can access."
         ),
     )
     def get(self, request: Request) -> Response:
-        team, error = _authenticate_psak_team(request)
-        if error:
-            return error
-
-        assert team is not None
-
+        personal_key = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
+        team = None
+        access = None
+        if not personal_key:
+            team, error = _authenticate_psak_team(request)
+            if error:
+                return error
         query_serializer = ExternalAccountListQuerySerializer(data=request.query_params)
         if not query_serializer.is_valid():
             return Response({"error": query_serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
         query_data = query_serializer.validated_data
+
+        if personal_key:
+            if "project_id" not in query_data:
+                return Response(
+                    {"error": {"project_id": ["Specify project_id when using a personal API key."]}},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            access = ExternalAccountPersonalKeyAccess.authorize(request, query_data["project_id"])
+            team = access.team
+            if not _customer_analytics_enabled(team):
+                return Response({"error": "Missing or invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        assert team is not None
+        if "project_id" in query_data and query_data["project_id"] != team.id:
+            return Response(
+                {"error": "API key does not have access to this project."}, status=status.HTTP_403_FORBIDDEN
+            )
 
         page = facade.list_external_accounts(
             team.id,
@@ -509,6 +582,7 @@ class ExternalAccountListView(APIView):
             assigned_only=query_data["assigned_only"],
             include_ignored=query_data["include_ignored"],
             managed_only=query_data["managed_only"],
+            user_access_control=access.user_access_control if access else None,
         )
         return Response(ExternalAccountListPageSerializer(page).data)
 
