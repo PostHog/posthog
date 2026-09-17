@@ -215,6 +215,20 @@ describe('subscriptionsSceneLogic', () => {
             const params = subscriptionListParamsFromUrl(subscriptionRequestUrls[0])
             expect(params.get('target_type')).toBe('slack')
         })
+
+        it('keeps URL filters when changing page', async () => {
+            await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.setTargetTypeFilter(SubscriptionTargetEnumApi.Slack)
+            }).toDispatchActions(['setTargetTypeFilter', 'loadSubscriptions', 'loadSubscriptionsSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.setPage(2)
+            }).toDispatchActions(['setPage', 'loadSubscriptions', 'loadSubscriptionsSuccess'])
+
+            expect(router.values.searchParams).toMatchObject({ target_type: 'slack', page: 2 })
+        })
     })
 
     describe('modal routing', () => {
