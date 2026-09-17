@@ -22,8 +22,6 @@
     clippy::doc_lazy_continuation
 )]
 
-const _SOURCE_BUILD_PROOF: () = ();
-
 use pyo3::prelude::*;
 use std::panic::AssertUnwindSafe;
 
