@@ -3,6 +3,8 @@ import os
 import json
 from datetime import timedelta
 
+from django.core.exceptions import ImproperlyConfigured
+
 import structlog
 from corsheaders.defaults import default_headers
 from whitenoise.compress import Compressor
@@ -1017,6 +1019,9 @@ HOGFLOW_BATCH_TRIGGER_LIMIT = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT", 50
 # ClickHouse query, so a bigger page means fewer scans per run; the resolver inserts a page as one
 # Postgres transaction, which is why this is not unbounded.
 WORKFLOWS_PERSON_BATCH_SIZE = int(get_from_env("WORKFLOWS_PERSON_BATCH_SIZE", 5000))
+if WORKFLOWS_PERSON_BATCH_SIZE < 1:
+    # An empty page reports has_more, so the resolver would refetch it forever.
+    raise ImproperlyConfigured("WORKFLOWS_PERSON_BATCH_SIZE must be at least 1")
 # Elevated maximum audience size, returned for teams listed in HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS.
 HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 1000000))
 # Comma-separated list of team IDs that get the elevated batch trigger limit instead of the default.
