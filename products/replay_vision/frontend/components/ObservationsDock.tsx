@@ -135,6 +135,9 @@ function SummarizeButton({ sessionId, scanBlock }: { sessionId: string; scanBloc
             // The endpoint refuses without org AI approval, so ask for it here rather than toasting a 400.
             onClick={() => {
                 posthog.capture('replay_vision_summarize_clicked', {
+                    // Repeat clicks are the point of this event, and `$session_id` cannot tell them
+                    // apart from one click each on two recordings.
+                    recording_id: sessionId,
                     summarizer: defaultSummarizer ? 'configured' : 'built-in',
                     consent_needed: !dataProcessingAccepted,
                 })
