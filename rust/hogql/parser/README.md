@@ -144,8 +144,9 @@ enforces this.)
 Version is intentionally locked in step with
 [`common/hogql_parser`](../../../common/hogql_parser) (the C++ parser
 PyPI package) so a bump signals "both parsers move together." The
-publish workflow builds wheels, pushes to PyPI via trusted publishing,
-then opens a follow-up PR that updates the repo-root pin.
+publish workflow builds the wheels on every pull request as a check.
+Publishing is a manual dispatch of that workflow from `master`, and
+moving the repo-root pin is a separate pull request afterwards.
 
 ## Adding a new grammar feature
 

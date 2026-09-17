@@ -26,7 +26,6 @@ jobs:
             pull-requests: write
         outputs:
             parser-release-needed: ${{ steps.version.outputs.parser-release-needed }}
-            local-version: ${{ steps.version.outputs.local-version }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
@@ -55,12 +54,10 @@ jobs:
                   WORKFLOW_CHANGED: ${{ steps.changed-files.outputs.workflow_any_changed }}
                   IS_FORK: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' }}
                   IS_PULL_REQUEST: ${{ github.event_name == 'pull_request' }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   parser_release_needed='false'
                   # Local version from the pyproject.toml — single source of truth, matches Cargo.toml.
                   local=$(grep -m1 '^version = ' rust/hogql/parser/pyproject.toml | sed -E 's/version = "(.*)"/\1/')
-                  echo "local-version=$local" >> $GITHUB_OUTPUT
                   if [[ "$PARSER_CHANGED" == 'true' ]]; then
                       # 200 = version already on PyPI, 404 = needs release.
                       http_code=$(curl -o /dev/null -sSL -w '%{http_code}' "https://pypi.org/pypi/hogql-parser-rs/$local/json")

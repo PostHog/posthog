@@ -30,8 +30,6 @@ jobs:
             contents: read
             pull-requests: write
         outputs:
-            committed-version: ${{ steps.check-package-version.outputs.committed-version }}
-            published-version: ${{ steps.check-package-version.outputs.published-version }}
             is-new-version: ${{ steps.check-package-version.outputs.is-new-version }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -60,7 +58,6 @@ jobs:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   COMMITTED_VERSION: ${{ steps.check-package-version.outputs.committed-version }}
                   IS_FORK: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   message_body="It looks like the code of \`@posthog/hogql-parser\` (npm) changed in this PR, but its version stayed the same at $COMMITTED_VERSION. 👀"
                   message_body+=$'\n'"Make sure to resolve this in \`common/hogql_parser/package.json\` before merging!"

@@ -339,6 +339,18 @@ const EXPECTATIONS: Expectation[] = [
         { name: 'master dispatch', github: workflowDispatch() },
         { runs: ['check-package-version', 'build-wasm', 'publish-npm'] }
     ),
+    cppParser(
+        { name: 'branch dispatch', github: { ...workflowDispatch(), ref: 'refs/heads/feat/example' } },
+        { runs: ['check-version', 'build-wheels'], skipped: ['publish'] }
+    ),
+    rustParser(
+        { name: 'branch dispatch', github: { ...workflowDispatch(), ref: 'refs/heads/feat/example' } },
+        { runs: ['check-version', 'build-wheels'], skipped: ['publish'] }
+    ),
+    npmParser(
+        { name: 'branch dispatch', github: { ...workflowDispatch(), ref: 'refs/heads/feat/example' } },
+        { runs: ['check-package-version', 'build-wasm'], skipped: ['publish-npm'] }
+    ),
 ]
 
 interface StepExpectation {
