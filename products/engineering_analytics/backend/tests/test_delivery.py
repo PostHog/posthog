@@ -8,10 +8,12 @@ from parameterized import parameterized
 from rest_framework import status
 
 from products.engineering_analytics.backend.facade.contracts import (
+    ComparisonTeamBasis as Basis,
     DeliveryScopeKind,
     PRTimelineSegmentKind as Kind,
     ScopeRepoFigure,
 )
+from products.engineering_analytics.backend.logic.comparison_teams import choose_comparison_teams
 from products.engineering_analytics.backend.logic.delivery_scope import DeliveryScope
 from products.engineering_analytics.backend.logic.pr_timeline import (
     GateAttempt,
@@ -306,6 +308,7 @@ def _facts(
     ready_at = merged_at - timedelta(hours=ready_hours)
     return MergedPRFacts(
         number=number,
+        author="alice" if in_scope else "bob",
         in_scope=in_scope,
         created_at=ready_at - timedelta(hours=1),
         merged_at=merged_at,
@@ -315,6 +318,79 @@ def _facts(
         gate_attempts=[],
         cost=None,
     )
+
+
+class TestComparisonTeamChoice(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_team", set(), {}, set(), [], Basis.NO_TEAM),
+            ("one_team_needs_no_signal", {"team-a"}, {"team-b": 3}, set(), ["team-a"], Basis.ONLY_TEAM),
+            (
+                "a_group_that_owns_no_code_is_no_candidate",
+                {"team-a", "approvers"},
+                {"approvers": 9},
+                set(),
+                ["team-a"],
+                Basis.ONLY_TEAM,
+            ),
+            (
+                "the_pull_request_in_focus_wins",
+                {"team-a", "team-b"},
+                {"team-a": 5, "team-b": 1},
+                {"team-b"},
+                ["team-b"],
+                Basis.PULL_REQUEST,
+            ),
+            (
+                "the_most_requested_team_wins",
+                {"team-a", "team-b"},
+                {"team-a": 1, "team-b": 4},
+                set(),
+                ["team-b"],
+                Basis.REVIEW_REQUESTS,
+            ),
+            (
+                "a_tie_keeps_every_tied_team",
+                {"team-a", "team-b", "team-c"},
+                {"team-a": 2, "team-b": 2, "team-c": 1},
+                set(),
+                ["team-a", "team-b"],
+                Basis.REVIEW_REQUESTS,
+            ),
+            (
+                "requests_for_other_teams_show_every_team",
+                {"team-b", "team-a"},
+                {"team-x": 3},
+                set(),
+                ["team-a", "team-b"],
+                Basis.ALL_TEAMS,
+            ),
+        ]
+    )
+    def test_picks_the_teams_to_compare_with(
+        self,
+        _name: str,
+        author_teams: set[str],
+        requested_prs: dict[str, int],
+        focus_requested: set[str],
+        teams: list[str],
+        basis: Basis,
+    ) -> None:
+        choice = choose_comparison_teams(
+            author_teams=author_teams,
+            code_teams={"team-a", "team-b", "team-c"},
+            requested_prs=requested_prs,
+            focus_requested=focus_requested,
+        )
+
+        assert (choice.teams, choice.basis) == (teams, basis)
+
+    def test_every_team_is_a_candidate_without_a_census(self) -> None:
+        choice = choose_comparison_teams(
+            author_teams={"team-a", "approvers"}, code_teams=set(), requested_prs={}, focus_requested=set()
+        )
+
+        assert (choice.teams, choice.basis) == (["approvers", "team-a"], Basis.ALL_TEAMS)
 
 
 class TestDeliverySummaryAggregator(SimpleTestCase):
@@ -563,9 +639,14 @@ class TestDeliveryDeployWindow(_WarehouseMixin):
 
 
 class TestDeliveryEndpoints(APIBaseTest):
-    @parameterized.expand([("delivery_summary",), ("pull_request_timelines",)])
-    def test_requires_exactly_one_scope(self, action: str) -> None:
+    @parameterized.expand(
+        [
+            ("delivery_summary", "exactly one of author, github_team"),
+            ("pull_request_timelines", "exactly one of author, github_team"),
+        ]
+    )
+    def test_rejects_a_missing_scope(self, action: str, message: str) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/engineering_analytics/{action}/")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "exactly one of author, github_team" in response.json()["detail"]
+        assert message in response.json()["detail"]

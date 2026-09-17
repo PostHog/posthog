@@ -249,6 +249,13 @@ class CuratedGitHubSource:
             return None
         return f"({issue_events.build_query(self._tables.issue_events, created_floor=created_floor)})"
 
+    def team_review_requests_source(self) -> str | None:
+        """Curated team review requests ``SELECT`` subquery, or None when the issue events hold none.
+        Callers must register {event_created_floor} (see run_started_floor_constant)."""
+        if not (self._tables.issue_events and self._tables.issue_events_team_requests):
+            return None
+        return f"({issue_events.build_team_review_requests_query(self._tables.issue_events)})"
+
     def reviews_source(self) -> str | None:
         """Curated submitted-reviews ``SELECT`` subquery, or None when the optional reviews table
         isn't synced."""

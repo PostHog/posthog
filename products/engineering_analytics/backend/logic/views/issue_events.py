@@ -13,6 +13,8 @@ inside that range verifiably never left ready.
 # GitHub's issue-event vocabulary for the draft/ready transitions.
 READY_FOR_REVIEW_EVENT = "ready_for_review"
 CONVERT_TO_DRAFT_EVENT = "convert_to_draft"
+# Carries ``requested_team`` when a team, not a person, was asked to review.
+REVIEW_REQUESTED_EVENT = "review_requested"
 
 
 def build_query(table_name: str, *, created_floor: bool = False) -> str:
@@ -36,6 +38,23 @@ def build_query(table_name: str, *, created_floor: bool = False) -> str:
             WHERE event IN ('{READY_FOR_REVIEW_EVENT}', '{CONVERT_TO_DRAFT_EVENT}')
         )
         WHERE created_at IS NOT NULL
+    """
+
+
+def build_team_review_requests_query(table_name: str) -> str:
+    """One row per team review request: the pull request, the requested team's slug, and when. Callers
+    register {event_created_floor}: the raw-string floor bounds the scan like ``created_floor`` above."""
+    return f"""
+        SELECT pr_number, team_slug, requested_at
+        FROM (
+            SELECT
+                JSONExtractInt(issue, 'number') AS pr_number,
+                ifNull(JSONExtractString(requested_team, 'slug'), '') AS team_slug,
+                parseDateTimeBestEffort(created_at) AS requested_at
+            FROM (SELECT * FROM {table_name} WHERE created_at >= {{event_created_floor}})
+            WHERE event = '{REVIEW_REQUESTED_EVENT}'
+        )
+        WHERE team_slug != '' AND requested_at IS NOT NULL
     """
 
 
