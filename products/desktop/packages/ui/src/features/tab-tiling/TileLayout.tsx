@@ -33,7 +33,7 @@ interface TileTreeProps {
   node: TileNode;
   tabsById: Map<string, BrowserTab>;
   activeTabId: string;
-  draggingTabId: string | null;
+  showDropZones: boolean;
   groupFull: boolean;
   onActivate: (tab: BrowserTab) => void;
   onUntile: (tab: BrowserTab) => void;
@@ -50,9 +50,7 @@ function TileTree(props: TileTreeProps) {
       <TabTile
         tab={tab}
         isActive={tab.id === activeTabId}
-        isDragging={
-          props.draggingTabId !== null && props.draggingTabId !== tab.id
-        }
+        isDragging={props.showDropZones}
         groupFull={props.groupFull}
         onActivate={props.onActivate}
         onUntile={props.onUntile}
@@ -127,7 +125,7 @@ export function TileLayout({ children }: { children: ReactNode }) {
   );
   const onUntile = useCallback(
     (tab: BrowserTab) => {
-      const group = groupForTab(useTileLayoutStore.getState().groups, tab.id);
+      const group = groupForTab(groups, tab.id);
       const remaining = group
         ? tabIdsIn(group.root).filter((id) => id !== tab.id)
         : [];
@@ -140,14 +138,14 @@ export function TileLayout({ children }: { children: ReactNode }) {
         tile_count: remaining.length,
       });
     },
-    [untile, activeTabId, tabsById, router],
+    [groups, untile, activeTabId, tabsById, router],
   );
 
   const group = activeTabId ? groupForTab(groups, activeTabId) : null;
 
   useEffect(() => {
-    if (group && activeTabId) noteActive(activeTabId);
-  }, [group, activeTabId, noteActive]);
+    if (activeTabId) noteActive(activeTabId);
+  }, [activeTabId, noteActive]);
 
   if (!group || !activeTabId) {
     return (
@@ -166,7 +164,7 @@ export function TileLayout({ children }: { children: ReactNode }) {
         node={group.root}
         tabsById={tabsById}
         activeTabId={activeTabId}
-        draggingTabId={draggingTabId}
+        showDropZones={draggingTabId !== null}
         groupFull={tabIdsIn(group.root).length >= MAX_TILES_PER_GROUP}
         onActivate={onActivate}
         onUntile={onUntile}
