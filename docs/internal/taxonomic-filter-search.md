@@ -34,6 +34,8 @@ They reuse the shared cohort cache when the query changes, and resolve nested co
 An insight without cohort references does not load the cohort list.
 The insight breadcrumb subscribes to the resolved insight name so generated titles update when cohort names arrive.
 The cohort picker continues to load its options independently.
+Opening an AI visualization's definition resolves its cohort references even when the chart is collapsed.
+Navigating from a dashboard reuses the cohorts already in the shared cache and fetches only missing references.
 
 Other pages retain the shared model's full-list loading behavior.
 The model stays mounted across navigation, so leaving an individual insight must trigger the list load if it has not already run.
