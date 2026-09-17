@@ -603,9 +603,13 @@ def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
     return logic.get_issue_id_for_fingerprint(team_id=team_id, fingerprint=fingerprint)
 
 
-def list_fingerprints(team_id: int, issue_id: UUID | None = None) -> list[contracts.ErrorTrackingFingerprint]:
-    fingerprints = logic.list_fingerprints(team_id=team_id, issue_id=issue_id)
-    return [_to_fingerprint(fingerprint) for fingerprint in fingerprints]
+def list_fingerprints(
+    team_id: int, issue_id: UUID | None = None, *, limit: int | None = None, offset: int = 0
+) -> tuple[list[contracts.ErrorTrackingFingerprint], int]:
+    qs = logic.list_fingerprints(team_id=team_id, issue_id=issue_id)
+    total = qs.count()
+    rows = qs if limit is None else qs[offset : offset + limit]
+    return [_to_fingerprint(fingerprint) for fingerprint in rows], total
 
 
 def list_first_fingerprints(team_id: int, issue_ids: list[UUID]) -> list[contracts.ErrorTrackingFingerprint]:
