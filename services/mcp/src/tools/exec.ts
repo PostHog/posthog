@@ -17,7 +17,6 @@ import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
-import { SKILL_READ_TOOLS } from './skills/analytics'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import { getToolDefinitions, type FlagGatedTool, type ScopeGatedTool } from './toolDefinitions'
@@ -165,7 +164,7 @@ export type ExecCommandTracker = (meta: ExecCommandMeta) => void
 
 /**
  * Session-scoped skill-usage markers backing the skills-first gate. Product
- * `call`s in a session that loaded no skill are rejected with a retryable
+ * `call`s in a session that ran no `learn` load are rejected with a retryable
  * instruction — interaction-time enforcement of the SKILLS FIRST prompt section,
  * which agents demonstrably rationalize their way past when it is advisory only.
  * `call --no-skills` acknowledges that no skill applies and opens the gate for
@@ -216,7 +215,7 @@ export interface ExecToolOptions {
 const CALL_USAGE = 'Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>'
 
 const SKILLS_GATE_MESSAGE =
-    'No skills loaded this session. Run `learn -s "<task keywords>"`, then read a match with `learn posthog:<skill>` or `learn project:<skill>`. Searching alone does not load a skill. If no skill applies, re-run this exact command as `call --no-skills ...`.'
+    'No skills loaded this session. Run `learn -s "<task keywords>"`, then load a result with `learn posthog:<skill>` or `learn project:<skill>` using its exact qualified name. Searching alone does not load a skill. `skill-get` and `skill-list` do not satisfy this gate. After loading, retry the original call. If no skill applies, re-run this exact command as `call --no-skills ...`.'
 
 /**
  * Plain errors out of the learn catalog are agent mistakes — unknown names, bad
@@ -1725,14 +1724,7 @@ export function createExecTool(
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
                     const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, toolName)
-                    const isSkillRead = SKILL_READ_TOOLS.has(tool.name)
-                    // Skill discovery must remain reachable before a skill has been loaded.
-                    const isSkillDiscovery =
-                        isSkillRead || tool.name === 'skill-list' || tool.name === 'llma-skill-list'
-                    const gateMessage =
-                        isSkillDiscovery && !noSkills
-                            ? undefined
-                            : await resolveSkillsGate(options.skillsSession, noSkills)
+                    const gateMessage = await resolveSkillsGate(options.skillsSession, noSkills)
                     if (gateMessage) {
                         throw new ExecCommandError(gateMessage, 'skills_gate')
                     }
@@ -1838,9 +1830,6 @@ export function createExecTool(
                             return useJson ? JSON.stringify(lookupMiss.message) : lookupMiss.message
                         }
                         throw err
-                    }
-                    if (isSkillRead && options.skillsSession) {
-                        await options.skillsSession.markLearned().catch(() => undefined)
                     }
                     const durationMs = Date.now() - startedAt
                     const formattedOverride =
