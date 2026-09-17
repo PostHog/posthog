@@ -165,99 +165,100 @@ export default function Canvas() {
   const anyLoading = events.loading || visitors.loading
 
   return (
-    // Keep scrolling separate from the flex column so direct children do not shrink when content exceeds the viewport.
-    <div className="h-screen overflow-y-auto">
-      <div className="flex flex-col gap-4 p-6">
-        <div className="flex items-center justify-between">
-          <Heading size="xl" className="mb-4">
-            Canvas
-          </Heading>
-          <div className="flex items-center gap-2">
-            <Popover open={open} onOpenChange={setOpen}>
-              <PopoverTrigger render={<Button variant="outline">{win.range.name}</Button>} />
-              {/* PopoverContent needs w-auto p-0 so its default fixed width +
-                  padding don't squeeze the self-sizing picker (which clips the
-                  quick-range tabs). No other styles on it or the picker. */}
-              <PopoverContent className="w-auto p-0">
-                <DateTimePicker
-                  value={win}
-                  onApply={(v) => {
-                    setWin(v)
-                    setOpen(false)
-                  }}
-                  onCancel={() => setOpen(false)}
-                />
-              </PopoverContent>
-            </Popover>
-            <Button variant="outline" disabled={anyLoading} onClick={retry}>
-              <RefreshCw size={14} className={anyLoading ? 'animate-spin' : undefined} />
-              Refresh
-            </Button>
-          </div>
+    // The canvas root fills the iframe viewport and grows past it as content
+    // demands, so tall sections scroll instead of shrinking. The
+    // chrome (heading, date picker, card frames) renders immediately — only
+    // the value inside each card waits, each for its own query.
+    <div className="flex min-h-screen flex-col gap-4 p-6">
+      <div className="flex items-center justify-between">
+        <Heading size="xl" className="mb-4">
+          Canvas
+        </Heading>
+        <div className="flex items-center gap-2">
+          <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger render={<Button variant="outline">{win.range.name}</Button>} />
+            {/* PopoverContent needs w-auto p-0 so its default fixed width +
+                padding don't squeeze the self-sizing picker (which clips the
+                quick-range tabs). No other styles on it or the picker. */}
+            <PopoverContent className="w-auto p-0">
+              <DateTimePicker
+                value={win}
+                onApply={(v) => {
+                  setWin(v)
+                  setOpen(false)
+                }}
+                onCancel={() => setOpen(false)}
+              />
+            </PopoverContent>
+          </Popover>
+          <Button variant="outline" disabled={anyLoading} onClick={retry}>
+            <RefreshCw size={14} className={anyLoading ? 'animate-spin' : undefined} />
+            Refresh
+          </Button>
         </div>
+      </div>
 
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card size="sm">
-            <CardHeader>
-              <CardTitle>Total events</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {events.loading ? (
-                <SkeletonText lines={1} className="text-3xl" />
-              ) : events.error ? (
-                <CardError message={events.error} onRetry={retry} />
-              ) : (
-                <Heading size="2xl">{events.data.total.toLocaleString()}</Heading>
-              )}
-            </CardContent>
-          </Card>
-          <Card size="sm">
-            <CardHeader>
-              <div className="flex items-center justify-between gap-2">
-                <CardTitle>Unique users</CardTitle>
-                <ViewQueryDialog query={uniqueUsersQuery(dateRange)} />
-              </div>
-            </CardHeader>
-            <CardContent>
-              {visitors.loading ? (
-                <SkeletonText lines={1} className="text-3xl" />
-              ) : visitors.error ? (
-                <CardError message={visitors.error} onRetry={retry} />
-              ) : (
-                <Heading size="2xl">{visitors.data.toLocaleString()}</Heading>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
+      <div className="grid gap-4 md:grid-cols-3">
         <Card size="sm">
           <CardHeader>
-            <div className="flex items-center justify-between gap-2">
-              <CardTitle>Events over time</CardTitle>
-              <ViewQueryDialog query={totalEventsQuery(dateRange)} />
-            </div>
+            <CardTitle>Total events</CardTitle>
           </CardHeader>
           <CardContent>
             {events.loading ? (
-              <SkeletonText lines={6} />
+              <SkeletonText lines={1} className="text-3xl" />
             ) : events.error ? (
               <CardError message={events.error} onRetry={retry} />
             ) : (
-              <div className="h-[280px] w-full">
-                <ResponsiveContainer>
-                  <LineChart data={events.data.series}>
-                    <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
-                    <XAxis dataKey="day" stroke="var(--muted-foreground)" tick={{ fontSize: 12 }} />
-                    <YAxis stroke="var(--muted-foreground)" tick={{ fontSize: 12 }} />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="value" stroke="var(--primary)" dot={false} strokeWidth={2} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
+              <Heading size="2xl">{events.data.total.toLocaleString()}</Heading>
+            )}
+          </CardContent>
+        </Card>
+        <Card size="sm">
+          <CardHeader>
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle>Unique users</CardTitle>
+              <ViewQueryDialog query={uniqueUsersQuery(dateRange)} />
+            </div>
+          </CardHeader>
+          <CardContent>
+            {visitors.loading ? (
+              <SkeletonText lines={1} className="text-3xl" />
+            ) : visitors.error ? (
+              <CardError message={visitors.error} onRetry={retry} />
+            ) : (
+              <Heading size="2xl">{visitors.data.toLocaleString()}</Heading>
             )}
           </CardContent>
         </Card>
       </div>
+
+      <Card size="sm">
+        <CardHeader>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle>Events over time</CardTitle>
+            <ViewQueryDialog query={totalEventsQuery(dateRange)} />
+          </div>
+        </CardHeader>
+        <CardContent>
+          {events.loading ? (
+            <SkeletonText lines={6} />
+          ) : events.error ? (
+            <CardError message={events.error} onRetry={retry} />
+          ) : (
+            <div className="h-[280px] w-full">
+              <ResponsiveContainer>
+                <LineChart data={events.data.series}>
+                  <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
+                  <XAxis dataKey="day" stroke="var(--muted-foreground)" tick={{ fontSize: 12 }} />
+                  <YAxis stroke="var(--muted-foreground)" tick={{ fontSize: 12 }} />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="value" stroke="var(--primary)" dot={false} strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }
