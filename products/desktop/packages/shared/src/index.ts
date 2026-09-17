@@ -275,6 +275,7 @@ export {
 export type { PiMessagingMode, PiRuntimeHealth } from "./pi-session";
 export {
   createPiToolCallRecord,
+  formatPiMcpToolName,
   isPiToolName,
   PI_TOOL_KIND_BY_NAME,
   type PiMcpCallDetails,

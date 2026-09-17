@@ -5,6 +5,7 @@ import {
   cn,
 } from "@posthog/quill";
 import {
+  formatPiMcpToolName,
   readAgentToolName,
   readMcpToolDescriptor,
   readPiMcpCallDetails,
@@ -72,13 +73,6 @@ function friendlyName(key: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
 }
 
-function formatMcpToolName(name: string): string {
-  const withoutPrefix = name.replace(/^mcp_+/, "");
-  return withoutPrefix
-    .replace(/[_-]+/g, " ")
-    .replace(/([a-z\d])([A-Z])/g, "$1 $2");
-}
-
 function mcpDisplayName(toolCall: ToolCall): string | undefined {
   const descriptor = readMcpToolDescriptor(toolCall._meta);
   if (descriptor) {
@@ -86,7 +80,7 @@ function mcpDisplayName(toolCall: ToolCall): string | undefined {
   }
 
   if (toolCall.title.startsWith("mcp_")) {
-    return `MCP: ${formatMcpToolName(toolCall.title)}`;
+    return `MCP: ${formatPiMcpToolName(toolCall.title)}`;
   }
 
   if (toolCall.title !== "mcp") return undefined;
@@ -96,7 +90,7 @@ function mcpDisplayName(toolCall: ToolCall): string | undefined {
     return `Searching MCP tools for "${details.query}"`;
   }
   if (details?.kind === "tool") {
-    return `MCP: ${formatMcpToolName(details.name)}`;
+    return `MCP: ${formatPiMcpToolName(details.name)}`;
   }
   return "MCP";
 }

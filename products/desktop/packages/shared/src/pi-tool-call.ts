@@ -25,13 +25,18 @@ export interface PiToolCallInput {
 
 export const piMcpCallDetailsSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("search"), query: z.string().min(1) }),
-  z.object({ kind: z.literal("tool"), name: z.string().min(1) }),
+  z.object({
+    kind: z.literal("tool"),
+    name: z.string().min(1),
+    args: z.string().optional(),
+  }),
 ]);
 export type PiMcpCallDetails = z.infer<typeof piMcpCallDetailsSchema>;
 
 const piMcpProxyInputSchema = z.object({
   search: z.string().trim().min(1).optional(),
   tool: z.string().trim().min(1).optional(),
+  args: z.string().optional(),
 });
 
 export function parsePiMcpCallDetails(
@@ -43,7 +48,13 @@ export function parsePiMcpCallDetails(
   const parsed = piMcpProxyInputSchema.safeParse(args);
   if (!parsed.success) return undefined;
   if (parsed.data.search) return { kind: "search", query: parsed.data.search };
-  if (parsed.data.tool) return { kind: "tool", name: parsed.data.tool };
+  if (parsed.data.tool) {
+    return {
+      kind: "tool",
+      name: parsed.data.tool,
+      ...(parsed.data.args ? { args: parsed.data.args } : {}),
+    };
+  }
   return undefined;
 }
 
@@ -52,6 +63,13 @@ export function readPiMcpCallDetails(
 ): PiMcpCallDetails | undefined {
   const parsed = piMcpCallDetailsSchema.safeParse(details);
   return parsed.success ? parsed.data : undefined;
+}
+
+export function formatPiMcpToolName(name: string): string {
+  const withoutPrefix = name.replace(/^mcp_+/, "");
+  return withoutPrefix
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z\d])([A-Z])/g, "$1 $2");
 }
 
 export const piToolCallRecordSchema = z.object({

@@ -39,4 +39,29 @@ describe("McpToolView", () => {
 
     expect(screen.getByText(marker)).toBeInTheDocument();
   });
+
+  it.each([
+    {
+      toolName: "mcp__posthog__query",
+      rawInput: {},
+      expected: "query",
+    },
+    {
+      toolName: "mcp__posthog__exec",
+      rawInput: { command: "call feature-flag-get-all" },
+      expected: "feature-flag-get-all",
+    },
+  ])("shows the relevant MCP tool name", ({ toolName, rawInput, expected }) => {
+    render(
+      <Theme>
+        <McpToolView
+          toolCall={makeToolCall({ rawInput })}
+          mcpToolName={toolName}
+          expanded
+        />
+      </Theme>,
+    );
+
+    expect(screen.getByText(expected)).toBeInTheDocument();
+  });
 });

@@ -39,4 +39,29 @@ describe("ToolCallView", () => {
 
     expect(screen.getByText(marker)).toBeInTheDocument();
   });
+
+  it.each([
+    {
+      title: "mcp",
+      details: { kind: "search", query: "business knowledge" },
+      expected: "Search MCP tools",
+    },
+    {
+      title: "mcp",
+      details: {
+        kind: "tool",
+        name: "mcp_posthog_exec",
+        args: JSON.stringify({ command: "call feature-flag-get-all" }),
+      },
+      expected: "feature-flag-get-all",
+    },
+    {
+      title: "mcp__posthog__project-get",
+      expected: "posthog project get",
+    },
+  ])("shows a readable MCP tool label", ({ title, details, expected }) => {
+    renderView(makeToolCall({ title, details }));
+
+    expect(screen.getByText(expected)).toBeInTheDocument();
+  });
 });

@@ -41,12 +41,10 @@ export function McpToolView({
   // input/output divider so ConversationView is unchanged when the chat thread is toggled off.
   const chatChrome = useChatThreadChrome();
 
-  const { serverName: defaultServerName, toolName: defaultToolName } =
-    parseMcpToolKey(mcpToolName);
+  const { toolName: defaultToolName } = parseMcpToolKey(mcpToolName);
   const posthogDisplay = isPostHogExecTool(mcpToolName)
     ? getPostHogExecDisplay(rawInput)
     : null;
-  const serverName = posthogDisplay ? "posthog" : defaultServerName;
   const toolName = posthogDisplay?.label ?? defaultToolName;
   const inputPreview = posthogDisplay
     ? posthogDisplay.input
@@ -79,7 +77,6 @@ export function McpToolView({
       </>
     ) : undefined;
 
-  const labelClass = chatChrome ? "text-muted-foreground" : "text-gray-10";
   const previewClass = chatChrome
     ? "text-muted-foreground/50"
     : "text-accent-11";
@@ -93,12 +90,7 @@ export function McpToolView({
       defaultOpen={expanded}
       content={body}
     >
-      <ToolTitle>
-        <span className={labelClass}>{serverName}</span>
-        {" - "}
-        {toolName}
-        <span className={labelClass}>{" (MCP)"}</span>
-      </ToolTitle>
+      <ToolTitle>{toolName}</ToolTitle>
       {inputPreview && (
         <ToolTitle>
           <span className={previewClass}>{inputPreview}</span>
