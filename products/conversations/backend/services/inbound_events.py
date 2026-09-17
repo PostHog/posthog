@@ -85,18 +85,25 @@ class InboundQueueMetrics:
     oldest_ready_age_seconds: float
 
 
-def slack_retry_metadata(request: HttpRequest) -> tuple[int | None, str]:
-    raw_num = request.headers.get("X-Slack-Retry-Num")
-    reason = (request.headers.get("X-Slack-Retry-Reason") or "")[:64]
-    if not raw_num:
+def slack_retry_metadata_from_values(*, raw_retry_num: str, retry_reason: str) -> tuple[int | None, str]:
+    """Parse Slack's retry headers from values, for callers that hold no request."""
+    reason = retry_reason[:64]
+    if not raw_retry_num:
         return None, reason
     try:
-        retry_num = int(raw_num)
+        retry_num = int(raw_retry_num)
     except ValueError:
         return None, reason
     if retry_num < 0:
         return None, reason
     return retry_num, reason
+
+
+def slack_retry_metadata(request: HttpRequest) -> tuple[int | None, str]:
+    return slack_retry_metadata_from_values(
+        raw_retry_num=request.headers.get("X-Slack-Retry-Num") or "",
+        retry_reason=request.headers.get("X-Slack-Retry-Reason") or "",
+    )
 
 
 def slack_events_source_id(*, event_id: str | None, signed_body: bytes) -> str:

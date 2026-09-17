@@ -560,7 +560,7 @@ export interface FeatureFlagApi {
     /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
     archived?: boolean
     readonly created_by: UserBasicApi
-    created_at?: string
+    readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
     version?: number
@@ -616,7 +616,7 @@ export interface FeatureFlagApi {
      * Last time this feature flag was called (from $feature_flag_called events)
      * @nullable
      */
-    last_called_at?: string | null
+    readonly last_called_at: string | null
     _create_in_folder?: string
     /** Check if any team gates session recording on this flag, by linked flag or trigger group. */
     readonly is_used_in_replay_settings: boolean
@@ -1188,7 +1188,7 @@ export interface ActivityLogEntryApi {
     /** Whether the acting user was being impersonated by PostHog staff. */
     readonly was_impersonated: boolean
     /**
-     * API client that triggered the activity, from the x-posthog-client request header (e.g. 'mcp'). Null for requests that did not send the header.
+     * API client that triggered the activity. Self-reported through the x-posthog-client request header (e.g. 'mcp'), or 'scout:<skill_name>' when a scout run made the change, which the server derives from the run's own token. Null for requests that did neither.
      * @nullable
      */
     readonly client: string | null

@@ -22,7 +22,11 @@ describe('ConfigureHomeDashboardPicker', () => {
     beforeEach(() => {
         mockedUseValues.mockReturnValueOnce({ nameSortedDashboards: [], dashboardsLoading: true })
         mockedUseValues.mockReturnValueOnce({ currentTeam: null })
-        mockedUseActions.mockReturnValue({ setHomepage: jest.fn(), updateCurrentTeam: jest.fn() })
+        mockedUseActions.mockReturnValue({
+            loadDashboardsIfNeeded: jest.fn(),
+            setHomepage: jest.fn(),
+            updateCurrentTeam: jest.fn(),
+        })
     })
 
     it('disables selection until dashboards finish loading', () => {
