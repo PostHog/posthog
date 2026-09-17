@@ -17,16 +17,18 @@ import { isTransientError } from './transient'
 const SESSION_ROW_MAX_LIFETIME_MS = 300_000
 // A team image key is one row per team per month, so it survives eviction and a short lifetime only costs re-reads.
 const IMAGE_ROW_MAX_LIFETIME_MS = 172_800_000
-const DEFAULT_ROW_CACHE_MAX = 100_000
 // Neither caller passes a deadline, and max.poll.interval.ms is 300s, so the retry loop needs a bound of its own.
 const READ_BUDGET_MS = 30_000
 
 export type DynamoItem = Record<string, AttributeValue>
 
-// lru-cache rejects a non-integer option at construction, and config.ts parses env values with parseFloat.
-function positiveInteger(value: number, fallback: number, capMs = Number.MAX_SAFE_INTEGER): number {
-    const floored = Math.floor(value)
-    return Number.isSafeInteger(floored) && floored > 0 ? Math.min(floored, capMs) : fallback
+// config.ts parses an env value with parseFloat, so a typo arrives as NaN or a fraction. Refusing to start names the
+// setting, where a fallback would run with a lifetime the operator did not choose and never say so.
+function positiveInteger(value: number, setting: string, cap = Number.MAX_SAFE_INTEGER): number {
+    if (!Number.isSafeInteger(value) || value <= 0) {
+        throw new Error(`${setting} must be a positive integer, got ${value}`)
+    }
+    return Math.min(value, cap)
 }
 
 // The SDK returns byte views over Node's shared 8 KiB pool, so holding one keeps the whole slab. The freeze is top level.
@@ -65,13 +67,11 @@ export class MlKeyDynamoDB {
     ) {
         this.sessionRowLifetimeMs = positiveInteger(
             cacheLifetimeMs,
-            SESSION_ROW_MAX_LIFETIME_MS,
+            'AI_RESEARCH_REPLAY_ROW_CACHE_LIFETIME_MS',
             SESSION_ROW_MAX_LIFETIME_MS
         )
-        // lru-cache reads 0 as "no bound": ttl 0 never expires and max 0 holds every row, so a zero here would both
-        // widen the deletion window and remove the memory bound.
         this.rows = new LRUCache({
-            max: positiveInteger(cacheMax, DEFAULT_ROW_CACHE_MAX),
+            max: positiveInteger(cacheMax, 'AI_RESEARCH_REPLAY_ROW_CACHE_MAX'),
             ttl: this.sessionRowLifetimeMs,
             // lru-cache otherwise reads the clock once and refreshes it from a timer, so a loop that stays on
             // microtasks keeps serving a row past the lease. This TTL carries the deletion lease, so it reads exactly.

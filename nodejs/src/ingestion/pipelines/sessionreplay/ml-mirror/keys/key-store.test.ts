@@ -480,9 +480,19 @@ describe('ML session key batches', () => {
     })
 
     it.each([
+        ['a fractional value', 30_000.5],
+        ['an unparsable value', Number.NaN],
+        ['a zero', 0],
+    ])('refuses to start on %s cache setting', (_label, configured) => {
+        expect(
+            () =>
+                new MlKeyDynamoDB(boundary as unknown as DynamoDBClient, table, undefined, undefined, 1000, configured)
+        ).toThrow('AI_RESEARCH_REPLAY_ROW_CACHE_LIFETIME_MS')
+    })
+
+    it.each([
         ['a lifetime over the cap is clamped', 86_400_000, 300_001, false],
         ['a lifetime under the cap is kept', 60_000, 60_001, false],
-        ['a non-numeric lifetime falls back to the cap', Number.NaN, 300_001, false],
         ['a team image key outlives the session cap', 86_400_000, 300_001, true],
     ])('%s', async (_label, configured, elapsedMs, imageKey) => {
         let fakeNow = 1_000

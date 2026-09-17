@@ -195,7 +195,7 @@ New key manager and v2 storage settings use the `AI_RESEARCH_REPLAY_*` prefix:
 
 - `KEY_TABLE`, `KMS_KEY_ARN`, and `AWS_REGION` select the key store and wrapping key.
 - `KEY_CACHE_MAX`, `KEY_CACHE_LIFETIME_MS`, and `KMS_REQUESTS_PER_SECOND` bound the KMS plaintext cache and KMS traffic.
-- `ROW_CACHE_MAX` and `ROW_CACHE_LIFETIME_MS` bound the stored key row cache. The lifetime applies to a session key row and is capped; a team image key row is held for up to 48 hours.
+- `ROW_CACHE_MAX` and `ROW_CACHE_LIFETIME_MS` bound the stored key row cache. The lifetime applies to a session key row and is capped; a team image key row is held for up to 48 hours. A value that is not a positive integer stops the consumer at startup and names the setting.
 - `IMAGE_FETCH_V2_DYNAMODB_TABLE` selects the fresh v2 frontier.
 - `S3_PREFIX` selects v2 replay storage and defaults to `rrweb_2`.
 
