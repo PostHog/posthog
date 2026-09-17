@@ -31,19 +31,20 @@ SERVICE_URL = "https://smba.trafficmanager.net/teams/"
 def _make_activity(
     *,
     activity_type: str = "message",
-    channel_id: str = "19:ch@thread.tacv2",
+    teams_channel_id: str = "19:ch@thread.tacv2",
     tenant_id: str = "tenant-abc",
     text: str = "I have an issue",
 ) -> dict[str, Any]:
     return {
         "type": activity_type,
         "id": "act-123",
+        "channelId": "msteams",
         "text": text,
         "serviceUrl": SERVICE_URL,
         "from": {"id": "29:user", "aadObjectId": "aad-user-1", "role": "user"},
         "conversation": {"id": "19:conv@thread.tacv2"},
         "channelData": {
-            "channel": {"id": channel_id},
+            "channel": {"id": teams_channel_id},
             "tenant": {"id": tenant_id},
         },
     }
@@ -82,7 +83,10 @@ class TestTeamsEventHandler(BaseTest):
                 f"{SUPPORT_TEAMS_MODULE}.get_teams_instance_settings",
                 return_value={"SUPPORT_TEAMS_APP_ID": TEAMS_APP_ID},
             ),
-            patch("jwt.PyJWKClient.get_signing_key_from_jwt", return_value=SimpleNamespace(key=self.public_key)),
+            patch(
+                "jwt.PyJWKClient.get_signing_key_from_jwt",
+                return_value=SimpleNamespace(key=self.public_key, _jwk_data={"endorsements": ["msteams"]}),
+            ),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)

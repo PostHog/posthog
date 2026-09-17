@@ -24,9 +24,12 @@ ISSUER = "https://api.botframework.com"
 SERVICE_URL = "https://smba.trafficmanager.net/teams/"
 TENANT_ID = "tenant-abc"
 
+TEAMS_ENDORSED_KEY = {"endorsements": ["msteams"]}
+
 ACTIVITY = {
     "type": "message",
     "id": "act-123",
+    "channelId": "msteams",
     "text": "I have an issue",
     "serviceUrl": SERVICE_URL,
     "channelData": {"tenant": {"id": TENANT_ID}},
@@ -78,13 +81,13 @@ class TestTeamsProvider(SimpleTestCase):
         headers = {"Authorization": f"Bearer {token}"} if token else {}
         return RequestFactory().post(URL, data=json.dumps(activity), content_type="application/json", headers=headers)
 
-    def _signing_key(self) -> Any:
+    def _signing_key(self, jwk: dict[str, Any] | None = None) -> Any:
         # The JWKS fetch is the only boundary mocked here; the decode below it is the real one.
-        return patch.object(
-            jwt.PyJWKClient,
-            "get_signing_key_from_jwt",
-            return_value=SimpleNamespace(key=self.private_key.public_key()),
+        key = SimpleNamespace(
+            key=self.private_key.public_key(),
+            _jwk_data=TEAMS_ENDORSED_KEY if jwk is None else jwk,
         )
+        return patch.object(jwt.PyJWKClient, "get_signing_key_from_jwt", return_value=key)
 
     def _deliveries(self, activity: dict[str, Any], token: str) -> Any:
         request = self._request(activity, token)
@@ -93,8 +96,8 @@ class TestTeamsProvider(SimpleTestCase):
         self.assertEqual(verification.outcome, VerificationOutcome.VERIFIED)
         return self.provider.deliveries(request, self.provider.parse(request), verification.facts)
 
-    def _view_response(self, activity: dict[str, Any], token: str) -> Any:
-        with self._signing_key():
+    def _view_response(self, activity: dict[str, Any], token: str, jwk: dict[str, Any] | None = None) -> Any:
+        with self._signing_key(jwk):
             return build_webhook_view(self.provider)(self._request(activity, token))
 
     def test_the_claims_a_consumer_reads_reach_the_delivery(self) -> None:
@@ -115,16 +118,20 @@ class TestTeamsProvider(SimpleTestCase):
         [
             # Bot Framework requires the claim, and the bot sends its bearer token to whatever
             # the body names, so a token without it must not choose that host.
-            ("a token that carries no serviceurl claim", {"serviceurl": None}, {}),
-            ("a serviceUrl the claim does not name", {}, {"serviceUrl": "https://attacker.example.com/"}),
-            ("an empty serviceUrl", {}, {"serviceUrl": ""}),
-            ("a tenant the claim does not name", {}, {"channelData": {"tenant": {"id": "other-tenant"}}}),
+            ("a token that carries no serviceurl claim", {"serviceurl": None}, {}, None),
+            ("a serviceUrl the claim does not name", {}, {"serviceUrl": "https://attacker.example.com/"}, None),
+            ("an empty serviceUrl", {}, {"serviceUrl": ""}, None),
+            ("a tenant the claim does not name", {}, {"channelData": {"tenant": {"id": "other-tenant"}}}, None),
+            ("an activity from another channel", {}, {"channelId": "directline"}, None),
+            ("an activity that names no channel", {}, {"channelId": ""}, None),
+            ("a key endorsed for another channel", {}, {}, {"endorsements": ["directline"]}),
+            ("a key that carries no endorsements", {}, {}, {}),
         ]
     )
     def test_an_activity_the_token_does_not_back_is_refused_before_dispatch(
-        self, _name: str, claims: dict[str, Any], activity_overrides: dict[str, Any]
+        self, _name: str, claims: dict[str, Any], activity_overrides: dict[str, Any], jwk: dict[str, Any] | None
     ) -> None:
-        response = self._view_response({**ACTIVITY, **activity_overrides}, self._token(**claims))
+        response = self._view_response({**ACTIVITY, **activity_overrides}, self._token(**claims), jwk=jwk)
 
         self.assertEqual(response.status_code, 400)
         self.dispatcher.ownership_of.assert_not_called()

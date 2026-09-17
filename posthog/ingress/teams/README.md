@@ -47,7 +47,16 @@ Nothing under `posthog/ingress/` reads instance settings for it.
 Microsoft's connector authentication requires the `serviceurl` claim to be present and to equal the activity's `serviceUrl`, and its own SDKs compare the two as strings without regard to case.
 So a token that carries no `serviceurl` claim, and an activity whose `serviceUrl` the claim does not equal, are both `InvalidPayload`: 400, before ownership and before any consumer runs.
 The comparison ignores case and a trailing slash, which Teams sends in the body and not in the claim.
-`tid` is checked the same way when both sides carry it, and is absent outside Teams.
+`tid` is not one of Microsoft's validation rules, so it is checked when both sides carry it rather than required.
+
+**The signing key has to be endorsed for the channel the activity names.**
+One JWKS signs every Bot Framework channel, and each key lists the channels it may sign for in an `endorsements` member that `BearerJwt` carries into the facts.
+Microsoft's rule is that a bot holds an activity's `channelId` to an endorsement on the key that signed it, and rejects the activity when that endorsement is absent.
+This app serves Teams alone, so `deliveries()` refuses anything but an activity whose `channelId` is `msteams`, signed by a key whose endorsements include `msteams`.
+A key with no `endorsements` member is refused for the same reason, and no key Bot Framework publishes omits it.
+
+Without that, a token minted for another channel of the same bot registration carries the audience and the issuer the scheme requires, and the activity body alone would decide which tenant the message is attributed to.
+Microsoft answers this one with 403 and ingress answers it with the 400 it gives any refused body, which has the same effect: no consumer runs, and Bot Framework does not retry a 4xx.
 
 The `InvalidPayload` message names the field and never either value, because it lands in the log of an endpoint a stranger can drive.
 

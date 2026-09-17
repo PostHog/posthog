@@ -10,9 +10,10 @@ from django.test import SimpleTestCase
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
+from jwt.algorithms import RSAAlgorithm
 from parameterized import parameterized
 
-from posthog.ingress.verify.jwt import _JWKS_CLIENTS, BearerJwt, _jwks_client
+from posthog.ingress.verify.jwt import _JWKS_CLIENTS, SIGNING_KEY_FACT, BearerJwt, _jwks_client
 from posthog.ingress.verify.schemes import HmacSha256, SnsSignature, Verification, VerificationOutcome
 
 SECRET = "s3cret"
@@ -259,6 +260,23 @@ class TestBearerJwt(SimpleTestCase):
 
         headers = {"Authorization": "Bearer " + token}
         self.assertEqual(self._verify(self._scheme(), headers).outcome, VerificationOutcome.INVALID)
+
+    def test_the_key_that_signed_the_token_reaches_deliveries_with_what_the_jwks_published(self) -> None:
+        # A real PyJWKClient over a real JWKS document, so a PyJWT release that stops carrying the
+        # members an incarnation reads fails here rather than at a webhook endpoint.
+        published = {
+            **RSAAlgorithm.to_jwk(self.private_key.public_key(), as_dict=True),
+            "kid": KEY_ID,
+            "endorsements": ["msteams"],
+        }
+        headers = {"Authorization": "Bearer " + self._token()}
+
+        with patch.object(jwt.PyJWKClient, "fetch_data", return_value={"keys": [published]}):
+            verification = self._scheme().verify(body=BODY, headers=headers)
+
+        self.assertEqual(verification.outcome, VerificationOutcome.VERIFIED)
+        self.assertEqual(verification.facts[SIGNING_KEY_FACT]["endorsements"], ["msteams"])
+        self.assertEqual(verification.facts[SIGNING_KEY_FACT]["kid"], KEY_ID)
 
     def test_rejects_a_tampered_signature(self) -> None:
         header, payload, signature = self._token().split(".")

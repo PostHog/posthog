@@ -43,6 +43,7 @@ A provider whose verification is a local HMAC leaves it at `None`.
 
 A `Verification` carries the outcome and `facts`, a mapping of what the check proved on the way.
 A scheme that validates a signed token knows who sent the delivery before the body is read, and `facts` is how those claims reach `deliveries`, so an incarnation can cross-check the body against what was actually signed rather than trusting a field of the body that claims the same thing.
+`BearerJwt` puts the key that signed the token there too, under `SIGNING_KEY_FACT`, because a JWKS can say what one key is allowed to sign and the token cannot: Bot Framework endorses each key for a set of channels, and Teams holds the activity's `channelId` to that.
 A body that fails that cross-check is `InvalidPayload` rather than a delivery a consumer has to distrust, because the protocol, not the product, is what says the two must agree.
 An HMAC over raw bytes proves only the signature, so its `facts` are empty and `deliveries` ignores the argument.
 

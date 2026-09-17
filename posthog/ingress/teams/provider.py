@@ -17,7 +17,7 @@ from django.utils import timezone
 
 from posthog.ingress.contracts import ProviderSpec, WebhookDelivery
 from posthog.ingress.providers import InvalidPayload, WebhookProvider
-from posthog.ingress.verify.jwt import BearerJwt
+from posthog.ingress.verify.jwt import SIGNING_KEY_FACT, BearerJwt
 from posthog.ingress.verify.schemes import SignatureScheme
 from posthog.rate_limit import TeamsEventWebhookThrottle
 
@@ -30,6 +30,28 @@ SPECS = (ProviderSpec(provider="teams", app="supporthog", event_types=TEAMS_ACTI
 
 # The three RSA algorithms the Bot Framework OpenID metadata document publishes.
 _SIGNING_ALGORITHMS = ("RS256", "RS384", "RS512")
+
+TEAMS_CHANNEL_ID = "msteams"
+
+
+def _check_channel_endorsement(payload: Mapping[str, Any], facts: Mapping[str, Any]) -> None:
+    """Refuse an activity unless it is a Teams one, signed by a key Bot Framework endorsed for Teams.
+
+    One JWKS signs every Bot Framework channel, so the audience alone does not say the key was
+    allowed to sign this activity. Microsoft's connector authentication holds the activity's
+    `channelId` to an endorsement on the key that signed it, and rejects the activity when that
+    endorsement is absent. This app serves Teams alone, which fixes both halves at `msteams`.
+    """
+    channel_id = str(payload.get("channelId") or "")
+    if channel_id != TEAMS_CHANNEL_ID:
+        raise InvalidPayload("the activity does not name the Teams channel")
+
+    signing_key = facts.get(SIGNING_KEY_FACT)
+    endorsements = signing_key.get("endorsements") if isinstance(signing_key, Mapping) else None
+    # A list, never a bare string: `in` over a string matches a substring, which would accept a
+    # key endorsed for a channel whose name merely contains this one.
+    if not isinstance(endorsements, list) or channel_id not in endorsements:
+        raise InvalidPayload("the signing key does not endorse the activity's channel")
 
 
 def _body_tenant_id(payload: Mapping[str, Any]) -> str:
@@ -96,10 +118,11 @@ class TeamsProvider(WebhookProvider):
         if not isinstance(payload, Mapping):
             return ()
 
+        _check_channel_endorsement(payload, facts)
         service_url = _matched_service_url(payload, facts)
-        # Present whenever the channel is Teams, and absent on other Bot Framework channels, so
-        # it is checked when it is there rather than required. `serviceurl` is required, because
-        # a caller who holds any valid Bot Framework token would otherwise choose the host the
+        # Microsoft's token validation rules do not list `tid`, so it is checked when both sides
+        # carry it rather than required. `serviceurl` is on that list, and is required, because a
+        # caller who holds any valid Bot Framework token would otherwise choose the host the
         # bot's own bearer token is sent to.
         claim_tenant_id = str(facts.get("tid") or "")
         body_tenant_id = _body_tenant_id(payload)
