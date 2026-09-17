@@ -9348,6 +9348,22 @@ snapshots:
         hash: v1.k794b7964.e1dfe15b20b22dec1f74881db821597e40d534cf0c9773fc032948311de642f7.iAS_FuPfykHZ7rjy90ExdGbsAT1eKhSIwVLvxUg1aGM
     scenes-app-mcp-analytics-missing-capabilities-preview--example-reports--light:
         hash: v1.k794b7964.428de360c05be96069166fcf43a1b02ae48d7dea500d8f9caf9371fbc7ab8bac.LfbPCIHegnJwRBMnkSmipZH3IutsBu1DYRFH3tQGNRU
+    scenes-app-mcp-analytics-notification-types-table--loading--dark:
+        hash: v1.k794b7964.ec6ef9403c11fe69423832f39c758eb8c35b82f213bf5592d5b90cece9590c13.E6jL-gC2B0yKgf-wsB_9LygDEQJMxMO-8oeH38IOByA
+    scenes-app-mcp-analytics-notification-types-table--loading--light:
+        hash: v1.k794b7964.d9d61ad56f4643d5b88c74cf5107ed8433c771c487a9d64e1c0623b63eca9326.EXHwe7QTB2eIevF4QJIQ98Z5jLV3oI0PrLMMRSxXlNg
+    scenes-app-mcp-analytics-notification-types-table--mixed-states--dark:
+        hash: v1.k794b7964.0b585dff0f92db3c32117ef5bc773927607dda8835e607593cc45d58bca5b2bf.YqFG-70G-8m_KaFe4hzyoYX25osVZ8uff2tpXVpy5lE
+    scenes-app-mcp-analytics-notification-types-table--mixed-states--light:
+        hash: v1.k794b7964.f068a594f18002730fb0dd498f9da2e8efb964125ef00a803a6a226479deb488.rp5wW53w7OYBS7lLe_0FpaVAobsJqskOVPJ6bY5Zej4
+    scenes-app-mcp-analytics-notification-types-table--narrow-scene--dark:
+        hash: v1.k794b7964.4097d670e35243ed026de6d0fca9020dcf7dc26d775de57b89dcbd9003e6d8e0.8_x5MTZ6_J8KXWAa1bu6LhWfZPvPvaSQr95vMFzGjZA
+    scenes-app-mcp-analytics-notification-types-table--narrow-scene--light:
+        hash: v1.k794b7964.d8eb396c3864dd84e84b61a14167f312ac789634063562ca2c480a48d3838104.YHQrunRg_ERBH3ck1txmuNeqopTOcG2LuGWZq9-lGLI
+    scenes-app-mcp-analytics-notification-types-table--nothing-set-up--dark:
+        hash: v1.k794b7964.b33c74ffb5531cf86afcd5fa718200c83a0863450ca85a5c94d026264f81dc4c.awlyXScQ759I0zP7I5rQA8PEIunmftZStWnJ90q-tpw
+    scenes-app-mcp-analytics-notification-types-table--nothing-set-up--light:
+        hash: v1.k794b7964.d0cb2086e12994284977aa2d895e1214c0261d2505022d9df4aef0d15c6562c6.fKwM2EVKz22cubQjamzL4YJN2CWRvtdpvYIifmijXtA
     scenes-app-mcp-analytics-tool-quality-charts--in-progress-bucket--dark:
         hash: v1.k794b7964.6dd3665d59b7590cdbba24e83fb952ffc45f74dc15e5811b5bfe004af314ead6.sGmDMl0-TraAucPmgpjftNcfxWrhDZXgFgxRNVUFp1Y
     scenes-app-mcp-analytics-tool-quality-charts--in-progress-bucket--light:
