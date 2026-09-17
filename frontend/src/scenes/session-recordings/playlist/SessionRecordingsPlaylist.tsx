@@ -21,8 +21,12 @@ import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } fr
 
 const HedgehogDirector = pngHoggie(directorPng)
 
-/** Narrower than this and the list stacks over the player instead of sitting beside it. */
-const HORIZONTAL_LAYOUT_MIN_WIDTH = TAILWIND_BREAKPOINTS.xl
+/**
+ * Narrower than this and the list stacks over the player instead of sitting beside it. Measured against
+ * the container, so it sits below the `xl` this used to compare the whole window to: the nav sidebar and
+ * scene padding take about 250px, which kept the crossover near the same window width as before.
+ */
+const HORIZONTAL_LAYOUT_MIN_WIDTH = TAILWIND_BREAKPOINTS.lg
 /** Stays below half of HORIZONTAL_LAYOUT_MIN_WIDTH so the list column's 50% cap always wins. */
 const LIST_MIN_WIDTH = 240
 const LIST_DEFAULT_WIDTH = 320
