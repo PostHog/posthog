@@ -38,6 +38,7 @@ import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import { AddContextDialog, type AddContextMode } from "./AddContextDialog";
+import { EditableNote } from "./EditableNote";
 import { KIND_ICONS } from "./kindIcons";
 import { SectionHeader } from "./SectionHeader";
 import { SourceLogo } from "./SourceLogo";
@@ -160,7 +161,13 @@ export function KnowledgeList({
               <KnowledgeRow
                 icon={<FileMdIcon size={15} />}
                 title={fileDisplayName(link.target)}
-                meta={link.note || "Markdown file, saved beside CONTEXT.md"}
+                prefix="Markdown file"
+                note={link.note}
+                onNoteChange={(note) =>
+                  onLinksChange(
+                    links.map((l, i) => (i === index ? { ...l, note } : l)),
+                  )
+                }
                 onOpen={() => setOpenFile(link.target)}
                 onRemove={() =>
                   onLinksChange(links.filter((_, i) => i !== index))
@@ -172,6 +179,9 @@ export function KnowledgeList({
               <LinkRow
                 link={link}
                 sources={sources}
+                onChange={(next) =>
+                  onLinksChange(links.map((l, i) => (i === index ? next : l)))
+                }
                 onRemove={() =>
                   onLinksChange(links.filter((_, i) => i !== index))
                 }
@@ -227,11 +237,13 @@ export function KnowledgeList({
 function LinkRow({
   link,
   sources,
+  onChange,
   onRemove,
   disabled,
 }: {
   link: ContextLink;
   sources: ContextSources;
+  onChange: (link: ContextLink) => Promise<void>;
   onRemove: () => void;
   disabled: boolean;
 }) {
@@ -266,11 +278,14 @@ function LinkRow({
       meta={
         unconnected && warning ? (
           <span className="text-warning-foreground">{warning}</span>
-        ) : (
-          [kind, link.note || (external && !kind ? hostOf(link.target) : null)]
-            .filter(Boolean)
-            .join(" · ") || (external ? null : link.target)
-        )
+        ) : null
+      }
+      prefix={kind ?? (external ? hostOf(link.target) : null)}
+      note={link.note}
+      onNoteChange={
+        unconnected && warning
+          ? undefined
+          : (note) => onChange({ ...link, note })
       }
       onOpen={external ? () => openExternalUrl(link.target) : null}
       onRemove={onRemove}
@@ -351,14 +366,13 @@ function ObjectRow({
   );
 }
 
-/**
- * One row of knowledge: an icon for what it is, the short line under the
- * title, and where it leads. Nothing sits to the right but the controls.
- */
 function KnowledgeRow({
   icon,
   title,
   meta,
+  prefix = null,
+  note = "",
+  onNoteChange,
   onOpen,
   onRemove,
   actions,
@@ -367,7 +381,12 @@ function KnowledgeRow({
 }: {
   icon: ReactNode;
   title: string;
-  meta: ReactNode;
+  /** A fixed second line. Ignored when the note is editable. */
+  meta?: ReactNode;
+  /** What the row is, shown before the person's note. */
+  prefix?: string | null;
+  note?: string;
+  onNoteChange?: (note: string) => Promise<void>;
   onOpen: (() => void) | null;
   onRemove?: () => void;
   /** Controls that stay visible; the remove button only shows on hover. */
@@ -375,35 +394,39 @@ function KnowledgeRow({
   trailing: ReactNode;
   disabled?: boolean;
 }) {
-  const body = (
-    <>
+  return (
+    <div className="group/row relative flex items-center gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-fill-hover">
       <span className="flex size-[18px] shrink-0 items-center justify-center text-muted-foreground">
         {icon}
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate font-medium text-foreground text-sm">
-          {title}
-        </span>
-        {meta ? (
+        {onOpen ? (
+          <button
+            type="button"
+            onClick={onOpen}
+            className="truncate text-left font-medium text-foreground text-sm after:absolute after:inset-0 after:content-['']"
+          >
+            {title}
+          </button>
+        ) : (
+          <span className="truncate font-medium text-foreground text-sm">
+            {title}
+          </span>
+        )}
+        {onNoteChange ? (
+          <span className="relative z-10 flex min-w-0">
+            <EditableNote
+              prefix={prefix}
+              note={note}
+              onSave={onNoteChange}
+              disabled={disabled}
+            />
+          </span>
+        ) : meta ? (
           <span className="truncate text-muted-foreground text-xs">{meta}</span>
         ) : null}
       </span>
-    </>
-  );
-  return (
-    <div className="group/row flex items-center gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-fill-hover">
-      {onOpen ? (
-        <button
-          type="button"
-          onClick={onOpen}
-          className="flex min-w-0 flex-1 items-center gap-3 text-left"
-        >
-          {body}
-        </button>
-      ) : (
-        <span className="flex min-w-0 flex-1 items-center gap-3">{body}</span>
-      )}
-      <span className="flex shrink-0 items-center gap-1">
+      <span className="relative z-10 flex shrink-0 items-center gap-1">
         {actions}
         {onRemove ? (
           <Button
