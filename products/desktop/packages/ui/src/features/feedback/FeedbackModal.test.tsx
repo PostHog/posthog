@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { captureException, getAnalyticsSessionId, toastError, toastSuccess } =
   vi.hoisted(() => ({
@@ -44,6 +44,18 @@ async function renderModal(
 
 describe("FeedbackModal", () => {
   beforeEach(() => {
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn().mockResolvedValue({ width: 2, height: 2, close: vi.fn() }),
+    );
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      fillStyle: "",
+      fillRect: vi.fn(),
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+      (callback) => callback(new Blob(["re-encoded"], { type: "image/jpeg" })),
+    );
     captureException.mockReset();
     getAnalyticsSessionId.mockReset();
     getAnalyticsSessionId.mockReturnValue(
@@ -59,6 +71,11 @@ describe("FeedbackModal", () => {
     submitFeedback.mockResolvedValue();
     toastError.mockReset();
     toastSuccess.mockReset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("asks for specific Desktop feedback", async () => {
@@ -196,7 +213,7 @@ describe("FeedbackModal", () => {
         images: [
           expect.objectContaining({
             name: "feedback.png",
-            dataUrl: expect.stringMatching(/^data:image\/png;base64,/),
+            dataUrl: expect.stringMatching(/^data:image\/jpeg;base64,/),
           }),
         ],
       }),
