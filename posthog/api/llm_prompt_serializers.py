@@ -8,11 +8,11 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.llm_prompt import normalize_prompt_to_string
+from posthog.llm_prompt import MAX_PROMPT_PAYLOAD_BYTES, normalize_prompt_to_string
 
 from products.ai_observability.backend.activity_logging import prompt_activity_item_id
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel, get_prompt_outline
-from products.ai_observability.backend.prompt_references import record_prompt_references
+from products.ai_observability.backend.prompt_references import record_prompt_references, validate_prompt_references
 
 
 class LLMPromptOutlineEntrySerializer(serializers.Serializer):
@@ -22,7 +22,6 @@ class LLMPromptOutlineEntrySerializer(serializers.Serializer):
 
 RESERVED_PROMPT_NAMES = {"new"}
 DEFAULT_VERSION_PAGE_SIZE = 50
-MAX_PROMPT_PAYLOAD_BYTES = 1_000_000
 
 
 def validate_prompt_name_value(value: str) -> str:
@@ -153,6 +152,15 @@ class LLMPromptGetByNameQuerySerializer(LLMPromptFetchQuerySerializer):
         required=False,
         default="full",
         help_text=CONTENT_MODE_HELP,
+    )
+    resolve = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Replace @@@prompt:...@@@ references with the referenced prompts' content before returning. "
+            "Set to false to get the raw text with the reference tags, e.g. for editing or export. "
+            "Only applies when content is 'full'."
+        ),
     )
 
     def validate_label(self, value: str) -> str:
@@ -457,6 +465,11 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         team = self.context["get_team"]()
 
         with transaction.atomic():
+            # Validated here rather than in validate() so the reference target
+            # locks live in the same transaction as the dependency writes.
+            validate_prompt_references(
+                team.id, prompt_name=validated_data["name"], prompt_payload=validated_data.get("prompt")
+            )
             prompt = LLMPrompt.objects.create(
                 team=team,
                 created_by=request.user,
@@ -465,6 +478,14 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             )
             record_prompt_references(prompt)
         return prompt
+
+
+class LLMPromptReferencedConflictSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="What is still referenced and what to do next.")
+    referencing_prompts = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Names of the prompts whose latest or labeled version holds the reference.",
+    )
 
 
 class LLMPromptLabelSummarySerializer(serializers.Serializer):
@@ -538,6 +559,15 @@ class LLMPromptVersionSummarySerializer(serializers.ModelSerializer):
         return sorted(label.name for label in instance.labels.all())
 
 
+class LLMPromptResolvedReferenceSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Name of the referenced prompt that was spliced in.")
+    version = serializers.IntegerField(help_text="Exact version whose content was spliced in.")
+    label = serializers.CharField(  # type: ignore[assignment]
+        allow_null=True,
+        help_text="Label the reference used, or null when it pinned a version directly.",
+    )
+
+
 class LLMPromptPublicSerializer(serializers.Serializer):
     id = serializers.UUIDField()
     name = serializers.CharField()
@@ -565,6 +595,14 @@ class LLMPromptPublicSerializer(serializers.Serializer):
     label = serializers.CharField(  # type: ignore[assignment]
         required=False,
         help_text="The label this prompt was fetched by. Only present when fetching with the label parameter.",
+    )
+    resolved_references = LLMPromptResolvedReferenceSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "The exact prompt versions spliced into the returned content, in order of first appearance. "
+            "Empty when the prompt has no references. Only present when references were resolved."
+        ),
     )
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()

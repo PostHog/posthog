@@ -1,7 +1,13 @@
-"""Deterministic execution of the checks attached to signal reports.
+"""Execution of the checks attached to signal reports.
 
-One bounded Trends query, one comparison, one artefact. The coordinator calls
-``run_due_report_checks`` on its tick; nothing here needs a sandbox, a scout enrolment, or an LLM.
+The coordinator calls ``run_due_report_checks`` on its tick, and each due check advances by one
+step. A ``metric_threshold`` check is answered here and then: one bounded Trends query, one
+comparison, one artefact, with no sandbox, no scout enrolment, and no LLM. An ``agent`` check needs
+a run to decide it, so it is handed to ``report_check_agent`` and closed later by the tool that run
+calls.
+
+Both lanes end in ``record_check_verdict``, which is the only writer of a check's outcome: one
+artefact appended and one row advanced or retired, whatever decided the verdict.
 
 The comparison is the alerts product's, not a second one written here, so a check and an alert word
 a breach the same way and there is one place where "is this value out of bounds?" is decided.
@@ -82,6 +88,10 @@ class CheckRunSummary:
     passed: int
     failed: int
     errored: int
+    # An `agent` check the tick started a scout run for, and one the fleet could not take yet.
+    # Neither is an outcome: both rows are still active and still owe a verdict.
+    dispatched: int = 0
+    deferred: int = 0
 
 
 @frozen
@@ -239,11 +249,21 @@ def _next_state(check: SignalReportCheck, verdict: CheckVerdict, now: datetime) 
     )
 
 
-def record_check_verdict(check: SignalReportCheck, verdict: CheckVerdict, *, now: datetime | None = None) -> None:
+def record_check_verdict(
+    check: SignalReportCheck,
+    verdict: CheckVerdict,
+    *,
+    now: datetime | None = None,
+    attribution: ArtefactAttribution | None = None,
+    run_id: str | None = None,
+) -> None:
     """The single persistence funnel: append the result artefact and advance or retire the check.
 
     One transaction, and the row is re-read under a lock so a check cancelled while its query ran
     records nothing.
+
+    `attribution` and `run_id` name the scout run that decided an `agent` check. A deterministic run
+    has neither, so it keeps the `system()` attribution the executor writes under.
     """
     now = now or timezone.now()
     # The result's context is best-effort. A stored config can stop parsing part-way through a soak,
@@ -273,6 +293,10 @@ def record_check_verdict(check: SignalReportCheck, verdict: CheckVerdict, *, now
         current.consecutive_errors = current.consecutive_errors + 1 if verdict.outcome == "errored" else 0
         if transition.next_run_at is not None:
             current.next_run_at = transition.next_run_at
+        # Whatever the verdict, no run is waiting on this check any more. Clearing it here rather
+        # than in the agent lane keeps the rule in one place: a row carrying `dispatched_at` is a
+        # dispatch nobody has answered.
+        current.dispatched_at = None
         current.save(
             update_fields=[
                 "status",
@@ -281,6 +305,7 @@ def record_check_verdict(check: SignalReportCheck, verdict: CheckVerdict, *, now
                 "last_outcome",
                 "consecutive_errors",
                 "next_run_at",
+                "dispatched_at",
                 "updated_at",
             ]
         )
@@ -296,8 +321,9 @@ def record_check_verdict(check: SignalReportCheck, verdict: CheckVerdict, *, now
                 observed_value=verdict.observed_value,
                 baseline_value=config.baseline_value if config is not None else None,
                 threshold=_describe_comparison(config.comparison) if config is not None else None,
+                run_id=run_id,
             ),
-            attribution=ArtefactAttribution.system(),
+            attribution=attribution or ArtefactAttribution.system(),
         )
 
 
@@ -358,15 +384,32 @@ def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -
 
 
 def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK_RUNS_PER_TICK) -> CheckRunSummary:
-    """Expire what timed out, then measure and record every check due this tick."""
+    """Expire what timed out, then advance every check due this tick by one step.
+
+    A `metric_threshold` check is measured and recorded here. An `agent` check is dispatched (or
+    its overdue dispatch is written off), and the run it started records the verdict later, so the
+    tick's time budget bounds the dispatch and not the investigation.
+    """
 
     now = now or timezone.now()
     expired = expire_overdue_checks(now)
     deadline = time.monotonic() + CHECK_RUN_TIME_BUDGET_SECONDS
-    counts: dict[CheckOutcome, int] = {"passed": 0, "failed": 0, "errored": 0}
+    counts: dict[str, int] = {"passed": 0, "failed": 0, "errored": 0, "dispatched": 0, "deferred": 0}
     for check in collect_due_checks(now, limit=limit):
         if time.monotonic() >= deadline:
             break
+        if check.kind == SignalReportCheck.Kind.AGENT:
+            # Deferred: the agent lane reaches the scout harness and the Temporal client, and this
+            # module is imported by the REST route load, which never dispatches anything.
+            from products.signals.backend.report_check_agent import run_agent_check  # noqa: PLC0415
+
+            try:
+                counts[run_agent_check(check, now=now)] += 1
+            except Exception:
+                logger.exception(
+                    "signals.report_check.agent_step_failed", check_id=str(check.id), team_id=check.team_id
+                )
+            continue
         verdict = measure_check(check, deadline=deadline)
         try:
             record_check_verdict(check, verdict)

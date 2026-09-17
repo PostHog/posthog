@@ -29,6 +29,11 @@ CheckOperator = Literal["lte", "gte", "between"]
 MAX_ACTIVE_CHECKS_PER_REPORT = 5
 MAX_CHECK_TITLE_LENGTH = 200
 MAX_CHECK_RATIONALE_LENGTH = 2_000
+MAX_CHECK_INSTRUCTIONS_LENGTH = 2_000
+MAX_CHECK_PROBE_HINTS = 5
+MAX_CHECK_PROBE_HINT_LENGTH = 300
+# A scout skill name, bounded by the column `SignalScoutConfig.skill_name` stores it in.
+MAX_CHECK_SKILL_NAME_LENGTH = 200
 # A check is a soak, not a monitor: a lane that re-measures more than four times a day is an alert
 # and belongs in the alerts product, which has the notification and deduplication machinery for it.
 MIN_CHECK_INTERVAL_MINUTES = 6 * 60
@@ -162,8 +167,79 @@ class MetricThresholdConfig(BaseModel):
         return self
 
 
+class AgentCheckConfig(BaseModel):
+    """A check a scout run answers: re-probe the report's claim and record one verdict.
+
+    The kind for a claim no single number settles. A resolved error-tracking report is the usual
+    case: "did the exception stop?" needs the issue looked up, its recent events read, and the
+    stack compared against what the fix changed, which is a run rather than a comparison.
+
+    Everything here is prompt material a scout reads, so it is untrusted by construction: it renders
+    in the run block the agent is told to weigh, never in the instructions it is told to follow. The
+    verdict still comes back through `scout-check-record-result`, so instructions cannot widen what
+    a check run may write.
+
+    ``skill_name`` names the lane. Most reports are pipeline-authored and have no scout behind them,
+    so it is optional: a check that names none runs on the fleet's follow-up scout
+    (see ``report_check_agent.FALLBACK_CHECK_SKILL_NAME``).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    instructions: str = Field(
+        max_length=MAX_CHECK_INSTRUCTIONS_LENGTH,
+        description="What the run must establish, in the author's own words.",
+    )
+    skill_name: str | None = Field(
+        default=None,
+        max_length=MAX_CHECK_SKILL_NAME_LENGTH,
+        description=(
+            "Scout skill that runs the check. Omit it to run on the fleet's follow-up scout, which is "
+            "the right lane for a report no scout authored."
+        ),
+    )
+    probe_hints: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_CHECK_PROBE_HINTS,
+        description="Concrete places to look, such as an issue id, a service name, or a query to repeat.",
+    )
+
+    @field_validator("instructions")
+    @classmethod
+    def instructions_must_say_something(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty or whitespace-only")
+        return stripped
+
+    @field_validator("skill_name")
+    @classmethod
+    def skill_name_must_be_a_bare_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        # The name is looked up as a skill and rendered into the run note, so a value carrying
+        # whitespace is either a typo that would never resolve or an attempt to smuggle a second
+        # line into the note. Both are rejected at the boundary rather than at dispatch, a soak
+        # window later.
+        if not stripped or stripped.split() != [stripped]:
+            raise ValueError("must be a single scout skill name")
+        return stripped
+
+    @field_validator("probe_hints")
+    @classmethod
+    def probe_hints_must_be_short_and_nonempty(cls, value: list[str]) -> list[str]:
+        hints = [hint.strip() for hint in value]
+        if any(not hint for hint in hints):
+            raise ValueError("a probe hint must not be empty or whitespace-only")
+        if any(len(hint) > MAX_CHECK_PROBE_HINT_LENGTH for hint in hints):
+            raise ValueError(f"a probe hint must be at most {MAX_CHECK_PROBE_HINT_LENGTH} characters")
+        return hints
+
+
 CHECK_CONFIG_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "metric_threshold": MetricThresholdConfig,
+    "agent": AgentCheckConfig,
 }
 
 

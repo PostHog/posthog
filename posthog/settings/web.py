@@ -49,6 +49,7 @@ PRODUCTS_APPS = [
     "products.stamphog.backend.apps.StamphogConfig",
     "products.links.backend.apps.LinksConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
+    "products.aeo.backend.apps.AEOConfig",
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
     "products.user_interviews.backend.apps.UserInterviewsConfig",
     "products.ai_observability.backend.apps.AIObservabilityConfig",
@@ -122,9 +123,9 @@ PRODUCTS_APPS = [
 INSTALLED_APPS = [
     "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development
     # `SimpleAdminConfig` skips Django's eager `autodiscover_modules('admin')` at
-    # startup. We invoke autodiscover ourselves from `register_all_admin()` (called
-    # lazily via `LazyAdminRegistry` on first `admin.site._registry` access), which
-    # keeps every product/admin import out of `django.setup()`.
+    # startup. We invoke autodiscover ourselves from `register_all_admin()` (called by
+    # the admin URL conf in `ee/urls.py`, and by `LazyAdminRegistry`), which keeps
+    # every product/admin import out of `django.setup()`.
     "django.contrib.admin.apps.SimpleAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -298,7 +299,8 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.auth_allowed",
     "ee.api.authentication.social_auth_allowed",
     "social_core.pipeline.social_auth.social_user",
-    # Must stay ahead of association/provisioning so a mismatched re-auth identity is rejected first
+    # Must stay ahead of association/provisioning so a mismatched authenticated identity is rejected first
+    "posthog.api.authentication.social_identity_matches_session",
     "posthog.api.authentication.social_reauth",
     "social_core.pipeline.social_auth.associate_by_email",
     "posthog.api.signup.social_create_user",
@@ -590,10 +592,14 @@ SPECTACULAR_SETTINGS = {
             # Matches replay_vision's VisionAlertState.
             "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
             "LogsPatternsSourceEnum": ["stored_patterns", "body_mining"],
+            # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
+            "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
             #
             # The published name is already derived by a different choice set, so the
             # entry holds this one apart.
             "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
+            # signals' report-metric role; AutoresearchModel.Role also sits on a field named `role`.
+            "RoleEnum": ["primary", "supporting"],
             # visual_review facade enums are framework-free StrEnums, so no Choices class derives a name.
             "ShiftBandKindEnum": ["inserted", "deleted"],
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
@@ -1309,6 +1315,14 @@ try:
     )
 except ValueError:
     MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM = {}
+
+# AEO citation-tracking POC (products/aeo). The scheduled runner only covers
+# teams in this allowlist AND with the `aeo-citation-tracking` flag enabled.
+AEO_CITATION_TEAM_IDS = get_list(get_from_env("AEO_CITATION_TEAM_IDS", ""))
+AEO_TARGET_DOMAINS = get_list(get_from_env("AEO_TARGET_DOMAINS", "posthog.com"))
+AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
+AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
+EXA_API_KEY = get_from_env("EXA_API_KEY", "")
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes

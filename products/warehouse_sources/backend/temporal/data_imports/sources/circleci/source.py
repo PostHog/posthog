@@ -60,7 +60,7 @@ class CircleCISource(ResumableSource[CircleCISourceConfig, CircleCIResumeConfig]
 You can create a personal API token in your [CircleCI user settings](https://app.circleci.com/settings/user/tokens). The token has the same access to organizations and projects as your user.""",
             iconPath="/static/services/circleci.png",
             docsUrl="https://posthog.com/docs/cdp/sources/circleci",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

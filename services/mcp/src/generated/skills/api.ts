@@ -63,7 +63,9 @@ export const LlmSkillsCreateBody = () => zod
         name: zod
             .string()
             .max(llmSkillsCreateBodyNameMax)
-            .describe('Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.'),
+            .describe(
+                'Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters. Cannot be the name of a skill PostHog ships.'
+            ),
         description: zod
             .string()
             .max(llmSkillsCreateBodyDescriptionMax)
@@ -333,7 +335,7 @@ export const LlmSkillsNameDuplicateCreateBody = () => zod.object({
     new_name: zod
         .string()
         .max(llmSkillsNameDuplicateCreateBodyNewNameMax)
-        .describe('Name for the duplicated skill. Must be unique.'),
+        .describe('Name for the duplicated skill. Must be unique, and cannot be the name of a skill PostHog ships.'),
 })
 
 export const llmSkillsNameFilesCreatePathSkillNameRegExp = new RegExp('^[^\/]+$')
@@ -464,6 +466,6 @@ export const LlmSkillsNameRenameCreateBody = () => zod.object({
         .string()
         .max(llmSkillsNameRenameCreateBodyNewNameMax)
         .describe(
-            "New name for the skill. Must be unique in the project, and must not start with 'signals-scout-' or 'review-hog-'."
+            "New name for the skill. Must be unique in the project, cannot be the name of a skill PostHog ships, and must not start with 'signals-scout-' or 'review-hog-'."
         ),
 })

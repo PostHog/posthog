@@ -18,6 +18,7 @@ from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    DUPLICATE_PRIMARY_KEYS_ERROR,
     BillingLimitsWillBeReachedException,
     DuplicatePrimaryKeysException,
     MissingPrimaryKeysException,
@@ -31,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
     increment_rows,
     will_hit_billing_limit,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.primary_keys import resolve_merge_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (
     extract_available_column_names,
 )
@@ -303,21 +305,24 @@ def resolve_primary_keys(
 
     Returns None when no key can be resolved, so the keyless-table guardrail still fires.
     """
-    if schema.primary_key_columns:
-        return schema.primary_key_columns
-    if resource.primary_keys:
-        return list(resource.primary_keys)
-    # Case-insensitive: engines like Snowflake uppercase unquoted identifiers, so the column
-    # arrives as `ID`. Return the actual stored casing — the merge indexes batches by real name.
-    id_column = next(
-        (name for name in extract_available_column_names(schema.schema_metadata) if name.lower() == "id"), None
+    return resolve_merge_keys(
+        schema.primary_key_columns,
+        resource.primary_keys,
+        extract_available_column_names(schema.schema_metadata),
     )
-    if id_column is not None:
-        return [id_column]
-    return None
 
 
 async def persist_primary_keys(
+    schema: "ExternalDataSchema",
+    resource: SourceResponse,
+    is_incremental: bool,
+    logger: FilteringBoundLogger,
+) -> None:
+    await _persist_detected_primary_keys(schema, resource, is_incremental, logger)
+    await persist_verified_primary_keys(schema, resource, logger)
+
+
+async def _persist_detected_primary_keys(
     schema: "ExternalDataSchema",
     resource: SourceResponse,
     is_incremental: bool,
@@ -361,6 +366,34 @@ async def persist_primary_keys(
         await logger.aexception("Failed to persist detected primary keys into sync_type_config")
 
 
+async def persist_verified_primary_keys(
+    schema: "ExternalDataSchema",
+    resource: SourceResponse,
+    logger: FilteringBoundLogger,
+) -> None:
+    """Record the key a full-table probe proved unique, so later runs only probe what they read.
+
+    Best-effort: losing this costs another full probe next run, not correctness.
+    """
+    verified = resource.verified_primary_keys
+    if not verified or list(verified) == list(schema.verified_primary_keys or []):
+        return
+
+    from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
+        update_sync_type_config_keys,
+    )
+
+    try:
+        config = await database_sync_to_async_pool(update_sync_type_config_keys)(
+            schema.id,
+            schema.team_id,
+            updates={"verified_primary_keys": list(verified)},
+        )
+        schema.sync_type_config = config
+    except Exception:
+        await logger.aexception("Failed to persist verified primary keys into sync_type_config")
+
+
 def validate_incremental_sync(
     is_incremental: bool,
     resource: SourceResponse,
@@ -369,7 +402,7 @@ def validate_incremental_sync(
 ) -> None:
     if is_incremental and resource.has_duplicate_primary_keys:
         raise DuplicatePrimaryKeysException(
-            f"The primary keys for this table are not unique. We can't sync incrementally until the table "
+            f"{DUPLICATE_PRIMARY_KEYS_ERROR}. We can't sync incrementally until the table "
             f"has a unique primary key. Primary keys being used are: {resource.primary_keys}"
         )
 

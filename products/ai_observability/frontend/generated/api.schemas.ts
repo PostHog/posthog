@@ -2718,6 +2718,18 @@ export interface LLMPromptApi {
  */
 export type LLMPromptPublicApiConfig = { [key: string]: unknown } | null
 
+export interface LLMPromptResolvedReferenceApi {
+    /** Name of the referenced prompt that was spliced in. */
+    name: string
+    /** Exact version whose content was spliced in. */
+    version: number
+    /**
+     * Label the reference used, or null when it pinned a version directly.
+     * @nullable
+     */
+    label: string | null
+}
+
 export interface LLMPromptPublicApi {
     id: string
     name: string
@@ -2735,6 +2747,8 @@ export interface LLMPromptPublicApi {
     version: number
     /** The label this prompt was fetched by. Only present when fetching with the label parameter. */
     label?: string
+    /** The exact prompt versions spliced into the returned content, in order of first appearance. Empty when the prompt has no references. Only present when references were resolved. */
+    resolved_references?: LLMPromptResolvedReferenceApi[]
     created_at: string
     updated_at: string
     deleted: boolean
@@ -2777,6 +2791,13 @@ export interface PatchedLLMPromptPublishApi {
      * @maxLength 400
      */
     version_description?: string
+}
+
+export interface LLMPromptReferencedConflictApi {
+    /** What is still referenced and what to do next. */
+    detail: string
+    /** Names of the prompts whose latest or labeled version holds the reference. */
+    referencing_prompts: string[]
 }
 
 export interface LLMPromptDuplicateApi {
@@ -3629,6 +3650,10 @@ export type LlmPromptsNameRetrieveParams = {
      * @maxLength 128
      */
     label?: string
+    /**
+     * Replace @@@prompt:...@@@ references with the referenced prompts' content before returning. Set to false to get the raw text with the reference tags, e.g. for editing or export. Only applies when content is 'full'.
+     */
+    resolve?: boolean
     /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1

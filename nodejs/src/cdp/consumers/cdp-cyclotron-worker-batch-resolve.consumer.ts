@@ -16,7 +16,10 @@ import {
     deserializeResolverState,
     serializeResolverState,
 } from '../services/hogflows/batch-resolver.types'
-import { HogFlowBatchPersonQueryService } from '../services/hogflows/hogflow-batch-person-query.service'
+import {
+    AudienceFetchTimeoutError,
+    HogFlowBatchPersonQueryService,
+} from '../services/hogflows/hogflow-batch-person-query.service'
 import { invocationToV2JobInit } from '../services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobInvocationHogFlow } from '../types'
 import {
@@ -28,7 +31,25 @@ import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filterin
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterBatchHogFlowTriggerFailed } from './metrics'
 
+/**
+ * Reason text for a permanently failed audience fetch. The text goes on the batch run's log
+ * stream, so a timeout says what the customer can change. Any other error stays generic,
+ * because its text describes our internals. Only the last attempt's error arrives here, and
+ * the earlier attempts may have failed for another reason, so the text claims the timeout for
+ * that attempt alone.
+ */
+const audienceFailureReason = (error: unknown): string => {
+    if (error instanceof AudienceFetchTimeoutError) {
+        return (
+            `Audience query timed out after ${Math.round(error.timeoutMs / 1000)}s on the last of ` +
+            `${MAX_RESOLVER_ATTEMPTS} attempts. Use fewer or simpler audience filters, or a smaller audience.`
+        )
+    }
+    return `Audience fetch failed permanently after ${MAX_RESOLVER_ATTEMPTS} attempts`
+}
+
 const RETRY_BACKOFF_MS = 5_000
+const HEARTBEAT_INTERVAL_MS = 10_000
 
 const counterBatchHogFlowAudienceTruncated = new Counter({
     name: 'cdp_batch_hog_flow_audience_truncated',
@@ -137,6 +158,19 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             counterBatchHogFlowResolverJobs.labels({ outcome: 'started' }).inc()
         }
 
+        // Heartbeat the lock while the page (or terminal write) runs: the audience fetch alone
+        // can hold this job for the full CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS budget,
+        // which is on the order of the janitor's stall threshold — without heartbeats the
+        // janitor would reclaim the lock mid-page and the commit would be refused.
+        const heartbeat = setInterval(() => {
+            job.heartbeat().catch((err) => {
+                logger.warn('⚠️', `${this.name} - failed to heartbeat resolver job`, {
+                    jobId: job.id,
+                    error: String(err),
+                })
+            })
+        }, HEARTBEAT_INTERVAL_MS)
+
         try {
             if (state.pendingTerminal) {
                 try {
@@ -165,6 +199,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
 
             await this.processOnePage(job, state)
         } finally {
+            clearInterval(heartbeat)
             // Flush monitoring every dequeue, not just on terminal-write. Non-terminal
             // paths (truncation log queued in processOnePage, failure log in
             // transitionToFailedTerminal) would otherwise wait for a later terminal
@@ -278,11 +313,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                         error: serializeError(err),
                     }
                 )
-                await this.transitionToFailedTerminal(
-                    job,
-                    state,
-                    `Audience fetch failed permanently after ${MAX_RESOLVER_ATTEMPTS} attempts`
-                )
+                await this.transitionToFailedTerminal(job, state, audienceFailureReason(err))
                 return
             }
             logger.warn('⚠️', `${this.name} - page fetch failed, will retry`, {

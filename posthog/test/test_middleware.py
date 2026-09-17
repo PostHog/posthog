@@ -2064,6 +2064,33 @@ class TestCSPMiddleware(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("staff", True, "1", "0.1"),
+            ("not_staff", False, "0.1", "1"),
+        ]
+    )
+    @override_settings(CSP_REPORT_ENDPOINT="https://posthog.example.com/report/")
+    def test_staff_report_every_violation_while_everyone_else_is_sampled(
+        self, _name, is_staff, expected_rate, other_rate
+    ):
+        # Staff get the policy enforced ahead of everyone else, so a violation of theirs is
+        # something already broken for a colleague rather than one sample of a trend. At 0.1 nine
+        # in ten of those never arrive, which defeats the point of rolling out to staff first.
+        self.user.is_staff = is_staff
+        self.user.save()
+
+        response = self.client.get("/")
+
+        policy = response["Content-Security-Policy-Report-Only"]
+        assert f"report-uri https://posthog.example.com/report/?sample_rate={expected_rate}" in policy
+        assert f"sample_rate={other_rate}" not in policy
+        # The crash-reporting endpoint is built by a second call that takes the rate separately, so
+        # it can drift from the directive above.
+        header = response["Reporting-Endpoints"]
+        assert f"sample_rate={expected_rate}&distinct_id={self.user.distinct_id}" in header
+        assert f"sample_rate={other_rate}" not in header
+
+    @parameterized.expand(
+        [
             ("cloud", {"CLOUD_DEPLOYMENT": "US"}, True),
             ("self_hosted", {"CLOUD_DEPLOYMENT": None, "DEBUG": False}, False),
         ]
