@@ -97376,6 +97376,11 @@ export namespace Schemas {
      * Maximum number of accounts to return. Values below 1 are clamped to 1; values above 100 are clamped to 100.
      */
     limit?: number;
+    /**
+     * Project ID. Required for personal API keys. Project secret API keys use their bound project.
+     * @minimum 1
+     */
+    project_id?: number;
     };
 
     export type FeatureFlagsStaffCacheListParams = {

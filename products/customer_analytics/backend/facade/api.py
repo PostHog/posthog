@@ -595,6 +595,7 @@ def list_external_accounts(
     limit: int = 100,
     assigned_only: bool = False,
     include_ignored: bool = False,
+    user_access_control: UserAccessControl | None = None,
 ) -> contracts.ExternalAccountListPage:
     """Page through the team's accounts for the external API, ordered by id.
 
@@ -613,6 +614,8 @@ def list_external_accounts(
         user__organization_membership__organization_id=organization_id,
     )
     queryset = Account.objects.for_team(team_id).filter(external_id__isnull=False).exclude(external_id="")
+    if user_access_control is not None:
+        queryset = user_access_control.filter_queryset_by_access_level(queryset)
     if not include_ignored:
         queryset = queryset.filter(ignored_at__isnull=True)
     queryset = queryset.order_by("id")
