@@ -266,6 +266,10 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError(
                         {"config": f"{LINEAR_TEAM_IDS_KEY} must be a list of non-empty strings"}
                     )
+                # Stored stripped: emission matches these ids exactly, so a pasted id with a
+                # stray space would select a team and then read nothing.
+                team_ids = [team_id.strip() for team_id in team_ids]
+                config[LINEAR_TEAM_IDS_KEY] = team_ids
                 if len(team_ids) > LINEAR_TEAM_IDS_MAX_COUNT:
                     raise serializers.ValidationError(
                         {"config": f"{LINEAR_TEAM_IDS_KEY} must have at most {LINEAR_TEAM_IDS_MAX_COUNT} entries"}

@@ -35,9 +35,9 @@ def scope_ids_from_source_config(config: SignalSourceTableConfig, source_config:
     raw = source_config.get(config.scope_config_key)
     if not isinstance(raw, list):
         return []
-    # Truncated rather than dropped: no real scope id is this long, so a bounded entry still
-    # matches no record, while dropping every entry would widen the read to every scope.
-    return [value[:SCOPE_ID_MAX_LENGTH] for value in raw if isinstance(value, str) and value]
+    # Stripped and bounded like the steering key: these ids go into an exact `IN` match, so a stray
+    # space matches no record. Bounding an oversized id rather than dropping it keeps the scope narrow.
+    return [scope_id for value in raw if isinstance(value, str) and (scope_id := value.strip()[:SCOPE_ID_MAX_LENGTH])]
 
 
 def data_warehouse_record_fetcher(

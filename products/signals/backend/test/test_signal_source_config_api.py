@@ -444,6 +444,17 @@ class TestSignalSourceConfigSerializerValidation(SimpleTestCase):
         if not expected_valid:
             assert "linear_team_ids" in str(serializer.errors["config"])
 
+    def test_linear_team_ids_are_stored_stripped(self):
+        serializer = SignalSourceConfigSerializer(
+            data={
+                "source_product": "linear",
+                "source_type": "issue",
+                "config": {"linear_team_ids": [" team-1 ", "team-2"]},
+            }
+        )
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["config"]["linear_team_ids"] == ["team-1", "team-2"]
+
 
 class TestScoutSourceCanonicalization(APIBaseTest):
     """The scout source config is a project-level singleton: the scout fleet canonicalizes child

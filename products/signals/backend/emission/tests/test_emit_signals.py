@@ -131,8 +131,9 @@ class TestQueryNewRecords:
         "source_config,expected_ids",
         [
             ({"linear_team_ids": ["team-1", "team-2"]}, ["team-1", "team-2"]),
-            # A row written outside the API can hold an oversized id; the read bounds it.
+            # A row written outside the API can hold a padded or oversized id; the read normalizes it.
             ({"linear_team_ids": ["x" * 300]}, ["x" * 255]),
+            ({"linear_team_ids": [" team-1 ", " "]}, ["team-1"]),
             # Every one of these means "read everything": a malformed value must not break emission.
             ({"linear_team_ids": []}, None),
             ({}, None),
