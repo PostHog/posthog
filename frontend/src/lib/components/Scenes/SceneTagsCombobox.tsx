@@ -10,6 +10,7 @@ type SceneTagsComboboxProps = SceneCanEditProps &
         onSave?: (value: string[]) => void
         tags?: string[]
         tagsAvailable?: string[]
+        tagsLoading?: boolean
         loading?: boolean
         onOpen?: () => void
     }
@@ -22,6 +23,7 @@ export function SceneTagsCombobox({
     onSave,
     tags,
     tagsAvailable,
+    tagsLoading,
     dataAttrKey,
     canEdit = true,
     loading,
@@ -40,6 +42,7 @@ export function SceneTagsCombobox({
                 value={tags ?? []}
                 onChange={(next) => onSave?.(next)}
                 onOpen={onOpen}
+                loading={tagsLoading}
                 options={tagsAvailable}
                 placeholder="Add tags..."
                 disabled={!onSave || !canEdit}

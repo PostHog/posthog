@@ -12,7 +12,7 @@ type DashboardMenuBarTagsProps = {
 }
 
 export function DashboardMenuBarTags({ onSave, tags, canEdit, loading }: DashboardMenuBarTagsProps): JSX.Element {
-    const { tags: tagsAvailable } = useValues(tagsModel)
+    const { tags: tagsAvailable, tagsLoading } = useValues(tagsModel)
     const { loadTagsIfNeeded } = useActions(tagsModel)
 
     return (
@@ -21,6 +21,7 @@ export function DashboardMenuBarTags({ onSave, tags, canEdit, loading }: Dashboa
             onOpen={loadTagsIfNeeded}
             tags={tags}
             tagsAvailable={tagsAvailable.filter((tag) => !tags?.includes(tag))}
+            tagsLoading={tagsLoading}
             dataAttrKey="dashboard"
             canEdit={canEdit}
             loading={loading}

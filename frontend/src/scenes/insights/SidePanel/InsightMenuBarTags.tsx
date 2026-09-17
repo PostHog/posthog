@@ -12,7 +12,7 @@ type InsightMenuBarTagsProps = {
 }
 
 export function InsightMenuBarTags({ onSave, tags, canEdit, loading }: InsightMenuBarTagsProps): JSX.Element {
-    const { tags: tagsAvailable } = useValues(tagsModel)
+    const { tags: tagsAvailable, tagsLoading } = useValues(tagsModel)
     const { loadTagsIfNeeded } = useActions(tagsModel)
 
     return (
@@ -21,6 +21,7 @@ export function InsightMenuBarTags({ onSave, tags, canEdit, loading }: InsightMe
             onOpen={loadTagsIfNeeded}
             tags={tags}
             tagsAvailable={tagsAvailable}
+            tagsLoading={tagsLoading}
             dataAttrKey="insight"
             canEdit={canEdit}
             loading={loading}
