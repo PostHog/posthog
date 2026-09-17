@@ -1,6 +1,6 @@
 import threading
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest
@@ -15,6 +15,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status, test
+
+if TYPE_CHECKING:
+    from rest_framework.response import _MonkeyPatchedResponse
 
 from posthog.api.project import ProjectBackwardCompatSerializer, log_activity
 from posthog.api.team import (
@@ -1109,7 +1112,9 @@ def team_api_test_factory():
                 flag.save()
 
             self._patch_linked_flag_config({"id": flag.id, "key": "gate-old", "variant": "control"})
-            self._patch_config("session_recording_trigger_groups", self._trigger_groups_gated_on_id(flag, key="gate-old"))
+            self._patch_config(
+                "session_recording_trigger_groups", self._trigger_groups_gated_on_id(flag, key="gate-old")
+            )
 
             self.team.refresh_from_db()
             assert self.team.session_recording_linked_flag == {"id": flag.id, "key": "gate-new", "variant": "control"}
@@ -1798,7 +1803,7 @@ def team_api_test_factory():
 
         def _patch_config(
             self, config_name, config: dict[str, Any] | None, expected_status: int = status.HTTP_200_OK
-        ) -> HttpResponse:
+        ) -> "_MonkeyPatchedResponse":
             patch_response = self.client.patch(
                 "/api/environments/@current/",
                 {config_name: config},
@@ -1820,7 +1825,7 @@ def team_api_test_factory():
 
         def _patch_linked_flag_config(
             self, config: dict | None, expected_status: int = status.HTTP_200_OK
-        ) -> HttpResponse:
+        ) -> "_MonkeyPatchedResponse":
             response = self.client.patch("/api/environments/@current/", {"session_recording_linked_flag": config})
             assert response.status_code == expected_status, response.json()
             return response
