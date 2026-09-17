@@ -174,15 +174,21 @@ def delete_batch_export(batch_export_id: UUID, *, team_id: int, temporal_client:
     BatchExport.objects.filter(id=batch_export_id, team_id=team_id).delete()
 
 
-def list_runs(batch_export_id: UUID, limit: int = 100) -> list[contracts.BatchExportRunSummary]:
+def list_runs(batch_export_id: UUID, *, team_id: int, limit: int = 100) -> list[contracts.BatchExportRunSummary]:
     """Return an export's runs, most recently created first."""
-    runs = BatchExportRun.objects.filter(batch_export_id=batch_export_id).order_by("-created_at")[:limit]
+    runs = BatchExportRun.objects.filter(batch_export_id=batch_export_id, batch_export__team_id=team_id).order_by(
+        "-created_at"
+    )[:limit]
     return [_to_run_summary(run) for run in runs]
 
 
-def list_backfills(batch_export_id: UUID, limit: int = 100) -> list[contracts.BatchExportBackfillSummary]:
+def list_backfills(
+    batch_export_id: UUID, *, team_id: int, limit: int = 100
+) -> list[contracts.BatchExportBackfillSummary]:
     """Return an export's backfills, most recently created first."""
-    backfills = BatchExportBackfill.objects.filter(batch_export_id=batch_export_id).order_by("-created_at")[:limit]
+    backfills = BatchExportBackfill.objects.filter(batch_export_id=batch_export_id, team_id=team_id).order_by(
+        "-created_at"
+    )[:limit]
     return [_to_backfill_summary(backfill) for backfill in backfills]
 
 

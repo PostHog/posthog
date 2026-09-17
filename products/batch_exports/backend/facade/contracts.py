@@ -5,9 +5,9 @@ Stable, framework-free dataclasses defining what this product hands to the rest 
 codebase. No Django or DRF imports, and enums are flattened to their ``str`` value, so a
 consumer never needs a model class to read a batch export.
 
-The fields are the ones consumers read today and nothing more. Destination secrets stay
-out: only ``destination_type`` and the stored ``destination_config`` cross, and the
-config is already redacted by the destination's ``secret_fields`` before it is shown.
+The fields are the ones consumers read today and nothing more. A destination's stored
+config never crosses: the model decrypts it on read, so it carries that destination's
+credentials. Only the two event filters a consumer reads are lifted out of it.
 
 Most contracts use ``pydantic.dataclasses.dataclass`` — same syntax and
 ``is_dataclass()`` compatibility as the stdlib variant, with runtime validation on
@@ -16,7 +16,6 @@ payload later. ``AWSCredentials`` is the exception and is documented at its defi
 """
 
 import datetime as dt
-from collections.abc import Mapping
 from dataclasses import (
     dataclass as stdlib_dataclass,
     field,
@@ -49,7 +48,8 @@ class BatchExportDetail:
     created_at: dt.datetime
     last_updated_at: dt.datetime
     destination_type: str
-    destination_config: Mapping[str, object]
+    exclude_events: tuple[str, ...]
+    include_events: tuple[str, ...]
 
 
 @dataclass(frozen=True)

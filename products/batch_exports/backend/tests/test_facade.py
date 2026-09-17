@@ -141,7 +141,7 @@ def test_run_failure_describes_a_scheduled_export(team):
     export_id = _export(team, name="nightly")
     run_id = _run(batch_export_id=export_id, finished_at=IN_WINDOW, status=BatchExportRun.Status.FAILED)
 
-    failure = api.get_run_failure(run_id)
+    failure = api.get_run_failure(run_id, team.pk)
 
     assert failure is not None
     assert (failure.run_id, failure.team_id, failure.export_id, failure.export_name) == (
@@ -156,11 +156,20 @@ def test_run_failure_is_none_for_an_on_demand_export(team):
     on_demand = testing.create_batch_export_on_demand(team.pk, destination_type=FILE_DOWNLOAD, destination_config={})
     run_id = _run(on_demand_id=on_demand, finished_at=IN_WINDOW, status=BatchExportRun.Status.FAILED)
 
-    assert api.get_run_failure(run_id) is None
+    assert api.get_run_failure(run_id, team.pk) is None
 
 
-def test_batch_export_by_name_returns_the_stored_destination(team):
-    export_id = _export(team, name="migration", destination_type=HTTP, config={"url": "https://example.com/batch"})
+def test_batch_export_by_name_carries_the_event_filters_and_no_destination_secrets(team):
+    export_id = _export(
+        team,
+        name="migration",
+        destination_type=HTTP,
+        config={
+            "url": "https://example.com/batch",
+            "token": "totally-made-up-token",
+            "exclude_events": ["$pageview"],
+        },
+    )
 
     detail = api.get_batch_export_by_name(team.pk, "migration", HTTP)
 
@@ -169,7 +178,9 @@ def test_batch_export_by_name_returns_the_stored_destination(team):
     assert detail.team_id == team.pk
     assert detail.interval == "hour"
     assert detail.destination_type == HTTP
-    assert detail.destination_config == {"url": "https://example.com/batch"}
+    assert detail.exclude_events == ("$pageview",)
+    assert detail.include_events == ()
+    assert "totally-made-up-token" not in str(detail)
 
 
 def test_batch_export_by_name_is_none_when_nothing_matches(team):

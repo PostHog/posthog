@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Count, F, Sum
+from django.db.models import Count, F, Q, Sum
 from django.db.models.functions import Coalesce
 
 import structlog
@@ -100,6 +100,10 @@ def _to_ref(batch_export: BatchExport) -> contracts.BatchExportRef:
 
 
 def _to_detail(batch_export: BatchExport) -> contracts.BatchExportDetail:
+    # The destination config is an encrypted field, so reading it decrypts the
+    # destination's credentials. Only the two event filters are lifted out of it, which is
+    # all any consumer reads. Never widen this to the whole config.
+    config = batch_export.destination.config
     return contracts.BatchExportDetail(
         id=batch_export.id,
         team_id=batch_export.team_id,
@@ -109,7 +113,9 @@ def _to_detail(batch_export: BatchExport) -> contracts.BatchExportDetail:
         created_at=batch_export.created_at,
         last_updated_at=batch_export.last_updated_at,
         destination_type=batch_export.destination.type,
-        destination_config=dict(batch_export.destination.config),
+        # A stored filter can be null, not only absent, so the fallback covers both.
+        exclude_events=tuple(config.get("exclude_events") or ()),
+        include_events=tuple(config.get("include_events") or ()),
     )
 
 
@@ -180,12 +186,17 @@ def list_latest_failed_runs(team_id: int) -> list[contracts.FailedBatchExportRun
     ]
 
 
-def get_run_failure(run_id: UUID | str) -> contracts.BatchExportRunFailure | None:
+def get_run_failure(run_id: UUID | str, team_id: int) -> contracts.BatchExportRunFailure | None:
     """Return what a failure notification needs about a run, or None if it cannot be sent.
 
-    An on-demand export has no page to link to, so its runs return None.
+    An on-demand export has no page to link to, so its runs return None. The team is
+    matched against either parent, so an on-demand run still resolves and returns None
+    rather than raising.
     """
-    run = BatchExportRun.objects.select_related("batch_export", "batch_export_on_demand").get(id=run_id)
+    run = BatchExportRun.objects.select_related("batch_export", "batch_export_on_demand").get(
+        Q(batch_export__team_id=team_id) | Q(batch_export_on_demand__team_id=team_id),
+        id=run_id,
+    )
     export = run.parent
 
     if not isinstance(export, BatchExport):
