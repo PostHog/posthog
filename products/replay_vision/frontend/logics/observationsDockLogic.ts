@@ -67,8 +67,12 @@ export interface observationsDockLogicActions {
     loadObservationsSuccess: (observations: ReplayObservationApi[]) => {
         observations: ReplayObservationApi[]
     }
-    observe: (scannerId: string) => {
+    observe: (
+        scannerId: string,
+        forSummary?: boolean
+    ) => {
         scannerId: string
+        forSummary: boolean
     }
     observeFailure: () => {
         value: true
@@ -155,7 +159,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
         loadObservations: true,
         loadObservationsSuccess: (observations: ReplayObservationApi[]) => ({ observations }),
         loadObservationsFailure: true,
-        observe: (scannerId: string) => ({ scannerId }),
+        observe: (scannerId: string, forSummary = false) => ({ scannerId, forSummary }),
         observeSuccess: true,
         observeFailure: true,
         retryObservation: (observationId: string) => ({ observationId }),
@@ -202,11 +206,11 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             {
                 summarize: () => true,
                 summarizeWith: () => true,
-                // Nothing started, so there is nothing to wait for.
+                // Nothing started, so there is nothing to wait for. `summarize` hands off to
+                // `observe` when the team has its own summarizer, and that listener reports its dead
+                // ends here too. It cannot be `observeFailure`: the sidebar picker runs on this same
+                // keyed logic, so its failures are not the summary's to settle.
                 summarizeFailure: () => false,
-                // `summarize` hands off to `observe` when the team has its own summarizer, so the
-                // button's pending state has to follow that run's outcome too.
-                observeFailure: () => false,
                 summarizeSettled: () => false,
             },
         ],
@@ -341,7 +345,8 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
         // is just `observe`, which already owns its double-click guard and its already-run check.
         const runSummary = async (scannerId: string | null): Promise<void> => {
             if (scannerId) {
-                actions.observe(scannerId)
+                // Flagged as the summary's run, so only this one settles the button.
+                actions.observe(scannerId, true)
                 return
             }
             // A cache flag for the same reason `observe` uses one: the reducer has already flipped
@@ -464,28 +469,42 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             // Every open and close runs through here, so the preference tracks the last one the user made.
             setDockOpen: ({ open }) => actions.setSummaryDockAutoExpand(open),
 
-            observe: async ({ scannerId }) => {
+            observe: async ({ scannerId, forSummary }) => {
+                // The button waits on the summary, so every path here that starts no scan has to
+                // release it. A scan the sidebar started must not, even though it shares this logic.
+                const failSummarize = (): void => {
+                    if (forSummary) {
+                        actions.summarizeFailure()
+                    }
+                }
                 // A cache flag, not `values.observing`: the reducer has already flipped that to true by the
                 // time this listener runs, so it would reject every call. Say so rather than dropping the
                 // click, which left the user in front of a control that looked live and answered with nothing.
+                // It names who is running, because a second summarize click is rejected by the run it
+                // is already waiting for, while a sidebar scan leaves it nothing to wait for.
                 if (cache.observeInFlight) {
                     lemonToast.info('A scan of this recording is already starting.')
+                    if (cache.observeInFlight !== 'summary') {
+                        failSummarize()
+                    }
                     return
                 }
                 actions.setScannerPickerOpen(false)
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
                     actions.observeFailure()
+                    failSummarize()
                     return
                 }
                 // Backend keys the workflow id on (scanner, session); re-triggering the same pair silently no-ops.
                 if (values.observations.some((o) => o.scanner_id === scannerId)) {
                     lemonToast.info('This scanner has already been run on this recording.')
                     actions.observeFailure()
+                    failSummarize()
                     actions.setDockOpen(true)
                     return
                 }
-                cache.observeInFlight = true
+                cache.observeInFlight = forSummary ? 'summary' : 'scan'
                 try {
                     await visionScannersObserveCreate(String(teamId), scannerId, { session_id: props.sessionId })
                     lemonToast.success('Observation started')
@@ -500,8 +519,9 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                         'Failed to start observation'
                     )
                     actions.observeFailure()
+                    failSummarize()
                 } finally {
-                    cache.observeInFlight = false
+                    cache.observeInFlight = null
                 }
             },
 

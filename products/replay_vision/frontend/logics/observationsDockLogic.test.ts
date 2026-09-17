@@ -271,6 +271,47 @@ describe('observationsDockLogic', () => {
         await expectLogic(logic).toMatchValues({ summaryInFlight: false, summarizePending: false })
     })
 
+    it('keeps the summary pending when a scan the sidebar started fails', async () => {
+        // The sidebar picker runs on this same keyed logic, so its `observeFailure` arrives on the
+        // summary's reducer. It used to clear the button, putting the idle label back under a user
+        // whose summary was still running — the exact symptom this PR removes.
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        observationResults = [
+            { id: 'obs-mon', scanner_id: 'm1', session_id: 'sess-1', status: 'succeeded' } as ReplayObservationApi,
+        ]
+        logic.actions.loadObservations()
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+
+        logic.actions.summarize()
+        await expectLogic(logic).toMatchValues({ summarizePending: true })
+
+        // A sidebar pick of a scanner that already ran here, which is one of the failure paths.
+        logic.actions.observe('m1')
+
+        await expectLogic(logic).toDispatchActions(['observeFailure'])
+        await expectLogic(logic).toMatchValues({ summarizePending: true })
+    })
+
+    // Both triggers share one in-flight guard, so which run the guard rejected decides whether the
+    // button still has a summary to wait for. Rejecting the click either way is what the guard is
+    // for; leaving it pending over a scan it never started is not.
+    test.each([
+        { blocker: 'a sidebar scan', firstClick: (): void => logic.actions.observe('m1'), stillPending: false },
+        { blocker: 'its own first click', firstClick: (): void => logic.actions.summarize(), stillPending: true },
+    ])('summarize blocked by $blocker stays pending: $stillPending', async (guardCase) => {
+        await loadScanners([scanner('s1', 'summarizer'), scanner('m1', 'monitor')])
+
+        guardCase.firstClick()
+        // Let the first request reach the mock, so its in-flight flag is set before the next click.
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        logic.actions.summarize()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(observeCalls).toBe(1)
+        expect(lemonToast.info).toHaveBeenCalled()
+        await expectLogic(logic).toMatchValues({ summarizePending: guardCase.stillPending })
+    })
+
     it('stops showing the summary as pending once the reload keeps failing', async () => {
         // With no summary row ever loaded, the grace window is the only thing keeping the poll alive.
         // A run of failed reloads used to stop polling with nothing left to clear the pending state,
