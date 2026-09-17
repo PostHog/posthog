@@ -313,7 +313,7 @@ class AccessControlDefaultRuleRequestSerializer(_AccessControlRuleRequestSeriali
 class AccessControlMemberRuleRequestSerializer(_AccessControlRuleRequestSerializer):
     """A rule for one organization member."""
 
-    organization_member = serializers.UUIDField(
+    member_id = serializers.UUIDField(
         help_text="The organization membership id, as `organization_membership_id` in the members endpoint.",
     )
 
@@ -321,7 +321,7 @@ class AccessControlMemberRuleRequestSerializer(_AccessControlRuleRequestSerializ
 class AccessControlRoleRuleRequestSerializer(_AccessControlRuleRequestSerializer):
     """A rule for every member of one role."""
 
-    role = serializers.UUIDField(help_text="The role id, as `role_id` in the roles endpoint.")
+    role_id = serializers.UUIDField(help_text="The role id, as `role_id` in the roles endpoint.")
 
 
 class AccessControlStoredRuleSerializer(serializers.Serializer):
@@ -333,10 +333,12 @@ class AccessControlStoredRuleSerializer(serializers.Serializer):
         help_text="The object or property definition the rule applies to. Null for a resource-type rule.",
     )
     access_level = serializers.CharField(help_text="The stored level.")
-    organization_member = serializers.UUIDField(
+    member_id = serializers.UUIDField(
         allow_null=True, help_text="The organization membership the rule is for. Null unless it is a member rule."
     )
-    role = serializers.UUIDField(allow_null=True, help_text="The role the rule is for. Null unless it is a role rule.")
+    role_id = serializers.UUIDField(
+        allow_null=True, help_text="The role the rule is for. Null unless it is a role rule."
+    )
 
 
 class AccessControlRuleWriteResponseSerializer(serializers.Serializer):

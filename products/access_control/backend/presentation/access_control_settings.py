@@ -799,10 +799,10 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
 
         membership: OrganizationMembership | None = None
         role: Role | None = None
-        if "organization_member" in data:
-            membership = self._visible_membership(team, str(data["organization_member"]))
-        if "role" in data:
-            role = get_object_or_404(Role, id=data["role"], organization=team.organization)
+        if "member_id" in data:
+            membership = self._visible_membership(team, str(data["member_id"]))
+        if "role_id" in data:
+            role = get_object_or_404(Role, id=data["role_id"], organization=team.organization)
 
         resource = data["resource"]
         resource_id = data.get("resource_id") or None
@@ -828,8 +828,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 "resource": result.rule.resource,
                 "resource_id": result.rule.resource_id,
                 "access_level": result.rule.access_level,
-                "organization_member": result.rule.organization_member_id,
-                "role": result.rule.role_id,
+                "member_id": result.rule.organization_member_id,
+                "role_id": result.rule.role_id,
             }
             if result.rule is not None
             else None
@@ -918,8 +918,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 "resource": "property_definition",
                 "resource_id": str(rule.property_definition_id),
                 "access_level": rule.access_level.value,
-                "organization_member": rule.organization_member_id,
-                "role": rule.role_id,
+                "member_id": rule.organization_member_id,
+                "role_id": rule.role_id,
             }
             if rule is not None
             else None

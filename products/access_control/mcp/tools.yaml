@@ -228,8 +228,6 @@ tools:
                 description: >
                     The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null
                     to remove the rule.
-        rename_params:
-            organization_member: member_id
         feature_entitlement: access_control
         confirmed_action:
             message: >
@@ -367,8 +365,6 @@ tools:
                 description: >
                     The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null
                     to remove the rule.
-        rename_params:
-            role: role_id
         feature_entitlement: role_based_access
         confirmed_action:
             message: >

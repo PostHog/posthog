@@ -56,7 +56,7 @@ export const OrganizationsProjectsAccessControlMemberRulesUpdateBody = /* @__PUR
             .describe(
                 'The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, so the subject falls back to the level it inherits.'
             ),
-        organization_member: zod
+        member_id: zod
             .uuid()
             .describe('The organization membership id, as `organization_membership_id` in the members endpoint.'),
     })
@@ -84,7 +84,7 @@ export const OrganizationsProjectsAccessControlRoleRulesUpdateBody = /* @__PURE_
             .describe(
                 'The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, so the subject falls back to the level it inherits.'
             ),
-        role: zod.uuid().describe('The role id, as `role_id` in the roles endpoint.'),
+        role_id: zod.uuid().describe('The role id, as `role_id` in the roles endpoint.'),
     })
     .describe('A rule for every member of one role.')
 
