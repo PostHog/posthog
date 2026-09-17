@@ -209,7 +209,8 @@ const SCRIPT_STUBS: Record<string, ScriptStubs> = {
     },
 }
 
-// Depot never runs a fork's code, so its wait job declines every fork pull request.
+// The router keeps forks, pushes and the schedule on GitHub Actions, so Depot's wait job
+// declines those events; only same-repo pull requests and manual dispatches run there.
 const DEPOT_BACKEND = '.depot/workflows/ci-backend.yml'
 const NOT_HANDED_OFF: ScriptStubs = { jobOutputs: { 'wait-for-handoff': { handed_off: 'false' } } }
 
@@ -217,14 +218,14 @@ export function defaultScenarios(workflow: Workflow, workflowPath: string): Scen
     const steps = allFiltersChanged(workflow)
     const key = path.relative(REPO_ROOT, workflowPath).split(path.sep).join('/')
     const common = { steps, ...SCRIPT_STUBS[key] }
-    const fork = { ...common, ...(key === DEPOT_BACKEND ? NOT_HANDED_OFF : {}) }
+    const keptOnGitHub = { ...common, ...(key === DEPOT_BACKEND ? NOT_HANDED_OFF : {}) }
     return [
         { name: 'draft', github: pullRequest({ draft: true }), ...common },
         { name: 'ready', github: pullRequest(), ...common },
-        { name: 'fork', github: pullRequest({ fork: true }), ...fork },
+        { name: 'fork', github: pullRequest({ fork: true }), ...keptOnGitHub },
         { name: 'queued', github: mergeQueue(), ...common },
-        { name: 'merged', github: push(), ...common },
-        { name: 'scheduled', github: schedule(), ...common },
+        { name: 'merged', github: push(), ...keptOnGitHub },
+        { name: 'scheduled', github: schedule(), ...keptOnGitHub },
         { name: 'dispatched', github: workflowDispatch(), ...common },
     ]
 }
