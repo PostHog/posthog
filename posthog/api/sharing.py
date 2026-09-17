@@ -15,6 +15,7 @@ from django.db import transaction
 from django.db.models import Model, Q
 from django.http import HttpResponse
 from django.shortcuts import render
+from django.utils.cache import patch_cache_control
 from django.utils.functional import SimpleLazyObject
 from django.utils.http import content_disposition_header
 from django.utils.timezone import now
@@ -2090,6 +2091,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             context=context,
             team_for_public_context=resource.team,
         )
+        if self._signed_in_viewer() is not None:
+            # This page carries who is looking and the endpoint that turns the link on or off, so no
+            # cache may hand it to the next viewer. `render_template` cannot tell: `initial()` has
+            # already replaced the request's user with an anonymous one.
+            patch_cache_control(page, private=True, no_store=True)
         if "canvas" in exported_data:
             # The page nests the built canvas in an iframe on the artifact origin. The app's
             # default policy admits any https frame, so a canvas could navigate its own frame to
