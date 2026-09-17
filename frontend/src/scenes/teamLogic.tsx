@@ -645,11 +645,11 @@ export const teamLogic = kea<teamLogicType>([
                     // properties, and is_not_set matches identically at any point in time, so
                     // personsOnEventsMode never changes what either one matches.
                     if (
+                        readsPersonPropertiesFromEvents &&
                         filter.type === 'person' &&
                         filter.key &&
                         filter.key !== 'distinct_id' &&
-                        filter.operator !== PropertyOperator.IsNotSet &&
-                        readsPersonPropertiesFromEvents
+                        filter.operator !== PropertyOperator.IsNotSet
                     ) {
                         frequentMistakes.push({
                             key: filter.key,

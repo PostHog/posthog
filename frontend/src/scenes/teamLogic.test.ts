@@ -81,18 +81,18 @@ describe('teamLogic', () => {
         ]
 
         // MOCK_DEFAULT_TEAM filters internal users by the `email` person property
-        it.each(['person_id_override_properties_on_events', 'person_id_no_override_properties_on_events'] as const)(
-            'warns about a person property filter on the %s mode',
-            async (personsOnEventsMode) => {
-                logic = await mountWithModifiers({ modifiers: { personsOnEventsMode } })
-                expect(logic.values.testAccountFilterFrequentMistakes).toEqual([
-                    expect.objectContaining({ key: 'email', type: 'person' }),
-                ])
-            }
-        )
-
-        it('warns when the event-time mode comes from the project default', async () => {
-            logic = await mountWithModifiers({ default_modifiers: eventTimeMode })
+        it.each([
+            [
+                'person_id_override_properties_on_events',
+                { modifiers: { personsOnEventsMode: 'person_id_override_properties_on_events' } },
+            ],
+            [
+                'person_id_no_override_properties_on_events',
+                { modifiers: { personsOnEventsMode: 'person_id_no_override_properties_on_events' } },
+            ],
+            ['a default_modifiers fallback', { default_modifiers: eventTimeMode }],
+        ] as const)('warns about a person property filter on %s', async (_, config) => {
+            logic = await mountWithModifiers(config)
             expect(logic.values.testAccountFilterFrequentMistakes).toEqual([
                 expect.objectContaining({ key: 'email', type: 'person' }),
             ])
