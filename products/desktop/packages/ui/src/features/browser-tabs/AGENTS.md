@@ -304,44 +304,68 @@ retarget its originating background tab as described below. `railHistoryStore`
 - Full back/forward integration across the real router belongs in an E2E
   (Playwright) spec, not a unit test.
 
-## Split view (parked — how to approach it)
+## Tiled tabs (split view)
 
-A working prototype (July 2026, since removed — recoverable from git history)
-let a pill be dragged off the strip onto right/bottom drop zones over the
-content area, splitting the scene into a resizable two-pane
-`react-resizable-panels` group. What we learned, for whoever picks it up:
+Tabs can share the content pane side by side or in a grid, the way Arc splits
+a space. The feature lives in `features/tab-tiling/`; this section documents
+the model and the UX so both stay in step with the code.
 
+### The model (`tileLayout.ts`)
+- A **group** is a tree. Leaves are tab ids; inner nodes split their children
+  along one axis (`horizontal` = side by side, `vertical` = stacked) and carry
+  optional `sizes` in percent. Two tabs beside each other are one horizontal
+  split; a 2x2 grid is a horizontal split of two vertical splits.
+- `tileTab` places a tab on an edge of the tile that shows another tab. When
+  the target's parent already splits on that axis the new leaf becomes a
+  sibling, so three tabs in a row stay one flat split. A tab that was tiled
+  elsewhere is removed from its old group first. A group stops accepting drops
+  at `MAX_TILES_PER_GROUP` (4).
+- `untileTab` removes a leaf, collapses a split left with one child, and
+  dissolves a group left with one tile. `pruneGroups` applies that to every
+  tab missing from the live snapshot.
+- Groups are **view state** in `tileLayoutStore` (zustand `persist` →
+  localStorage), like pins: tab ids are durable in SQLite so a split survives
+  relaunch, and the model is pure so the tree transforms are unit-tested in
+  `tileLayout.test.ts`.
+
+### Rendering (`TileLayout.tsx`)
 - **The constraint:** one TanStack Router = one location = one `<Outlet>`.
-  Two panes can't both be routes. Three ways out, in order of preference:
-  1. **Router-less target pane** (what the prototype did): the secondary pane
-     renders the tab's target directly by id. `WebsiteDashboard` already takes
-     `dashboardId` as a prop and `TaskDetail` takes a `task` (replicate the
-     cache-first fetch from `routes/_shell/spaces/$channelId/tasks/$taskId.tsx`) —
-     both mount standalone today. **Channel views (inbox/artifacts/…) are the
-     blocker**: they read route params/loaders throughout, so they need a
-     props-parameterization pass before they can render in a pane. That
-     refactor is most of the remaining work.
-  2. **Second router over memory history** — renders any route, but needs a
-     chrome-less root and confuses the tab-strip navigation effect
-     (`decideTabNavigation` assumes one router).
-  3. **Tear-off to a second OS window** — the tabs data model already supports
-     it (`browser_windows`, secondary-window close semantics in
-     `closeTab`/`closeTabs`); Electron-only.
-- **Wiring that already exists and stays:** `BrowserTabsDndProvider` wraps the
-  channels chrome, so drop zones over the content area just register
-  `useDroppable` targets in the same scope; pill drag data is
-  `{ type: "browser-tab", tabId }`. The prototype's pieces were a persisted
-  `splitViewStore` (identity + direction + transient `isDraggingTab`), a
-  `TabSplitLayout` wrapper around the outlet box in `__root.tsx`, and a
-  split-zone branch in the provider's `dragend`.
-- **UX decisions already settled:** zones are right 35% / bottom 35%
-  (non-overlapping), a second drop replaces the split, a blank tab is
-  rejected, the split persists across relaunch, and a header X closes it.
-- **Open questions for the real version:** should the split pane get its own
-  tab strip (it probably wants the panels feature's tree model instead of a
-  single-pane store); how does the active-tab highlight relate to the
-  secondary pane; and whether in-pane navigation should be possible at all
-  without a router.
+  `TileLayout` wraps the outlet in `__root.tsx`. When the active tab belongs
+  to a group, the whole group renders as nested `react-resizable-panels`
+  groups and the **outlet renders inside the active tab's tile**. Every other
+  tile renders its tab **without the router** (`TileTabContent`): a task tab
+  mounts `TaskDetail` from the cache-first fetch, a dashboard tab mounts
+  `WebsiteDashboard`. Pages that read route params (channel views, settings)
+  cannot mount that way yet; their tile shows a notice with a button that
+  activates the tab instead.
+- Activating a tab in a group shows the group with the outlet moved to that
+  tab's tile. Tabs outside a group show alone, as before.
+- Each tile has a slim header: icon, name, and an X that removes it from the
+  split. **The header is the only place that switches the active tab.** A
+  click inside a background page never moves the outlet out from under it.
+- Resizes persist through `onLayout` → `setSplitSizes`, which returns the same
+  array for an unchanged layout so the mount-time callback writes nothing.
+
+### Drag to tile
+- While a pill is dragged (`tabReorderStore.draggingTabId`), every tile of the
+  visible group, or the lone active page, shows four edge drop zones
+  (`TileDropZones`, `useDroppable` in the same `BrowserTabsDndProvider` scope,
+  data `{ type: "tile-drop", tabId, edge }`). The dragged tab's own tile shows
+  none, and a full group disables its zones.
+- Pill drags stay x-axis locked; the zones are still hit because dnd-kit's
+  default collision detection tests the **pointer** position first.
+- `dragend` on a tile zone calls `tileTab` and returns without persisting the
+  strip order, because the pill never left its slot.
+- Analytics: `Browser tab tiled` (`edge`, `tile_count`) and
+  `Browser tab untiled` (`tile_count`).
+
+### Follow-ups
+- Channel views in background tiles need a props-parameterization pass.
+- No in-tile navigation without a router: a link inside a background tile
+  drives the one router, so it changes the active tile's page, not its own.
+  A second router over memory history is the known alternative.
+- The strip does not yet mark which tabs share a group; a context-menu
+  "Remove from split" and keyboard focus between tiles are also open.
 
 ## Known rough edges / follow-ups
 

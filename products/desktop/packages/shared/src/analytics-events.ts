@@ -345,6 +345,17 @@ export interface TaskListGroupingChangedProperties {
   surface: TaskListSurface;
 }
 
+export interface BrowserTabTiledProperties {
+  edge: "left" | "right" | "top" | "bottom";
+  /** Tiles in the group after the drop. */
+  tile_count: number;
+}
+
+export interface BrowserTabUntiledProperties {
+  /** Tiles left in the group; 0 when the group dissolved. */
+  tile_count: number;
+}
+
 export interface TaskListAppearanceChangedProperties {
   secondary_fields: ("repository" | "branch" | "creator" | "activity")[];
   secondary_field_count: number;
@@ -1614,6 +1625,8 @@ export const ANALYTICS_EVENTS = {
   SIDEBAR_NAV_ITEM_CLICKED: "Sidebar nav item clicked",
   TASK_LIST_GROUPING_CHANGED: "Task list grouping changed",
   TASK_LIST_APPEARANCE_CHANGED: "Task list appearance changed",
+  BROWSER_TAB_TILED: "Browser tab tiled",
+  BROWSER_TAB_UNTILED: "Browser tab untiled",
 
   // Permission events
   PERMISSION_RESPONDED: "Permission responded",
@@ -1827,6 +1840,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED]: SidebarNavItemClickedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED]: TaskListGroupingChangedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_APPEARANCE_CHANGED]: TaskListAppearanceChangedProperties;
+  [ANALYTICS_EVENTS.BROWSER_TAB_TILED]: BrowserTabTiledProperties;
+  [ANALYTICS_EVENTS.BROWSER_TAB_UNTILED]: BrowserTabUntiledProperties;
 
   // Permission events
   [ANALYTICS_EVENTS.PERMISSION_RESPONDED]: PermissionRespondedProperties;

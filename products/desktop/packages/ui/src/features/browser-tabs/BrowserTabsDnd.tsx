@@ -2,6 +2,14 @@ import { type DragDropEvents, DragDropProvider } from "@dnd-kit/react";
 import { browserTabsStore } from "@posthog/core/browser-tabs/browserTabsStore";
 import { useService } from "@posthog/di/react";
 import { primaryWindow, setTabOrder } from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { isTileDropData } from "@posthog/ui/features/tab-tiling/TileDropZones";
+import {
+  groupForTab,
+  tabIdsIn,
+} from "@posthog/ui/features/tab-tiling/tileLayout";
+import { useTileLayoutStore } from "@posthog/ui/features/tab-tiling/tileLayoutStore";
+import { track } from "@posthog/ui/shell/analytics";
 import { type ReactNode, useRef } from "react";
 import {
   BROWSER_TABS_CLIENT,
@@ -36,13 +44,15 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
   const initialOrder = useRef<string[] | null>(null);
 
   const onDragStart: DragDropEvents["dragstart"] = (event) => {
-    if (event.operation.source?.data?.type !== "browser-tab") return;
+    const data = event.operation.source?.data;
+    if (data?.type !== "browser-tab") return;
     const snapshot = browserTabsStore.getState().snapshot;
     const win = primaryWindow(snapshot);
     if (!win) return;
     const order = storedOrderIds(snapshot, win.id);
     initialOrder.current = order;
     useTabReorderStore.getState().setPreviewOrder(order);
+    useTabReorderStore.getState().setDraggingTabId(data.tabId);
   };
 
   const onDragOver: DragDropEvents["dragover"] = (event) => {
@@ -71,6 +81,7 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
 
   const onDragEnd: DragDropEvents["dragend"] = (event) => {
     const src = event.operation.source?.data;
+    const tgt = event.operation.target?.data;
     const order = useTabReorderStore.getState().previewOrder;
     const initial = initialOrder.current;
     initialOrder.current = null;
@@ -78,8 +89,21 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
     // DOM cleanup first (same gotcha as the panels feature).
     requestAnimationFrame(() => {
       useTabReorderStore.getState().setPreviewOrder(null);
+      useTabReorderStore.getState().setDraggingTabId(null);
+      if (event.canceled || src?.type !== "browser-tab") return;
+      // A drop on a tile edge tiles the tab instead of reordering the strip;
+      // the preview order is discarded because the pill never left its slot.
+      if (isTileDropData(tgt)) {
+        const tiling = useTileLayoutStore.getState();
+        tiling.tileTab(src.tabId, tgt.tabId, tgt.edge);
+        const group = groupForTab(tiling.groups, tgt.tabId);
+        track(ANALYTICS_EVENTS.BROWSER_TAB_TILED, {
+          edge: tgt.edge,
+          tile_count: group ? tabIdsIn(group.root).length : 0,
+        });
+        return;
+      }
       if (
-        event.canceled ||
         src?.type !== "browser-tab" ||
         !order ||
         (initial && sameOrder(order, initial))
