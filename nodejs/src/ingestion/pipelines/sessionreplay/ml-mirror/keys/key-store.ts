@@ -80,9 +80,11 @@ export class MlKeyBatch {
 
     public async read(deadline?: AbortSignal): Promise<void> {
         this.keys.clear()
+        // The image key is the session's start month, so every row this batch needs is known before the first read.
         const initial = this.identities.flatMap((identity) => [
             teamBlockId(identity.teamId),
             sessionKeyId(identity.teamId, identity.sessionId),
+            imageKeyId(identity.teamId, sessionStartMonth(identity.sessionId)),
         ])
         this.state = await this.db.read(initial, deadline)
         const keyIdentities = new Map<string, MlKeyIdentity>()
@@ -101,10 +103,6 @@ export class MlKeyBatch {
                 }
                 keyIdentities.set(tableKeyString(storedKeyId(keyIdentity)), keyIdentity)
             }
-        }
-        const remaining = [...keyIdentities.values()].filter((identity) => !identity.sessionId).map(storedKeyId)
-        for (const [id, item] of await this.db.read(remaining, deadline)) {
-            this.state.set(id, item)
         }
         const unusable: MlStoredKeyMismatch[] = []
         await Promise.all(

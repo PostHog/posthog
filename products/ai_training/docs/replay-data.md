@@ -48,7 +48,7 @@ The envelope is JSON with `v`, `context`, `nonce` (12 bytes, base64) and `cipher
 
 Ingestion processes key state in batches:
 
-1. Bulk-read session keys, team blocks, and image keys.
+1. Bulk-read session keys, team blocks, and image keys in one pass. A session's start month names its image key, so the batch knows every row before it reads.
 2. Resolve keys in memory while processing the batch.
 3. Write each new key's month index entry, then the key with a conditional put.
 4. Adopt the key a competing writer stored, which the refused put returns, then publish replay blocks or image messages.

@@ -48,6 +48,7 @@ function transientError(name: string): Error {
 class DynamoBoundary {
     public readonly items = new Map<string, DynamoItem>()
     public readSizes: number[] = []
+    public readKeys: string[][] = []
     public writes = 0
     public writeRequests = 0
     public deferWrites = 0
@@ -79,6 +80,7 @@ class DynamoBoundary {
                 throw new Error('DynamoDB sort key exceeds 1024 bytes')
             }
             this.readSizes.push(keys.length)
+            this.readKeys.push(keys.map((key) => JSON.stringify([key.pk.S, key.sk.S])))
             return Promise.resolve({
                 Responses: {
                     [table]: keys.flatMap((key) => {
@@ -202,6 +204,22 @@ describe('ML session key batches', () => {
         expect(boundary.writes).toBe(122)
         expect(boundary.writeRequests).toBe(64)
         expect([...boundary.writeBatchSizes].sort((a, b) => b - a)).toEqual([25, 25, 11])
+    })
+
+    it('reads every row a batch needs in one pass', async () => {
+        const readsBefore = boundary.readSizes.length
+        await store.prepare([session])
+        // The team block, the session key and the team image key are known up front, so they go in one request.
+        expect(boundary.readSizes.length - readsBefore).toBe(1)
+        expect(new Set(boundary.readKeys.at(-1))).toEqual(
+            new Set(
+                [
+                    teamBlockId(session.teamId),
+                    sessionKeyId(session.teamId, session.sessionId),
+                    imageKeyId(session.teamId, '2025-09'),
+                ].map(tableKeyString)
+            )
+        )
     })
 
     it('commits concurrent new sessions without conditional failures', async () => {
