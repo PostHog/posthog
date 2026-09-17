@@ -110,6 +110,18 @@ describe('ChartAlternatives', () => {
         expect(logic.values.galleryOpen).toBe(false)
     })
 
+    it('opens the gallery in a popover anchored to the chart type button', async () => {
+        setQuery(makeTrendsQuery())
+        const logic = alternativesLogic()
+        expect(document.querySelector('[data-attr="chart-alternatives-gallery"]')).not.toBeInTheDocument()
+
+        logic.actions.openGallery()
+
+        await waitFor(() =>
+            expect(document.querySelector('.Popover [data-attr="chart-alternatives-gallery"]')).toBeInTheDocument()
+        )
+    })
+
     it('renders the chart switch control only while the flag is on', async () => {
         setQuery(makeTrendsQuery())
         alternativesLogic()

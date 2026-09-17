@@ -1,5 +1,5 @@
+import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import type { ReactNode } from 'react'
 
 import type { InsightLogicProps } from '~/types'
 
@@ -7,25 +7,21 @@ import { chartAlternativesLogic } from './chartAlternativesLogic'
 import { ChartPreviewTile } from './ChartPreviewTile'
 
 export function ChartGallery({
-    children,
+    className,
     editMode,
     embedded,
     inSharedMode,
     insightProps,
 }: {
-    children: ReactNode
+    className?: string
     editMode?: boolean
     embedded: boolean
     inSharedMode?: boolean
     insightProps: InsightLogicProps
 }): JSX.Element {
     const logic = useMountedLogic(chartAlternativesLogic({ editMode, embedded, inSharedMode, ...insightProps }))
-    const { galleryOpen, previewGroups, selectionDisabledReason } = useValues(logic)
+    const { previewGroups, selectionDisabledReason } = useValues(logic)
     const { selectChart } = useActions(logic)
-
-    if (!galleryOpen) {
-        return <>{children}</>
-    }
 
     const previews = previewGroups.flatMap((group) => group.previews)
     const unavailable = previews.filter((preview) => !!preview.option.disabledReason)
@@ -40,11 +36,14 @@ export function ChartGallery({
     }
 
     return (
-        <div className="@container flex flex-col gap-3 p-2" data-attr="chart-alternatives-gallery">
+        <div
+            className={clsx('@container flex flex-col gap-3 overflow-y-auto p-2', className)}
+            data-attr="chart-alternatives-gallery"
+        >
             {sections.map((section) => (
                 <div key={section.title} className="flex flex-col gap-1.5">
                     <h5 className="m-0 text-xs font-semibold uppercase text-secondary">{section.title}</h5>
-                    <div className="grid grid-cols-1 gap-2 @md:grid-cols-2 @xl:grid-cols-4">
+                    <div className="grid grid-cols-1 gap-2 @sm:grid-cols-2 @lg:grid-cols-3">
                         {section.previews.map((preview) => (
                             <ChartPreviewTile
                                 key={preview.option.display}
