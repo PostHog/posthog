@@ -1360,14 +1360,14 @@ Note: developers.maxio.com is an APIMatic SPA that returns a 121-byte shell to c
 
 ## ChartHop — gaps
 
-Today (8): `changes`, `group_types`, `groups`, `job_codes`, `job_levels`, `jobs`, `persons`, `time_off`
+Today (11): `changes`, `comp_bands`, `compensation_history`, `group_types`, `groups`, `job_codes`, `job_levels`, `jobs`, `persons`, `time_off`, `time_off_policies`
 
 Diffed against: <https://api.charthop.com/swagger.json>
 
-- [ ] `/v1/org/{orgId}/timeoff/policy` — lookup resolving the policy ids already carried on the synced time_off rows (high)
-- [ ] `/v1/org/{orgId}/timeoff/policy/balances` — accrued vs used balance per person per policy - the number HR actually reports on (high)
-- [ ] `/v1/org/{orgId}/change/compensation-history` — compensation change history per person, the analytical spine for pay-equity and raise analysis (high)
-- [ ] `/v1/org/{orgId}/band` — comp band lookup that resolves the band a job/job_level sits in (high)
+- [x] `/v1/org/{orgId}/timeoff/policy` — lookup resolving the policy ids already carried on the synced time_off rows (high)
+- [ ] `/v1/org/{orgId}/timeoff/policy/balances` — accrued vs used balance per person per policy - the number HR actually reports on (high) — the vendor spec declares no response schema for this path (one of 7 bare `{"type": "object"}` GETs out of 556) and it takes no `limit`/`from` pagination params, so the row shape, the id fields, and how the walk terminates are all unverifiable; left open pending a real response sample
+- [x] `/v1/org/{orgId}/change/compensation-history` — compensation change history per person, the analytical spine for pay-equity and raise analysis (high)
+- [x] `/v1/org/{orgId}/band` — comp band lookup that resolves the band a job/job_level sits in (high)
 - [ ] `/v1/org/{orgId}/timeoff-ledger/data` — per-entry accrual/usage ledger behind the balances (medium)
 - [ ] `/v1/org/{orgId}/comp-review` — compensation review cycles and their in-cycle changes (medium)
 - [ ] `/v1/org/{orgId}/stockgrant` — equity grants per person - missing half of total compensation (medium)
