@@ -160,6 +160,17 @@ describe('cohortsModel', () => {
             }
         )
 
+        it('reuses dashboard cohorts and fetches only references outside the loaded list', async () => {
+            await expectLogic(logic, () => router.actions.push('/dashboard/1')).toFinishAllListeners()
+            expect(list).toHaveBeenCalledTimes(1)
+            await expectLogic(logic, () => router.actions.push('/insights/abc123')).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.loadCohortsByIds({ ids: [1, 2, 3000] })).toFinishAllListeners()
+            expect(requestedIds).toEqual([3000])
+            expect(logic.values.cohortsById[2]?.name).toBe('Cohort two')
+            expect(logic.values.cohortsById[3000]?.name).toBe('Cohort 3000')
+            expect(list).toHaveBeenCalledTimes(1)
+        })
+
         it('preserves targeted names when a list request finishes after returning to the insight', async () => {
             let releaseList!: () => void
             const listReady = new Promise<void>((resolve) => {
