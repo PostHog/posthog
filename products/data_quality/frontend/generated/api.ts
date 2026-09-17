@@ -409,10 +409,7 @@ export const getDataQualityRunsListUrl = (projectId: string, params?: DataQualit
 }
 
 /**
- * Check-suite executions: start one over a selection, and read every run the project has had.
- *
- * A suite run may sweep several subjects at once -- a manual project-wide run, a materialization,
- * a source sync -- so it is reported here rather than under any one of them.
+ * Every check-suite run in the project, newest first. Narrow it to one subject with subject_type and subject_uuid.
  */
 export const dataQualityRunsList = async (
     projectId: string,

@@ -32,7 +32,7 @@ from posthog.permissions import APIScopePermission, TeamMemberAccessPermission, 
 from posthog.rate_limit import HogQLQueryThrottle
 
 from ..facade import api
-from ..facade.enums import CheckRunStatus, SubjectStatus, SubjectType
+from ..facade.enums import CheckRunStatus, CheckType, SubjectStatus, SubjectType
 from ..facade.flags import is_data_quality_checks_enabled
 from ..facade.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from .serializers import (
@@ -338,6 +338,26 @@ _SUBJECT_UUID_PARAMETER = OpenApiParameter(
     description="Id of the table, view, or metric.",
 )
 _SUBJECT_PARAMETERS = [_SUBJECT_TYPE_PARAMETER, _SUBJECT_UUID_PARAMETER]
+# A listing filter can be left out; a lookup cannot answer without a subject at all, so the actions
+# that look one up declare both as required rather than letting a generated client omit them.
+_REQUIRED_SUBJECT_PARAMETERS = [
+    OpenApiParameter(
+        parameter.name,
+        parameter.type,
+        parameter.location,
+        required=True,
+        description=parameter.description,
+        enum=parameter.enum,
+    )
+    for parameter in _SUBJECT_PARAMETERS
+]
+_CHECK_TYPE_PARAMETER = OpenApiParameter(
+    "check_type",
+    OpenApiTypes.STR,
+    OpenApiParameter.QUERY,
+    enum=[kind.value for kind in CheckType],
+    description="Only the checks that make this assertion. See /check_types/.",
+)
 _SUBJECT_KEYS = ("subject_type", "subject_uuid")
 
 
@@ -347,7 +367,7 @@ _SUBJECT_KEYS = ("subject_type", "subject_uuid")
     list=extend_schema(
         description="Every check in the project. Narrow it to one subject with subject_type and "
         "subject_uuid, or to one assertion with check_type.",
-        parameters=_SUBJECT_PARAMETERS,
+        parameters=[*_SUBJECT_PARAMETERS, _CHECK_TYPE_PARAMETER],
     ),
 )
 class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
@@ -719,6 +739,13 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
         return api.checks_for_subject(self.team_id, subject.subject_type, subject.subject_uuid, include_deleted=True)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        description="Every check-suite run in the project, newest first. Narrow it to one subject "
+        "with subject_type and subject_uuid.",
+        parameters=_SUBJECT_PARAMETERS,
+    ),
+)
 class DataQualityRunViewSet(
     _ProjectQualityViewSet,
     mixins.ListModelMixin,

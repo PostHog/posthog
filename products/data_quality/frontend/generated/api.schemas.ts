@@ -856,6 +856,10 @@ export interface DataQualityRunRequestApi {
 
 export type DataQualityChecksListParams = {
     /**
+     * Only the checks that make this assertion. See /check_types/.
+     */
+    check_type?: DataQualityChecksListCheckType
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -872,6 +876,19 @@ export type DataQualityChecksListParams = {
      */
     subject_uuid?: string
 }
+
+export type DataQualityChecksListCheckType =
+    (typeof DataQualityChecksListCheckType)[keyof typeof DataQualityChecksListCheckType]
+
+export const DataQualityChecksListCheckType = {
+    AcceptedValues: 'accepted_values',
+    CustomSql: 'custom_sql',
+    Freshness: 'freshness',
+    NotNull: 'not_null',
+    Relationships: 'relationships',
+    RowCount: 'row_count',
+    Unique: 'unique',
+} as const
 
 export type DataQualityChecksListSubjectType =
     (typeof DataQualityChecksListSubjectType)[keyof typeof DataQualityChecksListSubjectType]
@@ -967,4 +984,21 @@ export type DataQualityRunsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Kind of catalog object: 'table', 'view', or 'metric'.
+     */
+    subject_type?: DataQualityRunsListSubjectType
+    /**
+     * Id of the table, view, or metric.
+     */
+    subject_uuid?: string
 }
+
+export type DataQualityRunsListSubjectType =
+    (typeof DataQualityRunsListSubjectType)[keyof typeof DataQualityRunsListSubjectType]
+
+export const DataQualityRunsListSubjectType = {
+    Metric: 'metric',
+    Table: 'table',
+    View: 'view',
+} as const
