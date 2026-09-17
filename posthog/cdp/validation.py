@@ -568,6 +568,19 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     # TODO Validate choices if type=choice
 
 
+class InputsSchemaSerializer(serializers.ListField):
+    child = InputsSchemaItemSerializer()
+
+    def to_internal_value(self, data: Any) -> list[dict[str, Any]]:
+        schemas = super().to_internal_value(data)
+        seen: set[str] = set()
+        for schema in schemas:
+            if schema["key"] in seen:
+                raise serializers.ValidationError("Each input key must be unique. Remove duplicate keys.")
+            seen.add(schema["key"])
+        return schemas
+
+
 @extend_schema_field({})
 class AnyInputField(serializers.Field):
     def to_internal_value(self, data):
@@ -813,6 +826,8 @@ class InputsSerializer(serializers.DictField):
         except:
             raise serializers.ValidationError("Missing inputs_schema.")
 
+        inputs_schema = parent_serializer.fields["inputs_schema"].run_validation(inputs_schema)
+
         # Validate each input against the schema
         for schema in inputs_schema:
             key = str(schema["key"])
@@ -1033,7 +1048,7 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
 
 
 class FunctionInputsSerializer(serializers.Serializer):
-    inputs_schema = serializers.ListField(child=InputsSchemaItemSerializer(), required=False)
+    inputs_schema = InputsSchemaSerializer(required=False)
     inputs = InputsSerializer(required=False)
 
     def to_internal_value(self, data):

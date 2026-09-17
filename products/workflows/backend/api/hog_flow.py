@@ -76,7 +76,7 @@ from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_temp
 from posthog.cdp.validation import (
     DATA_WAREHOUSE_SOURCES,
     HogFunctionFiltersSerializer,
-    InputsSchemaItemSerializer,
+    InputsSchemaSerializer,
     InputsSerializer,
     generate_template_bytecode,
 )
@@ -984,7 +984,7 @@ class WorkflowStatsRowSerializer(serializers.Serializer):
 
 
 class HogFlowConfigFunctionInputsSerializer(serializers.Serializer):
-    inputs_schema = serializers.ListField(child=InputsSchemaItemSerializer(), required=False)
+    inputs_schema = InputsSchemaSerializer(required=False)
     inputs = InputsSerializer(required=False)
 
     def to_internal_value(self, data):

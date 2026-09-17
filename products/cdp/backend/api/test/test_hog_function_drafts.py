@@ -326,6 +326,73 @@ class TestHogFunctionDrafts(DraftTestCase):
 
     @parameterized.expand(
         [
+            ("live_secret_last", False, [False, True]),
+            ("live_secret_first", False, [True, False]),
+            ("draft_secret_last", True, [False, True]),
+            ("draft_secret_first", True, [True, False]),
+        ]
+    )
+    def test_duplicate_input_keys_are_rejected(self, _name: str, enabled: bool, secret_flags: list[bool]) -> None:
+        function_id = self._create(enabled=enabled)
+        function = HogFunction.objects.get(id=function_id)
+        saved_inputs = function.inputs
+        saved_secrets = function.encrypted_inputs
+        revision_count = self._revisions(function_id).count()
+        logs = ActivityLog.objects.filter(team_id=self.team.id, scope="HogFunction", item_id=function_id)
+        log_count = logs.count()
+
+        response = self._agent_patch(
+            function_id,
+            {
+                "inputs_schema": [
+                    BASE_FUNCTION["inputs_schema"][0],
+                    *[{"key": "token", "type": "string", "secret": secret} for secret in secret_flags],
+                ]
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "inputs_schema"
+        function.refresh_from_db()
+        assert function.inputs == saved_inputs
+        assert function.encrypted_inputs == saved_secrets
+        assert function.draft is None
+        assert self._revisions(function_id).count() == revision_count
+        assert logs.count() == log_count
+        assert all("live-token" not in str(log.detail) for log in logs)
+        response = self.client.get(self._url(function_id))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["inputs"]["token"] == {"secret": True}
+        assert "live-token" not in response.content.decode()
+
+    @parameterized.expand([("inputs",), ("mappings",)])
+    def test_input_values_are_masked_in_activity_logs(self, field: str) -> None:
+        function_id = self._create(enabled=False)
+        payload = (
+            {"inputs": {"url": {"value": "https://example.com/private-input"}, "token": {"secret": True}}}
+            if field == "inputs"
+            else {
+                "mappings": [
+                    {
+                        "inputs_schema": [{"key": "message", "type": "string"}],
+                        "inputs": {"message": {"value": "example-private-input"}},
+                    }
+                ]
+            }
+        )
+
+        self._live_edit(function_id, payload)
+
+        logs = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="HogFunction", item_id=function_id, activity="updated"
+        )
+        changes = [change for log in logs for change in log.detail["changes"] if change["field"] == field]
+        assert changes
+        assert all(change["after"] == "masked" for change in changes)
+        assert all("private-input" not in str(log.detail) for log in logs)
+
+    @parameterized.expand(
+        [
             ("live_mask", False, {"secret": True}),
             ("draft_mask", True, {"secret": True}),
             ("draft_display_mask", True, {"secret": True, "value": "********"}),

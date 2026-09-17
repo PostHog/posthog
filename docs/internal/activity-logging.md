@@ -99,6 +99,9 @@ Four registries in `activity_log.py` tune it per scope:
 Destination mappings do not support secret inputs.
 Set secrets in the destination's top-level inputs so encryption and masking also apply to drafts and revisions.
 The API rejects mapping schemas that declare secret inputs before it validates their values.
+Input schema keys must be unique, including in mappings and workflow function inputs.
+Destination activity logs record changes to `inputs` and `mappings` without recording their values.
+Changing an input from secret to non-secret does not copy its stored value into plaintext storage.
 
 ## Writes the signal cannot see
 
