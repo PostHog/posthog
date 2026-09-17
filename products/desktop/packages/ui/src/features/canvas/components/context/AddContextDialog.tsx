@@ -42,7 +42,15 @@ import type {
   ContextSources,
 } from "@posthog/ui/features/canvas/hooks/useContextSources";
 import { useNavigate } from "@tanstack/react-router";
-import { type ReactNode, useId, useMemo, useRef, useState } from "react";
+import {
+  cloneElement,
+  isValidElement,
+  type ReactNode,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { KIND_ICONS } from "./kindIcons";
 import { SourceLogo } from "./SourceLogo";
 import { connectLabel, unconnectedWarning } from "./sourceStatus";
@@ -594,7 +602,11 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       >
         {label}
       </label>
-      <div className="[&_input]:w-full">{children}</div>
+      <div className="[&_input]:w-full">
+        {isValidElement<{ id?: string }>(children)
+          ? cloneElement(children, { id })
+          : children}
+      </div>
     </div>
   );
 }

@@ -56,7 +56,7 @@ interface SpaceContextPageProps {
 
 /**
  * The Context tab of a space in three zones. Goals: what the space is trying
- * to move. Business knowledge: everything a person told it, the briefing and
+ * to move. Knowledge: everything a person told it, the briefing and
  * every doc and object as one list of rows. Signals: what agents and source
  * products found about those rows. Knowledge is written once and grows long;
  * signals change daily, so they sit beside it in a column that stays put

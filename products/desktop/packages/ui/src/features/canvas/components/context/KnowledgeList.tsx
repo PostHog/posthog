@@ -95,7 +95,7 @@ export function KnowledgeList({
   return (
     <section className="flex flex-col gap-2">
       <SectionHeader
-        label="Business knowledge"
+        label="Knowledge"
         action={
           <DropdownMenu>
             <DropdownMenuTrigger

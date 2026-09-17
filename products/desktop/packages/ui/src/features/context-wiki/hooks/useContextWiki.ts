@@ -189,6 +189,15 @@ export function useContextWikiPageMutation() {
           updated_at: new Date().toISOString(),
         },
       );
+      // The head is one for the whole wiki, so every other cached page now
+      // sits on it too; a later save from one of them must not read as stale.
+      queryClient.setQueriesData<ContextWikiPage>(
+        { queryKey: ["context-wiki", "page"] },
+        (page) =>
+          page && page.path !== input.path
+            ? { ...page, head_sha: result.head_sha }
+            : page,
+      );
       queryClient.setQueryData<ContextWikiTree | null>(
         CONTEXT_WIKI_TREE_KEY,
         (tree) => (tree ? { ...tree, head_sha: result.head_sha } : tree),
