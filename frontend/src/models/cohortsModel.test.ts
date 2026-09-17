@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { promiseResolveReject } from 'lib/utils/async'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -11,6 +12,8 @@ import { initKeaTests } from '~/test/init'
 import { CohortType, FilterLogicalOperator } from '~/types'
 
 import { cohortsModel, getReferencedCohortIds, processCohort } from './cohortsModel'
+
+jest.unmock('lib/utils/concurrencyController')
 
 const MOCK_COHORTS = {
     count: 2,
@@ -145,6 +148,62 @@ describe('cohortsModel', () => {
             await expectLogic(logic, () => logic.actions.loadCohortsByIds({ ids: [1, 3000] })).toFinishAllListeners()
             expect(requestedIds).toHaveLength(3)
             expect(list).not.toHaveBeenCalled()
+        })
+
+        it('limits overlapping and nested cohort requests to ten in flight and drains after failures', async () => {
+            const firstTen = promiseResolveReject<void>()
+            const nextStarted = promiseResolveReject<void>()
+            const firstResponse = promiseResolveReject<void>()
+            const remainingResponses = promiseResolveReject<void>()
+            let active = 0
+            let peak = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team/cohorts/:id/': async ({ params }) => {
+                        const id = Number(params.id)
+                        requestedIds.push(id)
+                        peak = Math.max(peak, ++active)
+                        if (requestedIds.length === 10) {
+                            firstTen.resolve()
+                        }
+                        if (requestedIds.length === 11) {
+                            nextStarted.resolve()
+                        }
+                        await (id === 1 ? firstResponse.promise : remainingResponses.promise)
+                        active--
+                        if (id === 2) {
+                            return [403, { detail: 'Forbidden.' }]
+                        }
+                        return {
+                            ...MOCK_COHORTS.results[0],
+                            id,
+                            filters: {
+                                properties: {
+                                    type: 'AND',
+                                    values:
+                                        id === 1
+                                            ? [{ type: 'cohort', value: Array.from({ length: 15 }, (_, i) => i + 21) }]
+                                            : [],
+                                },
+                            },
+                        }
+                    },
+                },
+            })
+            logic.actions.loadCohortsByIds({ ids: Array.from({ length: 15 }, (_, i) => i + 1) })
+            logic.actions.loadCohortsByIds({ ids: Array.from({ length: 11 }, (_, i) => i + 10) })
+            await firstTen.promise
+            expect(active).toBe(10)
+            expect(requestedIds).toHaveLength(10)
+            firstResponse.resolve()
+            await nextStarted.promise
+            expect(active).toBe(10)
+            remainingResponses.resolve()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(peak).toBe(10)
+            expect(requestedIds.sort((a, b) => a - b)).toEqual(Array.from({ length: 35 }, (_, i) => i + 1))
+            expect(logic.values.allCohorts.results).toHaveLength(34)
+            expect(logic.values.cohortsById[35]).toMatchObject({ id: 35 })
         })
 
         it.each([

@@ -32,6 +32,8 @@ Individual insight pages load cohort names by ID from the query's cohort propert
 This includes edit, subscriptions, alerts, and sharing routes with optional item IDs; the separate `quick-start` scene keeps the full list load.
 These requests use the parent project ID, which can differ from the current environment ID.
 They reuse the shared cohort cache when the query changes, and resolve nested cohort references for definition popovers.
+The shared model queues cohort detail requests with at most 10 in flight across overlapping loads and nested references.
+This limits concurrent requests, not the total number of references an insight can resolve.
 An insight without cohort references does not load the cohort list.
 The insight breadcrumb subscribes to the resolved insight name so generated titles update when cohort names arrive.
 The cohort picker continues to load its options independently.

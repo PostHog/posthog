@@ -22,6 +22,7 @@ import {
     invalidateTaxonomicResourcesWhere,
 } from 'lib/components/TaxonomicFilter/hooks/useTaxonomicResource'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME } from 'scenes/cohorts/CohortFilters/constants'
@@ -369,6 +370,7 @@ export const cohortsModel = kea<cohortsModelType>([
                     return values.allCohorts
                 }
                 const projectId = String(values.currentTeam.project_id)
+                const requests: ConcurrencyController = (cache.cohortRequests ??= new ConcurrencyController(10))
                 const referenced: Set<number> = (cache.referencedCohortIds ??= new Set<number>())
                 ids.forEach((id) => referenced.add(id))
                 const pending: Set<number> = (cache.pendingCohortIds ??= new Set<number>())
@@ -379,7 +381,7 @@ export const cohortsModel = kea<cohortsModelType>([
                 const results = await Promise.allSettled(
                     missing.map(async (id) => {
                         try {
-                            const cohort = await cohortsApi.cohortsRetrieve(projectId, id)
+                            const cohort = await requests.run({ fn: () => cohortsApi.cohortsRetrieve(projectId, id) })
                             // The shared cache still exposes the legacy shape to its consumers.
                             actions.cacheCohort(cohort as unknown as CohortType)
                             const referencedIds = getReferencedCohortIds(cohort.filters)
