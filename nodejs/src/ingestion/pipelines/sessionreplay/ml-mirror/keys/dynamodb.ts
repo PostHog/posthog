@@ -50,6 +50,9 @@ export class MlKeyDynamoDB {
         this.rows = new LRUCache({
             max: Math.max(1, cacheMax),
             ttl: Math.min(Math.max(1, cacheLifetimeMs), ROW_CACHE_MAX_LIFETIME_MS),
+            // lru-cache otherwise reads the clock once and refreshes it from a timer, so a loop that stays on
+            // microtasks keeps serving a row past the lease. This TTL carries the deletion lease, so it reads exactly.
+            ttlResolution: 0,
         })
     }
 

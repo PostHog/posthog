@@ -459,6 +459,33 @@ describe('ML session key batches', () => {
         expect(second.get(session.teamId, session.sessionId)!.session.plaintext).not.toEqual(provisional)
     })
 
+    it('serves a deleted session key until its cached row reaches the lease, then stops', async () => {
+        const lifetimeMs = 60_000
+        let fakeNow = 1_000
+        const clock = jest.spyOn(performance, 'now').mockImplementation(() => fakeNow)
+        try {
+            const db = new MlKeyDynamoDB(
+                boundary as unknown as DynamoDBClient,
+                table,
+                undefined,
+                undefined,
+                1000,
+                lifetimeMs
+            )
+            const warm = new MlSessionKeyStore(db, encryption)
+            const sameReader = new MlKeyReader(db, encryption)
+            const location = sessionKeyId(session.teamId, session.sessionId)
+            await (await warm.prepare([session])).commit()
+            expect((await sameReader.read([location])).size).toBe(1)
+            boundary.items.set(tableKeyString(location), { ...encodeKey(location), deleted: { BOOL: true } })
+            expect((await sameReader.read([location])).size).toBe(1)
+            fakeNow += lifetimeMs + 1
+            expect((await sameReader.read([location])).size).toBe(0)
+        } finally {
+            clock.mockRestore()
+        }
+    })
+
     it('stops serving a deleted session key to a reader that has not cached it', async () => {
         const first = await store.prepare([session])
         await first.commit()
