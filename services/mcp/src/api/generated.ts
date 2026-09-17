@@ -50676,6 +50676,18 @@ export namespace Schemas {
      */
     export type LLMPromptPublicConfig = { [key: string]: unknown } | null;
 
+    export interface LLMPromptResolvedReference {
+      /** Name of the referenced prompt that was spliced in. */
+      name: string;
+      /** Exact version whose content was spliced in. */
+      version: number;
+      /**
+         * Label the reference used, or null when it pinned a version directly.
+         * @nullable
+         */
+      label: string | null;
+    }
+
     export interface LLMPromptPublic {
       id: string;
       name: string;
@@ -50693,6 +50705,8 @@ export namespace Schemas {
       version: number;
       /** The label this prompt was fetched by. Only present when fetching with the label parameter. */
       label?: string;
+      /** The exact prompt versions spliced into the returned content, in order of first appearance. Empty when the prompt has no references. Only present when references were resolved. */
+      resolved_references?: LLMPromptResolvedReference[];
       created_at: string;
       updated_at: string;
       deleted: boolean;
@@ -105178,6 +105192,10 @@ export namespace Schemas {
      * @maxLength 128
      */
     label?: string;
+    /**
+     * Replace @@@prompt:...@@@ references with the referenced prompts' content before returning. Set to false to get the raw text with the reference tags, e.g. for editing or export. Only applies when content is 'full'.
+     */
+    resolve?: boolean;
     /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
