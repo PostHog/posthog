@@ -16,7 +16,7 @@ The message signature proves the message is from SNS: an RSA-SHA256 check over A
 That half is the same for every SNS topic, so it lives in the verify lane (`verify/sns_signature.py`) with its certificate cache, its failure cache, and a per-minute budget on fetches for URLs that have never verified a message.
 Only `SignatureVersion` 2 is accepted; a topic left on version 1 has every delivery rejected, logged as a misconfiguration rather than an attack.
 The `TopicArn` allowlist proves the message is from our topic.
-An empty allowlist reads as unconfigured.
+An empty allowlist reads as unconfigured, which answers 404 with an empty body and logs a warning, so a probe of this public URL learns nothing and cannot flood the error logs.
 A body that is not a JSON object is invalid, and there is no replay window.
 
 ## Delivery id and event type

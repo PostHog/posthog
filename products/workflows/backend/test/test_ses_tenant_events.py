@@ -11,6 +11,7 @@ from django.test import Client, SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
 import requests
+import structlog.testing
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
@@ -187,10 +188,14 @@ class TestSesTenantEventsEndpoint(TestCase):
 
     @override_settings(WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS=[])
     def test_is_inert_when_no_topic_is_allowlisted(self) -> None:
-        response = self._post(_signed(_notification(_eventbridge_event())))
+        with structlog.testing.capture_logs() as logs:
+            response = self._post(_signed(_notification(_eventbridge_event())))
 
         assert response.status_code == 404
+        assert response.content == b""
         assert not self.sync_mock.delay.called
+        unconfigured = next(log for log in logs if log["event"] == "ingress_webhook_not_configured")
+        assert unconfigured["log_level"] == "warning"
 
     @parameterized.expand(
         [
