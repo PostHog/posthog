@@ -113,6 +113,11 @@ tools:
             with subject_type 'metric' and subject_uuid. Only a metric runs its checks on a schedule: a table's checks
             run after each sync of it, and a view's when the view refreshes, so naming either one is rejected. A metric
             gets a schedule when it takes its first check, so this fails with a 404 until then.
+        param_overrides:
+            subject_type:
+                required: true
+            subject_uuid:
+                required: true
         feature_flag: data-quality-checks
     data-quality-check-types:
         operation: data_quality_checks_check_types_list
