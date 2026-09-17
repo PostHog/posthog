@@ -9,6 +9,9 @@ import { chartAlternativesLogic } from './chartAlternativesLogic'
 import { ChartDisplayIcon } from './ChartDisplayIcon'
 import { ChartGallery } from './ChartGallery'
 
+// Leaves the gallery 33rem of content box, just over the @lg breakpoint that puts three tiles in a row.
+const GALLERY_WIDTH = 'w-[34rem] max-w-[calc(100vw-2rem)]'
+
 export function ChartAlternatives({
     editMode,
     embedded,
@@ -42,7 +45,7 @@ export function ChartAlternatives({
             padded={false}
             overlay={
                 <ChartGallery
-                    className="w-[34rem] max-w-[calc(100vw-2rem)]"
+                    className={GALLERY_WIDTH}
                     insightProps={insightProps}
                     editMode={editMode}
                     embedded={embedded}
