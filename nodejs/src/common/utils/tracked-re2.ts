@@ -54,7 +54,10 @@ const re2Cache = new Map<string, RE2>()
 
 export function createTrackedRE2(pattern: string | RegExp, flags?: string, source = 'unknown'): RE2 {
     const cacheable =
-        typeof pattern === 'string' && pattern.length <= RE2_CACHE_MAX_PATTERN_BYTES && !flags?.includes('g') && !flags?.includes('y')
+        typeof pattern === 'string' &&
+        pattern.length <= RE2_CACHE_MAX_PATTERN_BYTES &&
+        !flags?.includes('g') &&
+        !flags?.includes('y')
     if (!cacheable) {
         re2CreationCounter.inc({ source })
         return (flags ? new RE2(pattern, flags) : new RE2(pattern)) as RE2
