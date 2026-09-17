@@ -1704,13 +1704,23 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         return data
 
     @staticmethod
-    def _clear_iterations_for_non_recurring_schedule(validated_data: dict) -> None:
-        # A survey is only recurring while its schedule says so. Leaving the iteration_* fields
-        # behind makes the update_survey_iteration task keep treating it as recurring, which
-        # closes the survey once the stale final iteration elapses.
-        if validated_data.get("schedule") in (Survey.Schedule.ONCE, Survey.Schedule.ALWAYS):
+    def _reconcile_schedule_with_iterations(validated_data: dict) -> None:
+        # `schedule` and the iteration_* fields have to agree: update_survey_iteration reads the
+        # iteration columns while the edit form reads `schedule`, so a survey holding both a
+        # non-recurring schedule and iteration state repeats while presenting itself as one-shot.
+        schedule = validated_data.get("schedule")
+        if schedule in (Survey.Schedule.ONCE, Survey.Schedule.ALWAYS):
             validated_data["iteration_count"] = None
             validated_data["iteration_frequency_days"] = None
+        elif (
+            schedule is None
+            and validated_data.get("iteration_count")
+            and validated_data.get("iteration_frequency_days")
+        ):
+            # The iteration fields on their own have always been enough to set up repeats, and
+            # partial updates rely on that, so read them as asking for a recurring schedule
+            # rather than dropping the caller's values.
+            validated_data["schedule"] = Survey.Schedule.RECURRING
 
     def create(self, validated_data):
         if "remove_targeting_flag" in validated_data:
@@ -1745,7 +1755,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             validated_data.pop("targeting_flag_filters")
 
         validated_data["created_by"] = self.context["request"].user
-        self._clear_iterations_for_non_recurring_schedule(validated_data)
+        self._reconcile_schedule_with_iterations(validated_data)
         instance = super().create(validated_data)
         self._add_user_survey_interacted_filters(instance)
         self._associate_actions(instance, validated_data.get("conditions"))
@@ -1846,7 +1856,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 validated_data["targeting_flag_id"] = new_flag.id
             validated_data.pop("targeting_flag_filters")
 
-        self._clear_iterations_for_non_recurring_schedule(validated_data)
+        self._reconcile_schedule_with_iterations(validated_data)
 
         iteration_count = validated_data.get("iteration_count", None)
         if (

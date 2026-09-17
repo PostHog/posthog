@@ -5270,6 +5270,25 @@ class TestSurveysRecurringIterations(APIBaseTest):
         assert response_data["iteration_start_dates"] == []
         assert response_data["current_iteration"] is None
 
+    def test_setting_iterations_without_a_schedule_marks_the_survey_recurring(self):
+        # The iteration fields alone have always configured repeats, so a survey that gets them
+        # must not keep a `once` schedule: the edit form would then show it as one-shot while
+        # update_survey_iteration still rotates its iterations.
+        survey = self._create_non_recurring_survey()
+        assert survey.schedule == Survey.Schedule.ONCE
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"start_date": datetime.now(), "iteration_count": 2, "iteration_frequency_days": 30},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+        assert response_data["schedule"] == "recurring"
+        assert response_data["iteration_count"] == 2
+        assert response_data["iteration_frequency_days"] == 30
+        assert len(response_data["iteration_start_dates"]) == 2
+
     def test_can_handle_non_nil_current_iteration(self):
         survey = self._create_non_recurring_survey()
         survey.current_iteration = 2
