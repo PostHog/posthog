@@ -26,6 +26,7 @@ import { EntityHeader, VerdictPill } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
 import { GroupedJobsTable } from '../components/GroupedJobsTable'
 import { MetricTile } from '../components/MetricTile'
+import { PullRequestComparisonCard } from '../components/PullRequestComparisonCard'
 import { PullRequestDeliveryTimeline } from '../components/PullRequestDeliveryTimeline'
 import { PullRequestStateTag } from '../components/PullRequestStateTag'
 import { RunConclusionTag } from '../components/runTables'
@@ -609,7 +610,16 @@ export function PullRequestDetailScene(): JSX.Element {
                 ) : !timelines ? (
                     <LemonSkeleton className="h-40 w-full" />
                 ) : timeline ? (
-                    <PullRequestDeliveryTimeline pr={timeline} />
+                    <div className="flex flex-col gap-2">
+                        <PullRequestDeliveryTimeline pr={timeline} />
+                        {/* Only a merged or ready pull request has a ready-to-merge time. A bot has no pace to compare. */}
+                        {!timeline.author.is_bot &&
+                            (timeline.merged_at || (timeline.state === 'open' && !timeline.is_draft)) && (
+                                <div className="max-w-3xl">
+                                    <PullRequestComparisonCard pr={timeline} sourceId={sourceId} />
+                                </div>
+                            )}
+                    </div>
                 ) : (
                     <div className="text-sm text-secondary">
                         No timeline for this pull request yet. If it stays empty, check the GitHub source's sync status.

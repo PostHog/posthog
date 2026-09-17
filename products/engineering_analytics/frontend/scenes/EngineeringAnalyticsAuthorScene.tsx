@@ -22,6 +22,7 @@ import { ScopePanel } from '../components/ScopePanel'
 import { Section } from '../components/Section'
 import { ShareRow } from '../components/ShareRow'
 import { AuthorLogicProps, authorLogic } from './authorLogic'
+import { deliveryComparisonLogic } from './deliveryComparisonLogic'
 import { DeliverySections } from './DeliverySections'
 import { deliverySummaryLogic } from './deliverySummaryLogic'
 import { pullRequestTimelinesLogic } from './pullRequestTimelinesLogic'
@@ -38,6 +39,7 @@ export const scene: SceneExport<AuthorLogicProps> = {
 export function EngineeringAnalyticsAuthorScene(): JSX.Element {
     const { handle, sourceId, deliveryScope, workflowCosts, workflowCostsLoading } = useValues(authorLogic)
     const { summary, summaryLoading } = useValues(deliverySummaryLogic({ scope: deliveryScope, sourceId }))
+    const { comparison, comparisonLoading } = useValues(deliveryComparisonLogic({ author: handle, sourceId }))
     const timelinesLogic = pullRequestTimelinesLogic({ scope: deliveryScope, sourceId })
     const {
         timelines,
@@ -94,13 +96,18 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                     ) : undefined
                 }
             />
-            {/* The page explains one author's own friction against the repository. It never compares
-                authors with each other (SPEC §2). */}
+            {/* The page explains one author's own friction against the repository and the author's own team. It
+                never compares authors with each other (SPEC §2). */}
             <ScopePanel
-                busy={summaryLoading || timelinesLoading || workflowCostsLoading}
+                busy={summaryLoading || comparisonLoading || timelinesLoading || workflowCostsLoading}
                 controls={<ScopeDateFilter dateOptions={DELIVERY_DATE_OPTIONS} />}
             >
-                <DeliverySections scope={deliveryScope} scopeLabel="This author" sourceId={sourceId} />
+                <DeliverySections
+                    scope={deliveryScope}
+                    scopeLabel="This author"
+                    sourceId={sourceId}
+                    comparison={comparison}
+                />
 
                 <Section id="delivery-pull-requests" title="Pull requests">
                     {timelinesFailed ? (

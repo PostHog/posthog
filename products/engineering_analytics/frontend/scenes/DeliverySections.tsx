@@ -8,8 +8,10 @@ import { PullRequestCountsCard } from '../components/PullRequestCountsCard'
 import { ReadyToMergeCard } from '../components/ReadyToMergeCard'
 import { ScopeComparisonCard } from '../components/ScopeComparisonCard'
 import { Section } from '../components/Section'
+import type { DeliveryComparisonApi } from '../generated/api.schemas'
 import { DeliveryScope } from '../lib/deliveryScope'
 import { compactMinutes, compactUsd, percent } from '../lib/format'
+import { missingTeamText, summaryRows, teamRows } from '../lib/readyToMergeRows'
 import { deliverySummaryLogic } from './deliverySummaryLogic'
 
 const formatRatio = (value: number): string => value.toFixed(1)
@@ -18,12 +20,15 @@ export function DeliverySections({
     scope,
     scopeLabel,
     sourceId,
+    comparison = null,
 }: {
     /** An author or a GitHub team; the summary endpoint rejects a single pull request. */
     scope: DeliveryScope
     /** The row label for the scope's bars, e.g. "This author" or "This team". */
     scopeLabel: string
     sourceId: string | null
+    /** An author's comparison with their own team, which adds the team's row to the ready-to-merge card. */
+    comparison?: DeliveryComparisonApi | null
 }): JSX.Element {
     const summaryLogic = deliverySummaryLogic({ scope, sourceId })
     const { summary, summaryLoading, summaryFailed } = useValues(summaryLogic)
@@ -95,7 +100,17 @@ export function DeliverySections({
                 <div className="@container">
                     <div className="grid grid-cols-1 gap-2 @min-[36rem]:grid-cols-2 @min-[64rem]:grid-cols-4">
                         <div className="@min-[36rem]:col-span-2">
-                            <ReadyToMergeCard summary={summary} scopeLabel={scopeLabel} loading={summaryPending} />
+                            <ReadyToMergeCard
+                                rows={summary ? summaryRows(summary, scopeLabel, teamRows(comparison)) : []}
+                                reviewsSynced={!!summary?.review_data_available}
+                                loading={summaryPending}
+                                emptyText={
+                                    summary && !summary.ready_data_available
+                                        ? 'Ready time appears once the issue events table on this GitHub source is synced.'
+                                        : 'No merged pull requests with a known ready time in the window.'
+                                }
+                                footnote={missingTeamText(comparison)}
+                            />
                         </div>
                         <ScopeComparisonCard
                             title="Pushes after approval"
