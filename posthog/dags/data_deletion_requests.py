@@ -10,6 +10,8 @@ import dagster
 import pydantic
 from clickhouse_driver import Client
 
+from posthog.schema import HogQLVariable
+
 # Pre-warm the HogQL → HogVM bytecode import chain at code-location load time. Compiling a
 # predicate (process_property_removal_shard → compile_hogql_predicate) builds the HogQL
 # database, whose virtual-field placeholder replacement lazily does
@@ -21,9 +23,14 @@ from clickhouse_driver import Client
 # packages already get cached this way; common.hogvm is the only fresh import on the predicate
 # path, so it is the one that breaks without this.
 import posthog.hogql.compiler.bytecode  # noqa: F401
+from posthog.hogql import ast
+from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, LightweightDeleteMutationRunner
+from posthog.clickhouse.workload import Workload
 from posthog.dags.common import JobOwners
 from posthog.dags.deletes import deletes_job
 from posthog.models.data_deletion_request import (
@@ -64,6 +71,8 @@ from posthog.models.person.bulk_delete import (
     resolve_persons_for_deletion,
 )
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+
 from ee.clickhouse.materialized_columns.columns import MaterializedColumnDetails
 
 OWNER_TAG = {"owner": JobOwners.TEAM_CLICKHOUSE.value}
@@ -102,6 +111,15 @@ class PersonRemovalContext:
     drop_recordings: bool
     start_time: datetime | None = None
     end_time: datetime | None = None
+
+
+@dataclass(frozen=True)
+class HogQLEventRemovalContext:
+    request_id: str
+    team_id: int
+    created_by_id: int
+    query: str
+    variables: dict[str, dict[str, object]]
 
 
 # ---------------------------------------------------------------------------
@@ -434,6 +452,124 @@ def load_deletion_request(
     )
 
 
+@dagster.op(tags=OWNER_TAG)
+def load_hogql_event_removal_request(
+    context: dagster.OpExecutionContext,
+    config: DataDeletionRequestConfig,
+) -> HogQLEventRemovalContext:
+    from django.db import transaction
+
+    failure_message: str | None = None
+    with transaction.atomic():
+        request = (
+            DataDeletionRequest.objects.select_for_update()
+            .filter(
+                pk=config.request_id,
+                status=RequestStatus.APPROVED,
+                request_type=RequestType.HOGQL_EVENT_REMOVAL,
+            )
+            .first()
+        )
+
+        if request is None:
+            raise dagster.Failure(
+                f"Request {config.request_id} is not an approved hogql_event_removal request.",
+            )
+        if request.created_by_id is None:
+            request.status = RequestStatus.FAILED
+            request.save(update_fields=["status", "updated_at"])
+            failure_message = f"Request {config.request_id} has no creator whose query permissions can be enforced."
+        else:
+            _record_execution_attempt(request, context.run_id)
+
+    if failure_message is not None:
+        raise dagster.Failure(failure_message)
+
+    assert request.created_by_id is not None
+    context.add_output_metadata(
+        {
+            "team_id": dagster.MetadataValue.int(request.team_id),
+            "created_by_id": dagster.MetadataValue.int(request.created_by_id),
+        }
+    )
+    return HogQLEventRemovalContext(
+        request_id=str(request.pk),
+        team_id=request.team_id,
+        created_by_id=request.created_by_id,
+        query=request.hogql_query,
+        variables=request.hogql_variables,
+    )
+
+
+class HogQLEventDeletionExecutor:
+    def __init__(self, deletion_request: HogQLEventRemovalContext) -> None:
+        self.deletion_request = deletion_request
+
+    def execute(self) -> int:
+        from posthog.models import Team, User
+
+        request = self.deletion_request
+        try:
+            team = Team.objects.get(pk=request.team_id)
+            user = User.objects.get(pk=request.created_by_id)
+        except (Team.DoesNotExist, User.DoesNotExist) as error:
+            raise dagster.Failure("The request team or creator no longer exists.") from error
+
+        try:
+            variables = {key: HogQLVariable.model_validate(value) for key, value in request.variables.items()}
+        except pydantic.ValidationError as error:
+            raise dagster.Failure("The request contains invalid HogQL variables.") from error
+
+        compiler = HogQLQueryExecutor(
+            query=request.query,
+            team=team,
+            user=user,
+            user_access_control=UserAccessControl(user=user, team=team),
+            variables=variables,
+            workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.DELETION_EXECUTOR,
+            pretty=False,
+        )
+        selected = compiler.generate_clickhouse_subquery_sql()
+        prepared_ast = compiler.clickhouse_prepared_ast
+        if not isinstance(prepared_ast, (ast.SelectQuery, ast.SelectSetQuery)):
+            raise dagster.Failure("The HogQL query must produce a result set.")
+        if prepared_ast.type is None or len(prepared_ast.type.columns) != 1:
+            raise dagster.Failure("The HogQL query must select exactly one event UUID column.")
+
+        database = django_settings.CLICKHOUSE_DATABASE
+        insert_sql = (  # nosemgrep: clickhouse-injection-taint
+            f"INSERT INTO {database}.{ADHOC_EVENTS_DELETION_TABLE} "
+            "(team_id, uuid, data_deletion_request_id) "
+            f"SELECT %(_deletion_team_id)s, selected.*, toUUID(%(_deletion_request_id)s) "
+            f"FROM ({selected.sql}) AS selected"
+        )
+        result = sync_execute(
+            insert_sql,
+            {
+                **selected.context.values,
+                "_deletion_team_id": request.team_id,
+                "_deletion_request_id": request.request_id,
+            },
+            workload=Workload.OFFLINE,
+            team_id=request.team_id,
+            ch_user=ClickHouseUser.DELETION_EXECUTOR,
+            settings=selected.settings,
+            external_tables=list(selected.context.external_tables.values()) or None,
+        )
+        return result if isinstance(result, int) else 0
+
+
+@dagster.op(tags=OWNER_TAG)
+def execute_hogql_event_deletion(
+    context: dagster.OpExecutionContext,
+    deletion_request: HogQLEventRemovalContext,
+) -> HogQLEventRemovalContext:
+    queued_rows = HogQLEventDeletionExecutor(deletion_request).execute()
+    context.add_output_metadata({"queued_rows": dagster.MetadataValue.int(queued_rows)})
+    return deletion_request
+
+
 _HOGQL_UNSWEEPABLE_REASON = (
     "the request carries a HogQL predicate, which only compiles against the events schema "
     "(compile_hogql_predicate resolves every predicate against the events HogQL table, varying only "
@@ -617,13 +753,15 @@ def _queue_events_for_deferred_deletion(
     db = django_settings.CLICKHOUSE_DATABASE
     shards = sorted(cluster.shards)
     predicate, params = event_removal_where(deletion_request)
+    params["data_deletion_request_id"] = deletion_request.request_id
 
     def run_on_shard(client: Client) -> int:
         for source in sources:
             # nosemgrep: clickhouse-fstring-param-audit (all interpolated values are internal constants/settings)
             client.execute(
-                f"INSERT INTO {db}.{ADHOC_EVENTS_DELETION_TABLE} (team_id, uuid) "
-                f"SELECT team_id, uuid FROM {db}.{source.data_table} WHERE {predicate}",
+                f"INSERT INTO {db}.{ADHOC_EVENTS_DELETION_TABLE} (team_id, uuid, data_deletion_request_id) "
+                f"SELECT team_id, uuid, toUUID(%(data_deletion_request_id)s) "
+                f"FROM {db}.{source.data_table} WHERE {predicate}",
                 params,
                 settings={"max_execution_time": 1800},
             )
@@ -1456,6 +1594,21 @@ def finalize_deletion_request(
 
 
 @dagster.op(tags=OWNER_TAG)
+def finalize_hogql_event_removal(
+    context: dagster.OpExecutionContext,
+    deletion_request: HogQLEventRemovalContext,
+) -> None:
+    from django.utils import timezone
+
+    DataDeletionRequest.objects.filter(
+        pk=deletion_request.request_id,
+        status__in=[RequestStatus.IN_PROGRESS, RequestStatus.FAILED],
+    ).update(status=RequestStatus.QUEUED, updated_at=timezone.now())
+
+    context.log.info(f"Deletion request {deletion_request.request_id} marked as queued.")
+
+
+@dagster.op(tags=OWNER_TAG)
 def finalize_person_removal(
     context: dagster.OpExecutionContext,
     person_removal: PersonRemovalContext,
@@ -1490,6 +1643,7 @@ def mark_deletion_failed(context: dagster.HookContext) -> None:
     # Check all job types
     request_id = (
         ops_config.get("load_deletion_request", {}).get("config", {}).get("request_id")
+        or ops_config.get("load_hogql_event_removal_request", {}).get("config", {}).get("request_id")
         or ops_config.get("load_property_removal_request", {}).get("config", {}).get("request_id")
         or ops_config.get("load_person_removal_request", {}).get("config", {}).get("request_id")
     )
@@ -1520,6 +1674,14 @@ def data_deletion_request_event_removal():
     request = load_deletion_request()
     result = execute_event_deletion(request)
     finalize_deletion_request(result)
+
+
+@dagster.job(tags=OWNER_TAG, hooks={mark_deletion_failed})
+def data_deletion_request_hogql_event_removal():
+    """Queue event UUIDs selected by an approved, team-scoped HogQL query."""
+    request = load_hogql_event_removal_request()
+    result = execute_hogql_event_deletion(request)
+    finalize_hogql_event_removal(result)
 
 
 @dagster.job(tags=OWNER_TAG, hooks={mark_deletion_failed})
@@ -1558,6 +1720,7 @@ def data_deletion_request_person_removal():
 
 _DELETION_JOB_NAMES = [
     data_deletion_request_event_removal.name,
+    data_deletion_request_hogql_event_removal.name,
     data_deletion_request_property_removal.name,
     data_deletion_request_person_removal.name,
 ]
@@ -1566,6 +1729,7 @@ _DELETION_JOB_NAMES = [
 @dagster.sensor(
     jobs=[
         data_deletion_request_event_removal,
+        data_deletion_request_hogql_event_removal,
         data_deletion_request_property_removal,
         data_deletion_request_person_removal,
     ],
@@ -1600,6 +1764,8 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
 
     if next_request.request_type == RequestType.EVENT_REMOVAL:
         job, load_op = data_deletion_request_event_removal, "load_deletion_request"
+    elif next_request.request_type == RequestType.HOGQL_EVENT_REMOVAL:
+        job, load_op = data_deletion_request_hogql_event_removal, "load_hogql_event_removal_request"
     elif next_request.request_type == RequestType.PROPERTY_REMOVAL:
         job, load_op = data_deletion_request_property_removal, "load_property_removal_request"
     elif next_request.request_type == RequestType.PERSON_REMOVAL:

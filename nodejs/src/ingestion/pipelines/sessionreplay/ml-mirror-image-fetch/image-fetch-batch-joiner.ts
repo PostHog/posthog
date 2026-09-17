@@ -7,8 +7,10 @@ export const MAX_IMAGE_FETCH_BATCHES_PER_PASS = 16
 
 type BatchProcessor = (messages: Message[]) => Promise<void>
 
+type DispatchedBatch = { backgroundTask: Promise<void> }
+
 type BatchWaiter = {
-    resolve: () => void
+    resolve: (batch: DispatchedBatch) => void
     reject: (error: unknown) => void
     timer: ProcessingStageTimer
 }
@@ -31,6 +33,7 @@ export function assertImageFetchBatchTarget(targetBatchCount: number): void {
 
 export class ImageFetchBatchJoiner {
     private pendingGroup?: PendingBatchGroup
+    private readonly activeProcessing = new Set<Promise<void>>()
     private failed = false
     private failure: unknown
 
@@ -41,7 +44,7 @@ export class ImageFetchBatchJoiner {
         assertImageFetchBatchTarget(targetBatchCount)
     }
 
-    public handleBatch(messages: Message[]): Promise<void> {
+    public handleBatch(messages: Message[]): Promise<DispatchedBatch | void> {
         if (messages.length === 0) {
             return Promise.resolve()
         }
@@ -49,7 +52,7 @@ export class ImageFetchBatchJoiner {
             return Promise.reject(this.failure)
         }
 
-        return new Promise<void>((resolve, reject) => {
+        return new Promise<DispatchedBatch>((resolve, reject) => {
             const group = this.pendingGroup ?? this.createPendingGroup()
             group.batches.push(messages)
             group.waiters.push({ resolve, reject, timer: ImageFetchProcessingMetrics.start('consumer_join') })
@@ -57,6 +60,10 @@ export class ImageFetchBatchJoiner {
                 this.dispatch(group)
             }
         })
+    }
+
+    public async waitForProcessing(): Promise<void> {
+        await Promise.allSettled(this.activeProcessing)
     }
 
     private createPendingGroup(): PendingBatchGroup {
@@ -89,11 +96,14 @@ export class ImageFetchBatchJoiner {
                 this.fail(error)
                 throw error
             }
-        })().finally(() => group.waiters.forEach(({ timer }) => timer.finish()))
-        void processing.then(
-            () => group.waiters.forEach(({ resolve }) => resolve()),
-            (error) => group.waiters.forEach(({ reject }) => reject(error))
-        )
+        })().finally(() => {
+            group.waiters.forEach(({ timer }) => timer.finish())
+            this.activeProcessing.delete(processing)
+        })
+        this.activeProcessing.add(processing)
+        for (const { resolve } of group.waiters) {
+            resolve({ backgroundTask: processing })
+        }
     }
 
     private fail(error: unknown): void {

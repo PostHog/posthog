@@ -6,7 +6,6 @@ import { IconFilter } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PersonDisplay, PersonIcon } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, DataVisualizationNode } from '~/queries/schema/schema-general'
@@ -14,6 +13,8 @@ import { LLMTrace } from '~/queries/schema/schema-general'
 import { QueryContextColumn } from '~/queries/types'
 import { hogql, isDataTableNode, isEventsQuery } from '~/queries/utils'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+
+import { PersonDisplay, PersonIcon } from 'products/persons/frontend/components/PersonDisplay'
 
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import { AIDataLoading } from './components/AIDataLoading'

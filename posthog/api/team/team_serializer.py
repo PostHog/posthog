@@ -26,7 +26,6 @@ from posthog.models.product_intent.product_intent import (
     cached_product_intents_for_team,
     enqueue_product_activation_calc_debounced,
 )
-from posthog.models.team.event_retention import should_enforce_events_retention
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.models.team.team_caching import set_team_in_cache
@@ -66,29 +65,19 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     product_intents = serializers.SerializerMethodField()
     managed_viewsets = serializers.SerializerMethodField()
     available_setup_task_ids = serializers.SerializerMethodField()
+    heatmaps_screenshot_secret = serializers.SerializerMethodField(
+        help_text=(
+            "Value this project's heatmap screenshots send as a cookie scoped to your domain, "
+            "so bot protection can allow them. Only project admins can read it; null for "
+            "everyone else and when none has been generated."
+        ),
+    )
     revenue_analytics_config = team_config.TeamRevenueAnalyticsConfigSerializer(required=False)
     marketing_analytics_config = marketing_config.TeamMarketingAnalyticsConfigSerializer(required=False)
     customer_analytics_config = team_config.TeamCustomerAnalyticsConfigSerializer(required=False)
     workflows_config = team_config.TeamWorkflowsConfigSerializer(required=False)
     feature_flag_policy_config = team_config.TeamFeatureFlagPolicyConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
-    event_retention_months = serializers.IntegerField(
-        read_only=True,
-        help_text=(
-            "The team's events data retention window in months (plan-derived, synced from billing). When retention "
-            "enforcement is active for the team, queries do not return events older than this many months. "
-            "Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog "
-            "support can change it unless your organization is on the enterprise plan. Background and discussion: "
-            "https://github.com/PostHog/posthog/issues/17031"
-        ),
-    )
-    events_retention_enforced = serializers.SerializerMethodField(
-        help_text=(
-            "Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: "
-            "neither you nor PostHog support can turn enforcement off, and the retention window itself only "
-            "changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031"
-        )
-    )
 
     class Meta:
         model = Team
@@ -108,6 +97,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "default_modifiers",
             "person_on_events_querying_enabled",
             "user_access_level",
+            "heatmaps_screenshot_secret",
             # Config fields
             *team_config.TEAM_CONFIG_FIELDS,
             # Computed fields
@@ -118,8 +108,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "product_intents",
             "managed_viewsets",
             "available_setup_task_ids",
-            "event_retention_months",
-            "events_retention_enforced",
         )
 
         read_only_fields = (
@@ -175,16 +163,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             self._group_types_cache = group_types
         return group_types
 
-    @extend_schema_field(serializers.BooleanField())
-    @tracer.start_as_current_span("team_serializer.events_retention_enforced")
-    def get_events_retention_enforced(self, team: Team) -> bool:
-        return should_enforce_events_retention(team.id)
-
     @tracer.start_as_current_span("team_serializer.live_events_token")
     def get_live_events_token(self, team: Team) -> str | None:
         request = self.context.get("request")
         user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
         return live_events.get_or_mint_live_events_token(team, user_id)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_heatmaps_screenshot_secret(self, team: Team) -> str | None:
+        return settings_validation.heatmaps_screenshot_secret_for_reader(team, self.user_permissions)
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     @tracer.start_as_current_span("team_serializer.product_intents")
@@ -255,15 +242,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             raise exceptions.ValidationError(settings_validation._format_serializer_errors(serializer.errors))
         return serializer.validated_data
 
-    @staticmethod
-    def validate_workflows_config(value):
-        if value is None:
-            return None
-
-        serializer = team_config.TeamWorkflowsConfigSerializer(data=value)
-        if not serializer.is_valid():
-            raise exceptions.ValidationError(settings_validation._format_serializer_errors(serializer.errors))
-        return serializer.validated_data
+    def validate_workflows_config(self, value):
+        return settings_validation.validate_team_workflows_config(self.instance, value)
 
     @staticmethod
     def validate_feature_flag_policy_config(value):
@@ -756,6 +736,20 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def validate_logs_settings(self, value: dict | None) -> dict | None:
         if value is None:
             return value
+
+        if not isinstance(value, dict):
+            raise exceptions.ValidationError("logs_settings must be an object or null.")
+
+        if "json_parse_logs_attribute_key" in value:
+            attribute_key = value["json_parse_logs_attribute_key"]
+            # Length is measured after trimming, matching CharField(trim_whitespace=True,
+            # max_length=200) on the logs_config key lists.
+            if not isinstance(attribute_key, str) or len(attribute_key.strip()) > 200:
+                raise exceptions.ValidationError(
+                    "json_parse_logs_attribute_key must be a string of at most 200 characters. "
+                    "Use an empty string to disable parsing."
+                )
+            value["json_parse_logs_attribute_key"] = attribute_key.strip()
 
         new_retention = value.get("retention_days")
         if new_retention is not None and new_retention not in TeamSerializer.VALID_RETENTION_DAYS:

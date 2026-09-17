@@ -5,13 +5,6 @@ import { IconWarning } from '@posthog/icons'
 import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import {
-    COUNT_PER_ACTOR_MATH_DEFINITIONS,
-    MathDefinition,
-    PROPERTY_MATH_DEFINITIONS,
-    mathTypeToApiValues,
-    mathsLogic,
-} from 'scenes/trends/mathsLogic'
 
 import { MathType } from '~/queries/schema/schema-general'
 import {
@@ -24,6 +17,13 @@ import {
 import { BaseMathType, ChartDisplayType, CountPerActorMathType, HogQLMathType, PropertyMathType } from '~/types'
 
 import { GroupIntroductionFooter } from 'products/groups/frontend/components/GroupsIntroduction'
+import {
+    COUNT_PER_ACTOR_MATH_DEFINITIONS,
+    MathDefinition,
+    PROPERTY_MATH_DEFINITIONS,
+    mathTypeToApiValues,
+    mathsLogic,
+} from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 import {
     getDefaultPropertyMathType,

@@ -571,6 +571,32 @@ describe('customPropertyDefinitionsLogic', () => {
         expect(logic.values.hasWarehouseSourceOptions).toBe(true)
     })
 
+    it('never offers a table whose schema carries no id', async () => {
+        useMocks({
+            ...defaultMocks(),
+            get: {
+                ...defaultMocks().get,
+                [WAREHOUSE_TABLES_URL]: {
+                    count: 2,
+                    results: [
+                        buildTable(),
+                        // An unsynced table: the API can report a schema object with no id, and binding
+                        // needs the id, so offering this gives the user a pick that fails at save.
+                        buildTable({ id: 'table-2', name: 'Intercom_split', external_schema: { name: '' } }),
+                    ],
+                },
+            },
+        })
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        expect(logic.values.warehouseSourceOptions).toEqual([
+            { value: 'table:table-1', label: 'users', kind: 'table' },
+            { value: 'view:view-1', label: 'billing_view', kind: 'view' },
+        ])
+    })
+
     it("loads a view's columns from the saved query rather than fetching a table", async () => {
         useMocks(defaultMocks())
         mountLogic()

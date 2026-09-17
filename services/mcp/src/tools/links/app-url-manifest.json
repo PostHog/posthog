@@ -189,6 +189,11 @@
         "params": [],
         "scope": "project"
     },
+    "aiTask": {
+        "template": "/ai",
+        "params": [],
+        "scope": "project"
+    },
     "alert": {
         "template": "/alerts",
         "params": [],
@@ -284,6 +289,11 @@
         "params": ["channelId"],
         "scope": "project"
     },
+    "codeLoopLink": {
+        "template": "/code/loop/{loopId}",
+        "params": ["loopId"],
+        "scope": "project"
+    },
     "codeReview": {
         "template": "/code-review",
         "params": [],
@@ -352,6 +362,11 @@
     "customerAnalyticsAccount": {
         "template": "/customer_analytics/accounts/{accountId}",
         "params": ["accountId"],
+        "scope": "project"
+    },
+    "customerAnalyticsAccountByExternalId": {
+        "template": "/customer_analytics/accounts/by-external-id/{externalId}",
+        "params": ["externalId"],
         "scope": "project"
     },
     "customerAnalyticsAccounts": {
@@ -1374,6 +1389,11 @@
         "params": ["resourceKind", "resourceId"],
         "scope": "project"
     },
+    "reusableWidget": {
+        "template": "/notebooks/widgets/{widgetId}",
+        "params": ["widgetId"],
+        "scope": "project"
+    },
     "revenueSettings": {
         "template": "/data-management/revenue",
         "params": [],
@@ -1417,6 +1437,11 @@
     "sharedDashboard": {
         "template": "/shared_dashboard/{shareToken}",
         "params": ["shareToken"],
+        "scope": "project"
+    },
+    "shipIt": {
+        "template": "/games/shipit",
+        "params": [],
         "scope": "project"
     },
     "signup": {

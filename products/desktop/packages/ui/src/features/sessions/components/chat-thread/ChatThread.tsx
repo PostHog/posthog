@@ -46,9 +46,10 @@ import type { Task } from "@posthog/shared/domain-types";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useSmoothedText } from "@posthog/ui/features/editor/components/useSmoothedText";
 import { hasUiAppResult } from "@posthog/ui/features/mcp-apps/hasUiAppResult";
-import type {
-  BuildResult,
-  ConversationItem,
+import {
+  type BuildResult,
+  type ConversationItem,
+  hasSetupProgressForRun,
 } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import {
   ChatMarkdown,
@@ -100,6 +101,7 @@ import { isShowActionsItem } from "@posthog/ui/features/sessions/components/sess
 import { UserShellExecuteView } from "@posthog/ui/features/sessions/components/session-update/UserShellExecuteView";
 import { splitUserMessage } from "@posthog/ui/features/sessions/components/session-update/userMessageDisplay";
 import { useVisibleInjectedBlocks } from "@posthog/ui/features/sessions/components/session-update/useVisibleInjectedBlocks";
+import { UserMessageAttachments } from "@posthog/ui/features/sessions/components/UserMessageAttachments";
 import {
   CHAT_CONTENT_MAX_WIDTH,
   CHAT_CONTENT_PADDING_INLINE,
@@ -117,7 +119,10 @@ import {
   useTurnFeedback,
 } from "@posthog/ui/features/sessions/sessionViewStore";
 import { useThreadScrollRequest } from "@posthog/ui/features/sessions/threadNavigationStore";
-import type { UserMessageAttachment } from "@posthog/ui/features/sessions/userMessageTypes";
+import {
+  NO_ATTACHMENTS,
+  type UserMessageAttachment,
+} from "@posthog/ui/features/sessions/userMessageTypes";
 import {
   SessionTaskIdProvider,
   useSessionTaskId,
@@ -125,6 +130,7 @@ import {
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import { SkillButtonActionMessage } from "@posthog/ui/features/skill-buttons/components/SkillButtonActionMessage";
+import { useDebouncedValue } from "@posthog/ui/primitives/hooks/useDebouncedValue";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
 import { track } from "@posthog/ui/shell/analytics";
@@ -520,7 +526,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
 function UserBubble({
   content,
   timestamp,
-  attachments = [],
+  attachments = NO_ATTACHMENTS,
   keyboardFocused = false,
 }: {
   content: string;
@@ -532,9 +538,14 @@ function UserBubble({
   // message (start-aligned, outlined, provenance chip) instead of masquerading
   // as something this run's user typed. The envelope boilerplate never renders;
   // only the sender-authored body flows into the normal pipeline below.
-  const { peerAgentMessage, blocks, displayContent } = useMemo(
-    () => splitUserMessage(content),
-    [content],
+  const {
+    peerAgentMessage,
+    blocks,
+    displayContent,
+    attachments: visibleAttachments,
+  } = useMemo(
+    () => splitUserMessage(content, attachments),
+    [content, attachments],
   );
   const visibleBlocks = useVisibleInjectedBlocks(blocks);
   // Provenance is never flag-gated: a peer message must not read as the user's.
@@ -548,7 +559,7 @@ function UserBubble({
       <ChatMessage align={peerAgentMessage ? "start" : "end"} className="group">
         <ChatMessageContent className="gap-1">
           {showHeaderChips && (
-            <ChatMessageHeader className="flex-wrap gap-1">
+            <ChatMessageHeader className="flex-wrap gap-1 px-0">
               {peerAgentMessage && (
                 <MentionChip
                   icon={<Robot size={12} />}
@@ -558,8 +569,13 @@ function UserBubble({
               <InjectedBlockChips blocks={visibleBlocks} taskId={taskId} />
             </ChatMessageHeader>
           )}
+          {visibleAttachments.length > 0 && (
+            <div className={peerAgentMessage ? "self-start" : "self-end"}>
+              <UserMessageAttachments attachments={visibleAttachments} />
+            </div>
+          )}
           {/* The brief is the whole message, so stripping it leaves nothing to put in a bubble. */}
-          {(!!displayContent || attachments.length > 0) && (
+          {!!displayContent && (
             <ChatBubble
               align={peerAgentMessage ? "start" : "end"}
               variant={peerAgentMessage ? "outline" : "default"}
@@ -569,10 +585,7 @@ function UserBubble({
               )}
             >
               <ChatBubbleContent>
-                <UserMessageBody
-                  content={displayContent}
-                  attachments={attachments}
-                />
+                <UserMessageBody content={displayContent} />
               </ChatBubbleContent>
             </ChatBubble>
           )}
@@ -649,6 +662,8 @@ function MessageContextMenu({
   );
 }
 
+const GROWING_TEXT_SETTLE_MS = 500;
+
 /**
  * Start-aligned assistant prose bubble. Streamed tokens arrive in bursts; `useSmoothedText` reveals
  * them at a steady character rate so the text reads as even typing (text present on mount shows
@@ -666,6 +681,10 @@ const AgentProse = memo(function AgentProse({
   isStreaming?: boolean;
 }) {
   const smoothed = useSmoothedText(text);
+  const { isPending: growing } = useDebouncedValue(
+    text,
+    GROWING_TEXT_SETTLE_MS,
+  );
 
   return (
     <MessageContextMenu value={text}>
@@ -673,7 +692,7 @@ const AgentProse = memo(function AgentProse({
         <ChatMessageContent className="gap-1">
           <ChatBubble variant="ghost">
             <ChatBubbleContent>
-              {isStreaming ? (
+              {isStreaming || growing ? (
                 <ChatStreamingMarkdown content={smoothed} renderObjectTags />
               ) : (
                 <ChatMarkdown content={text} renderObjectTags />
@@ -1230,7 +1249,6 @@ interface SharedChatThreadProps {
   repoPath?: string | null;
   task?: Task;
   taskId?: string;
-  footerState?: Omit<BuildResult, "items">;
   hasPendingPermission?: boolean;
   currentWork?: string;
   /**
@@ -1244,6 +1262,7 @@ interface SharedChatThreadProps {
 
 export interface ChatThreadProps extends SharedChatThreadProps {
   events: AgentConversationEvent[];
+  historyVersion: number;
 }
 
 /** Serves scroll-to-message requests from panes outside this tree (the Activity
@@ -1288,10 +1307,15 @@ export interface AcpChatThreadProps extends SharedChatThreadProps {
   events: AcpMessage[];
 }
 
-export function ChatThread({ events, ...props }: ChatThreadProps) {
+export function ChatThread({
+  events,
+  historyVersion,
+  ...props
+}: ChatThreadProps) {
   const { items, ...footerState } = useAgentConversationItems(
     events,
     props.isPromptPending,
+    historyVersion,
   );
 
   return (
@@ -1300,7 +1324,6 @@ export function ChatThread({ events, ...props }: ChatThreadProps) {
         key={props.taskId}
         {...props}
         conversationItems={items}
-        footerEvents={[]}
         footerState={footerState}
       />
     </RawLogsToggleContext.Provider>
@@ -1309,9 +1332,17 @@ export function ChatThread({ events, ...props }: ChatThreadProps) {
 
 export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
   const showDebugLogs = useSettingsStore((state) => state.debugLogsCloudRuns);
-  const { items } = useConversationItems(events, props.isPromptPending, {
-    showDebugLogs,
-  });
+  const currentRunId = useSessionSelector(
+    props.taskId,
+    (session) => session?.taskRunId,
+  );
+  const { items, ...footerState } = useConversationItems(
+    events,
+    props.isPromptPending,
+    {
+      showDebugLogs,
+    },
+  );
 
   return (
     <RawLogsToggleContext.Provider value={true}>
@@ -1319,7 +1350,8 @@ export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
         key={props.taskId}
         {...props}
         conversationItems={items}
-        footerEvents={events}
+        footerState={footerState}
+        hasCurrentSetupProgress={hasSetupProgressForRun(events, currentRunId)}
       />
     </RawLogsToggleContext.Provider>
   );
@@ -1327,12 +1359,12 @@ export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
 
 interface ChatThreadRendererProps extends SharedChatThreadProps {
   conversationItems: ConversationItem[];
-  footerEvents: AcpMessage[];
+  footerState: Omit<BuildResult, "items">;
+  hasCurrentSetupProgress?: boolean;
 }
 
 function ChatThreadRenderer({
   conversationItems,
-  footerEvents,
   groupToolCalls = true,
   isPromptPending,
   promptStartedAt,
@@ -1340,6 +1372,7 @@ function ChatThreadRenderer({
   task,
   taskId,
   footerState,
+  hasCurrentSetupProgress = false,
   hasPendingPermission,
   currentWork,
   promptRecallRef,
@@ -1459,12 +1492,12 @@ function ChatThreadRenderer({
   const footer = (
     <>
       <ChatThreadFooter
-        events={footerEvents}
         isPromptPending={isPromptPending}
         promptStartedAt={promptStartedAt}
         task={task}
         taskId={taskId}
         footerState={footerState}
+        hasCurrentSetupProgress={hasCurrentSetupProgress}
         hasPendingPermission={hasPendingPermission}
         currentWork={currentWork}
       />

@@ -1,4 +1,4 @@
-"""Outbound Browserless budget, keyed by the fingerprint of the fleet's token.
+"""Outbound Browserless budget, keyed by the fleet a call competes for.
 
 Browserless meters concurrent sessions rather than requests, and a session is held for the whole
 page load: a few seconds for a screenshot, tens of seconds for a Lighthouse audit. So the budget
@@ -9,27 +9,25 @@ The fleet is the unit because that is what actually runs out. Two callers pointe
 Browserless draw from one pool of workers whatever team or product they serve, so keying on
 anything narrower would let them each stay inside their own limit and still exhaust the fleet
 between them. Callers pointed at separate fleets fingerprint differently and never interfere.
+
+The default reserve ladder applies, because the callers differ sharply in urgency: a ``BATCH``
+background load is shed before a ``NORMAL`` render that somebody is waiting on.
 """
 
-from django.conf import settings
-
 from posthog.egress.limiter.outbound import get_outbound_rate_limiter
-from posthog.egress.limiter.policies import Priority, RatePolicy, register_policy
+from posthog.egress.limiter.policies import Priority, per_minute_and_hourly_policy, register_policy
 
 BROWSERLESS_DOMAIN = "browserless"
 
-
-def _browserless_policy(_key: str) -> RatePolicy:
-    return RatePolicy(
-        limits=(
-            (int(getattr(settings, "BROWSERLESS_EGRESS_PER_MINUTE_BUDGET", 120)), 60.0),
-            (int(getattr(settings, "BROWSERLESS_EGRESS_HOURLY_BUDGET", 2_000)), 3600.0),
-        ),
-        in_memory_divider=4,
-    )
-
-
-register_policy(BROWSERLESS_DOMAIN, _browserless_policy)
+register_policy(
+    BROWSERLESS_DOMAIN,
+    per_minute_and_hourly_policy(
+        per_minute_setting="BROWSERLESS_EGRESS_PER_MINUTE_BUDGET",
+        per_minute_default=120,
+        hourly_setting="BROWSERLESS_EGRESS_HOURLY_BUDGET",
+        hourly_default=2_000,
+    ),
+)
 
 
 def consume_browserless_sync(scope: str, *, priority: Priority, source: str) -> bool:

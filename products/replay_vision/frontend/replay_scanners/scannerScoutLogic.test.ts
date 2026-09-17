@@ -2,11 +2,16 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import { hogFunctionsPartialUpdate, hogFunctionsRetrieve } from 'products/cdp/frontend/generated/api'
+import {
+    hogFunctionsCreate,
+    hogFunctionsPartialUpdate,
+    hogFunctionsRetrieve,
+} from 'products/cdp/frontend/generated/api'
 import { signalsScoutConfigDestroy, signalsScoutConfigUpdate } from 'products/signals/frontend/generated/api'
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
 import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
-import { llmSkillsNamePartialUpdate } from 'products/skills/frontend/generated/api'
+import { scoutDisplayName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
+import { llmSkillsNamePartialUpdate, llmSkillsNameRetrieve } from 'products/skills/frontend/generated/api'
 
 import {
     visionScannersScoutReportsList,
@@ -30,6 +35,8 @@ const mockScoutConfigDestroy = signalsScoutConfigDestroy as jest.MockedFunction<
 const mockScoutsCreate = visionScannersScoutsCreate as jest.MockedFunction<typeof visionScannersScoutsCreate>
 const mockHogFunctionsRetrieve = hogFunctionsRetrieve as jest.MockedFunction<typeof hogFunctionsRetrieve>
 const mockHogFunctionsPartialUpdate = hogFunctionsPartialUpdate as jest.MockedFunction<typeof hogFunctionsPartialUpdate>
+const mockSkillRetrieve = llmSkillsNameRetrieve as jest.MockedFunction<typeof llmSkillsNameRetrieve>
+const mockHogFunctionsCreate = hogFunctionsCreate as jest.MockedFunction<typeof hogFunctionsCreate>
 
 const SCANNER_ID = '01a014ea-854f-72b5-8192-bb6ac9f212a5'
 const SKILL_NAME = 'signals-scout-daily-digest'
@@ -101,7 +108,7 @@ describe('scannerScoutLogic', () => {
         scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([config])
         logic.actions.openScoutSettings(SKILL_NAME)
         await expectLogic(logic).toFinishAllListeners()
-        logic.actions.loadSkillPromptSuccess({ skillName: SKILL_NAME, body: 'Watch this scanner.' })
+        logic.actions.loadSkillPromptSuccess({ skillName: SKILL_NAME, body: 'Watch this scanner.', latestVersion: 3 })
         jest.mocked(signalsScoutConfigUpdate).mockResolvedValue({ ...config, display_name: 'Checkout / daily digest' })
 
         logic.actions.saveScoutSettings({
@@ -119,6 +126,376 @@ describe('scannerScoutLogic', () => {
         expect(llmSkillsNamePartialUpdate).not.toHaveBeenCalled()
         expect(mockHogFunctionsPartialUpdate).not.toHaveBeenCalled()
         expect(logic.values.settingsSkillName).toBeNull()
+    })
+
+    it('publishes edited instructions against the version the form was loaded at', async () => {
+        await mountWithReports([])
+        const config = makeConfig({ output_destinations: {} })
+        scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([config])
+        logic.actions.openScoutSettings(SKILL_NAME)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadSkillPromptSuccess({ skillName: SKILL_NAME, body: 'Watch this scanner.', latestVersion: 3 })
+        jest.mocked(llmSkillsNamePartialUpdate).mockResolvedValue({ body: 'Watch checkout.', version: 4 } as any)
+
+        logic.actions.saveScoutSettings({
+            name: scoutDisplayName(config),
+            body: 'Watch checkout.',
+            cron: config.run_cron_schedule!,
+            outputDestinations: {},
+            webhookUrl: '',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(llmSkillsNamePartialUpdate).toHaveBeenCalledWith(expect.any(String), SKILL_NAME, {
+            body: 'Watch checkout.',
+            base_version: 3,
+        })
+        expect(logic.values.skillPrompt).toEqual({ skillName: SKILL_NAME, body: 'Watch checkout.', latestVersion: 4 })
+    })
+
+    it('keeps the rename and the delivery when the instructions fail to publish', async () => {
+        // The instructions PATCH is the only call here a concurrent edit can reject. Running it
+        // before the others hands the rejection every other edit made in the same modal.
+        await mountWithReports([])
+        const config = makeConfig({ output_destinations: {} })
+        scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([config])
+        logic.actions.openScoutSettings(SKILL_NAME)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadSkillPromptSuccess({ skillName: SKILL_NAME, body: 'Watch this scanner.', latestVersion: 3 })
+        jest.mocked(signalsScoutConfigUpdate).mockResolvedValue({ ...config, display_name: 'Checkout / daily digest' })
+        mockHogFunctionsCreate.mockResolvedValue({ id: 'hog-new' } as any)
+        jest.mocked(llmSkillsNamePartialUpdate).mockRejectedValue({ status: 409 })
+        mockSkillRetrieve.mockResolvedValue({
+            body: 'Watch this scanner.',
+            body_total_length: 'Watch this scanner.'.length,
+            body_next_offset: null,
+            version: 4,
+            latest_version: 4,
+        } as any)
+
+        logic.actions.saveScoutSettings({
+            name: 'Checkout / daily digest',
+            body: 'Watch checkout.',
+            cron: config.run_cron_schedule!,
+            outputDestinations: {},
+            webhookUrl: 'https://example.com/hooks/scout',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(signalsScoutConfigUpdate).toHaveBeenCalledWith(expect.any(String), config.id, {
+            display_name: 'Checkout / daily digest',
+        })
+        expect(mockHogFunctionsCreate).toHaveBeenCalled()
+        expect(logic.values.settingsSkillName).toBe(SKILL_NAME)
+    })
+
+    it('keeps the draft and moves to the current version when the instructions conflict', async () => {
+        // The retry publishes against the version that rejected the first save.
+        await mountWithReports([])
+        const config = makeConfig({ output_destinations: { webhook: null } })
+        const revised = 'Watch this scanner, revised elsewhere.'
+        scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([config])
+        logic.actions.openScoutSettings(SKILL_NAME)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadSkillPromptSuccess({ skillName: SKILL_NAME, body: 'Watch this scanner.', latestVersion: 3 })
+        jest.mocked(signalsScoutConfigUpdate).mockResolvedValue({
+            ...config,
+            display_name: 'Checkout / daily digest',
+            run_cron_schedule: '0 7 * * *',
+        })
+        jest.mocked(llmSkillsNamePartialUpdate).mockRejectedValue({ status: 409 })
+        mockSkillRetrieve.mockResolvedValue({
+            body: revised,
+            body_total_length: revised.length,
+            body_next_offset: null,
+            version: 5,
+            latest_version: 5,
+        } as any)
+
+        logic.actions.saveScoutSettings({
+            name: 'Checkout / daily digest',
+            body: 'Watch checkout.',
+            cron: '0 7 * * *',
+            outputDestinations: { webhook: null },
+            webhookUrl: '',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.settingsSkillName).toBe(SKILL_NAME)
+        expect(logic.values.skillPrompt).toEqual({ skillName: SKILL_NAME, body: revised, latestVersion: 5 })
+        const saved = logic.values.scoutConfigsForScanner[0]
+        expect(scoutDisplayName(saved)).toBe('Checkout / daily digest')
+        expect(saved.run_cron_schedule).toBe('0 7 * * *')
+
+        jest.mocked(signalsScoutConfigUpdate).mockClear()
+        jest.mocked(llmSkillsNamePartialUpdate).mockResolvedValue({ body: 'Watch checkout.', version: 6 } as any)
+        logic.actions.saveScoutSettings({
+            name: scoutDisplayName(saved),
+            body: 'Watch checkout.',
+            cron: saved.run_cron_schedule!,
+            outputDestinations: saved.output_destinations ?? {},
+            webhookUrl: '',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(llmSkillsNamePartialUpdate).toHaveBeenLastCalledWith(expect.any(String), SKILL_NAME, {
+            body: 'Watch checkout.',
+            base_version: 5,
+        })
+        expect(signalsScoutConfigUpdate).not.toHaveBeenCalled()
+    })
+
+    it('publishes the instructions even when the delivery cannot be reconciled', async () => {
+        // A scout that already delivers pays a destination read and write on every save, whether or
+        // not the delivery changed. Data pipelines failing there must not hold back an edit that
+        // only touched the instructions, or an outage on that destination blocks them all.
+        await mountWithReports([])
+        const config = makeConfig()
+        scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([config])
+        mockHogFunctionsRetrieve.mockResolvedValue({
+            id: WEBHOOK_ID,
+            name: 'Replay Vision · Rage clicks on checkout',
+            deleted: false,
+            template: { id: 'template-webhook' },
+            filters: {
+                events: [{ id: '$scout_report_emitted' }],
+                properties: [{ key: 'skill_name', value: SKILL_NAME }],
+            },
+            inputs: { url: { value: 'https://example.com/hooks/scout' } },
+        } as any)
+        logic.actions.openScoutSettings(SKILL_NAME)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadSkillPromptSuccess({ skillName: SKILL_NAME, body: 'Watch this scanner.', latestVersion: 3 })
+        mockHogFunctionsPartialUpdate.mockRejectedValue({ status: 503 })
+        jest.mocked(llmSkillsNamePartialUpdate).mockResolvedValue({ body: 'Watch checkout.', version: 4 } as any)
+
+        // Only the instructions changed; every other field is what the scout already holds.
+        logic.actions.saveScoutSettings({
+            name: scoutDisplayName(config),
+            body: 'Watch checkout.',
+            cron: config.run_cron_schedule!,
+            outputDestinations: config.output_destinations ?? {},
+            webhookUrl: 'https://example.com/hooks/scout',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(llmSkillsNamePartialUpdate).toHaveBeenCalledWith(expect.any(String), SKILL_NAME, {
+            body: 'Watch checkout.',
+            base_version: 3,
+        })
+        expect(logic.values.skillPrompt).toEqual({ skillName: SKILL_NAME, body: 'Watch checkout.', latestVersion: 4 })
+        // The delivery failure is still the user's to deal with, so the form stays open.
+        expect(logic.values.settingsSkillName).toBe(SKILL_NAME)
+    })
+
+    it('refuses the save when the loaded instructions belong to another scout', async () => {
+        // Nothing here can tell an edited body from an unchanged one without this scout's own
+        // prompt. Saving the rest anyway drops the instruction edit and still reports success.
+        await mountWithReports([])
+        const config = makeConfig({ output_destinations: {} })
+        scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([config])
+        logic.actions.openScoutSettings(SKILL_NAME)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadSkillPromptSuccess({
+            skillName: 'signals-scout-weekly-digest',
+            body: 'Watch another scanner.',
+            latestVersion: 7,
+        })
+
+        logic.actions.saveScoutSettings({
+            name: 'Checkout / daily digest',
+            body: 'Watch checkout.',
+            cron: config.run_cron_schedule!,
+            outputDestinations: {},
+            webhookUrl: '',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(signalsScoutConfigUpdate).not.toHaveBeenCalled()
+        expect(llmSkillsNamePartialUpdate).not.toHaveBeenCalled()
+        expect(logic.values.settingsSkillName).toBe(SKILL_NAME)
+    })
+
+    it('drops a slow read the user has already moved on from', async () => {
+        // Two opens in a row leave two reads in flight. Without a breakpoint the slower one lands
+        // last and puts the scout the user left behind under the form they are now looking at.
+        await mountWithReports([])
+        scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([makeConfig()])
+        let resolveFirst: (skill: unknown) => void = () => {}
+        mockSkillRetrieve
+            .mockReturnValueOnce(new Promise((resolve) => (resolveFirst = resolve)) as any)
+            .mockResolvedValueOnce({
+                body: 'Watch the other scanner.',
+                body_total_length: 24,
+                body_next_offset: null,
+                version: 9,
+                latest_version: 9,
+            } as any)
+
+        logic.actions.openScoutSettings(SKILL_NAME)
+        logic.actions.openScoutSettings('signals-scout-weekly-digest')
+        resolveFirst({
+            body: 'Watch this scanner.',
+            body_total_length: 19,
+            body_next_offset: null,
+            version: 3,
+            latest_version: 3,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.skillPrompt?.skillName).toBe('signals-scout-weekly-digest')
+    })
+
+    it('waits for a fresh read instead of reseeding the instructions a previous open left behind', async () => {
+        // The form seeds from whatever the loader holds for this scout. Reopening after a conflict
+        // with the stale body still in place seeds the losing text and the version it was read at,
+        // so the next save publishes over the edit that caused the conflict.
+        await mountWithReports([])
+        scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([makeConfig()])
+        logic.actions.openScoutSettings(SKILL_NAME)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadSkillPromptSuccess({ skillName: SKILL_NAME, body: 'Watch this scanner.', latestVersion: 3 })
+
+        logic.actions.openScoutSettings(SKILL_NAME)
+
+        expect(logic.values.skillPrompt).toBeNull()
+        expect(logic.values.scoutDelivery).toBeNull()
+    })
+
+    it.each<[string, string, string, number]>([
+        ['another scout', 'signals-scout-trend-watch', 'Watch trends.', 9],
+        ['the same scout', SKILL_NAME, 'Watch this scanner.', 3],
+    ])(
+        'publishes against the scout it started on and leaves %s alone when it is opened mid-save',
+        async (_case, reopenedSkillName, reopenedBody, reopenedVersion) => {
+            // Every request in the save can outlive its own modal, and nothing stops the user
+            // opening a scout meanwhile. Reading the prompt after those requests anchors the publish
+            // to the newly opened form's version and files this scout's body under it. Closing on
+            // the way out throws away the draft that form holds. The scout name does not separate
+            // the two forms, because the user can reopen the scout the save started on.
+            await mountWithReports([])
+            const config = makeConfig({ output_destinations: { webhook: null } })
+            const other = makeConfig({
+                id: 'config-2',
+                skill_name: 'signals-scout-trend-watch',
+                output_destinations: { webhook: null },
+            })
+            scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([config, other])
+            logic.actions.openScoutSettings(SKILL_NAME)
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadSkillPromptSuccess({
+                skillName: SKILL_NAME,
+                body: 'Watch this scanner.',
+                latestVersion: 3,
+            })
+
+            let releaseRename: () => void = () => {}
+            jest.mocked(signalsScoutConfigUpdate).mockReturnValue(
+                new Promise((resolve) => (releaseRename = () => resolve({ ...config, display_name: 'Renamed' })))
+            )
+            jest.mocked(llmSkillsNamePartialUpdate).mockResolvedValue({ body: 'Watch checkout.', version: 4 } as any)
+            mockSkillRetrieve.mockResolvedValue({
+                body: reopenedBody,
+                body_total_length: reopenedBody.length,
+                body_next_offset: null,
+                version: reopenedVersion,
+                latest_version: reopenedVersion,
+            } as any)
+
+            logic.actions.saveScoutSettings({
+                name: 'Renamed',
+                body: 'Watch checkout.',
+                cron: config.run_cron_schedule!,
+                outputDestinations: { webhook: null },
+                webhookUrl: '',
+            })
+            // The rename is still in flight when the user gives up on it and opens a scout again.
+            logic.actions.closeScoutSettings()
+            logic.actions.openScoutSettings(reopenedSkillName)
+            logic.actions.loadSkillPromptSuccess({
+                skillName: reopenedSkillName,
+                body: reopenedBody,
+                latestVersion: reopenedVersion,
+            })
+            releaseRename()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(llmSkillsNamePartialUpdate).toHaveBeenCalledWith(expect.any(String), SKILL_NAME, {
+                body: 'Watch checkout.',
+                base_version: 3,
+            })
+            expect(logic.values.skillPrompt).toEqual({
+                skillName: reopenedSkillName,
+                body: reopenedBody,
+                latestVersion: reopenedVersion,
+            })
+            expect(logic.values.settingsSkillName).toBe(reopenedSkillName)
+        }
+    )
+
+    it('publishes the whole body when the instructions arrive over more than one page', async () => {
+        await mountWithReports([])
+        const config = makeConfig({ output_destinations: {} })
+        scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([config])
+        const head = 'x'.repeat(8000)
+        const tail = '\n\nFile the digest as one report.'
+        mockSkillRetrieve
+            .mockResolvedValueOnce({
+                body: head,
+                body_total_length: head.length + tail.length,
+                body_next_offset: head.length,
+                version: 3,
+                latest_version: 3,
+            } as any)
+            .mockResolvedValueOnce({
+                body: head + tail,
+                body_total_length: head.length + tail.length,
+                body_next_offset: null,
+                version: 3,
+                latest_version: 3,
+            } as any)
+        logic.actions.openScoutSettings(SKILL_NAME)
+        await expectLogic(logic).toFinishAllListeners()
+        const edited = `${head}${tail} Watch checkout.`
+        jest.mocked(llmSkillsNamePartialUpdate).mockResolvedValue({ body: edited, version: 4 } as any)
+
+        expect(mockSkillRetrieve).toHaveBeenLastCalledWith(expect.any(String), SKILL_NAME, {
+            body_offset: 0,
+            body_length: head.length + tail.length,
+            version: 3,
+        })
+        expect(logic.values.skillPrompt).toEqual({ skillName: SKILL_NAME, body: head + tail, latestVersion: 3 })
+
+        logic.actions.saveScoutSettings({
+            name: scoutDisplayName(config),
+            body: edited,
+            cron: config.run_cron_schedule!,
+            outputDestinations: {},
+            webhookUrl: '',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(llmSkillsNamePartialUpdate).toHaveBeenCalledWith(expect.any(String), SKILL_NAME, {
+            body: edited,
+            base_version: 3,
+        })
+    })
+
+    it('loads nothing when the instructions come back short', async () => {
+        await mountWithReports([])
+        scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([makeConfig({ output_destinations: {} })])
+        mockSkillRetrieve.mockResolvedValue({
+            body: 'Watch this scanner.',
+            body_total_length: 900,
+            body_next_offset: null,
+            version: 3,
+            latest_version: 3,
+        } as any)
+
+        logic.actions.openScoutSettings(SKILL_NAME)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.skillPrompt).toBeNull()
     })
 
     it('resolves the latest report without waiting for the scout roster', async () => {

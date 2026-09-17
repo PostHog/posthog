@@ -1,7 +1,7 @@
 """Validation helpers for project settings."""
 
 import json
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import re2
 from pydantic import TypeAdapter
@@ -15,6 +15,9 @@ from posthog.models.project import Project
 from posthog.types import AnyPropertyFilter
 
 from . import team_config
+
+if TYPE_CHECKING:
+    from posthog.user_permissions import UserPermissions
 
 test_account_filters_adapter = TypeAdapter(list[AnyPropertyFilter])
 
@@ -140,6 +143,13 @@ def validate_path_cleaning_filters(value: object) -> object:
     return value
 
 
+def heatmaps_screenshot_secret_for_reader(team: Team, user_permissions: "UserPermissions") -> str | None:
+    level = user_permissions.team(team).effective_membership_level
+    if level is None or level < OrganizationMembership.Level.ADMIN:
+        return None
+    return team.heatmaps_screenshot_secret
+
+
 def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerializer) -> Organization | None:
     if serializer.instance is not None:
         team = (
@@ -214,3 +224,13 @@ def validate_team_attrs(
                 "Field autocapture_exceptions_errors_to_ignore must be less than 300 characters. Complex config should be provided in posthog-js initialization."
             )
     return attrs
+
+
+def validate_team_workflows_config(team: Team | None, value: dict[str, Any] | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+
+    serializer = team_config.TeamWorkflowsConfigSerializer(team.workflows_config if team else None, data=value)
+    if not serializer.is_valid():
+        raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
+    return serializer.validated_data

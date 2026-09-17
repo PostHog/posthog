@@ -568,8 +568,13 @@ class TestDebtDigestTask(VisualReviewTeamScopedTestMixin, BaseTest):
         # Nothing records what was sent, so an overlapping run would post every reminder twice.
         assert send.call_count == 0
 
-    def test_the_fan_out_gives_each_child_a_deadline(self) -> None:
-        repo = Repo.objects.create(team_id=self.team.id, repo_external_id=55513, repo_full_name="org/fanned-out")
+    def test_the_fan_out_gives_each_child_a_deadline_and_skips_a_switched_off_repo(self) -> None:
+        repo = Repo.objects.create(
+            team_id=self.team.id, repo_external_id=55513, repo_full_name="org/fanned-out", debt_digest_enabled=True
+        )
+        switched_off = Repo.objects.create(
+            team_id=self.team.id, repo_external_id=55514, repo_full_name="org/switched-off"
+        )
 
         with patch("products.visual_review.backend.tasks.tasks.send_visual_review_debt_digest.apply_async") as enqueue:
             send_visual_review_debt_digests()
@@ -577,8 +582,9 @@ class TestDebtDigestTask(VisualReviewTeamScopedTestMixin, BaseTest):
         # A child without a deadline lets a drained backlog post yesterday's digest next to today's.
         enqueued = {(call.kwargs["args"], call.kwargs["expires"]) for call in enqueue.call_args_list}
         assert ((repo.team_id, str(repo.id)), tasks._DEBT_DIGEST_EXPIRY_SECONDS) in enqueued
+        assert str(switched_off.id) not in {args[1] for args, _ in enqueued}
 
-    def test_the_scheduled_run_posts_rather_than_previews(self) -> None:
+    def test_the_child_posts_the_live_digest(self) -> None:
         repo = Repo.objects.create(team_id=self.team.id, repo_external_id=55512, repo_full_name="org/scheduled")
         try:
             with patch("products.visual_review.backend.logic.debt_digest.send_debt_digest") as send:
@@ -586,4 +592,6 @@ class TestDebtDigestTask(VisualReviewTeamScopedTestMixin, BaseTest):
         finally:
             cache.delete(f"visual_review_debt_digest:{repo.id}")
 
+        # Preview mode posts nothing, so a scheduled run in any other mode is a digest nobody gets.
+        assert send.call_count == 1
         assert send.call_args.kwargs["mode"] == debt_digest.MODE_LIVE
