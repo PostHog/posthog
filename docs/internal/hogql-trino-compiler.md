@@ -172,6 +172,12 @@ Response organization strings are limited to 128 characters; non-string values l
 
 Compilation is best effort per view. Unsupported HogQL records a failed result and processing continues. A definition changed after the snapshot records a stale result. The workflow stores generated SQL and named values directly from activities so large SQL strings do not cross the Temporal workflow payload boundary. It never executes the SQL, creates Trino relations, or updates `DataWarehouseSavedQuery.query`.
 
+Each team compilation activity has a one-hour start-to-close timeout, a two-minute heartbeat timeout, and at most two attempts.
+A background thread sends heartbeats during synchronous compilation, including while one view takes longer than the heartbeat interval.
+Cancellation propagates as an activity cancellation instead of a per-view compilation failure.
+Activities check cancellation and the job's running state before each view and before recording compilation outcomes; result updates also require a running job and a pending result.
+An interrupted view remains pending for an activity retry, which resumes from pending results.
+
 The result admin can retry selected failed or stale rows. A retry creates a new selected-view job linked to the source job, preserving the original job and results as an immutable audit record.
 
 The data modeling shadow path uses these results as an eligibility gate. It requires a ready Trino target and a non-empty compiled result whose source hash matches the saved query's current definition.
