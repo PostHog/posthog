@@ -14,6 +14,7 @@ import httpx
 import structlog
 
 from posthog.security.pinned_httpx import pinned_client
+from posthog.security.pinned_requests import SSRFBlockedError
 
 from .models import MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
@@ -112,6 +113,10 @@ def fetch_upstream_tools(installation: MCPServerInstallation) -> list[dict[str, 
                 # here are purely janitorial and must not mask real errors above.
                 if session_id:
                     _mcp_terminate_session(client, upstream_url, session_headers)
+    except (SSRFBlockedError, httpx.ProxyError) as exc:
+        raise ToolsFetchError(
+            "Upstream MCP connection blocked. Ask an administrator to check the outbound proxy configuration."
+        ) from exc
     except httpx.ConnectError as exc:
         raise ToolsFetchError("Upstream MCP server unreachable") from exc
     except httpx.TimeoutException as exc:
@@ -164,6 +169,10 @@ def call_upstream_tool(
             finally:
                 if session_id:
                     _mcp_terminate_session(client, upstream_url, session_headers)
+    except (SSRFBlockedError, httpx.ProxyError) as exc:
+        raise ToolCallError(
+            "Upstream MCP connection blocked. Ask an administrator to check the outbound proxy configuration."
+        ) from exc
     except httpx.ConnectError as exc:
         raise ToolCallError("Upstream MCP server unreachable") from exc
     except httpx.TimeoutException as exc:

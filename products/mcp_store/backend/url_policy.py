@@ -28,7 +28,8 @@ def resolve_mcp_url_policy(url: str, team_id: int | None) -> PinnedUrlVerdict:
     silently drops the policy.
 
     A caller that opens a connection to the URL must connect to ``pinned_ips``
-    (see ``posthog.security.pinned_httpx``) instead of resolving the host again.
+    (see ``posthog.security.pinned_httpx``), or use an explicitly trusted proxy
+    that validates the address it connects to. Other proxies must fail closed.
     An internal endpoint is reached by name inside the cluster, so its verdict
     pins nothing.
     """
@@ -45,6 +46,10 @@ def check_mcp_url_policy(url: str, team_id: int | None) -> tuple[bool, str | Non
 
 
 def trust_environment_proxy(url: str, team_id: int | None) -> bool:
-    """Internal Services must be reached directly instead of via HTTP_PROXY."""
+    """Allow proxy routing for public URLs, not proxy trust.
+
+    The pinned client separately enforces ``SSRF_TRUSTED_PROXY_URLS``.
+    Internal services must be reached directly instead of via HTTP_PROXY.
+    """
 
     return not is_internal_mcp_url(url, team_id)

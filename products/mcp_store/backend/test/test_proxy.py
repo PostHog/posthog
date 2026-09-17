@@ -558,21 +558,27 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == 400
         assert "Private IP" in response.json()["error"]
 
+    @parameterized.expand([("direct",), ("trusted",), ("untrusted",), ("denied",)])
     @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips")
-    def test_proxy_connects_to_the_validated_address(self, mock_validate):
+    def test_proxy_connects_to_the_validated_address(self, route: str, mock_validate: MagicMock) -> None:
         mock_validate.return_value = PinnedUrlVerdict(
             allowed=True, reason=None, pinned_ips={ipaddress.ip_address("93.184.216.34")}
         )
         installation = self._create_installation(sensitive_configuration={"api_key": "sk-test-key"})
         seen: list[httpx.Request] = []
 
-        def handle_request(_transport, request):
+        def handle_request(_transport: httpx.HTTPTransport, request: httpx.Request) -> httpx.Response:
+            if route == "denied":
+                raise httpx.ProxyError("403 Forbidden")
             seen.append(request)
             return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {}})
 
         no_proxies = {key: "" for key in os.environ if key.lower().endswith("_proxy")}
+        environment = {} if route == "direct" else {"HTTPS_PROXY": "http://egress.example:3128"}
+        trusted_proxies = ["http://egress.example:3128"] if route in {"trusted", "denied"} else []
         with (
-            patch.dict(os.environ, no_proxies),
+            override_settings(SSRF_TRUSTED_PROXY_URLS=trusted_proxies),
+            patch.dict(os.environ, {**no_proxies, **environment}),
             patch.object(httpx.HTTPTransport, "handle_request", handle_request),
         ):
             response = self.client.post(
@@ -581,11 +587,17 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 format="json",
             )
 
+        if route in {"untrusted", "denied"}:
+            assert response.status_code == 502
+            assert "outbound proxy configuration" in response.json()["error"]
+            assert seen == []
+            return
+
         assert response.status_code == 200
         [request] = seen
-        assert request.url.host == "93.184.216.34"
+        assert request.url.host == ("93.184.216.34" if route == "direct" else "mcp.example.com")
         assert request.headers["Host"] == "mcp.example.com"
-        assert request.extensions["sni_hostname"] == "mcp.example.com"
+        assert request.extensions.get("sni_hostname") == ("mcp.example.com" if route == "direct" else None)
         assert request.headers["Authorization"] == "Bearer sk-test-key"
 
     def test_proxy_rejects_body_over_1mb(self):

@@ -7,6 +7,7 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 import httpx
@@ -199,15 +200,29 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
         assert [t["name"] for t in tools] == ["alpha"]
         assert not client.delete.called
 
+    @parameterized.expand(
+        [
+            ("direct", "fetch"),
+            ("trusted", "fetch"),
+            ("untrusted", "fetch"),
+            ("untrusted", "call"),
+            ("denied", "fetch"),
+            ("denied", "call"),
+        ]
+    )
     @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips")
-    def test_fetch_upstream_tools_connects_to_the_validated_address(self, mock_validate):
+    def test_fetch_upstream_tools_connects_to_the_validated_address(
+        self, route: str, operation: str, mock_validate: MagicMock
+    ) -> None:
         mock_validate.return_value = PinnedUrlVerdict(
             allowed=True, reason=None, pinned_ips={ipaddress.ip_address("93.184.216.34")}
         )
         installation = self._installation(url="https://mcp.example.com/mcp")
         seen: list[httpx.Request] = []
 
-        def handle_request(_transport, request):
+        def handle_request(_transport: httpx.HTTPTransport, request: httpx.Request) -> httpx.Response:
+            if route == "denied":
+                raise httpx.ProxyError("403 Forbidden")
             seen.append(request)
             if request.method == "DELETE":
                 return httpx.Response(200)
@@ -223,17 +238,31 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
             return httpx.Response(202)
 
         no_proxies = {key: "" for key in os.environ if key.lower().endswith("_proxy")}
+        environment = {} if route == "direct" else {"HTTPS_PROXY": "http://egress.example:3128"}
+        trusted_proxies = ["http://egress.example:3128"] if route in {"trusted", "denied"} else []
         with (
-            patch.dict(os.environ, no_proxies),
+            override_settings(SSRF_TRUSTED_PROXY_URLS=trusted_proxies),
+            patch.dict(os.environ, {**no_proxies, **environment}),
             patch.object(httpx.HTTPTransport, "handle_request", handle_request),
         ):
+            if route in {"untrusted", "denied"}:
+                error_type = ToolsFetchError if operation == "fetch" else ToolCallError
+                with pytest.raises(error_type, match="outbound proxy configuration"):
+                    if operation == "fetch":
+                        fetch_upstream_tools(installation)
+                    else:
+                        call_upstream_tool(installation, "alpha", {})
+                assert seen == []
+                return
             tools = fetch_upstream_tools(installation)
 
         assert [tool["name"] for tool in tools] == ["alpha"]
         assert len(seen) == 4
-        assert {request.url.host for request in seen} == {"93.184.216.34"}
+        assert {request.url.host for request in seen} == {"93.184.216.34" if route == "direct" else "mcp.example.com"}
         assert {request.headers["Host"] for request in seen} == {"mcp.example.com"}
-        assert {request.extensions["sni_hostname"] for request in seen} == {"mcp.example.com"}
+        assert {request.extensions.get("sni_hostname") for request in seen} == {
+            "mcp.example.com" if route == "direct" else None
+        }
 
     @patch(
         "products.mcp_store.backend.url_policy.validate_url_and_pin_ips",

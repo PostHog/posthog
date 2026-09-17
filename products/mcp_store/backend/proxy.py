@@ -12,6 +12,7 @@ import structlog
 
 from posthog.api.streaming import sse_streaming_response
 from posthog.security.pinned_httpx import pinned_client
+from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import is_url_allowed
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
@@ -558,6 +559,14 @@ def proxy_mcp_request(
             content=body,
             headers=headers,
             stream=True,
+        )
+    except (SSRFBlockedError, httpx.ProxyError):
+        client.close()
+        logger.warning("Upstream MCP connection blocked by URL or proxy policy")
+        return HttpResponse(
+            '{"error": "Upstream MCP connection blocked. Ask an administrator to check the outbound proxy configuration."}',
+            content_type="application/json",
+            status=502,
         )
     except httpx.ConnectError:
         client.close()
