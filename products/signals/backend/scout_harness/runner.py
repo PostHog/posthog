@@ -285,13 +285,9 @@ async def arun_signals_scout(
     if user_id is None:
         user_id = await database_sync_to_async(resolve_acting_user_id_for_team, thread_sensitive=False)(team.id)
         if user_id is not None and _granted_write_scopes(config):
-            # A grant a person made was approved for the person the runs act as. The team fallback
-            # is a member who never approved it, so this run holds only the fleet posture. The
-            # exception is the grant a canonical scout declares on disk (`scout-write-scopes`):
-            # PostHog approved that one when it shipped the skill, and a pristine canonical scout
-            # has no author to resolve, so withholding it would withhold it on every run. Cleared
-            # in memory only: the runner never saves the config row, so a person's grant is back
-            # the moment the author's identity resolves again.
+            # A person's grant was approved for the person the runs act as, and the team fallback never approved it.
+            # The grant a canonical scout declares on disk (`scout-write-scopes`) is the exception: PostHog approved
+            # it with the skill, and a pristine canonical scout has no author to resolve. Cleared in memory only.
             declared: set[str] = set()
             if skill.origin == "canonical":
                 # Reads the skill fleet from disk on a cold cache, so keep it off the event loop.

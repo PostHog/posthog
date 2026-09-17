@@ -7,7 +7,6 @@ import { urls } from 'scenes/urls'
 
 import type { WorkflowProposalApi } from '../generated/api.schemas'
 
-/** A suggestion someone approved: it sits on the canvas as the draft until a person publishes it. */
 export function WorkflowStagedSuggestion({ id, proposal }: { id: string; proposal: WorkflowProposalApi }): JSX.Element {
     const approver = proposal.resolved_by?.first_name || proposal.resolved_by?.email
     return (

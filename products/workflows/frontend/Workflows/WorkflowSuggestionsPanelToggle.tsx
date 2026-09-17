@@ -31,8 +31,7 @@ export function WorkflowSuggestionsPanelToggle({ id }: { id: string }): JSX.Elem
                     className="px-2 py-1"
                     checked={optimisationEnabled}
                     onChange={(checked) => setOptimisationEnabled(checked)}
-                    // A read that failed leaves this switch showing "off" for a workflow that may be
-                    // on, so it stays inert and says so until an answer arrives.
+                    // A failed read must not show "off" for a workflow that may be on.
                     disabled={optimisationLoading || optimisationUnreadable || !!disabledReason || !!notLiveReason}
                     tooltip={
                         disabledReason ??

@@ -2810,8 +2810,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
 
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_pending_suggestions(self, hog_flow: HogFlow) -> int | None:
-        # Annotated onto the list queryset, so a workflow list can flag suggestions without a click.
-        # The detail serializer leaves the field out: the Suggestions tab is the count there.
+        # Annotated on the list queryset only; the detail serializer leaves it out.
         return getattr(hog_flow, "pending_suggestions", None)
 
     def to_representation(self, instance):
@@ -4147,12 +4146,10 @@ def conflicting_parts(hog_flow: HogFlow, proposal: WorkflowProposal) -> list[str
         if field not in PROPOSAL_MERGE_BY_ID_FIELDS and field not in PROPOSAL_WHOLE_LIST_FIELDS
     ]
     if touched_lists:
-        # A whole-list field carries the shape of the graph around the steps it lists, so any
-        # publish since it was read can drop something. Nothing narrower to compare.
+        # A whole-list field replaces the list, so any publish since counts.
         return sorted({*touched_steps, *touched_lists, *touched_fields})
     if base_content is None:
-        # Without the snapshot the proposal read, "changed since" is unanswerable. Refuse rather
-        # than stage a merge over an unknown base.
+        # Without the snapshot the proposal read, "changed since" is unanswerable.
         return sorted({*touched_steps, *touched_fields})
     live_content = snapshot_flow_content(hog_flow)
     base_actions = {_item_id(item): item for item in base_content.get("actions") or []}
@@ -4251,9 +4248,7 @@ def _leaf(item: Any, path: tuple[str, ...]) -> Any:
     return _ABSENT if item is None else item
 
 
-# Content fields that hold a list of objects. Their items reach the secret-stripping and graph
-# validation helpers, which read each item as a mapping, so anything else has to fail as a bad
-# request here rather than as an AttributeError several frames down.
+# Their items reach helpers that read each item as a mapping, so anything else has to fail here as a 400.
 PROPOSAL_LIST_OF_OBJECT_FIELDS = ("actions", "edges", "variables")
 
 
@@ -4466,9 +4461,8 @@ class HogFlowViewSet(
                 return ["hog_flow:read"]
             return ["hog_flow:write"]
         if self.action == "proposals":
-            # Listing suggestions is workflow-read. Authoring one takes its own narrow scope rather
-            # than `hog_flow:write`, so a producer can suggest without also being able to publish,
-            # update or test-send the workflow it is suggesting about.
+            # Listing is workflow-read. Authoring takes its own narrow scope, so a producer can suggest without
+            # being able to publish.
             if request.method in ("GET", "HEAD", "OPTIONS"):
                 return ["hog_flow:read"]
             return ["hog_flow_proposal:write"]
@@ -5384,10 +5378,7 @@ class HogFlowViewSet(
             locked.draft_updated_at = None
             locked.draft_encrypted_inputs = None
             locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
-            # Approved means "this draft carries it", and every path that changes the draft unstages
-            # what it dropped, so whatever is approved here just went live. One indexed UPDATE, and a
-            # no-op for every workflow that has no proposals - which is why it needs no flag check of
-            # its own.
+            # Every path that changes the draft unstages what it dropped, so whatever is approved here just went live.
             WorkflowProposal.objects.filter(hog_flow=locked, status=WorkflowProposal.Status.APPROVED).update(
                 status=WorkflowProposal.Status.APPLIED, applied_version=locked.version
             )
@@ -5596,9 +5587,7 @@ class HogFlowViewSet(
         if retry_of:
             return Response(WorkflowProposalSerializer(retry_of).data, status=status.HTTP_200_OK)
 
-        # Reading the queue stays open while the flag is on, so a workflow turned off keeps showing
-        # the suggestions someone already has to resolve. Producing a new one is what the workflow's
-        # own opt-in gates, and only a live workflow has sends to judge.
+        # Reading the queue stays open while the flag is on; the workflow's opt-in only gates producing a new one.
         if instance.status != HogFlow.State.ACTIVE:
             raise WorkflowNotLiveError()
         if not HogFlowOptimisation.objects.filter(hog_flow=instance, enabled=True).exists():
@@ -5624,9 +5613,7 @@ class HogFlowViewSet(
                         ]
                     }
                 )
-            # Publish revalidates the staged draft with the workflow serializer, and a person cannot
-            # fix what it refuses from the suggestion card. Run the same validation here, where the
-            # producer can.
+            # Publish revalidates the draft with the workflow serializer; run it here, where the producer can fix what it refuses.
             draft_serializer = self.get_serializer(instance, data=dict(merged), partial=True)
             if not draft_serializer.is_valid():
                 raise exceptions.ValidationError(
@@ -5640,8 +5627,7 @@ class HogFlowViewSet(
 
         step_id = params.get("step_id") or None
         if step_id:
-            # The reading below and the outcome later are keyed on this step, so a step the workflow
-            # does not have would attach real-looking numbers from nowhere to the suggestion.
+            # The reading and the outcome are keyed on this step, so it has to exist.
             known_steps = {_item_id(item) for item in snapshot_flow_content(instance).get("actions") or []}
             added_steps = {_item_id(item) for item in content.get("actions") or []}
             if step_id not in known_steps and step_id not in added_steps:
@@ -5649,8 +5635,7 @@ class HogFlowViewSet(
                     {"step_id": "Name a step this workflow has, or one the suggestion adds."}
                 )
 
-        # The producer's numbers are its own claim. The page shows PostHog's reading of the same
-        # step at the same version instead, and a person sees when the two disagree.
+        # The producer's numbers are its own claim; PostHog's reading of the same step and version sits beside them.
         evidence = dict(params.get("evidence") or {})
         measured = self._measure_evidence(instance, params["base_version"], step_id, evidence)
         if measured is not None:
@@ -5742,8 +5727,6 @@ class HogFlowViewSet(
                 raise ProposalAlreadyResolvedError()
             if locked.draft and not param_serializer.validated_data["overwrite"]:
                 raise DraftExistsError()
-            # A suggestion is only out of date when the steps or fields it changes moved under it.
-            # An edit somewhere else in the workflow merges cleanly and is not a reason to refuse.
             conflicts = conflicting_parts(locked, locked_proposal)
             if conflicts:
                 raise ProposalOutOfDateError(describe_steps(locked, conflicts))
@@ -5756,8 +5739,7 @@ class HogFlowViewSet(
                 raise StaleWorkflowUpdateError()
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
-            # The draft is always a full content snapshot (live content as the base, the proposal's
-            # changed fields merged in), so publish stays a plain copy with no merge logic.
+            # The draft is a full snapshot (live plus the proposal), so publish stays a plain copy.
             locked.draft = merge_proposal_content(
                 snapshot_flow_content(locked),
                 proposal_changes(locked_proposal, base_content_of(locked, locked_proposal)),
@@ -5767,8 +5749,7 @@ class HogFlowViewSet(
             locked.draft_encrypted_inputs = None
             locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
 
-            # This suggestion's content replaces whatever was staged, so a previously approved one
-            # goes back to the queue unless the new draft still carries its change.
+            # The new draft replaces what was staged; an earlier approval stays only if the draft still carries it.
             unstage_workflow_proposals(locked)
 
             locked_proposal.status = WorkflowProposal.Status.APPROVED

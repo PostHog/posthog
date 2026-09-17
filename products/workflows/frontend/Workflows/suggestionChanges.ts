@@ -1,26 +1,20 @@
 import type { HogFlow } from './hogflows/types'
 
 export interface SuggestedFieldChange {
-    /** Dotted path inside the step or workflow, e.g. `config.inputs.email.value.subject`. */
     path: string
-    /** What a person reads for that path. Drops the wrapper segments every input carries. */
     label: string
-    /** The live value at that path. `undefined` when the live workflow has nothing there. */
     before: unknown
-    /** The suggested value. `null` means the field is deleted. */
     after: unknown
 }
 
 export interface SuggestedStepChange {
     stepId: string
-    /** The live step's name, or null when the suggestion adds a step. */
     stepName: string | null
     fields: SuggestedFieldChange[]
 }
 
 export interface SuggestedChanges {
     steps: SuggestedStepChange[]
-    /** Changes outside `actions`, e.g. the workflow name or its edges. */
     workflow: SuggestedFieldChange[]
 }
 
@@ -47,7 +41,6 @@ function labelFor(segments: string[]): string {
     return (spoken.length ? spoken : segments).join(' › ')
 }
 
-/** Walks a patch down to its leaves and pairs each leaf with the live value at the same path. */
 function leafChanges(patch: Record<string, unknown>, live: unknown, prefix: string[] = []): SuggestedFieldChange[] {
     const changes: SuggestedFieldChange[] = []
     for (const [key, value] of Object.entries(patch)) {

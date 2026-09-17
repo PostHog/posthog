@@ -1688,10 +1688,7 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_team_fallback_keeps_the_grant_a_canonical_scout_declares(ateam):
-    # A pristine canonical scout has no author to act as, so every one of its runs takes the team
-    # fallback. Withholding its own declared grant there (`scout-write-scopes`, approved by PostHog
-    # when the skill shipped) would withhold it on every run; a person's grant on the same config
-    # is still withheld, because the fallback member never approved that one.
+    # A pristine canonical scout takes the team fallback on every run, so its own declared grant must survive it.
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     captured: dict = {}
 

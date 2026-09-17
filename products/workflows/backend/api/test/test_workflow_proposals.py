@@ -179,8 +179,6 @@ class TestWorkflowProposals(APIBaseTest):
 
     @parameterized.expand([("actions",), ("variables",)])
     def test_a_suggestion_is_refused_once_someone_edits_what_it_changes(self, _mock_flag, field: str):
-        # `actions` collides here because the publish below moves the same URL on the same step.
-        # `variables` reads like a single setting but is a whole list, so any publish since is a collision.
         flow_id = self._create_active_flow()
         content = (
             {"actions": [_webhook_action(url="https://proposed.example.com")]}
@@ -219,7 +217,6 @@ class TestWorkflowProposals(APIBaseTest):
         proposal = self._propose(
             flow_id, content={"exit_condition": "exit_only_at_end"}, source_id="scalar", base_version=1
         )
-        # A person changes the same field on the live workflow, which publishes it as version 2.
         patched = self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
             {"exit_condition": "exit_on_trigger_not_matched"},
@@ -594,9 +591,6 @@ class TestWorkflowProposals(APIBaseTest):
         assert response.json()["after"]["version"] == 2
 
     def test_suggesting_takes_its_own_scope_not_workflow_write(self, _mock_flag):
-        # A producer must be able to suggest without holding the scope that publishes, updates or
-        # test-sends a workflow — that is what keeps an autonomous run from putting mail in front of
-        # real people.
         flow_id = self._create_active_flow()
         payload = {
             "title": "Point the webhook somewhere that answers",
@@ -622,7 +616,6 @@ class TestWorkflowProposals(APIBaseTest):
         )
         assert created.status_code == 201, created.json()
 
-        # The same key cannot publish what it suggested.
         published = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
             {},
@@ -648,9 +641,6 @@ class TestWorkflowProposals(APIBaseTest):
         assert draft["actions"][1]["config"]["inputs"]["url"]["value"] == "https://proposed.example.com"
 
     def test_a_step_carries_only_the_fields_it_changes(self, _mock_flag):
-        # A producer that rewrites one input must not have to resend the rest of the step: a step that
-        # arrived with only a subject line used to lose its sender, recipient and body at approval,
-        # and publish refused the draft where the reviewer could do nothing about it.
         flow_id = self._create_active_flow()
         proposal = self._propose(
             flow_id,
@@ -862,7 +852,6 @@ class TestWorkflowProposals(APIBaseTest):
     def test_editing_the_draft_hands_the_suggestion_back_only_if_the_edit(
         self, _mock_flag, _label: str, url: str, name: str, status: str, applied_version: int | None
     ):
-        # Publish reads approved as shipped, so only an edit that takes the change out of the draft hands it back.
         flow_id = self._create_active_flow()
         proposal = self._propose(flow_id, content={"actions": [_webhook_action(url="https://proposed.example.com")]})
         approve = self.client.post(

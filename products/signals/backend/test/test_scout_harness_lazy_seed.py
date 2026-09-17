@@ -262,8 +262,6 @@ class TestDiscoverCanonicalSkills:
         assert skills[0].config_tags == ("ai-observability", "on-call")
 
     def test_parses_scout_write_scopes(self, tmp_path: Path) -> None:
-        # The grant a canonical scout declares is what lets it write at all, so a dropped value is
-        # a scout whose first write is refused.
         _write_canonical_skill(
             tmp_path,
             dir_name="signals-scout-bar",
@@ -290,7 +288,6 @@ class TestDiscoverCanonicalSkills:
     def test_rejects_scout_write_scopes_outside_the_allowlist(
         self, tmp_path: Path, write_scopes_yaml: str, expected_error: str
     ) -> None:
-        # A skill on disk can declare nothing a person could not grant it by hand.
         _write_canonical_skill(
             tmp_path,
             dir_name="signals-scout-bar",
@@ -1150,8 +1147,6 @@ class TestSeedCanonicalSkillsAlias(BaseTest):
         assert specialist.auto_pause_exempt is False
 
     def test_real_fleet_scout_write_scopes_land_on_the_seeded_config(self) -> None:
-        # The workflows scout is the one scout that files suggestions, and it can only do so if the
-        # grant it declares is on its config: every other scout seeds with none.
         seed_canonical_skills(self.team)
         register_missing_configs(self.team.id)
 

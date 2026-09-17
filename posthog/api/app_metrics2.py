@@ -484,7 +484,6 @@ def fetch_app_metric_daily_totals_by_team(
 
 
 class AppMetricsMixin(viewsets.GenericViewSet):
-    # A viewset whose object records metrics per version swaps in the serializer that accepts one.
     metrics_request_serializer_class: type[AppMetricsRequestSerializer] = AppMetricsRequestSerializer
 
     app_source: str  # Should be set by the inheriting class
@@ -543,8 +542,8 @@ class AppMetricsMixin(viewsets.GenericViewSet):
 
     def _metrics_params(self, request: Request) -> AppMetricsRequestSerializer:
         serializer = self.metrics_request_serializer_class(data=request.query_params)
-        # A serializer ignores a parameter it does not declare, so a `version` sent to an object
-        # that records none would read the whole history and answer 200. Refuse it instead.
+        # A serializer ignores a parameter it does not declare, so `version` on an object without versions
+        # would read the whole history.
         if "version" in request.query_params and "version" not in serializer.fields:
             raise serializers.ValidationError({"version": "Only workflow metrics are recorded per version."})
         return serializer

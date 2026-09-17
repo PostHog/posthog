@@ -28,8 +28,7 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
     } = useValues(workflowProposalsLogic({ id }))
 
     const measuredApplied = appliedProposals.filter((proposal) => outcomes[proposal.id]?.after)
-    // Approving, publishing and discarding each move a suggestion between these lists through
-    // separate requests. Until every one of them has answered, "nothing here" is not known yet.
+    // Each list answers separately; "nothing here" is unknown until all have.
     const listsUnknown = proposalsResponse === null || approvedResponse === null || appliedResponse === null
     const listsSettling =
         proposalsResponseLoading ||

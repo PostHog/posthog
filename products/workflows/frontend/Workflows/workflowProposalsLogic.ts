@@ -501,9 +501,7 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
         },
     })),
     listeners(({ actions, values, props }) => ({
-        // Publishing, discarding and restoring happen outside this panel and each one changes what it
-        // should say. A publish moves the version; a discard or a restore moves the draft stamp. Keying
-        // on those two keeps an ordinary reload from refetching the queue.
+        // Publish, discard and restore happen outside this panel; the version and the draft stamp cover all three.
         [workflowLogic({ id: props.id }).actionTypes.loadWorkflowSuccess]: () => {
             const version = values.originalWorkflow?.version ?? null
             const draftStamp = values.originalWorkflow?.draft_updated_at ?? null

@@ -53,7 +53,6 @@ export function readMeasured(evidence: Record<string, unknown>): MeasuredEvidenc
     return measured as MeasuredEvidence
 }
 
-/** The API echoes the relative window it read, e.g. `-7d`; a person reads it as a span of days. */
 export function describeWindow(window: string): string {
     const match = /^-(\d+)([dh])$/.exec(window)
     if (!match) {
@@ -63,11 +62,9 @@ export function describeWindow(window: string): string {
     return `the last ${match[1]} ${unit}${match[1] === '1' ? '' : 's'}`
 }
 
-// Half a percentage point: the producer reads the same series moments earlier, so a smaller gap is
-// timing, and a larger one is a number it did not take from the metrics.
+// Half a point: the producer reads the same series moments earlier.
 const RATE_TOLERANCE = 0.005
 
-/** True when the producer's headline number is not the one PostHog measured. */
 export function evidenceDisagrees(evidence: Record<string, unknown>, measured: MeasuredEvidence): boolean {
     if (
         readUnit(evidence.unit) !== 'rate' ||

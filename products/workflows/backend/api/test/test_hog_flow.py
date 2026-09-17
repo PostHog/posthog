@@ -4882,9 +4882,6 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_a_version_reads_only_its_own_series(self):
-        # The per-version series is keyed `<flow id>/<version>` by the worker; a read that drifts
-        # from that key (or ignores `version`) answers every version at once, which is exactly what
-        # a "did this change help" comparison cannot use.
         self._seed("hog_flow_version", f"{self.flow.id}/1", succeeded=3)
         self._seed("hog_flow_version", f"{self.flow.id}/2", succeeded=5)
         self._seed("hog_flow", str(self.flow.id), succeeded=7)
@@ -4901,8 +4898,6 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
 
     @patch("products.workflows.backend.api.hog_flow.posthoganalytics.feature_enabled", return_value=True)
     def test_a_suggestion_carries_what_posthog_measured_next_to_what_it_claimed(self, _mock_flag):
-        # The producer's numbers are its own claim; the reading stored beside them is PostHog's, from
-        # the same per-version, per-step series the outcome card reads.
         HogFlow.objects.filter(id=self.flow.id).update(
             actions=[{"id": "email_1", "type": "function_email", "name": "Email", "config": {}}], status="active"
         )
@@ -4948,8 +4943,6 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
         assert {g["metric"]: g["value"] for g in measured["guardrails"]}["bounce rate"] == 0.02
 
     def test_a_version_is_refused_where_nothing_records_one(self):
-        # Hog functions have no per-version mirror. Answering from the empty series would read as
-        # "no failures" to a caller comparing versions.
         function = HogFunction.objects.create(team=self.team, name="fn", type="destination", hog="return event")
 
         response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{function.id}/metrics/totals?version=1")

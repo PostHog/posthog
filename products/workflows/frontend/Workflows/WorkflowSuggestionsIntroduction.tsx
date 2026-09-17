@@ -11,7 +11,6 @@ const HedgehogResearch = pngHoggie(research)
 
 const DOCS_URL = 'https://posthog.com/docs/workflows/suggestions'
 
-/** The Suggestions tab before anything has been filed: the pitch while it is off, the watch while it is on. */
 export function WorkflowSuggestionsIntroduction({ id, enabled }: { id: string; enabled: boolean }): JSX.Element {
     if (!enabled) {
         return (

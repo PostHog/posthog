@@ -191,7 +191,6 @@ export function WorkflowsTable(): JSX.Element {
                                 {selfOptimisingEnabled &&
                                     item.status === 'active' &&
                                     !!item.pending_suggestions && (
-                                        // Inside the title so it sits next to the name whatever the description's width.
                                         // A tag with its own click rather than a link: the row is already a link.
                                         <LemonTag
                                             type="completion"

@@ -10,7 +10,6 @@ import type {
 } from '../generated/api.schemas'
 import { MIN_EVIDENCE_SAMPLE, describeWindow, formatValue } from './suggestionEvidence'
 
-/** The API names each rate; the table names the thing counted, because "Emails sent" heads it. */
 const ROW_LABELS: Record<string, string> = {
     'email open rate': 'Opened',
     'click rate': 'Clicked',

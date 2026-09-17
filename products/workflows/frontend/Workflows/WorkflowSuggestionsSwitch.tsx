@@ -9,13 +9,11 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { workflowLogic } from './workflowLogic'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
 
-/** The per-workflow opt-in, as it appears on the Suggestions tab in both its states. */
 export function WorkflowSuggestionsSwitch({ id }: { id: string }): JSX.Element {
     const { optimisationEnabled, optimisationLoading } = useValues(workflowProposalsLogic({ id }))
     const { setOptimisationEnabled } = useActions(workflowProposalsLogic({ id }))
     const { workflowUserAccessLevel, originalWorkflow } = useValues(workflowLogic({ id }))
-    // A draft has no sends to judge and an archived workflow is done, so the switch stays visible
-    // but says why it cannot be turned on. The server refuses the opt-in for those states too.
+    // A draft or archived workflow cannot be opted in; the switch stays visible and says why.
     const notLiveReason =
         originalWorkflow && originalWorkflow.status !== 'active'
             ? 'Suggestions need a live workflow. Enable it first.'
@@ -29,8 +27,7 @@ export function WorkflowSuggestionsSwitch({ id }: { id: string }): JSX.Element {
         >
             {({ disabledReason }) => {
                 const reason = disabledReason ?? notLiveReason
-                // LemonSwitch's own disabledReason tooltip covers only the knob, so the reason wraps
-                // the whole bordered control and shows when hovering the label too.
+                // LemonSwitch's own tooltip covers only the knob, so the reason wraps the whole control.
                 return (
                     <Tooltip title={reason}>
                         <div className="flex items-center">
