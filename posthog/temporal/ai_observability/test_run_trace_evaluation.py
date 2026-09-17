@@ -159,19 +159,42 @@ class TestFormatTraceForJudge:
 
         assert "search_docs" in transcript
 
-    @pytest.mark.parametrize("content_length,should_truncate", [(50_000, False), (200_000, True)])
+    @pytest.mark.parametrize("output_property", ["$ai_output", "$ai_output_choices"])
+    @pytest.mark.parametrize(
+        "content_length,output_length,should_truncate,should_truncate_output",
+        [(50_000, 4_000, False, False), (200_000, 4_000, True, False), (200_000, 200_000, True, True)],
+    )
     def test_truncates_long_event_io_only_when_the_trace_exceeds_budget(
-        self, content_length: int, should_truncate: bool
+        self,
+        output_property: str,
+        content_length: int,
+        output_length: int,
+        should_truncate: bool,
+        should_truncate_output: bool,
     ) -> None:
         content = "start " + "x" * (content_length // 2) + " critical evidence " + "y" * (content_length // 2) + " end"
+        output = "a" * (output_length // 2) + "\n- Required output evidence.\n" + "b" * (output_length // 2)
+        output_value = (
+            output
+            if output_property == "$ai_output"
+            else [{"role": "assistant", "content": [{"type": "text", "text": output}]}]
+        )
         trace = create_trace(
-            [create_trace_event("$ai_generation", **{"$ai_input": [{"role": "user", "content": content}]})]
+            [
+                create_trace_event(
+                    "$ai_generation",
+                    **{"$ai_input": [{"role": "user", "content": content}], output_property: output_value},
+                )
+            ]
         )
 
         transcript = format_trace_for_judge(trace)
 
         assert ("chars truncated" in transcript) == should_truncate
         assert ("critical evidence" in transcript) == (not should_truncate)
+        assert ("- Required output evidence." in transcript) == (not should_truncate_output)
+        if not should_truncate_output:
+            assert all(line in transcript for line in output.splitlines())
         assert "start " in transcript
         assert " end" in transcript
         assert len(transcript) <= JUDGE_TRACE_MAX_CHARS
@@ -187,12 +210,15 @@ class TestFormatTraceForJudge:
         assert len(transcript) <= JUDGE_TRACE_MAX_CHARS
         assert "SAMPLED VIEW" in transcript
 
+    @pytest.mark.parametrize("message_property", ["$ai_input", "$ai_output_choices"])
     @pytest.mark.parametrize("event_count,message_count", [(50, 1), (1, 50)])
-    def test_oversized_messages_do_not_allocate_the_full_transcript(self, event_count: int, message_count: int) -> None:
+    def test_oversized_messages_do_not_allocate_the_full_transcript(
+        self, message_property: str, event_count: int, message_count: int
+    ) -> None:
         content = "start " + "x" * 500_000 + " end"
         messages = [{"role": "user", "content": content} for _ in range(message_count)]
         trace = create_trace(
-            [create_trace_event("$ai_generation", **{"$ai_input": messages}) for _ in range(event_count)]
+            [create_trace_event("$ai_generation", **{message_property: messages}) for _ in range(event_count)]
         )
 
         tracemalloc.start()
