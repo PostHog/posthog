@@ -801,10 +801,8 @@ class TestFacadeReadsAndMappers(TestCase):
             output={"pr_url": "https://x/pull/1", "pr_state": "closed"},
         )
 
-        summaries = {
-            dto.title: dto.latest_run
-            for dto in facade.get_task_summaries(self.team.id, self.user.id, ids=[task.id, own_pr.id])
-        }
+        dtos, _ = facade.get_task_summaries(self.team.id, self.user.id, ids=[task.id, own_pr.id])
+        summaries = {dto.title: dto.latest_run for dto in dtos}
 
         # The sidebar reads summaries while the task view reads the detail DTO; both have to show
         # the same PR for the same task.
@@ -830,10 +828,8 @@ class TestFacadeReadsAndMappers(TestCase):
         )
         TaskRun.objects.create(task=inherited, team=self.team, status=TaskRun.Status.COMPLETED)
 
-        summaries = {
-            dto.title: dto.latest_run
-            for dto in facade.get_task_summaries(self.team.id, self.user.id, ids=[own.id, inherited.id])
-        }
+        dtos, _ = facade.get_task_summaries(self.team.id, self.user.id, ids=[own.id, inherited.id])
+        summaries = {dto.title: dto.latest_run for dto in dtos}
 
         # `pr_url` is the flat field clients read, so a run that recorded only the array still
         # reports its first usable entry there — whether that run is the latest or an earlier one.
@@ -846,7 +842,8 @@ class TestFacadeReadsAndMappers(TestCase):
         task = self._make_task(title="no pr")
         TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
 
-        summary = facade.get_task_summaries(self.team.id, self.user.id, ids=[task.id])[0].latest_run
+        dtos, _ = facade.get_task_summaries(self.team.id, self.user.id, ids=[task.id])
+        summary = dtos[0].latest_run
 
         assert summary is not None
         self.assertIsNone(summary.pr_url)
