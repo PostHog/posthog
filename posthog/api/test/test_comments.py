@@ -11,11 +11,13 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url, extract_plain_text_from_rich_content
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization import OrganizationMembership
 from posthog.redis import get_client
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV
 
@@ -607,6 +609,44 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             name="Private canvas",
             created_by=other,
             generation_task_id=task.id,
+        )
+        payload = {
+            "content": "Should not land",
+            "scope": "desktop_canvas",
+            "item_id": str(canvas.id),
+            "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+        }
+
+        assert self.client.post(f"/api/projects/{self.team.id}/comments", payload).status_code == 403
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={task.id}"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == []
+
+    def test_canvas_comments_respect_object_access_control(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        task = self._task_artifact_target()
+        other = User.objects.create_and_join(self.organization, "restricted-canvas-owner@posthog.com", "password")
+        canvas_model = apps.get_model("canvas", "Canvas")
+        canvas = canvas_model.objects.unscoped().create(
+            team=self.team,
+            channel=task.channel,
+            name="Restricted canvas",
+            created_by=other,
+            generation_task_id=task.id,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="canvas",
+            resource_id=str(canvas.id),
+            organization_member=self.organization_membership,
+            access_level="none",
         )
         payload = {
             "content": "Should not land",

@@ -16,6 +16,26 @@ body.ExporterBody {
         max-height: 100vh;
     }
 
+    // A shared canvas is an app in an iframe: it takes the viewport and scrolls its own content.
+    &--canvas {
+        height: 100vh;
+        max-height: 100vh;
+
+        .SharedCanvas {
+            display: flex;
+            flex: 1;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .SharedCanvas-frame {
+            flex: 1;
+            width: 100%;
+            min-height: 0;
+            border: 0;
+        }
+    }
+
     // A metric export is a compact card, not a full-page insight — drop the viewport-height floor so the
     // exporter wraps the card tightly instead of padding it out to 100vh.
     &--metric {
