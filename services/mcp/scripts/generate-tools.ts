@@ -523,6 +523,7 @@ function composeToolSchema(
     const includeSet = config.include_params ? new Set(config.include_params) : undefined
     // original → alias mapping from rename_params config
     const renameMap = new Map(Object.entries(config.rename_params ?? {}))
+    const renamedOriginal = new Map([...renameMap].map(([original, alias]) => [alias, original]))
 
     // Path params (omit project_id and organization_id — these are auto-resolved)
     const allPathParams = (resolved.operation.parameters ?? []).filter((p) => p.in === 'path')
@@ -770,7 +771,10 @@ function composeToolSchema(
                     sourceImport = `${pascal}Params`
                 }
                 if (sourceImport) {
-                    let expr = `${sourceImport}.shape['${paramName}']`
+                    // A renamed body field is tracked under its alias, but the Orval shape only
+                    // knows the original name.
+                    const shapeKey = renamedOriginal.get(paramName) ?? paramName
+                    let expr = `${sourceImport}.shape['${shapeKey}']`
                     if (override.required) {
                         // PATCH body fields are `.optional()` in the Orval shape; unwrap so the
                         // tool schema requires the field, matching the backend serializer.
@@ -795,6 +799,7 @@ function composeToolSchema(
         }
     }
 
+    const explicitOverrideKeys = new Set(Object.keys(config.param_overrides ?? {}))
     // rename_params: swap original field names for MCP-safe aliases in the schema.
     // The handler maps back to the original name when building the request body.
     const renamedFields: Record<string, string> = {}
@@ -809,7 +814,11 @@ function composeToolSchema(
             if (!pathParamNames.includes(original)) {
                 schemaExpr += `\n    .omit({ '${original}': true })`
             }
-            schemaExpr += `\n    .extend({ ${alias}: ${bodyImport}.shape['${original}'] })`
+            // A param_overrides entry for the alias already extended the schema with the
+            // described field; re-adding the raw shape here would drop that description.
+            if (!explicitOverrideKeys.has(alias)) {
+                schemaExpr += `\n    .extend({ ${alias}: ${bodyImport}.shape['${original}'] })`
+            }
         }
     }
 
@@ -823,7 +832,6 @@ function composeToolSchema(
     // union is sufficient — no handler changes required. Skipped when the YAML
     // config also defines a param_overrides entry for the field, so explicit
     // YAML always wins.
-    const explicitOverrideKeys = new Set(Object.keys(config.param_overrides ?? {}))
     const stringifiedJsonQueryParams = queryParams.filter(
         (p) =>
             p['x-accepts-stringified-json'] === true &&
