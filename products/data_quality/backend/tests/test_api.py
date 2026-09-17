@@ -998,6 +998,18 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert len(scoped.json()["results"]) == 2
         assert [row["check_type"] for row in filtered.json()["results"]] == [CheckType.UNIQUE]
 
+    def test_unnamed_checks_on_one_subject_come_back_newest_first(self) -> None:
+        # A name is optional, so most checks on a subject sort on the same blank value. Without a
+        # tiebreak the page a caller receives is whatever order the database happened to return.
+        oldest = self._create_check(column_name="a")
+        middle = self._create_check(column_name="b")
+        newest = self._create_check(column_name="c")
+
+        listed = self.client.get(self._checks_of(self.view.id))
+
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert [row["id"] for row in listed.json()["results"]] == [str(newest.id), str(middle.id), str(oldest.id)]
+
     def test_check_types_exposes_a_config_schema_per_type(self) -> None:
         response = self.client.get(f"{self.url}/check_types/?subject_type={SubjectType.VIEW}")
 

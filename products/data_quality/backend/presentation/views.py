@@ -426,10 +426,12 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
         # run, and no rollup to sit under. The run history they left behind stays queryable.
         # The rollup reads four columns of every enabled check in the project and serializes none of
         # the people, so it does not pay for the author join the listing needs.
+        # A name is optional, so the id breaks the tie a blank one leaves -- newest first, and a
+        # total order, without which two pages of the same listing can repeat or drop a check.
         queryset = (
             api.live_subject_checks(queryset.filter(team_id=self.team_id, deleted=False))
             .exclude(subject_status=SubjectStatus.ORPHANED)
-            .order_by("subject_name", "name")
+            .order_by("subject_name", "name", "-id")
         )
         if self.action in self.SUBJECT_FILTERED_ACTIONS and (subject := self._authorized_query_subject()):
             queryset = queryset.filter(**api.subject_filter(subject.subject_type, subject.subject_uuid))
