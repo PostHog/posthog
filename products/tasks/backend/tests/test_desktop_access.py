@@ -6,6 +6,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import PermissionDenied, Throttled
 
 from posthog.models import Organization, OrganizationMembership, Team
 
@@ -187,3 +188,107 @@ class TestDesktopAccessPolicy(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertEqual(response.json()["code"], "desktop_access_unavailable")
+
+
+class TestEnforceCodeAccess(APIBaseTest):
+    def _enforce(self, **kwargs) -> None:
+        from products.tasks.backend.facade.api import enforce_code_access
+        from products.tasks.backend.models import Task
+
+        defaults = {
+            "origin_product": Task.OriginProduct.EXPERIMENTS,
+            "create_pr": True,
+            "internal": False,
+            "signal_report_id": None,
+        }
+        enforce_code_access(self.team, self.user.id, **{**defaults, **kwargs})
+
+    @parameterized.expand(
+        [
+            ("experiments_pr_run", "experiments", True, False, True),
+            ("slack_pr_run", "slack", True, False, True),
+            ("no_pull_request", "experiments", False, False, False),
+            ("internal_machinery", "experiments", True, True, False),
+            ("onboarding_wizard", "onboarding", True, False, False),
+            ("bare_signal_report_origin", "signal_report", True, False, True),
+        ]
+    )
+    @patch("products.tasks.backend.logic.services.code_usage_gate.usage_limit_response", return_value=None)
+    @patch("products.tasks.backend.access.get_desktop_access_decision")
+    def test_only_gates_pull_request_runs_from_non_exempt_origins(
+        self, _name, origin_product, create_pr, internal, expect_denied, mock_decision, _mock_usage
+    ) -> None:
+        mock_decision.return_value = MagicMock(allowed=False, reason=DesktopAccessReason.STARTUP_PLAN)
+
+        if expect_denied:
+            with self.assertRaises(PermissionDenied):
+                self._enforce(origin_product=origin_product, create_pr=create_pr, internal=internal)
+        else:
+            self._enforce(origin_product=origin_product, create_pr=create_pr, internal=internal)
+
+    @patch("products.tasks.backend.logic.services.code_usage_gate.usage_limit_response", return_value=None)
+    @patch("products.tasks.backend.access.get_desktop_access_decision")
+    def test_inbox_report_run_is_entitled_through_its_report_link(self, mock_decision, _mock_usage) -> None:
+        from products.tasks.backend.models import Task
+
+        mock_decision.return_value = MagicMock(allowed=False, reason=DesktopAccessReason.STARTUP_PLAN)
+
+        self._enforce(origin_product=Task.OriginProduct.SIGNAL_REPORT, signal_report_id="a-report-id")
+
+    @patch("products.tasks.backend.logic.services.code_usage_gate.usage_limit_response", return_value=None)
+    @patch(
+        "products.tasks.backend.access.get_desktop_access_decision",
+        side_effect=DesktopAccessResolutionError("billing unreachable"),
+    )
+    def test_fails_open_when_entitlement_cannot_be_resolved(self, _mock_decision, _mock_usage) -> None:
+        self._enforce()
+
+    @patch("products.tasks.backend.logic.services.code_usage_gate.usage_limit_response")
+    @patch(
+        "products.tasks.backend.access.get_desktop_access_decision",
+        side_effect=DesktopAccessResolutionError("billing unreachable"),
+    )
+    def test_unresolved_entitlement_still_applies_the_usage_limit(self, _mock_decision, mock_usage) -> None:
+        mock_usage.return_value = MagicMock()
+
+        with self.assertRaises(Throttled):
+            self._enforce()
+
+    @patch("products.tasks.backend.logic.services.code_usage_gate.usage_limit_response")
+    @patch("products.tasks.backend.access.get_desktop_access_decision")
+    def test_denies_an_entitled_organization_that_is_over_its_usage_limit(self, mock_decision, mock_usage) -> None:
+        mock_decision.return_value = MagicMock(allowed=True, reason=None)
+        mock_usage.return_value = MagicMock()
+
+        with self.assertRaises(Throttled):
+            self._enforce()
+
+
+class TestCreateAndRunTaskAppliesTheCodeAccessGate(APIBaseTest):
+    @patch("products.tasks.backend.facade.api.Task.create_and_run")
+    @patch("products.tasks.backend.facade.api.enforce_code_access", side_effect=PermissionDenied("denied"))
+    def test_a_denied_run_never_reaches_task_creation(self, mock_enforce, mock_create) -> None:
+        from products.tasks.backend.facade.api import create_and_run_task
+        from products.tasks.backend.models import Task
+
+        with self.assertRaises(PermissionDenied):
+            create_and_run_task(
+                team=self.team,
+                title="Clean up the flag",
+                description="...",
+                origin_product=Task.OriginProduct.EXPERIMENTS,
+                user_id=self.user.id,
+                repository="acme/web",
+                create_pr=True,
+            )
+
+        mock_create.assert_not_called()
+        self.assertEqual(
+            mock_enforce.call_args.kwargs,
+            {
+                "origin_product": Task.OriginProduct.EXPERIMENTS,
+                "create_pr": True,
+                "internal": False,
+                "signal_report_id": None,
+            },
+        )

@@ -7,6 +7,7 @@ from typing import Any
 from django.db import models
 
 import structlog
+from rest_framework.exceptions import PermissionDenied, Throttled
 from temporalio import activity
 
 from posthog.dataclasses import frozen
@@ -697,6 +698,26 @@ def create_posthog_code_task_for_repo_activity(
             reasoning_effort=run_prefs.reasoning_effort,
             channel_id=personal_channel_id,
         )
+    except (PermissionDenied, Throttled) as e:
+        # A denial is settled, so the generic handler below would be wrong twice over: it calls it
+        # an internal error, and it tells the user to try again in a minute.
+        logger.warning(
+            "posthog_code_task_creation_denied",
+            error=str(e.detail),
+            team_id=integration.team_id,
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+        try:
+            post_slack_thread_reply(
+                slack.client,
+                channel=channel,
+                thread_ts=thread_ts,
+                text=f"I can't start that task. {e.detail}",
+            )
+        except Exception:
+            logger.warning("posthog_code_error_notification_failed", channel=channel, thread_ts=thread_ts)
+        return
     except Exception as e:
         logger.exception(
             "posthog_code_task_creation_failed",
