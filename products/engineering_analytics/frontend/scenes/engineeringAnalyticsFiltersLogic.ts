@@ -82,6 +82,11 @@ function parseUrlDate(date: string): Dayjs | null {
  *  start, no end or a relative end) stays rolling. Anything with a fixed date gets a fixed start: a relative
  *  start against a fixed end would drift past the end over time. */
 export function windowStartFromUrl(dateFrom: string, dateTo: string | null): string {
+    // The backend reads an unsigned or `+` relative date as time ago, the browser as time ahead. Leave such a
+    // window as it is rather than cap it on a reading the backend does not share.
+    if ([dateFrom, dateTo].some((date) => date && isStringDateRegex.test(date) && !date.startsWith('-'))) {
+        return dateFrom
+    }
     const from = parseUrlDate(dateFrom)
     const to = dateTo ? parseUrlDate(dateTo) : dayjs.utc()
     if (!from || !to || to.diff(from, 'day') <= MAX_WINDOW_DAYS) {
