@@ -110,6 +110,30 @@ export function ViewportChooser({ lockedWidth }: { lockedWidth?: number }): JSX.
  * values and actions are passed as props because they are different
  * between fixed and embedded mode
  */
+function EmptyHeatmapBanner(): JSX.Element {
+    const { redirectDestination } = useValues(heatmapsBrowserLogic)
+    const { setDataUrl } = useActions(heatmapsBrowserLogic)
+
+    if (redirectDestination) {
+        return (
+            <LemonBanner
+                type="info"
+                className="mb-2"
+                action={{ children: 'Use the destination', onClick: () => setDataUrl(redirectDestination) }}
+            >
+                {redirectEmptyStateMessage(redirectDestination)}
+            </LemonBanner>
+        )
+    }
+
+    return (
+        <LemonBanner type="info" className="mb-2">
+            No data found. Try a different date range or URL, or lower the "Viewport accuracy" in heatmap settings. A
+            high value can hide data on pages with less traffic.
+        </LemonBanner>
+    )
+}
+
 export function FilterPanel({
     captureMethod,
     onCaptureMethodChange,
@@ -136,9 +160,6 @@ export function FilterPanel({
     const { patchHeatmapFilters, setHeatmapColorPalette, setHeatmapFixedPositionMode, setCommonFilters } = useActions(
         heatmapDataLogic({ context: 'in-app' })
     )
-
-    const { redirectDestination } = useValues(heatmapsBrowserLogic)
-    const { setDataUrl } = useActions(heatmapsBrowserLogic)
 
     const cohortFilterEnabled = useFeatureFlag('HEATMAPS_COHORT_FILTER')
     const eventFilterEnabled = useFeatureFlag('HEATMAPS_EVENT_FILTER')
@@ -314,25 +335,7 @@ export function FilterPanel({
                 </div>
                 <ViewportChooser lockedWidth={lockedWidth} />
             </div>
-            {heatmapEmpty ? (
-                redirectDestination ? (
-                    <LemonBanner
-                        type="info"
-                        className="mb-2"
-                        action={{
-                            children: 'Use the destination',
-                            onClick: () => setDataUrl(redirectDestination),
-                        }}
-                    >
-                        {redirectEmptyStateMessage(redirectDestination)}
-                    </LemonBanner>
-                ) : (
-                    <LemonBanner type="info" className="mb-2">
-                        No data found. Try a different date range or URL, or lower the "Viewport accuracy" in heatmap
-                        settings. A high value can hide data on pages with less traffic.
-                    </LemonBanner>
-                )
-            ) : null}
+            {heatmapEmpty ? <EmptyHeatmapBanner /> : null}
         </div>
     )
 }
