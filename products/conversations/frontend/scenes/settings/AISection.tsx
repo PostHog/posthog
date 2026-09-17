@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonBanner, LemonCard, LemonCheckbox, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard, LemonCheckbox, LemonDivider, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -13,6 +13,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { aiTriageTicketTypeLabel, TicketChannel } from '../../types'
 import { supportSettingsLogic } from './supportSettingsLogic'
 import { CONVERSATIONS_LOGIC_KEY } from './SupportSettingsScene'
+import { TicketPatternThresholds } from './TicketPatternThresholds'
 
 const CHANNEL_LABELS: Record<TicketChannel, string> = {
     widget: 'API / Widget',
@@ -271,6 +272,12 @@ export function AISection(): JSX.Element {
                                 loading={ticketPatternsLoading}
                             />
                         </div>
+                        {ticketPatternsEnabled && (
+                            <>
+                                <LemonDivider />
+                                <TicketPatternThresholds />
+                            </>
+                        )}
                     </LemonCard>
                 </SceneSection>
             )}
