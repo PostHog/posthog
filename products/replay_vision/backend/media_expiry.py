@@ -22,4 +22,6 @@ def expire_media_asset(
     sender: type[ReplayObservationMedia], instance: ReplayObservationMedia, **kwargs: object
 ) -> None:
     # Filtered rather than saved, so the sweep's own asset delete cascades here and matches nothing.
-    ExportedAsset.objects.filter(pk=instance.asset_id, expires_after__gt=now()).update(expires_after=now())
+    ExportedAsset.objects.filter(pk=instance.asset_id, team_id=instance.team_id, expires_after__gt=now()).update(
+        expires_after=now()
+    )
