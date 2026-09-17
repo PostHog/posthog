@@ -208,13 +208,13 @@ const LinkOnPasteExtension = Extension.create({
     name: 'supportLinkOnPaste',
     priority: 150, // Run before the Link extension's own paste handler
     addProseMirrorPlugins() {
-        const linkType = this.editor.schema.marks.link
         return [
             new Plugin({
                 key: new PluginKey('supportLinkOnPaste'),
                 props: {
                     handlePaste: (view, event) => {
                         const { selection } = view.state
+                        const linkType = view.state.schema.marks.link
                         // Only wrap a non-empty text selection. Node selections (e.g. an image)
                         // can't hold inline marks, so let those pastes fall through untouched.
                         if (!(selection instanceof TextSelection) || selection.empty || !linkType) {
