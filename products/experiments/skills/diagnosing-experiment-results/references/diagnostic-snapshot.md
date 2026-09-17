@@ -99,19 +99,20 @@ moment you pulled the snapshot) produces the same shape.
 experiment ID resolved in Step 1 of `SKILL.md`. `experiment-results-get` has no implicit current
 experiment.
 
-- **Re-pull** `experiment-results-get { id: <experiment_id> }` (cached — `refresh` defaults to false)
-  a while later — if the previously-null rows now carry data, they were transient, not failing.
-- **Re-fetch the missing rows** with `experiment-results-get { id: <experiment_id>, refresh: true }`.
-  `refresh: true` maps to the `blocking` execution mode, which computes a metric only when that
-  metric's cache is missing or stale, and serves a fresh cache otherwise. So this is not a forced
-  recompute, and a populated row is not proof that the compute path ran. A row that comes back
-  populated does prove the earlier `null` was transient. **A row that stays `null` is unresolved, not
+- **Re-pull** `experiment-results-get { id: <experiment_id> }` a while later — if the previously-null
+  rows now carry data, they were transient, not failing. **A row that stays `null` is unresolved, not
   proven broken.** The tool fires every metric query at once, and it turns any single query failure
   (an exhausted rate-limit retry, a network error) into `data: null` while the call as a whole still
-  reports success. So this call produces nulls of its own under load. Re-pull once the load clears,
-  and report a metric as failing to compute only after the row stays `null` across separate pulls.
-  Then inspect its definition (e.g. a `mean` metric over a property that doesn't exist, a baseline of
-  zero, or a malformed funnel).
+  reports success. So every pull produces nulls of its own under load. Pull again once the load
+  clears, and report a metric as failing to compute only after the row stays `null` across separate
+  pulls. Then inspect its definition (e.g. a `mean` metric over a property that doesn't exist, a
+  baseline of zero, or a malformed funnel).
+- **Don't add `refresh: true` as a second check.** The tool omits the field when `refresh` is false,
+  and the query endpoint reads an omitted value as the `blocking` execution mode — the same mode
+  `refresh: true` asks for. That mode computes a metric whose cache is missing or stale, and serves a
+  fresh cache otherwise. So the plain pull above is not cache-only, `refresh: true` is not a forced
+  recompute, and a populated row is no proof that the compute path ran. A second call carrying it
+  repeats the whole metric fan-out for the same result, and only adds rate-limit pressure.
 - **To force a real recompute**, call `experiment-metrics-recalculation-create { id: <experiment_id> }`,
   then poll `experiment-metrics-recalculation-latest-retrieve { id: <experiment_id> }`. No `refresh`
   value on `experiment-results-get` recalculates a metric whose cache is already fresh. This path
