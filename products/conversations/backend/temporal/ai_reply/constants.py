@@ -10,6 +10,10 @@ LEGACY_MAX_ATTEMPTS = 5
 DEFER_KNOWLEDGE_GAPS_UNTIL_RESOLUTION_PATCH = "defer-knowledge-gaps-until-resolution-2026-09"
 # Histories without this marker must retain the LEGACY_MAX_ATTEMPTS SCORE_THRESHOLD loop.
 BLOCKER_AWARE_LOOP_PATCH = "blocker-aware-loop-2026-09"
+# Histories without this marker treat blocked_on_customer as findings, not a clarifying question.
+TIERED_CLARIFY_PATCH = "tiered-clarify-2026-09"
+MAX_CLARIFICATION_ROUNDS = 1
+MAX_CLARIFYING_QUESTION_CHARS = 500
 
 # Stable namespace for deterministic per-ticket trace ids (uuid5).
 AI_REPLY_TRACE_NAMESPACE = UUID("a1b2c3d4-5678-4e9f-ab12-cd34ef567890")

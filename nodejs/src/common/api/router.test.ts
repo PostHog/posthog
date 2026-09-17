@@ -5,7 +5,7 @@ import { IngestionGeneralServer } from '~/servers/ingestion-general-server'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 
 describe('router', () => {
-    jest.retryTimes(3) // Flakey due to reliance on kafka/clickhouse
+    jest.retryTimes(3, { logErrorsBeforeRetry: true }) // Flakey due to reliance on kafka/clickhouse
     let server: IngestionGeneralServer
 
     beforeAll(async () => {
