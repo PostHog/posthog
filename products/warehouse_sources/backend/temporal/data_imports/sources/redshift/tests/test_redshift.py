@@ -390,41 +390,17 @@ class TestGetPrimaryKeysForTable:
         assert expected_phrase in warning
         assert "full table replication" in warning
 
-    def test_warns_that_a_table_declares_no_key_when_the_role_can_read_constraints(self, impl, cursor, logger):
-        # A key found elsewhere in the schema proves the role can read `table_constraints`, so this
-        # table's empty result is a real absence and the message can say so outright.
+    def test_warns_that_a_table_declares_no_key(self, impl, cursor, logger):
+        # `pg_catalog` applies no privilege filter, and a failed read raises rather than returning
+        # nothing, so an empty result is a real absence. Hedging it sends the operator after a
+        # permission that cannot be the cause, and the suggested fix does not apply.
         cursor.fetchall.return_value = []
-        cursor.execute.return_value = cursor
-        cursor.fetchone.return_value = (1,)
-
-        impl.get_primary_keys_for_table(cursor, "public", "t", logger, "table")
-
-        assert "No primary key is set on t" in logger.warning.call_args.args[0]
-
-    @pytest.mark.parametrize("probe_outcome", ["sees_nothing", "probe_fails"])
-    def test_does_not_claim_a_table_is_keyless_when_detection_is_undetermined(
-        self, impl, cursor, logger, probe_outcome
-    ):
-        # The reported bug: an unreadable key and an absent key both produce zero rows, and the
-        # message asserted the second. Asserting absence here sends the operator to set keys by
-        # hand for a condition they may not have.
-        cursor.fetchall.return_value = []
-        cursor.execute.return_value = cursor
-        cursor.fetchone.return_value = None
-        if probe_outcome == "probe_fails":
-            # Only the privilege probe is a LIMIT 1, so this fails it without counting calls.
-            def fail_the_probe(query, *args):
-                if "LIMIT 1" in query.as_string():
-                    raise Exception("permission denied")
-                return cursor
-
-            cursor.execute.side_effect = fail_the_probe
 
         impl.get_primary_keys_for_table(cursor, "public", "t", logger, "table")
 
         warning = logger.warning.call_args.args[0]
-        assert "Could not determine a primary key" in warning
-        assert "No primary key is set" not in warning
+        assert "No primary key is set on t" in warning
+        assert "full table replication" in warning
 
     @pytest.mark.parametrize("conkey", ["2 1", "{2,1}", [2, 1]])
     def test_orders_composite_key_columns_by_declared_position(self, impl, cursor, conkey):

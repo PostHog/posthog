@@ -594,39 +594,15 @@ def _retry_on_transient_connection_drop(
             time.sleep(min(2 * attempt, 30))
 
 
-def _reads_primary_keys(cursor: psycopg.Cursor, schema: str) -> bool | None:
-    """Can this connection read primary-key constraints in `schema` at all?
-
-    An empty result for one table means either "no key is declared" or "the catalog lookup told us
-    nothing", and the two need opposite advice. Finding a key on any table in the schema settles it:
-    the role can read the catalog, so an empty per-table result is a real absence.
-
-    `None` when the probe itself fails, which settles nothing either way.
-    """
-    query = sql.SQL("""
-        SELECT 1
-        FROM pg_catalog.pg_constraint con
-        JOIN pg_catalog.pg_class c ON c.oid = con.conrelid
-        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-        WHERE con.contype = 'p' AND n.nspname = {schema}
-        LIMIT 1""").format(schema=sql.Literal(schema))
-    try:
-        return cursor.execute(query).fetchone() is not None
-    except Exception:
-        _recover_after_failed_probe(cursor.connection)
-        return None
-
-
 def _no_primary_key_warning(
-    cursor: psycopg.Cursor,
-    schema: str,
     table_name: str,
     table_type: Literal["table", "view", "materialized_view"] | None,
 ) -> str:
     """The warning for a table whose primary-key lookup came back empty.
 
-    Each branch states only what the empty result actually establishes, so the operator is never
-    sent after a key that cannot exist or that we merely failed to read.
+    The lookup reads `pg_catalog`, which applies no privilege filter, and a failed read raises
+    rather than returning nothing. An empty result is therefore a real absence, so each branch can
+    name the remedies instead of sending the operator after a key we merely failed to read.
     """
     if table_type in ("view", "materialized_view"):
         relation = "materialized view" if table_type == "materialized_view" else "view"
@@ -635,16 +611,9 @@ def _no_primary_key_warning(
             "Select a primary key manually to enable incremental sync, or use full table replication instead."
         )
 
-    if _reads_primary_keys(cursor, schema):
-        return (
-            f"No primary key is set on {table_name}. Select one manually to enable incremental sync, "
-            "or use full table replication instead."
-        )
-
     return (
-        f"Could not determine a primary key for {table_name}. Either none is set, or PostHog's role "
-        f"cannot read constraints in schema {schema}. Check the role has SELECT on the table. You can "
-        "also select a primary key manually, or use full table replication instead."
+        f"No primary key is set on {table_name}. Select one manually to enable incremental sync, "
+        "or use full table replication instead."
     )
 
 
@@ -1161,9 +1130,9 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
 
         A swallowed failure returns every table as `None`, which the base
         contract cannot distinguish from "declares no key". The sync path
-        re-runs the lookup per table and says which it is
-        (`_no_primary_key_warning`); surfacing the difference at discovery
-        needs a channel on `SourceSchema` that does not exist yet.
+        re-runs the lookup per table, where a failure raises instead of being
+        swallowed; surfacing the difference at discovery needs a channel on
+        `SourceSchema` that does not exist yet.
         """
         result: dict[str, list[str] | None] = dict.fromkeys(tables)
         if not tables:
@@ -1436,8 +1405,8 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         """Return the primary-key column names for a single table in declared order, or None.
 
         Reads `pg_catalog`, the same catalog discovery reads, so a key found when the table was
-        listed is still found here. `table_type` only shapes the warning on an empty result, which
-        is ambiguous on its own: see `_no_primary_key_warning` for what each case establishes.
+        listed is still found here. `table_type` only shapes the warning on an empty result: a view
+        holds no key at all, so its message names different remedies.
         """
         where = sql.SQL("n.nspname = {schema} AND c.relname = {table}").format(
             schema=sql.Literal(schema), table=sql.Literal(table_name)
@@ -1449,7 +1418,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             return primary_key
 
         if logger is not None:
-            logger.warning(_no_primary_key_warning(cursor, schema, table_name, table_type))
+            logger.warning(_no_primary_key_warning(table_name, table_type))
         return None
 
     @staticmethod
