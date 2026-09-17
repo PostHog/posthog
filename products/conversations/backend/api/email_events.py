@@ -6,64 +6,54 @@ so verification, the receipt and the forward to the owning region all happen the
 runs in `products/conversations/backend/services/mailgun_events.py`.
 """
 
+from typing import Any
+
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
-from posthog.ingress.mailgun.provider import build_mailgun_provider
-from posthog.ingress.providers import InvalidPayload
+from posthog.ingress.mailgun.provider import MailgunProvider, build_mailgun_provider
 from posthog.ingress.verify.schemes import VerificationOutcome
 from posthog.ingress.views import build_webhook_view
 
 from products.conversations.backend.mailgun import get_email_webhook_signing_key
 
-_outbound_provider = build_mailgun_provider("outbound", signing_key_getter=get_email_webhook_signing_key)
-_outbound_webhook_view = build_webhook_view(_outbound_provider)
-
 OUTBOUND_SENDER_LOOKUP_QUERY_PARAM = "sender_lookup"
+
+
+class _OutboundMailgunProvider(MailgunProvider):
+    """The outbound capture app, and the sender probe the other region ran before ingress.
+
+    The regions do not deploy at the same instant, so for one release this route still has to
+    recognise a `sender_lookup=1` probe from a region on the previous version. The probe carries a
+    whole delivery, so dispatching it would ingest the probe as real mail. Answering it as a
+    handshake keeps the shared view's verification, throttle and metrics. Delete this class, and
+    the query parameter with it, once both regions run the ingress version.
+    """
+
+    def pre_dispatch_response(self, request: HttpRequest, payload: Any) -> HttpResponse | None:
+        if request.GET.get(OUTBOUND_SENDER_LOOKUP_QUERY_PARAM) != "1":
+            return None
+
+        deliveries = self.deliveries(request, payload, {})
+        if not deliveries:
+            return HttpResponse(status=400)
+
+        # Deferred because this module is on the URL conf's import path, and the ingestion modules
+        # behind the facade are not cheap to import.
+        from products.conversations.backend.facade.api import mailgun_legacy_sender_lookup_status  # noqa: PLC0415
+
+        return HttpResponse(status=mailgun_legacy_sender_lookup_status(deliveries[0]))
+
+
+_outbound_provider = _OutboundMailgunProvider("outbound", signing_key_getter=get_email_webhook_signing_key)
 
 email_inbound_handler = build_webhook_view(
     build_mailgun_provider("inbound", signing_key_getter=get_email_webhook_signing_key)
 )
+email_outbound_handler = build_webhook_view(_outbound_provider)
 email_capture_handler = build_webhook_view(
     build_mailgun_provider("capture", signing_key_getter=get_email_webhook_signing_key)
 )
-
-
-def _legacy_sender_lookup_response(request: HttpRequest) -> HttpResponse:
-    """Answer a sender probe the way this route did before it moved onto ingress.
-
-    The probe is a whole delivery with a query parameter on it, so dispatching it would ingest it
-    as real mail on the region that answers.
-    """
-    if _outbound_provider.verify(request).outcome is not VerificationOutcome.VERIFIED:
-        return HttpResponse("Invalid signature", status=403)
-
-    try:
-        payload = _outbound_provider.parse(request)
-    except InvalidPayload:
-        return HttpResponse("Invalid recipient", status=400)
-    deliveries = _outbound_provider.deliveries(request, payload, {})
-    if not deliveries:
-        return HttpResponse("Invalid recipient", status=400)
-
-    # Deferred because this module is on the URL conf's import path, and the ingestion modules
-    # behind the facade are not cheap to import.
-    from products.conversations.backend.facade.api import mailgun_legacy_sender_lookup_status  # noqa: PLC0415
-
-    return HttpResponse(status=mailgun_legacy_sender_lookup_status(deliveries[0]))
-
-
-@csrf_exempt
-def email_outbound_handler(request: HttpRequest) -> HttpResponse:
-    """The outbound capture route, and the sender probe the other region ran before ingress.
-
-    Both regions do not deploy at the same instant, so for one release this route still has to
-    recognise a `sender_lookup=1` probe from a region that runs the previous version. Delete the
-    branch, and the query parameter with it, once both regions run the ingress version.
-    """
-    if request.method == "POST" and request.GET.get(OUTBOUND_SENDER_LOOKUP_QUERY_PARAM) == "1":
-        return _legacy_sender_lookup_response(request)
-    return _outbound_webhook_view(request)
 
 
 @csrf_exempt

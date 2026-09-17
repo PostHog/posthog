@@ -851,25 +851,6 @@ def _answered_that_the_sender_is_absent(response: requests.Response) -> bool:
         return False
 
 
-def mailgun_legacy_sender_lookup_status(delivery: WebhookDelivery) -> int:
-    """The status the outbound route answered a `sender_lookup=1` probe with, before ingress.
-
-    A region still running the previous version probes the outbound route rather than the
-    sender-status route, and that probe carries a whole delivery. Handling it as a delivery would
-    ingest the probe as real mail. Delete this, the view branch that reaches it and the query
-    parameter once both regions run the ingress version.
-    """
-    message = MailgunMessage(delivery)
-    if not _is_outbound_capture_recipient(message.recipient):
-        return 400
-    sender_email = message.outbound_sender_email()
-    if not sender_email or not message.outbound_sender_authenticated(sender_email):
-        return 200
-    if _channel_for_outbound_sender(sender_email) is None:
-        return SENDER_STATUS_ABSENT
-    return SENDER_STATUS_ACTIVE
-
-
 def _ownership_of_channel(channel: EmailChannel | None) -> DeliveryOwnership:
     """A channel this region does not hold is `ELSEWHERE` rather than undecided.
 
@@ -929,6 +910,22 @@ def mailgun_capture_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwn
     if _is_outbound_capture_recipient(MailgunMessage(delivery).recipient):
         return mailgun_outbound_delivery_ownership(delivery)
     return mailgun_inbound_delivery_ownership(delivery)
+
+
+def mailgun_legacy_sender_lookup_status(delivery: WebhookDelivery) -> int:
+    """The status the outbound route answered a `sender_lookup=1` probe with, before ingress.
+
+    The ownership answer is the same question in the shape ingress asks it, so it decides this one
+    too and the two cannot drift. Only the recipient differs: the old route answered 400 for a
+    recipient that is not the capture address, where ownership calls that undecided. Delete this
+    together with the provider that reaches it, once both regions run the ingress version.
+    """
+    if not _is_outbound_capture_recipient(MailgunMessage(delivery).recipient):
+        return 400
+    ownership = mailgun_outbound_delivery_ownership(delivery)
+    if ownership is DeliveryOwnership.UNDECIDED:
+        return 200
+    return SENDER_STATUS_ACTIVE if ownership is DeliveryOwnership.LOCAL else SENDER_STATUS_ABSENT
 
 
 def _ingest_customer_inbound_email(*, config: EmailChannel, email: ParsedEmail) -> None:

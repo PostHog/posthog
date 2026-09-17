@@ -181,7 +181,7 @@ def mailgun_sender_is_active_here(sender_email: str) -> bool:
 def mailgun_legacy_sender_lookup_status(delivery: WebhookDelivery) -> int:
     """The answer the outbound route owes a region that still probes it with `sender_lookup=1`.
 
-    Delete this with the view branch that reaches it, once both regions run the ingress version.
+    Delete this with the provider that reaches it, once both regions run the ingress version.
     """
     # Deferred to keep the email ingestion modules off the facade import path.
     from products.conversations.backend.services import mailgun_events  # noqa: PLC0415

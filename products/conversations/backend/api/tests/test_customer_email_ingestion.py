@@ -26,7 +26,6 @@ from products.conversations.backend.api.tests.mailgun_signing import (
     mailgun_delivery,
     post_mailgun,
     sender_status_response,
-    signed_mailgun_fields,
 )
 from products.conversations.backend.models import (
     EMAIL_THREAD_COMMENT_SCOPE,
@@ -631,10 +630,10 @@ class TestCustomerEmailIngestion(MailgunWebhookTestMixin, BaseTest):
     def test_the_outbound_route_answers_a_legacy_sender_probe_without_ingesting(
         self, _name: str, sender_email: str, expected_status: int
     ) -> None:
-        response = self.client.post(
+        response = post_mailgun(
+            self.client,
             "/api/conversations/v1/email/outbound?sender_lookup=1",
             {
-                **signed_mailgun_fields(),
                 "recipient": "sent@mg.posthog.com",
                 "from": f"Customer success <{sender_email}>",
                 "sender": sender_email,
