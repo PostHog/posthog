@@ -179,7 +179,7 @@ class RelevantCommit(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    reason: str
+    reason: str = Field(max_length=500)
     sha: str
     url: str
 
@@ -211,6 +211,7 @@ class SuggestedReviewerEntry(BaseModel):
     )
     reason: str | None = Field(
         default=None,
+        max_length=500,
         description="Why this reviewer was chosen — the evidence behind the routing (e.g. recent author on the affected surface, human correction precedent).",
     )
     is_skill_owner: bool = Field(
