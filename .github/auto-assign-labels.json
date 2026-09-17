@@ -12,6 +12,26 @@
         {
             "scopes": ["desktop", "tasks", "agent-proxy", "canvas"],
             "labels": ["feature/desktop"]
+        },
+        {
+            "scopes": ["tasks"],
+            "labels": ["feature/tasks"]
+        },
+        {
+            "scopes": ["agent-proxy", "agent_proxy"],
+            "labels": ["feature/agent-proxy"]
+        },
+        {
+            "scopes": ["agent-runtime", "agent_runtime"],
+            "labels": ["feature/agent-runtime"]
+        },
+        {
+            "scopes": ["hog-harness", "hog_harness", "harness", "pi"],
+            "labels": ["feature/hog-harness"]
+        },
+        {
+            "scopes": ["ai-gateway", "ai_gateway", "llm-gateway", "llm_gateway", "gateway"],
+            "labels": ["feature/ai-gateway"]
         }
     ]
 }

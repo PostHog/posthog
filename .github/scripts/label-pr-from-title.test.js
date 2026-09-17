@@ -149,3 +149,27 @@ for (const scope of ['desktop', 'tasks', 'agent-proxy', 'canvas']) {
         )
     })
 }
+
+for (const [scope, label] of [
+    ['tasks', 'feature/tasks'],
+    ['agent-proxy', 'feature/agent-proxy'],
+    ['agent_proxy', 'feature/agent-proxy'],
+    ['agent-runtime', 'feature/agent-runtime'],
+    ['agent_runtime', 'feature/agent-runtime'],
+    ['hog-harness', 'feature/hog-harness'],
+    ['hog_harness', 'feature/hog-harness'],
+    ['harness', 'feature/hog-harness'],
+    ['pi', 'feature/hog-harness'],
+    ['ai-gateway', 'feature/ai-gateway'],
+    ['ai_gateway', 'feature/ai-gateway'],
+    ['llm-gateway', 'feature/ai-gateway'],
+    ['llm_gateway', 'feature/ai-gateway'],
+    ['gateway', 'feature/ai-gateway'],
+]) {
+    test(`the shipped config maps the ${scope} scope to ${label}`, () => {
+        assert.ok(
+            labelsForTitle(`feat(${scope}): x`, loadRules()).includes(label),
+            `${scope} scope does not map to ${label}`
+        )
+    })
+}
