@@ -873,8 +873,8 @@ class ReplayObservationViewSet(
         ).order_by("-created_at", "id")
 
     def filter_queryset(self, queryset: QuerySet[ReplayObservation]) -> QuerySet[ReplayObservation]:
-        # List filters scope prev/next neighbors only; the observation itself must always resolve on retrieve.
-        if self.action == "retrieve":
+        # List filters scope prev/next neighbors only; the observation itself must always resolve on a detail read.
+        if self.action in {"retrieve", "signal_reports"}:
             return queryset
         return super().filter_queryset(queryset)
 

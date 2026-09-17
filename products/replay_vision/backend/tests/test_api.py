@@ -4999,6 +4999,26 @@ class TestObservationSignalReportsAPI(_VisionAPITestCase):
         assert kwargs["source_type"] == "scanner_finding"
         assert kwargs["extra_equals"] == {"observation_id": str(observation.id)}
 
+    def test_resolves_the_observation_through_a_list_filter(self) -> None:
+        # Without the detail-read exemption, a filter the observation does not match 404s the reports.
+        scanner = self._create_scanner()
+        observation = ReplayObservation.objects.create(
+            scanner=scanner,
+            session_id="sess-filtered",
+            scanner_snapshot=_snapshot_for(scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+        )
+        with patch(
+            "products.replay_vision.backend.api.observations.get_reports_for_signal_source_slice",
+            return_value=[],
+        ):
+            response = self.client.get(
+                f"{self.observations_url(str(scanner.id))}{observation.id}/signal_reports/?status=succeeded"
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == []
+
 
 @patch("products.replay_vision.backend.api.trigger.async_to_sync")
 @patch("products.replay_vision.backend.api.trigger.sync_connect")
