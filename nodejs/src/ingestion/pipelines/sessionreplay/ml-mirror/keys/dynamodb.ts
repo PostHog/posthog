@@ -194,7 +194,7 @@ export class MlKeyDynamoDB {
         attributes: DynamoItem,
         deadline?: AbortSignal
     ): Promise<DynamoItem | undefined> {
-        return this.writeConcurrency(() =>
+        const outcome = await this.writeConcurrency(() =>
             this.timed('dynamodb_put_if_absent', async () => {
                 try {
                     await this.client.send(
@@ -209,19 +209,25 @@ export class MlKeyDynamoDB {
                     )
                     // This row now exists with exactly these attributes, so the next batch needs no read for it.
                     this.hold(key, { ...encodeKey(key), ...attributes })
-                    return undefined
+                    return { created: true, winner: undefined }
                 } catch (error) {
                     if (error instanceof ConditionalCheckFailedException) {
-                        const winner = error.Item
-                        if (winner) {
-                            this.hold(key, winner)
-                        }
-                        return winner ?? {}
+                        return { created: false, winner: error.Item }
                     }
                     throw error
                 }
             })
         )
+        if (outcome.created) {
+            return undefined
+        }
+        if (outcome.winner) {
+            this.hold(key, outcome.winner)
+            return outcome.winner
+        }
+        // An endpoint that refuses the put without returning the row leaves the winner unknown. Reading it costs one
+        // request on a conflict and keeps the caller from reading an absent key as an unusable one.
+        return (await this.read([key], deadline)).get(tableKeyString(key)) ?? {}
     }
 
     public async put(key: TableKey, attributes: DynamoItem, deadline?: AbortSignal): Promise<void> {
