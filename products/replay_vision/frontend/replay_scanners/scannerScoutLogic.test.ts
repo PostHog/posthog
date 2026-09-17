@@ -190,10 +190,7 @@ describe('scannerScoutLogic', () => {
     })
 
     it('keeps the draft and moves to the current version when the instructions conflict', async () => {
-        // The conflict leaves the form open with the user's edit in it, so the retry has to publish
-        // against the version that rejected the first save. The retry also reads its name, schedule
-        // and delivery from the store while the list refresh is still a round trip away, so the
-        // store has to hold what the first save kept, or the retry writes the old values back.
+        // The retry publishes against the version that rejected the first save.
         await mountWithReports([])
         const config = makeConfig({ output_destinations: { webhook: null } })
         const revised = 'Watch this scanner, revised elsewhere.'
@@ -226,7 +223,6 @@ describe('scannerScoutLogic', () => {
 
         expect(logic.values.settingsSkillName).toBe(SKILL_NAME)
         expect(logic.values.skillPrompt).toEqual({ skillName: SKILL_NAME, body: revised, latestVersion: 5 })
-        // The list refresh never landed, so this row is the one the save recorded itself.
         const saved = logic.values.scoutConfigsForScanner[0]
         expect(scoutDisplayName(saved)).toBe('Checkout / daily digest')
         expect(saved.run_cron_schedule).toBe('0 7 * * *')

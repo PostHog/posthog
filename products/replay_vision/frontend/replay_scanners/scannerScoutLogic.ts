@@ -952,11 +952,8 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                     }
                     if (Object.keys(configUpdates).length > 0) {
                         const updated = await signalsScoutConfigUpdate(String(teamId), config.id, configUpdates)
-                        // The list refresh below is a round trip, and the instructions can be
-                        // rejected before it lands. The form stays open on that rejection, and the
-                        // retry reads its name, schedule and delivery from the store, so the store
-                        // has to already hold what this call saved. A store left on the pre-save
-                        // row would make the retry write those values back.
+                        // A retry after a conflict reads from the store before loadScoutConfigs
+                        // lands, so the store has to hold this save already.
                         actions.patchScoutConfigLocally(config.id, updated)
                         actions.loadScoutConfigs()
                     }
@@ -1004,11 +1001,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                         lemonToast.error(`Couldn't save the scout${error?.detail ? `: ${error.detail}` : ''}`)
                         return
                     }
-                    // Only the instructions can conflict, and only their version is stale. Reading
-                    // the skill again moves latestVersion to the current one. The modal seeds its
-                    // body once, so the user's edit stays in the form and the next save publishes
-                    // it against that version. Sending the user to reopen the settings would drop
-                    // the edit with the form.
+                    // Re-read so latestVersion advances. The modal seeds once, so the edit stays.
                     if (values.settingsFormId === formId) {
                         actions.loadSkillPrompt()
                     }
