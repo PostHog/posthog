@@ -69,6 +69,9 @@ export function ChartPreviewTile({
                         'flex h-full flex-col [&_.text-7xl]:text-lg [&_.text-7xl]:leading-tight',
                         option.display === ChartDisplayType.CalendarHeatmap &&
                             '[zoom:0.3] [&_.CalendarHeatMapContainer+div]:hidden',
+                        // MetricCard hardcodes its headline at text-4xl, which truncates at tile width.
+                        option.display === ChartDisplayType.Metric &&
+                            '[&_.text-4xl]:text-lg [&_.text-4xl]:leading-tight',
                         option.display === ChartDisplayType.ActionsTable &&
                             '[zoom:0.6] [&_.ScrollableShadows::before]:shadow-none! [&_.ScrollableShadows::after]:shadow-none! [&_.LemonTable__cell--sticky::before]:shadow-none! [&_.LemonTable__header--sticky::before]:shadow-none!'
                     )}
