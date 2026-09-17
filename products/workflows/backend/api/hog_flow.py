@@ -830,6 +830,25 @@ def _normalize_slack_channel_filters(filters: dict) -> None:
             prop["value"] = [item.split("|")[0] if isinstance(item, str) else item for item in value]
 
 
+def _normalize_github_repository_filters(filters: dict) -> None:
+    """Lowercase a `repository` filter value in place, to match the lowercased delivery property.
+
+    GitHub treats "PostHog/posthog" and "posthog/posthog" as the same repository, but the exact
+    filter does not, so a name typed in the wrong case compiles to a trigger that never fires.
+    """
+    properties = filters.get("properties")
+    if not isinstance(properties, list):
+        return
+    for prop in properties:
+        if not isinstance(prop, dict) or prop.get("key") != "repository":
+            continue
+        value = prop.get("value")
+        if isinstance(value, str):
+            prop["value"] = value.lower()
+        elif isinstance(value, list):
+            prop["value"] = [item.lower() if isinstance(item, str) else item for item in value]
+
+
 # Exact is the only operator that names channels. Channel ids are opaque (C0...), so
 # substring and regex matching can't narrow meaningfully and patterns like ".*" or "C"
 # match every channel; presence operators match every message and carry the operator
@@ -1576,6 +1595,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                             }
                         )
                 if _subscribes_to("$github_event_received"):
+                    _normalize_github_repository_filters(filters)
                     if not is_draft and not _has_exact_string_filter(filters, "repository"):
                         raise serializers.ValidationError(
                             {

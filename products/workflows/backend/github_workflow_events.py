@@ -134,7 +134,9 @@ def _event_properties(event_type: str, payload: dict[str, Any], *, integration_i
         "integration_id": integration_id,
         "event_type": event_type,
         "action": payload.get("action"),
-        "repository": repository.get("full_name"),
+        # Lowercased on both sides of the match (the API lowercases a repository filter on save), so
+        # "PostHog/posthog" and "posthog/posthog" name the same repository like they do on GitHub.
+        "repository": (repository.get("full_name") or "").lower() or None,
         # A string, not a boolean: GitHub deliveries never reach ClickHouse, so a filter has no
         # stored property definition to coerce "true"/"false" back into a real boolean, and an
         # exact match against a raw boolean here would never match.
