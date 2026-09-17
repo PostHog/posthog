@@ -49,7 +49,9 @@ pub fn report_timestamp_path(
     let Some(captured_ms) = client_uuid.and_then(crate::utils::client_capture_millis) else {
         return;
     };
-    let delta_ms = stored.timestamp_millis() - captured_ms;
+    let Some(delta_ms) = stored.timestamp_millis().checked_sub(captured_ms) else {
+        return;
+    };
     let direction = if delta_ms < 0 {
         "stored_earlier"
     } else {
@@ -76,14 +78,14 @@ pub fn report_edge_to_now(headers: &axum::http::HeaderMap, now: chrono::DateTime
         .filter_map(parse_request_start_ms)
         .next_back()
     {
-        record_edge_delta("envoy", now_ms - start_ms);
+        record_edge_delta("envoy", now_ms, start_ms);
     }
     if let Some(start_ms) = headers
         .get("x-amzn-trace-id")
         .and_then(|v| v.to_str().ok())
         .and_then(parse_amzn_trace_epoch_ms)
     {
-        record_edge_delta("alb", now_ms - start_ms);
+        record_edge_delta("alb", now_ms, start_ms);
     }
 }
 
@@ -91,7 +93,12 @@ pub fn report_edge_to_now(headers: &axum::http::HeaderMap, now: chrono::DateTime
 /// delta is a forged or broken header rather than a slow request.
 const EDGE_DELTA_CEILING_MS: i64 = 600_000;
 
-fn record_edge_delta(edge: &'static str, delta_ms: i64) {
+fn record_edge_delta(edge: &'static str, now_ms: i64, start_ms: i64) {
+    let Some(delta_ms) = now_ms.checked_sub(start_ms) else {
+        counter!(CAPTURE_EDGE_TIMESTAMP_REJECTED, "edge" => edge, "reason" => "implausible")
+            .increment(1);
+        return;
+    };
     if !(0..=EDGE_DELTA_CEILING_MS).contains(&delta_ms) {
         let reason = if delta_ms < 0 {
             "negative"
@@ -460,6 +467,64 @@ mod tests {
             .filter_map(parse_request_start_ms)
             .next_back();
         assert_eq!(chosen, Some(1789610124697));
+    }
+
+    #[test]
+    fn hostile_input_never_panics_on_either_entry_point() {
+        // These run on every capture request. A panic here would take a request
+        // down, so the contract is that any input is observed or skipped.
+        let hostile = [
+            "",
+            "t=",
+            "t=.",
+            "t=-",
+            "t=9223372036854775807",
+            "t=9223372036854775807.999",
+            "t=99999999999999999999999999999999999999",
+            "t=-9223372036854775808",
+            "t=0.000000000000000000000000",
+            "Root=1-ffffffff-ffffffffffffffffffffffff",
+            "Self=1-00000000-000000000000000000000000",
+            "Root=1--",
+            "Self=;Root=;Self=",
+            "\u{1f600}\u{1f600}\u{1f600}",
+            "t=1e999",
+            "t=+1789610124.697",
+        ];
+        for value in hostile {
+            let mut headers = axum::http::HeaderMap::new();
+            if let Ok(hv) = axum::http::HeaderValue::from_str(value) {
+                headers.append("x-request-start", hv.clone());
+                headers.append("x-amzn-trace-id", hv);
+            }
+            for now in [
+                chrono::Utc::now(),
+                chrono::DateTime::<chrono::Utc>::MIN_UTC,
+                chrono::DateTime::<chrono::Utc>::MAX_UTC,
+            ] {
+                report_edge_to_now(&headers, now);
+            }
+        }
+
+        // A v7 UUID carrying the largest representable 48-bit instant, against the
+        // widest stored timestamps chrono can hold.
+        let max_v7 = Uuid::from_u128((0xFFFF_FFFF_FFFFu128 << 80) | (7u128 << 76));
+        for uuid in [None, Some(max_v7), Some(uuid_v7(0)), Some(Uuid::new_v4())] {
+            for stored in [
+                chrono::DateTime::<chrono::Utc>::MIN_UTC,
+                chrono::DateTime::<chrono::Utc>::MAX_UTC,
+                chrono::Utc::now(),
+            ] {
+                for source in [
+                    TimestampSource::Offset,
+                    TimestampSource::SentAtSkew,
+                    TimestampSource::ClientTimestamp,
+                    TimestampSource::Now,
+                ] {
+                    report_timestamp_path(source, uuid, stored);
+                }
+            }
+        }
     }
 
     #[test]
