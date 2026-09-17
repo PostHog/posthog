@@ -1,9 +1,10 @@
 from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any
+from urllib.parse import unquote
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from requests import HTTPError
 
@@ -14,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.
     CheckmarxResumeConfig,
     CheckmarxRetryableError,
     _build_incremental_value,
+    _change_id,
     _result_id,
     checkmarx_source,
     get_region_hosts,
@@ -231,8 +233,16 @@ class TestCheckmarx:
         # State saved after the yielded full page, pointing at the next offset.
         manager.save_state.assert_called_once_with(CheckmarxResumeConfig(offset=page_size))
 
-    def test_get_rows_empty_first_page_yields_nothing(self) -> None:
-        session = FakeSession(lambda url, params: _response(payload={"applications": [], "totalCount": 0}))
+    @pytest.mark.parametrize(
+        ("endpoint", "payload"),
+        [
+            ("applications", {"applications": [], "totalCount": 0}),
+            # A lookup endpoint returns a bare array, so emptiness looks different on the wire.
+            ("custom_states", []),
+        ],
+    )
+    def test_get_rows_empty_first_page_yields_nothing(self, endpoint: str, payload: Any) -> None:
+        session = FakeSession(lambda url, params: _response(payload=payload))
 
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
@@ -243,7 +253,7 @@ class TestCheckmarx:
                     tenant_name="my-tenant",
                     region="us",
                     api_key="key",
-                    endpoint="applications",
+                    endpoint=endpoint,
                     logger=_make_logger(),
                     resumable_source_manager=_make_manager(),
                 )
@@ -389,7 +399,7 @@ class TestCheckmarx:
         assert rows[0]["scan_created_at"] == "2026-02-01T00:00:00Z"
         assert rows[1]["scan_created_at"] == "2026-02-02T00:00:00Z"
         # Bookmark advanced to the second scan after the first one finished.
-        manager.save_state.assert_called_once_with(CheckmarxResumeConfig(offset=0, scan_id="s2"))
+        manager.save_state.assert_called_once_with(CheckmarxResumeConfig(offset=0, parent_id="s2"))
 
     def test_scan_results_incremental_applies_lookback_to_scan_enumeration(self) -> None:
         handler = self._fan_out_handler({"s1": [{"type": "sast", "id": "r1"}]})
@@ -415,7 +425,7 @@ class TestCheckmarx:
         scans_call_params = next(params for url, params, _headers in session.get_calls if url.endswith("/api/scans"))
         assert scans_call_params["from-date"] == "2026-01-08T00:00:00Z"
 
-    def test_scan_results_resumes_from_bookmarked_scan(self) -> None:
+    def test_scan_results_resumes_from_bookmarked_parent(self) -> None:
         handler = self._fan_out_handler(
             {
                 "s1": [{"type": "sast", "id": "r1"}],
@@ -423,7 +433,7 @@ class TestCheckmarx:
             }
         )
         session = FakeSession(handler)
-        manager = _make_manager(CheckmarxResumeConfig(offset=0, scan_id="s2"))
+        manager = _make_manager(CheckmarxResumeConfig(offset=0, parent_id="s2"))
 
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
@@ -447,10 +457,10 @@ class TestCheckmarx:
         ]
         assert requested_scan_ids == ["s2"]
 
-    def test_scan_results_restarts_when_bookmarked_scan_is_gone(self) -> None:
+    def test_scan_results_restarts_when_bookmarked_parent_is_gone(self) -> None:
         handler = self._fan_out_handler({"s1": [{"type": "sast", "id": "r1"}]})
         session = FakeSession(handler)
-        manager = _make_manager(CheckmarxResumeConfig(offset=100, scan_id="deleted-scan"))
+        manager = _make_manager(CheckmarxResumeConfig(offset=100, parent_id="deleted-scan"))
 
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
@@ -498,6 +508,223 @@ class TestCheckmarx:
         assert [row["scan_id"] for row in rows] == ["s1", "s2"]
         summary_calls = [params for url, params, _headers in session.get_calls if url.endswith("/api/scan-summary")]
         assert [params["scan-ids"] for params in summary_calls] == ["s1", "s2"]
+
+    # ---- lookup endpoints ----
+
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "values"),
+        [
+            ("result_states", "/api/lists/states", ["TO_VERIFY", "CONFIRMED"]),
+            ("result_statuses", "/api/lists/statuses", ["NEW", "RECURRENT", "FIXED"]),
+            ("result_severities", "/api/lists/severities", ["CRITICAL", "HIGH"]),
+        ],
+    )
+    def test_lists_endpoints_wrap_bare_strings_and_skip_pagination(
+        self, endpoint: str, path: str, values: list[str]
+    ) -> None:
+        def handler(url: str, params: dict[str, Any]) -> MagicMock:
+            assert url == f"https://ast.checkmarx.net{path}"
+            return _response(payload=values)
+
+        session = FakeSession(handler)
+        manager = _make_manager()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
+            return_value=session,
+        ):
+            batches = list(
+                get_rows(
+                    tenant_name="my-tenant",
+                    region="us",
+                    api_key="key",
+                    endpoint=endpoint,
+                    logger=_make_logger(),
+                    resumable_source_manager=manager,
+                )
+            )
+
+        assert batches == [[{"value": value} for value in values]]
+        # A single unpaginated request: sending offset/limit to these endpoints would be meaningless,
+        # and the source must not checkpoint resume state for a collection it read in one go.
+        assert len(session.get_calls) == 1
+        assert session.get_calls[0][1] == {}
+        manager.save_state.assert_not_called()
+
+    def test_custom_states_requests_deleted_states(self) -> None:
+        states = [{"id": 1, "name": "In sprint", "type": "custom", "isAllowed": True}]
+
+        def handler(url: str, params: dict[str, Any]) -> MagicMock:
+            assert url == "https://ast.checkmarx.net/api/custom-states"
+            return _response(payload=states)
+
+        session = FakeSession(handler)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
+            return_value=session,
+        ):
+            batches = list(
+                get_rows(
+                    tenant_name="my-tenant",
+                    region="us",
+                    api_key="key",
+                    endpoint="custom_states",
+                    logger=_make_logger(),
+                    resumable_source_manager=_make_manager(),
+                )
+            )
+
+        assert batches == [states]
+        # Without this a finding triaged into a since-deleted state resolves to nothing.
+        assert session.get_calls[0][1] == {"include-deleted": "true"}
+
+    # ---- fan-out over applications ----
+
+    def test_application_rules_fan_out_puts_the_application_id_in_the_path(self) -> None:
+        applications = [
+            {"id": "app-1", "createdAt": "2026-01-01T00:00:00Z"},
+            {"id": "app 2/x", "createdAt": "2026-01-02T00:00:00Z"},
+        ]
+        rules_by_application = {
+            "app-1": [{"id": "rule-1", "type": "project.name.contains", "value": "demo"}],
+            "app 2/x": [{"id": "rule-2", "type": "project.tag.key.exists", "value": "team"}],
+        }
+
+        def handler(url: str, params: dict[str, Any]) -> MagicMock:
+            if url.endswith("/api/applications"):
+                return _response(payload={"applications": applications, "totalCount": len(applications)})
+            prefix = "https://ast.checkmarx.net/api/applications/"
+            assert url.startswith(prefix) and url.endswith("/project-rules")
+            application_id = unquote(url[len(prefix) : -len("/project-rules")])
+            return _response(payload=rules_by_application[application_id])
+
+        session = FakeSession(handler)
+        manager = _make_manager()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
+            return_value=session,
+        ):
+            batches = list(
+                get_rows(
+                    tenant_name="my-tenant",
+                    region="us",
+                    api_key="key",
+                    endpoint="application_rules",
+                    logger=_make_logger(),
+                    resumable_source_manager=manager,
+                )
+            )
+
+        rows = [row for batch in batches for row in batch]
+        assert [(row["id"], row["application_id"], row["application_created_at"]) for row in rows] == [
+            ("rule-1", "app-1", "2026-01-01T00:00:00Z"),
+            ("rule-2", "app 2/x", "2026-01-02T00:00:00Z"),
+        ]
+        # The id is path-quoted, so an id carrying a slash cannot reshape the request path.
+        assert [url for url, _params, _headers in session.get_calls if "project-rules" in url] == [
+            "https://ast.checkmarx.net/api/applications/app-1/project-rules",
+            "https://ast.checkmarx.net/api/applications/app%202%2Fx/project-rules",
+        ]
+
+    # ---- fan-out over projects ----
+
+    def _changelog_handler(
+        self, changes_by_project: dict[str, list[dict[str, Any]]]
+    ) -> Callable[[str, dict[str, Any]], MagicMock]:
+        projects = [
+            {"id": project_id, "createdAt": f"2026-03-0{i + 1}T00:00:00Z"}
+            for i, project_id in enumerate(changes_by_project)
+        ]
+
+        def handler(url: str, params: dict[str, Any]) -> MagicMock:
+            if url.endswith("/api/projects"):
+                return _response(payload={"projects": projects, "totalCount": len(projects)})
+            if url.endswith("/api/sast-results-predicates/changelog"):
+                changes = changes_by_project[params["entityId"]]
+                offset = params["offset"]
+                page = changes[offset : offset + params["limit"]]
+                return _response(payload={"results": page, "totalSimilarityIds": f"presenting x of {len(changes)}"})
+            raise AssertionError(f"Unexpected URL: {url}")
+
+        return handler
+
+    def test_predicates_changelog_requests_full_history_per_project(self) -> None:
+        change = {
+            "change": "State changed from TO_VERIFY to CONFIRMED",
+            "date": "2026-03-05T09:00:00Z",
+            "user": "someone@example.com",
+            "origin": "WebApp",
+        }
+        session = FakeSession(self._changelog_handler({"proj-1": [change]}))
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
+            return_value=session,
+        ):
+            batches = list(
+                get_rows(
+                    tenant_name="my-tenant",
+                    region="us",
+                    api_key="key",
+                    endpoint="sast_predicates_changelog",
+                    logger=_make_logger(),
+                    resumable_source_manager=_make_manager(),
+                )
+            )
+
+        rows = [row for batch in batches for row in batch]
+        assert len(rows) == 1
+        assert rows[0]["project_id"] == "proj-1"
+        assert rows[0]["project_created_at"] == "2026-03-01T00:00:00Z"
+        assert rows[0]["change"] == change["change"]
+        assert rows[0]["change_id"] == _change_id(change)
+
+        changelog_params = next(params for url, params, _headers in session.get_calls if url.endswith("/changelog"))
+        # Without entityType the API rejects the call, and without history=true it returns only the
+        # latest state per finding rather than the transitions.
+        assert changelog_params["entityType"] == "projectID"
+        assert changelog_params["history"] == "true"
+        assert changelog_params["entityId"] == "proj-1"
+
+    def test_predicates_changelog_paginates_and_bookmarks_each_project(self) -> None:
+        page_size = CHECKMARX_ENDPOINTS["sast_predicates_changelog"].page_size
+        changes = [{"change": f"change {i}", "date": "2026-03-05T09:00:00Z"} for i in range(page_size + 1)]
+        session = FakeSession(self._changelog_handler({"proj-1": changes, "proj-2": []}))
+        manager = _make_manager()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx.make_tracked_session",
+            return_value=session,
+        ):
+            batches = list(
+                get_rows(
+                    tenant_name="my-tenant",
+                    region="us",
+                    api_key="key",
+                    endpoint="sast_predicates_changelog",
+                    logger=_make_logger(),
+                    resumable_source_manager=manager,
+                )
+            )
+
+        assert [len(batch) for batch in batches] == [page_size, 1]
+        assert [params["offset"] for url, params, _headers in session.get_calls if url.endswith("/changelog")] == [
+            0,
+            page_size,
+            0,
+        ]
+        assert manager.save_state.call_args_list == [
+            call(CheckmarxResumeConfig(offset=page_size, parent_id="proj-1")),
+            call(CheckmarxResumeConfig(offset=0, parent_id="proj-2")),
+        ]
+
+    def test_change_id_is_stable_and_row_specific(self) -> None:
+        change = {"change": "State changed", "date": "2026-03-05T09:00:00Z", "user": "a", "origin": "WebApp"}
+
+        assert _change_id(change) == _change_id(dict(reversed(list(change.items()))))
+        assert _change_id({**change, "user": "b"}) != _change_id(change)
 
     # ---- validate_credentials ----
 
@@ -558,5 +785,10 @@ class TestCheckmarx:
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         assert response.sort_mode == ("desc" if config.incremental_fields else "asc")
-        assert response.partition_keys == [config.partition_key]
-        assert response.partition_mode == "datetime"
+        if config.partition_key is None:
+            # The lookup tables carry no datetime column, so there is nothing to partition on.
+            assert response.partition_keys is None
+            assert response.partition_mode is None
+        else:
+            assert response.partition_keys == [config.partition_key]
+            assert response.partition_mode == "datetime"

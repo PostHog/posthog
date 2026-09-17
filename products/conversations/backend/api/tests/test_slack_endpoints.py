@@ -144,14 +144,25 @@ class TestSupportSlackEventsAPI(BaseTest):
         # Ingress drops the second delivery of the same event id before the consumer runs.
         assert mock_wake.call_count == 1
 
+    # Spelled out rather than read from the provider, so dropping a type there fails here.
+    @parameterized.expand(
+        [
+            ("app_mention",),
+            ("link_shared",),
+            ("message",),
+            ("reaction_added",),
+            ("member_joined_channel",),
+            ("member_left_channel",),
+        ]
+    )
     @patch(WAKE_INBOUND_EVENT)
-    def test_event_callback_routes_to_handler(self, mock_wake: MagicMock):
+    def test_every_subscribed_event_type_reaches_the_consumer(self, event_type: str, mock_wake: MagicMock):
         response = self._post_committed(
             {
                 "type": "event_callback",
-                "event_id": "Ev_456",
+                "event_id": f"Ev_{event_type}",
                 "team_id": "T123",
-                "event": {"type": "reaction_added"},
+                "event": {"type": event_type},
             }
         )
 

@@ -18,6 +18,7 @@ from posthog.ingress.verify.schemes import HmacSha256, SignatureScheme
 SLACK_EVENT_TYPES = frozenset(
     {
         "app_mention",
+        "link_shared",
         "message",
         "reaction_added",
         "member_joined_channel",
