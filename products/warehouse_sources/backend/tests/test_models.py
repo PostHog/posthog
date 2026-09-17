@@ -45,7 +45,6 @@ from products.warehouse_sources.backend.models.util import (
     clean_type,
     clickhouse_column_to_dwh_column,
 )
-from products.warehouse_sources.backend.temporal.data_imports.external_data_job import MAX_RESUMABLE_SOURCE_RETRIES
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
@@ -1177,13 +1176,8 @@ class TestStagedIncrementalCursor:
         assert staged["run_uuid"] == "run-2"
         assert staged["last_value"] == 99
         assert "earliest_value" not in staged
-
-    def test_stage_parks_the_displaced_cursor(self) -> None:
-        schema = self._make_schema(incremental_staged={"run_uuid": "run-1", "last_value": 1, "earliest_value": 5})
-        with self._staged_in_memory(schema):
-            schema.stage_incremental_field_value("run-2", 99)
         assert schema.sync_type_config["incremental_staged_pending"] == [
-            {"run_uuid": "run-1", "last_value": 1, "earliest_value": 5}
+            {"run_uuid": "old", "last_value": 1, "earliest_value": 5}
         ]
 
     def test_stage_does_not_park_a_cursor_that_holds_no_value(self) -> None:
@@ -1191,15 +1185,6 @@ class TestStagedIncrementalCursor:
         with self._staged_in_memory(schema):
             schema.stage_incremental_field_value("run-2", 99)
         assert "incremental_staged_pending" not in schema.sync_type_config
-
-    def test_stage_replaces_a_parked_cursor_for_the_same_run(self) -> None:
-        schema = self._make_schema(
-            incremental_staged={"run_uuid": "run-1", "last_value": 7},
-            incremental_staged_pending=[{"run_uuid": "run-1", "last_value": 1}],
-        )
-        with self._staged_in_memory(schema):
-            schema.stage_incremental_field_value("run-2", 99)
-        assert schema.sync_type_config["incremental_staged_pending"] == [{"run_uuid": "run-1", "last_value": 7}]
 
     def test_stage_continues_a_parked_cursor_for_the_same_run(self) -> None:
         schema = self._make_schema(
@@ -1214,9 +1199,6 @@ class TestStagedIncrementalCursor:
             "last_value": 42,
         }
         assert schema.sync_type_config["incremental_staged_pending"] == [{"run_uuid": "run-2", "earliest_value": 3}]
-
-    def test_pending_limit_covers_the_resumable_retry_cap(self) -> None:
-        assert STAGED_CURSOR_PENDING_LIMIT >= MAX_RESUMABLE_SOURCE_RETRIES
 
     def test_parked_cursors_stay_bounded(self) -> None:
         schema = self._make_schema()
@@ -1238,18 +1220,6 @@ class TestStagedIncrementalCursor:
             assert schema.promote_staged_incremental_values("run-1") is True
         assert schema.sync_type_config["incremental_field_last_value"] == 42
         assert schema.sync_type_config["incremental_staged"] == {"run_uuid": "run-2", "last_value": 10}
-        assert "incremental_staged_pending" not in schema.sync_type_config
-
-    def test_promote_merges_a_parked_entry_with_the_live_slot_for_the_same_run(self) -> None:
-        schema = self._make_schema(
-            incremental_staged={"run_uuid": "run-1", "last_value": 42},
-            incremental_staged_pending=[{"run_uuid": "run-1", "earliest_value": 5}],
-        )
-        with self._staged_in_memory(schema):
-            assert schema.promote_staged_incremental_values("run-1") is True
-        assert schema.sync_type_config["incremental_field_last_value"] == 42
-        assert schema.sync_type_config["incremental_field_earliest_value"] == 5
-        assert "incremental_staged" not in schema.sync_type_config
         assert "incremental_staged_pending" not in schema.sync_type_config
 
     def test_promote_never_moves_last_value_backwards(self) -> None:
@@ -1285,9 +1255,15 @@ class TestStagedIncrementalCursor:
             ("older_iso_keeps_epoch", IncrementalFieldType.DateTime, 1781395200, "2026-01-01T00:00:00+00:00"),
             ("older_epoch_keeps_naive_iso", IncrementalFieldType.DateTime, "2026-06-14T00:00:00", 1767225600),
             ("older_epoch_keeps_date", IncrementalFieldType.Date, "2026-06-14", 1767225600),
+            (
+                "older_objectid_keeps_newer",
+                IncrementalFieldType.ObjectID,
+                "65f0c0c0a1b2c3d4e5f60002",
+                "65f0c0c0a1b2c3d4e5f60001",
+            ),
         ]
     )
-    def test_promote_never_moves_last_value_backwards_across_an_epoch_and_a_string_cursor(
+    def test_promote_never_moves_last_value_backwards_across_cursor_encodings(
         self, _name: str, field_type: IncrementalFieldType, current: Any, older: Any
     ) -> None:
         schema = self._make_schema(
@@ -1311,7 +1287,7 @@ class TestStagedIncrementalCursor:
 
     def test_promote_keeps_newest_when_cursors_cannot_be_ordered(self) -> None:
         schema = self._make_schema(
-            incremental_field_type=IncrementalFieldType.ObjectID,
+            incremental_field_type=None,
             incremental_field_last_value="aaa",
             incremental_staged={"run_uuid": "run-1", "last_value": "bbb"},
         )

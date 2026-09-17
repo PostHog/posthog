@@ -23,6 +23,9 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.sync import database_sync_to_async
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.retry_limits import (
+    MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
@@ -164,12 +167,9 @@ def _schema_ids_with_running_jobs(schema_ids: list[uuid.UUID]) -> set[uuid.UUID]
     )
 
 
-# Keep at or above MAX_RESUMABLE_SOURCE_RETRIES, the largest retry cap an import activity gets. A
-# resumable source gets that cap whatever its sync type, and each attempt of one run stages under its
-# own run uuid, so a run can park one cursor per attempt. The list is not scoped to one run: entries
-# from abandoned attempts persist until the trim evicts them. The trim keeps the newest entries, and
-# a live run's entries are always the newest, so a dead entry is evicted before a live one.
-STAGED_CURSOR_PENDING_LIMIT = 15
+# A run parks one cursor per displaced attempt, so the bound must cover the largest attempt cap an
+# import activity gets. The trim keeps the newest entries, and a live run's entries are the newest.
+STAGED_CURSOR_PENDING_LIMIT = MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION
 
 
 class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
@@ -943,7 +943,12 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             staged.update(values)
             config["incremental_staged"] = staged
 
-        self.sync_type_config = update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
+        # Deferred: this module loads during django.setup() and the util pulls in temporalio.
+        from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
+
+        self.sync_type_config = retry_on_db_connection_drop(
+            lambda: update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
+        )
 
     def promote_staged_incremental_values(self, run_uuid: str) -> bool:
         """Move the staged cursor of `run_uuid` onto the live watermark keys.
@@ -958,11 +963,10 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             live: dict[str, Any] | None = config.get("incremental_staged")
             if live is not None and live.get("run_uuid") != run_uuid:
                 live = None
-            parked = _drop_parked_staged_cursor(config, run_uuid)
-            if live is None and parked is None:
+            staged = live if live is not None else _drop_parked_staged_cursor(config, run_uuid)
+            if staged is None:
                 return
             found = True
-            staged = {**(parked or {}), **(live or {})}
             field_type = config.get("incremental_field_type")
             if "last_value" in staged:
                 _advance_promoted_cursor(
@@ -1171,9 +1175,10 @@ def _align_epoch_cursor(value: Any, partner: Any) -> Any:
 
 
 def _park_displaced_staged_cursor(config: dict[str, Any], staged: dict[str, Any]) -> None:
+    """A run is live or parked, never both: only another run's staging parks it, and its own
+    staging moves it back. Both happen under the row lock."""
     if not staged.get("run_uuid") or not ({"last_value", "earliest_value"} & staged.keys()):
         return
-    _drop_parked_staged_cursor(config, staged["run_uuid"])
     pending = [*config.get("incremental_staged_pending", []), staged]
     config["incremental_staged_pending"] = pending[-STAGED_CURSOR_PENDING_LIMIT:]
 
@@ -1196,7 +1201,7 @@ def _advance_promoted_cursor(
     config: dict[str, Any],
     key: str,
     value: Any,
-    direction: Literal["last", "earliest"],
+    kind: Literal["last", "earliest"],
     field_type: IncrementalFieldType | None,
 ) -> None:
     current = config.get(key)
@@ -1204,10 +1209,10 @@ def _advance_promoted_cursor(
         config[key] = value
         return
     comparison = _compare_incremental_values(current, value, field_type)
-    # For a pair the comparator cannot order (an objectid cursor, a null field type, a naive against
-    # an aware datetime, or a millisecond epoch) the newest promotion wins, so those sources still
-    # advance their watermark. Keeping the current value would freeze it for good.
-    if comparison is None or (direction == "last" and comparison < 0) or (direction == "earliest" and comparison > 0):
+    # For a pair the comparator cannot order (a null field type, a naive against an aware datetime,
+    # or a millisecond epoch) the newest promotion wins, so those sources still advance their
+    # watermark. Keeping the current value would freeze it for good.
+    if comparison is None or (kind == "last" and comparison < 0) or (kind == "earliest" and comparison > 0):
         config[key] = value
 
 
@@ -1219,6 +1224,12 @@ def _compare_incremental_values(current: Any, candidate: Any, field_type: Increm
     except Exception:
         return None
     if left is None or right is None:
+        return None
+    if field_type == IncrementalFieldType.ObjectID:
+        # An ObjectID is 24 hex digits that open with its creation time, so equal-length ids order
+        # as strings. Anything else is unordered.
+        if isinstance(left, str) and isinstance(right, str) and len(left) == len(right):
+            return (left > right) - (left < right)
         return None
     if isinstance(left, bool) or isinstance(right, bool):
         return None
