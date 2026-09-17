@@ -1,5 +1,5 @@
 import { IconX } from '@posthog/icons'
-import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
@@ -61,15 +61,6 @@ export function SuggestedReviewerPerson({
                 </Tooltip>
                 {explanation && (
                     <span className="text-xs leading-snug text-tertiary [overflow-wrap:anywhere]">{explanation}</span>
-                )}
-                {reviewer.relevant_commits.length > 0 && (
-                    <span className="flex flex-wrap gap-x-2 text-xs">
-                        {reviewer.relevant_commits.map((commit) => (
-                            <Link key={commit.sha} to={commit.url} target="_blank">
-                                {commit.sha.slice(0, 7)}
-                            </Link>
-                        ))}
-                    </span>
                 )}
             </div>
             <LemonTag type="muted" size="small">

@@ -18,13 +18,6 @@ const codeHistorySuggestions: EnrichedReviewer[] = [
     reviewer('maya', 'Maya Rivera', 'maya@example.com', {
         source_label: 'Code history',
         explanation: 'Changed the checkout handler where this issue occurs.',
-        relevant_commits: [
-            {
-                sha: 'abc1234',
-                url: 'https://github.com/example/app/commit/abc1234',
-                reason: 'Changed the checkout handler.',
-            },
-        ],
     }),
     reviewer('theo', 'Theo Brooks', 'theo@example.com', {
         source_label: 'Code history',
@@ -102,21 +95,6 @@ export const MixedSources: Story = {
     },
 }
 
-export const SharedReasonWithCommit: Story = {
-    args: {
-        suggestions: [
-            reviewer('alex', 'Alex Morgan', 'alex@example.com', {
-                source_label: 'Code history',
-                explanation: sharedReason,
-                relevant_commits: [
-                    { sha: 'fed9876', url: 'https://github.com/example/app/commit/fed9876', reason: sharedReason },
-                ],
-            }),
-            sharedReasonSuggestions[0],
-        ],
-    },
-}
-
 export const NarrowPanel: Story = {
     parameters: { mockupWidth: 'narrow' },
     args: {
@@ -127,13 +105,6 @@ export const NarrowPanel: Story = {
                 source_label: 'Code history',
                 explanation:
                     'Changed example.com/services/request-processing/a-very-long-path-without-spaces/or-identifiers.',
-                relevant_commits: [
-                    {
-                        sha: 'def5678',
-                        url: 'https://github.com/example/app/commit/def5678',
-                        reason: 'Changed this path.',
-                    },
-                ],
             }),
             ...codeHistorySuggestions.slice(0, 1),
         ],

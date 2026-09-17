@@ -1,5 +1,5 @@
 import { IconX } from '@posthog/icons'
-import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
@@ -28,7 +28,7 @@ export function SuggestedReviewerReasonGroup({
                     return (
                         <div
                             key={reviewer.user?.uuid ?? reviewer.user_uuid ?? reviewer.github_login}
-                            className="group/member relative flex min-w-0 flex-col items-start rounded py-0.5 pr-7 pl-1.5 hover:bg-fill-highlight"
+                            className="group/member relative flex min-w-0 items-center rounded py-0.5 pr-7 pl-1.5 hover:bg-fill-highlight"
                         >
                             <Tooltip
                                 title={
@@ -47,15 +47,6 @@ export function SuggestedReviewerReasonGroup({
                                     />
                                 </span>
                             </Tooltip>
-                            {reviewer.relevant_commits.length > 0 && (
-                                <span className="flex flex-wrap gap-x-2 text-xs">
-                                    {reviewer.relevant_commits.map((commit) => (
-                                        <Link key={commit.sha} to={commit.url} target="_blank">
-                                            {commit.sha.slice(0, 7)}
-                                        </Link>
-                                    ))}
-                                </span>
-                            )}
                             <LemonButton
                                 type="tertiary"
                                 size="xsmall"
