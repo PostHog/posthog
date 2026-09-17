@@ -35,6 +35,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
         extra_person_hash: str | None = None,
         behavioral_hash: str | None = "stable-condition-hash",
         group_type: str = "AND",
+        cohort_ref: int | None = None,
     ) -> dict:
         values = []
         if window_days is not None:
@@ -64,6 +65,8 @@ class TestBehavioralBackfillDependencies(BaseTest):
                         "conditionHash": leaf_hash,
                     }
                 )
+        if cohort_ref is not None:
+            values.append({"type": "cohort", "value": cohort_ref})
         return {"properties": {"type": group_type, "values": values}}
 
     def _cohort(self, window_days: int | None = 7, *, person_hash: str | None = None) -> Cohort:
@@ -367,6 +370,18 @@ class TestBehavioralBackfillDependencies(BaseTest):
                 CohortBackfillKind.PERSON_PROPERTY,
             ),
             (
+                "cohort_reference_swapped_on_person_only",
+                {"window_days": None, "person_hash": "person-a", "cohort_ref": 4242},
+                {"window_days": None, "person_hash": "person-a", "cohort_ref": 9999},
+                CohortBackfillKind.PERSON_PROPERTY,
+            ),
+            (
+                "cohort_reference_swapped_on_mixed",
+                {"window_days": 7, "person_hash": "person-a", "cohort_ref": 4242},
+                {"window_days": 7, "person_hash": "person-a", "cohort_ref": 9999},
+                CohortBackfillKind.BEHAVIORAL,
+            ),
+            (
                 "last_person_leaf_removed",
                 {"window_days": 7, "person_hash": "person-a"},
                 {"window_days": 7},
@@ -384,8 +399,10 @@ class TestBehavioralBackfillDependencies(BaseTest):
         self, _name: str, before: dict, after: dict, kind: CohortBackfillKind
     ) -> None:
         # Reconcile evaluates the whole tree whichever kind it runs for, so one run repairs the
-        # cohort. Removing the last person leaf is in this set because the person run its hash change
-        # would ask for is refused: the cohort has no person leaf left to pin.
+        # cohort. A reference swap moves no person-view fingerprint, so the person run is owed only
+        # where no behavioral run re-walks the tree. Removing the last person leaf is in this set
+        # because the person run its hash change would ask for is refused: the cohort has no person
+        # leaf left to pin.
         cohort = Cohort.objects.create(team=self.team, cohort_type=CohortType.REALTIME, filters=self._filters(**before))
         redis = self._redis()
         with (

@@ -261,7 +261,8 @@ class FilterShapeHashes:
         Person state is not per leaf. The seeder emits a person only when their leaf truths can move
         the tree it pinned, so what a run stored is valid for that tree alone, and a person run is
         owed whenever the tree as the person path sees it moved and the person hash did not, whatever
-        else the same save changed.
+        else the same save changed. It is also owed on any definition change when no behavioral run
+        re-walks the tree, because it is then the only run that reconciles the cohort.
         """
         if previous.definition is None or previous.definition == self.definition:
             return frozenset()
@@ -273,8 +274,10 @@ class FilterShapeHashes:
         person_run_fires = previous.person != self.person and person_backfillable
 
         kinds: set[RepairKind] = set()
-        if person_backfillable and not person_run_fires and previous.person_composition != self.person_composition:
-            kinds.add("person_property")
         if self.behavioral and not behavioral_run_fires and not person_run_fires:
             kinds.add("behavioral")
+        behavioral_run_rewalks = behavioral_run_fires or "behavioral" in kinds
+        if person_backfillable and not person_run_fires:
+            if previous.person_composition != self.person_composition or not behavioral_run_rewalks:
+                kinds.add("person_property")
         return frozenset(kinds)
