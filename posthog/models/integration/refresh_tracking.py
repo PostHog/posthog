@@ -59,9 +59,6 @@ REFRESH_FAILURE_REASON_OTHER = "other"
 # Not a provider response: the stored refresh token itself can't be decrypted, so no request was
 # made. Terminal on the first occurrence, since no later attempt can make the secret readable.
 REFRESH_FAILURE_REASON_UNREADABLE_SECRET = "unreadable_secret"
-
-# Not a provider response either: the stored key file names a token endpoint that is not Google's,
-# so no request is made. Terminal on the first occurrence, since only a re-upload changes the key.
 REFRESH_FAILURE_REASON_INVALID_TOKEN_URI = "invalid_token_uri"
 
 # Failures that say nothing about the grant: the provider was unavailable or throttling us. The
