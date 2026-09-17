@@ -8,6 +8,8 @@ in the local logs (this suite is private; nothing is sent to Braintrust).
 
 Requires REPLAY_VISION_EVAL_DATASET (a directory written by collect.py) and GEMINI_API_KEY.
 Set REPLAY_VISION_EVAL_VERIFY_POSITIVES to `shadow` or `enforce` to run monitor cases with verify-positives on.
+Alternatively set REPLAY_VISION_EVAL_DATASET_BUCKET and REPLAY_VISION_EVAL_DATASET_OBJECT_KEY to
+download the pinned dataset from object storage instead of collecting fresh.
 """
 
 import os
@@ -35,10 +37,13 @@ from products.replay_vision.backend.temporal.scanners import scanner_from_snapsh
 from products.replay_vision.backend.temporal.snapshots import ScannerSnapshot
 from products.replay_vision.backend.temporal.video_clock import VideoClock, video_clock_from_export_context
 from products.replay_vision.evals.dataset import (
+    DATASET_BUCKET_ENV_VAR,
     DATASET_ENV_VAR,
+    DATASET_KEY_ENV_VAR,
     GoldenCase,
     dataset_root,
-    ensure_dataset_fresh,
+    download_pinned_dataset,
+    ensure_dataset_consent,
     load_dataset,
 )
 from products.replay_vision.evals.scorers import (
@@ -211,8 +216,12 @@ async def eval_scanner_quality(ctx: EvalContext) -> None:
     if not gemini_api_key():
         raise RuntimeError("Set GEMINI_API_KEY (or REPLAY_VISION_GEMINI_API_KEY) to run replay-vision scans")
 
-    dataset = load_dataset(root)
-    ensure_dataset_fresh(dataset, root)
+    api_key = os.environ.get("POSTHOG_API_KEY", "").strip()
+    if os.environ.get(DATASET_KEY_ENV_VAR, "").strip() and os.environ.get(DATASET_BUCKET_ENV_VAR, "").strip():
+        dataset = download_pinned_dataset(root)
+    else:
+        dataset = load_dataset(root)
+    ensure_dataset_consent(dataset, api_key)
     golden_cases = dataset.cases
     missing = [g.case_id for g in golden_cases if not (g.video_path(root).exists() and g.inputs_path(root).exists())]
     if missing:

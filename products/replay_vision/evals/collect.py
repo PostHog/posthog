@@ -34,6 +34,18 @@ def main() -> None:
         default=200,
         help="Newest observations to consider per scanner; lower paginates much faster.",
     )
+    parser.add_argument(
+        "--upload",
+        metavar="OBJECT_KEY",
+        help="After collecting, upload the dataset into object storage under this key, "
+        "replacing whatever the key held.",
+    )
+    parser.add_argument(
+        "--from",
+        dest="from_key",
+        metavar="OBJECT_KEY",
+        help="Download the pinned dataset under this key into --output first, then extend it with new cases.",
+    )
     args = parser.parse_args()
 
     # Env var only, deliberately: a key passed as a CLI flag leaks into shell history and ps output.
@@ -44,17 +56,29 @@ def main() -> None:
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
     django.setup()
     from products.replay_vision.evals.collector import collect  # noqa: PLC0415 - needs Django configured first
+    from products.replay_vision.evals.dataset import (  # noqa: PLC0415 - needs Django configured first
+        download_pinned_dataset,
+        upload_pinned_dataset,
+    )
+
+    output = Path(args.output).expanduser()
+    if args.from_key:
+        pinned = download_pinned_dataset(output, key=args.from_key)
+        print(f"Loaded {len(pinned.cases)} pinned cases from {args.from_key}")  # noqa: T201
 
     dataset = collect(
         host=args.host,
         project_id=args.project_id,
         api_key=api_key,
-        output=Path(args.output).expanduser(),
+        output=output,
         per_type=args.per_type,
         scanner_ids=args.scanner_ids,
         seed=args.seed,
         max_observations_per_scanner=args.max_observations,
     )
+    if args.upload:
+        upload_pinned_dataset(output, dataset, key=args.upload)
+        print(f"Pinned {len(dataset.cases)} cases to {args.upload}")  # noqa: T201
     by_type: dict[str, int] = {}
     for case in dataset.cases:
         by_type[case.scanner_type] = by_type.get(case.scanner_type, 0) + 1

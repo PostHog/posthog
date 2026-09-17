@@ -5,6 +5,11 @@ A dataset is a plain directory, never committed to the repo (it contains real se
     manifest.json                  # GoldenDataset
     cases/<case_id>/video.mp4      # rasterized recording, byte-identical to what production sent to Gemini
     cases/<case_id>/inputs.json    # ScannerLlmInputs snapshot (events table, session metadata, navigation)
+
+A dataset can also be pinned in object storage (see `upload_pinned_dataset` /
+`download_pinned_dataset`), so prompt PRs compare against the same footage every run instead of a
+re-sampled fresh collection. The set is fixed by convention: a person curates and uploads it, and
+CI reads it unchanged. Consent is re-verified via the source instance's API at eval start.
 """
 
 import os
@@ -14,16 +19,16 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from posthog.dataclasses import frozen
+
 from products.replay_vision.backend.temporal.types import ScannerLlmInputs, ScannerSnapshot
 
 DATASET_ENV_VAR = "REPLAY_VISION_EVAL_DATASET"
+DATASET_BUCKET_ENV_VAR = "REPLAY_VISION_EVAL_DATASET_BUCKET"
+DATASET_KEY_ENV_VAR = "REPLAY_VISION_EVAL_DATASET_OBJECT_KEY"
 MANIFEST_NAME = "manifest.json"
 VIDEO_NAME = "video.mp4"
 INPUTS_NAME = "inputs.json"
-# Production re-checks AI data-processing consent right before every generation; for the eval the only
-# check happens when collect.py runs, so bound how long that verification (and the collected recordings
-# themselves) may be trusted.
-DATASET_MAX_AGE_DAYS = 30
 
 
 def parse_utc(raw: Any) -> dt.datetime:
@@ -76,6 +81,9 @@ class GoldenDataset(BaseModel, frozen=True):
     created_at: str
     host: str
     project_id: int
+    # For the consent re-check at eval time. Optional so manifests collected before it was recorded
+    # still load; those fall back to the organization endpoint with the project id.
+    organization_id: int | None = None
     cases: list[GoldenCase] = Field(default_factory=list)
 
 
@@ -88,16 +96,121 @@ def load_dataset(root: Path) -> GoldenDataset:
     return GoldenDataset.model_validate_json((root / MANIFEST_NAME).read_text())
 
 
-def ensure_dataset_fresh(dataset: GoldenDataset, root: Path) -> None:
-    """Refuse to scan a dataset whose consent verification has lapsed (see DATASET_MAX_AGE_DAYS)."""
-    age = dt.datetime.now(dt.UTC) - parse_utc(dataset.created_at)
-    if age > dt.timedelta(days=DATASET_MAX_AGE_DAYS):
+def ensure_dataset_consent(dataset: GoldenDataset, api_key: str) -> None:
+    """Re-verify the source org's AI data-processing consent, fresh, before scanning a dataset.
+
+    Age is the wrong gate for a pinned dataset: the pin outlives any age window by design, and the
+    thing age proxied for is consent, which is checked directly here. Runs against the source
+    instance's public API so it works from any runner, fail-closed on any error.
+    """
+    import requests  # noqa: PLC0415 - keeps requests off the module import path of pure consumers
+
+    if not api_key:
+        raise RuntimeError("Set POSTHOG_API_KEY so the dataset's source-org consent can be re-verified")
+    headers = {"Authorization": f"Bearer {api_key}"}
+    organization_id = dataset.organization_id
+    if organization_id is None:
+        # Older manifests predate the recorded org id; resolve it through the project endpoint.
+        environment = requests.get(
+            f"{dataset.host}/api/environments/{dataset.project_id}/", headers=headers, timeout=60
+        )
+        environment.raise_for_status()
+        organization_id = int(environment.json()["organization"])
+    organization = requests.get(f"{dataset.host}/api/organizations/{organization_id}/", headers=headers, timeout=60)
+    organization.raise_for_status()
+    if not organization.json().get("is_ai_data_processing_approved"):
         raise RuntimeError(
-            f"Dataset at {root} was collected {age.days} days ago (limit {DATASET_MAX_AGE_DAYS}); "
-            "re-run collect.py, which re-verifies AI data-processing consent"
+            "The dataset's source organization has withdrawn AI data-processing consent; "
+            "the eval must not scan its recordings"
         )
 
 
 def save_dataset(root: Path, dataset: GoldenDataset) -> None:
     root.mkdir(parents=True, exist_ok=True)
     (root / MANIFEST_NAME).write_text(dataset.model_dump_json(indent=2))
+
+
+def _case_key(key: str, case_id: str, file_name: str) -> str:
+    """Object key of one case file; `key` is the manifest key, the case files sit beside it."""
+    return f"{key.rsplit('/', 1)[0]}/cases/{case_id}/{file_name}"
+
+
+@frozen
+class _DatasetObjectLocation:
+    """Where the pin lives in object storage; named fields so bucket and key cannot be swapped."""
+
+    bucket: str
+    key: str
+
+
+def _bucket_and_key(bucket: str | None, key: str | None) -> _DatasetObjectLocation:
+    raw_bucket = bucket if bucket is not None else os.environ.get(DATASET_BUCKET_ENV_VAR, "").strip()
+    raw_key = key if key is not None else os.environ.get(DATASET_KEY_ENV_VAR, "").strip()
+    if not raw_bucket or not raw_key:
+        raise RuntimeError(
+            f"Set {DATASET_BUCKET_ENV_VAR} and {DATASET_KEY_ENV_VAR} (or pass bucket/key explicitly) "
+            "to use the pinned golden dataset"
+        )
+    return _DatasetObjectLocation(bucket=raw_bucket, key=raw_key)
+
+
+def upload_pinned_dataset(
+    root: Path, dataset: GoldenDataset, *, bucket: str | None = None, key: str | None = None
+) -> None:
+    """Upload the manifest and every case's video and inputs under the dataset's object-storage key.
+
+    Writes everything it is given, so an upload replaces whatever the key held. The set is fixed by
+    convention: a person uploads a curated dataset once and CI reads it unchanged; growing it is a
+    deliberate re-upload, never an automatic step. The manifest lands last, so a reader never sees
+    a manifest naming cases whose bytes are absent.
+    """
+    from posthog.storage import object_storage  # noqa: PLC0415 - keeps boto3/Django off the eval import path
+
+    location = _bucket_and_key(bucket, key)
+    missing = [g.case_id for g in dataset.cases if not (g.video_path(root).exists() and g.inputs_path(root).exists())]
+    if missing:
+        raise RuntimeError(f"Dataset at {root} is missing files for cases {missing[:5]}; collect before uploading")
+    for golden in dataset.cases:
+        object_storage.write_from_file(
+            _case_key(location.key, golden.case_id, VIDEO_NAME), str(golden.video_path(root)), bucket=location.bucket
+        )
+        object_storage.write(
+            _case_key(location.key, golden.case_id, INPUTS_NAME),
+            golden.inputs_path(root).read_bytes(),
+            bucket=location.bucket,
+        )
+    object_storage.write(location.key, dataset.model_dump_json(indent=2), bucket=location.bucket)
+
+
+def download_pinned_dataset(root: Path, *, bucket: str | None = None, key: str | None = None) -> GoldenDataset:
+    """Download the pinned dataset into root, skipping cases whose bytes are already on disk.
+
+    A re-run costs nothing for the part already local, so CI runners can cache nothing and still
+    only pay for what a fresh runner needs.
+    """
+    from posthog.storage import object_storage  # noqa: PLC0415 - keeps boto3/Django off the eval import path
+
+    location = _bucket_and_key(bucket, key)
+    raw = object_storage.read_bytes(location.key, bucket=location.bucket)
+    if raw is None:
+        raise RuntimeError(f"No pinned golden dataset at s3://{location.bucket}/{location.key}")
+    dataset = GoldenDataset.model_validate_json(raw)
+    root.mkdir(parents=True, exist_ok=True)
+    save_dataset(root, dataset)
+    for golden in dataset.cases:
+        if golden.video_path(root).exists() and golden.inputs_path(root).exists():
+            continue
+        golden.case_dir(root).mkdir(parents=True, exist_ok=True)
+        video = object_storage.read_bytes(
+            _case_key(location.key, golden.case_id, VIDEO_NAME), bucket=location.bucket, missing_ok=True
+        )
+        if video is None:
+            raise RuntimeError(f"Pinned dataset is missing video for case {golden.case_id}")
+        golden.video_path(root).write_bytes(video)
+        inputs = object_storage.read_bytes(
+            _case_key(location.key, golden.case_id, INPUTS_NAME), bucket=location.bucket, missing_ok=True
+        )
+        if inputs is None:
+            raise RuntimeError(f"Pinned dataset is missing inputs for case {golden.case_id}")
+        golden.inputs_path(root).write_text(inputs.decode())
+    return dataset

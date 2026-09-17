@@ -82,14 +82,37 @@ The job needs `REPLAY_VISION_EVAL_POSTHOG_API_KEY` (a personal API key with scan
 
 Each case carries the recorded production output and the human thumbs label, and the scorers grade the PR's prompts against those, so one run already benchmarks a prompt change against production.
 What it is not yet is a standing benchmark comparable across PRs and over time: the collector re-samples per run (deterministic for a fixed source, but the source drifts as observations accumulate and expire), so run-over-run score deltas mix a prompt change with a set change.
-A dataset pinned to the same sessions every run would fix that. It needs two things this workflow deliberately does not do: an internal store to hold the pinned set (the recordings cannot live in this public repo, and the consent model refuses a set older than 30 days), and a data-governance decision on persisting a curated set of customer recordings for reuse. Until both exist, the per-run benchmark above is the signal.
+A pinned dataset fixes that (see "Pinning the dataset" below): a person curates the set once, uploads it, and CI reads it unchanged, so prompt-path PRs compare against the same footage every run. Consent is re-verified at every eval start. Pinning real recordings to an internal bucket still needs the data-governance decision; until it clears, PR runs keep collecting fresh.
+
+## Pinning the dataset
+
+A pinned dataset is the same directory, uploaded to object storage under one stable key so every run scans the same footage:
+
+```bash
+POSTHOG_API_KEY=... python -m products.replay_vision.evals.collect \
+    --project-id 2 --per-type 25 --output ~/.posthog/replay-vision-golden-dataset \
+    --upload replay-vision/golden/main/manifest.json
+```
+
+The set is fixed by convention: `--upload` writes every case file and the manifest, replacing whatever the key held, so a re-upload is a deliberate act by whoever curates the set. To extend it, collect with `--from replay-vision/golden/main/manifest.json` (which downloads the pin into `--output` first) and upload again; nothing changes the pin automatically.
+
+Running the suite against the pin instead of a local directory:
+
+```bash
+REPLAY_VISION_EVAL_DATASET=~/.posthog/replay-vision-golden-dataset \
+REPLAY_VISION_EVAL_DATASET_BUCKET=... \
+REPLAY_VISION_EVAL_DATASET_OBJECT_KEY=replay-vision/golden/main/manifest.json \
+POSTHOG_API_KEY=... GEMINI_API_KEY=... hogli evals eval_scanner_quality
+```
+
+The suite downloads the pinned manifest and any case bytes missing locally, then re-verifies the source org's consent before scanning. Recording bytes in an internal bucket needs the data-governance decision below before it becomes the CI default.
 
 ## Data handling
 
 The dataset contains real session recordings and event data.
 
 - Keep it in a local or internal location only; never commit it, upload it, or reference its contents in PRs.
-- A dataset expires 30 days after its last collection: the suite refuses to run it, because the consent verification (and the recordings themselves) can lapse after collection. Re-running collect.py re-verifies consent and refreshes the manifest.
+- A dataset never expires on age: the suite re-verifies the source org's AI data-processing consent at every eval start (via the public API, with `POSTHOG_API_KEY`) and refuses to scan only when consent is actually withdrawn.
 - The suite is `OneShotPrivateEval`, so per-case logs stay in the local `eval_harness/logs/` directory and nothing goes to Braintrust.
 - The retained `signals` can contain session content. Keep these payloads private; never include them in public CI summaries, commits, or pull requests.
 - Dataset-derived content still leaves the machine on three paths. Two reach a model provider: the Gemini scans, which are the same provider call production already makes through `run_scan`, and the `summary_alignment` judge, which sends the recorded and fresh summaries to `gpt-5.4`. The third is the harness's `$ai_evaluation` capture, which stays inside PostHog.
