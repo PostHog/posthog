@@ -7,12 +7,14 @@ import {
 } from "@posthog/core/canvas/contextDocument";
 import { spaceFilesFolder } from "@posthog/core/canvas/contextFiles";
 import { Button, cn, Text } from "@posthog/quill";
-import { isTerminalStatus } from "@posthog/shared/domain-types";
+import { isTerminalStatus, type Task } from "@posthog/shared/domain-types";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { channelPageIcon } from "@posthog/ui/features/canvas/components/channelPages";
 import {
   buildGoalMeasurePrompt,
+  buildGoalTrendPrompt,
   goalMeasureTaskTitle,
+  goalTrendTaskTitle,
 } from "@posthog/ui/features/canvas/contextPrompt";
 import { GOAL_MEASURE_AGENT } from "@posthog/ui/features/canvas/goalMeasureAgent";
 import {
@@ -97,15 +99,35 @@ export function SpaceContextPage({
     const map = new Map<string, GoalMeasureTask>();
     for (const goal of doc.goals) {
       const taskId = measureTaskIds[goal.name];
-      if (!taskId || goal.measure !== null) continue;
-      const task = channelTasks.find((t) => t.id === taskId);
-      const ended = task
-        ? isTerminalStatus(task.latest_run?.status)
-        : !channelTasksLoading && channelTasks.length > 0;
-      map.set(goal.name, { taskId, state: ended ? "ended" : "running" });
+      if (taskId && goal.measure === null) {
+        map.set(
+          goal.name,
+          taskStateFor(taskId, channelTasks, channelTasksLoading),
+        );
+      }
     }
     return map;
   }, [doc.goals, measureTaskIds, channelTasks, channelTasksLoading]);
+  const trendTasks = useMemo(() => {
+    const map = new Map<string, GoalMeasureTask>();
+    for (const goal of doc.goals) {
+      const taskId = measureTaskIds[`trend:${goal.name}`];
+      const needsTrend =
+        goal.measure?.kind === "hogql" && !goal.measure.trendSql?.trim();
+      if (taskId && needsTrend)
+        map.set(
+          goal.name,
+          taskStateFor(taskId, channelTasks, channelTasksLoading),
+        );
+    }
+    return map;
+  }, [doc.goals, measureTaskIds, channelTasks, channelTasksLoading]);
+
+  const rememberTask = (key: string, taskId: string) => {
+    const next = { ...measureTaskIds, [key]: taskId };
+    setMeasureTaskIds(next);
+    writeGoalMeasureTaskIds(channelId, next);
+  };
 
   const saveDoc = (next: ContextDocument) =>
     store.save(serializeContextDocument(next));
@@ -125,10 +147,26 @@ export function SpaceContextPage({
       title: goalMeasureTaskTitle(goal.name),
       agent: GOAL_MEASURE_AGENT,
     });
-    if (!task) return;
-    const next = { ...measureTaskIds, [goal.name]: task.id };
-    setMeasureTaskIds(next);
-    writeGoalMeasureTaskIds(channelId, next);
+    if (task) rememberTask(goal.name, task.id);
+  };
+
+  const askAgentForTrend = async (goal: ContextGoal) => {
+    if (goal.measure?.kind !== "hogql") return;
+    const task = await generate({
+      channelId,
+      channelName,
+      description: "",
+      prompt: buildGoalTrendPrompt({
+        channelName,
+        channelId,
+        goalName: goal.name,
+        measureSql: goal.measure.sql,
+        contextLayerEnabled,
+      }),
+      title: goalTrendTaskTitle(goal.name),
+      agent: GOAL_MEASURE_AGENT,
+    });
+    if (task) rememberTask(`trend:${goal.name}`, task.id);
   };
 
   return (
@@ -221,6 +259,8 @@ export function SpaceContextPage({
                   onChange={(goals) => saveDoc({ ...doc, goals })}
                   onAskAgentForMeasure={askAgentForMeasure}
                   measureTasks={measureTasks}
+                  trendTasks={trendTasks}
+                  onAskAgentForTrend={askAgentForTrend}
                   onOpenMeasureTask={(taskId) =>
                     navigateToChannelTask(channelId, taskId)
                   }
@@ -271,6 +311,18 @@ export function SpaceContextPage({
       ) : null}
     </div>
   );
+}
+
+function taskStateFor(
+  taskId: string,
+  channelTasks: Task[],
+  loading: boolean,
+): GoalMeasureTask {
+  const task = channelTasks.find((t) => t.id === taskId);
+  const ended = task
+    ? isTerminalStatus(task.latest_run?.status)
+    : !loading && channelTasks.length > 0;
+  return { taskId, state: ended ? "ended" : "running" };
 }
 
 function Notice({
