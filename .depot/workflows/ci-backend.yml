@@ -357,6 +357,8 @@ jobs:
                         - 'common/ingestion/**'
                         - 'common/migration_utils/**'
                         - 'common/plugin_transpiler/**'
+                        # The personhog gRPC stubs that posthog/personhog_client imports
+                        - 'packages/personhog-proto/**'
                         - 'posthog/**/*'
                         - 'products/**/backend/**/*'
                         # Python outside backend/ — products like logs and
@@ -452,6 +454,8 @@ jobs:
                         - 'common/ingestion/**'
                         - 'common/migration_utils/**'
                         - 'common/plugin_transpiler/**'
+                        # The personhog gRPC stubs that posthog/personhog_client imports
+                        - 'packages/personhog-proto/**'
                         - 'posthog/**/*'
                         - bin/build-schema-latest-versions.py
                         - bin/build-taxonomy-json.py
