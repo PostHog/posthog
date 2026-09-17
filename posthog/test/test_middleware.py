@@ -1777,7 +1777,7 @@ class TestUpgradeImpersonation(APIBaseTest):
         )
         assert response.status_code == 400
 
-    @patch("ee.admin.loginas_views.get_original_user_from_session", return_value=None)
+    @patch("posthog.admin.loginas_views.get_original_user_from_session", return_value=None)
     def test_upgrade_returns_400_when_staff_user_not_found(self, mock_get_staff):
         self.login_as_read_only()
 

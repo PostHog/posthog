@@ -11,13 +11,13 @@ from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from posthog.admin import register_all_admin
+from posthog.admin.loginas_views import loginas_user, upgrade_impersonation
+from posthog.admin.oauth_views import admin_auth_check, admin_oauth_success
 from posthog.middleware import impersonated_session_logout
 from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values_view
 
 from products.cdp.backend.api import hooks
 
-from ee.admin.loginas_views import loginas_user, upgrade_impersonation
-from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
 from ee.api.vercel import vercel_connect, vercel_sso, vercel_webhooks
 from ee.middleware import admin_oauth2_callback
