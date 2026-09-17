@@ -74,6 +74,7 @@ import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlert
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
 import { LogsRetentionSection } from 'products/logs/frontend/components/LogsRetention/LogsRetentionSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
+import { LogsSourcesSection } from 'products/logs/frontend/components/LogsSources/LogsSourcesSection'
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
@@ -1027,6 +1028,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LogsRetentionSection />,
                 flag: LogsFeatureFlagKeys.retentionRules,
                 keywords: ['retention', 'storage', 'ttl', 'rules', 'filter', 'keep', 'expire'],
+            },
+            {
+                id: 'logs-sources',
+                title: 'Cloud provider sources',
+                description: 'Stream logs from Amazon CloudWatch into this environment through Amazon Data Firehose.',
+                component: <LogsSourcesSection />,
+                flag: LogsFeatureFlagKeys.cloudSources,
+                keywords: ['cloudwatch', 'aws', 'firehose', 'source', 'logs'],
             },
             {
                 id: 'logs-alerting',
