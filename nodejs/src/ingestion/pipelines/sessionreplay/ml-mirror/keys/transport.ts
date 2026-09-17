@@ -95,7 +95,8 @@ export class MlKafkaTransport {
     /**
      * Classifies a batch by wire version and, when the caller names the session each record belongs to, resolves
      * that session's key so the caller can seal its output. A record whose session key is deleted or blocked is
-     * dropped, so the caller can count the gap.
+     * dropped, so the caller can count the gap. A blocked team is refused on every read, while a deleted session is
+     * still served while a process holds its cached row, for the row cache lifetime.
      */
     public async read(
         messages: Message[],

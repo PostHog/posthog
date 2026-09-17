@@ -479,6 +479,37 @@ describe('ML session key batches', () => {
         expect(second.get(session.teamId, session.sessionId)!.session.plaintext).not.toEqual(provisional)
     })
 
+    it.each([
+        ['a lifetime over the cap is clamped', 86_400_000, 300_001, false],
+        ['a lifetime under the cap is kept', 60_000, 60_001, false],
+        ['a non-numeric lifetime falls back to the cap', Number.NaN, 300_001, false],
+        ['a team image key outlives the session cap', 86_400_000, 300_001, true],
+    ])('%s', async (_label, configured, elapsedMs, imageKey) => {
+        let fakeNow = 1_000
+        const clock = jest.spyOn(performance, 'now').mockImplementation(() => fakeNow)
+        try {
+            const db = new MlKeyDynamoDB(
+                boundary as unknown as DynamoDBClient,
+                table,
+                undefined,
+                undefined,
+                1000,
+                configured
+            )
+            const location = imageKey
+                ? imageKeyId(session.teamId, '2025-09')
+                : sessionKeyId(session.teamId, session.sessionId)
+            await (await new MlSessionKeyStore(db, encryption).prepare([session])).commit()
+            const reader = new MlKeyReader(db, encryption)
+            expect((await reader.read([location])).size).toBe(1)
+            boundary.items.set(tableKeyString(location), { ...encodeKey(location), deleted: { BOOL: true } })
+            fakeNow += elapsedMs
+            expect((await reader.read([location])).size).toBe(imageKey ? 1 : 0)
+        } finally {
+            clock.mockRestore()
+        }
+    })
+
     it('serves a deleted session key until its cached row reaches the lease, then stops', async () => {
         const lifetimeMs = 60_000
         let fakeNow = 1_000

@@ -25,6 +25,7 @@ export class MlKeyManager {
     public readonly reader: MlKeyReader
     public readonly controller: MlKeyBatchController
     public readonly kafka: MlKafkaTransport
+    private readonly db: MlKeyDynamoDB
     private readonly dynamo: DynamoDBClient
     private readonly kms: KMSClient
 
@@ -38,7 +39,7 @@ export class MlKeyManager {
             maxAttempts: 3,
         })
         this.kms = new KMSClient({ region: config.AI_RESEARCH_REPLAY_AWS_REGION, maxAttempts: 3 })
-        const db = new MlKeyDynamoDB(
+        this.db = new MlKeyDynamoDB(
             this.dynamo,
             config.AI_RESEARCH_REPLAY_KEY_TABLE,
             undefined,
@@ -54,8 +55,8 @@ export class MlKeyManager {
             8,
             config.AI_RESEARCH_REPLAY_KMS_REQUESTS_PER_SECOND
         )
-        this.reader = new MlKeyReader(db, this.encryption)
-        this.controller = new MlKeyBatchController(new MlSessionKeyStore(db, this.encryption), this.encryption)
+        this.reader = new MlKeyReader(this.db, this.encryption)
+        this.controller = new MlKeyBatchController(new MlSessionKeyStore(this.db, this.encryption), this.encryption)
         this.kafka = new MlKafkaTransport(this.reader)
     }
 
@@ -65,6 +66,7 @@ export class MlKeyManager {
 
     public stop(): void {
         this.encryption.clear()
+        this.db.clear()
         this.dynamo.destroy()
         this.kms.destroy()
     }

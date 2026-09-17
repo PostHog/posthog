@@ -138,16 +138,17 @@ export class MlMirrorMetrics {
     private static urlBytesSeen = 0
     private static readonly mlKeyRowCacheLookups = new Counter({
         name: 'recording_blob_ingestion_v2_ml_key_row_cache_lookups_total',
-        help: 'Lookups of a stored ML key row in the per-process cache, by outcome. A hit costs neither a DynamoDB read nor a KMS decrypt, so the hit share is what the row cache is worth; it is also how long a deleted key can still be served, because a hit does not see a tombstone written since the row was read. Note that dynamodb_read on ml_key_request_duration counts misses only, so read that rate against this one rather than as total key traffic',
+        help: 'Lookups of a stored ML key row in the per-process cache, by outcome. A hit skips the DynamoDB read, and skips the KMS decrypt as well while the plaintext cache still holds that key. A hit also does not see a tombstone written since the row was read. Note that dynamodb_read on ml_key_request_duration counts misses only, so read that rate against this one rather than as total key traffic',
         labelNames: ['outcome'],
     })
     private static readonly mlKeyRowCacheEntries = new Gauge({
         name: 'recording_blob_ingestion_v2_ml_key_row_cache_entries',
-        help: 'Stored ML key rows held in the per-process cache. Reaching the configured maximum means rows are evicted before they expire, so the hit share falls and the lane reads DynamoDB more often',
+        help: 'Stored ML key rows the per-process cache holds, counted after a read. Expired rows stay counted until a read or an eviction removes them, so this tracks the memory held rather than the rows still usable, and it stands still on an idle lane',
     })
     private static readonly mlKeyReadRetries = new Counter({
         name: 'recording_blob_ingestion_v2_ml_key_read_retries_total',
-        help: 'Retries of a throttled or otherwise transient ML key read. Commits log ml_key_commit_retry for the write path; reads have no equivalent log, so this counter is the only signal that a lane is riding out a DynamoDB throttle rather than failing on it',
+        help: 'Retries of an ML key read, by reason. BatchGetItem answers a partial throttle with HTTP 200 and unprocessed keys rather than an exception, so unprocessed_keys is the usual throttle signal and transient_error is the request-level one. Commits log ml_key_commit_retry for the write path; reads have no equivalent log',
+        labelNames: ['reason'],
     })
     private static readonly mlKeyPhaseDuration = new Histogram({
         name: 'recording_blob_ingestion_v2_ml_key_phase_duration_ms',
@@ -188,8 +189,8 @@ export class MlMirrorMetrics {
         this.mlKeyRowCacheEntries.set(entries)
     }
 
-    public static incrementMlKeyReadRetry(): void {
-        this.mlKeyReadRetries.inc()
+    public static incrementMlKeyReadRetry(reason: 'transient_error' | 'unprocessed_keys'): void {
+        this.mlKeyReadRetries.labels(reason).inc()
     }
 
     public static observeMlAnonymizeDuration(impl: MlAnonymizeImpl, ms: number, route: MlAnonymizeRoute = ''): void {

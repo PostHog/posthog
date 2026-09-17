@@ -63,7 +63,8 @@ A retry stops when the caller's deadline expires.
 Ingestion holds a usable session key row and image key row in the process, and a KMS plaintext cache reduces repeated decrypt calls.
 A team block row, a tombstone, and a row with no wrapped key are never held, so every read refuses a blocked team.
 A session key deleted out of band stays usable in a process that already read it, until that entry expires.
-`ROW_CACHE_LIFETIME_MS` therefore sets how soon ingestion observes a session deletion, and it cannot exceed the read lease.
+`ROW_CACHE_LIFETIME_MS` therefore sets how soon ingestion observes a session deletion.
+A team image key is one row per team per month, so it is held far longer than a session key: it survives eviction, and a short lifetime only buys re-reads.
 Data written under such a key stays unreadable, because the envelope stores no wrapped key and the stored row is a tombstone.
 Training readers do not use this cache.
 Each process limits KMS concurrency and request rate; deployment capacity must account for the sum across replicas.
@@ -194,7 +195,7 @@ New key manager and v2 storage settings use the `AI_RESEARCH_REPLAY_*` prefix:
 
 - `KEY_TABLE`, `KMS_KEY_ARN`, and `AWS_REGION` select the key store and wrapping key.
 - `KEY_CACHE_MAX`, `KEY_CACHE_LIFETIME_MS`, and `KMS_REQUESTS_PER_SECOND` bound the KMS plaintext cache and KMS traffic.
-- `ROW_CACHE_MAX` and `ROW_CACHE_LIFETIME_MS` bound the stored key row cache. The lifetime is capped at the read lease, because it decides how soon a deletion reaches ingestion.
+- `ROW_CACHE_MAX` and `ROW_CACHE_LIFETIME_MS` bound the stored key row cache. The lifetime applies to a session key row and is capped; a team image key row is held for up to 48 hours.
 - `IMAGE_FETCH_V2_DYNAMODB_TABLE` selects the fresh v2 frontier.
 - `S3_PREFIX` selects v2 replay storage and defaults to `rrweb_2`.
 

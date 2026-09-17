@@ -60,7 +60,7 @@ export function monthKeyIndexId(identity: MlKeyIdentity, key: TableKey): TableKe
     return { pk: `month:${keySessionMonth(identity)}:shard:${sessionShard(id)}`, sk: `key:${id}` }
 }
 
-// A stored key row is written once and never rewritten, unlike a team block row or a tombstone, which a deletion adds later.
+// The only update to a stored key row is the deletion tombstone, so a cache of one is stale only for a deletion, and its lifetime is what bounds how late that tombstone is seen.
 export function holdsStoredKey(key: TableKey): boolean {
     return key.sk.startsWith(SESSION_KEY_PREFIX) || key.sk.startsWith(IMAGE_KEY_PREFIX)
 }
