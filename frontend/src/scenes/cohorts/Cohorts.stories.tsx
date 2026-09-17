@@ -77,3 +77,14 @@ export const CohortEditStatic: Story = {
     parameters: { pageUrl: urls.cohort(3) },
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/3/': mockCohorts[2], ...cohortApiMocks } })],
 }
+
+const failedStaticCohort: CohortType = {
+    ...createCohort(4, 'Beta signups snapshot', 0, true),
+    errors_calculating: 1,
+    last_error_message: 'Cohort calculation was terminated for reading too much data.',
+} as CohortType
+
+export const CohortEditStaticPopulationFailed: Story = {
+    parameters: { pageUrl: urls.cohort(4) },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/4/': failedStaticCohort, ...cohortApiMocks } })],
+}
