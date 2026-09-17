@@ -184,25 +184,33 @@ function locateProseAnchorEnd(markdown: string, anchor: ProseAnchor): number {
     return matches[0]! + anchor.source.length
 }
 
+const ANCHOR_TERMINATOR = new RegExp(`^${EOL}`)
+
 /**
  * Where the block under `<!--ph:id-->` ends. The anchor finds the block, and the source the read
  * reported measures it, because a fenced block holds blank lines and a search for the next one
  * would end the block inside the fence.
  */
 function locateStoredAnchorEnd(markdown: string, anchor: ProseAnchor): number {
-    const marker = `<!--ph:${anchor.nodeId}-->\n`
-    const at = markdown.indexOf(marker)
-    if (at === -1) {
+    const marker = `<!--ph:${anchor.nodeId}-->`
+    const bodyStarts: number[] = []
+    for (let at = markdown.indexOf(marker); at !== -1; at = markdown.indexOf(marker, at + 1)) {
+        const terminator = ANCHOR_TERMINATOR.exec(markdown.slice(at + marker.length, at + marker.length + 2))
+        if (terminator) {
+            bodyStarts.push(at + marker.length + terminator[0].length)
+        }
+    }
+    if (bodyStarts.length === 0) {
         throw new Error(
             `Block ${anchor.nodeId} is no longer in notebook, so a cell cannot be placed after it. Read the notebook again with notebooks-get and retry with the id it returns.`
         )
     }
-    if (markdown.indexOf(marker, at + 1) !== -1) {
+    if (bodyStarts.length > 1) {
         throw new Error(
             `Block ${anchor.nodeId} names more than one block in notebook, so it cannot name one of them. Read the notebook again with notebooks-get.`
         )
     }
-    const bodyStart = at + marker.length
+    const bodyStart = bodyStarts[0]!
     const bodyEnd = bodyStart + anchor.source.length
     if (!markdown.startsWith(anchor.source, bodyStart) || !BLOCK_END_BOUNDARY.test(markdown.slice(bodyEnd))) {
         throw new Error(

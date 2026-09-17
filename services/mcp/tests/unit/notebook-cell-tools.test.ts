@@ -753,6 +753,13 @@ describe('notebook cell tools', () => {
                     `<!--ph:phb-one-->\nShared text.\n\n\n<!--ph:${id}-->\nInserted note.\n\n\nShared text.\n`,
             },
             {
+                label: 'the document uses CRLF',
+                doc: '<!--ph:phb-one-->\r\nShared text.\r\n\r\n\r\nTail.\r\n',
+                cell: { node_id: 'phb-one', cell_type: 'markdown', code: 'Shared text.', start: 2, end: 14 },
+                expected: (id: string) =>
+                    `<!--ph:phb-one-->\r\nShared text.\n\n\n<!--ph:${id}-->\nInserted note.\n\n\nTail.\r\n`,
+            },
+            {
                 label: 'the block is a fence that holds a blank line',
                 doc: `<!--ph:phb-one-->\n${FENCE}\n\n\nTail.\n`,
                 cell: { node_id: 'phb-one', cell_type: 'markdown', code: FENCE, start: 2, end: 2 + FENCE.length },
