@@ -184,19 +184,6 @@ def bounded_reviewer_reason(reason: object) -> str | None:
     return reason if isinstance(reason, str) and len(reason) <= MAX_REVIEWER_REASON_LENGTH else None
 
 
-def bounded_reviewer_commits(commits: object) -> list[object]:
-    """Commit evidence with every over-long `reason` emptied. Rows written before the cap existed
-    still carry longer text, and emptying the text keeps the sha and url a reader needs."""
-    if not isinstance(commits, list):
-        return []
-    return [
-        {**commit, "reason": bounded_reviewer_reason(commit.get("reason")) or ""}
-        if isinstance(commit, dict)
-        else commit
-        for commit in commits
-    ]
-
-
 def _commit_explanation(commits: list[object]) -> str:
     if len(commits) == 1 and isinstance(commits[0], dict):
         reason = commits[0].get("reason")
@@ -208,7 +195,14 @@ def _commit_explanation(commits: list[object]) -> str:
 
 
 def _with_reviewer_presentation(reviewer: dict, user: User | None, scout_display_names: Mapping[str, str]) -> dict:
-    safe_commits = bounded_reviewer_commits(reviewer.get("relevant_commits"))
+    commits = reviewer.get("relevant_commits")
+    commit_list: list[object] = commits if isinstance(commits, list) else []
+    safe_commits = [
+        {**commit, "reason": bounded_reviewer_reason(commit.get("reason")) or ""}
+        if isinstance(commit, dict)
+        else commit
+        for commit in commit_list
+    ]
     source_skill = reviewer.get("source_skill")
     reason = reviewer.get("reason")
     safe_reason = bounded_reviewer_reason(reason)
