@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import json
 import logging
 from collections import Counter
@@ -155,22 +156,60 @@ def enrich_reviewer_dicts_with_org_members(
             # strip + lower matches the resolver's key normalization, so a legacy padded login
             # (stored before the schema stripped on write) still resolves.
             user = resolved_map.get(login.strip().lower())
-        enriched.append(
-            {
-                **r,
-                "user": {
-                    "id": user.id,
-                    "uuid": str(user.uuid),
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "email": user.email,
-                }
-                if user
-                else None,
-            }
-        )
+        enriched.append(_with_reviewer_presentation(r, user))
 
     return enriched
+
+
+def _prettify_scout_name(skill_name: str) -> str:
+    cleaned = re.sub(r"^signals-scout-?", "", skill_name).replace("_", " ").replace("-", " ").strip()
+    return cleaned[:1].upper() + cleaned[1:] if cleaned else "Scout"
+
+
+def _commit_explanation(commits: list[object]) -> str:
+    if len(commits) == 1 and isinstance(commits[0], dict):
+        reason = commits[0].get("reason")
+        if isinstance(reason, str) and 0 < len(reason.split()) <= 12:
+            return reason.strip()
+    if len(commits) == 1:
+        return "Authored a relevant change to the affected code."
+    return f"Authored {len(commits)} relevant changes to the affected code."
+
+
+def _with_reviewer_presentation(reviewer: dict, user: User | None) -> dict:
+    commits = reviewer.get("relevant_commits")
+    commit_list: list[object] = commits if isinstance(commits, list) else []
+    source_skill = reviewer.get("source_skill")
+    reason = reviewer.get("reason")
+    explanation: str | None
+
+    if commit_list:
+        source_label = "Code history"
+        explanation = _commit_explanation(commit_list)
+    elif isinstance(source_skill, str) and source_skill:
+        source_label = f"{_prettify_scout_name(source_skill)} scout"
+        explanation = reason if isinstance(reason, str) else None
+    elif isinstance(reason, str) and reason.startswith("Added as a reviewer by "):
+        source_label = "Added by teammate"
+        explanation = None
+    else:
+        source_label = "Agent suggestion"
+        explanation = reason if isinstance(reason, str) else None
+
+    return {
+        **reviewer,
+        "source_label": source_label,
+        "explanation": explanation,
+        "user": {
+            "id": user.id,
+            "uuid": str(user.uuid),
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "email": user.email,
+        }
+        if user
+        else None,
+    }
 
 
 def normalized_github_logins_from_suggested_reviewer_artefacts(

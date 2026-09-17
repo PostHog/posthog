@@ -533,6 +533,8 @@ class EnrichedReviewer(ContractModel):
     relevant_commits: list[RelevantCommit]
     user: SignalReviewerUserInfo | None
     reason: str | None = None
+    source_label: str
+    explanation: str | None = None
 
 
 # ── Tier-1 data-warehouse inbox sources ──────────────────────────────────────────

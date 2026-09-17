@@ -588,6 +588,44 @@ const inboxSourceConfigsUpdate = (): ToolBase<
     },
 })
 
+const ScoutCheckRecordResultSchema = () => {
+    const SignalsScoutRecordCheckResultBody = orvalSchemas.SignalsScoutRecordCheckResultBody()
+    const SignalsScoutRecordCheckResultParams = orvalSchemas.SignalsScoutRecordCheckResultParams()
+    return SignalsScoutRecordCheckResultParams.omit({ project_id: true }).extend(
+        SignalsScoutRecordCheckResultBody.shape
+    )
+}
+
+const scoutCheckRecordResult = (): ToolBase<
+    ReturnType<typeof ScoutCheckRecordResultSchema>,
+    Schemas.RecordCheckResultResponse
+> => ({
+    name: 'scout-check-record-result',
+    schema: ScoutCheckRecordResultSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutCheckRecordResultSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.check_id !== undefined) {
+            body['check_id'] = params.check_id
+        }
+        if (params.outcome !== undefined) {
+            body['outcome'] = params.outcome
+        }
+        if (params.explanation !== undefined) {
+            body['explanation'] = params.explanation
+        }
+        if (params.observed_value !== undefined) {
+            body['observed_value'] = params.observed_value
+        }
+        const result = await context.api.request<Schemas.RecordCheckResultResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/check-result/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ScoutConfigCreateSchema = () => {
     const SignalsScoutConfigCreateBody = orvalSchemas.SignalsScoutConfigCreateBody()
     return SignalsScoutConfigCreateBody
@@ -848,6 +886,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         if (params.append_note !== undefined) {
             body['append_note'] = params.append_note
         }
+        if (params.corroboration_only !== undefined) {
+            body['corroboration_only'] = params.corroboration_only
+        }
         if (params.append_evidence !== undefined) {
             body['append_evidence'] = params.append_evidence
         }
@@ -865,6 +906,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
+        }
+        if (params.supersedes_implementation !== undefined) {
+            body['supersedes_implementation'] = params.supersedes_implementation
         }
         const result = await context.api.request<Schemas.EditReportResponse>({
             method: 'POST',
@@ -1649,6 +1693,9 @@ const signalsScoutEditReport = (): ToolBase<
         if (params.append_note !== undefined) {
             body['append_note'] = params.append_note
         }
+        if (params.corroboration_only !== undefined) {
+            body['corroboration_only'] = params.corroboration_only
+        }
         if (params.append_evidence !== undefined) {
             body['append_evidence'] = params.append_evidence
         }
@@ -1666,6 +1713,9 @@ const signalsScoutEditReport = (): ToolBase<
         }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
+        }
+        if (params.supersedes_implementation !== undefined) {
+            body['supersedes_implementation'] = params.supersedes_implementation
         }
         const result = await context.api.request<Schemas.EditReportResponse>({
             method: 'POST',
@@ -2098,6 +2148,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-partial-update': inboxSourceConfigsPartialUpdate,
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
     'inbox-source-configs-update': inboxSourceConfigsUpdate,
+    'scout-check-record-result': scoutCheckRecordResult,
     'scout-config-create': scoutConfigCreate,
     'scout-config-delete': scoutConfigDelete,
     'scout-config-list': scoutConfigList,

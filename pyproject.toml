@@ -100,7 +100,7 @@ dependencies = [
     "paramiko~=3.5.0",
     "pillow==12.3.0",
     "protobuf~=5.29.6",
-    "posthoganalytics==7.54.0",
+    "posthoganalytics==7.54.1",
     "polars==1.37.1",
     "psycopg2-binary==2.9.10",
     "psycopg[binary]==3.2.4",
@@ -199,7 +199,7 @@ dependencies = [
     "defusedxml~=0.7.1",
     "confluent-kafka~=2.13",
     "blake3>=1.0.8,<2",
-    "pixelhog~=1.3.0",
+    "pixelhog~=1.3.1",
     "google-re2>=1.1.20251105,<2",
     "scrubadub~=2.0.1",
     "braintrust-core>=0.0.59,<1",
@@ -617,7 +617,15 @@ ignore_imports = [
     "products.tracing.backend.presentation.views_api -> products.tracing.backend.models",
     "products.user_interviews.backend.presentation.views -> products.user_interviews.backend.models",
     "products.user_interviews.backend.presentation.views -> products.user_interviews.backend.invite_email",
+    # The public interview view still resolves a share token itself and reads the team, the
+    # interviewee context and the topic off the ORM rows, so it takes the share lookup and the
+    # respondent-field helpers from logic directly. A facade read would have to hand back the
+    # SharingConfiguration, which §5 forbids.
+    "products.user_interviews.backend.presentation.webhooks -> products.user_interviews.backend.logic",
     "products.user_interviews.backend.presentation.webhooks -> products.user_interviews.backend.models",
+    # The webhook view still holds the request handling for the Vapi delivery, so it calls the
+    # event module directly. The line goes when the handling moves off the request path.
+    "products.user_interviews.backend.presentation.webhooks -> products.user_interviews.backend.vapi_events",
     # logs presentation isolation (temporary): the moved viewsets still reach in-product
     # internals directly. Removed by the follow-up that thins each viewset to go through
     # the facade.
