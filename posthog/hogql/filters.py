@@ -247,6 +247,10 @@ class ReplaceFilters(CloningVisitor):
         no_filters = self.filters is None or not self.filters.model_fields_set
 
         if node.chain == ["filters"]:
+            if not self.selects:
+                raise QueryError(
+                    "`{filters}` only works inside a SELECT query, for example `SELECT event FROM events WHERE {filters}`."
+                )
             last_select = self.selects[-1]
             last_join = last_select.select_from
             found_events = False
