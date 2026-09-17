@@ -194,8 +194,7 @@ export class MlKeyBatch {
     // The index entry goes first and is idempotent, so every stored key has an index entry even when the key put fails or a retried put reports the batch's own write as a competitor's. An index entry without a key is harmless: the month sweep leaves a tombstone that a later key put respects.
     private async persist(deadline: AbortSignal): Promise<void> {
         const unstored = [...this.keys].filter(([id]) => !this.state.has(id))
-        // A losing put would leave session keys sealed under bytes nobody stored, so the month key commits first. A
-        // batch skips this once the month key exists, which is after its first session of the month.
+        // A losing put would leave session keys sealed under bytes nobody stored, so the month key commits first.
         const monthKeys = unstored.filter(([, key]) => !key.identity.sessionId)
         if (monthKeys.length) {
             await this.write(monthKeys, deadline)
@@ -255,7 +254,7 @@ export class MlKeyBatch {
         }
     }
 
-    /** A month key keeps the KMS blob it was made with. A session key carries the seal its month key made. */
+    /** A month key keeps its KMS blob. A session key carries the seal its month key made. */
     private rowFor(key: MlDataKey): DynamoItem {
         const shared = {
             team_id: { N: String(key.identity.teamId) },

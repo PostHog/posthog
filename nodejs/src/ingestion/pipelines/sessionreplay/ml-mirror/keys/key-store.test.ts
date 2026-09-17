@@ -205,7 +205,6 @@ describe('ML session key batches', () => {
         expect(boundary.writes).toBe(122)
         // One more request than a single phase, because the team month key commits before the keys it seals.
         expect(boundary.writeRequests).toBe(65)
-        // The month key's index entry commits in its own phase, ahead of the 60 session index entries.
         expect([...boundary.writeBatchSizes].sort((a, b) => b - a)).toEqual([25, 25, 10, 1])
     })
 
@@ -239,7 +238,7 @@ describe('ML session key batches', () => {
         const keys = await reader.read(identities.map((identity) => sessionKeyId(identity.teamId, identity.sessionId)))
         expect(keys.size).toBe(identities.length)
         expect(boundary.conditionalFailures).toBe(0)
-        // 120 distinct sessions across one team month. KMS made the month key, and each session key was sealed under it.
+        // 120 distinct sessions, one team month, so KMS made the month key and nothing else.
         expect(generated).toBe(1)
     })
 
