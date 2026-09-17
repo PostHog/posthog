@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.c
     HOST_NOT_ALLOWED_ERROR,
     HTTP_NOT_ALLOWED_ERROR,
     INVALID_ACCOUNT_ID_ERROR,
+    REPORTING_EVENTS_UNAVAILABLE_ERROR,
     RESPONSE_TOO_LARGE_ERROR,
     RESPONSE_TOO_SLOW_ERROR,
     ChatwootResumeConfig,
@@ -173,6 +174,7 @@ If automatic creation failed, note that only Chatwoot administrators can manage 
             "401 Client Error": "Chatwoot rejected your API access token. Check the token is correct, has not been revoked, and belongs to a member of the configured account, then reconnect.",
             "403 Client Error": "Your Chatwoot API access token does not have permission to read this data. Use an administrator's access token, then reconnect.",
             "404 Client Error": "Chatwoot could not find the configured account. Check the account ID and instance URL, then reconnect.",
+            REPORTING_EVENTS_UNAVAILABLE_ERROR: "This Chatwoot instance does not serve reporting events. The endpoint only exists on Chatwoot Cloud and enterprise builds, so deselect the reporting_events table to sync the rest.",
             INVALID_ACCOUNT_ID_ERROR: "The Chatwoot account ID must be a number (the number in your Chatwoot URL, e.g. app.chatwoot.com/app/accounts/1). Update the source configuration.",
             HOST_NOT_ALLOWED_ERROR: "The Chatwoot host is not allowed. Please use a publicly reachable instance URL.",
             HTTP_NOT_ALLOWED_ERROR: "The Chatwoot host must use HTTPS. Please update the instance URL to use https://.",
@@ -189,14 +191,17 @@ If automatic creation failed, note that only Chatwoot administrators can manage 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Chatwoot's list endpoints expose no server-side timestamp filter, so every schema is
-        # full refresh; conversations and messages additionally support webhook-fed deltas.
+        # Only reporting_events has a server-side timestamp filter to sync incrementally against;
+        # the rest are full refresh, and conversations and messages also support webhook-fed deltas.
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=bool(CHATWOOT_ENDPOINTS[endpoint].incremental_fields),
+                # Not append: Chatwoot's since/until bounds are whole seconds while created_at
+                # carries sub-seconds, so each run re-reads the watermark's own second. A merge
+                # dedupes those rows on the primary key; an append would duplicate them.
                 supports_append=False,
-                incremental_fields=[],
+                incremental_fields=CHATWOOT_ENDPOINTS[endpoint].incremental_fields,
                 supports_webhooks=CHATWOOT_ENDPOINTS[endpoint].supports_webhooks,
                 description=CHATWOOT_ENDPOINTS[endpoint].description,
             )
@@ -282,4 +287,7 @@ If automatic creation failed, note that only Chatwoot administrators can manage 
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             webhook_source_manager=self.get_webhook_source_manager(inputs),
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )

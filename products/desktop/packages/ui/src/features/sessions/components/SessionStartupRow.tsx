@@ -11,9 +11,11 @@ import { useSessionStore } from "@posthog/ui/features/sessions/sessionStore";
 export function SessionStartupRow({
   taskId,
   task,
+  hasCurrentSetupProgress,
 }: {
   taskId: string;
   task: Task;
+  hasCurrentSetupProgress: boolean;
 }) {
   const isProvisioning = useProvisioningStore((s) => s.activeTasks.has(taskId));
   const startupPhase = useSessionStore(
@@ -33,7 +35,9 @@ export function SessionStartupRow({
       />
     );
   }
-  if (hasError || (isRunning && !isInitializing)) return null;
+  if (hasCurrentSetupProgress || hasError || (isRunning && !isInitializing)) {
+    return null;
+  }
   return (
     <SessionStartupStatus
       label={
