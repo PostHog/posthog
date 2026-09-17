@@ -1,10 +1,10 @@
 import { Message, MessageHeader, TopicPartitionOffset } from 'node-rdkafka'
 import { gzipSync } from 'node:zlib'
 
-import { MlKeyReader } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/reader'
-import { MlPrivacyRuntime } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/runtime'
-import { INGESTION_VERSION_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/schema'
-import { MlKafkaEncryption } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/transport'
+import { MlKeyReader } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/reader'
+import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
+import { INGESTION_VERSION_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
+import { MlKafkaTransport } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
 
 import { hashImageBytes, imageRef, urlRef } from './content-ref'
 import { ImageBatcher, OffsetStore } from './image-batcher'
@@ -93,11 +93,11 @@ describe('ImageBatcher', () => {
                 const store = new FakeStore()
                 const offsets = new FakeOffsets()
                 const park = jest.fn().mockRejectedValueOnce(new Error('dlq unavailable')).mockResolvedValue(undefined)
-                const privacy = {
-                    kafka: new MlKafkaEncryption({
+                const keyManager = {
+                    kafka: new MlKafkaTransport({
                         read: jest.fn().mockResolvedValue(new Map()),
                     } as unknown as MlKeyReader),
-                } as MlPrivacyRuntime
+                } as MlKeyManager
                 const incrementVersion = jest.spyOn(ImageScrubConsumerMetrics, 'incrementVersion')
                 const batcher = new ImageBatcher(
                     store as unknown as ImageShardStore,
@@ -106,7 +106,7 @@ describe('ImageBatcher', () => {
                     options,
                     0,
                     { park },
-                    privacy
+                    keyManager
                 )
                 const invalid = msg(0, 0, pt(1), Buffer.from('invalid envelope'), undefined, [
                     { [INGESTION_VERSION_HEADER]: Buffer.from('2') },
@@ -132,7 +132,7 @@ describe('ImageBatcher', () => {
                     bytes: invalid.value,
                     headers: { [INGESTION_VERSION_HEADER]: '2' },
                     detail: {
-                        reason: 'invalid_encryption',
+                        reason: 'invalid_record',
                         sourceTopic: invalid.topic,
                         sourcePartition: 0,
                         sourceOffset: 0,

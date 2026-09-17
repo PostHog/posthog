@@ -118,6 +118,7 @@ import {
     TeamType,
 } from '~/types'
 
+import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
 import { groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
@@ -515,6 +516,10 @@ export interface taxonomicFilterLogicValues {
     allowNonCapturedEvents: boolean
     anyGroupLoading: boolean
     anyGroupStale: boolean
+    cohortGroupOptions: {
+        hideBehavioralCohorts: boolean
+        showCohortFlagTargeting: boolean
+    }
     currentTabIndex: number
     dataWarehousePopoverFields: any
     endpointFilters: Record<string, any>
@@ -565,6 +570,7 @@ export interface taxonomicFilterLogicValues {
     searchQuery: string
     selectedItemMeta: any
     selectedProperties: TaxonomicFilterGroupValueMap
+    showCohortFlagTargeting: boolean
     showNumericalPropsOnly: any
     suggestedFilterGroupOrder: TaxonomicFilterGroupType[]
     suggestedFiltersLabel: any
@@ -684,6 +690,14 @@ export interface taxonomicFilterLogicMeta {
         }
         allowNonCapturedEvents: (arg: any) => boolean
         hideBehavioralCohorts: (arg: any) => boolean
+        showCohortFlagTargeting: (arg: any) => boolean
+        cohortGroupOptions: (
+            hideBehavioralCohorts: boolean,
+            showCohortFlagTargeting: boolean
+        ) => {
+            hideBehavioralCohorts: boolean
+            showCohortFlagTargeting: boolean
+        }
         hogQLExpressionComponentProps: (
             arg: any,
             arg2: any
@@ -723,7 +737,10 @@ export interface taxonomicFilterLogicMeta {
                 person: PropertyDefinition[]
             },
             maxContextOptions: any,
-            hideBehavioralCohorts: boolean,
+            cohortGroupOptions: {
+                hideBehavioralCohorts: boolean
+                showCohortFlagTargeting: boolean
+            },
             endpointFilters: Record<string, any>,
             hogQLExpressionComponentProps: {
                 globals?: Record<string, any>
@@ -1065,6 +1082,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.hideBehavioralCohorts],
             (hideBehavioralCohorts: boolean | undefined) => hideBehavioralCohorts ?? false,
         ],
+        showCohortFlagTargeting: [
+            () => [(_, props) => props.showCohortFlagTargeting],
+            (showCohortFlagTargeting: boolean | undefined) => showCohortFlagTargeting ?? false,
+        ],
+        // The two cohort-group props travel as one input because `taxonomicGroups` already sits at
+        // kea's ceiling of 16 selector inputs.
+        cohortGroupOptions: [
+            (s) => [s.hideBehavioralCohorts, s.showCohortFlagTargeting],
+            (hideBehavioralCohorts: boolean, showCohortFlagTargeting: boolean) => ({
+                hideBehavioralCohorts,
+                showCohortFlagTargeting,
+            }),
+        ],
         hogQLExpressionComponentProps: [
             () => [(_, props) => props.hogQLGlobals, (_, props) => props.hogQLExpressionShowBreakdownLabelHint],
             (
@@ -1104,7 +1134,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.propertyFilters,
                 s.metadataPropertyDefinitionsByType,
                 s.maxContextOptions,
-                s.hideBehavioralCohorts,
+                s.cohortGroupOptions,
                 s.endpointFilters,
                 s.hogQLExpressionComponentProps,
                 s.featureFlags,
@@ -1138,7 +1168,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     person: PropertyDefinition[]
                 },
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
-                hideBehavioralCohorts: boolean,
+                {
+                    hideBehavioralCohorts,
+                    showCohortFlagTargeting,
+                }: {
+                    hideBehavioralCohorts: boolean
+                    showCohortFlagTargeting: boolean
+                },
                 endpointFilters: Record<string, any> | undefined,
                 hogQLExpressionComponentProps: {
                     globals?: Record<string, any>
@@ -1777,6 +1813,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         clientFilterFirstPage: true,
                         getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
                         getValue: (cohort: CohortType) => cohort.id,
+                        getTag: showCohortFlagTargeting
+                            ? (cohort: CohortType) => <CohortRealtimeTag realtime={cohort.realtime} />
+                            : undefined,
                         getPopoverHeader: (cohort: CohortType) => `${cohort.is_static ? 'Static' : 'Dynamic'} Cohort`,
                         getIcon: function _getIcon(): JSX.Element {
                             return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
@@ -1798,6 +1837,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         options: COHORTS_WITH_ALL_USERS_OPTIONS,
                         getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
                         getValue: (cohort: CohortType) => cohort.id,
+                        getTag: showCohortFlagTargeting
+                            ? (cohort: CohortType) => <CohortRealtimeTag realtime={cohort.realtime} />
+                            : undefined,
                         getPopoverHeader: () => `All Users`,
                         getIcon: function _getIcon(): JSX.Element {
                             return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />

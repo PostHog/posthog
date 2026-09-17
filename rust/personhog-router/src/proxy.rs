@@ -39,6 +39,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "DeleteHashKeyOverridesByTeams",
     "DeletePersons",
     "DeletePersonsBatchForTeam",
+    "DeleteTombstonedPersons",
     "FencePerson",
     "FencePersons",
     "FoldPersonDocument",

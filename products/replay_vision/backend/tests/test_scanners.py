@@ -1,5 +1,8 @@
+from typing import Literal
+
 import pytest
 
+from parameterized import parameterized
 from pydantic import ValidationError
 from temporalio.exceptions import ApplicationError
 
@@ -104,6 +107,22 @@ class TestPreamble:
         assert "get_events_around" in rendered
         assert "<events>" not in rendered
 
+    @parameterized.expand(
+        [
+            ("available", True, False),
+            ("clean", False, True),
+            ("none", False, False),
+        ]
+    )
+    def test_preamble_describes_the_network_tool_only_when_it_is_offered(
+        self, network_state: Literal["available", "clean", "none"], describes_tool: bool, describes_clean: bool
+    ) -> None:
+        # The tool is withheld when the recording has no requests to return, so a preamble that still
+        # described it would send the model after a tool that is not there.
+        rendered = scanner_from_db(_build_replay_scanner()).preamble(team_name="Acme", network_state=network_state)
+        assert ("get_network_around" in rendered) is describes_tool
+        assert ("none of them failed" in rendered) is describes_clean
+
     def test_preamble_escapes_left_angle_in_team_name(self) -> None:
         # The team admin who set the name could theoretically forge a closing tag — defense in depth.
         scanner = scanner_from_db(_build_replay_scanner())
@@ -138,8 +157,8 @@ class TestPreamble:
         rendered = scanner.preamble(
             team_name="Acme",
             navigation=[
-                {"rec_t": 0, "window": "window_1", "url": "https://ex.com/chat", "new_window": False},
-                {"rec_t": 712, "window": "window_2", "url": "https://pay.ex.com/checkout", "new_window": True},
+                {"vid_t": 0, "window": "window_1", "url": "https://ex.com/chat", "new_window": False},
+                {"vid_t": 712, "window": "window_2", "url": "https://pay.ex.com/checkout", "new_window": True},
             ],
             navigation_dropped=3,
         )
@@ -249,6 +268,7 @@ class TestMonitorScanner:
         # A `yes` must be corroborated with the events tool, not read off the video alone.
         assert "get_events_around" in instruction
         assert "A plausible story the events do not support is not a `yes`." in instruction
+        assert "Never say you checked the events at a moment unless you called `get_events_around`" in instruction
 
     def test_core_step_escapes_left_angle_in_user_prompt(self) -> None:
         # Scanner creator content is "trusted" but escaped anyway — defense in depth.
@@ -783,14 +803,30 @@ class TestSummaryEmbeddingText:
 
 class TestToEventProperties:
     def test_flattens_with_scanner_output_prefix(self) -> None:
-        out = MonitorOutput(verdict="yes", reasoning="found it", confidence=0.9)
+        # Notability rides onto the event too, so it is queryable in insights alongside the verdict.
+        out = MonitorOutput(
+            verdict="yes",
+            reasoning="found it",
+            confidence=0.9,
+            notability=0.8,
+            notability_reason="the export failed twice",
+        )
         props = out.to_event_properties()
         assert props == {
             "scanner_output_verdict": "yes",
             "scanner_output_reasoning": "found it",
             "scanner_output_reasoning_segments": [],
             "scanner_output_confidence": 0.9,
+            "scanner_output_notability": 0.8,
+            "scanner_output_notability_reason": "the export failed twice",
         }
+
+    def test_unjudged_notability_flattens_as_null_not_zero(self) -> None:
+        # A scan that skipped notability must not read as "not notable" downstream.
+        out = MonitorOutput(verdict="yes", reasoning="found it", confidence=0.9)
+        props = out.to_event_properties()
+        assert props["scanner_output_notability"] is None
+        assert props["scanner_output_notability_reason"] is None
 
     def test_excludes_scanner_type_discriminator(self) -> None:
         # `scanner_type` lives at the top-level event property; flattening it would duplicate.

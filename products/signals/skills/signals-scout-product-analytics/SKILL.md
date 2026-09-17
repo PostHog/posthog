@@ -1,5 +1,6 @@
 ---
 name: signals-scout-product-analytics
+scout-display-name: Product analytics
 description: >
   Signals scout for core product-analytics flows — funnels, retention, lifecycle, stickiness,
   and paths. Watches the team's saved flows for a derived-rate regression while entrants hold.

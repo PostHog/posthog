@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='merge_record_moved_mappings' */ \n        UPDATE lifecycle_op_person_tmp lop\n        SET moved = u.moved\n        FROM unnest($2::bigint[], $3::jsonb[]) AS u(person_id, moved)\n        WHERE lop.op_id = $1 AND lop.person_id = u.person_id\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8Array",
+        "JsonbArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7836d15b52e70cdf3f9db55f5f15d51358ac7454740d16a267e88854fb539436"
+}

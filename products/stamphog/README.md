@@ -1,50 +1,156 @@
 # Stamphog
 
-Approve-first PR review: an LLM reviewer that runs deterministic gates plus a scoped review over a pull request and, when the policy allows it, posts an actual GitHub **approval** — not just comments. Repos opt in per-repo; everything else stays untouched.
+Stamphog is an approve-first pull request reviewer.
+It runs deterministic gates and a scoped LLM review over a PR and, when the policy allows it, posts a real GitHub approval instead of comments.
+Repositories opt in one at a time, and nothing else is touched.
 
-## The engine
+The review itself is done by the engine in [`packages/pr-approval-agent/`](packages/pr-approval-agent/).
+This product decides which PRs are reviewed, runs the engine in a sandbox, and puts the verdict on GitHub.
 
-The review engine lives in [`packages/pr-approval-agent/`](packages/pr-approval-agent/).
-A GitHub App delivers webhooks here, and reviews run in an isolated Modal sandbox with per-run minted credentials: `review_local.py` consumes a pre-fetched context, with no GitHub token inside the sandbox.
-`review_pr.py` in the same directory is the manual entrypoint for reviewing a PR from your own checkout, which fetches over the network instead.
+## What a PR author sees
 
-Hosted flow: webhook → Celery (`backend/tasks/tasks.py`) → Temporal (`backend/temporal/workflow.py`) → sandboxed engine → verdict posted back (`post_verdict`). The workflow dismisses stale approvals _first_, waits out other in-flight reviewer bots, then reviews.
+A repository either reviews every PR or waits for its trigger label, depending on its review mode.
+The engine returns one of five verdicts, and `post_verdict` puts it on the PR.
 
-There is one non-webhook entry: **self-driving inbox PRs**. When a self-driving Inbox implementation run opens its (bot-authored, draft) PR, review_hog's inbox receiver calls the `queue_inbox_pr_review` facade — gated by the assigned reviewers' per-user `stamphog_review_inbox_prs` toggles on ReviewHog's settings (any opted-in reviewer is enough) — and the initial review runs while the PR is still a draft so the verdict is ready at Inbox triage time. Later pushes re-review through the normal webhook path via a positively identified carve-out (task linkage through the tasks facade, toggle re-checked through `facade/inbox_hooks.py`); every other bot author stays refused at every layer. See AGENTS.md § the self-driving carve-out.
+| Verdict  | Where it lands                             | Trigger label in label mode |
+| -------- | ------------------------------------------ | --------------------------- |
+| APPROVED | A real GitHub review by `stamphog[bot]`    | Kept                        |
+| REFUSED  | A GitHub comment review by `stamphog[bot]` | Removed                     |
+| ESCALATE | A GitHub comment review by `stamphog[bot]` | Removed                     |
+| WAIT     | A GitHub comment review by `stamphog[bot]` | Kept, retries               |
+| ERROR    | A GitHub comment review by `stamphog[bot]` | Kept, retries               |
+| Gated    | A GitHub comment review by `stamphog[bot]` | Removed                     |
 
-## The digest
+Gated means a deterministic gate denied the PR before any review, such as the deny-list or the size ceiling.
+The engine reports it as `REFUSED`; the product stores the run as gated with the verdict `WAIT`, and still removes the trigger label because a human has to take it from here.
 
-On top of reviews, a repo can enable a daily Slack digest of its merged PRs (`backend/logic/digest_runs.py`, scheduled from `backend/tasks/digest.py`). Only stamphog-approved merges are digested, so the digest needs reviews enabled for the repo.
+The bot never posts request-changes.
+Approvals are posted as real reviews so they count toward branch protection, once, as the Stamphog app (`stamphog[bot]`), carrying the review body.
+Every other verdict is posted once per run as a comment review on the same surface, so approvals and non-approvals for one head never disagree across two lists.
+A run that produced no verdict posts a short failure notice the same way, unless a newer run already holds the same head.
+The engine reports `APPROVED` and `REFUSED`, and the API exposes them lowercase as `approved` and `refused`.
 
-A merge fans out to every audience it belongs to (`backend/logic/audiences.py`): every team owning a file it changed, read back from the ownership the review already resolved, plus a per-repo audience when a repo declares its own channel under `digest:` in `.stamphog/policy.yml`. A team hears about code it owns, not about everywhere its members touched, so a merge nobody owns in a repo that declares nothing reaches nobody — that is an ownership gap, and `hogli owners:unowned` is where it gets fixed. A slug that is not a live GitHub team reaches nobody in the same way, because there is no `#<slug>` channel to name-match and no registry entry to redirect it, and `hogli owners:lint --live` is the check that catches one. Renaming an audience in the ownership files does not move the rows already captured under the old key, and a branch opened before the rename keeps producing that key until it rebases, so those rows route nowhere and expire after the seven-day claim window. A `PullRequestAudience` row per audience is what the daily run claims, so one channel failing to post never strands the merge for another. Files a generator wrote do not count toward a team's stake in a merge, and a team that owns nothing else is not an audience at all: `hogli build:openapi` rewrites a product's generated API types whenever any shared serializer changes anywhere in the repo, so owning one says nothing about whether that team was touched.
+The trigger label only exists in label-triggered mode, and only a substantive non-approval removes it.
+So the label can be re-applied once the feedback is addressed.
+A verdict that says nothing about the PR keeps the label, and the next push retries.
+`WAIT` means a reviewer bot still had a review in flight, or the `Migration risk` check had not reported yet.
+`ERROR` means the run failed before it could judge the PR, because the LLM backend was unreachable or the reviewer hit a non-retryable analysis failure such as its turn limit.
+A transient failure must not silently drop labels across every queued PR.
 
-Routing is config, and it lives in the repositories rather than in this database (`backend/logic/channel_resolution.py`). Nothing is stored: a run resolves, posts, and records where it went, so changing a declaration moves the next morning's digest. The order is proximity. A `repo:` audience takes the channel that repo declared. A team slug takes the root `owners.yaml` registry of the repo the merge came from, and a repo that carries a registry answers for its own merges completely, including by omission — a registry lists the teams whose derived name is wrong, so a missing slug means the derived name is right. A repo carrying no registry inherits one, which is what lets `charts` route `team-data-stack` to `#group-data-stack` because the monorepo says so. Otherwise the slug name-matches a Slack channel, and the app joins one it was never invited to, so a team's digest starts without anyone wiring it up. Channels shared outside the workspace are skipped, and `notifications: false` on a registry entry is how a team opts out. The registry is asked where _automation_ posts (`notifications`), which falls back to the team's own `slack` channel, so a team that wants bots somewhere quieter says so once and every producer follows.
+Each run is stored as a `ReviewRun` row with its evidence bundle.
+Runs are listed in the Stamphog runs page in the PostHog app (`/stamphog/runs`), and the same data is available through the stamphog API and its MCP tools (review runs, repo configs, digest runs).
 
-Two repos declaring one team is a scope, not a conflict. Each answers for the merges that came from it, so one audience can resolve to two channels in a run and the digest partitions between them. No merge is posted twice and no declaration is discarded.
+## Connect a repository
 
-Summaries are written where the diff is. The reviewer emits a `change_summary` alongside its verdict, which is stamped onto the merged PR; the daily run condenses those rather than guessing from PR titles, and for an owning team it also sees which of the changed files are theirs, so a repo-wide sweep that grazed two of them can be dropped as noise. That summary is one sentence about the whole change, and on a merge more than one team owns files in, one clause per owning team after it, each opening with that team's handle. The digest hands its model the sentence and the clause addressed to its own audience, and nothing else, so another team's clause is not there to be picked rather than forbidden. A team that owns part of a merge and got no clause of its own is dropped before the model reads anything, because the reviewer had the diff and found nothing to say about that team's files. A team that owns one file of a change of eight or more never reaches the summarizer: that merge is dropped from the team's digest in code (`GRAZE_CHANGED_FILES` in `backend/logic/digest.py`). The prompt asked for that judgment first and the model kept a merge it had been told to drop, which is no surprise — the prompt carries the title, the reviewed sentence and the paths, never the diff, so nothing in it says what the one file does. The team that owns the rest of the merge still hears about it. The author's own PR body never reaches the prompt, and a PR stamphog never summarized contributes only its title. The reviewed sentence already says what changed, and carrying the body handed one contributor two thousand characters of a prompt whose empty answer consumes the whole batch. What remains is fenced so it cannot close its own tag and continue as instructions.
+1. Install the Stamphog GitHub App on your GitHub organization.
+2. Open Stamphog in the PostHog app and select **Connect a repository**. The install callback syncs the repositories the installation can reach.
+3. Turn on **Enabled** for each repository you want reviewed. A connected repository reviews nothing until you do.
+4. Pick a **review mode**: "All PRs" reviews every pull request, "Label-triggered" reviews only PRs carrying the trigger label. Set the trigger label name next to the mode.
+5. Turn on **Digest enabled** if you want the daily Slack digest of merged PRs. The project needs a connected Slack integration first, or the digest run stops silently before posting.
 
-The daily run asks the model twice. The first call picks the merges worth posting and writes one line each for the thread. The second writes the channel headline and is shown only what the first call kept, so a headline cannot name a change the thread has no line for. One call did both jobs before, and a prompt rule forbidding that did not hold: the headline reached the channel naming merges the model had chosen to leave out, accurate and unlinkable. A failed second call costs the headline and nothing else, because the first call's lines are already the digest. The headline is written every time. The rule that let it return nothing on a routine day predates the split, and the changes it now sees have already cleared the bar, so its only remaining effect was on a single-change digest, where the renderer promoted that change's line and the channel said the same sentence as the thread.
+Connecting a repository and the digest toggle need the `editor` level on the `stamphog` resource.
+The gating fields, which are enabled, review mode and trigger label, need `manager`, because they decide whether a pull request is reviewed at all.
 
-How many changes a digest carries is decided by the bar and by nothing else. There is no target count and no editorial cap, so a quiet day shows none and a heavy one shows what it earns. The bar is four named rules — `contract`, `assumption`, `decision`, `customer` — and the summarizer has to name the one that admits each merge it keeps. A merge kept without a valid rule is dropped in code rather than trusted, because an unnamed bar gets rationalized away: on a real day of twenty-six connector fixes the same model kept twenty-one of them without the rules and none to two with them. The same trick carries the team's own perspective. A team that owns part of a merge was told what the merge was about, which is the other team's news, so the model has to say whether each line it keeps is about the team's own files or about the pull request overall, and a line about the whole pull request is dropped for a team that owns only part of it. A team owning every changed file, and a repo that declared its own channel, are asked for no such claim. Repair overrides all four. Making a broken integration work is maintenance, and only changing what a working one does is news. The one limit is Slack's own block ceiling, which the deterministic fallback rails far below because that path judges nothing.
+## Customize the review for your repository
 
-A run consumes every merge it claims, whatever the summarizer decided about it. Handing the leftovers back put the same merges in front of the same prompt every morning, where the same text produced the same answer, so a busy team's batch grew for a week and then aged out unseen. Merges above the per-run claim ceiling are the one exception: they are never claimed, so the next run picks them up.
+Customization is optional.
+A repository with no `.stamphog/` directory reviews under the hosted defaults in [`backend/logic/policy_defaults/`](backend/logic/policy_defaults/).
 
-A digest posts as two messages (`backend/logic/slack_digest.py`). The channel gets one lead, best available first: the model's headline, otherwise the first change's own line when the headline call failed or answered with something unpostable, and the scope line ("3 of 11 Stamphog-approved merges") when neither is available. Promoting a change line keeps the channel saying something that shipped instead of a bare count, and it is the line the thread already carries, so a reader who wants the diff is one message away. Only a judged run may promote one: the deterministic fallback's lines are unreviewed PR titles, and the promoted line has to clear the same no-link rule the headline does, because the channel lead is the one piece of digest text posted without a link attached to it. The per-change lines go in a thread under that lead, so a team spends one line of its channel and opens the rest by choice. Neither message promises the reader every merge of the day: the thread leads with whose judgment picked its contents, and the footer marks the digest as beta and asks for a reaction or a reply, which is where feedback on the digest itself lands. A failed thread reply never fails the run — the lead is already posted and the run's PRs are consumed on that basis, so treating it as a failure would post the same lead again the next day.
+The three `.stamphog/` files are read from the repository's **default branch**, never from the PR head, so a PR cannot rewrite the policy that gates it.
+After the sandbox clones the PR head, the server overwrites the checkout's `.stamphog/` with the default-branch versions.
+A file the repository does not carry is wiped from the checkout as well, so a planted PR-head copy cannot take its place.
 
-## Stacked PRs
+`AGENT_APPROVALS.md` is the exception: it sits in arbitrary folders, so the engine reads it from the checkout, which is the PR head.
+That is why its frontmatter is a bounded positive allow-list, and why the `stamphog_policy` deny routes every edit to one to a human reviewer.
 
-A stacked PR targets its parent's branch, not the repo's default branch, and depends on parent code that hasn't merged yet.
-The sandbox clones and checks out the PR head for every review, so the reviewer's Read/Grep/Glob already see the post-stack tree and parent symbols resolve.
-The engine is told the checkout is the head (`head_checkout=True`) so it never builds the Action's separate head worktree, and the prompt flags the PR as stacked (`PRData.stacked`, keyed on the repo's actual default branch).
-The diff stays scoped `base...head`.
-When the parent merges and GitHub retargets the child onto the default branch, the diff changes without a push: the webhook path retracts the standing approval and queues a fresh run, and `post_verdict` rechecks the live base (ref and SHA) against the reviewed one before posting.
-Engine details: [`packages/pr-approval-agent/README.md`](packages/pr-approval-agent/README.md#stacked-prs-graphite--git-stacks).
+| File                 | Required | Default when absent       | How it combines with the default                                                             |
+| -------------------- | -------- | ------------------------- | -------------------------------------------------------------------------------------------- |
+| `policy.yml`         | No       | The hosted default policy | Section overlay: each top-level section you declare replaces the default's section wholesale |
+| `review-guidance.md` | No       | The hosted default norms  | Replaces the default prose wholesale                                                         |
+| `steering.md`        | No       | Nothing is added          | Passed through as-is, because no default exists                                              |
+| `AGENT_APPROVALS.md` | No       | No folder overrides       | Read from the PR's own tree, not overlaid                                                    |
 
-## Configuration
+What each file contains, and how per-folder overrides resolve: [the engine's "Policy files" section](packages/pr-approval-agent/README.md#policy-files).
 
-Per-repo settings live on `StamphogRepoConfig` (synced via the GitHub App install flow, managed in the Stamphog scene): review on/off, review mode (auto vs trigger label), digest on/off. Review policy (gates, deny-lists, tiers, ownership) is read from `.stamphog/policy.yml` on the repo's **default branch** — never from the PR head — layered over hosted defaults in [`backend/logic/policy_defaults/`](backend/logic/policy_defaults/).
+The overlay means a repository can declare only the sections it wants to change.
+A repository that only wants a bigger size gate writes five lines:
 
-## Security model, in one paragraph
+```yaml
+version: 1
+size_gate:
+  max_lines: 1000
+  max_files: 40
+```
 
-The sandbox runs an LLM over untrusted PR content, so it holds no long-lived secrets: it gets a per-run `phe_` scoped token from the Go ai-gateway (pinned to `product=aio_stamphog`, capped at $5 and one hour, revoked when the sandbox is destroyed), egress is fenced to an explicit domain allowlist, posted bodies are scrubbed and markdown-image-neutralized, and approvals are governed by a strict supersession protocol so no approval survives events it shouldn't (pushes, re-reviews, repo disable). Details and invariants: [AGENTS.md](AGENTS.md).
+Everything else, including every deny category, still comes from the hosted default.
+A global limit may not exceed the matching ceiling under `overrides`, so a repository that wants to go past the shipped ceilings declares both sections.
+The merged document is validated by the engine's strict loader inside the sandbox, so required sections and the `stamphog_policy` self-governance deny cannot be dropped by omission.
+
+A `policy.yml` that is present but unusable, such as malformed YAML or a non-mapping root, fails the run closed.
+The repository declared something, so reviewing under pure defaults would be wrong.
+
+### The `digest:` key
+
+`policy.yml` may also carry a `digest:` section.
+It names a Slack channel that receives all of the repository's merged-PR digests, as one more audience next to the owning teams, so a merge can appear in the repository channel and in a team channel:
+
+```yaml
+digest:
+  channel: '#my-team'
+```
+
+This key belongs to this product, not to the engine, which ignores it.
+It is read from the default branch too, so a PR cannot redirect its own digest.
+
+## Daily digest
+
+A repository with the digest turned on gets a daily Slack summary of its merged PRs (`backend/logic/digest_runs.py`, scheduled from `backend/tasks/digest.py`).
+Only stamphog-approved merges are digested, so the digest needs reviews enabled for the repository.
+A merge fans out to every audience it belongs to, and each audience resolves to a channel in this order:
+
+- A `repo:` audience takes the channel that repository declared under `digest:`.
+- A team slug takes the root `owners.yaml` registry of the repository the merge came from.
+- A repository carrying no registry inherits the first non-empty registry among the team's connected repositories, in repository name order.
+- Otherwise the slug name-matches a Slack channel, and the app joins it.
+- A registry-derived or name-matched channel that is shared outside the workspace is skipped. A channel the repository declared under `digest:` is posted to even when shared, because someone chose it on purpose. `notifications: false` on a registry entry opts a team out.
+
+Why the digest works this way: [`docs/digest.md`](docs/digest.md).
+
+## How it runs
+
+Hosted flow: webhook → Celery (`backend/tasks/tasks.py`) → Temporal (`backend/temporal/workflow.py`) → sandboxed engine → verdict posted back (`post_verdict`).
+The workflow dismisses stale approvals first, waits out other in-flight reviewer bots, then reviews.
+
+Reviews run in an isolated Modal sandbox with per-run minted credentials.
+The sandbox clones the repository, checks out the PR head, and runs `review_local.py` against a pre-fetched context, with no GitHub token inside the sandbox.
+
+**Stacked PRs.** A stacked PR targets its parent's branch and depends on parent code that has not merged yet.
+The sandbox checkout is already the PR head, so the reviewer's Read, Grep and Glob see the post-stack tree and parent symbols resolve.
+The sandbox fetches the base SHA explicitly during the clone, and the diff stays scoped `base...head`.
+When the parent merges and GitHub retargets the child onto the default branch, the diff changes without a push, so no `synchronize` event fires and the normal push-dismiss path is skipped.
+The webhook path therefore retracts the standing approval on a base retarget (`_retract_approvals_on_base_retarget`) and queues a fresh run, and `post_verdict` rechecks the live base ref and SHA against the reviewed ones before posting.
+One limitation stays: a parent branch force-push or rebase without restacking the child emits no child PR event, so the child's approval is only revalidated once the child is restacked or pushed.
+How the engine handles a stacked checkout: [`packages/pr-approval-agent/README.md`](packages/pr-approval-agent/README.md#stacked-prs-graphite--git-stacks).
+
+**Self-driving inbox PRs** are the one non-webhook entry.
+When a self-driving Inbox implementation run opens its bot-authored draft PR, review_hog's inbox receiver calls the `queue_inbox_pr_review` facade, gated by the assigned reviewers' per-user `stamphog_review_inbox_prs` toggles, and the initial review runs while the PR is still a draft so the verdict is ready at Inbox triage time.
+Later pushes re-review through the normal webhook path via a positively identified carve-out, and every other bot author stays refused at every layer.
+See [AGENTS.md](AGENTS.md) for the carve-out's invariants.
+
+## Security model
+
+The sandbox runs an LLM over untrusted PR content, so it holds no long-lived secrets.
+It gets a per-run `phe_` scoped token from the Go ai-gateway, pinned to `product=aio_stamphog`, capped at $5 and one hour, and revoked when the sandbox is destroyed.
+Egress is fenced to an explicit domain allowlist.
+Posted bodies are scrubbed and markdown-image-neutralized.
+Approvals are governed by a strict supersession protocol, so no approval survives a re-review or a push that changes the PR's diff.
+A push that leaves the PR's own unified diff byte-identical, such as a base merge that touches none of its files, keeps the approval standing.
+Disabling a repository stops new runs and retracts a standing approval on the next head change, not at the moment of disabling.
+Details and invariants: [AGENTS.md](AGENTS.md).
+
+## Where to read more
+
+- [AGENTS.md](AGENTS.md) - the invariants that keep approvals and the sandbox sound.
+- [`packages/pr-approval-agent/README.md`](packages/pr-approval-agent/README.md) - the engine: gates, tiers, policy file formats, evidence bundle.
+- [`docs/digest.md`](docs/digest.md) - the digest design note.
+- [`.stamphog/README.md`](../../.stamphog/README.md) - what the PostHog monorepo itself configures.

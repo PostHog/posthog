@@ -15,13 +15,16 @@ from botocore.config import Config
 
 from products.ai_training.backend.config import key_table_name
 from products.ai_training.backend.models import AITrainingDeletionRequest
-from products.ai_training.backend.privacy.reader import KEY_READ_LEASE_SECONDS
 
 logger = structlog.get_logger(__name__)
 
 KEY_SHARDS = 32
+# Readers may use a key for this long after they read it, so deletion completes only after the lease has run out.
+KEY_READ_LEASE_SECONDS = 300
 # Equals ML_SESSION_MAX_AGE_DAYS in nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format.ts: ingestion drops sessions that started earlier than that, so no key for a month can appear after the month end plus this period.
 MONTH_DELETE_GRACE_DAYS = 14
+# A batch admitted just inside the grace period still commits within its 45 s budget, so deletion stays behind that too.
+MONTH_DELETE_IN_FLIGHT_MARGIN = timedelta(hours=1)
 DynamoItem = dict[str, dict[str, str | bool | bytes]]
 
 
@@ -87,13 +90,15 @@ class AITrainingPrivacyStore:
         if re.fullmatch(r"[0-9]{4}-(0[1-9]|1[0-2])", session_month) is None:
             raise ValueError("Session month must use YYYY-MM")
         try:
-            deletable_from = month_end(session_month) + timedelta(days=MONTH_DELETE_GRACE_DAYS)
+            deletable_from = (
+                month_end(session_month) + timedelta(days=MONTH_DELETE_GRACE_DAYS) + MONTH_DELETE_IN_FLIGHT_MARGIN
+            )
         except ValueError as error:
             raise ValueError("Session month must use YYYY-MM") from error
         if timezone.now() < deletable_from:
             raise ValueError(
-                f"Session month {session_month} can be deleted from {deletable_from:%Y-%m-%d}, "
-                f"{MONTH_DELETE_GRACE_DAYS} days after the month ends"
+                f"Session month {session_month} can be deleted from {deletable_from:%Y-%m-%d %H:%M} UTC, "
+                f"{MONTH_DELETE_GRACE_DAYS} days and one hour after the month ends"
             )
         count = 0
         for shard in range(KEY_SHARDS):
@@ -169,26 +174,31 @@ class AITrainingPrivacyStore:
         work = request.cursor.get("work")
         if work is None:
             work = self.initialize(request)
-            request.cursor = {"work": work}
-            request.save(update_fields=["cursor"])
+            self.save_cursor(request, work=work)
         while work:
             if time.monotonic() >= deadline:
                 return False
             work = self.advance(work[0]) + work[1:]
-            request.cursor = {"work": work}
-            request.save(update_fields=["cursor"])
+            self.save_cursor(request, work=work)
         now = timezone.now()
         complete_after = request.cursor.get("complete_after")
         if complete_after is None:
-            request.cursor = {"work": [], "complete_after": now.timestamp() + KEY_READ_LEASE_SECONDS}
-            request.save(update_fields=["cursor"])
+            self.save_cursor(request, work=[], complete_after=now.timestamp() + KEY_READ_LEASE_SECONDS)
             return False
         if now.timestamp() < complete_after:
             return False
+        # Key creation checks the team block only when it reads the batch, so a batch that read before the block can still store a key within its commit budget; the lease outlasts that budget, so one more sweep after it catches every straggler.
+        if request.kind == "team" and not request.cursor.get("reswept"):
+            self.save_cursor(request, work=[{"op": "team", "team_id": request.team_id, "shard": -1}], reswept=True)
+            return self.apply(request, deadline)
         request.completed_at = now
         request.identifiers = []
         request.save(update_fields=["completed_at", "identifiers"])
         return True
+
+    def save_cursor(self, request: AITrainingDeletionRequest, **fields: object) -> None:
+        request.cursor = {**request.cursor, **fields}
+        request.save(update_fields=["cursor"])
 
     def drain(self, limit: int = 100, budget_seconds: int = 240) -> int:
         deadline = time.monotonic() + budget_seconds

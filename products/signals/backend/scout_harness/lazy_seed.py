@@ -109,6 +109,8 @@ class CanonicalSkill:
     alongside SKILL.md. `config_tags` is the optional `scout-tags` frontmatter list, seeded onto
     the scout's `SignalScoutConfig` when that row is first created. `role` is the optional
     `scout-role` frontmatter value — what the harness is allowed to do to the scout.
+    `display_name` is the optional `scout-display-name` frontmatter value, the label the fleet
+    ships the scout under.
     """
 
     name: str
@@ -119,6 +121,7 @@ class CanonicalSkill:
     source_path: Path
     config_tags: tuple[str, ...] = ()
     role: ScoutRole = SCOUT_ROLE_SPECIALIST
+    display_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -231,6 +234,34 @@ def _parse_scout_role(frontmatter: dict, skill_file: Path, *, is_scout: bool) ->
     )
 
 
+def _parse_display_name(frontmatter: dict, skill_file: Path, *, is_scout: bool) -> str:
+    """Read the optional `scout-display-name` frontmatter value — the label the scout ships under.
+
+    A scout's skill name is a slug, and a slug sentence-cased at render time gets acronyms wrong:
+    `signals-scout-apm` reads as "Apm", `signals-scout-mcp-tool-calls` as "Mcp tool calls". Rather
+    than grow a table of capitalization fixes somewhere downstream, each canonical scout states its
+    own label here, and it is seeded onto the config's `display_name` where every surface already
+    reads it. Absent means the scout has no name of its own and clients derive one from the slug.
+
+    Only scouts have a config for the name to land on, so the key is rejected on a companion skill.
+    """
+    if "scout-display-name" not in frontmatter:
+        return ""
+    if not is_scout:
+        raise CanonicalSkillParseError(f"Only a signals-scout-* skill may declare 'scout-display-name': {skill_file}")
+    raw = frontmatter["scout-display-name"]
+    if not isinstance(raw, str) or not (display_name := raw.strip()):
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter 'scout-display-name' must be a non-empty string: {skill_file}"
+        )
+    if len(display_name) > SignalScoutConfig.MAX_DISPLAY_NAME_LENGTH:
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter 'scout-display-name' exceeds the "
+            f"{SignalScoutConfig.MAX_DISPLAY_NAME_LENGTH} character limit: {skill_file}"
+        )
+    return display_name
+
+
 def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> CanonicalSkill:
     skill_file = skill_dir / "SKILL.md"
     raw = skill_file.read_text(encoding="utf-8")
@@ -293,6 +324,7 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
 
     config_tags = _parse_config_tags(frontmatter, skill_file, is_scout=is_scout)
     role = _parse_scout_role(frontmatter, skill_file, is_scout=is_scout)
+    display_name = _parse_display_name(frontmatter, skill_file, is_scout=is_scout)
 
     body = raw[match.end() :]
     if len(body.encode("utf-8")) > _MAX_SKILL_BODY_BYTES:
@@ -339,6 +371,7 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
         source_path=skill_dir,
         config_tags=config_tags,
         role=role,
+        display_name=display_name,
     )
 
 
@@ -437,6 +470,31 @@ def canonical_config_tags_for(skill_name: str) -> tuple[str, ...]:
 
 
 @lru_cache(maxsize=1)
+def _canonical_display_names() -> dict[str, str]:
+    """`scout-display-name` per canonical scout name, for the scouts that declare one.
+
+    Cached for the process like `canonical_skill_names` — the shipped fleet only changes on
+    deploy — and degrades to empty on a malformed canonical rather than failing config
+    registration, which leaves clients deriving a label from the slug as they did before.
+    """
+    try:
+        return {skill.name: skill.display_name for skill in discover_canonical_skills() if skill.display_name}
+    except CanonicalSkillParseError:
+        logger.warning("canonical_display_names: malformed canonical skill on disk; seeding no display names")
+        return {}
+
+
+def canonical_display_name_for(skill_name: str) -> str:
+    """The label the canonical scout of this name ships under, to stamp on its config.
+
+    Empty for a custom scout, and for a canonical scout that states no label. Callers must confirm
+    the name is canonical first — a team's own `signals-scout-*` skill can share a canonical name,
+    and it inherits nothing from disk.
+    """
+    return _canonical_display_names().get(skill_name, "")
+
+
+@lru_cache(maxsize=1)
 def _canonical_operational_scouts() -> frozenset[str]:
     """Names of the canonical scouts that declare `scout-role: operational`.
 
@@ -494,9 +552,10 @@ def _compute_canonical_hash(canonical: CanonicalSkill) -> str:
     SHA-256 is overkill cryptographically but content-addressable hashes are cheap and we want
     no false positives.
 
-    Deliberately excludes `config_tags` and `role`: the hash is compared against
-    `_compute_row_hash` over the team's `LLMSkill` row, which stores neither (both shape the
-    config instead), so folding them in here would make every seeded row read as diverged forever.
+    Deliberately excludes `config_tags`, `role`, and `display_name`: the hash is compared against
+    `_compute_row_hash` over the team's `LLMSkill` row, which stores none of them (all three shape
+    the config instead), so folding them in here would make every seeded row read as diverged
+    forever.
     """
     payload = {
         "description": canonical.description,

@@ -4,8 +4,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError
 
 from products.ai_training.backend.config import key_table_name
-from products.ai_training.backend.privacy.reader import KEY_READ_LEASE_SECONDS
-from products.ai_training.backend.privacy.store import AITrainingPrivacyStore
+from products.ai_training.backend.privacy.store import KEY_READ_LEASE_SECONDS, AITrainingPrivacyStore
 
 
 class Command(BaseCommand):

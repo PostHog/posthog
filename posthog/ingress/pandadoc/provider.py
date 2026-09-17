@@ -6,7 +6,7 @@ signature answers 404 by design, so an attacker cannot tell a wrong secret from 
 route.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from django.conf import settings
@@ -15,7 +15,7 @@ from django.utils import timezone
 
 from posthog.ingress.contracts import ProviderSpec, WebhookDelivery
 from posthog.ingress.providers import WebhookProvider
-from posthog.ingress.verify.schemes import HmacSha256, SignatureScheme, VerificationOutcome, header_value
+from posthog.ingress.verify.schemes import HmacSha256, SignatureScheme, Verification, VerificationOutcome, header_value
 
 PANDADOC_EVENT_TYPES = frozenset({"document_state_changed"})
 PANDADOC_SIGNATURE_HEADER = "X-PandaDoc-Signature"
@@ -31,8 +31,14 @@ class PandaDocProvider(WebhookProvider):
     provider = "pandadoc"
     app = "default"
     invalid_signature_status = 404
+    # A missing secret answers like an unknown route too, so an operator mistake does not hand a
+    # prober the "this endpoint exists" the 404 above exists to withhold.
+    unconfigured_status = 404
+    # A body naming the reason would hand back what the two 404s above withhold.
+    explains_rejections = False
 
-    def __init__(self) -> None:
+    def __init__(self, *, enabled: Callable[[], bool] | None = None) -> None:
+        self._enabled = enabled
         self._scheme = HmacSha256(
             secret_getter=_pandadoc_secret,
             signature_header=PANDADOC_SIGNATURE_HEADER,
@@ -41,7 +47,11 @@ class PandaDocProvider(WebhookProvider):
     def scheme(self) -> SignatureScheme:
         return self._scheme
 
-    def verify(self, request: HttpRequest) -> VerificationOutcome:
+    def verify(self, request: HttpRequest) -> Verification:
+        # A deployment that does not run the integration answers 404 before it reads anything off
+        # the request, so the route stays indistinguishable from one that was never registered.
+        if self._enabled is not None and not self._enabled():
+            return Verification(outcome=VerificationOutcome.INVALID)
         # Read through the scheme's own case-insensitive lookup, because Django normalizes a
         # header name to title case and an exact-case match would never find this one.
         # Presence decides, not truthiness: an empty header is a signature that fails, never a
@@ -54,7 +64,7 @@ class PandaDocProvider(WebhookProvider):
             headers={PANDADOC_SIGNATURE_HEADER: request.GET.get("signature", "")},
         )
 
-    def deliveries(self, request: HttpRequest, payload: Any) -> Sequence[WebhookDelivery]:
+    def deliveries(self, request: HttpRequest, payload: Any, facts: Mapping[str, Any]) -> Sequence[WebhookDelivery]:
         events = payload if isinstance(payload, list) else [payload]
         received_at = timezone.now()
         deliveries: list[WebhookDelivery] = []
@@ -76,5 +86,7 @@ class PandaDocProvider(WebhookProvider):
         return tuple(deliveries)
 
 
-def build_pandadoc_provider() -> PandaDocProvider:
-    return PandaDocProvider()
+def build_pandadoc_provider(*, enabled: Callable[[], bool] | None = None) -> PandaDocProvider:
+    """Whether a deployment serves this endpoint at all is the endpoint owner's call, so it is
+    passed in rather than decided here."""
+    return PandaDocProvider(enabled=enabled)
