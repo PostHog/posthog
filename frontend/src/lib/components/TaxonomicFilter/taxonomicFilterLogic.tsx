@@ -2492,6 +2492,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         if (props.eventNames?.length) {
             actions.ensureLoadedForEvents(props.eventNames)
         }
+        if (requestsGroup(props, TaxonomicFilterGroupType.Dashboards)) {
+            dashboardsModel.actions.loadDashboardsIfNeeded()
+        }
         // If we land with an initial search query (e.g. deep-linked filter), arm the same
         // 5s reveal-barrier timer as a normal keystroke would — the `setSearchQuery`
         // listener doesn't run on mount because no action was dispatched.
