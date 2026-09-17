@@ -6,7 +6,6 @@ from rest_framework.test import APIClient
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, SharingConfiguration, Team
-from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
@@ -81,12 +80,7 @@ class TestCanvasFork(CanvasSharingTestBase):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_fork_refuses_a_canvas_the_caller_is_denied_access_to(self):
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
-        ]
-        self.organization.save(update_fields=["available_product_features"])
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save(update_fields=["level"])
+        self._enable_access_control()
         owner = User.objects.create_and_join(self.organization, "owner@example.com", None)
         with team_scope(self.team.id):
             restricted = Canvas.objects.create(
@@ -105,12 +99,7 @@ class TestCanvasFork(CanvasSharingTestBase):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_fork_refuses_a_caller_denied_canvas_access_at_the_resource_level(self):
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
-        ]
-        self.organization.save(update_fields=["available_product_features"])
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save(update_fields=["level"])
+        self._enable_access_control()
         canvas_id = self._create_canvas(name="Revenue board")
         self._publish_ready(canvas_id)
         AccessControl.objects.create(team=self.team, resource="canvas", access_level="none")

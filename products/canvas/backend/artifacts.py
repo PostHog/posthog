@@ -58,13 +58,23 @@ def _artifact_signing_keys() -> list[str]:
     return configured or [settings.SECRET_KEY, *settings.SECRET_KEY_FALLBACKS]
 
 
-def create_canvas_artifact_token(build: CanvasBuild, *, shared: bool = False) -> str | None:
+def _share_generation(access_token: str) -> str:
+    """A non-secret tag for one generation of a public link, derived from its access token.
+
+    Rotating the link mints a new token, so a URL carrying the old generation stops matching
+    and is retired with the page it was served on.
+    """
+    return hashlib.sha256(access_token.encode()).hexdigest()[:16]
+
+
+def create_canvas_artifact_token(build: CanvasBuild, *, share_token: str | None = None) -> str | None:
     """Mint a capability for one build's assets.
 
-    ``shared`` marks a token handed to an anonymous viewer of a public link. The token itself
-    lives for one to two buckets, which outlasts a revocation, so delivery re-checks the share
-    for such a token (see ``_shared_build_is_live``). A token minted for a signed-in client
-    needs no such check: the caller already passed the canvas's own access rules.
+    ``share_token`` is the access token of the public link that serves the URL: it marks a token
+    handed to an anonymous viewer, and binds it to that link's generation. The token itself lives
+    for one to two buckets, which outlasts a revocation, so delivery re-checks the share for such
+    a token (see ``_shared_build_is_live``). A token minted for a signed-in client carries no
+    share and needs no such check: the caller already passed the canvas's own access rules.
     """
     keys = _artifact_signing_keys()
     if not keys or (not settings.CANVAS_ARTIFACT_ORIGIN and not (settings.DEBUG or settings.TEST)):
@@ -78,24 +88,29 @@ def create_canvas_artifact_token(build: CanvasBuild, *, shared: bool = False) ->
         "build_id": str(build.id),
         "bucket": bucket,
     }
-    if shared:
-        claims["shared"] = True
+    if share_token is not None:
+        claims["share"] = _share_generation(share_token)
     return signing.Signer(key=keys[0], salt=ARTIFACT_TOKEN_SALT).sign_object(claims, compress=True)
 
 
-def _shared_build_is_live(*, team_id: int, canvas_id: UUID, build_id: UUID) -> bool:
-    """Whether a public link still serves this build.
+def _shared_build_is_live(*, team_id: int, canvas_id: UUID, build_id: UUID, share: str) -> bool:
+    """Whether the public link this token was minted on still serves this build.
 
     Turning a share off, rotating its token, unpinning the build, or turning public sharing off
     for the organization each has to take the artifact with it, the same way it takes the shared
-    page. The page itself applies these rules in ``SharingViewerPageViewSet``.
+    page. The page itself applies these rules in ``SharingViewerPageViewSet``. Rotation keeps the
+    previous link alive for its grace period, so the generation is matched against every active
+    share rather than the newest one.
     """
-    config = (
-        SharingConfiguration.objects.filter(
-            SharingConfiguration.tokens_active_q(), team_id=team_id, canvas_id=canvas_id
-        )
-        .select_related("team__organization")
-        .first()
+    config = next(
+        (
+            candidate
+            for candidate in SharingConfiguration.objects.filter(
+                SharingConfiguration.tokens_active_q(), team_id=team_id, canvas_id=canvas_id
+            ).select_related("team__organization")
+            if _share_generation(candidate.access_token) == share
+        ),
+        None,
     )
     if config is None:
         return False
@@ -122,8 +137,8 @@ def artifact_origin() -> str:
     return settings.CANVAS_ARTIFACT_ORIGIN or settings.SITE_URL
 
 
-def create_canvas_artifact_url(build: CanvasBuild, artifact_path: str, *, shared: bool = False) -> str | None:
-    token = create_canvas_artifact_token(build, shared=shared)
+def create_canvas_artifact_url(build: CanvasBuild, artifact_path: str, *, share_token: str | None = None) -> str | None:
+    token = create_canvas_artifact_token(build, share_token=share_token)
     if token is None:
         return None
     return f"{artifact_origin()}/canvas-artifacts/{token}/{artifact_path}"
@@ -163,8 +178,9 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
     )
     if build is None or not build.artifact_object_prefix or not isinstance(build.manifest, dict):
         raise Http404
-    if claims.get("shared") is True and not _shared_build_is_live(
-        team_id=team_id, canvas_id=canvas_id, build_id=build_id
+    share = claims.get("share")
+    if isinstance(share, str) and not _shared_build_is_live(
+        team_id=team_id, canvas_id=canvas_id, build_id=build_id, share=share
     ):
         raise Http404
     assets = build.manifest.get("assets")

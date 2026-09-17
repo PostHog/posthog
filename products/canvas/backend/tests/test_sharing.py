@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 from typing import Any
 
 from django.utils import timezone
@@ -7,9 +8,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_sharing import mock_exporter_template
-from posthog.constants import AvailableFeature
 from posthog.models import Organization, SharingConfiguration, Team
-from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
@@ -203,6 +202,10 @@ class TestCanvasSharingApi(CanvasSharingTestBase):
         assert payload["canvas"]["published"] is True
         assert payload["canvas"]["allow_forking"] is False
 
+        artifact_url = payload["canvas"]["artifact_url"]
+        path = "/canvas-artifacts/" + artifact_url.split("/canvas-artifacts/", 1)[1]
+        assert self.client.get(path, HTTP_IF_NONE_MATCH=f'"{"a" * 64}"').status_code == status.HTTP_304_NOT_MODIFIED
+
         self.client.logout()
         assert self.client.get(f"/shared/{access_token}").status_code == status.HTTP_404_NOT_FOUND
 
@@ -212,12 +215,7 @@ class TestCanvasSharingApi(CanvasSharingTestBase):
         access_token = self._enable_sharing(canvas_id)
         turned_off = self.client.patch(self._sharing_url(canvas_id), {"enabled": False})
         assert turned_off.status_code == status.HTTP_200_OK, turned_off.json()
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
-        ]
-        self.organization.save(update_fields=["available_product_features"])
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save(update_fields=["level"])
+        self._enable_access_control()
         owner = User.objects.create_and_join(self.organization, "owner@example.com", None)
         # A creator is never denied their own canvas, so the deny only bites once someone else owns it.
         with team_scope(self.team.id):
@@ -261,7 +259,8 @@ class TestCanvasSharingApi(CanvasSharingTestBase):
         assert response.status_code == status.HTTP_200_OK
         assert response["Content-Security-Policy"] == "frame-src https://canvas.example.com"
 
-    def test_revoking_a_share_stops_serving_its_artifact(self):
+    @parameterized.expand([("turning the share off", False), ("rotating past its grace period", True)])
+    def test_ending_a_share_stops_serving_its_artifact(self, _name: str, rotate: bool):
         canvas_id = self._create_canvas()
         self._publish_ready(canvas_id)
         access_token = self._enable_sharing(canvas_id)
@@ -273,7 +272,17 @@ class TestCanvasSharingApi(CanvasSharingTestBase):
         live = self.client.get(path, HTTP_IF_NONE_MATCH=etag)
         assert live.status_code == status.HTTP_304_NOT_MODIFIED
 
-        SharingConfiguration.objects.filter(team_id=self.team.id, canvas_id=canvas_id).update(enabled=False)
+        if rotate:
+            self.client.force_login(self.user)
+            refreshed = self.client.post(f"{self._sharing_url(canvas_id)}/refresh")
+            assert refreshed.status_code == status.HTTP_200_OK, refreshed.json()
+            # The rotated link keeps serving for its grace period, the same way its page does.
+            assert self.client.get(path, HTTP_IF_NONE_MATCH=etag).status_code == status.HTTP_304_NOT_MODIFIED
+            SharingConfiguration.objects.filter(team_id=self.team.id, access_token=access_token).update(
+                expires_at=timezone.now() - timedelta(seconds=1)
+            )
+        else:
+            SharingConfiguration.objects.filter(team_id=self.team.id, canvas_id=canvas_id).update(enabled=False)
 
         assert self.client.get(path, HTTP_IF_NONE_MATCH=etag).status_code == status.HTTP_404_NOT_FOUND
 

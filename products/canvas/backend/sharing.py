@@ -75,16 +75,24 @@ def clear_shared_build(canvas: Canvas) -> None:
     canvas.save(update_fields=["shared_build", "updated_at"])
 
 
-def shared_canvas_payload(canvas: Canvas, *, build: CanvasBuild | None = None) -> dict[str, Any]:
+def shared_canvas_payload(
+    canvas: Canvas, *, build: CanvasBuild | None = None, share_token: str | None = None
+) -> dict[str, Any]:
     """The public page's view of a canvas: the build pinned when sharing was
     turned on, or ``build`` when the caller shows a member something else (the
     current publish, while the link is off). The artifact URL is a fresh signed
     capability minted for this page load; it is only handed out after the share
-    token (and any password) has been validated by the caller."""
+    token (and any password) has been validated by the caller.
+
+    ``share_token`` is the link the page is served on, and binds the artifact URL to it. A
+    member reading their own canvas while the link is off has no such link, so the URL they
+    get stands on the access they already have instead."""
     build = _ready_build(build if build is not None else canvas.shared_build)
     entry = build.manifest.get("entryHtml") if build is not None and isinstance(build.manifest, dict) else None
     artifact_url = (
-        create_canvas_artifact_url(build, entry, shared=True) if build is not None and isinstance(entry, str) else None
+        create_canvas_artifact_url(build, entry, share_token=share_token)
+        if build is not None and isinstance(entry, str)
+        else None
     )
     return {
         "id": str(canvas.id),

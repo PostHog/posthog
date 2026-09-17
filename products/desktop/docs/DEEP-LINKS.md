@@ -104,7 +104,7 @@ posthog-code://task/abc123/run/xyz789
 posthog-code://task/abc123?comment=thread-1&scope=desktop_canvas&item=canvas-9
 ```
 
-Without `comment`, `scope=task_artifact&item=<artifactId>` opens that artifact's tab once the task shows. This is the link the artifact share dialog copies; `item` is any version's manifest id, and the app resolves it to the file's name and run.
+Without `comment`, `scope=task_artifact&item=<artifactId>` opens that artifact's tab once the task shows. This is the link the artifact share dialog copies; `item` is any version's manifest id, and the app resolves it to the file's name and run by scanning the runs page it already loads, so a file from a run older than that page is reported as missing.
 
 ```
 posthog-code://task/abc123?scope=task_artifact&item=artifact-9

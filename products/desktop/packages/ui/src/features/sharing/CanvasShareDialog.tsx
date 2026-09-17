@@ -183,13 +183,16 @@ export function CanvasShareDialog({
   // server refuses to publish one. Home is a grid, so this is every user's canvas list.
   const { dashboard } = useDashboard(dashboardId);
   const isPubliclyShareable = dashboard ? dashboard.kind !== "grid" : true;
-  // Copying starts from a published build, so the endpoint refuses a grid (which never has one)
-  // and a canvas that has not been published yet. Offering the link anyway only produces a
-  // "couldn't copy this canvas" toast for whoever opens it.
-  const canBeCopied = dashboard
-    ? dashboard.kind !== "grid" && !!dashboard.publishedBuildId
-    : false;
   const sharing = useCanvasSharingQuery(dashboardId);
+  // Copying starts from a published build, so the endpoint refuses a grid (which never has one)
+  // and a canvas that has not been published yet. It also rides the same backend release as the
+  // sharing route, so a server with neither reports null sharing. Offering the link anyway only
+  // produces a "couldn't copy this canvas" toast for whoever opens it.
+  const canBeCopied = dashboard
+    ? dashboard.kind !== "grid" &&
+      !!dashboard.publishedBuildId &&
+      !!sharing.data
+    : false;
   // Turning sharing on captures the published build, so there has to be one. An already-shared
   // canvas keeps its toggle so the link can still be turned off.
   const disabledReason =

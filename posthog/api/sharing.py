@@ -1954,7 +1954,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             # The payload carries a freshly signed artifact URL, so it is only built here, after
             # the share token (and any password) has been validated above.
             canvas_payload = shared_canvas_payload(
-                resource.canvas, build=None if resource.enabled else resource.canvas.published_build
+                resource.canvas,
+                build=None if resource.enabled else resource.canvas.published_build,
+                share_token=resource.access_token if resource.enabled else None,
             )
             # A password unlock lives in the public page's session, which the authenticated fork
             # endpoint cannot see, so it refuses these shares. Don't offer the copy action.
