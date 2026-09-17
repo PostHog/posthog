@@ -1384,6 +1384,35 @@ class GitHubIntegrationBase:
         ]
         return {"success": True, "paths": paths}
 
+    def was_ever_unassigned(self, repository: str, issue_number: int) -> dict[str, Any]:
+        """Whether anybody ever removed an assignee from an issue or pull request.
+
+        Reads every page of the issue events, so a failed page comes back as a failure rather than as
+        "never unassigned".
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        responses, complete = self._installation_authenticated_get_pages(
+            f"https://api.github.com/repos/{repo_path}/issues/{issue_number}/events",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/events",
+            params={"per_page": 100},
+        )
+        if not complete:
+            last = responses[-1] if responses else None
+            return {
+                "success": False,
+                "error": f"Failed to list issue events: {last.text if last is not None else 'network error'}",
+                "status_code": last.status_code if last is not None else None,
+            }
+        for response in responses:
+            try:
+                events = response.json()
+            except Exception:
+                return {"success": False, "error": "Failed to parse issue events JSON"}
+            if any(isinstance(event, dict) and event.get("event") == "unassigned" for event in events or []):
+                return {"success": True, "unassigned": True}
+        return {"success": True, "unassigned": False}
+
     def list_team_members(self, org: str, team_slug: str) -> dict[str, Any]:
         """The logins of every member of a GitHub team, including members of its child teams.
 

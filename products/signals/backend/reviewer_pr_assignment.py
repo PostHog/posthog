@@ -37,7 +37,7 @@ from products.signals.backend.models import (
     SignalReportAssignment,
     SignalUserAutonomyConfig,
 )
-from products.signals.backend.pr_owning_team import OwningTeamCandidates
+from products.signals.backend.pr_owning_team import OwningTeam, OwningTeamResolver
 from products.signals.backend.report_claims import get_active_claim, responsible_user
 from products.signals.backend.report_generation.resolve_reviewers import (
     _normalized_reviewer_user_uuid,
@@ -245,42 +245,28 @@ def _assignable_pull_request(
 
 def _add_assignees(
     github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef, logins: list[str]
-) -> list[str]:
-    """Add the logins to the pull request. Returns the logins GitHub accepted, or none on failure."""
+) -> list[str] | None:
+    """Add the logins to the pull request.
+
+    Returns the pull request's assignees as GitHub reports them after the call, an empty list when
+    GitHub refused the call, and None when the outcome is unknown. A request that failed in transit
+    may still have reached GitHub, so the caller must not assign anybody else on top of it.
+    """
+    log = logger.bind(team_id=team_id, report_id=report_id, repository=parsed.repository, pr_number=parsed.number)
     try:
         result = github.add_pull_request_assignees(parsed.repository, parsed.number, logins)
     except Exception:
-        logger.exception(
-            "signals.reviewer_pr_assignment.assign_failed",
-            team_id=team_id,
-            report_id=report_id,
-            repository=parsed.repository,
-            pr_number=parsed.number,
-        )
-        return []
+        log.exception("signals.reviewer_pr_assignment.assign_failed")
+        return None
     if not result.get("success"):
-        logger.warning(
-            "signals.reviewer_pr_assignment.assign_failed",
-            team_id=team_id,
-            report_id=report_id,
-            repository=parsed.repository,
-            pr_number=parsed.number,
-            error=result.get("error"),
-        )
-        return []
+        log.warning("signals.reviewer_pr_assignment.assign_failed", error=result.get("error"))
+        # The client reports a status code only for a response GitHub sent.
+        return [] if result.get("status_code") is not None else None
 
     assigned = list(result.get("assignees") or [])
     # Counts only: GitHub logins are member PII and must not reach logs. A `requested` above
     # `assigned` means GitHub dropped a login, usually one without push access to the repository.
-    logger.info(
-        "signals.reviewer_pr_assignment.assigned",
-        team_id=team_id,
-        report_id=report_id,
-        repository=parsed.repository,
-        pr_number=parsed.number,
-        requested=len(logins),
-        assigned=len(assigned),
-    )
+    log.info("signals.reviewer_pr_assignment.assigned", requested=len(logins), assigned=len(assigned))
     return assigned
 
 
@@ -309,11 +295,11 @@ def _first_assignable_login(
     return None
 
 
-def _owning_team_logins(
+def _owning_team(
     github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef
-) -> list[str]:
+) -> OwningTeam | None:
     try:
-        return OwningTeamCandidates(github, team_id=team_id, report_id=report_id, parsed=parsed).logins()
+        return OwningTeamResolver(github, team_id=team_id, report_id=report_id, parsed=parsed).resolve()
     except Exception:
         logger.exception(
             "signals.reviewer_pr_assignment.owning_team_failed",
@@ -322,32 +308,48 @@ def _owning_team_logins(
             repository=parsed.repository,
             pr_number=parsed.number,
         )
-        return []
+        return None
 
 
-def dri_candidate_logins(
-    github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef
-) -> list[str]:
-    """GitHub logins that can own the report's pull request, the most responsible first.
+def _was_unassigned_by_hand(github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef) -> bool:
+    """Whether somebody removed an assignee from the pull request. A failed read counts as yes.
 
-    The claimant comes first, because to claim a report is to take the work on. Next come the
-    members of the GitHub team that owns the changed files, when the repository declares its
-    ownership in `owners.yaml`. The suggested reviewers take their place when there is no such team.
+    A person who unassigned the DRI made a decision, and a later report event must not undo it.
     """
-    claimant = claimant_login(team_id=team_id, report_id=report_id)
-    others = _owning_team_logins(github, team_id=team_id, report_id=report_id, parsed=parsed) or (
-        ranked_reviewer_logins(team_id=team_id, report_id=report_id)
-    )
+    try:
+        result = github.was_ever_unassigned(parsed.repository, parsed.number)
+    except Exception:
+        logger.exception("signals.reviewer_pr_assignment.events_fetch_failed", team_id=team_id, report_id=report_id)
+        return True
+    if not result.get("success"):
+        logger.warning(
+            "signals.reviewer_pr_assignment.events_fetch_failed",
+            team_id=team_id,
+            report_id=report_id,
+            error=result.get("error"),
+        )
+        return True
+    return bool(result.get("unassigned"))
+
+
+def dri_candidate_logins(*, claimant: str | None, team: OwningTeam | None, reviewers: list[str]) -> list[str]:
+    """GitHub logins that can own the pull request, the most responsible first.
+
+    The claimant comes first, because to claim a report is to take the work on. The members of the
+    team that owns the changed files come next. The suggested reviewers take their place when no
+    ownership source names a team.
+    """
+    others = team.logins if team is not None and team.logins else reviewers
     return list(dict.fromkeys(login for login in (claimant, *others) if login))
 
 
 def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: str) -> list[str]:
-    """Put the report's opted-in reviewers, or else one DRI, on its pull request.
+    """Put the report's opted-in reviewers, and one DRI when they do not own the code, on its pull request.
 
     Returns the pull request's assignees after the last call GitHub accepted. Never unassigns:
     GitHub's add-assignees endpoint is additive, so a person somebody assigned by hand stays on the
-    pull request, and a pull request that already has an assignee gets no DRI. Returns an empty
-    list when there is nothing to do or the call failed, and raises nothing.
+    pull request, and a pull request that somebody assigned or unassigned by hand gets no DRI.
+    Returns an empty list when there is nothing to do or the call failed, and raises nothing.
     """
     if not SignalReport.objects.filter(id=report_id, team_id=team_id).exists():
         return []
@@ -368,17 +370,39 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
     pr = _assignable_pull_request(github, team_id=team_id, report_id=report_id, parsed=parsed)
     if pr is None:
         return []
+    hand_assigned = bool(pr.get("assignees"))
 
     assigned = (
         _add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=logins) if logins else []
     )
-    if not dri_enabled or assigned or pr.get("assignees"):
+    if assigned is None:
+        return []
+    if not dri_enabled or hand_assigned:
+        return assigned
+
+    claimant = claimant_login(team_id=team_id, report_id=report_id)
+    team = _owning_team(github, team_id=team_id, report_id=report_id, parsed=parsed)
+    # An opted-in reviewer owns the pull request only as its claimant or as a member of the owning
+    # team. A reviewer who opted in is often suggested for other teams' code too.
+    owners = {login.lower() for login in (claimant, *(team.logins if team else ())) if login}
+    assigned_lower = {login.lower() for login in assigned}
+    if assigned and (not owners or assigned_lower & owners):
+        return assigned
+    if _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed):
         return assigned
 
     # One owner rather than every candidate, because each person on a shared assignment reads the
     # pull request as somebody else's job.
-    candidates = dri_candidate_logins(github, team_id=team_id, report_id=report_id, parsed=parsed)
-    dri = _first_assignable_login(github, team_id=team_id, report_id=report_id, parsed=parsed, candidates=candidates)
+    candidates = dri_candidate_logins(
+        claimant=claimant, team=team, reviewers=ranked_reviewer_logins(team_id=team_id, report_id=report_id)
+    )
+    dri = _first_assignable_login(
+        github,
+        team_id=team_id,
+        report_id=report_id,
+        parsed=parsed,
+        candidates=[login for login in candidates if login not in assigned_lower],
+    )
     if dri is None:
-        return []
-    return _add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=[dri])
+        return assigned
+    return _add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=[dri]) or assigned

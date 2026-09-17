@@ -986,6 +986,27 @@ class TestGitHubIntegrationModel(BaseTest):
         assert {key: result[key] for key in expected} == expected
         assert mock_pages.call_args.args[0] == "https://api.github.com/orgs/PostHog/teams/team-devex/members"
 
+    @parameterized.expand(
+        [
+            ("unassigned_on_a_later_page", True, "unassigned", {"success": True, "unassigned": True}),
+            ("never_unassigned", True, "labeled", {"success": True, "unassigned": False}),
+            ("a_page_failed", False, "labeled", {"success": False}),
+        ]
+    )
+    def test_was_ever_unassigned_reads_every_page(self, _name: str, complete: bool, last_event: str, expected: dict):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        first = MagicMock(status_code=200)
+        first.json.return_value = [{"event": "assigned"}]
+        second = MagicMock(status_code=200 if complete else 502, text="Bad gateway")
+        second.json.return_value = [{"event": last_event}]
+        with patch.object(
+            github, "_installation_authenticated_get_pages", return_value=([first, second], complete)
+        ) as mock_pages:
+            result = github.was_ever_unassigned("PostHog/posthog", 42)
+        assert {key: result[key] for key in expected} == expected
+        assert mock_pages.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/42/events"
+
     def test_add_pull_request_assignees_from_url_parses_and_posts(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)

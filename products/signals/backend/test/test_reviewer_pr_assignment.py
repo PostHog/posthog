@@ -37,7 +37,11 @@ PR_URL = "https://github.com/PostHog/posthog/pull/123"
 
 @pytest.fixture(autouse=True)
 def dri_flag():
-    with patch("products.signals.backend.reviewer_pr_assignment.feature_enabled_or_false", return_value=False) as flag:
+    # The rule is always on in DEBUG, so DEBUG is pinned off for the flag to decide.
+    with (
+        patch("products.signals.backend.reviewer_pr_assignment.settings.DEBUG", False),
+        patch("products.signals.backend.reviewer_pr_assignment.feature_enabled_or_false", return_value=False) as flag,
+    ):
         yield flag
 
 
@@ -438,7 +442,15 @@ class TestDirectlyResponsibleIndividual:
             "assignable": assignable is None or login in assignable,
         }
         github.list_pull_request_files.return_value = {"success": True, "paths": ["posthog/api/a.py"]}
+        github.was_ever_unassigned.return_value = {"success": True, "unassigned": False}
+        github.add_pull_request_assignees.side_effect = lambda _repo, _number, logins: {
+            "success": True,
+            "assignees": logins,
+        }
         return github
+
+    def _team_x(self, github: MagicMock) -> None:
+        github.list_team_members.return_value = {"success": True, "logins": ["bob", "dave", "stranger"]}
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
@@ -576,3 +588,48 @@ class TestDirectlyResponsibleIndividual:
             calls = self._assign(team, report, github)
 
         assert calls == [[expected_owner]]
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        ("opted_in", "add_fails_in_transit", "events", "expected_calls"),
+        [
+            (("alice",), False, {"success": True, "unassigned": False}, [["alice"], ["dave"]]),
+            (("bob",), False, {"success": True, "unassigned": False}, [["bob"]]),
+            (("alice",), True, {"success": True, "unassigned": False}, [["alice"]]),
+            ((), False, {"success": True, "unassigned": True}, []),
+            ((), False, {"success": False, "error": "Failed to list issue events"}, []),
+        ],
+        ids=[
+            "opted_in_reviewer_outside_the_owning_team_gets_a_dri_beside_them",
+            "opted_in_reviewer_in_the_owning_team_is_the_owner",
+            "unknown_assignment_outcome_adds_nobody_else",
+            "a_hand_unassigned_pull_request_stays_unassigned",
+            "unreadable_events_count_as_unassigned",
+        ],
+    )
+    def test_the_dri_respects_what_already_happened(
+        self,
+        org_and_team,
+        ownership,
+        opted_in: tuple[str, ...],
+        add_fails_in_transit: bool,
+        events: dict,
+        expected_calls: list[list[str]],
+    ):
+        org, team = org_and_team
+        report, _ = self._setup(org, team, ["alice", "bob"], opted_in=opted_in)
+        ownership.return_value = PathOwnership(team_by_path={"posthog/api/a.py": "team-x"}, registry={}, resolved=True)
+        github = self._github(existing_assignees=[], assignable=None)
+        self._team_x(github)
+        github.was_ever_unassigned.return_value = events
+        if add_fails_in_transit:
+            github.add_pull_request_assignees.side_effect = None
+            github.add_pull_request_assignees.return_value = {"success": False, "error": "Network error"}
+
+        with patch(
+            "products.signals.backend.pr_owning_team.random.shuffle",
+            side_effect=lambda logins: logins.sort(reverse=True),
+        ):
+            calls = self._assign(team, report, github)
+
+        assert calls == expected_calls
