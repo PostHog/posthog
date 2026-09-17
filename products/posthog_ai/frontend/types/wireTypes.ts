@@ -419,15 +419,34 @@ export interface PosthogTurnSuggestionParams {
     title?: string
     description?: string
     scout?: {
+        mode?: string
         displayName?: string
         description?: string
         body?: string
         cadence?: string
     }
     notebook?: {
+        template?: string
         title?: string
         summary?: string
+        incident?: { timeline?: string; cause?: string; fix?: string } | null
     }
+    alert?: {
+        insightShortId?: string
+        insightId?: number | null
+        insightName?: string
+        queryKind?: string
+        direction?: string
+        changePercent?: number
+    }
+    subscription?: {
+        insightShortId?: string
+        insightId?: number | null
+        insightName?: string
+        queryKind?: string
+        cadence?: string
+    }
+    errorAlert?: { issueId?: string; issueName?: string }
 }
 
 export interface PosthogNotificationParamsByMethod {

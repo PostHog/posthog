@@ -78,6 +78,27 @@ describe('conversationNotebook', () => {
         ])
     })
 
+    it('lays an incident write-up out as timeline, cause, evidence and fix around the conversation', () => {
+        const { markdown } = buildConversationNotebook({
+            title: 'Why signups dropped on Tuesday',
+            summary: 'A checkout error was the cause.',
+            blocks: ['**You asked:** Why?', 'Because.'],
+            incident: { timeline: '- 14:10 release\n- 14:25 first error', cause: 'Checkout error.', fix: '' },
+        })
+
+        expect(markdown.split('\n\n')).toEqual([
+            '# Why signups dropped on Tuesday',
+            'A checkout error was the cause.',
+            '## Timeline',
+            '- 14:10 release\n- 14:25 first error',
+            '## Cause',
+            'Checkout error.',
+            '## Evidence',
+            '**You asked:** Why?',
+            'Because.',
+        ])
+    })
+
     it('builds the document the notebooks API stores, with the title and lead in front', () => {
         const notebook = buildConversationNotebook({
             title: 'Why signups dropped on Tuesday',

@@ -263,17 +263,51 @@ export interface PermissionRequestRecord {
 }
 
 export type ScoutSuggestionCadence = 'daily' | 'weekly'
+export type ScoutSuggestionMode = 'report' | 'watch' | 'investigate' | 'check_back' | 'digest'
 
 export interface ScoutSuggestionDraft {
+    mode: ScoutSuggestionMode
     displayName: string
     description: string
     body: string
     cadence: ScoutSuggestionCadence
 }
 
+export interface IncidentOutline {
+    timeline: string
+    cause: string
+    fix: string
+}
+
 export interface NotebookSuggestionDraft {
+    template: 'conversation' | 'incident'
     title: string
     summary: string
+    incident: IncidentOutline | null
+}
+
+/** A saved insight the turn created or read, as the insight tools returned it. */
+export interface SuggestedInsightRef {
+    insightShortId: string
+    insightId: number | null
+    insightName: string
+    queryKind: string
+}
+
+export type AlertSuggestionDirection = 'decrease' | 'increase' | 'either'
+
+export interface AlertSuggestionDraft extends SuggestedInsightRef {
+    direction: AlertSuggestionDirection
+    changePercent: number
+}
+
+export interface SubscriptionSuggestionDraft extends SuggestedInsightRef {
+    cadence: ScoutSuggestionCadence
+}
+
+export interface ErrorAlertSuggestionDraft {
+    issueId: string
+    issueName: string
 }
 
 interface TurnSuggestionBase {
@@ -294,5 +328,25 @@ export interface NotebookTurnSuggestion extends TurnSuggestionBase {
     notebook: NotebookSuggestionDraft
 }
 
+export interface AlertTurnSuggestion extends TurnSuggestionBase {
+    kind: 'alert'
+    alert: AlertSuggestionDraft
+}
+
+export interface SubscriptionTurnSuggestion extends TurnSuggestionBase {
+    kind: 'subscription'
+    subscription: SubscriptionSuggestionDraft
+}
+
+export interface ErrorAlertTurnSuggestion extends TurnSuggestionBase {
+    kind: 'error_alert'
+    errorAlert: ErrorAlertSuggestionDraft
+}
+
 /** A validated `_posthog/turn_suggestion` frame, keyed to the completed turn it belongs to. */
-export type TurnSuggestion = ScoutTurnSuggestion | NotebookTurnSuggestion
+export type TurnSuggestion =
+    | ScoutTurnSuggestion
+    | NotebookTurnSuggestion
+    | AlertTurnSuggestion
+    | SubscriptionTurnSuggestion
+    | ErrorAlertTurnSuggestion

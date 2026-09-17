@@ -11,7 +11,7 @@ import { ArtifactSource } from '~/queries/schema/schema-assistant-messages'
 import { NodeKind } from '~/queries/schema/schema-general'
 
 import { extractQueryResult, extractVisualizationArtifact } from '../components/tool/widgets/extractors'
-import type { ThreadItem, ToolInvocation } from '../types/streamTypes'
+import type { IncidentOutline, ThreadItem, ToolInvocation } from '../types/streamTypes'
 import { toolInvocationToMessage } from './toolCallMessage'
 import { visualizationTypeToQuery } from './visualizationQuery'
 
@@ -100,16 +100,34 @@ export function collectConversationBlocks(
     return { blocks, messageCount, queryCount }
 }
 
+function section(heading: string, text: string): string[] {
+    return text.trim() ? [`## ${heading}`, escapeComponentTagLines(text.trim())] : []
+}
+
+/** The incident write-up keeps the conversation as the evidence between the cause and the fix. */
+function incidentSections(incident: IncidentOutline, blocks: string[]): string[] {
+    return [
+        ...section('Timeline', incident.timeline),
+        ...section('Cause', incident.cause),
+        '## Evidence',
+        ...blocks,
+        ...section('Fix', incident.fix),
+    ]
+}
+
 export function buildConversationNotebook({
     title,
     summary,
     blocks,
+    incident,
 }: {
     title: string
     summary: string
     blocks: string[]
+    incident?: IncidentOutline | null
 }): ConversationNotebook {
     const lead = summary.trim() ? [escapeComponentTagLines(summary.trim())] : []
-    const markdown = [`# ${escapeInlineMarkdownText(title.trim())}`, ...lead, ...blocks].join('\n\n')
+    const body = incident ? incidentSections(incident, blocks) : blocks
+    const markdown = [`# ${escapeInlineMarkdownText(title.trim())}`, ...lead, ...body].join('\n\n')
     return { markdown, content: buildMarkdownNotebookContent(markdown) }
 }
