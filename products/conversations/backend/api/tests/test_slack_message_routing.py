@@ -2,7 +2,7 @@ import json
 from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from django.core.cache import cache
 from django.test import override_settings
@@ -20,7 +20,6 @@ from products.conversations.backend.models.constants import Channel, ChannelDeta
 from products.conversations.backend.slack import (
     TICKET_CONFIRM_ACTION_DISMISS,
     TICKET_CONFIRM_ACTION_OPEN,
-    TICKET_VIEW_ACTION,
     SlackConfirmationNeedsRetry,
     create_ticket_from_confirmation,
     handle_member_joined_channel,
@@ -28,6 +27,7 @@ from products.conversations.backend.slack import (
     handle_support_mention,
     handle_support_message,
     handle_support_reaction,
+    post_ephemeral_ticket_link,
     ticket_created_blocks,
     ticket_deep_link,
 )
@@ -38,6 +38,7 @@ from products.customer_analytics.backend.facade.testing import create_account
 MODULE = "products.conversations.backend.slack"
 TASKS_MODULE = "products.conversations.backend.tasks.slack"
 MESSAGE_TS = "1700000000.000100"
+SLACK_TEAM_ID = "T_WORKSPACE"
 MESSAGE_SENT_AT = datetime(2023, 11, 14, 22, 13, 20, 100, tzinfo=UTC)
 USE_TEAMMATE_EMAIL = "use-the-org-members-own-email"
 
@@ -1162,9 +1163,6 @@ class TestSupporthogInteractivity(BaseTest):
         capture_patcher = patch(f"{TASKS_MODULE}.capture_nudge_event")
         self.mock_capture_event = capture_patcher.start()
         self.addCleanup(capture_patcher.stop)
-        support_capture_patcher = patch(f"{TASKS_MODULE}.capture_support_event")
-        self.mock_capture_support_event = support_capture_patcher.start()
-        self.addCleanup(support_capture_patcher.stop)
 
     def _payload(self, action_id: str, value: dict) -> dict:
         return {
@@ -1374,89 +1372,78 @@ class TestSupporthogInteractivity(BaseTest):
         assert event_name == "support nudge open ticket clicked"
         assert event_props["ticket_created"] is False
 
-    def _view_payload(self, ticket_number: object, *, thread_ts: str = MESSAGE_TS) -> dict:
-        payload = self._payload(TICKET_VIEW_ACTION, {"ticket_number": ticket_number})
-        payload["message"]["thread_ts"] = thread_ts
-        return payload
 
-    def _link_click_properties(self) -> dict:
-        _team, event_name, event_props = self.mock_capture_support_event.call_args.args
-        assert event_name == "support slack ticket link clicked"
-        return event_props
+class TestEphemeralTicketLink(BaseTest):
+    """The ticket URL only ever reaches one person: whoever opened the ticket, and only if
+    they are a member of the organization. The public confirmation never carries it."""
 
-    @patch(f"{TASKS_MODULE}.resolve_slack_user")
-    @patch(f"{TASKS_MODULE}.get_slack_client")
-    def test_view_sends_the_link_to_an_org_member_only_they_can_see(self, mock_get_client, mock_resolve_user):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.client_mock = MagicMock()
+        capture_patcher = patch(f"{MODULE}.capture_support_event")
+        self.mock_capture = capture_patcher.start()
+        self.addCleanup(capture_patcher.stop)
+
+    def _send(self, ticket: Ticket, actor: dict, *, slack_team_id: str | None = SLACK_TEAM_ID) -> None:
+        with patch(f"{MODULE}.resolve_slack_user", return_value=actor):
+            post_ephemeral_ticket_link(
+                self.client_mock,
+                self.team,
+                ticket=ticket,
+                slack_channel_id="C_CONFIG",
+                thread_ts=MESSAGE_TS,
+                actor_slack_user_id="U_ACTOR",
+                slack_team_id=slack_team_id,
+            )
+
+    def test_org_member_gets_the_link_where_only_they_can_see_it(self):
         ticket = _create_slack_ticket(self.team)
-        mock_resolve_user.return_value = {"name": "Teammate", "email": self.user.email, "team_id": "T123"}
 
-        process_supporthog_interactivity(self._view_payload(ticket.ticket_number), "T123")
+        self._send(ticket, {"name": "Teammate", "email": self.user.email, "team_id": SLACK_TEAM_ID})
 
-        client = mock_get_client.return_value
-        client.chat_postEphemeral.assert_called_once()
-        kwargs = client.chat_postEphemeral.call_args.kwargs
-        assert kwargs["user"] == "U_CLICKER"
+        self.client_mock.chat_postEphemeral.assert_called_once()
+        kwargs = self.client_mock.chat_postEphemeral.call_args.kwargs
+        assert kwargs["user"] == "U_ACTOR"
         assert kwargs["thread_ts"] == MESSAGE_TS
         assert ticket_deep_link(ticket, self.team) in kwargs["text"]
-        client.chat_postMessage.assert_not_called()
-        client.chat_update.assert_not_called()
-        assert self._link_click_properties()["is_org_member"] is True
+        # Nothing public: the URL must never reach the channel.
+        self.client_mock.chat_postMessage.assert_not_called()
+        _team, event_name, _props = self.mock_capture.call_args.args
+        assert event_name == "support slack ticket link sent"
 
-    @patch(f"{TASKS_MODULE}.resolve_slack_user")
-    @patch(f"{TASKS_MODULE}.get_slack_client")
-    def test_view_withholds_the_link_from_a_non_member(self, mock_get_client, mock_resolve_user):
-        ticket = _create_slack_ticket(self.team)
-        mock_resolve_user.return_value = {"name": "Customer", "email": "customer@example.com", "team_id": "T123"}
+    @parameterized.expand(
+        [
+            ("non_member", {"email": "customer@example.com", "team_id": SLACK_TEAM_ID}),
+            # A Slack Connect participant's profile email is set by their own workspace, so an
+            # email matching a teammate is not proof of membership on its own.
+            ("external_workspace", {"email": USE_TEAMMATE_EMAIL, "team_id": "T_OTHER"}),
+            ("unresolved_profile", {"email": None, "team_id": None}),
+        ]
+    )
+    def test_no_message_at_all_for_anyone_else(self, _name, actor):
+        if actor["email"] == USE_TEAMMATE_EMAIL:
+            actor = {**actor, "email": self.user.email}
 
-        process_supporthog_interactivity(self._view_payload(ticket.ticket_number), "T123")
+        self._send(_create_slack_ticket(self.team), actor)
 
-        text = mock_get_client.return_value.chat_postEphemeral.call_args.kwargs["text"]
-        assert ticket_deep_link(ticket, self.team) not in text
-        assert "reply in this thread" in text.lower()
-        assert self._link_click_properties()["is_org_member"] is False
+        self.client_mock.chat_postEphemeral.assert_not_called()
+        self.mock_capture.assert_not_called()
 
-    @patch(f"{TASKS_MODULE}.resolve_slack_user")
-    @patch(f"{TASKS_MODULE}.get_slack_client")
-    def test_view_withholds_the_link_from_an_external_workspace(self, mock_get_client, mock_resolve_user):
-        # A Slack Connect participant's profile email is set by their own workspace, so an
-        # email that matches a teammate is not proof of membership on its own.
-        ticket = _create_slack_ticket(self.team)
-        mock_resolve_user.return_value = {"name": "Outsider", "email": self.user.email, "team_id": "T_OTHER"}
+    def test_slack_failure_does_not_break_ticket_creation(self):
+        self.client_mock.chat_postEphemeral.side_effect = RuntimeError("slack down")
 
-        process_supporthog_interactivity(self._view_payload(ticket.ticket_number), "T123")
+        self._send(_create_slack_ticket(self.team), {"email": self.user.email, "team_id": SLACK_TEAM_ID})
 
-        text = mock_get_client.return_value.chat_postEphemeral.call_args.kwargs["text"]
-        assert ticket_deep_link(ticket, self.team) not in text
-        assert self._link_click_properties()["is_org_member"] is False
+        self.mock_capture.assert_not_called()
 
-    @parameterized.expand([("unknown_number", 4242), ("malformed_value", None)])
-    @patch(f"{TASKS_MODULE}.resolve_slack_user")
-    @patch(f"{TASKS_MODULE}.get_slack_client")
-    def test_view_reports_a_ticket_it_cannot_resolve(self, _name, ticket_number, mock_get_client, mock_resolve_user):
-        mock_resolve_user.return_value = {"name": "Teammate", "email": self.user.email, "team_id": "T123"}
-
-        process_supporthog_interactivity(self._view_payload(ticket_number), "T123")
-
-        text = mock_get_client.return_value.chat_postEphemeral.call_args.kwargs["text"]
-        assert "isn't available" in text
-        assert "http" not in text
-        properties = self._link_click_properties()
-        assert properties["ticket_found"] is False
-        assert properties["is_org_member"] is False
-
-
-class TestTicketConfirmationBlocks(BaseTest):
-    def test_confirmation_carries_a_view_button_and_no_url(self):
+    def test_confirmation_blocks_carry_no_link_and_no_button(self):
         ticket = _create_slack_ticket(self.team)
 
-        blocks = ticket_created_blocks(ticket, self.team)
+        blocks = ticket_created_blocks(ticket)
 
+        assert [block["type"] for block in blocks] == ["section"]
         assert ticket_deep_link(ticket, self.team) not in json.dumps(blocks)
-        actions = [block for block in blocks if block["type"] == "actions"]
-        assert len(actions) == 1
-        button = actions[0]["elements"][0]
-        assert button["action_id"] == TICKET_VIEW_ACTION
-        assert json.loads(button["value"]) == {"ticket_number": ticket.ticket_number}
 
     def test_deep_link_addresses_the_ticket_by_number(self):
         ticket = _create_slack_ticket(self.team)
@@ -1465,5 +1452,27 @@ class TestTicketConfirmationBlocks(BaseTest):
             f"/project/{self.team.id}/support/tickets/{ticket.ticket_number}"
         )
 
-    def test_no_button_without_a_ticket(self):
-        assert [block["type"] for block in ticket_created_blocks(None, self.team)] == ["section"]
+
+class TestReactionPassesTheReactorAsActor(BaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.team.conversations_settings = {"slack_enabled": True}
+        self.team.save()
+
+    @patch(f"{MODULE}._create_ticket_and_backfill")
+    @patch(f"{MODULE}.get_slack_client")
+    def test_reactor_not_message_author_is_the_actor(self, mock_get_client, mock_create):
+        # The whole point of the reaction path: a teammate opens a ticket on a customer's
+        # message, so the link must follow the reactor rather than the message author.
+        mock_get_client.return_value.conversations_replies.return_value = {
+            "messages": [{"ts": MESSAGE_TS, "user": "U_CUSTOMER", "text": "help please"}]
+        }
+
+        handle_support_reaction(
+            {"reaction": "ticket", "user": "U_REACTOR", "item": {"channel": "C_SUPPORT", "ts": MESSAGE_TS}},
+            self.team,
+            SLACK_TEAM_ID,
+        )
+
+        assert mock_create.call_args.kwargs["actor_slack_user_id"] == "U_REACTOR"

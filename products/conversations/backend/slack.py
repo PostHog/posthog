@@ -127,10 +127,6 @@ def get_safe_ticket_emoji(settings_dict: dict) -> str:
 TICKET_CONFIRM_ACTION_OPEN = "supporthog_open_ticket_confirm"
 TICKET_CONFIRM_ACTION_DISMISS = "supporthog_open_ticket_dismiss"
 
-# "View ticket" button on a ticket confirmation. The URL stays out of the message because
-# Slack has no message that only part of a channel can see (see _post_ticket_link).
-TICKET_VIEW_ACTION = "supporthog_view_ticket"
-
 
 def _get_team_id(team: Team) -> int:
     team_id = getattr(team, "id", None)
@@ -149,29 +145,56 @@ def ticket_deep_link(ticket: "Ticket", team: Team) -> str:
     return f"{settings.SITE_URL}/project/{_get_team_id(team)}/support/tickets/{ticket.ticket_number}"
 
 
-def ticket_created_blocks(ticket: "Ticket | None", team: Team) -> list[dict]:
-    """Blocks for the ticket confirmation, carrying a "View ticket" button when there is a ticket.
+def ticket_created_blocks(ticket: "Ticket | None") -> list[dict]:
+    """Blocks for the public ticket confirmation. No link: the channel can hold people
+    outside the organization, and the URL goes out separately via post_ephemeral_ticket_link."""
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": ticket_created_text(ticket)}}]
 
-    The button holds the ticket number rather than the link, so the channel never shows the URL.
-    Without a ticket there is nothing to view, so the section stands alone.
+
+def post_ephemeral_ticket_link(
+    client: WebClient,
+    team: Team,
+    *,
+    ticket: "Ticket",
+    slack_channel_id: str,
+    thread_ts: str,
+    actor_slack_user_id: str,
+    slack_team_id: str | None,
+) -> None:
+    """Send the new ticket's link to whoever opened it, visible to them alone.
+
+    A support channel can hold people outside the organization (Slack Connect, community
+    channels) and Slack has no message that only part of a channel can see, so the URL only
+    ever goes out as an ephemeral. Two checks gate it: the actor belongs to the workspace the
+    app is installed in, and their Slack profile email matches a member of the team's
+    organization. The workspace check is what makes the email check worth anything — an
+    external participant's profile email is set by their own workspace, so it can be made to
+    claim a teammate's address. A customer gets nothing beyond the public confirmation.
+
+    Best-effort: a failure leaves the ticket without its link rather than raising.
     """
-    blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": ticket_created_text(ticket)}}]
-    if ticket is None:
-        return blocks
-    blocks.append(
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "action_id": TICKET_VIEW_ACTION,
-                    "text": {"type": "plain_text", "text": "View ticket", "emoji": True},
-                    "value": json.dumps({"ticket_number": ticket.ticket_number}),
-                }
-            ],
-        }
-    )
-    return blocks
+    if not actor_slack_user_id or not slack_team_id:
+        return
+    try:
+        actor = resolve_slack_user(client, actor_slack_user_id, workspace=slack_team_id)
+        if actor.get("team_id") != slack_team_id:
+            return
+        if resolve_posthog_user_for_slack(actor.get("email"), team) is None:
+            return
+        link = ticket_deep_link(ticket, team)
+        client.chat_postEphemeral(
+            channel=slack_channel_id,
+            user=actor_slack_user_id,
+            thread_ts=thread_ts or None,
+            text=f"<{link}|Ticket #{ticket.ticket_number}>. Only you can see this message.",
+        )
+        capture_support_event(
+            team,
+            "support slack ticket link sent",
+            {"slack_team_id": slack_team_id, "slack_channel_id": slack_channel_id},
+        )
+    except Exception:
+        logger.warning("slack_support_ticket_link_failed", ticket_id=str(ticket.id))
 
 
 class _NoRedirectHandler(HTTPRedirectHandler):
@@ -442,9 +465,14 @@ def create_or_update_slack_ticket(
     slack_team_id: str | None = None,
     channel_detail: ChannelDetail | None = None,
     post_confirmation: bool = True,
+    actor_slack_user_id: str | None = None,
 ) -> Ticket | None:
     """
     Core function: create a new ticket or add a message to an existing one.
+
+    ``actor_slack_user_id`` is whoever's action opened the ticket, which is the message author
+    everywhere except the emoji-reaction and confirm-prompt paths, where a second person acts
+    on someone else's message. They are the one who gets the ephemeral link.
 
     For new tickets (is_thread_reply=False):
       - Creates Ticket with channel_source="slack"
@@ -632,7 +660,7 @@ def create_or_update_slack_ticket(
             "channel": slack_channel_id,
             "thread_ts": thread_ts,
             "text": f"Ticket #{ticket.ticket_number} created.",
-            "blocks": ticket_created_blocks(ticket, team),
+            "blocks": ticket_created_blocks(ticket),
         }
         bot_display_name = support_settings.get("slack_bot_display_name")
         bot_icon_url = support_settings.get("slack_bot_icon_url")
@@ -644,6 +672,16 @@ def create_or_update_slack_ticket(
             client.chat_postMessage(**confirmation_kwargs)
         except Exception:
             logger.warning("slack_support_confirmation_failed", ticket_id=str(ticket.id))
+
+    post_ephemeral_ticket_link(
+        client,
+        team,
+        ticket=ticket,
+        slack_channel_id=slack_channel_id,
+        thread_ts=thread_ts,
+        actor_slack_user_id=actor_slack_user_id or slack_user_id,
+        slack_team_id=slack_team_id,
+    )
 
     return ticket
 
@@ -1129,6 +1167,7 @@ def _create_ticket_and_backfill(
     channel_detail: ChannelDetail,
     after_ts: str | None = None,
     post_confirmation: bool = True,
+    actor_slack_user_id: str | None = None,
 ) -> Ticket | None:
     """Create a ticket from an already-validated seed message, then backfill its thread replies.
 
@@ -1149,6 +1188,7 @@ def _create_ticket_and_backfill(
         slack_team_id=slack_team_id,
         channel_detail=channel_detail,
         post_confirmation=post_confirmation,
+        actor_slack_user_id=actor_slack_user_id,
     )
     if ticket:
         _backfill_thread_replies(
@@ -1167,6 +1207,7 @@ def create_ticket_from_confirmation(
     slack_team_id: str,
     slack_channel_id: str,
     message_ts: str,
+    actor_slack_user_id: str | None = None,
 ) -> Ticket | None:
     """Create a ticket from a channel message after the author confirms via the prompt.
 
@@ -1221,6 +1262,7 @@ def create_ticket_from_confirmation(
         channel_detail=ChannelDetail.SLACK_CHANNEL_MESSAGE,
         # The interactivity handler updates the prompt in place into the confirmation.
         post_confirmation=False,
+        actor_slack_user_id=actor_slack_user_id,
     )
     if ticket is None:
         raise SlackConfirmationNeedsRetry
@@ -1293,6 +1335,8 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
                     slack_channel_id=channel,
                     thread_ts=thread_ts,
                     source_message=parent_msg,
+                    # The mentioner escalated someone else's thread, so they get the link.
+                    actor_slack_user_id=slack_user_id,
                     slack_team_id=slack_team_id,
                     channel_detail=ChannelDetail.SLACK_BOT_MENTION,
                 )
@@ -1629,6 +1673,8 @@ def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None
         slack_team_id=slack_team_id,
         channel_detail=ChannelDetail.SLACK_EMOJI_REACTION,
         after_ts=message_ts,
+        # The reactor opened the ticket; the reacted message is usually someone else's.
+        actor_slack_user_id=event.get("user", ""),
     )
 
 
