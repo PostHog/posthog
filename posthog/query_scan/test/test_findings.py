@@ -171,6 +171,13 @@ class TestFindings(SimpleTestCase):
                 "joins the persons table",
                 "person.properties.x",
             ),
+            (
+                QueryScanFindingKind.PERSONS_JOIN,
+                {},
+                "TrendsQuery",
+                'PostHog recommends "Use person properties from the time of the event"',
+                "do not propose an edit",
+            ),
         ]
     )
     def test_copy_switches_between_sql_and_insight_wording(
@@ -199,6 +206,7 @@ class TestFindings(SimpleTestCase):
             (QueryScanFindingKind.NO_START_DATE, {"by_design": True}, False),
             (QueryScanFindingKind.NO_START_DATE, {"view_name": "v_active"}, True),
             (QueryScanFindingKind.PERSONS_JOIN, {}, True),
+            (QueryScanFindingKind.PERSONS_JOIN, {"query_kind": "TrendsQuery"}, False),
         ]
     )
     def test_actionable_follows_the_facts(

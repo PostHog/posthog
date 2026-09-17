@@ -23,7 +23,7 @@ logger = structlog.get_logger(__name__)
 # Bumped when a stored slot can no longer be read by this code. It is part of the key: a claim
 # cannot replace an existing key, so an old slot left under the same key would block re-analysis
 # for its whole TTL while reading as absent.
-SLOT_VERSION = 2
+SLOT_VERSION = 3
 
 PENDING_TTL_SECONDS = 10 * 60
 DONE_TTL_SECONDS = 30 * 24 * 60 * 60

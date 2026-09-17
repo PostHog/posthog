@@ -383,6 +383,21 @@ _PERSONS_JOIN = _Copy(
 )
 
 
+# The option names are the ones on the project's "Person properties mode" setting.
+_PERSONS_JOIN_INSIGHT = _Copy(
+    lead="{subject} joins the persons table, which is slow.",
+    advice=(
+        'The project\'s Person properties mode is set to "Use person properties as of running the query". '
+        'PostHog recommends "Use person properties from the time of the event", which makes queries fast.'
+    ),
+    fix=(
+        "The insight joins the persons table because the project's Person properties mode reads person "
+        "properties as of running the query. Nothing in the insight changes that, so do not propose an edit "
+        "for it. Say that the mode is a project setting."
+    ),
+)
+
+
 def _by_cause(table: dict[FindingCause, _Copy], cause: FindingCause | None, default: _Copy) -> _Copy:
     return default if cause is None else table.get(cause, default)
 
@@ -412,7 +427,7 @@ def _copy_for(
             return _DATE_RANGE_WITHOUT_START_SQL
         return _BOUND_NOT_USED_SQL if cause == FindingCause.START_DATE_NOT_USED_BY_CLICKHOUSE else _NO_START_DATE_SQL
     if kind == QueryScanFindingKind.PERSONS_JOIN:
-        return _PERSONS_JOIN
+        return _PERSONS_JOIN if is_sql else _PERSONS_JOIN_INSIGHT
     raise ValueError(f"No copy for finding kind {kind}")
 
 
@@ -421,6 +436,10 @@ def is_actionable(kind: QueryScanFindingKind, cause: FindingCause | None, *, is_
     question. A read inside a saved view counts: the person can edit the view."""
     if by_design:
         return False
+    if kind == QueryScanFindingKind.PERSONS_JOIN:
+        # An insight joins the persons table because of the project's person properties mode, which
+        # nothing in the insight changes. A SQL author wrote the join and can take it out.
+        return is_sql
     if kind == QueryScanFindingKind.NO_EVENT_FILTER and cause is None:
         # An insight's All events series is a choice the person made in a picker. A SQL query that
         # names no events may have left them out, and nothing in it tells which, so it is a warning.

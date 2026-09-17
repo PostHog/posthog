@@ -455,6 +455,12 @@ class TestAnalyze(SimpleTestCase):
                 {"subqueries": ("plan_no_date_bound",)},
                 "Subquery 1 of this query has no start date",
             ),
+            (
+                "the subquery, not the insight's date range, when the query takes its dates from filters",
+                "plan_event_filter_used",
+                {"subqueries": ("plan_no_date_bound",), "open_filters_placeholder": True},
+                "Subquery 1 of this query has no start date",
+            ),
         ]
     )
     def test_the_headline_names_the_cause(

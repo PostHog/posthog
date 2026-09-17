@@ -118,7 +118,9 @@ def analyze(
         event_filter=event_filter,
     )
     for index, subquery in enumerate(plans.subqueries):
-        subquery_run = replace(run, tree=subquery.tree)
+        # Nothing says which part of the SQL holds `{filters}`, so a subquery's missing start date is
+        # not put on the insight's date range.
+        subquery_run = replace(run, tree=subquery.tree, open_filters_placeholder=False)
         findings += _findings_for_plan(
             subquery.plan,
             flag,
@@ -243,6 +245,8 @@ def _findings_for_plan(
                 kind=QueryScanFindingKind.PERSONS_JOIN,
                 query_kind=query_kind,
                 evidence=_evidence(person_read.primary_key(), subquery_index),
+                subquery_index=subquery_index,
+                view_name=view_name,
             )
         )
 
