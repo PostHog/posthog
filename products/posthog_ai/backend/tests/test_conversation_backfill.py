@@ -40,6 +40,7 @@ class TestListCandidates(APIBaseTest):
         self._conversation(task=task)
         self._conversation(agent_runtime=Conversation.AgentRuntime.SANDBOX)
         self._conversation(deleted=True)
+        self._conversation(is_internal=True)
         self._conversation(type=Conversation.Type.TOOL_CALL)
 
         page = self._page()

@@ -90,6 +90,7 @@ def list_candidates(inputs: ListCandidatesInputs) -> ListCandidatesOutput:
         type=Conversation.Type.ASSISTANT,
         task_id__isnull=True,
         deleted=False,
+        is_internal=False,
     )
     if inputs.start_after is not None:
         queryset = queryset.filter(id__gt=inputs.start_after)
