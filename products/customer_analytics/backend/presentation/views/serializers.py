@@ -907,6 +907,16 @@ class CustomerJourneySerializer(DataclassSerializer):
         fields = ["id", "insight", "name", "description", "created_at", "created_by", "updated_at"]
 
 
+class AccountByExternalIdQuerySerializer(serializers.Serializer):
+    external_id = serializers.CharField(
+        required=True,
+        allow_blank=False,
+        max_length=400,
+        trim_whitespace=False,
+        help_text="Exact external account identifier. Leading and trailing whitespace is significant.",
+    )
+
+
 class AccountSerializer(DataclassSerializer):
     """A Customer Analytics account — a logical grouping used to assign customer-success ownership."""
 

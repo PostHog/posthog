@@ -5,6 +5,7 @@ from unittest import mock
 
 from django.db import OperationalError
 
+from posthog.integration_secrets.errors import IntegrationServiceUnreachableError, SecretMissingError
 from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.temporal.common.errors import NonReportableError
 
@@ -137,6 +138,19 @@ def test_proxy_auth_failure_is_still_reported():
     assert not isinstance(exc_info.value, NonReportableError)
 
 
+def test_all_source_non_retryable_error_is_skipped():
+    # "Database host not allowed" (and the rest of Any_Source_Errors) is raised from shared
+    # connection code, not any one source, so it's never in a source's own
+    # get_non_retryable_errors. Without merging it in here, discovery retries forever and spams
+    # error tracking on a host that will never resolve.
+    source_mock = mock.MagicMock()
+    source_mock.parse_config.return_value = {}
+    source_mock.get_schemas.side_effect = Exception("Database host not allowed: could not resolve host")
+    source_mock.get_non_retryable_errors.return_value = {}
+
+    _run_activity(source_mock)
+
+
 def test_undecrypted_integration_secret_error_is_skipped():
     # Checked by type, not message, so it must be skipped even when get_non_retryable_errors
     # has no matching entry — otherwise discovery retries forever on an unrecoverable decryption
@@ -147,6 +161,32 @@ def test_undecrypted_integration_secret_error_is_skipped():
     source_mock.get_non_retryable_errors.return_value = {}
 
     _run_activity(source_mock)
+
+
+@pytest.mark.parametrize(
+    "error,expect_capture",
+    [
+        (IntegrationServiceUnreachableError("connect timeout"), False),
+        (SecretMissingError("some_key"), True),
+    ],
+    ids=["non_reportable_service_unreachable", "reportable_secret_missing"],
+)
+def test_integration_secrets_failure_is_retried_and_reported_by_reportable(error, expect_capture):
+    # An integration-service failure is never the customer's fault, so discovery must not disable
+    # the source (would need `handle_non_retryable_error`) — it must re-raise as NonReportableError
+    # so the workflow's retry policy picks it back up. `reportable` alone decides whether a person
+    # hears about it: capturing an unreachable service opens an issue per credential read for what
+    # its own availability alerting already covers. Assert the capture, because asserting the raise
+    # alone passes even when everything is captured.
+    source_mock = mock.MagicMock()
+    source_mock.parse_config.return_value = {}
+    source_mock.get_schemas.side_effect = error
+    source_mock.get_non_retryable_errors.return_value = {}
+
+    with mock.patch.object(module, "capture_exception") as capture, pytest.raises(NonReportableError):
+        _run_activity(source_mock)
+
+    assert capture.called is expect_capture
 
 
 def test_discovery_uses_source_pinned_api_version():

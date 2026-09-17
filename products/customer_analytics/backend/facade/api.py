@@ -3342,6 +3342,14 @@ def get_account_for_view(
     return _to_account_view(account)
 
 
+def get_account_for_view_by_external_id(
+    *, team_id: int, external_id: str, user_access_control: "UserAccessControl", required_level: str | None
+) -> contracts.AccountView:
+    account = _account_detail_queryset(team_id).get(external_id=external_id)
+    _enforce_object_access(account, user_access_control, required_level)
+    return _to_account_view(account)
+
+
 class _Unset(Enum):
     UNSET = "unset"
 
@@ -3653,20 +3661,19 @@ def delete_account_for_view(
             sync_event_stream_destination(stream, team=team, user=user)
 
 
+def _account_detail_queryset(team_id: int) -> QuerySet[Account]:
+    return Account.objects.for_team(team_id).prefetch_related(
+        Prefetch("notebooks", queryset=ResourceNotebook.objects.select_related("notebook")),
+        Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"),
+    )
+
+
 def _get_account_for_detail(team_id: int, account_id: str) -> Account:
     """Team-scoped account fetch for detail/write paths (object-level access is enforced
     separately). Prefetches notebooks + tags so the returned view renders without extra
     queries, matching the old viewset's ``safely_get_queryset`` + tag-mixin prefetch.
     Raises ``Account.DoesNotExist`` when not found in the team."""
-    queryset = (
-        Account.objects.unscoped()
-        .filter(team_id=team_id)
-        .prefetch_related(
-            Prefetch("notebooks", queryset=ResourceNotebook.objects.select_related("notebook")),
-            Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"),
-        )
-    )
-    return _get_object_or_raise(queryset, account_id, Account)
+    return _get_object_or_raise(_account_detail_queryset(team_id), account_id, Account)
 
 
 # --- AccountNotebook (nested under an account) ---

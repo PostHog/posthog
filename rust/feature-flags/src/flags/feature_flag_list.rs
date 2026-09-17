@@ -198,7 +198,7 @@ impl FeatureFlagList {
         let flags: Vec<FeatureFlag> = flags_row
             .into_iter()
             .filter_map(|row| {
-                match serde_json::from_value(row.filters) {
+                match crate::flags::config_format::decode_filters(row.filters) {
                     Ok(filters) => Some(FeatureFlag {
                         id: row.id,
                         team_id: row.team_id,

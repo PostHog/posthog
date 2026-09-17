@@ -82,7 +82,7 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
-import type { NodeApiSuspended } from 'products/data_modeling/frontend/generated/api.schemas'
+import type { NodeApiSuspended, NodeEndpointApi } from 'products/data_modeling/frontend/generated/api.schemas'
 import type {
     DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryApiSuspended,
@@ -94,7 +94,10 @@ import type { CommentSlackThreadRefApi } from 'products/platform_features/fronte
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
-import type { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import type {
+    ExternalDataSourceTypeEnumApi,
+    IncrementalSyncBlockedReasonEnumApi,
+} from 'products/warehouse_sources/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
@@ -729,6 +732,7 @@ export interface CorrelationConfigType {
 export interface ProjectType extends ProjectBasicType {
     created_at: string
     is_pending_deletion: boolean
+    deletion_scheduled_at: string | null
     tags?: string[]
 }
 
@@ -845,6 +849,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_trigger_groups?: SessionRecordingTriggerGroupsConfig | null
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
+    heatmaps_screenshot_secret?: string | null
     conversations_enabled?: boolean
     conversations_settings?: ConversationsSettings | null
     web_analytics_pre_aggregated_tables_enabled?: boolean
@@ -6299,6 +6304,8 @@ export interface DataModelingNode {
     last_run_error?: string | null
     sync_interval?: DataModelingSyncInterval
     suspended?: NodeApiSuspended
+    /** Set on endpoint nodes stamped at materialization enable; older nodes carry only the name */
+    endpoint?: NodeEndpointApi | null
 }
 
 export interface DataModelingEdge {
@@ -6588,6 +6595,7 @@ export type SchemaIncrementalFieldsResponse = {
     supports_webhooks: boolean
     available_columns: AvailableColumn[]
     detected_primary_keys: string[] | null
+    primary_key_detection_supported?: boolean
     cdc_available?: boolean
     xmin_available?: boolean
 }
@@ -6631,6 +6639,7 @@ export interface ExternalDataSourceSyncSchema {
     primary_key_columns: string[] | null
     available_columns: AvailableColumn[]
     detected_primary_keys: string[] | null
+    primary_key_detection_supported?: boolean
     /**
      * For sources that gate read access by scope (e.g. Stripe restricted API keys), the
      * reason this endpoint is currently unreachable. `null`/undefined = endpoint is
@@ -6655,6 +6664,9 @@ export interface ExternalDataSourceSyncSchema {
     row_filters?: RowFilter[] | null
 }
 
+/** Why the last sync run could not merge rows on a table's primary key. */
+export type IncrementalSyncBlockedReason = IncrementalSyncBlockedReasonEnumApi
+
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
     incremental: boolean
@@ -6672,6 +6684,11 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     should_sync_default?: boolean
     primary_key_columns: string[] | null
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
+    /**
+     * Why the last sync run could not merge rows on this table's primary key, or `null` when no such
+     * failure is current. A later run that succeeds, or fails for another reason, clears it.
+     */
+    incremental_sync_blocked?: IncrementalSyncBlockedReason | null
     /**
      * User-selected source columns to sync. `null` means "sync all columns".
      * Primary-key + active incremental columns are always retained even if not listed.
