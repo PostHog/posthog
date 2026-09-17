@@ -2014,7 +2014,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             if not layouts_serializer.is_valid():
                 raise serializers.ValidationError({"layouts": layouts_serializer.errors})
             defaults["layouts"] = {**(existing_layouts or {}), **layouts_serializer.validated_data}
-            if "sm" not in defaults["layouts"]:
+            if layouts_serializer.validated_data and "sm" not in defaults["layouts"]:
                 raise serializers.ValidationError({"layouts": {"sm": ["This field is required."]}})
         # `filters_overrides` is opaque JSON with the same `properties` shape ambiguity as dashboard
         # `filters` — normalize a PropertyGroupFilter dict on `properties` to the flat-list contract so
