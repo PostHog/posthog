@@ -44,7 +44,7 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQueryTimeOut,
 )
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.activity_logging.utils import get_changed_fields_local
 from posthog.models.filters.filter import Filter
@@ -2389,6 +2389,14 @@ class ExperimentService:
                 # matches and no change request is raised. We therefore don't special-case ApprovalRequired
                 # here. If approvals ever grow to gate property/cohort changes, revisit this: the snapshot
                 # cohort would then need to outlive a pending change request rather than be cleaned up below.
+                # Mark the write as freeze-driven so the flag's log entry does not read as
+                # a manual targeting edit. job_type stays in sync with the describer in
+                # frontend/src/scenes/feature-flags/activityDescriptions.tsx.
+                locked_flag._activity_trigger = Trigger(
+                    job_type="experiment_exposure_frozen",
+                    job_id=str(experiment.pk),
+                    payload={"experiment_id": experiment.pk},
+                )
                 update_flag(
                     locked_flag,
                     {"filters": new_filters},
@@ -2667,6 +2675,11 @@ class ExperimentService:
         flag = experiment.feature_flag
         new_filters, cohort_ids = _strip_frozen_exposure(flag.filters or {})
 
+        flag._activity_trigger = Trigger(
+            job_type="experiment_exposure_unfrozen",
+            job_id=str(experiment.pk),
+            payload={"experiment_id": experiment.pk},
+        )
         update_flag(flag, {"filters": new_filters}, team=self.team, user=self.user, request=request)
 
         # Refresh so the experiment's nested flag reflects the restored filters when serialized.
@@ -3094,6 +3107,12 @@ class ExperimentService:
         if stripped_filters == (flag.filters or {}):
             return
 
+        # The reset strips the freeze narrowing, so tag the write like an unfreeze.
+        flag._activity_trigger = Trigger(
+            job_type="experiment_exposure_unfrozen",
+            job_id=str(experiment.pk),
+            payload={"experiment_id": experiment.pk},
+        )
         if request is not None:
             update_flag(flag, {"filters": stripped_filters}, team=self.team, user=self.user, request=request)
         else:

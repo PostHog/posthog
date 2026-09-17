@@ -24,8 +24,11 @@ def handle_feature_flag_change(
     scheduled_change_id = scheduled_change_context.get("scheduled_change_id")
     is_scheduled_change = scheduled_change_id is not None
 
-    # Create trigger info for scheduled changes
-    trigger = None
+    # A caller that rewrites the flag as a side effect of another action (for example the
+    # experiment exposure freeze) sets _activity_trigger on the instance before the gated
+    # write, so the log entry can say what drove the rewrite instead of reading as a
+    # manual edit.
+    trigger = getattr(after_update, "_activity_trigger", None)
     if is_scheduled_change:
         trigger = Trigger(
             job_type="scheduled_change",

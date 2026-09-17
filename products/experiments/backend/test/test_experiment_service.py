@@ -3811,6 +3811,14 @@ class TestExperimentService(APIBaseTest):
         assert log.detail is not None
         assert log.detail["name"] == "Freeze Exposure"
 
+        # The flag rewrite carries the freeze trigger, so it does not render as a manual edit.
+        flag_log = ActivityLog.objects.filter(
+            scope="FeatureFlag", item_id=str(experiment.feature_flag_id), activity="updated"
+        ).latest("created_at")
+        assert flag_log.detail is not None
+        assert flag_log.detail["trigger"]["job_type"] == "experiment_exposure_frozen"
+        assert flag_log.detail["trigger"]["payload"]["experiment_id"] == experiment.pk
+
     def test_freeze_exposure_multi_group_flag(self):
         experiment = self._create_running_experiment(name="Freeze Multi", feature_flag_key="freeze-multi-flag")
         flag = experiment.feature_flag
@@ -4334,6 +4342,13 @@ class TestExperimentService(APIBaseTest):
         assert log.user == self.user
         assert log.detail is not None
         assert log.detail["name"] == "Unfreeze Test"
+
+        # The flag rewrite carries the unfreeze trigger, so it does not render as a manual edit.
+        flag_log = ActivityLog.objects.filter(
+            scope="FeatureFlag", item_id=str(experiment.feature_flag_id), activity="updated"
+        ).latest("created_at")
+        assert flag_log.detail is not None
+        assert flag_log.detail["trigger"]["job_type"] == "experiment_exposure_unfrozen"
 
     def test_unfreeze_exposure_keeps_user_edits_made_while_frozen(self) -> None:
         experiment = self._create_running_experiment(name="Unfreeze Edits", feature_flag_key="unfreeze-edits-flag")
