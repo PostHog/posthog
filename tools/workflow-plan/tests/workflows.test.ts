@@ -23,6 +23,7 @@ import {
     pullRequest,
     push,
     schedule,
+    workflowDispatch,
 } from '../src/scenarios.ts'
 
 const WORKFLOWS_DIR = path.join(REPO_ROOT, '.github/workflows')
@@ -76,6 +77,11 @@ const suite = (file: string, selectors: Stubs): ExpectationBuilder => {
 }
 const backend = suite('ci-backend.yml', backendSelectors)
 const frontend = suite('ci-frontend.yml', frontendSelectors)
+// The release workflow builds wheels on a pull request as a check. Only a manual dispatch from
+// master reaches the job that uploads to PyPI.
+const deltalite = suite('build-deltalite.yml', {
+    'check-version': { version: { outputs: { 'deltalite-release-needed': 'true' } } },
+})
 const PINNED_WORKFLOWS = ['ci-backend.yml', 'ci-frontend.yml']
 
 const frontendOnlyFilters: Stubs = {
@@ -297,6 +303,15 @@ const EXPECTATIONS: Expectation[] = [
         {
             results: { frontend_tests: 'cancelled' },
         }
+    ),
+    deltalite({ name: 'ready PR' }, { runs: ['check-version', 'build-wheels'], skipped: ['publish'] }),
+    deltalite(
+        { name: 'fork PR', github: pullRequest({ fork: true }) },
+        { runs: ['check-version'], skipped: ['build-wheels', 'publish'] }
+    ),
+    deltalite(
+        { name: 'master dispatch', github: workflowDispatch() },
+        { runs: ['check-version', 'build-wheels', 'publish'] }
     ),
 ]
 
