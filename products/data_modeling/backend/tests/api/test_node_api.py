@@ -661,9 +661,9 @@ class TestNodeViewSet(APIBaseTest):
         original_saved_query_id = self.view_node.saved_query_id
         url = f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/"
         if method == "patch":
-            self.client.patch(url, data={"saved_query_id": str(foreign_sq.id)}, format="json")
+            response = self.client.patch(url, data={"saved_query_id": str(foreign_sq.id)}, format="json")
         else:
-            self.client.put(
+            response = self.client.put(
                 url,
                 data={
                     "name": "test_view",
@@ -674,6 +674,7 @@ class TestNodeViewSet(APIBaseTest):
                 format="json",
             )
 
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.view_node.refresh_from_db()
         self.assertEqual(self.view_node.saved_query_id, original_saved_query_id)
         self.assertNotEqual(self.view_node.name, foreign_sq.name)

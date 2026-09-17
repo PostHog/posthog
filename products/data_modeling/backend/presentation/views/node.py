@@ -214,8 +214,14 @@ class NodeSerializer(serializers.ModelSerializer):
         if target_dag is not None and target_dag.is_managed:
             raise serializers.ValidationError("Nodes cannot be created in or moved into a system-managed DAG.")
         node_type = attrs.get("type")
-        if node_type is not None and node_type != NodeType.TABLE:
-            raise serializers.ValidationError("Only table nodes can be created or retyped through the API.")
+        if node_type is not None:
+            # A full PUT round-trips the node's own type, so a type equal to the current one is
+            # not a retype and must not be rejected.
+            if self.instance is None:
+                if node_type != NodeType.TABLE:
+                    raise serializers.ValidationError("Only table nodes can be created through the API.")
+            elif node_type != self.instance.type:
+                raise serializers.ValidationError("A node's type cannot be changed through the API.")
         return attrs
 
 
