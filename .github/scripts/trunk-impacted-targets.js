@@ -608,6 +608,10 @@ const TRIPWIRE_RULES = [
     ['Dockerfile*', APP_IMAGE],
     ['.dockerignore', APP_IMAGE],
     ['proto/**', PROTO],
+    // The checked-in python stubs. They sit under packages/, which the
+    // directory rules read as frontend, but their only importer is
+    // posthog/personhog_client.
+    ['packages/personhog-proto/**', PYTHON],
     ['frontend/src/queries/schema.json', PRODUCT_SURFACE],
     ['posthog/schema.py', PRODUCT_SURFACE],
     // A manifest publishes its product's urls, routes, and tree items into
@@ -1748,8 +1752,8 @@ function addAppImageLanes(targets, context) {
 // The nodejs half takes the node domain rather than the javascript one because
 // the stubs land only in nodejs/src/common/generated; no frontend or services
 // package imports them. The python half cannot narrow below every python lane:
-// the stubs are checked into posthog/, which is py:core, and py:core covers
-// every product lane by construction.
+// posthog/personhog_client imports the stubs, that is py:core, and py:core
+// covers every product lane by construction.
 // stubDir names the checked-in stub directory when it differs from the tree
 // name; the consistency test reads it. ingestion's node stubs land in
 // nodejs/src/common/generated/ingestion-worker, not .../ingestion.
