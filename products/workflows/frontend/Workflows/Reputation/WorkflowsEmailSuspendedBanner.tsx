@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { RATE_THRESHOLDS, formatRate } from './emailReputation'
 import { workflowsReputationLogic } from './workflowsReputationLogic'
 
 export function WorkflowsEmailSuspendedBanner(): JSX.Element | null {
@@ -32,14 +31,11 @@ export function WorkflowsEmailSuspendedBanner(): JSX.Element | null {
                 Your workflows still run, but every email step is skipped.
                 {suspensionReason ? ` Reason: ${suspensionReason}.` : null}
             </p>
-            <p className="mb-1">Before sending can resume:</p>
+            <p className="mb-1">Before you request a review:</p>
             <ul className="list-disc pl-4 mb-2">
                 {hasFindings && <li>Fix the sending health findings listed below.</li>}
-                <li>
-                    Get the bounce rate under {formatRate(RATE_THRESHOLDS.bounce.elevated)} and the spam complaint rate
-                    under {formatRate(RATE_THRESHOLDS.complaint.elevated)}.
-                </li>
                 <li>Remove old or bought addresses from your audiences, and stop new ones getting in.</li>
+                <li>Stop sending to people who never open or click.</li>
             </ul>
             <p className="mb-0">
                 Then request a review.{' '}
