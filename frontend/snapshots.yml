@@ -6716,6 +6716,18 @@ snapshots:
         hash: v1.k794b7964.b8136fc7ff4b2794158921d793938bdd536bccbc0a66eeadf2d988386e27a2f0.5BXQa3xxRK-9zihaQbWZ4rHtM0lmb0uFKZaNcLbKiX8
     replay-vision-cited-markdown--structured--light:
         hash: v1.k794b7964.380bf20693c1029dce9ff64afc117eb5fd831449e81d541f4463ade2ec32b1e0.BBhrMSTk8RqH29BEuHYQeMRRlEos0ZQxgB1wPgvSMxQ
+    scenes-app-ai-observability-byok-model-picker-notice--models-failed-to-load--dark:
+        hash: v1.k794b7964.98bc8845e3e3f75e30cea176370096d4884ac4fd2d417624d7434f9ab9095d3d.COcAr1UABcQuIecfReyvt_gM2Wyc99yzD_Ixd6wkZUY
+    scenes-app-ai-observability-byok-model-picker-notice--models-failed-to-load--light:
+        hash: v1.k794b7964.76cfc4cc5e788cae6f7eab832fd2d85089afc7b2bdfcbba8813b33b1e212b90a.rqyS3wFRk8IcQnR9MkuOBrJviIiAqlOz342XtDrw1DI
+    scenes-app-ai-observability-byok-model-picker-notice--no-provider-keys--dark:
+        hash: v1.k794b7964.fd75ac130df7efede8c38a25a7d0c2c7675bca398496e38bd347dd8568f8522a.ppty7IQt0-lGuwpFlzBe_RHxc2pYgeRqIpcjSzwLGwA
+    scenes-app-ai-observability-byok-model-picker-notice--no-provider-keys--light:
+        hash: v1.k794b7964.00f1c6684767d0c95bf81ce8144f18acecf494b8590c2cd0efc6cc0e61c30afe.c7O5Tq5l2b_JFWj-fNfa7erXDEH7ZYORyDXCJHXz6AI
+    scenes-app-ai-observability-byok-model-picker-notice--no-usable-provider-keys--dark:
+        hash: v1.k794b7964.a260abcedfa1372c2c4caf36dbf8e51580ae6d6303b7d18617a6799fbdcb9841.pfjNZI_gu55WYAo4V3uxORMyk_GHRA7uQMkkBaMaYX8
+    scenes-app-ai-observability-byok-model-picker-notice--no-usable-provider-keys--light:
+        hash: v1.k794b7964.73105b9c91872982be5b2259a6c794520ac631d2e356babb1cdf235453a32475.L6eqzBeiEZSKXLMsMa3a2cfQvRDwxzia0bdVflixJQ0
     scenes-app-ai-observability-clustercard--default--dark:
         hash: v1.k794b7964.745c8ac41b251f329b890d56d7b07fb31b4939a440a40eea7932f1081d3de702.ESnQVAOfySBfRJWfJsURYu-prgU3EUvQZCD62MyLlX4
     scenes-app-ai-observability-clustercard--default--light:
