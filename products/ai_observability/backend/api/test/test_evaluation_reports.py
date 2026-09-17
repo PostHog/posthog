@@ -5,7 +5,9 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -298,6 +300,38 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(results_by_id[str(report_with_runs.id)]["last_generated_at"], "2026-08-11T12:00:00Z")
         self.assertEqual(results_by_id[str(report_without_runs.id)]["generated_report_count"], 0)
         self.assertIsNone(results_by_id[str(report_without_runs.id)]["last_generated_at"])
+
+    @parameterized.expand(
+        [
+            ("report_configs", EvaluationReport._meta.db_table, ""),
+            ("report_runs", EvaluationReportRun._meta.db_table, "{report_id}/runs/"),
+        ]
+    )
+    def test_paginated_list_orders_by_a_unique_tie_breaker(self, _name: str, table: str, path_suffix: str) -> None:
+        # created_at is not unique, so offset pagination skips or repeats tied rows unless the
+        # query also orders by id.
+        report = self._create_report()
+        EvaluationReportRun.objects.create(
+            report=report,
+            content={},
+            metadata={},
+            period_start=timezone.now() - dt.timedelta(hours=1),
+            period_end=timezone.now(),
+        )
+        url = self.base_url + path_suffix.format(report_id=report.id)
+
+        with CaptureQueriesContext(connection) as captured:
+            response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ordered_selects = [
+            query["sql"]
+            for query in captured.captured_queries
+            if f'FROM "{table}"' in query["sql"] and "ORDER BY" in query["sql"]
+        ]
+        self.assertTrue(ordered_selects, f"no ordered select on {table} was captured")
+        order_by = ordered_selects[-1].split("ORDER BY")[-1].split("LIMIT")[0]
+        self.assertRegex(order_by, rf'"{table}"\."created_at" DESC.*"{table}"\."id" ASC')
 
     def test_list_filters_by_evaluation(self) -> None:
         report = self._create_report()
