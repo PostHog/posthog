@@ -6,7 +6,6 @@ import { LemonBanner, LemonButton, LemonSkeleton, LemonTag, Link } from '@postho
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { dataColorVars } from 'lib/colors'
-import { FilterBar } from 'lib/components/FilterBar'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { urls } from 'scenes/urls'
 
@@ -39,15 +38,11 @@ export function MCPAnalyticsActivityDashboard(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4" data-attr="mcp-analytics-activity">
-            <FilterBar
-                left={
-                    <McpSharedFilters
-                        pageKey="mcp-activity"
-                        dataAttrPrefix="mcp-activity"
-                        onRefresh={refreshAll}
-                        refreshing={overviewLoading || intentDigestLoading}
-                    />
-                }
+            <McpSharedFilters
+                pageKey="mcp-activity"
+                dataAttrPrefix="mcp-activity"
+                onRefresh={refreshAll}
+                refreshing={overviewLoading || intentDigestLoading}
             />
             {overview ? (
                 <SummaryCard />

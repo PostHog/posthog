@@ -17,7 +17,6 @@ import {
     Spinner,
 } from '@posthog/quill-primitives'
 
-import { FilterBar } from 'lib/components/FilterBar'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -61,23 +60,19 @@ export function MCPSessionsPlaylist(): JSX.Element {
 
     return (
         <div className="flex w-full h-[calc(100vh-13rem)] min-h-[25rem] flex-col gap-2">
-            <FilterBar
-                left={
-                    <McpSharedFilters
-                        pageKey="mcp-sessions"
-                        dataAttrPrefix="mcp-sessions"
-                        onRefresh={() => loadSessions()}
-                        refreshing={sessionsLoading}
-                    >
-                        <McpDateFilter
-                            dateFrom={dateFilter.dateFrom}
-                            dateTo={dateFilter.dateTo}
-                            onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
-                            dataAttr="mcp-sessions-date-filter"
-                        />
-                    </McpSharedFilters>
-                }
-            />
+            <McpSharedFilters
+                pageKey="mcp-sessions"
+                dataAttrPrefix="mcp-sessions"
+                onRefresh={() => loadSessions()}
+                refreshing={sessionsLoading}
+            >
+                <McpDateFilter
+                    dateFrom={dateFilter.dateFrom}
+                    dateTo={dateFilter.dateTo}
+                    onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+                    dataAttr="mcp-sessions-date-filter"
+                />
+            </McpSharedFilters>
             <div className={cn('flex min-h-0 flex-1', isVerticalLayout ? 'flex-col' : 'flex-row gap-2')}>
                 {isVerticalLayout ? <VerticalLayout /> : <HorizontalLayout />}
             </div>
