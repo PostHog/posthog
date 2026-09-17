@@ -6,6 +6,7 @@ import {
   TAB_APP_VIEW_META,
 } from "@posthog/ui/features/browser-tabs/tabAppViews";
 import type { ReactNode } from "react";
+import { BackgroundTileProvider } from "./backgroundTile";
 import { TileDropZones } from "./TileDropZones";
 import { TileTabContent } from "./TileTabContent";
 
@@ -97,7 +98,9 @@ export function TabTile({
         {isActive ? (
           children
         ) : (
-          <TileTabContent tab={tab} onActivate={() => onActivate(tab)} />
+          <BackgroundTileProvider value={true}>
+            <TileTabContent tab={tab} onActivate={() => onActivate(tab)} />
+          </BackgroundTileProvider>
         )}
       </div>
       {isDragging && <TileDropZones tabId={tab.id} disabled={groupFull} />}

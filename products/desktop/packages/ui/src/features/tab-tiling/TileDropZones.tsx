@@ -66,7 +66,7 @@ function EdgeZone({
         <div
           aria-hidden
           className={cn(
-            "pointer-events-none absolute rounded-sm border-2 border-accent-8 bg-accent-3",
+            "pointer-events-none absolute rounded-sm border-2 border-accent-8 bg-(--accent-a4)",
             PREVIEWS[edge],
           )}
         />

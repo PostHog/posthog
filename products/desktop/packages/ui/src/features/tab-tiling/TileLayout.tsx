@@ -5,7 +5,13 @@ import { useTabReorderStore } from "@posthog/ui/features/browser-tabs/tabReorder
 import { useTabsSnapshot } from "@posthog/ui/features/browser-tabs/useBrowserTabs";
 import { track } from "@posthog/ui/shell/analytics";
 import { useRouter, useRouterState } from "@tanstack/react-router";
-import { Fragment, type ReactNode, useCallback, useEffect } from "react";
+import {
+  Fragment,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+} from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { TabTile } from "./TabTile";
 import { TileDropZones } from "./TileDropZones";
@@ -109,6 +115,18 @@ export function TileLayout({ children }: { children: ReactNode }) {
     prune(snapshot.tabs.map((t) => t.id));
   }, [snapshot, prune]);
 
+  // Same fallback as the strip: history names the active tab first because
+  // the server's activeTabId lags a navigation by a round trip.
+  const tabsById = useMemo(
+    () => new Map(snapshot.tabs.map((t) => [t.id, t])),
+    [snapshot.tabs],
+  );
+  const win = primaryWindow(snapshot);
+  const activeTabId =
+    (historyTabId && tabsById.has(historyTabId) ? historyTabId : null) ??
+    win?.activeTabId ??
+    null;
+
   const onActivate = useCallback(
     (tab: BrowserTab) => {
       if (tab.href) pushTabHistoryEntry(router.history, tab.href, tab.id);
@@ -118,22 +136,22 @@ export function TileLayout({ children }: { children: ReactNode }) {
   const onUntile = useCallback(
     (tab: BrowserTab) => {
       const group = groupForTab(useTileLayoutStore.getState().groups, tab.id);
+      const remaining = group
+        ? tabIdsIn(group.root).filter((id) => id !== tab.id)
+        : [];
       untile(tab.id);
+      // Removing the active tile keeps the user on the split that stays.
+      if (tab.id === activeTabId && remaining.length > 1) {
+        const next = tabsById.get(remaining[0]);
+        if (next?.href) pushTabHistoryEntry(router.history, next.href, next.id);
+      }
       track(ANALYTICS_EVENTS.BROWSER_TAB_UNTILED, {
-        tile_count: group ? tabIdsIn(group.root).length - 1 : 0,
+        tile_count: remaining.length,
       });
     },
-    [untile],
+    [untile, activeTabId, tabsById, router],
   );
 
-  // Same fallback as the strip: history names the active tab first because
-  // the server's activeTabId lags a navigation by a round trip.
-  const tabsById = new Map(snapshot.tabs.map((t) => [t.id, t]));
-  const win = primaryWindow(snapshot);
-  const activeTabId =
-    (historyTabId && tabsById.has(historyTabId) ? historyTabId : null) ??
-    win?.activeTabId ??
-    null;
   const group = activeTabId ? groupForTab(groups, activeTabId) : null;
 
   if (!group || !activeTabId) {
