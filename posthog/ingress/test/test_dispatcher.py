@@ -256,6 +256,33 @@ class TestDeliveryDedup(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("one_expiry_is_reclaimed", 1, DeliveryClaim.CLAIMED),
+            ("a_key_that_keeps_vanishing_is_left_in_flight", 2, DeliveryClaim.IN_PROGRESS),
+        ]
+    )
+    def test_a_lease_that_expires_between_the_add_and_the_read_is_never_read_as_done(
+        self, _name: str, refusals: int, expected: DeliveryClaim
+    ) -> None:
+        real_add = cache.add
+        refused = 0
+
+        def refuse_then_add(*args, **kwargs):
+            nonlocal refused
+            if refused < refusals:
+                refused += 1
+                return False
+            return real_add(*args, **kwargs)
+
+        with patch.object(cache, "add", refuse_then_add):
+            claim = DeliveryDedup().claim(**self.mark)
+
+        # A refused add whose follow-up read finds nothing is a lease that ran out under the claim,
+        # which is a run that never settled. Reading it as done would receipt work that never
+        # finished, and a provider with retry_status would stop redelivering it.
+        self.assertEqual(claim.state, expected)
+
+    @parameterized.expand(
+        [
             ("an_unsettled_claim_expires_with_its_lease", False, DeliveryClaim.CLAIMED),
             ("a_settled_mark_outlives_the_lease", True, DeliveryClaim.DONE),
         ]

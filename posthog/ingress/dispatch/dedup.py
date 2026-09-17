@@ -118,9 +118,18 @@ class DeliveryDedup:
         key = self.key(provider=provider, consumer=consumer, delivery_id=delivery_id)
         token = uuid4().hex
         try:
-            if cache.add(key, _lease_value(token), timeout=delivery_claim_lease_seconds()):
-                return DeliveryClaimResult(state=DeliveryClaim.CLAIMED, token=token)
-            held = cache.get(key)
+            for _ in range(2):
+                if cache.add(key, _lease_value(token), timeout=delivery_claim_lease_seconds()):
+                    return DeliveryClaimResult(state=DeliveryClaim.CLAIMED, token=token)
+                held = cache.get(key)
+                if held is None:
+                    # The lease ran out between the add and this read, so nobody holds the mark
+                    # now. Take it instead: a lease that ran out is a run that never settled, and
+                    # reading the gap as done would receipt work that did not finish.
+                    continue
+                # Anything that is not a lease counts as done. That covers a mark written before
+                # this state existed, which keeps the receipt those marks earned before.
+                return DeliveryClaimResult(state=DeliveryClaim.IN_PROGRESS if _is_lease(held) else DeliveryClaim.DONE)
         except Exception:
             logger.warning(
                 "ingress_dedup_cache_failed",
@@ -130,10 +139,10 @@ class DeliveryDedup:
                 exc_info=True,
             )
             return DeliveryClaimResult(state=DeliveryClaim.CLAIMED)
-        # Anything that is not a lease counts as done. That covers a mark written before this state
-        # existed, and a key that expired between the add and this read. Both mean the delivery
-        # keeps its receipt, which is what those marks did before.
-        return DeliveryClaimResult(state=DeliveryClaim.IN_PROGRESS if _is_lease(held) else DeliveryClaim.DONE)
+        # Two leases ran out under this claim, so runs keep starting and never settling. Answer
+        # in progress, which costs the delivery its receipt and has the provider send it again,
+        # rather than claiming a mark this run cannot keep.
+        return DeliveryClaimResult(state=DeliveryClaim.IN_PROGRESS)
 
     def complete(self, *, provider: str, consumer: str, delivery_id: str) -> None:
         """Settle the mark once the consumer returned, so a redelivery reads it as done.
