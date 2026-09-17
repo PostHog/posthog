@@ -90,6 +90,7 @@ export interface TaskListViewProperties {
 }
 
 export interface TaskCreateProperties {
+  task_id: string;
   auto_run: boolean;
   created_from: TaskCreatedFrom;
   repository_provider?: RepositoryProvider;
