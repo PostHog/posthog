@@ -557,7 +557,11 @@ def clear_replay_gates(*, flag_id: int, key: str, team_id: int) -> None:
         dropped = {
             ref.group_index
             for ref in trigger_group_flag_refs(team.session_recording_trigger_groups)
-            if ref.flag_id == flag_id or ref.key == key
+            # A reference carrying an id is judged on that id alone, the way `_ProjectFlags.resolves`
+            # and `rewritten_linked_flag` judge one, and the way the linked flag column is judged
+            # just above. A group holding a live flag's id beside the deleted flag's key names the
+            # live flag, and dropping it would take a working recording rule with it.
+            if (ref.flag_id == flag_id if ref.flag_id is not None else ref.key == key)
         }
         if not dropped:
             return ReplayGateRewrite(clear_linked_flag=clear_linked_flag)

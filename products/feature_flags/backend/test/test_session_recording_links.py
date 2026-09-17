@@ -210,6 +210,22 @@ class TestAHardDeleteTakesTheReferenceWithIt(BaseTest):
         self.team.refresh_from_db()
         assert self.team.session_recording_trigger_groups is None
 
+    def test_a_group_naming_a_live_flag_by_id_keeps_the_key_the_deleted_flag_held(self) -> None:
+        # The group's key went stale when its flag was renamed, and a new flag then claimed the
+        # freed key. The id still names the live flag, so deleting the new flag must leave the
+        # group alone rather than take a working recording rule with it.
+        live = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="renamed-gate")
+        set_trigger_groups(self.team, {"flag": {"id": live.id, "key": "replay-gate"}})
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+
+        self._delete(flag)
+
+        self.team.refresh_from_db()
+        assert self.team.session_recording_trigger_groups["groups"][0]["conditions"]["flag"] == {
+            "id": live.id,
+            "key": "replay-gate",
+        }
+
     def test_another_projects_team_keeps_its_own_flag(self) -> None:
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
         other_team = Team.objects.create(organization=self.organization)
