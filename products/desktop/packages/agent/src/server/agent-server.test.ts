@@ -445,6 +445,8 @@ describe("AgentServer HTTP Mode", () => {
     port = getNextTestPort();
   }, 30_000);
 
+  // stop() gives each of its two cleanup phases 5s, so the default 10s hook
+  // timeout is tighter than the teardown it waits for.
   afterEach(async () => {
     const runningServer = server;
     server = undefined;
@@ -454,7 +456,7 @@ describe("AgentServer HTTP Mode", () => {
       mswServer.resetHandlers();
       await repo?.cleanup();
     }
-  });
+  }, 30_000);
 
   const createServer = (
     overrides: Partial<ConstructorParameters<typeof AgentServer>[0]> = {},
