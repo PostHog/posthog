@@ -17,6 +17,9 @@ import { isTransientError } from './transient'
 const SESSION_ROW_MAX_LIFETIME_MS = 300_000
 // A team image key is one row per team per month, so it survives eviction and a short lifetime only costs re-reads.
 const IMAGE_ROW_MAX_LIFETIME_MS = 172_800_000
+// A tombstone is terminal: shred only ever sets it, and putIfAbsent cannot overwrite a row whose pk exists, so holding
+// one cannot serve a key that came back. It also spares a deleted session a read and a doomed write on every batch.
+const TOMBSTONE_ROW_LIFETIME_MS = 172_800_000
 // Neither caller passes a deadline, and max.poll.interval.ms is 300s, so the retry loop needs a bound of its own.
 const READ_BUDGET_MS = 30_000
 
@@ -133,7 +136,7 @@ export class MlKeyDynamoDB {
                             MlMirrorMetrics.incrementMlKeyReadRetry('transient_error')
                             await this.backoff(attempt, deadline)
                             if (deadline.aborted) {
-                                throw error
+                                throw new DOMException('ML key manager bulk read deadline expired', 'AbortError')
                             }
                             continue
                         }
@@ -144,13 +147,16 @@ export class MlKeyDynamoDB {
                             if (!this.cacheable(key)) {
                                 continue
                             }
-                            if (item.wrapped_key?.B && item.deleted?.BOOL !== true) {
+                            if (item.deleted?.BOOL === true) {
+                                this.rows.set(id, detachedRow(item), { ttl: TOMBSTONE_ROW_LIFETIME_MS })
+                            } else if (item.wrapped_key?.B) {
                                 this.rows.set(id, detachedRow(item), {
                                     ttl: storedSessionId(key.sk)
                                         ? this.sessionRowLifetimeMs
                                         : IMAGE_ROW_MAX_LIFETIME_MS,
                                 })
                             } else {
+                                // No wrapped key and no tombstone is a row that repair can still fill in.
                                 this.rows.delete(id)
                             }
                         }

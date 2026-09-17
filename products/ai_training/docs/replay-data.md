@@ -61,7 +61,8 @@ Reads use strongly consistent `BatchGetItem` requests with bounded retries for u
 A retry stops when the caller's deadline expires.
 
 Ingestion holds a usable session key row and image key row in the process, and a KMS plaintext cache reduces repeated decrypt calls.
-A team block row, a tombstone, and a row with no wrapped key are never held, so every read refuses a blocked team.
+A team block row and a row with no wrapped key are never held, so every read refuses a blocked team and sees a repaired row.
+A tombstone is held, because a shred only ever sets one and a conditional put cannot overwrite a row that exists, so a deleted session stops costing a read and a refused write on every batch.
 A session key deleted out of band stays usable in a process that already read it, until that entry expires.
 `ROW_CACHE_LIFETIME_MS` therefore sets how soon ingestion observes a session deletion.
 A team image key is one row per team per month, so it is held far longer than a session key: it survives eviction, and a short lifetime only buys re-reads.

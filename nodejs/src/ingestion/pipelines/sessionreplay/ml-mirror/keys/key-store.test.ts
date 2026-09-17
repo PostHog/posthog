@@ -520,6 +520,26 @@ describe('ML session key batches', () => {
         }
     })
 
+    it('holds a session tombstone so a deleted session stops costing a read and a doomed write', async () => {
+        const db = new MlKeyDynamoDB(boundary as unknown as DynamoDBClient, table)
+        const store = new MlSessionKeyStore(db, encryption)
+        const location = sessionKeyId(session.teamId, session.sessionId)
+        await (await store.prepare([session])).commit()
+        boundary.items.set(tableKeyString(location), { ...encodeKey(location), deleted: { BOOL: true } })
+        const cold = new MlSessionKeyStore(new MlKeyDynamoDB(boundary as unknown as DynamoDBClient, table), encryption)
+        const first = await cold.prepare([session])
+        expect(first.get(session.teamId, session.sessionId)).toBeUndefined()
+        const readsBefore = boundary.readSizes.length
+        const writesBefore = boundary.writes
+        const next = await cold.prepare([session])
+        await next.commit()
+        expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
+        // Only the team block row, twice: prepare reads it and the commit re-read reads it again. The tombstone spares
+        // the session key row and the image key row behind it.
+        expect(boundary.readSizes.slice(readsBefore).reduce((total, size) => total + size, 0)).toBe(2)
+        expect(boundary.writes).toBe(writesBefore)
+    })
+
     it('serves a deleted session key until its cached row reaches the lease, then stops', async () => {
         const lifetimeMs = 60_000
         let fakeNow = 1_000
