@@ -1,7 +1,10 @@
+import json
 import time
 import uuid
+import asyncio
 import datetime as dt
 import threading
+import contextlib
 from typing import Any
 
 import pytest
@@ -10,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 from django.db import IntegrityError, OperationalError, connections, transaction
+from django.test import override_settings
 from django.utils import timezone
 
 import httpx
@@ -35,6 +39,7 @@ from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.session_recordings.queries.session_replay_events import SessionEventsPage, SessionReplayEvents
+from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
@@ -77,6 +82,7 @@ from products.replay_vision.backend.temporal.activities.emit_observation_signal 
 )
 from products.replay_vision.backend.temporal.activities.ensure_session_asset import ensure_session_asset_activity
 from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_events_activity
+from products.replay_vision.backend.temporal.activities.fetch_session_network import fetch_session_network_activity
 from products.replay_vision.backend.temporal.activities.observation_state import (
     mark_observation_failed_activity,
     mark_observation_ineligible_activity,
@@ -102,6 +108,7 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants impo
     REDIS_INDEX_KEY as _GEMINI_REDIS_INDEX_KEY,
     REDIS_KEY_PREFIX as _GEMINI_REDIS_KEY_PREFIX,
 )
+from products.replay_vision.backend.temporal.network_capture import SessionNetworkPayload
 from products.replay_vision.backend.temporal.scanners.base import ChipSegment, Segment, SignalFinding, TextSegment
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput, ClassifierScanner
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput, MonitorScanner
@@ -128,6 +135,7 @@ from products.replay_vision.backend.temporal.types import (
     EnsureSessionAssetOutput,
     EventTable,
     FetchSessionEventsInputs,
+    FetchSessionNetworkInputs,
     MarkObservationFailedInputs,
     MarkObservationIneligibleInputs,
     MarkObservationRunningInputs,
@@ -2313,6 +2321,157 @@ class TestFetchSessionEventsActivity:
             assert "3" in str(exc_info.value)
 
 
+class TestFetchSessionNetworkActivity:
+    @pytest.mark.asyncio
+    async def test_unconfigured_recording_api_fails_without_retry(self) -> None:
+        with override_settings(RECORDING_API_URL=""):
+            with pytest.raises(ApplicationError) as exc_info:
+                await fetch_session_network_activity(
+                    FetchSessionNetworkInputs(observation_id=uuid.uuid4(), team_id=1, session_id="sess-1")
+                )
+
+        assert exc_info.value.non_retryable is True
+        assert "RECORDING_API_URL" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_a_long_block_listing_is_read_not_refused(self) -> None:
+        # A block count gate refused the median recording: real sessions run to hundreds of blocks. Only
+        # the compressed size refuses a session now, and the read itself is bounded by its own deadline.
+        from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
+
+        blocks = [
+            RecordingBlock(key=f"k{i}", start_byte=0, end_byte=1024, start_timestamp="", end_timestamp="")
+            for i in range(700)
+        ]
+        with (
+            patch.object(mod, "list_blocks_async", AsyncMock(return_value=blocks)),
+            patch.object(mod, "_collect", AsyncMock(return_value=SessionNetworkPayload(captured=True))) as collect,
+        ):
+            payload = await mod._load_payload(team_id=1, session_id="sess-1")
+
+        assert collect.await_count == 1, "a 700-block listing must still be read"
+        assert payload.captured is True
+
+    @pytest.mark.asyncio
+    async def test_a_stalled_block_cannot_outlive_the_read_budget(self) -> None:
+        # A request carries its own 30s timeout, so a deadline checked only between batches lets the read
+        # run far past its budget and can spend the activity's whole timeout before anything is stored.
+        from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
+
+        blocks = [
+            RecordingBlock(key=f"k{i}", start_byte=0, end_byte=16, start_timestamp="", end_timestamp="")
+            for i in range(8)
+        ]
+
+        class _StalledClient:
+            async def fetch_block(self, *args: Any, **kwargs: Any) -> bytes:
+                await asyncio.sleep(30)
+                return b""
+
+        @contextlib.asynccontextmanager
+        async def _client(*args: Any, **kwargs: Any) -> Any:
+            yield _StalledClient()
+
+        started = time.monotonic()
+        with (
+            patch.object(mod, "recording_api_client", _client),
+            patch.object(mod, "_READ_BUDGET_SECONDS", 0.2),
+        ):
+            payload = await mod._collect(blocks, session_id="sess-1", team_id=1)
+        elapsed = time.monotonic() - started
+
+        assert elapsed < 5, f"the read ran {elapsed:.1f}s past a 0.2s budget"
+        assert payload.partial is True
+        assert payload.captured is False
+
+    @pytest.mark.asyncio
+    async def test_a_stalled_block_does_not_discard_its_finished_siblings(self) -> None:
+        # Cancelling the batch on timeout must not throw away the blocks that already came back: those
+        # requests are the partial result the scan is promised.
+        from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
+
+        fast = json.dumps(
+            {
+                "window_id": "w1",
+                "data": [
+                    {
+                        "type": 6,
+                        "timestamp": 1000,
+                        "data": {
+                            "plugin": "rrweb/network@1",
+                            "payload": {"requests": [{"name": "https://app.test/boom", "status": 500}]},
+                        },
+                    }
+                ],
+            }
+        ).encode()
+
+        class _OneFastOneStalled:
+            def __init__(self) -> None:
+                self.served = 0
+
+            async def fetch_block(self, key: str, *args: Any, **kwargs: Any) -> bytes:
+                if key == "fast":
+                    self.served += 1
+                    return fast
+                await asyncio.sleep(30)
+                return b""
+
+        @contextlib.asynccontextmanager
+        async def _client(*args: Any, **kwargs: Any) -> Any:
+            yield _OneFastOneStalled()
+
+        blocks = [
+            RecordingBlock(key="fast", start_byte=0, end_byte=16, start_timestamp="", end_timestamp=""),
+            RecordingBlock(key="stalled", start_byte=0, end_byte=16, start_timestamp="", end_timestamp=""),
+        ]
+        with (
+            patch.object(mod, "recording_api_client", _client),
+            patch.object(mod, "_READ_BUDGET_SECONDS", 0.3),
+        ):
+            payload = await mod._collect(blocks, session_id="sess-1", team_id=1)
+
+        assert payload.partial is True
+        assert [r.url for r in payload.requests] == ["https://app.test/boom"], "the finished block was lost"
+
+    def test_a_batch_is_bounded_by_bytes_not_only_by_count(self) -> None:
+        # Concurrency alone does not bound memory: blocks reach tens of MiB, and four decompressed at
+        # once would threaten the worker's limit.
+        from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
+
+        def block(size: int) -> RecordingBlock:
+            return RecordingBlock(key="k", start_byte=0, end_byte=size, start_timestamp="", end_timestamp="")
+
+        small = [block(1024) for _ in range(8)]
+        assert len(mod._next_batch(small, 0)) == mod._BLOCK_CONCURRENCY
+
+        large = [block(mod._MAX_BATCH_COMPRESSED_BYTES) for _ in range(4)]
+        assert len(mod._next_batch(large, 0)) == 1, "one oversized block must not ride with three others"
+
+        # A block bigger than the whole budget still gets read, on its own.
+        assert len(mod._next_batch([block(mod._MAX_BATCH_COMPRESSED_BYTES * 4)], 0)) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_listing_over_the_size_ceiling_is_refused(self) -> None:
+        from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
+
+        huge = [
+            RecordingBlock(
+                key="k", start_byte=0, end_byte=mod._MAX_COMPRESSED_BYTES + 1, start_timestamp="", end_timestamp=""
+            )
+        ]
+        with (
+            patch.object(mod, "list_blocks_async", AsyncMock(return_value=huge)),
+            patch.object(mod, "_collect", AsyncMock()) as collect,
+        ):
+            payload = await mod._load_payload(team_id=1, session_id="sess-1")
+
+        assert collect.await_count == 0
+        # Not "clean": a session never read cannot show that nothing failed.
+        assert payload.partial is True
+        assert payload.captured is False
+
+
 @pytest.mark.django_db(transaction=True)
 class TestEnsureSessionAssetActivity:
     @pytest.mark.asyncio
@@ -2512,10 +2671,14 @@ async def test_apply_scanner_workflow_drives_full_success_pipeline() -> None:
 
     activity_order = [fn for fn, _ in mocks.activity_calls]
     assert activity_order[:2] == [create_observation_activity, mark_observation_running_activity]
-    # fetch + ensure_asset run in parallel — order between them is non-deterministic.
-    assert set(activity_order[2:4]) == {fetch_session_events_activity, ensure_session_asset_activity}
+    # fetch + network + ensure_asset run in parallel — order between them is non-deterministic.
+    assert set(activity_order[2:5]) == {
+        fetch_session_events_activity,
+        fetch_session_network_activity,
+        ensure_session_asset_activity,
+    }
     # Success is persisted before any downstream emission so a late transient failure can't discard the result.
-    assert activity_order[4:] == [
+    assert activity_order[5:] == [
         upload_video_to_gemini_activity,
         call_scanner_provider_activity,
         mark_observation_succeeded_activity,

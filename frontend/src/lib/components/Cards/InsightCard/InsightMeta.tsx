@@ -45,7 +45,6 @@ import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { isSurveyableFunnelInsight, SurveyableFunnelInsight } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { queryScanHasActionableFinding } from '~/queries/nodes/DataNode/queryScan'
 import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTooltip'
@@ -96,6 +95,7 @@ interface InsightMetaProps extends Pick<
     | 'setOverride'
     | 'duplicate'
     | 'dashboardId'
+    | 'canEditDashboard'
     | 'moveToDashboard'
     | 'copyToDashboard'
     | 'showEditingControls'
@@ -124,6 +124,7 @@ export function InsightMeta({
     insight,
     ribbonColor,
     dashboardId,
+    canEditDashboard,
     updateColor,
     toggleShowDescription,
     filtersOverride,
@@ -180,15 +181,13 @@ export function InsightMeta({
     )
     const { samplingFactor, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightLogicProps))
     const { retentionApplies, retentionMonths, retentionPeriodLabel } = useValues(dataRetentionBannerLogic)
-    const { nameSortedDashboards } = useValues(dashboardsModel)
-    const { copyToDestinations } = useValues(
-        dashboardWidgetMenusLogic({
-            instanceKey: insight.short_id,
-            dashboardId,
-            dashboards: insight.dashboards,
-            dashboard_tiles: insight.dashboard_tiles,
-        })
-    )
+    const dashboardWidgetMenusLogicProps = {
+        instanceKey: insight.short_id,
+        dashboardId,
+        dashboards: insight.dashboards,
+        dashboard_tiles: insight.dashboard_tiles,
+    }
+    const { copyToDestinations } = useValues(dashboardWidgetMenusLogic(dashboardWidgetMenusLogicProps))
     const { copyImage } = useActions(captureImageLogic)
     const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
     const { updateInsightDirect } = useActions(insightsModel)
@@ -287,15 +286,7 @@ export function InsightMeta({
     const canShowCopyToDashboardTile = showCompactTile && !!copyToDashboard && canViewInsight
     const hasDashboardPlacementActions = canShowCopyToDashboardTile || !!moveToDashboard || !!removeFromDashboard
 
-    // For dashboard-specific actions (remove from dashboard, change tile color), check dashboard permissions
-    const currentDashboard = dashboardId ? nameSortedDashboards.find((d) => d.id === dashboardId) : null
-    const canEditDashboard = currentDashboard?.user_access_level
-        ? accessLevelSatisfied(
-              AccessControlResourceType.Dashboard,
-              currentDashboard.user_access_level,
-              AccessControlLevel.Editor
-          )
-        : true
+    const canEditCurrentDashboard = canEditDashboard ?? !dashboardId
 
     // Feedback buttons for Customer Analytics
     const feedbackButtons =
@@ -569,7 +560,7 @@ export function InsightMeta({
                             />
                         )}
 
-                        {canShowCopyToDashboardTile && !canEditDashboard && (
+                        {canShowCopyToDashboardTile && !canEditCurrentDashboard && (
                             <>
                                 <LemonDivider />
                                 <h5 className="mx-2 my-1">Dashboard</h5>
@@ -581,7 +572,7 @@ export function InsightMeta({
                         )}
 
                         {/* Dashboard related */}
-                        {canEditDashboard && (
+                        {canEditCurrentDashboard && (
                             <>
                                 <LemonDivider />
                                 {showCompactTile && toggleShowDescription && !!insight.description && (
