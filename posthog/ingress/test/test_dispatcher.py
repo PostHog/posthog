@@ -199,6 +199,15 @@ class TestDeliveryDedup(SimpleTestCase):
         cache.clear()
         self.mark = {"provider": "github", "consumer": "alpha", "delivery_id": "delivery-1"}
 
+    def test_a_claim_reads_as_in_flight_to_the_version_that_knows_no_holder_token(self) -> None:
+        claim = DeliveryDedup().claim(**self.mark)
+
+        # The deployed version reads every value but this one as done. On a rolling deploy a token
+        # in the mark would have an old worker receipt a delivery the new worker can still fail.
+        key = DeliveryDedup.key(**self.mark)
+        self.assertEqual(cache.get(key), "in_progress")
+        self.assertEqual(cache.get(f"{key}:holder"), claim.token)
+
     def test_the_mark_reports_the_state_its_holder_left_it_in(self) -> None:
         dedup = DeliveryDedup()
 
@@ -217,18 +226,18 @@ class TestDeliveryDedup(SimpleTestCase):
     @parameterized.expand(
         [
             ("a_flag_from_before_the_state_existed", True, DeliveryClaim.DONE),
-            ("a_lease_from_before_the_holder_token_existed", "in_progress", DeliveryClaim.IN_PROGRESS),
+            ("a_lease_with_no_holder_key", "in_progress", DeliveryClaim.IN_PROGRESS),
             ("a_settled_mark", "done", DeliveryClaim.DONE),
         ]
     )
-    def test_a_mark_written_before_the_state_existed_still_dedupes(
+    def test_a_mark_this_run_did_not_write_still_dedupes(
         self, _name: str, held: object, expected: DeliveryClaim
     ) -> None:
         cache.set(DeliveryDedup.key(**self.mark), held)
 
         # Marks live for 24 hours, so a rollout meets the ones the previous version wrote. Reading
         # a flag as in flight would cost a receipt for every delivery still holding it, and reading
-        # a lease that names no holder as done would receipt a run that never settled.
+        # a lease as done would receipt a run that never settled.
         self.assertEqual(DeliveryDedup().claim(**self.mark).state, expected)
 
     @parameterized.expand(
@@ -253,6 +262,19 @@ class TestDeliveryDedup(SimpleTestCase):
         # Dropping the newer claim would let a third run start beside the two already going, and
         # dropping the done mark would hand finished work back to the provider to redeliver.
         self.assertEqual(dedup.claim(**self.mark).state, expected)
+
+    def test_the_run_the_holder_key_names_cannot_drop_a_settled_mark(self) -> None:
+        dedup = DeliveryDedup()
+        dedup.claim(**self.mark)
+        cache.delete(DeliveryDedup.key(**self.mark))
+        newer = dedup.claim(**self.mark)
+        dedup.complete(**self.mark)
+
+        dedup.release(**self.mark, token=newer.token)
+
+        # Settling does not clear the holder key, so the token still names this run. Releasing on
+        # that alone would drop the done mark and hand finished work back to the provider.
+        self.assertEqual(dedup.claim(**self.mark).state, DeliveryClaim.DONE)
 
     @parameterized.expand(
         [

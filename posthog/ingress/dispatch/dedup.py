@@ -22,32 +22,18 @@ DELIVERY_DEDUP_TTL_SECONDS = 24 * 60 * 60
 DELIVERY_CLAIM_LEASE_MARGIN_SECONDS = 60
 
 _IN_PROGRESS = "in_progress"
-_IN_PROGRESS_PREFIX = f"{_IN_PROGRESS}:"
 _DONE = "done"
 
 
-def _lease_value(token: str) -> str:
-    return f"{_IN_PROGRESS_PREFIX}{token}"
+def _holder_key(key: str) -> str:
+    """The key that names the run holding the lease.
 
-
-def _is_lease(value: object) -> bool:
-    """Whether the mark says a run is still working on the delivery.
-
-    A mark written before the lease carried a token says so too, so a rollout does not read one
-    as done.
+    The token sits beside the mark instead of inside it so that the mark keeps the exact value
+    the previous version wrote. During a rolling deploy, a worker on that version reads any other
+    value as done and receipts the delivery, which stops the provider retrying a delivery the new
+    worker can still fail.
     """
-    return isinstance(value, str) and (value == _IN_PROGRESS or value.startswith(_IN_PROGRESS_PREFIX))
-
-
-def _lease_holder(value: object) -> str | None:
-    """The token of the run that holds the mark, or None when no run can claim it.
-
-    A done mark and a lease written before the token existed both answer None: neither belongs
-    to a run that can settle it now, and the old lease runs out on its own TTL.
-    """
-    if isinstance(value, str) and value.startswith(_IN_PROGRESS_PREFIX):
-        return value[len(_IN_PROGRESS_PREFIX) :]
-    return None
+    return f"{key}:holder"
 
 
 def delivery_claim_lease_seconds() -> float:
@@ -100,9 +86,9 @@ class DeliveryDedup:
     can run beside a first attempt that overran the budget. That is the exposure a provider without
     dedup has on every retry, and consumers are required to be idempotent underneath this.
 
-    Because two runs can overlap, the mark names the run that holds it. A run that lost its lease
-    settles the mark to done, which stays true, but it cannot delete the claim or the done mark
-    another run wrote in the meantime.
+    Because two runs can overlap, a second key names the run that holds the mark. A run that lost
+    its lease settles the mark to done, which stays true, but it cannot delete the claim or the
+    done mark another run wrote in the meantime.
     """
 
     @staticmethod
@@ -117,9 +103,14 @@ class DeliveryDedup:
         """
         key = self.key(provider=provider, consumer=consumer, delivery_id=delivery_id)
         token = uuid4().hex
+        lease_seconds = delivery_claim_lease_seconds()
         try:
             for _ in range(2):
-                if cache.add(key, _lease_value(token), timeout=delivery_claim_lease_seconds()):
+                if cache.add(key, _IN_PROGRESS, timeout=lease_seconds):
+                    # The mark's add picks the winner on its own; the holder key only names it. A
+                    # process that dies between the two writes leaves a lease that nobody can
+                    # release and that runs out on the lease timeout.
+                    cache.set(_holder_key(key), token, timeout=lease_seconds)
                     return DeliveryClaimResult(state=DeliveryClaim.CLAIMED, token=token)
                 held = cache.get(key)
                 if held is None:
@@ -127,9 +118,12 @@ class DeliveryDedup:
                     # now. Take it instead: a lease that ran out is a run that never settled, and
                     # reading the gap as done would receipt work that did not finish.
                     continue
-                # Anything that is not a lease counts as done. That covers a mark written before
-                # this state existed, which keeps the receipt those marks earned before.
-                return DeliveryClaimResult(state=DeliveryClaim.IN_PROGRESS if _is_lease(held) else DeliveryClaim.DONE)
+                # Anything that is not the in-progress value counts as done. That covers a mark
+                # written before this state existed, which keeps the receipt those marks earned
+                # before.
+                return DeliveryClaimResult(
+                    state=DeliveryClaim.IN_PROGRESS if held == _IN_PROGRESS else DeliveryClaim.DONE
+                )
         except Exception:
             logger.warning(
                 "ingress_dedup_cache_failed",
@@ -179,7 +173,9 @@ class DeliveryDedup:
         Only this run's own mark, because the lease can run out while the consumer still runs. By
         then the key can carry a newer run's claim, which a delete would turn into a third run, or
         the done mark of a run that finished, which a delete would hand back to the provider as
-        work to redeliver.
+        work to redeliver. So a delete needs the holder key to name this run and the mark to still
+        be a lease. The holder key alone is not enough, because settling does not clear it, and
+        this run would drop the done mark another run wrote while this one held the lease.
 
         The cache API has no compare-and-delete, so the read and the delete are two calls and a
         newer claim written between them is still deleted. That window is microseconds wide, and
@@ -189,10 +185,12 @@ class DeliveryDedup:
         if token is None:
             return
         key = self.key(provider=provider, consumer=consumer, delivery_id=delivery_id)
+        holder_key = _holder_key(key)
         try:
-            if _lease_holder(cache.get(key)) != token:
+            held = cache.get_many([key, holder_key])
+            if held.get(holder_key) != token or held.get(key) != _IN_PROGRESS:
                 return
-            cache.delete(key)
+            cache.delete_many([key, holder_key])
         except Exception:
             logger.warning(
                 "ingress_dedup_release_failed",
