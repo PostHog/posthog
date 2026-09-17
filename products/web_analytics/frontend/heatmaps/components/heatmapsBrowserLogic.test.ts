@@ -67,6 +67,17 @@ describe('heatmapsBrowserLogic', () => {
             expect(heatmapUrlRedirect(preflight('https://example.com/app/home'), 'https://example.com/*')).toBeNull()
         })
 
+        // Pointing the data URL at a destination the host says is gone would only produce another
+        // empty heatmap, so the notice has nothing useful to offer there.
+        it.each([404, 410])('stays silent when the destination is gone (%s)', (httpStatus) => {
+            expect(
+                heatmapUrlRedirect(
+                    { ...preflight('https://example.com/app/home'), http_status: httpStatus },
+                    'https://example.com/'
+                )
+            ).toBeNull()
+        })
+
         // The probe follows the page URL, which the user can point away from the data URL. Reading that
         // verdict against the data URL would announce a redirect the data URL does not have.
         it('stays silent when the probed page is not the data URL', () => {
