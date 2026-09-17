@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
             index=models.Index(
                 fields=["scheduled_at", "id"],
                 name="task_run_scheduled_due_idx",
-                condition=models.Q(status="not_started", scheduled_at__isnull=False),
+                condition=models.Q(status="not_started", environment="cloud", scheduled_at__isnull=False),
             ),
         ),
     ]

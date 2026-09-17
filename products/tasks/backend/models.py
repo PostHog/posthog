@@ -911,12 +911,40 @@ class Task(DeletedMetaFields, models.Model):
         self.state = state
 
     def soft_delete(self, capture_fn: Callable[..., None] | None = None):
-        self.deleted = True
-        self.deleted_at = django_timezone.now()
-        self.save()
+        deleted_at = django_timezone.now()
+        with transaction.atomic():
+            scheduled_run_ids = list(
+                TaskRun.objects.select_for_update()
+                .filter(
+                    task_id=self.id,
+                    scheduled_at__isnull=False,
+                    status__in=[TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED],
+                )
+                .values_list("id", flat=True)
+            )
+            if scheduled_run_ids:
+                TaskWorkflowDispatch.objects.unscoped().filter(
+                    task_run_id__in=scheduled_run_ids,
+                    status__in=[TaskWorkflowDispatch.Status.PENDING, TaskWorkflowDispatch.Status.CLAIMED],
+                ).update(
+                    status=TaskWorkflowDispatch.Status.DEAD,
+                    last_error="Task deleted before the scheduled run started",
+                    claimed_by="",
+                    lease_expires_at=None,
+                    updated_at=deleted_at,
+                )
+                TaskRun.objects.filter(id__in=scheduled_run_ids).update(
+                    status=TaskRun.Status.CANCELLED,
+                    completed_at=deleted_at,
+                    error_message="This scheduled run was canceled because the task was deleted.",
+                    updated_at=deleted_at,
+                )
+            self.deleted = True
+            self.deleted_at = deleted_at
+            self.save(update_fields=["deleted", "deleted_at", "updated_at"])
         self.capture_event(
             "task_deleted",
-            {"duration_seconds": round((django_timezone.now() - self.created_at).total_seconds(), 1)},
+            {"duration_seconds": round((deleted_at - self.created_at).total_seconds(), 1)},
             capture_fn=capture_fn,
         )
 
@@ -2341,7 +2369,7 @@ class TaskRun(models.Model):
             models.Index(
                 fields=["scheduled_at", "id"],
                 name="task_run_scheduled_due_idx",
-                condition=models.Q(status="not_started", scheduled_at__isnull=False),
+                condition=models.Q(status="not_started", environment="cloud", scheduled_at__isnull=False),
             ),
             # Terminal rows dominate over time, so the recency range must lead this partial index.
             models.Index(

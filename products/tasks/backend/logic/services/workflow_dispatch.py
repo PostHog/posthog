@@ -2,7 +2,7 @@ import random
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime, timedelta
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from uuid import UUID
 
 from django.db import close_old_connections, transaction
@@ -10,7 +10,8 @@ from django.db.models import Count, F, Min, Q
 from django.utils import timezone as django_timezone
 
 from posthog.dataclasses import frozen
-from posthog.temporal.oauth import PosthogMcpScopes
+from posthog.models.team.team import Team
+from posthog.temporal.oauth import MCP_SCOPE_PRESETS, SCOUT_SCOPE_PRESETS, PosthogMcpScopes
 
 from products.tasks.backend.metrics import (
     SCHEDULED_TASK_RUN_DUE,
@@ -125,19 +126,49 @@ def create_dispatch(task_run: TaskRun, kind: str, payload: dict[str, Any], workf
     return dispatch
 
 
+def _validated_scheduled_mcp_scopes(value: object) -> PosthogMcpScopes | None:
+    if isinstance(value, str):
+        return cast(PosthogMcpScopes, value) if value in MCP_SCOPE_PRESETS else None
+    if isinstance(value, list) and all(isinstance(scope, str) for scope in value):
+        return cast(PosthogMcpScopes, value)
+    if isinstance(value, dict):
+        preset = value.get("preset")
+        extra_write_scopes = value.get("extra_write_scopes")
+        if (
+            preset in SCOUT_SCOPE_PRESETS
+            and isinstance(extra_write_scopes, list)
+            and all(isinstance(scope, str) for scope in extra_write_scopes)
+        ):
+            return cast(PosthogMcpScopes, value)
+    return None
+
+
 def _scheduled_dispatch_options(task_run: TaskRun) -> WorkflowDispatchOptions | None:
     state = task_run.state if isinstance(task_run.state, dict) else {}
     pending = state.get("pending_dispatch")
     if not isinstance(pending, dict):
         return None
+
+    user_id = pending.get("user_id")
+    create_pr = pending.get("create_pr")
+    posthog_mcp_scopes = _validated_scheduled_mcp_scopes(pending.get("posthog_mcp_scopes"))
     workflow_id_prefix = pending.get("workflow_id_prefix")
     slack_thread_context = pending.get("slack_thread_context")
+    if (
+        not isinstance(user_id, int)
+        or isinstance(user_id, bool)
+        or not isinstance(create_pr, bool)
+        or posthog_mcp_scopes is None
+        or (workflow_id_prefix is not None and not isinstance(workflow_id_prefix, str))
+        or (slack_thread_context is not None and not isinstance(slack_thread_context, dict))
+    ):
+        return None
     return WorkflowDispatchOptions(
-        user_id=pending.get("user_id"),
-        create_pr=pending.get("create_pr", True),
-        posthog_mcp_scopes=pending.get("posthog_mcp_scopes", "read_only"),
-        slack_thread_context=slack_thread_context if isinstance(slack_thread_context, dict) else None,
-        workflow_id_prefix=workflow_id_prefix if isinstance(workflow_id_prefix, str) else None,
+        user_id=user_id,
+        create_pr=create_pr,
+        posthog_mcp_scopes=posthog_mcp_scopes,
+        slack_thread_context=slack_thread_context,
+        workflow_id_prefix=workflow_id_prefix,
     )
 
 
@@ -153,7 +184,12 @@ def materialize_due_scheduled_task_runs(batch_size: int) -> int:
         # LIMIT queries therefore page through the due set without OFFSET, and SKIP LOCKED lets
         # dispatcher replicas drain it concurrently without coordinating outside Postgres.
         task_runs = list(
-            TaskRun.objects.filter(status=TaskRun.Status.NOT_STARTED, scheduled_at__lte=now)
+            TaskRun.objects.filter(
+                status=TaskRun.Status.NOT_STARTED,
+                environment=TaskRun.Environment.CLOUD,
+                scheduled_at__lte=now,
+                task__deleted=False,
+            )
             .only("id", "task_id", "team_id", "state", "scheduled_at")
             .order_by("scheduled_at", "id")
             .select_for_update(of=("self",), skip_locked=True)[:batch_size]
@@ -161,24 +197,29 @@ def materialize_due_scheduled_task_runs(batch_size: int) -> int:
         if not task_runs:
             return 0
 
+        team_ids = {task_run.team_id for task_run in task_runs}
+        canonical_team_ids = {
+            team_id: parent_team_id or team_id
+            for team_id, parent_team_id in Team.objects.filter(id__in=team_ids).values_list("id", "parent_team_id")
+        }
+        workflow_id_max_length = TaskWorkflowDispatch._meta.get_field("workflow_id").max_length
         dispatches: list[TaskWorkflowDispatch] = []
-        valid_run_ids: list[UUID] = []
+        candidates: dict[UUID, TaskRun] = {}
         invalid_run_ids: list[UUID] = []
-        prefixed_runs: list[TaskRun] = []
         for task_run in task_runs:
             options = _scheduled_dispatch_options(task_run)
-            if options is None:
+            canonical_team_id = canonical_team_ids.get(task_run.team_id)
+            if options is None or canonical_team_id is None:
                 invalid_run_ids.append(task_run.id)
                 continue
 
             workflow_id = TaskRun.get_workflow_id(task_run.task_id, task_run.id, options.workflow_id_prefix)
-            if options.workflow_id_prefix:
-                task_run.state = {**task_run.state, "workflow_id": workflow_id}
-                task_run.updated_at = now
-                prefixed_runs.append(task_run)
+            if workflow_id_max_length is not None and len(workflow_id) > workflow_id_max_length:
+                invalid_run_ids.append(task_run.id)
+                continue
             dispatches.append(
                 TaskWorkflowDispatch(
-                    team_id=task_run.team_id,
+                    team_id=canonical_team_id,
                     task_run_id=task_run.id,
                     workflow_id=workflow_id,
                     dispatch_kind=TaskWorkflowDispatch.Kind.CREATE,
@@ -190,18 +231,50 @@ def materialize_due_scheduled_task_runs(batch_size: int) -> int:
                     updated_at=now,
                 )
             )
-            valid_run_ids.append(task_run.id)
+            candidates[task_run.id] = task_run
 
-        if prefixed_runs:
-            TaskRun.objects.bulk_update(prefixed_runs, ["state", "updated_at"], batch_size=batch_size)
         if dispatches:
-            TaskWorkflowDispatch.objects.unscoped().bulk_create(dispatches, batch_size=batch_size)
+            candidate_run_ids = list(candidates)
+            existing_run_ids = set(
+                TaskWorkflowDispatch.objects.unscoped()
+                .filter(task_run_id__in=candidate_run_ids, dispatch_kind=TaskWorkflowDispatch.Kind.CREATE)
+                .values_list("task_run_id", flat=True)
+            )
+            TaskWorkflowDispatch.objects.unscoped().bulk_create(
+                dispatches, batch_size=batch_size, ignore_conflicts=True
+            )
+            persisted_dispatches = {
+                task_run_id: (workflow_id, status)
+                for task_run_id, workflow_id, status in TaskWorkflowDispatch.objects.unscoped()
+                .filter(task_run_id__in=candidate_run_ids, dispatch_kind=TaskWorkflowDispatch.Kind.CREATE)
+                .values_list("task_run_id", "workflow_id", "status")
+            }
+            valid_run_ids: list[UUID] = []
+            prefixed_runs: list[TaskRun] = []
+            for task_run_id, task_run in candidates.items():
+                persisted = persisted_dispatches.get(task_run_id)
+                if persisted is None or persisted[1] == TaskWorkflowDispatch.Status.DEAD:
+                    invalid_run_ids.append(task_run_id)
+                    continue
+                workflow_id = persisted[0]
+                default_workflow_id = TaskRun.get_workflow_id(task_run.task_id, task_run.id)
+                if workflow_id != default_workflow_id:
+                    task_run.state = {**task_run.state, "workflow_id": workflow_id}
+                    task_run.updated_at = now
+                    prefixed_runs.append(task_run)
+                valid_run_ids.append(task_run_id)
+
+            if prefixed_runs:
+                TaskRun.objects.bulk_update(prefixed_runs, ["state", "updated_at"], batch_size=batch_size)
             TaskRun.objects.filter(id__in=valid_run_ids, status=TaskRun.Status.NOT_STARTED).update(
                 status=TaskRun.Status.QUEUED,
                 queued_at=now,
                 updated_at=now,
             )
-            materialized_count = len(dispatches)
+            materialized_count = len(valid_run_ids)
+            created_dispatch_count = len(set(candidate_run_ids) - existing_run_ids)
+        else:
+            created_dispatch_count = 0
         if invalid_run_ids:
             TaskRun.objects.filter(id__in=invalid_run_ids, status=TaskRun.Status.NOT_STARTED).update(
                 status=TaskRun.Status.FAILED,
@@ -215,8 +288,9 @@ def materialize_due_scheduled_task_runs(batch_size: int) -> int:
             invalid_count = len(invalid_run_ids)
 
     if materialized_count:
-        WORKFLOW_DISPATCH_CREATED_TOTAL.labels(kind=TaskWorkflowDispatch.Kind.CREATE).inc(materialized_count)
         SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL.labels(outcome="materialized").inc(materialized_count)
+    if created_dispatch_count:
+        WORKFLOW_DISPATCH_CREATED_TOTAL.labels(kind=TaskWorkflowDispatch.Kind.CREATE).inc(created_dispatch_count)
     if invalid_count:
         SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL.labels(outcome="invalid").inc(invalid_count)
     return materialized_count
@@ -284,9 +358,12 @@ def sample_dispatch_metrics() -> None:
     oldest = values["oldest_ready"]
     WORKFLOW_DISPATCH_OLDEST_READY_AGE_SECONDS.set(max(0.0, (now - oldest).total_seconds()) if oldest else 0)
 
-    scheduled_values = TaskRun.objects.filter(status=TaskRun.Status.NOT_STARTED, scheduled_at__lte=now).aggregate(
-        ready=Count("id"), oldest_ready=Min("scheduled_at")
-    )
+    scheduled_values = TaskRun.objects.filter(
+        status=TaskRun.Status.NOT_STARTED,
+        environment=TaskRun.Environment.CLOUD,
+        scheduled_at__lte=now,
+        task__deleted=False,
+    ).aggregate(ready=Count("id"), oldest_ready=Min("scheduled_at"))
     SCHEDULED_TASK_RUN_DUE.set(scheduled_values["ready"] or 0)
     oldest_scheduled = scheduled_values["oldest_ready"]
     SCHEDULED_TASK_RUN_OLDEST_DUE_AGE_SECONDS.set(

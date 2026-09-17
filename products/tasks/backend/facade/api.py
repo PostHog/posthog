@@ -5147,8 +5147,9 @@ _STARTABLE_TASK_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUE
 def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: int) -> tuple[str, str | None]:
     """Whether a run can be started via the start endpoint.
 
-    Returns ``"not_found"`` (run missing), ``"not_cloud"``, ``"bad_status:<current>"``, or
-    ``"ok"``, together with the stored run source. The view applies the usage gate before ``start_task_run``.
+    Returns ``"not_found"`` (run missing), ``"not_cloud"``, ``"scheduled"``,
+    ``"bad_status:<current>"``, or ``"ok"``, together with the stored run source. The view
+    applies the usage gate before ``start_task_run``.
     """
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
@@ -5156,6 +5157,8 @@ def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: i
     run_source = (run.state or {}).get("run_source")
     if run.environment != TaskRun.Environment.CLOUD:
         return "not_cloud", run_source
+    if run.status == TaskRun.Status.NOT_STARTED and run.scheduled_at is not None:
+        return "scheduled", run_source
     if run.status not in _STARTABLE_TASK_RUN_STATUSES:
         return f"bad_status:{run.status}", run_source
     return "ok", run_source

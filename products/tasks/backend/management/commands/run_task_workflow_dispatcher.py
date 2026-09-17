@@ -51,6 +51,7 @@ from products.tasks.backend.temporal.client import _capture_run_feature_flags
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
 
 logger = logging.getLogger(__name__)
+SCHEDULED_RUN_MATERIALIZATION_BATCH_SIZE = 500
 
 
 def _user_can_dispatch(run: TaskRun, options: WorkflowDispatchOptions | None) -> bool:
@@ -102,9 +103,7 @@ class Command(BaseCommand):
             while not stop.is_set():
                 Path("/tmp/dispatcher-heartbeat").touch()
                 try:
-                    await sync_to_async(materialize_due_scheduled_task_runs)(
-                        settings.TASKS_SCHEDULED_RUN_MATERIALIZATION_BATCH_SIZE
-                    )
+                    await sync_to_async(materialize_due_scheduled_task_runs)(SCHEDULED_RUN_MATERIALIZATION_BATCH_SIZE)
                     if monotonic() - last_metrics_sample >= 15:
                         await sync_to_async(sample_dispatch_metrics)()
                         last_metrics_sample = monotonic()

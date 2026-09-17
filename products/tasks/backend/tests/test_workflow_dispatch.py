@@ -395,11 +395,20 @@ class TestWorkflowDispatchPersistence(TestCase):
             scheduled_at=now + timedelta(minutes=1),
             state=state,
         )
+        local = TaskRun.objects.create(
+            task=self.task_run.task,
+            team=self.team,
+            environment=TaskRun.Environment.LOCAL,
+            status=TaskRun.Status.NOT_STARTED,
+            scheduled_at=now - timedelta(minutes=1),
+            state=state,
+        )
 
         self.assertEqual(materialize_due_scheduled_task_runs(100), 1)
 
         due.refresh_from_db()
         future.refresh_from_db()
+        local.refresh_from_db()
         dispatch = TaskWorkflowDispatch.objects.unscoped().get(task_run=due)
         self.assertEqual(due.status, TaskRun.Status.QUEUED)
         self.assertIsNotNone(due.queued_at)
@@ -409,6 +418,8 @@ class TestWorkflowDispatchPersistence(TestCase):
         self.assertEqual(due.workflow_id, dispatch.workflow_id)
         self.assertEqual(future.status, TaskRun.Status.NOT_STARTED)
         self.assertFalse(TaskWorkflowDispatch.objects.unscoped().filter(task_run=future).exists())
+        self.assertEqual(local.status, TaskRun.Status.NOT_STARTED)
+        self.assertFalse(TaskWorkflowDispatch.objects.unscoped().filter(task_run=local).exists())
 
     def test_due_materializer_pages_in_schedule_order_without_duplicates(self) -> None:
         now = django_timezone.now()
@@ -446,13 +457,30 @@ class TestWorkflowDispatchPersistence(TestCase):
 
     def test_invalid_due_run_does_not_block_later_scheduled_work(self) -> None:
         now = django_timezone.now()
-        invalid = TaskRun.objects.create(
-            task=self.task_run.task,
-            team=self.team,
-            status=TaskRun.Status.NOT_STARTED,
-            scheduled_at=now - timedelta(minutes=2),
-            state={},
-        )
+        invalid_runs = [
+            TaskRun.objects.create(
+                task=self.task_run.task,
+                team=self.team,
+                status=TaskRun.Status.NOT_STARTED,
+                scheduled_at=now - timedelta(minutes=minutes),
+                state=state,
+            )
+            for minutes, state in [
+                (4, {}),
+                (3, {"pending_dispatch": {}}),
+                (
+                    2,
+                    {
+                        "pending_dispatch": {
+                            "user_id": self.task_run.task.created_by_id,
+                            "create_pr": False,
+                            "posthog_mcp_scopes": "full",
+                            "workflow_id_prefix": "x" * 500,
+                        }
+                    },
+                ),
+            ]
+        ]
         valid = TaskRun.objects.create(
             task=self.task_run.task,
             team=self.team,
@@ -467,16 +495,135 @@ class TestWorkflowDispatchPersistence(TestCase):
             },
         )
 
-        self.assertEqual(materialize_due_scheduled_task_runs(2), 1)
+        self.assertEqual(materialize_due_scheduled_task_runs(4), 1)
 
-        invalid.refresh_from_db()
         valid.refresh_from_db()
-        self.assertEqual(invalid.status, TaskRun.Status.FAILED)
-        self.assertIsNotNone(invalid.completed_at)
-        assert invalid.error_message is not None
-        self.assertIn("Create a new scheduled task", invalid.error_message)
+        for invalid in invalid_runs:
+            invalid.refresh_from_db()
+            self.assertEqual(invalid.status, TaskRun.Status.FAILED)
+            self.assertIsNotNone(invalid.completed_at)
+            assert invalid.error_message is not None
+            self.assertIn("Create a new scheduled task", invalid.error_message)
         self.assertEqual(valid.status, TaskRun.Status.QUEUED)
         self.assertTrue(TaskWorkflowDispatch.objects.unscoped().filter(task_run=valid).exists())
+
+    def test_existing_dispatch_does_not_block_scheduled_batch(self) -> None:
+        now = django_timezone.now()
+        state = {
+            "pending_dispatch": {
+                "user_id": self.task_run.task.created_by_id,
+                "create_pr": False,
+                "posthog_mcp_scopes": "full",
+            }
+        }
+        runs = [
+            TaskRun.objects.create(
+                task=self.task_run.task,
+                team=self.team,
+                status=TaskRun.Status.NOT_STARTED,
+                scheduled_at=now - timedelta(minutes=minutes),
+                state=state,
+            )
+            for minutes in (2, 1)
+        ]
+        TaskWorkflowDispatch.objects.for_team(self.team.id).create(
+            team=self.team,
+            task_run=runs[0],
+            workflow_id=runs[0].workflow_id,
+            dispatch_kind=TaskWorkflowDispatch.Kind.CREATE,
+            payload=build_create_payload(
+                WorkflowDispatchOptions(
+                    user_id=self.task_run.task.created_by_id,
+                    create_pr=False,
+                    posthog_mcp_scopes="full",
+                )
+            ),
+        )
+
+        self.assertEqual(materialize_due_scheduled_task_runs(2), 2)
+
+        self.assertEqual(
+            set(
+                TaskRun.objects.filter(id__in=[run.id for run in runs], status=TaskRun.Status.QUEUED).values_list(
+                    "id", flat=True
+                )
+            ),
+            {run.id for run in runs},
+        )
+        self.assertEqual(
+            TaskWorkflowDispatch.objects.unscoped()
+            .filter(task_run_id__in=[run.id for run in runs], dispatch_kind=TaskWorkflowDispatch.Kind.CREATE)
+            .count(),
+            2,
+        )
+
+    def test_scheduled_dispatch_uses_canonical_team(self) -> None:
+        child_team = Team.objects.create(
+            organization=self.team.organization,
+            name="Child environment",
+            parent_team=self.team,
+        )
+        task = Task.objects.create(
+            team=child_team,
+            created_by=self.task_run.task.created_by,
+            title="Child task",
+            description="Child task",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=child_team,
+            status=TaskRun.Status.NOT_STARTED,
+            scheduled_at=django_timezone.now() - timedelta(minutes=1),
+            state={
+                "pending_dispatch": {
+                    "user_id": self.task_run.task.created_by_id,
+                    "create_pr": False,
+                    "posthog_mcp_scopes": "full",
+                }
+            },
+        )
+
+        self.assertEqual(materialize_due_scheduled_task_runs(1), 1)
+
+        dispatch = TaskWorkflowDispatch.objects.unscoped().get(task_run=run)
+        self.assertEqual(dispatch.team_id, self.team.id)
+        self.assertEqual(TaskWorkflowDispatch.objects.for_team(child_team.id).get(task_run=run), dispatch)
+
+    def test_deleting_task_cancels_scheduled_runs(self) -> None:
+        now = django_timezone.now()
+        state = {
+            "pending_dispatch": {
+                "user_id": self.task_run.task.created_by_id,
+                "create_pr": False,
+                "posthog_mcp_scopes": "full",
+            }
+        }
+        due = TaskRun.objects.create(
+            task=self.task_run.task,
+            team=self.team,
+            status=TaskRun.Status.NOT_STARTED,
+            scheduled_at=now - timedelta(minutes=1),
+            state=state,
+        )
+        future = TaskRun.objects.create(
+            task=self.task_run.task,
+            team=self.team,
+            status=TaskRun.Status.NOT_STARTED,
+            scheduled_at=now + timedelta(days=1),
+            state=state,
+        )
+        self.assertEqual(materialize_due_scheduled_task_runs(1), 1)
+
+        due.task.soft_delete()
+
+        due.refresh_from_db()
+        future.refresh_from_db()
+        dispatch = TaskWorkflowDispatch.objects.unscoped().get(task_run=due)
+        self.assertEqual(due.status, TaskRun.Status.CANCELLED)
+        self.assertEqual(future.status, TaskRun.Status.CANCELLED)
+        self.assertEqual(dispatch.status, TaskWorkflowDispatch.Status.DEAD)
+        self.assertEqual(materialize_due_scheduled_task_runs(10), 0)
 
     @parameterized.expand(
         [
