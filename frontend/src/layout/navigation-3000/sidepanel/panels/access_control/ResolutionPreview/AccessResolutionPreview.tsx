@@ -183,12 +183,7 @@ export function AccessResolutionPreview(): JSX.Element {
         return (
             <div className="flex flex-col gap-4">
                 <WhyExplainer />
-                {!alreadyEnabled && (
-                    <LemonBanner type="success">
-                        We're changing access control to use the most specific rule when a member matches several rules.
-                        Nothing changes for your organization.
-                    </LemonBanner>
-                )}
+                <LemonBanner type="success">Nothing changes for your organization.</LemonBanner>
                 {footer}
             </div>
         )
