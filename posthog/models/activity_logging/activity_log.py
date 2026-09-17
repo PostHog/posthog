@@ -240,7 +240,10 @@ class ActivityLog(UUIDTModel):
     was_impersonated = models.BooleanField(null=True)
     # If truthy, user can be unset and this indicates a 'system' user made activity asynchronously
     is_system = models.BooleanField(null=True)
-    # Value of the x-posthog-client request header captured when the activity was logged
+    # Which API client the activity arrived through. Usually the self-reported x-posthog-client
+    # request header, which is capped shorter than this column. A sandbox OAuth token bound to a
+    # scout run overrides it with the scout's own `scout:<skill_name>` tag, which the caller
+    # cannot set and which needs the full width.
     client = models.CharField(max_length=ACTIVITY_LOG_CLIENT_MAX_LENGTH, null=True, blank=True)
     # Client IP captured at request time. Null for non-HTTP activity (system, Celery).
     ip_address = models.GenericIPAddressField(null=True, blank=True)
@@ -685,6 +688,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "experimenttosavedmetric_set",
         # Optimistic-concurrency counter, not a user-meaningful change.
         "version",
+        # Internal pointer to the flag-cleanup task, not a user-meaningful change.
+        "flag_cleanup_task_id",
     ],
     "ExperimentSavedMetric": [
         "experiments",
@@ -1188,17 +1193,17 @@ AGENT_TRIGGER_JOB_TYPE = "agent"
 
 
 def agent_trigger() -> Optional[Trigger]:
-    """The agent attribution for this request, or None when no token-bound task reached it.
+    """The agent attribution for this request, or None when neither field reached it.
 
-    The task id is required because it is the only server-set part. The intent is the agent's claim.
+    The task id is the only server-set part. The intent is the agent's claim.
     """
     task_id = activity_storage.get_agent_task_id()
-    if not task_id:
-        return None
     intent = activity_storage.get_agent_intent()
+    if not task_id and not intent:
+        return None
     return Trigger(
         job_type=AGENT_TRIGGER_JOB_TYPE,
-        job_id=task_id,
+        job_id=task_id or "",
         payload={"intent": intent} if intent else {},
     )
 
