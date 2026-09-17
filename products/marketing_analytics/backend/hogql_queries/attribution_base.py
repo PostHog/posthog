@@ -230,6 +230,18 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
             group_by=[ast.Field(chain=["events", "person_id"])],
         )
 
+    def _person_arrays_select(self, date_range: QueryDateRange) -> ast.SelectQuery:
+        """The credit side, served from the precompute when it can."""
+        if self.config.sessions_precomputation_enabled:
+            from .attribution_sessions_read import build_person_arrays  # noqa: PLC0415 (import cycle)
+
+            with self.timings.measure("attribution_sessions_precompute_credit"):
+                precomputed = build_person_arrays(self, date_range)
+            if precomputed is not None:
+                self._sessions_precompute_used = True
+                return precomputed
+        return self._build_person_arrays_select(date_range)
+
     def _build_person_arrays_select(self, date_range: QueryDateRange) -> ast.SelectQuery:
         """One row per converting person: its conversions, plus a deduped touchpoint set.
 
