@@ -48,6 +48,7 @@ from products.tasks.backend.feature_flags import (
     is_task_run_stream_thin_tail,
     run_stream_presence_gated,
 )
+from products.tasks.backend.logic.services.network_policy import normalize_sandbox_allowed_domains
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
 from products.tasks.backend.pr_urls import read_pr_urls
@@ -960,6 +961,7 @@ class Task(DeletedMetaFields, models.Model):
         ai_stage: str | None = None,
         ai_agent_name: str | None = None,
         sandbox_environment_id: str | None = None,
+        allowed_domains: list[str] | None = None,
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
@@ -1080,6 +1082,11 @@ class Task(DeletedMetaFields, models.Model):
             if sandbox_env is None:
                 raise ValueError(f"Invalid sandbox_environment_id: {sandbox_environment_id}")
 
+        # Extra hosts for this run only, unioned onto the environment's effective domains at
+        # provisioning. Normalized before the row exists so a bad domain fails while the caller
+        # can still act on it, not after the run is dispatched.
+        normalized_allowed_domains = normalize_sandbox_allowed_domains(allowed_domains) if allowed_domains else []
+
         expected_agent_key = MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN.get(origin_product)
         if mcp_builtin_agent_key is not None and mcp_builtin_agent_key != expected_agent_key:
             raise ValueError(f"Agent key {mcp_builtin_agent_key!r} does not match task origin {origin_product!r}")
@@ -1137,6 +1144,8 @@ class Task(DeletedMetaFields, models.Model):
 
         if sandbox_env is not None:
             extra_state["sandbox_environment_id"] = str(sandbox_env.id)
+        if normalized_allowed_domains:
+            extra_state["allowed_domains"] = normalized_allowed_domains
 
         # Per-run custom base image (Modal VM runtime only); wins over the environment's image.
         if custom_image_id is not None:
@@ -1320,6 +1329,7 @@ class Task(DeletedMetaFields, models.Model):
         origin_key: str | None = None,
         extra_run_state: dict[str, Any] | None = None,
         sandbox_environment_id: str | None = None,
+        allowed_domains: list[str] | None = None,
         internal: bool = False,
         client_provenance: TaskClientProvenance | None = None,
         output_schema: type[BaseModel] | dict | None = None,
@@ -1370,6 +1380,7 @@ class Task(DeletedMetaFields, models.Model):
             hog_flow_id=hog_flow_id,
             origin_key=origin_key,
             sandbox_environment_id=sandbox_environment_id,
+            allowed_domains=allowed_domains,
             internal=internal,
             client_provenance=client_provenance,
             output_schema=output_schema,

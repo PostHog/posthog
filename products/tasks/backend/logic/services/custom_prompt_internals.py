@@ -102,6 +102,11 @@ class CustomPromptSandboxContext:
     one a branch is checked out on. Empty keeps the sandbox repo-less; prefer this over
     ``repository`` for new callers, which stays for the single-repo ones that predate it."""
     sandbox_environment_id: str | None = None
+    allowed_domains: tuple[str, ...] = ()
+    """Extra hosts this run may reach, on top of the effective domains of ``sandbox_environment_id``
+    (or alone, when no environment is set). Ignored when the environment is ``FULL``. Bare names
+    such as ``status.example.com``, or ``*.example.com`` for a subtree; validated at task creation
+    by the same rules as the sandbox environments API. Empty adds nothing."""
     posthog_mcp_scopes: PosthogMcpScopes | None = None
     model: str | None = None
     """Override the agent model (e.g. ``"claude-opus-4-8"``). Falls back to the
@@ -286,6 +291,7 @@ async def create_task_and_trigger(
         ai_agent_name=ai_agent_name,
         posthog_mcp_scopes=posthog_mcp_scopes,
         sandbox_environment_id=context.sandbox_environment_id,
+        allowed_domains=list(context.allowed_domains) or None,
         model=context.model,
         runtime_adapter=context.runtime_adapter,
         runtime=context.runtime,
