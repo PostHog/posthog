@@ -1701,6 +1701,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                         }
                     )
 
+        self._reconcile_schedule_with_iterations(data)
         return data
 
     @staticmethod
@@ -1753,7 +1754,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             validated_data.pop("targeting_flag_filters")
 
         validated_data["created_by"] = self.context["request"].user
-        self._reconcile_schedule_with_iterations(validated_data)
         instance = super().create(validated_data)
         self._add_user_survey_interacted_filters(instance)
         self._associate_actions(instance, validated_data.get("conditions"))
@@ -1853,8 +1853,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 )
                 validated_data["targeting_flag_id"] = new_flag.id
             validated_data.pop("targeting_flag_filters")
-
-        self._reconcile_schedule_with_iterations(validated_data)
 
         iteration_count = validated_data.get("iteration_count", None)
         if (
