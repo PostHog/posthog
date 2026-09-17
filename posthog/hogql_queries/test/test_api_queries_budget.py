@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -19,6 +20,7 @@ from posthog.hogql_queries.query_runner import (
     API_QUERIES_BUDGET_LIMITED_COUNTER,
     get_api_queries_budget_status,
 )
+from posthog.models.team.team_event_volume import TeamEventVolume
 
 
 @override_settings(API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR=3600, API_QUERIES_BUDGET_CAPACITY_HOURS=1)
@@ -51,6 +53,13 @@ class TestApiQueriesBudgetEnforcement(BaseTest):
     def test_redis_error_admits(self):
         with patch("posthog.hogql_queries.query_runner.refill_and_read", return_value=None):
             assert get_api_queries_budget_status(self.team) is None
+
+    @override_settings(API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR=10)
+    def test_status_rate_scales_with_the_teams_event_volume(self):
+        TeamEventVolume.objects.create(team=self.team, events_last_year=10_000, computed_at=timezone.now())
+        status = get_api_queries_budget_status(self.team)
+        assert status is not None
+        assert status.spec.bytes_per_hour == 100_000
 
     @parameterized.expand([("observed", False), ("enforced", True)])
     def test_over_budget_is_counted_and_only_refused_when_enforced(self, outcome, enforced):

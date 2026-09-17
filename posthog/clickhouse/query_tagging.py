@@ -128,6 +128,7 @@ class Feature(StrEnum):
     # would be misleading; tagging by endpoint name keeps the signal honest.
     EVENTS_VALUES_API = "events_values_api"
     USAGE_REPORT = "usage_report"
+    API_QUERIES_BUDGET = "api_queries_budget"
     DATA_FRESHNESS = "data_freshness"  # "when did this project last receive data" probes
     BILLING_ETL = "billing_etl"
     QUOTA_LIMITING = "quota_limiting"
