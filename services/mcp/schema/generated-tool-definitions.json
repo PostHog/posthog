@@ -1878,7 +1878,7 @@
         "superseded_by": ["context-wiki-page-update"]
     },
     "channel-list": {
-        "description": "List channels the requester can access: public channels, their personal #me channel, and private channels they belong to. Use a channel ID to create or list canvases or read instructions. Private channels can have the same name, so identify them by ID. Send `limit` and `offset` to get a page with `count`, `results`, and `next_offset` — the offset to send for the page after, or null at the end. Without `limit`, the response is an array of all accessible channels.",
+        "description": "List channels the requester can access: public channels, their personal #me channel, and private channels they belong to. Use a channel ID to create or list canvases or read instructions. Private channels can have the same name, so identify them by ID. Send `limit` and `offset` to get a page with `count`, `results`, and `next_offset`, the offset to send for the page after, or null at the end. Without `limit`, the response is an array of all accessible channels.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "List channels",
@@ -2163,7 +2163,7 @@
         }
     },
     "conversations-tickets-messages-retrieve": {
-        "description": "Return a support ticket's message thread, ordered chronologically. The response is paginated (default 50, max 200 per page) — read `count` for the thread length and `next_offset` for the offset of the next page, then call again with that offset. A null `next_offset` means the thread ends here. Includes all messages from the customer, team members, and AI, as well as private internal notes. Each message contains author_type, author_name, content, and an is_private flag indicating internal notes.",
+        "description": "Return a support ticket's message thread, ordered chronologically. The response is paginated (default 50, max 200 per page). Read `count` for the thread length and `next_offset` for the offset of the next page, then call again with that offset. A null `next_offset` means the thread ends here. Includes all messages from the customer, team members, and AI, as well as private internal notes. Each message contains author_type, author_name, content, and an is_private flag indicating internal notes.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "Read support ticket messages",
