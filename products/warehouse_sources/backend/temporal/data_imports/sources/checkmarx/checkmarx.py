@@ -1,7 +1,6 @@
 import json
 import time
 import hashlib
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -10,6 +9,8 @@ from urllib.parse import quote
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.settings import (
     CHECKMARX_ENDPOINTS,
@@ -42,7 +43,7 @@ class CheckmarxAuthError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class CheckmarxResumeConfig:
     # Row offset to resume the current page loop from.
     offset: int = 0

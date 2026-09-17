@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import timedelta
 from typing import Optional
 
@@ -47,7 +47,7 @@ class CheckmarxFanOutConfig:
     id_param: Optional[str] = None
 
 
-@dataclass
+@frozen
 class CheckmarxEndpointConfig:
     name: str
     path: str
@@ -83,6 +83,17 @@ def _scans_fan_out(id_param: str) -> CheckmarxFanOutConfig:
         parent_id_field="scan_id",
         parent_created_at_field="scan_created_at",
         id_param=id_param,
+    )
+
+
+def _scalar_list(name: str, path: str) -> CheckmarxEndpointConfig:
+    return CheckmarxEndpointConfig(
+        name=name,
+        path=path,
+        data_key=None,
+        paginated=False,
+        scalar_row_field="value",
+        primary_keys=["value"],
     )
 
 
@@ -177,30 +188,9 @@ CHECKMARX_ENDPOINTS: dict[str, CheckmarxEndpointConfig] = {
     # The Lists API returns each enum as a bare array of strings, so every value becomes a row
     # under a single `value` column. These decode the state, status and severity columns on
     # scan_results, and are the full set of values a result can carry.
-    "result_states": CheckmarxEndpointConfig(
-        name="result_states",
-        path="/api/lists/states",
-        data_key=None,
-        paginated=False,
-        scalar_row_field="value",
-        primary_keys=["value"],
-    ),
-    "result_statuses": CheckmarxEndpointConfig(
-        name="result_statuses",
-        path="/api/lists/statuses",
-        data_key=None,
-        paginated=False,
-        scalar_row_field="value",
-        primary_keys=["value"],
-    ),
-    "result_severities": CheckmarxEndpointConfig(
-        name="result_severities",
-        path="/api/lists/severities",
-        data_key=None,
-        paginated=False,
-        scalar_row_field="value",
-        primary_keys=["value"],
-    ),
+    "result_states": _scalar_list("result_states", "/api/lists/states"),
+    "result_statuses": _scalar_list("result_statuses", "/api/lists/statuses"),
+    "result_severities": _scalar_list("result_severities", "/api/lists/severities"),
     # Triage states defined by the tenant, on top of the built-in ones in `result_states`. Deleted
     # states are requested too, so a finding left in a since-removed state still resolves to a name.
     "custom_states": CheckmarxEndpointConfig(
