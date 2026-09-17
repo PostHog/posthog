@@ -9,7 +9,11 @@ from celery import Task, shared_task
 
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.person import Person
-from posthog.models.person.bulk_delete import PersonDeletionStep, process_queued_person_deletion
+from posthog.models.person.bulk_delete import (
+    PERSON_DELETION_PERSONS_COUNTER,
+    PersonDeletionStep,
+    process_queued_person_deletion,
+)
 from posthog.models.user import User
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
@@ -61,6 +65,7 @@ def queue_person_deletion(
     if not (delete_profile or delete_recordings):
         return 0
     uuids = [str(person.uuid) for person in persons]
+    PERSON_DELETION_PERSONS_COUNTER.labels(path="queued", outcome="queued").inc(len(uuids))
     chunks = list(_chunks(uuids, PERSONS_PER_DELETION_TASK)) or ([[]] if unmatched_distinct_ids else [])
     was_impersonated = is_impersonated(request)
     for index, chunk in enumerate(chunks):

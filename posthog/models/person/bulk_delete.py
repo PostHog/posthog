@@ -10,7 +10,7 @@ from typing import cast
 from django.conf import settings
 
 import structlog
-from prometheus_client import Counter
+from prometheus_client import Counter, Histogram
 from temporalio import common
 
 from posthog.dataclasses import frozen
@@ -52,6 +52,25 @@ PERSON_DELETION_STEP_FAILURES_COUNTER = Counter(
     "Person deletion steps that raised, labelled by the step so a failing dependency is visible on its own.",
     labelnames=["step"],
 )
+
+# path: "sync" for the request-time delete, "queued" for the Celery task.
+# outcome: "queued" when handed to the task, "deleted" once removed, "failed" per person per attempt.
+PERSON_DELETION_PERSONS_COUNTER = Counter(
+    "posthog_person_deletion_persons_total",
+    "Persons handled by a deletion, by path and per-attempt outcome.",
+    labelnames=["path", "outcome"],
+)
+
+PERSON_DELETION_DISTINCT_IDS_PER_PERSON = Histogram(
+    "posthog_person_deletion_distinct_ids_per_person",
+    "Distinct IDs fetched per person by the queued deletion, which shows how wide deleted persons are.",
+    buckets=(1, 10, 100, 1_000, 10_000, 100_000, 1_000_000, float("inf")),
+)
+
+
+def _observe_person_outcomes(path: str, result: "PersonProfileDeletionResult") -> None:
+    PERSON_DELETION_PERSONS_COUNTER.labels(path=path, outcome="deleted").inc(result.deleted_count)
+    PERSON_DELETION_PERSONS_COUNTER.labels(path=path, outcome="failed").inc(len(result.errors))
 
 
 @frozen
@@ -163,7 +182,7 @@ def delete_persons_profile(
     except Exception:
         logger.exception("Batched distinct-id fetch failed, falling back to per-person lookups")
 
-    return _tombstone_and_delete_persons(
+    result = _tombstone_and_delete_persons(
         team_id,
         persons,
         lambda person: distinct_ids_by_person.get(person.pk),
@@ -171,6 +190,8 @@ def delete_persons_profile(
         was_impersonated=is_impersonated(request),
         organization_id=organization_id,
     )
+    _observe_person_outcomes("sync", result)
+    return result
 
 
 # Page size for the keyset walk over a person's distinct IDs. Each page is one bounded RPC, so a
@@ -267,6 +288,7 @@ def process_queued_person_deletion(
                 person_uuids=[person.uuid],
             )
             continue
+        PERSON_DELETION_DISTINCT_IDS_PER_PERSON.observe(len(distinct_ids))
         person._distinct_ids = [d.id for d in distinct_ids]
         batch.append(person)
         batch_distinct_ids[person.pk] = distinct_ids
@@ -285,7 +307,9 @@ def process_queued_person_deletion(
                 failures, step=PersonDeletionStep.QUEUE_TRAINING_DELETION, team_id=team_id, exc=exc, person_uuids=[]
             )
 
-    return PersonProfileDeletionResult(deleted_count=deleted_count, failures=failures)
+    result = PersonProfileDeletionResult(deleted_count=deleted_count, failures=failures)
+    _observe_person_outcomes("queued", result)
+    return result
 
 
 def _run_batch_and_release(
