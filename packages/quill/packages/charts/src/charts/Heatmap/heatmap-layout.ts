@@ -96,6 +96,12 @@ export function normalizeCount(count: number, max: number, scale: HeatmapColorSc
 // Alpha floor so a count-of-1 cell is still visible against the plot background.
 const MIN_CELL_ALPHA = 0.15
 
+/** Opacity a cell of normalized intensity `t` is filled at. Label code recreates the
+ *  composited cell color from this to choose a readable text color. */
+export function cellAlpha(t: number): number {
+    return MIN_CELL_ALPHA + (1 - MIN_CELL_ALPHA) * Math.max(0, Math.min(1, t))
+}
+
 /** A cell-fill ramp bound to one accent: maps a normalized intensity [0, 1] to a translucent
  *  fill (an alpha ramp over the accent), so density reads on light and dark without extra theme
  *  tokens. Memoizes by 8-bit alpha — canvas can't resolve finer, and the draw loop hits the same
@@ -104,8 +110,7 @@ const MIN_CELL_ALPHA = 0.15
 export function createCellColorRamp(accent: string): (t: number) => string {
     const cache = new Map<number, string>()
     return (t: number): string => {
-        const alpha = MIN_CELL_ALPHA + (1 - MIN_CELL_ALPHA) * Math.max(0, Math.min(1, t))
-        const key = Math.round(alpha * 255)
+        const key = Math.round(cellAlpha(t) * 255)
         let color = cache.get(key)
         if (color === undefined) {
             color = dimColor(accent, key / 255)
