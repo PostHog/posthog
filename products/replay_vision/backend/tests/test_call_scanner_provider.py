@@ -63,8 +63,11 @@ class _FakeContent:
 class _Resp:
     """Minimal genai response: `.text`, `.candidates[0].content.parts`, and an optional finish reason."""
 
-    def __init__(self, text: str = "", function_call: Any = None, finish_reason: Any = None) -> None:
-        self.candidates = [type("Cand", (), {"content": _FakeContent(function_call), "finish_reason": finish_reason})()]
+    def __init__(
+        self, text: str = "", function_call: Any = None, finish_reason: Any = None, empty_content: bool = False
+    ) -> None:
+        content = None if empty_content else _FakeContent(function_call)
+        self.candidates = [type("Cand", (), {"content": content, "finish_reason": finish_reason})()]
         self.text = text
 
 
@@ -243,19 +246,28 @@ async def test_cached_tool_budget_exhaustion_forces_an_inline_tool_free_answer()
 
 
 @pytest.mark.asyncio
-async def test_output_cap_hit_re_prompts_for_briefer_reasoning() -> None:
+@pytest.mark.parametrize("empty_content", [False, True])
+async def test_output_cap_hit_re_prompts_for_briefer_reasoning(empty_content: bool) -> None:
     # A MAX_TOKENS finish means thinking ate the cap and the JSON never arrived. The generic "raw JSON only"
-    # correction would re-run the same reasoning into the same wall, so the re-prompt has to name the cause.
+    # correction would re-run the same reasoning into the same wall, so the re-prompt has to name the cause. When
+    # thinking consumed the whole cap the candidate has no content at all; resending that would 400 the retry.
     steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
     responses = [
-        _Resp(text='{"verd', finish_reason=types.FinishReason.MAX_TOKENS),
+        _Resp(
+            text="" if empty_content else '{"verd',
+            finish_reason=types.FinishReason.MAX_TOKENS,
+            empty_content=empty_content,
+        ),
         _Resp(text='{"verdict":"yes"}'),
     ]
     client = _FakeClient(responses)
-    out = await _run(client, steps)
+    with patch(f"{_MODULE}.record_provider_call") as record:
+        out = await _run(client, steps)
     assert out["core"].verdict == "yes"
-    correction = client.models.calls[1]["contents"][-1].text
-    assert "ran out of output tokens" in correction
+    retry_contents = client.models.calls[1]["contents"]
+    assert "ran out of output tokens" in retry_contents[-1].text
+    assert all(item is not None for item in retry_contents)
+    assert [call.kwargs["outcome"] for call in record.call_args_list] == ["output_cap_hit", "ok"]
 
 
 @pytest.mark.asyncio
@@ -784,6 +796,9 @@ class TestStepConfig:
         assert config.tool_config is None
         assert config.cached_content is None
         assert config.response_json_schema is not None
+        assert (
+            config.max_output_tokens == STEP_MAX_OUTPUT_TOKENS
+        )  # the one-shot forced answer is the likeliest to overrun
 
 
 @pytest.mark.asyncio
