@@ -11,6 +11,7 @@ type SceneTagsComboboxProps = SceneCanEditProps &
         tags?: string[]
         tagsAvailable?: string[]
         loading?: boolean
+        onOpen?: () => void
     }
 
 /**
@@ -24,6 +25,7 @@ export function SceneTagsCombobox({
     dataAttrKey,
     canEdit = true,
     loading,
+    onOpen,
 }: SceneTagsComboboxProps): JSX.Element {
     const label = (
         <span className="flex items-center gap-1.5">
@@ -37,6 +39,7 @@ export function SceneTagsCombobox({
             <TagsCombobox
                 value={tags ?? []}
                 onChange={(next) => onSave?.(next)}
+                onOpen={onOpen}
                 options={tagsAvailable}
                 placeholder="Add tags..."
                 disabled={!onSave || !canEdit}

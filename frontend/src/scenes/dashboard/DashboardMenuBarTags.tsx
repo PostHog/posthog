@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 
@@ -13,10 +13,12 @@ type DashboardMenuBarTagsProps = {
 
 export function DashboardMenuBarTags({ onSave, tags, canEdit, loading }: DashboardMenuBarTagsProps): JSX.Element {
     const { tags: tagsAvailable } = useValues(tagsModel)
+    const { loadTagsIfNeeded } = useActions(tagsModel)
 
     return (
         <SceneTagsCombobox
             onSave={onSave}
+            onOpen={loadTagsIfNeeded}
             tags={tags}
             tagsAvailable={tagsAvailable.filter((tag) => !tags?.includes(tag))}
             dataAttrKey="dashboard"

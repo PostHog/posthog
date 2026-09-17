@@ -16,6 +16,7 @@ import {
 type TagsComboboxProps = {
     value: string[]
     onChange: (next: string[]) => void
+    onOpen?: () => void
     options?: string[]
     placeholder?: string
     autoFocus?: boolean
@@ -41,6 +42,7 @@ export function TagsCombobox(props: TagsComboboxProps): JSX.Element {
 function TagsComboboxInner({
     value,
     onChange,
+    onOpen,
     options = [],
     placeholder,
     autoFocus,
@@ -78,6 +80,11 @@ function TagsComboboxInner({
             }}
             inputValue={inputValue}
             onInputValueChange={(v: string) => setInputValue(v)}
+            onOpenChange={(open) => {
+                if (open) {
+                    onOpen?.()
+                }
+            }}
         >
             <TagsComboboxBody
                 placeholder={placeholder}
