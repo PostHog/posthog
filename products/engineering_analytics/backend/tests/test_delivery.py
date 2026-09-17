@@ -27,9 +27,13 @@ from products.engineering_analytics.backend.logic.pr_timeline import (
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.delivery_comparison import query_delivery_comparison
 from products.engineering_analytics.backend.logic.queries.delivery_summary import (
-    DeliverySummaryAggregator,
     MergedPRFacts,
+    _before_approval_share,
+    _median_ready_to_first_approval,
+    _median_ready_to_merge,
+    _pushes_after_approval,
     query_delivery_summary,
+    scope_repo_figure,
 )
 from products.engineering_analytics.backend.logic.queries.pull_request_timelines import query_pull_request_timelines
 from products.engineering_analytics.backend.logic.views.source_schema import (
@@ -75,7 +79,7 @@ def _attempt(
     pushed: float | None = None,
 ) -> RunAttempt:
     return RunAttempt(
-        run_id=hash(sha) % 1000,
+        run_id=1,
         workflow_name="CI",
         head_sha=sha,
         attempt=attempt,
@@ -416,21 +420,25 @@ class TestComparisonTeamChoice(SimpleTestCase):
         assert (choice.teams, choice.basis) == (["approvers", "team-untested"], Basis.ALL_TEAMS)
 
 
-class TestDeliverySummaryAggregator(SimpleTestCase):
+class TestScopeRepoFigure(SimpleTestCase):
     def test_scope_figures_read_only_the_prs_in_scope(self) -> None:
-        aggregator = DeliverySummaryAggregator(
-            [
-                _facts(1, in_scope=True, ready_hours=10, approved_after_hours=4, pushes_after=[0, 6]),
-                # Approved while still a draft: nobody waited on a reviewer after it went ready.
-                _facts(2, in_scope=False, ready_hours=2, approved_after_hours=-1, pushes_after=[1]),
-                _facts(3, in_scope=False, ready_hours=30, approved_after_hours=None, pushes_after=[]),
-            ]
-        )
+        facts = [
+            _facts(1, in_scope=True, ready_hours=10, approved_after_hours=4, pushes_after=[0, 6]),
+            # Approved while still a draft: nobody waited on a reviewer after it went ready.
+            _facts(2, in_scope=False, ready_hours=2, approved_after_hours=-1, pushes_after=[1]),
+            _facts(3, in_scope=False, ready_hours=30, approved_after_hours=None, pushes_after=[]),
+        ]
 
-        assert aggregator.ready_to_merge(0.5) == ScopeRepoFigure(scope=36000, repo=36000)
-        assert aggregator.median_ready_to_first_approval() == ScopeRepoFigure(scope=14400, repo=7200)
-        assert aggregator.before_first_approval_share() == ScopeRepoFigure(scope=0.4, repo=14400 / 43200)
-        assert aggregator.pushes_after_approval() == ScopeRepoFigure(scope=1, repo=1)
+        scope_facts = [fact for fact in facts if fact.in_scope]
+
+        assert scope_repo_figure(scope_facts, facts, _median_ready_to_merge) == ScopeRepoFigure(scope=36000, repo=36000)
+        assert scope_repo_figure(scope_facts, facts, _median_ready_to_first_approval) == ScopeRepoFigure(
+            scope=14400, repo=7200
+        )
+        assert scope_repo_figure(scope_facts, facts, _before_approval_share) == ScopeRepoFigure(
+            scope=0.4, repo=14400 / 43200
+        )
+        assert scope_repo_figure(scope_facts, facts, _pushes_after_approval) == ScopeRepoFigure(scope=1, repo=1)
 
 
 def _review_row(review_id: int, pr_number: int, state: str, submitted_at: str) -> dict:
@@ -448,6 +456,12 @@ def _member_row(member_id: int, login: str, team_slug: str) -> dict:
     return {"id": member_id, "login": login, "team_id": 1, "team_slug": team_slug, "team_name": team_slug}
 
 
+_LISTED_KINDS = {
+    21: [Kind.CI_RUNNING, Kind.RED_FIXED_BY_PUSH, Kind.CI_RUNNING, Kind.APPROVED_NOT_ENQUEUED, Kind.MERGE_QUEUE],
+    23: [Kind.WAITING_FOR_REVIEW],
+    24: [Kind.DRAFT],
+    26: [Kind.WAITING_FOR_REVIEW],
+}
 _ALICE = SummaryScope.from_params(author="alice", github_team=None, pr_number=None, repo=None)
 _ALICES_TEAM = SummaryScope.from_params(author=None, github_team="team-replay", pr_number=None, repo=None)
 
@@ -489,7 +503,6 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
             REVIEWS_COLUMNS,
             [_review_row(1, 21, "APPROVED", _ago_offset_with_duration(2, 6 * 3600, 0)[0])],
         )
-        # Bob sits in another team, so the team scope must match alice's PRs only.
         self._create_table(
             "github_team_members",
             TEAM_MEMBERS_COLUMNS,
@@ -569,16 +582,7 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         timelines = query_pull_request_timelines(curated=curated, scope=scope, date_from=date_from, date_to=None)
 
         kinds = {item.number: [segment.kind for segment in item.segments] for item in timelines.items}
-        assert set(kinds) == expected
-        assert kinds[21] == [
-            Kind.CI_RUNNING,
-            Kind.RED_FIXED_BY_PUSH,
-            Kind.CI_RUNNING,
-            Kind.APPROVED_NOT_ENQUEUED,
-            Kind.MERGE_QUEUE,
-        ]
-        assert kinds.get(23, [Kind.WAITING_FOR_REVIEW]) == [Kind.WAITING_FOR_REVIEW]
-        assert kinds.get(24, [Kind.DRAFT]) == [Kind.DRAFT]
+        assert kinds == {number: _LISTED_KINDS[number] for number in expected}
         merged = next(item for item in timelines.items if item.number == 21)
         assert merged.author.handle == "alice"
         assert [(push.head_sha, push.pushed_at) for push in merged.pushes] == [
@@ -587,8 +591,34 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         ]
         assert merged.segments[-1].ended_at == merged.merged_at
         assert merged.started_at == _dt(_ago(2))
-        old_open = next((item for item in timelines.items if item.number == 26), None)
-        assert old_open is None or old_open.started_at == date_from - CI_LOOKBACK
+        starting_at_lookback = {item.number for item in timelines.items if item.started_at == date_from - CI_LOOKBACK}
+        assert starting_at_lookback == expected & {26}
+
+    def test_a_ready_event_after_the_close_still_builds_a_timeline(self) -> None:
+        closed_at = _ago(2)
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(31, "alice", "closed", 0, _ago(4), closed_at=closed_at)],
+        )
+        self._create_table(
+            "github_issue_events",
+            ISSUE_EVENTS_COLUMNS,
+            [_issue_event_row(1, "ready_for_review", 31, _ago(1))],
+        )
+        self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [])
+        curated = CuratedGitHubSource.for_team(self.team)
+        scope = DeliveryScope(
+            kind=DeliveryScopeKind.PULL_REQUEST, pr_number=31, repo_owner="PostHog", repo_name="posthog"
+        )
+
+        timelines = query_pull_request_timelines(
+            curated=curated, scope=scope, date_from=datetime.now(tz=UTC) - timedelta(days=7), date_to=None
+        )
+
+        reopened = next(item for item in timelines.items if item.number == 31)
+        assert reopened.started_at == _dt(_ago(4))
+        assert reopened.segments != []
 
 
 _ISSUE_EVENTS_WITHOUT_TEAM_REQUESTS = {

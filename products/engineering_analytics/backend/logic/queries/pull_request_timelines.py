@@ -1,13 +1,10 @@
-"""Curated query: pull requests in one scope as delivery timelines.
+"""Curated query: pull requests in one scope as delivery timelines, replayed with ``logic.pr_timeline``.
 
-Selects the pull requests in scope (an author's or a GitHub team's open PRs plus the PRs merged in
-the window, or one pull request whatever its state), fetches their immutable evidence, then replays
-each PR's states with ``logic.pr_timeline``. Every read is scoped to the selected PR numbers, so the
-scans track the listed work rather than the repository's history.
+Every read is scoped to the selected pull request numbers, so the scans track the listed work rather
+than the repository's history.
 
-Run attempts come from the jobs table when it is synced: the runs snapshot keeps only a run's
-newest attempt, so a failed first attempt that a re-run turned green is invisible without it.
-Without jobs, each run contributes its newest attempt only and a flake reads as never red.
+Run attempts come from the jobs table when it is synced, because the runs snapshot keeps only a run's
+newest attempt. Without jobs, a failed first attempt that a re-run turned green reads as never red.
 """
 
 from collections import defaultdict
@@ -40,11 +37,11 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     DECISIVE_FAILURE_CONCLUSIONS,
     DECISIVE_FAILURE_CONCLUSIONS_SQL,
     UNPAGED_SCAN_LIMIT,
+    date_to_filter_clause,
     run_started_floor_constant,
     run_windowed_job_created_floor_constant,
 )
-from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_costs_since
-from products.engineering_analytics.backend.logic.views import issue_events
+from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_costs
 
 _LIMIT = 200
 
@@ -66,11 +63,11 @@ _PRS_SELECT = f"""
     LIMIT {_LIMIT + 1}
 """
 
-_TRANSITIONS_SELECT = f"""
-    SELECT pr_number, event, created_at
-    FROM __EVENTS_SOURCE__ AS se
-    WHERE pr_number IN {{pr_numbers}}
-    ORDER BY created_at ASC, id ASC
+_READY_AT_SELECT = f"""
+    WITH __READY_BY_PR__
+    SELECT pr_number, last_ready_at
+    FROM ready_by_pr
+    WHERE pr_number IN {{pr_numbers}} AND last_ready_at IS NOT NULL
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
@@ -81,8 +78,8 @@ _REVIEWS_SELECT = f"""
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
-# A skipped run never executes, so it adds no red or running time. Skipped and merge-queue runs are a
-# third of a busy team's runs, so both stay out of this list to keep it under UNPAGED_SCAN_LIMIT.
+# Skipped runs add no red or running time, and _GATE_ATTEMPTS_SELECT reads gate runs. Leaving both out
+# keeps this list under UNPAGED_SCAN_LIMIT.
 _RUNS_SELECT = f"""
     SELECT
         id, pr_number, workflow_name, head_sha, status, conclusion, run_started_at, updated_at, run_attempt, created_at
@@ -157,8 +154,6 @@ class _JobAttempt:
 
 
 class PullRequestTimelinesQuery:
-    """Collects the evidence for the pull requests in one scope and replays each into a timeline."""
-
     def __init__(
         self, curated: CuratedGitHubSource, *, scope: DeliveryScope, date_from: datetime, date_to: datetime | None
     ) -> None:
@@ -198,12 +193,13 @@ class PullRequestTimelinesQuery:
             run_from = max(run_from, self._date_from - CI_LOOKBACK)
         ready_at = self._query_ready_at(pr_numbers, run_from)
         reviews = self._query_reviews(pr_numbers)
-        attempts, gates = self._query_attempts(pr_numbers, run_from)
+        attempts = self._query_run_attempts(pr_numbers, run_from)
+        gates = self._query_gate_attempts(pr_numbers, run_from)
         default_branch = next((row[9] for row in prs if row[9]), "")
         master_failures = self._query_master_failures(attempts, default_branch, run_from)
         out_of_queue = self._query_out_of_queue(pr_numbers)
         # Floored like the runs scan: an unfloored cost read scans the whole jobs history for a team scope.
-        costs = query_pr_costs_since(curated=self._curated, pr_numbers=pr_numbers, run_from=run_from)
+        costs = query_pr_costs(curated=self._curated, pr_numbers=pr_numbers, run_from=run_from)
 
         items = []
         for row in prs:
@@ -225,12 +221,14 @@ class PullRequestTimelinesQuery:
             number = int(number)
             is_open = state == PRState.OPEN
             ended_at = merged_at or (closed_at if not is_open else None) or self._now
-            started_at = max(
-                created_at
-                if is_open and is_draft
-                else self._started_at(ready_at.get(number, []), created_at, ended_at),
-                run_from,
-            )
+            ready = None if is_open and is_draft else ready_at.get(number)
+            if ready is not None and ready > ended_at:
+                # The two tables sync apart, so a reopened pull request can carry a ready event newer
+                # than the close its own row still reports. A start after the end builds no segments
+                # at all, which reads as a pull request with no timeline.
+                ready = None
+            # No ready event means never drafted, or issue events not synced.
+            started_at = max(ready or created_at, run_from)
             pr_attempts = [attempt for attempt in attempts.get(number, []) if attempt.started_at <= ended_at]
             builder = PRTimelineBuilder(
                 PRTimelineInput(
@@ -246,7 +244,7 @@ class PullRequestTimelinesQuery:
                 ),
                 master_failures,
             )
-            cost = costs.get(number)
+            cost = costs.get((repo_owner, repo_name, number))
             items.append(
                 PRTimeline(
                     number=number,
@@ -271,52 +269,38 @@ class PullRequestTimelinesQuery:
             )
         return self._result(items, truncated=truncated)
 
-    @staticmethod
-    def _started_at(ready_events: list[datetime], created_at: datetime, ended_at: datetime) -> datetime:
-        """The last ready_for_review before the end, else created_at (never drafted, or unsynced)."""
-        before_end = [at for at in ready_events if created_at <= at <= ended_at]
-        return max(before_end) if before_end else created_at
-
     def _query_prs(self) -> list[tuple]:
         placeholders: dict[str, ast.Expr] = {
             "date_from": ast.Constant(value=self._date_from),
             **self._scope.placeholders(),
         }
-        date_to_clause = ""
-        if self._date_to is not None:
-            placeholders["date_to"] = ast.Constant(value=self._date_to)
-            date_to_clause = "AND pr.merged_at <= {date_to}"
         window = "1 = 1" if self._scope.kind == DeliveryScopeKind.PULL_REQUEST else _LIST_WINDOW
         sql = (
             _PRS_SELECT.replace("__SCOPE__", self._scope.pr_predicate(self._curated))
             .replace("__WINDOW__", window)
             .replace("__PR_SOURCE__", self._curated.pr_source())
-            .replace("__DATE_TO__", date_to_clause)
+            .replace("__DATE_TO__", date_to_filter_clause(self._date_to, placeholders, column="pr.merged_at"))
         )
         response = self._curated.run(
             sql, query_type="engineering_analytics.pull_request_timelines_prs", placeholders=placeholders
         )
         return [row for row in response.results or [] if row[6] is not None]
 
-    def _query_ready_at(self, pr_numbers: list[int], run_from: datetime) -> dict[int, list[datetime]]:
+    def _query_ready_at(self, pr_numbers: list[int], run_from: datetime) -> dict[int, datetime]:
         # A timeline never starts before run_from, so an older ready event cannot move its start. The
         # floor keeps the scan from parsing the whole append-growing events history.
-        source = self._curated.issue_events_source(created_floor=True)
-        if source is None:
+        ready_by_pr = self._curated.ready_by_pr_cte(created_floor=True)
+        if ready_by_pr is None:
             return {}
         response = self._curated.run(
-            _TRANSITIONS_SELECT.replace("__EVENTS_SOURCE__", source),
-            query_type="engineering_analytics.pull_request_timelines_transitions",
+            _READY_AT_SELECT.replace("__READY_BY_PR__", ready_by_pr),
+            query_type="engineering_analytics.pull_request_timelines_ready_at",
             placeholders={
                 "pr_numbers": ast.Constant(value=pr_numbers),
                 "event_created_floor": run_started_floor_constant(run_from),
             },
         )
-        ready_at: dict[int, list[datetime]] = defaultdict(list)
-        for number, event, created_at in response.results or []:
-            if event == issue_events.READY_FOR_REVIEW_EVENT:
-                ready_at[int(number)].append(created_at)
-        return ready_at
+        return {int(number): last_ready_at for number, last_ready_at in response.results or []}
 
     def _query_reviews(self, pr_numbers: list[int]) -> dict[int, list[ReviewVerdict]] | None:
         """Reviews per PR, or None when the reviews table is not synced."""
@@ -333,19 +317,18 @@ class PullRequestTimelinesQuery:
             reviews[int(number)].append(ReviewVerdict(reviewer=reviewer or "", state=state, submitted_at=submitted_at))
         return reviews
 
-    def _query_attempts(
-        self, pr_numbers: list[int], run_from: datetime
-    ) -> tuple[dict[int, list[RunAttempt]], dict[int, list[GateAttempt]]]:
-        runs_source = self._curated.run_source(started_floor=True)
-        placeholders: dict[str, ast.Expr] = {
+    def _runs_placeholders(self, pr_numbers: list[int], run_from: datetime) -> dict[str, ast.Expr]:
+        return {
             "pr_numbers": ast.Constant(value=pr_numbers),
             "run_from": ast.Constant(value=run_from),
             "run_started_floor": run_started_floor_constant(run_from),
         }
+
+    def _query_run_attempts(self, pr_numbers: list[int], run_from: datetime) -> dict[int, list[RunAttempt]]:
         response = self._curated.run(
-            _RUNS_SELECT.replace("__RUNS_SOURCE__", runs_source),
+            _RUNS_SELECT.replace("__RUNS_SOURCE__", self._curated.run_source(started_floor=True)),
             query_type="engineering_analytics.pull_request_timelines_runs",
-            placeholders=placeholders,
+            placeholders=self._runs_placeholders(pr_numbers, run_from),
         )
         runs = [row for row in response.results or [] if row[6] is not None]
         # A run on its first attempt that did not fail has exactly one attempt, and its run row already
@@ -416,13 +399,15 @@ class PullRequestTimelinesQuery:
                     failed_jobs=(),
                 )
             )
+        return attempts
 
+    def _query_gate_attempts(self, pr_numbers: list[int], run_from: datetime) -> dict[int, list[GateAttempt]]:
         gates_response = self._curated.run(
-            _GATE_ATTEMPTS_SELECT.replace("__RUNS_SOURCE__", runs_source).replace(
+            _GATE_ATTEMPTS_SELECT.replace("__RUNS_SOURCE__", self._curated.run_source(started_floor=True)).replace(
                 "__GATE_ATTEMPT__", gate_attempt_expr("r.head_branch")
             ),
             query_type="engineering_analytics.pull_request_timelines_gate_attempts",
-            placeholders=placeholders,
+            placeholders=self._runs_placeholders(pr_numbers, run_from),
         )
         gates: dict[int, list[GateAttempt]] = defaultdict(list)
         for number, started_at, completed_at, unfinished in gates_response.results or []:
@@ -430,7 +415,7 @@ class PullRequestTimelinesQuery:
                 gates[int(number)].append(
                     GateAttempt(started_at=started_at, completed_at=None if unfinished else completed_at)
                 )
-        return attempts, gates
+        return gates
 
     def _query_job_attempts(self, run_ids: list[int], run_from: datetime) -> dict[int, list[_JobAttempt]]:
         source = self._curated.jobs_source(created_floor=True)

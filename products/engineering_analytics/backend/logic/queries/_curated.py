@@ -243,8 +243,8 @@ class CuratedGitHubSource:
 
     def issue_events_source(self, *, created_floor: bool = False) -> str | None:
         """Curated PR draft/ready transitions ``SELECT`` subquery, or None when the optional
-        issue-events table isn't synced. ``created_floor`` adds the raw-string scan floor — callers
-        must register {event_created_floor} (see run_started_floor_constant)."""
+        issue-events table isn't synced. ``created_floor`` adds the raw-string scan floor, so callers
+        must register {event_created_floor} (see ``run_started_floor_constant``)."""
         if not self._tables.issue_events:
             return None
         return f"({issue_events.build_query(self._tables.issue_events, created_floor=created_floor)})"
@@ -281,7 +281,7 @@ class CuratedGitHubSource:
         a constant NULL when the optional issue-events table isn't synced, so every consumer reads
         the measure the same way."""
         window = self._issue_events_window()
-        cte = self._ready_by_pr_cte()
+        cte = self.ready_by_pr_cte()
         if window is None or cte is None:
             return _READY_TO_MERGE_UNOBSERVABLE
         return ReadyToMergeSql(cte=cte, join=_READY_BY_PR_JOIN, expr=_ready_to_merge_expr(window))
@@ -298,8 +298,9 @@ class CuratedGitHubSource:
             end=f"({issue_events.build_window_end_query(self._tables.issue_events)})",
         )
 
-    def _ready_by_pr_cte(self) -> str | None:
-        """CTE: each PR's last observed draft-state transition, or None when the table isn't synced.
+    def ready_by_pr_cte(self, *, created_floor: bool = False) -> str | None:
+        """CTE: each PR's last observed draft-state transition and last ready event, or None when the
+        table isn't synced. ``created_floor`` works as in ``issue_events_source``.
 
         Only the LAST switch counts: for a merged PR the newest transition is necessarily the ready
         that preceded the merge (a draft can't merge); an open PR goes false while re-drafted. The
@@ -307,8 +308,12 @@ class CuratedGitHubSource:
         ``pr_number`` alone, unlike ``runs_by_pr``: a run's association can list the fork network's
         PRs (which is why that rollup needs the repo qualifier), whereas every row of a resolved
         issue-events table belongs to that one repo by table construction.
+
+        The events table and the pull requests table sync independently, so a timestamp here can run
+        ahead of what a PR's own row reports. A consumer that compares one against a PR's end must
+        bound it. ``last_ready_at`` is safe against ``merged_at`` alone, because a draft cannot merge.
         """
-        source = self.issue_events_source()
+        source = self.issue_events_source(created_floor=created_floor)
         if source is None:
             return None
         return f"""
@@ -316,7 +321,8 @@ class CuratedGitHubSource:
                 SELECT
                     pr_number,
                     argMax(event, tuple(created_at, id)) = '{issue_events.READY_FOR_REVIEW_EVENT}' AS last_is_ready,
-                    max(created_at) AS last_transition_at
+                    max(created_at) AS last_transition_at,
+                    maxIf(created_at, event = '{issue_events.READY_FOR_REVIEW_EVENT}') AS last_ready_at
                 FROM {source} AS se
                 GROUP BY pr_number
             )
