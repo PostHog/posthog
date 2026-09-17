@@ -1002,6 +1002,12 @@ WHERE and(
                 return first_pageview_filter_value_expr(breakdown, modifiers=self.modifiers, timings=self.timings)
             case WebStatsBreakdown.BROWSER:
                 return ast.Field(chain=["properties", "$browser"])
+            case WebStatsBreakdown.IN_APP_BROWSER:
+                # Non-in-app traffic has no $webview_app, so it drops out via the default
+                # outer_where_breakdown branch (IS NOT NULL). That is intentional: this tile lists
+                # the host apps, not a dominant "(not set)" row for everyone else, so its total does
+                # not reconcile with the overview. Do not add it to the "(not set)" list below.
+                return ast.Field(chain=["properties", "$webview_app"])
             case WebStatsBreakdown.OS:
                 return ast.Field(chain=["properties", "$os"])
             case WebStatsBreakdown.VIEWPORT:
