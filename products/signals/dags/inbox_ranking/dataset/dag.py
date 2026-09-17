@@ -27,7 +27,9 @@ Point-in-time caveats, per source:
   re-embedded rendering: the source replaces on a key that includes the rendering and the document
   id, so a partition rebuilt later for an earlier day sees only the newer row, whose inserted_at is
   past the cutoff, and the report reads as having no vector that day. That loses coverage and never
-  leaks a future vector; forward-run daily partitions are unaffected;
+  leaks a future vector. A forward run carries the same loss over a shorter window: the schedule
+  fires at 02:30 UTC for the previous day, so the query starts at least 2.5 hours after the cutoff,
+  and the title snapshot runs after the join, which makes its window the wider of the two;
 - signal embeddings are exact for any past day within that same TTL, which is measured from signal
   event time — a day whose signals have since aged out cannot be rebuilt, and the asset refuses to
   overwrite a partition with fewer rows rather than quietly shrink it;
