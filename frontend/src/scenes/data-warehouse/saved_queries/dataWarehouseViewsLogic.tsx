@@ -630,7 +630,9 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             actions.loadDataWarehouseSavedQueries()
         },
         deleteDataWarehouseSavedQueryFailure: ({ errorObject }) => {
-            const nodeId = errorObject?.extra?.node_id
+            // The blocked node's id rides on the response body's `extra`, and ApiError keeps the
+            // parsed body on `data` instead of lifting that key onto itself.
+            const nodeId = errorObject?.data?.extra?.node_id
             lemonToast.error(errorObject?.detail || 'Failed to delete view', {
                 button: nodeId
                     ? {
