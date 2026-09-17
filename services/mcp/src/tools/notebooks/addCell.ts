@@ -107,6 +107,10 @@ interface ProseAnchor {
     end: number
 }
 
+// Notebook markdown keeps CRLF and lone-CR line endings, and the backend walk splits on all three.
+// The lookahead keeps the two halves of a CRLF from counting as two line breaks.
+const EOL = '(?:\\r\\n|\\r(?!\\n)|\\n)'
+
 /**
  * Whether the text at `index` stands as a block of its own, rather than sitting inside a longer
  * one. A blank line separates two blocks, so a match with one on each side covers a whole block.
@@ -115,8 +119,8 @@ interface ProseAnchor {
  * which costs a round trip. Accepting a match inside a longer paragraph would split that
  * paragraph around the inserted cell, which costs the reader their text.
  */
-const BLOCK_START_BOUNDARY = /(?:^|\n[ \t]*\n[ \t]*)$/
-const BLOCK_END_BOUNDARY = /^(?:[ \t]*\n[ \t]*\n|[ \t]*\n?$)/
+const BLOCK_START_BOUNDARY = new RegExp(`(?:^|${EOL}[ \\t]*${EOL}[ \\t]*)$`)
+const BLOCK_END_BOUNDARY = new RegExp(`^(?:[ \\t]*${EOL}[ \\t]*${EOL}|[ \\t]*${EOL}?$)`)
 
 function isWholeBlockAt(markdown: string, index: number, source: string): boolean {
     return (
@@ -168,7 +172,7 @@ function insertBlock(
     const trimmed = markdown.replace(/\s+$/, '')
     if (proseAnchor) {
         const end = locateProseAnchorEnd(markdown, proseAnchor)
-        const rest = markdown.slice(end).replace(/^\n+/, '')
+        const rest = markdown.slice(end).replace(/^[\r\n]+/, '')
         const head = `${markdown.slice(0, end)}${BLOCK_SEPARATOR}${block}`
         return rest ? `${head}${BLOCK_SEPARATOR}${rest}` : `${head}\n`
     }
