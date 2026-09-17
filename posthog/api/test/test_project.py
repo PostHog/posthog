@@ -281,6 +281,58 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("retention_days must be one of", response.json()["detail"])
 
+    @parameterized.expand(
+        [
+            ["linked_flag", "session_recording_linked_flag", {"id": 1, "key": "replay-gate"}],
+            [
+                "trigger_group",
+                "session_recording_trigger_groups",
+                {
+                    "version": 2,
+                    "groups": [
+                        {"id": "group-0", "sampleRate": 1, "conditions": {"matchType": "any", "flag": "replay-gate"}}
+                    ],
+                },
+            ],
+        ]
+    )
+    def test_project_creation_rejects_a_replay_gate_naming_a_flag(self, _name: str, field: str, value: dict) -> None:
+        # The new project holds no flags, so the gate would name one nothing can resolve, and both
+        # SDKs read that as "do not record". Creation is the last point where the caller is told.
+        self._set_unlimited_projects()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post("/api/projects/", {"name": "Gated Project", field: value}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], field)
+        self.assertIn("not available in this project", response.json()["detail"])
+        self.assertFalse(Project.objects.filter(organization=self.organization, name="Gated Project").exists())
+
+    def test_project_creation_allows_a_trigger_group_that_names_no_flag(self) -> None:
+        # Only a flag reference is unresolvable on a new project. A group gating on events alone
+        # has nothing to resolve, so refusing it would block a legitimate create.
+        self._set_unlimited_projects()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            "/api/projects/",
+            {
+                "name": "Ungated Project",
+                "session_recording_trigger_groups": {
+                    "version": 2,
+                    "groups": [
+                        {"id": "group-0", "sampleRate": 1, "conditions": {"matchType": "any", "events": ["signup"]}}
+                    ],
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
     def test_member_cannot_create_project_by_default(self):
         self._set_unlimited_projects()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER

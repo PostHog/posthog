@@ -121,6 +121,7 @@ from products.feature_flags.backend.models.evaluation_context import EvaluationC
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.feature_flags.backend.session_recording_links import (
     REPLAY_GATE_COLUMNS,
+    gate_flag_errors_without_a_project,
     lock_team_for_replay_gate_write,
     unusable_gate_flag_errors,
 )
@@ -3140,8 +3141,11 @@ def _validate_replay_gate_flags(
         try:
             project_id = view.project_id
         except KeyError:
-            # A project being created holds no flags yet, and has no id for a flag to belong to,
-            # so there is nothing to resolve a reference against.
+            # A project being created holds no flags yet, so every flag a gate names is one it
+            # cannot record on. There is no id to resolve a reference against, which takes away the
+            # lookup rather than the refusal.
+            if errors := gate_flag_errors_without_a_project(gate_columns):
+                raise exceptions.ValidationError(errors)
             return
 
     if errors := unusable_gate_flag_errors(project_id, gate_columns):

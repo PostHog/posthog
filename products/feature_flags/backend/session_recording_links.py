@@ -370,6 +370,20 @@ def unusable_gate_flag_errors(project_id: int, columns: Mapping[str, Any]) -> di
     return dict(errors)
 
 
+def gate_flag_errors_without_a_project(columns: Mapping[str, Any]) -> dict[str, list[str]]:
+    """`unusable_gate_flag_errors` for a project that does not exist yet.
+
+    A project being created holds no flags, so every flag a gate names is one it cannot record on.
+    There is no project to resolve against, so the refusal needs no lookup. The messages are the
+    ones the project-scoped check raises, so both routes refuse the same way. A gate that names no
+    flag, which is what a trigger group on events or urls alone stores, yields nothing.
+    """
+    errors: dict[str, list[str]] = defaultdict(list)
+    for ref in _gate_flag_refs(columns):
+        errors[ref.column].append(_unusable_flag_error(ref))
+    return dict(errors)
+
+
 def _canonical_gate_columns(project_id: int, columns: Mapping[str, Any]) -> dict[str, Any]:
     """The gate columns to store, with every reference that carries a flag id moved onto that
     flag's current key.
