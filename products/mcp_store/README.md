@@ -73,6 +73,7 @@ At app startup, every environment queues `sync_mcp_server_templates` (see `backe
 - **Temporary suspension**: `disabled=True` keeps a catalog entry inactive and deactivates an existing row on the next sync. Removing it lets a configured credential source retry its shared-client probe; other entries still require operator review.
 - **When probes run**: on creation, and when an entry with a configured credential source is inactive or first adopts that source.
   The sync also re-probes an **active DCR entry** on an interval (`DCR_REPROBE_INTERVAL`, 24 hours).
+  A row whose client an operator pasted into admin is a shared-creds entry, not a DCR entry, so the interval re-probe never reaches it.
   A vendor can stop accepting our client registrations at any time.
   A DCR entry has no credential source whose probe would catch that.
   A DCR probe mints a real client with the provider, so the sync claims each probe with a conditional update on the row's `last_probed_at`.
