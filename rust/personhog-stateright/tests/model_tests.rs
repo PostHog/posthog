@@ -1,29 +1,6 @@
-//! Exhaustive model-checking runs with the expected verdicts per
-//! variant. These are the durable record of what the protocol does and
-//! does not guarantee:
-//!
-//! | scenario                     | no_lost_acked_write | no_split_acceptance |
-//! |------------------------------|---------------------|----------------------|
-//! | Current, no failures         | holds               | holds                |
-//! | Current, crash/lease loss    | holds               | holds                |
-//! | Current, single zombie pod   | holds               | holds                |
-//! | Current, double zombie       | VIOLATED (residual) | VIOLATED (residual)  |
-//! | EpochFenced, double zombie   | holds               | holds                |
-//!
-//! Every row above is about *write* safety. Stale strong reads from a
-//! zombie pod are a separate, still-open residual that fencing does not
-//! address; only the configurations without a zombie window uphold
-//! `strong_reads_complete`.
-//!
-//! The single-zombie row is a result the checker sharpened beyond what
-//! the manual review claimed: a zombie *pod* alone cannot lose an acked
-//! write, because the identity freeze quorum has every registered router
-//! stashing before the drain (no honest router routes to the zombie
-//! post-warm) and anything the zombie accepts pre-warm sits below the
-//! warm HWM and is captured. Loss requires the double zombie — a
-//! lease-expired router (outside the quorum, stale table) feeding a
-//! lease-expired pod. That is the documented residual epoch fencing
-//! closes; the checker finds the exact interleaving as a counterexample.
+//! Exhaustive model-checking runs and their verdicts. Each test's doc
+//! comment states what its configuration proves; the README carries the
+//! verdict table and the state-space sizes.
 
 use std::time::Instant;
 
@@ -119,6 +96,7 @@ fn base() -> HandoffModel {
         late_routers: 0,
         partitions: 1,
         warm_order: WarmOrder::FenceFirst,
+        claim_lapses: false,
         claim_recovers: true,
         claim_detection: ClaimDetection::Prompt,
         writes: 2,
@@ -172,9 +150,12 @@ fn the_protocol_with_crashes_is_safe_and_live() {
 /// clears every property, not only the safety ones.
 #[test]
 fn a_single_zombie_pod_is_safe() {
-    model(1, 1)
-        .explore("a_single_zombie_pod_is_safe")
-        .assert_properties();
+    HandoffModel {
+        claim_lapses: true,
+        ..model(1, 1)
+    }
+    .explore("a_single_zombie_pod_is_safe")
+    .assert_properties();
 }
 
 /// The double zombie, closed by both halves at once: fencing rejects the
@@ -183,9 +164,12 @@ fn a_single_zombie_pod_is_safe() {
 /// including the stale-read one that fencing alone used to leave broken.
 #[test]
 fn epoch_fenced_double_zombie_is_safe() {
-    model(2, 1)
-        .explore("epoch_fenced_double_zombie_is_safe")
-        .assert_properties();
+    HandoffModel {
+        claim_lapses: true,
+        ..model(2, 1)
+    }
+    .explore("epoch_fenced_double_zombie_is_safe")
+    .assert_properties();
 }
 
 /// The rejected warm ordering — changelog read before fence acquisition
@@ -663,6 +647,7 @@ fn epoch_fenced_under_cancellation_is_safe_and_live() {
 #[test]
 fn a_lapsed_claim_that_never_returns_fails_stability() {
     let checker = HandoffModel {
+        claim_lapses: true,
         claim_recovers: false,
         crashes: 1,
         zombie_window: 1,
@@ -690,6 +675,7 @@ fn a_lapsed_claim_that_never_returns_fails_stability() {
 #[test]
 fn prompt_detection_is_what_makes_the_read_gate_hold() {
     let cfg = |detection| HandoffModel {
+        claim_lapses: true,
         claim_recovers: true,
         claim_detection: detection,
         crashes: 2,

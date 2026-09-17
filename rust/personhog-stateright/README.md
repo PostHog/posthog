@@ -28,25 +28,24 @@ web explorer.
 Configurations are deliberately small — state spaces grow
 combinatorially, and protocol bugs are structural, showing up at
 minimum viable scale or not at all.
-The suite explores ~24M states across 31 runs.
-Its long pole is the two-partition epoch-fenced double zombie, which is more than half the wall clock on its own:
+The suite explores ~28.5M states across 28 runs.
+Its long pole is the two-partition epoch-fenced double zombie, which is about half the wall clock on its own:
 
 | Scenario | Unique states | Wall time |
 |---|---|---|
-| `epoch_fenced_two_partitions_double_zombie_is_safe` | 13.1M | 19s |
-| `two_partitions_double_zombie_loses_acked_writes` | 3.7M | 4.0s |
-| `cancellation_with_live_owner_reaffirms_and_resumes` | 2.6M | 3.9s |
-| `two_partitions_single_zombie_is_safe` | 0.9M | 1.4s |
-| `probe_dual_role_pod_is_reachable_and_safe` | 0.7M | 1.2s |
-| *everything else (26 runs)* | 3.4M | 4s |
+| `epoch_fenced_two_partitions_double_zombie_is_safe` | 13.1M | 19.1s |
+| `rollout_quota_mode_is_safe_and_live` | 3.5M | 5.1s |
+| `cancellation_with_live_owner_reaffirms_and_resumes` | 3.2M | 4.2s |
+| `chunked_plan_application_is_safe_and_live` | 2.1M | 2.7s |
+| `probe_chunked_pending_units_reach_both_fates_safely` | 2.1M | 3.2s |
+| *everything else (23 runs)* | 4.4M | 6s |
 
 Roughly: a second partition costs ~20x, a second failure in the budget ~10x, a third pod ~2x.
-Times are release mode, one scenario at a time on 14 cores — a CI runner with 4 slower cores is several times that, so treat them as ratios rather than absolutes.
+Times are release mode, one scenario at a time on 12 cores — a CI runner with 4 slower cores is several times that, so treat them as ratios rather than absolutes.
 
-The test suite (twenty-odd scenarios; the heavy double-zombie pair dominates the runtime) runs the full
-verdict matrix — the 1-partition scenarios, the 2-partition cases
-including both double-zombie verdicts, the 3-pod rejoin, and the
-reachability probes. Two partitions matter for the coordinator's
+The test suite (twenty-odd scenarios; the two-partition double zombie dominates the runtime) runs the full
+verdict matrix — the 1-partition scenarios, the 2-partition cases, the
+3-pod rejoin, and the reachability probes. Two partitions matter for the coordinator's
 cross-partition scheduling (rebalancing defers while any handoff is in
 flight); the safety invariants themselves are per-partition, which is
 why every violation class reproduces at one.

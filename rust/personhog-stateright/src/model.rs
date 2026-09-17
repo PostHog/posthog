@@ -107,6 +107,9 @@ pub struct HandoffModel {
     /// How promptly a pod notices its lease is gone; only meaningful
     /// since the read gate is the only thing that consults the claim.
     pub claim_detection: ClaimDetection,
+    /// Whether a registered pod's claim may lapse. Only the read gate and
+    /// `converges_to_stable` read the claim, so off is safe elsewhere.
+    pub claim_lapses: bool,
     /// Whether a lapsed claim can come back without the session ending
     /// (production: the keepalive confirming a renewal again). Turning it
     /// off is what makes the black hole permanent, which is the only way
@@ -1273,9 +1276,11 @@ impl Model for HandoffModel {
             if self.claim_detection == ClaimDetection::Delayed {
                 offer(Action::NoticeLeaseLoss(pod));
             }
-            offer(Action::AuthorityLapse(pod));
-            if self.claim_recovers {
-                offer(Action::AuthorityRenew(pod));
+            if self.claim_lapses {
+                offer(Action::AuthorityLapse(pod));
+                if self.claim_recovers {
+                    offer(Action::AuthorityRenew(pod));
+                }
             }
             offer(Action::Join(pod));
         }

@@ -45,6 +45,7 @@ fn main() {
         late_routers: 0,
         partitions: 1,
         warm_order,
+        claim_lapses: true,
         claim_recovers: true,
         claim_detection: ClaimDetection::Prompt,
         writes: 2,
