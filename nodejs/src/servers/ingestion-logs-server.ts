@@ -28,6 +28,7 @@ import {
 import { createLogsOutputsRegistry } from '~/logs/outputs/registry'
 import { RetentionRulesCache } from '~/logs/retention/retention-rules-cache'
 import { SamplingRulesCache } from '~/logs/sampling/sampling-rules-cache'
+import { LogsSourcesCache } from '~/logs/sources/logs-sources-cache'
 import { LogsTransformerService } from '~/logs/transformations/logs-transformer.service'
 
 import { HogFunctionManagerService } from '../cdp/services/managers/hog-function-manager.service'
@@ -130,6 +131,7 @@ export class IngestionLogsServer implements NodeServer {
             ? new LogsMetricsEmitter(this.config.LOGS_METRICS_RULES_EXPORT_URL)
             : undefined
         const retentionRulesCache = new RetentionRulesCache(this.postgres)
+        const logsSourcesCache = new LogsSourcesCache(this.postgres)
 
         // 2. Resolve outputs (topic + producer per logical name, env-controlled)
         const outputs = createLogsOutputsRegistry().build(this.producerRegistry, this.config)
@@ -170,6 +172,7 @@ export class IngestionLogsServer implements NodeServer {
                 metricsEmitter,
                 logsTransformer,
                 retentionRulesCache,
+                logsSourcesCache,
                 usageBatch,
             })
             await consumer.start()
