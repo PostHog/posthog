@@ -1266,14 +1266,20 @@ class TestGetPrimaryKeys:
         assert "information_schema" not in query
 
     def test_swallows_errors_and_returns_none_per_table(self, impl):
+        # Discovery runs every probe on one transactional connection, so the aborted transaction
+        # has to go here: the row-count and sortkey probes that follow would otherwise fail on
+        # `InFailedSqlTransaction` and lose metadata this failure never touched.
         conn = MagicMock()
         cur = MagicMock()
         cur.__enter__.return_value = cur
         cur.execute.side_effect = Exception("denied")
         conn.cursor.return_value = cur
+        conn.info.transaction_status = TransactionStatus.INERROR
 
         result = impl.get_primary_keys(conn, _make_config(), ["users"])
+
         assert result == {"users": None}
+        conn.rollback.assert_called_once()
 
 
 class TestGetRowCounts:

@@ -1148,6 +1148,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             with conn.cursor() as cursor:
                 keys_by_relation = _primary_keys_from_catalog(cursor, where)
         except Exception as e:
+            _recover_after_failed_probe(conn)
             structlog.get_logger().warning(
                 "Primary keys for Redshift schemas are undetermined, not absent: the detection query failed",
                 exc_info=e,
