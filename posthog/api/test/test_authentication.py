@@ -15,7 +15,7 @@ from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.asgi import get_asgi_application
 from django.core.cache import cache
-from django.db import connection
+from django.db import OperationalError, connection
 from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -3089,6 +3089,28 @@ class TestKnownLoginDeviceCookieMiddleware(APIBaseTest):
 
         assert response.status_code == 200
         assert not any(name.startswith("ph_device_") for name in response.cookies)
+
+
+class TestSessionAuthenticationDroppedConnection(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("dropped_connection", "server closed the connection unexpectedly", status.HTTP_200_OK, 2),
+            ("saturated_pool", "query_wait_timeout", status.HTTP_500_INTERNAL_SERVER_ERROR, 1),
+        ]
+    )
+    def test_authentication_survives_a_dropped_connection_only(
+        self, _name: str, message: str, expected_status: int, expected_attempts: int
+    ) -> None:
+        # A dead connection clears on a retry; a saturated pool does not, so it must keep
+        # reaching error tracking.
+        with patch(
+            "posthog.auth.enforce_verified_domain",
+            side_effect=[OperationalError(message), None],
+        ) as enforce:
+            response = self.client.get(f"/api/projects/{self.team.id}/")
+
+        assert response.status_code == expected_status
+        assert enforce.call_count == expected_attempts
 
 
 @pytest.mark.asyncio

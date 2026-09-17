@@ -2,7 +2,7 @@ import pytest
 
 from django.db import InterfaceError, InternalError, OperationalError
 
-from posthog.temporal.common.db_errors import is_transient_db_error
+from posthog.db_errors import is_dropped_connection_error, is_transient_db_error
 
 
 class _WithSqlstate(Exception):
@@ -63,3 +63,20 @@ def test_is_transient_db_error_by_sqlstate(error_cls: type[Exception], sqlstate:
     error = error_cls("some driver-specific message")
     error.__cause__ = _WithSqlstate(sqlstate)
     assert is_transient_db_error(error) is expected
+
+
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        (OperationalError("server closed the connection unexpectedly"), True),
+        (InterfaceError("connection already closed"), True),
+        (OperationalError("server conn crashed?"), True),
+        (ValueError("server closed the connection unexpectedly"), False),
+        # Transient, but not a dead connection: an immediate retry would hit the same saturated
+        # pool or the same restarting server.
+        (OperationalError("query_wait_timeout"), False),
+        (OperationalError("the database system is starting up"), False),
+    ],
+)
+def test_is_dropped_connection_error(error: BaseException, expected: bool) -> None:
+    assert is_dropped_connection_error(error) is expected

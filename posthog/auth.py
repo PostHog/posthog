@@ -30,6 +30,7 @@ from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
 from posthog.constants import AvailableFeature
+from posthog.db_retry import retry_dropped_connection
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
@@ -180,16 +181,23 @@ class SessionAuthentication(authentication.SessionAuthentication):
 
     def authenticate(self, request):
         with tracer.start_as_current_span("posthog.auth.session"):
-            auth_result = super().authenticate(request)
+            # Reading the session user, their organization and their domains all query Postgres
+            # before the view runs, so a dropped connection here fails the request rather than
+            # degrading it. The reads are repeatable, so one retry turns that into a served
+            # request.
+            return retry_dropped_connection("session_authentication", lambda: self._authenticate(request))
 
-            if not auth_result:
-                return None
+    def _authenticate(self, request):
+        auth_result = super().authenticate(request)
 
-            user, auth = auth_result
-            enforce_two_factor(request, user)
-            enforce_verified_domain(request, user)
+        if not auth_result:
+            return None
 
-            return (user, auth)
+        user, auth = auth_result
+        enforce_two_factor(request, user)
+        enforce_verified_domain(request, user)
+
+        return (user, auth)
 
     def authenticate_header(self, request):
         return "Session"

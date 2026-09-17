@@ -4,7 +4,7 @@ from typing import ParamSpec, TypeVar
 
 from django.db import InternalError, OperationalError, close_old_connections
 
-from posthog.temporal.common.db_errors import is_transient_db_error
+from posthog.db_errors import is_transient_db_error
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")

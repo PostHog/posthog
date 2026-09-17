@@ -20,8 +20,8 @@ import psycopg
 import structlog
 from asgiref.sync import sync_to_async
 
+from posthog.db_errors import is_transient_db_error
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.common.db_errors import is_transient_db_error
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (

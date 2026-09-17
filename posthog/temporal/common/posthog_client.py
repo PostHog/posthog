@@ -14,9 +14,9 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
+from posthog.db_errors import is_transient_db_error
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.exceptions_capture import ambient_exception_properties
-from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
