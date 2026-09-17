@@ -56,7 +56,7 @@ Ingestion processes key state in batches:
 A conditional put refuses to recreate a shredded session key.
 A team blocked during a batch is refused by every reader at once and by the next batch, which reads the block row live, and the deletion worker sweeps the team once more after the reader lease, so a key stored after the block is shredded.
 Kafka offsets advance only after the required writes and publication succeed.
-Bulk reads use batches of at most 100 keys; each new key is one conditional put, so no commit in the fleet waits on another.
+Bulk reads use batches of at most 100 keys. Each new key is one conditional put, so no commit in the fleet waits on another, and the month index entries it needs go in together, at most 25 to a request.
 Reads use strongly consistent `BatchGetItem` requests with bounded retries for unprocessed keys and for a throttled request.
 A retry stops when the caller's deadline expires.
 
