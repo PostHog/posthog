@@ -22,6 +22,7 @@ export default function DrawerLayout() {
     >
       <Drawer.Screen name="index" />
       <Drawer.Screen name="task/[id]" />
+      <Drawer.Screen name="activity" />
     </Drawer>
   );
 }
