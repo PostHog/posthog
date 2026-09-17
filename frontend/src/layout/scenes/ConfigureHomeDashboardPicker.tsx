@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect } from 'react'
 
 import { LemonSearchableSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
@@ -14,13 +13,8 @@ import { urls } from '~/scenes/urls'
 export function ConfigureHomeDashboardPicker({ onSelect }: { onSelect: () => void }): JSX.Element {
     const { nameSortedDashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { currentTeam } = useValues(teamLogic)
-    const { loadDashboardsIfNeeded } = useActions(dashboardsModel)
     const { setHomepage } = useActions(sceneLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
-
-    useEffect(() => {
-        loadDashboardsIfNeeded()
-    }, [loadDashboardsIfNeeded])
     const options: LemonSelectOptions<number | null> = [
         { value: null, label: 'No default dashboard / show the "new tab" page' },
         ...nameSortedDashboards.map((dashboard) => ({ value: dashboard.id, label: dashboard.name || 'Untitled' })),

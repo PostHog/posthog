@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 
@@ -30,24 +29,30 @@ export function DashboardsMenuItems({
     const { pinnedDashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { loadDashboardsIfNeeded } = useActions(dashboardsModel)
 
-    useEffect(() => {
-        loadDashboardsIfNeeded()
-    }, [loadDashboardsIfNeeded])
-
     return (
         <>
-            {pinnedDashboards.length > 0 ? (
-                <MenuSub>
-                    <MenuSubTrigger asChild>
-                        <ButtonPrimitive menuItem>
-                            Pinned dashboards
-                            <IconChevronRight className="ml-auto size-3" />
-                        </ButtonPrimitive>
-                    </MenuSubTrigger>
+            <MenuSub
+                onOpenChange={(open) => {
+                    if (open) {
+                        loadDashboardsIfNeeded()
+                    }
+                }}
+            >
+                <MenuSubTrigger asChild>
+                    <ButtonPrimitive menuItem>
+                        Pinned dashboards
+                        <IconChevronRight className="ml-auto size-3" />
+                    </ButtonPrimitive>
+                </MenuSubTrigger>
 
-                    <MenuSubContent>
-                        <MenuGroup>
-                            {pinnedDashboards.map((dashboard) => (
+                <MenuSubContent>
+                    <MenuGroup>
+                        {dashboardsLoading ? (
+                            <MenuItem disabled>
+                                <ButtonPrimitive menuItem>Loading...</ButtonPrimitive>
+                            </MenuItem>
+                        ) : pinnedDashboards.length > 0 ? (
+                            pinnedDashboards.map((dashboard) => (
                                 <MenuItem asChild key={dashboard.id}>
                                     <Link
                                         buttonProps={{
@@ -70,19 +75,15 @@ export function DashboardsMenuItems({
                                         <span className="truncate">{dashboard.name}</span>
                                     </Link>
                                 </MenuItem>
-                            ))}
-                        </MenuGroup>
-                    </MenuSubContent>
-                </MenuSub>
-            ) : dashboardsLoading ? (
-                <MenuItem disabled>
-                    <ButtonPrimitive menuItem>Loading...</ButtonPrimitive>
-                </MenuItem>
-            ) : (
-                <MenuItem disabled>
-                    <ButtonPrimitive menuItem>No pinned dashboards</ButtonPrimitive>
-                </MenuItem>
-            )}
+                            ))
+                        ) : (
+                            <MenuItem disabled>
+                                <ButtonPrimitive menuItem>No pinned dashboards</ButtonPrimitive>
+                            </MenuItem>
+                        )}
+                    </MenuGroup>
+                </MenuSubContent>
+            </MenuSub>
         </>
     )
 }
