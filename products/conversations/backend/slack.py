@@ -1536,6 +1536,147 @@ def _backfill_thread_replies(
     )
 
 
+# Path of a ticket in the app, as ticket_deep_link writes it.
+_TICKET_URL_PATH_RE = re.compile(r"^/project/(?P<project_id>\d+)/support/tickets/(?P<ticket_number>\d+)/?$")
+
+# An unfurl renders for everyone in the channel, so only internal channels get one. Slack
+# reports a channel shared with another organization, or invited to be, with these flags.
+_EXTERNALLY_SHARED_FLAGS = ("is_ext_shared", "is_pending_ext_shared")
+
+MAX_UNFURLS_PER_MESSAGE = 5
+
+
+def ticket_number_from_url(url: str, team: Team) -> int | None:
+    """The ticket number in one of this install's own ticket URLs, else None.
+
+    Host and project both have to match. A link to another region or another project is a
+    different ticket, and its number would otherwise resolve against this team to a real but
+    unrelated ticket.
+    """
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
+    if parsed.netloc != urlparse(settings.SITE_URL).netloc:
+        return None
+    match = _TICKET_URL_PATH_RE.match(parsed.path)
+    if not match:
+        return None
+    if int(match.group("project_id")) != _get_team_id(team):
+        return None
+    return int(match.group("ticket_number"))
+
+
+def _slack_date(value: datetime) -> str:
+    """Render a timestamp in each reader's own timezone, with an ISO fallback."""
+    return f"<!date^{int(value.timestamp())}^{{date_short_pretty}} at {{time}}|{value.isoformat()}>"
+
+
+def ticket_unfurl(ticket: "Ticket", team: Team) -> dict:
+    """The preview card for a pasted ticket link.
+
+    Status and timings only. No message text, requester or email: the reader is whoever is in
+    the channel, which is a wider audience than the people working the ticket, and a preview
+    nobody asked for is the wrong place to widen who sees a customer's words.
+    """
+    fields = [
+        {"type": "mrkdwn", "text": f"*Status*\n{ticket.get_status_display()}"},
+        {"type": "mrkdwn", "text": f"*Priority*\n{ticket.get_priority_display() if ticket.priority else 'Not set'}"},
+        {"type": "mrkdwn", "text": f"*Created*\n{_slack_date(ticket.created_at)}"},
+        {"type": "mrkdwn", "text": f"*Last updated*\n{_slack_date(ticket.updated_at)}"},
+    ]
+    return {
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*<{ticket_deep_link(ticket, team)}|Ticket #{ticket.ticket_number}>*",
+                },
+            },
+            {"type": "section", "fields": fields},
+        ]
+    }
+
+
+def _is_internal_channel(client: WebClient, channel: str) -> bool:
+    """Whether `channel` belongs to this organization alone.
+
+    Fails closed. A channel we cannot read is one we cannot prove is internal, and an unfurl
+    is irreversible once it renders for an external guest.
+    """
+    if not channel:
+        return False
+    try:
+        response = client.conversations_info(channel=channel)
+    except Exception:
+        logger.warning("slack_support_unfurl_channel_lookup_failed", slack_channel_id=channel)
+        return False
+    info = response.get("channel") or {}
+    return not any(info.get(flag) for flag in _EXTERNALLY_SHARED_FLAGS)
+
+
+def handle_link_shared(event: dict, team: Team, slack_team_id: str) -> None:
+    """Preview a pasted ticket link, in internal channels only.
+
+    An unfurl is visible to the whole channel and cannot be made partial, so both gates have
+    to hold: the channel is not shared with another organization, and the person who pasted
+    the link is a member of this team's organization. Ticket status is our operational view,
+    not the customer's view of their own request.
+    """
+    settings_dict = team.conversations_settings or {}
+    if not settings_dict.get("slack_enabled"):
+        return
+
+    channel = event.get("channel") or ""
+    links = [link.get("url", "") for link in event.get("links") or []]
+    if not channel or not links:
+        return
+
+    client = get_slack_client(team)
+    if not _is_internal_channel(client, channel):
+        return
+
+    sharer = resolve_slack_user(client, event.get("user") or "", workspace=slack_team_id)
+    if sharer.get("team_id") != slack_team_id or not resolve_posthog_user_for_slack(sharer.get("email"), team):
+        return
+
+    # Cap the cards, not the links scanned: a ticket link pasted after five unrelated ones
+    # is still the one worth previewing.
+    unfurls: dict[str, dict] = {}
+    for url in links:
+        if len(unfurls) >= MAX_UNFURLS_PER_MESSAGE:
+            break
+        ticket_number = ticket_number_from_url(url, team)
+        if ticket_number is None or url in unfurls:
+            continue
+        ticket = Ticket.objects.filter(team=team, ticket_number=ticket_number).first()
+        if ticket is not None:
+            unfurls[url] = ticket_unfurl(ticket, team)
+
+    if not unfurls:
+        return
+
+    # unfurl_id/source works whether or not the bot is in the channel; channel/ts is the
+    # fallback for a payload that predates it.
+    target = (
+        {"unfurl_id": event["unfurl_id"], "source": event["source"]}
+        if event.get("unfurl_id") and event.get("source")
+        else {"channel": channel, "ts": event.get("message_ts", "")}
+    )
+    try:
+        client.chat_unfurl(unfurls=unfurls, **target)
+    except Exception:
+        logger.warning("slack_support_unfurl_failed", slack_channel_id=channel, count=len(unfurls))
+        return
+
+    capture_support_event(
+        team,
+        "support slack ticket unfurled",
+        {"slack_team_id": slack_team_id, "slack_channel_id": channel, "ticket_count": len(unfurls)},
+    )
+
+
 def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None:
     """
     Handle a Slack 'reaction_added' event to create a ticket from a reacted message.

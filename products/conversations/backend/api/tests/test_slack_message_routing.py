@@ -2,8 +2,9 @@ import json
 from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
 
@@ -23,6 +24,7 @@ from products.conversations.backend.slack import (
     TICKET_VIEW_ACTION,
     SlackConfirmationNeedsRetry,
     create_ticket_from_confirmation,
+    handle_link_shared,
     handle_member_joined_channel,
     handle_member_left_channel,
     handle_support_mention,
@@ -31,6 +33,7 @@ from products.conversations.backend.slack import (
     my_tickets_link,
     ticket_created_blocks,
     ticket_deep_link,
+    ticket_number_from_url,
 )
 from products.conversations.backend.tasks.slack import process_supporthog_interactivity
 from products.customer_analytics.backend.facade import api as customer_analytics
@@ -1478,3 +1481,137 @@ class TestTicketConfirmationBlocks(BaseTest):
 
         # The requester scene addresses a ticket by UUID, unlike the Support scene's number.
         assert my_tickets_link(ticket).endswith(f"/my-tickets?ticket={ticket.id}")
+
+
+UNFURL_TEAM = "T_WORKSPACE"
+
+
+class TestTicketLinkUnfurl(BaseTest):
+    """An unfurl renders for the whole channel and cannot be made partial, so it is posted
+    only where both the channel and the person pasting the link are internal."""
+
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.team.conversations_settings = {"slack_enabled": True}
+        self.team.save()
+        self.ticket = _create_slack_ticket(self.team)
+        self.url = ticket_deep_link(self.ticket, self.team)
+        capture_patcher = patch(f"{MODULE}.capture_support_event")
+        self.mock_capture = capture_patcher.start()
+        self.addCleanup(capture_patcher.stop)
+
+    def _event(self, *, url: str | None = None, user: str = "U_TEAMMATE", **extra) -> dict:
+        return {
+            "type": "link_shared",
+            "channel": "C_INTERNAL",
+            "user": user,
+            "message_ts": MESSAGE_TS,
+            "links": [{"domain": "posthog.com", "url": url or self.url}],
+            **extra,
+        }
+
+    def _run(self, event: dict, *, channel_info: dict | None = None, sharer: dict | None = None) -> MagicMock:
+        client = MagicMock()
+        client.conversations_info.return_value = {"channel": channel_info if channel_info is not None else {}}
+        resolved = sharer if sharer is not None else {"email": self.user.email, "team_id": UNFURL_TEAM}
+        with (
+            patch(f"{MODULE}.get_slack_client", return_value=client),
+            patch(f"{MODULE}.resolve_slack_user", return_value=resolved),
+        ):
+            handle_link_shared(event, self.team, UNFURL_TEAM)
+        return client
+
+    def test_internal_channel_gets_a_status_card(self):
+        client = self._run(self._event())
+
+        client.chat_unfurl.assert_called_once()
+        kwargs = client.chat_unfurl.call_args.kwargs
+        assert kwargs["channel"] == "C_INTERNAL"
+        assert kwargs["ts"] == MESSAGE_TS
+        rendered = json.dumps(kwargs["unfurls"][self.url])
+        assert "Status" in rendered and "Last updated" in rendered
+        assert f"Ticket #{self.ticket.ticket_number}" in rendered
+        _team, event_name, props = self.mock_capture.call_args.args
+        assert event_name == "support slack ticket unfurled"
+        assert props["ticket_count"] == 1
+
+    def test_card_carries_no_customer_words(self):
+        self.ticket.last_message_text = "my api key leaked, here it is"
+        self.ticket.email_subject = "urgent from acme"
+        self.ticket.save()
+
+        client = self._run(self._event())
+
+        rendered = json.dumps(client.chat_unfurl.call_args.kwargs["unfurls"][self.url])
+        assert "leaked" not in rendered
+        assert "acme" not in rendered
+
+    @parameterized.expand(
+        [
+            ("shared_with_another_org", {"is_ext_shared": True}),
+            ("invited_to_be_shared", {"is_pending_ext_shared": True}),
+        ]
+    )
+    def test_external_channel_gets_nothing(self, _name, channel_info):
+        client = self._run(self._event(), channel_info=channel_info)
+
+        client.chat_unfurl.assert_not_called()
+
+    def test_unreadable_channel_fails_closed(self):
+        # Cannot prove the channel is internal, and an unfurl cannot be taken back.
+        client = MagicMock()
+        client.conversations_info.side_effect = RuntimeError("not_in_channel")
+        with (
+            patch(f"{MODULE}.get_slack_client", return_value=client),
+            patch(f"{MODULE}.resolve_slack_user", return_value={"email": self.user.email, "team_id": UNFURL_TEAM}),
+        ):
+            handle_link_shared(self._event(), self.team, UNFURL_TEAM)
+
+        client.chat_unfurl.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("outsider", {"email": "customer@example.com", "team_id": UNFURL_TEAM}),
+            # A guest's profile email is set by their own workspace, so it can claim ours.
+            ("external_workspace", {"email": USE_TEAMMATE_EMAIL, "team_id": "T_OTHER"}),
+        ]
+    )
+    def test_non_member_sharer_gets_nothing(self, _name, sharer):
+        if sharer["email"] == USE_TEAMMATE_EMAIL:
+            sharer = {**sharer, "email": self.user.email}
+
+        client = self._run(self._event(), sharer=sharer)
+
+        client.chat_unfurl.assert_not_called()
+
+    def test_unknown_ticket_number_is_not_unfurled(self):
+        client = self._run(self._event(url=f"{settings.SITE_URL}/project/{self.team.id}/support/tickets/424242"))
+
+        client.chat_unfurl.assert_not_called()
+
+    def test_unfurl_id_is_preferred_when_slack_sends_one(self):
+        client = self._run(self._event(unfurl_id="abc123", source="conversations_history"))
+
+        kwargs = client.chat_unfurl.call_args.kwargs
+        assert kwargs["unfurl_id"] == "abc123"
+        assert kwargs["source"] == "conversations_history"
+        assert "channel" not in kwargs
+
+    @parameterized.expand(
+        [
+            ("other_host", "https://evil.example.com/project/{team}/support/tickets/{number}"),
+            ("other_project", "{site}/project/999999/support/tickets/{number}"),
+            ("not_a_ticket", "{site}/project/{team}/support/tickets"),
+            ("trailing_segment", "{site}/project/{team}/support/tickets/{number}/edit"),
+        ]
+    )
+    def test_only_this_installs_own_ticket_urls_resolve(self, _name, template):
+        # A number that matched a foreign link would resolve against this team to a real but
+        # unrelated ticket, so host and project are both part of the match.
+        url = template.format(site=settings.SITE_URL, team=self.team.id, number=self.ticket.ticket_number)
+
+        assert ticket_number_from_url(url, self.team) is None
+
+    def test_our_own_ticket_url_resolves(self):
+        assert ticket_number_from_url(self.url, self.team) == self.ticket.ticket_number
