@@ -23,6 +23,7 @@ import {
     pullRequest,
     push,
     schedule,
+    workflowDispatch,
 } from '../src/scenarios.ts'
 
 const WORKFLOWS_DIR = path.join(REPO_ROOT, '.github/workflows')
@@ -93,7 +94,95 @@ const frontendOnlyFilters: Stubs = {
     },
 }
 
+const PACKAGE_RELEASES = [
+    {
+        file: 'build-hogql-parser-npm.yml',
+        check: 'check-package-version',
+        step: 'check-package-version',
+        output: 'is-new-version',
+        build: 'build-wasm',
+        publish: 'publish-npm',
+    },
+    {
+        file: 'build-hogql-parser.yml',
+        check: 'check-version',
+        step: 'version',
+        output: 'parser-release-needed',
+        build: 'build-wheels',
+        publish: 'publish',
+    },
+    {
+        file: 'build-hogql-parser-rs.yml',
+        check: 'check-version',
+        step: 'version',
+        output: 'parser-release-needed',
+        build: 'build-wheels',
+        publish: 'publish',
+    },
+    {
+        file: 'build-deltalite.yml',
+        check: 'check-version',
+        step: 'version',
+        output: 'deltalite-release-needed',
+        build: 'build-wheels',
+        publish: 'publish',
+    },
+    {
+        file: 'ci-hog.yml',
+        check: 'hog-tests',
+        step: 'check-package-version',
+        output: 'is-new-version',
+        build: 'hog-tests',
+        publish: 'release-hogvm',
+    },
+]
+
+const packageReleaseExpectations: Expectation[] = PACKAGE_RELEASES.flatMap(
+    ({ file, check, step, output, build, publish }) => {
+        const release = suite(file, { [check]: { [step]: { outputs: { [output]: 'true' } } } })
+        const publishing = ['notify-approval-needed', publish]
+        return [
+            ...[
+                { name: 'same-repo PR with new package version', github: pullRequest() },
+                { name: 'fork PR with new package version', github: pullRequest({ fork: true }) },
+                { name: 'merge queue with new package version', github: mergeQueue() },
+            ].map((scenario) => release(scenario, { runs: [build], skipped: publishing })),
+            ...[
+                { name: 'non-master push', github: { ...push(), ref: 'refs/heads/feature' } },
+                { name: 'tag push', github: { ...push(), ref: 'refs/tags/v1.0.0' } },
+                { name: 'manual run', github: workflowDispatch() },
+                { name: 'fork repository master push', github: { ...push(), repository: 'octocat/posthog' } },
+            ].map((scenario) => release(scenario, { skipped: publishing })),
+            release({ name: 'master push with new package version', github: push() }, { runs: [build, ...publishing] }),
+            release(
+                {
+                    name: 'master push with published version',
+                    github: push(),
+                    steps: { [check]: { [step]: { outputs: { [output]: 'false' } } } },
+                },
+                { skipped: publishing }
+            ),
+            release(
+                {
+                    name: 'master push with failed build',
+                    github: push(),
+                    steps: {
+                        [build]: {
+                            'Upload artifact': { outcome: 'failure' },
+                            'Upload wheels artifact': { outcome: 'failure' },
+                            'Upload dist artifact': { outcome: 'failure' },
+                            'Run Hog tests': { outcome: 'failure' },
+                        },
+                    },
+                },
+                { skipped: publishing }
+            ),
+        ]
+    }
+)
+
 const EXPECTATIONS: Expectation[] = [
+    ...packageReleaseExpectations,
     backend(
         { name: 'draft PR', github: pullRequest({ draft: true }) },
         {
@@ -322,6 +411,14 @@ const namedJobs = (file: string): Set<string> =>
     )
 
 describe('.github/workflows run plans', () => {
+    it.each(PACKAGE_RELEASES)('$file requires release approval for registry authentication', ({ file, publish }) => {
+        expect(workflow(file).jobs[publish]).toMatchObject({
+            environment: 'Release SDK',
+            permissions: { 'id-token': 'write' },
+        })
+        expect(workflow(file).on).toMatchObject({ push: { branches: ['master'] } })
+    })
+
     it.each(PINNED_WORKFLOWS)('%s names every conditional job in an expectation row', (file) => {
         const unnamed = Object.entries(workflow(file).jobs)
             .filter(([id, job]) => job.if !== undefined && !namedJobs(file).has(id))

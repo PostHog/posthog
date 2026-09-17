@@ -12,6 +12,9 @@ on:
             - rust/**
             - livestream/**
 
+permissions:
+    contents: read
+
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -125,9 +128,10 @@ jobs:
                   cd antlr
                   # Short budget: the `||` mirror is the real fallback for a host that is down.
                   fetch=(curl --fail --location --retry 3 --retry-all-errors --retry-max-time 30 --connect-timeout 10)
-                  "${fetch[@]}" https://www.antlr.org/download/antlr-${ANTLR_VERSION}-complete.jar --output antlr.jar \
-                      || "${fetch[@]}" https://repo.maven.apache.org/maven2/org/antlr/antlr4/${ANTLR_VERSION}/antlr4-${ANTLR_VERSION}-complete.jar --output antlr.jar
-                  export PWD=`pwd`
+                  "${fetch[@]}" "https://www.antlr.org/download/antlr-${ANTLR_VERSION}-complete.jar" --output antlr.jar \
+                      || "${fetch[@]}" "https://repo.maven.apache.org/maven2/org/antlr/antlr4/${ANTLR_VERSION}/antlr4-${ANTLR_VERSION}-complete.jar" --output antlr.jar
+                  PWD=$(pwd)
+                  export PWD
                   echo '#!/bin/bash' > antlr
                   echo "java -jar $PWD/antlr.jar \$*" >> antlr
                   chmod +x antlr
@@ -174,12 +178,33 @@ jobs:
               with:
                   path: common/hogvm/typescript
 
+    notify-approval-needed:
+        name: Notify Slack - Approval Needed
+        needs: hog-tests
+        if: github.repository == 'PostHog/posthog' && github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.hog-tests.outputs.is-new-version == 'true'
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - name: Request release approval
+              continue-on-error: true
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  payload: |
+                      channel: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                      text: >-
+                          <!subteam^${{ vars.GROUP_CLIENT_LIBRARIES_SLACK_GROUP_ID }}> Release approval needed for @posthog/hogvm.
+                          Review <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|the release commit> and
+                          <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|approve or reject the release>.
+
     release-hogvm:
         name: Release new HogVM TypeScript version
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        needs: hog-tests
-        if: needs.hog-tests.outputs.is-new-version == 'true'
+        needs: [hog-tests, notify-approval-needed]
+        if: github.repository == 'PostHog/posthog' && github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.hog-tests.outputs.is-new-version == 'true'
+        environment: Release SDK
         permissions:
             contents: read
             id-token: write
@@ -190,7 +215,8 @@ jobs:
             - name: Checkout the repository
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  fetch-depth: 1
+                  ref: ${{ github.sha }}
+                  persist-credentials: false
             - name: Mint setup-action GitHub token
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -228,5 +254,10 @@ jobs:
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             - name: Install package.json dependencies
               run: pnpm --filter=@posthog/hogvm install --frozen-lockfile
+            - name: Ensure modern npm (OIDC support)
+              run: npm install -g npm@11.6.4
             - name: Publish the package in the npm registry
               run: cd common/hogvm/typescript && npm publish --access public
+              env:
+                  NODE_AUTH_TOKEN: ''
+                  NPM_CONFIG_PROVENANCE: true

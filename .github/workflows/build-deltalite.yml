@@ -1,20 +1,11 @@
 name: Release deltalite
 
-# Publishes the `deltalite` Python wheel (the streaming Delta upsert, built from
-# rust/deltalite/python via maturin) to PyPI, then auto-pins the new version in
-# pyproject.toml + uv.lock so the app image installs it via `uv sync`. Mirrors
-# build-hogql-parser-rs.yml exactly.
-#
-# ONE-TIME INFRA REQUIRED BEFORE THIS CAN PUBLISH (platform/infra team):
-#   1. Create the `deltalite` project on PyPI.
-#   2. Configure PyPI trusted publishing for it against this repo + workflow, and
-#      create a matching GitHub environment named `pypi-deltalite` (see the
-#      `pypi-hogql-parser-rs` environment for the template).
-# Until that exists the build/version-check jobs still run (and correctly report
-# "release needed"), but the publish job cannot upload. Nothing in the app imports
-# `deltalite` until the pin lands, so this is inert until then.
-
 on:
+    push:
+        branches: [master]
+        paths:
+            - rust/deltalite/python/**
+            - .github/workflows/build-deltalite.yml
     pull_request:
         paths:
             - rust/deltalite/python/**
@@ -22,14 +13,16 @@ on:
 
 permissions:
     contents: read
-    pull-requests: write
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
-    cancel-in-progress: true
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     check-version:
+        permissions:
+            contents: read
+            pull-requests: write
         name: Check version legitimacy
         runs-on: ubuntu-22.04
         timeout-minutes: 5
@@ -39,6 +32,8 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
+                  ref: ${{ github.sha }}
+                  persist-credentials: false
                   fetch-depth: 0
                   filter: blob:none
 
@@ -58,21 +53,20 @@ jobs:
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   DELTALITE_CHANGED: ${{ steps.changed-files.outputs.deltalite_any_changed }}
-                  WORKFLOW_CHANGED: ${{ steps.changed-files.outputs.workflow_any_changed }}
                   IS_FORK: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   deltalite_release_needed='false'
                   # Local version from pyproject.toml — single source of truth, matches Cargo.toml.
                   local=$(grep -m1 '^version = ' rust/deltalite/python/pyproject.toml | sed -E 's/version = "(.*)"/\1/')
-                  echo "local-version=$local" >> $GITHUB_OUTPUT
+                  echo "local-version=$local" >> "$GITHUB_OUTPUT"
                   if [[ "$DELTALITE_CHANGED" == 'true' ]]; then
                       # 200 = version already on PyPI, 404 = needs release.
                       http_code=$(curl -o /dev/null -sSL -w '%{http_code}' "https://pypi.org/pypi/deltalite/$local/json")
                       if [[ "$http_code" == '404' ]]; then
                           deltalite_release_needed='true'
                           # Version was bumped — mark any reminder from an earlier push resolved.
-                          if [ -f .github/scripts/post-reminder-section.mjs ]; then
+                          if [[ "$GITHUB_EVENT_NAME" == 'pull_request' && "$IS_FORK" == 'false' ]] && [ -f .github/scripts/post-reminder-section.mjs ]; then
                               GITHUB_TOKEN="$GH_TOKEN" node .github/scripts/post-reminder-section.mjs deltalite --clear "version bumped to $local"
                           fi
                       elif [[ "$http_code" == '200' ]]; then
@@ -81,21 +75,17 @@ jobs:
                           if [[ "$IS_FORK" == 'true' ]]; then
                               message_body+=$'\n'"This needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member can assist with this."
                           fi
-                          if [ -f .github/scripts/post-reminder-section.mjs ]; then
+                          if [[ "$GITHUB_EVENT_NAME" == 'pull_request' && "$IS_FORK" == 'false' ]] && [ -f .github/scripts/post-reminder-section.mjs ]; then
                               BODY="$message_body" GITHUB_TOKEN="$GH_TOKEN" node .github/scripts/post-reminder-section.mjs deltalite warn "version bump needed"
                           else
                               echo "Skipping deltalite section — script not present on this checkout"
                           fi
                       else
-                          echo "::warning::Unexpected HTTP $http_code from PyPI for deltalite $local; assuming not yet published."
-                          deltalite_release_needed='true'
+                          echo "::error::Unexpected HTTP $http_code from PyPI for deltalite $local. Retry the workflow."
+                          exit 1
                       fi
                   fi
-                  # Exercise the release pipeline on workflow-only edits; skip-existing makes publish a no-op.
-                  if [[ "$WORKFLOW_CHANGED" == 'true' ]]; then
-                      deltalite_release_needed='true'
-                  fi
-                  echo "deltalite-release-needed=$deltalite_release_needed" >> $GITHUB_OUTPUT
+                  echo "deltalite-release-needed=$deltalite_release_needed" >> "$GITHUB_OUTPUT"
 
             - name: Sanity check Cargo.toml and pyproject.toml versions match
               shell: bash
@@ -113,7 +103,7 @@ jobs:
         runs-on: ${{ matrix.os }}
         timeout-minutes: 30
         if: needs.check-version.outputs.deltalite-release-needed == 'true' &&
-            github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+            (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/master' && github.repository == 'PostHog/posthog'))
         strategy:
             fail-fast: false
             matrix:
@@ -138,6 +128,9 @@ jobs:
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  ref: ${{ github.sha }}
+                  persist-credentials: false
 
             - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
@@ -176,10 +169,31 @@ jobs:
                   path: dist/*
                   if-no-files-found: error
 
+    notify-approval-needed:
+        name: Notify Slack - Approval Needed
+        needs: build-wheels
+        if: github.repository == 'PostHog/posthog' && github.event_name == 'push' && github.ref == 'refs/heads/master'
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - name: Request release approval
+              continue-on-error: true
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  payload: |
+                      channel: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                      text: >-
+                          <!subteam^${{ vars.GROUP_CLIENT_LIBRARIES_SLACK_GROUP_ID }}> Release approval needed for deltalite.
+                          Review <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|the release commit> and
+                          <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|approve or reject the release>.
+
     publish:
+        if: github.repository == 'PostHog/posthog' && github.event_name == 'push' && github.ref == 'refs/heads/master'
         name: Publish on PyPI
-        needs: [check-version, build-wheels]
-        environment: pypi-deltalite
+        needs: [check-version, build-wheels, notify-approval-needed]
+        environment: Release SDK
         permissions:
             id-token: write # PyPI trusted publishing + provenance OIDC handshake
             attestations: write # actions/attest-build-provenance writes here
@@ -204,91 +218,3 @@ jobs:
                   # Attaches the attestations generated above to the PyPI release.
                   attestations: true
                   skip-existing: true
-
-            - name: Get app token
-              id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-              with:
-                  ref: ${{ github.event.pull_request.head.ref }}
-                  token: ${{ steps.app-token.outputs.token }}
-
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version: 3.13.13
-
-            # Direct install: Publishing commits to the PR head, which may predate the local action.
-            - name: Install uv
-              id: setup-uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.12.13'
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
-
-            - name: Update deltalite in requirements
-              shell: bash
-              env:
-                  RETRIES: 20
-                  VERSION: ${{ needs.check-version.outputs.local-version }}
-              run: |
-                  # `--refresh-package` bypasses the restored uv index cache, which
-                  # otherwise won't have the version we just published. Retry anyway
-                  # in case PyPI propagation lags the publish step.
-                  for i in $(seq 1 "$RETRIES"); do
-                      if uv add --refresh-package deltalite "deltalite==$VERSION"; then
-                          break
-                      fi
-                      if [[ $i -eq $RETRIES ]]; then
-                        echo "Failed to update deltalite in requirements"
-                        exit 1
-                      fi
-                      sleep 0.5
-                  done
-
-            - name: Check for pin changes
-              id: check-pin
-              shell: bash
-              run: |
-                  if git diff --quiet pyproject.toml uv.lock; then
-                    echo "changed=false" >> $GITHUB_OUTPUT
-                  else
-                    echo "changed=true" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Commit pin
-              if: steps.check-pin.outputs.changed == 'true'
-              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
-              with:
-                  commit_message: 'Use new deltalite version'
-                  repo: ${{ github.repository }}
-                  branch: ${{ github.event.pull_request.head.ref }}
-                  file_pattern: 'pyproject.toml uv.lock'
-              env:
-                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-
-            - name: Verify pin is consistent with the published version
-              shell: bash
-              env:
-                  CHANGED: ${{ steps.check-pin.outputs.changed }}
-                  VERSION: ${{ needs.check-version.outputs.local-version }}
-              run: |
-                  # The commit step is a no-op when pyproject.toml + uv.lock were already
-                  # pre-bumped on the branch to the version we just published — fine.
-                  # Verify the pin is consistent with the published version (i.e. the
-                  # branch is in a deployable state) before declaring success.
-                  if [[ "$CHANGED" != "true" ]]; then
-                    pinned=$(grep -m1 'deltalite==' pyproject.toml | sed -E 's/.*deltalite==([^"]*).*/\1/')
-                    if [[ "$pinned" != "$VERSION" ]]; then
-                      echo "::error::deltalite published to PyPI as $VERSION but pyproject.toml pin says $pinned."
-                      echo "Check the 'Update deltalite in requirements' step above for why uv add did not produce a diff."
-                      exit 1
-                    fi
-                    echo "pyproject.toml already pinned to $VERSION; commit-pin no-op is expected."
-                  fi
