@@ -19,7 +19,17 @@ import { HogFunctionInputSchemaType } from '~/cdp/types'
 //   properties   object of extra event properties, passed through
 export const HTTP_LOG_SOURCE_HOG_CODE = `
 if (inputs.debug) {
-    print('Incoming headers:', request.headers)
+    // The authorization header carries the webhook's shared secret, so it must never
+    // reach the logs, redacted-but-present confirms the sender did attach one.
+    let debugHeaders := {}
+    for (let k in keys(request.headers)) {
+        if (lower(k) == 'authorization') {
+            debugHeaders[k] := '[redacted]'
+        } else {
+            debugHeaders[k] := request.headers[k]
+        }
+    }
+    print('Incoming headers:', debugHeaders)
     print('Incoming body:', request.body)
 }
 
