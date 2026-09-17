@@ -57,7 +57,6 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'replay_scanner',
             'vision_action',
             'vision_alert',
-            'visual_review',
         ],
     },
     {
@@ -189,6 +188,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
         objects: [
             'engineering_analytics',
             'stamphog',
+            'visual_review',
             'query_performance',
             'clickhouse_test_cluster_perf',
             'batch_import_support',

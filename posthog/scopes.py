@@ -274,7 +274,6 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
             "replay_scanner",
             "vision_action",
             "vision_alert",
-            "visual_review",
         ),
     ),
     (
@@ -406,6 +405,7 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
         (
             "engineering_analytics",
             "stamphog",
+            "visual_review",
             "query_performance",
             "clickhouse_test_cluster_perf",
             "batch_import_support",
