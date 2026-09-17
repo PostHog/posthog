@@ -72,8 +72,8 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        list: true
         enrich_url: '{id}'
+        list: true
         title: List business knowledge sources
         description: >
             List all business knowledge sources in the project, with document/chunk counts, processing status, and
