@@ -27,9 +27,11 @@ from products.approvals.backend.serializers import ChangeRequestSerializer
 
 logger = logging.getLogger(__name__)
 
-# ChangeRequest inserts that raised inside the approval gate. The caller gets
-# "Failed to create approval request" and the change never enters review, so every
-# increment is a gated save that silently did not happen. Drives the
+# ChangeRequest creates that raised inside the approval gate. The caller always gets
+# "Failed to create approval request", so an increment is a gated save the user could
+# not complete. It does not prove the row is absent: the counted block also covers the
+# analytics and notification work that runs after the insert. A responder must check
+# for a PENDING request before advising a retry. Drives the
 # ApprovalsChangeRequestCreateFailing alert in PostHog/charts.
 # error_type carries the exception class name only — the message would make the label
 # unbounded.
