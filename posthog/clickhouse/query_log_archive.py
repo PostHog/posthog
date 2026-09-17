@@ -672,6 +672,7 @@ _QUERY_LOG_ARCHIVE_ALIAS_COLUMNS = """
         JSONHas(toString(log_comment), 'query', 'source'), JSONExtractString(toString(log_comment), 'query', 'source', 'query'),
         JSONExtractString(toString(log_comment), 'query', 'query')),
     lc_query String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'query'), ''),
+    lc_saved_query_ids Array(String) ALIAS CAST(log_comment.saved_query_ids, 'Array(String)'),
 
     lc_temporal__workflow_namespace String ALIAS log_comment.`temporal.workflow_namespace`::String,
     lc_temporal__workflow_type String ALIAS log_comment.`temporal.workflow_type`::String,

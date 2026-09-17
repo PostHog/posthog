@@ -3506,6 +3506,10 @@ database "posthog" {
       type  = "String"
       alias = "if(is_initial_query, JSONExtractRaw(toString(log_comment), 'query'), '')"
     }
+    column "lc_saved_query_ids" {
+      type  = "Array(String)"
+      alias = "CAST(log_comment.saved_query_ids, 'Array(String)')"
+    }
     column "lc_temporal__workflow_namespace" {
       type  = "String"
       alias = "CAST(log_comment.`temporal.workflow_namespace`, 'String')"
