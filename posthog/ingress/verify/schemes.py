@@ -1,4 +1,9 @@
-"""Signature schemes: the part of a provider incarnation that decides "this is really them"."""
+"""Signature schemes: the part of a provider incarnation that decides "this is really them".
+
+A scheme with a network step answers `UNAVAILABLE` when that step fails on transport rather than
+on the signature, because a fetch that never completed proves nothing about the caller. `BearerJwt`
+does this for a JWKS fetch failure, and `SnsSignature` owes the same for its certificate fetch.
+"""
 
 import re
 import hmac
@@ -26,6 +31,8 @@ class VerificationOutcome(StrEnum):
     # The instance holds no secret for this provider app, which is an operator problem
     # rather than a caller one, so incarnations answer it with their own status code.
     NOT_CONFIGURED = "not_configured"
+    # Verification could not run right now, so the sender is asked to retry.
+    UNAVAILABLE = "unavailable"
 
 
 @frozen
