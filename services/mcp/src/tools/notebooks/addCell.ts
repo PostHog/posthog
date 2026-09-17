@@ -97,6 +97,21 @@ export interface AddCellResult {
 const BLOCK_SEPARATOR = '\n\n\n'
 
 /**
+ * A block id the document stores, written on its own line above the block it names. Mirrors
+ * `serializeNodeAnchor` in frontend/src/lib/components/MarkdownNotebook/markdown.ts.
+ *
+ * A markdown block otherwise has no identity of its own: the backend derives its id from the
+ * block text, so the id dies with the next edit to that text. An anchor gives a block the same
+ * durable id a cell tag carries in its `nodeId` prop.
+ */
+function anchoredMarkdownBlock(nodeId: string, markdown: string): string {
+    return `<!--ph:${nodeId}-->\n${markdown}`
+}
+
+/** Matches `STORED_NODE_ID_PREFIX` in the editor, which writes an anchor back only for these. */
+const STORED_NODE_ID_PREFIX = 'phb-'
+
+/**
  * A prose block resolved through the state endpoint, which owns the block grammar this side
  * cannot reproduce. `source` re-locates the block when an edit elsewhere has moved the offsets.
  */
@@ -145,6 +160,12 @@ function locateProseAnchorEnd(markdown: string, anchor: ProseAnchor, version: nu
     if (version === anchor.version && markdown.slice(anchor.start, anchor.end) === anchor.source) {
         return anchor.end
     }
+    // A stored id is written into the document above its block, so it names the block exactly.
+    // Matching on it never confuses two blocks that read the same, which the text search below
+    // can only refuse.
+    if (anchor.nodeId.startsWith(STORED_NODE_ID_PREFIX)) {
+        return locateStoredAnchorEnd(markdown, anchor)
+    }
     const matches: number[] = []
     for (
         let index = markdown.indexOf(anchor.source);
@@ -166,6 +187,42 @@ function locateProseAnchorEnd(markdown: string, anchor: ProseAnchor, version: nu
         )
     }
     return matches[0]! + anchor.source.length
+}
+
+const ANCHOR_TERMINATOR = new RegExp(`^${EOL}`)
+
+/**
+ * Where the block under `<!--ph:id-->` ends. The anchor finds the block, and the source the read
+ * reported measures it, because a fenced block holds blank lines and a search for the next one
+ * would end the block inside the fence.
+ */
+function locateStoredAnchorEnd(markdown: string, anchor: ProseAnchor): number {
+    const marker = `<!--ph:${anchor.nodeId}-->`
+    const bodyStarts: number[] = []
+    for (let at = markdown.indexOf(marker); at !== -1; at = markdown.indexOf(marker, at + 1)) {
+        const terminator = ANCHOR_TERMINATOR.exec(markdown.slice(at + marker.length, at + marker.length + 2))
+        if (terminator) {
+            bodyStarts.push(at + marker.length + terminator[0].length)
+        }
+    }
+    if (bodyStarts.length === 0) {
+        throw new Error(
+            `Block ${anchor.nodeId} is no longer in notebook, so a cell cannot be placed after it. Read the notebook again with notebooks-get and retry with the id it returns.`
+        )
+    }
+    if (bodyStarts.length > 1) {
+        throw new Error(
+            `Block ${anchor.nodeId} names more than one block in notebook, so it cannot name one of them. Read the notebook again with notebooks-get.`
+        )
+    }
+    const bodyStart = bodyStarts[0]!
+    const bodyEnd = bodyStart + anchor.source.length
+    if (!markdown.startsWith(anchor.source, bodyStart) || !BLOCK_END_BOUNDARY.test(markdown.slice(bodyEnd))) {
+        throw new Error(
+            `Block ${anchor.nodeId} changed since it was read, so a cell cannot be placed after it. Read the notebook again with notebooks-get and retry.`
+        )
+    }
+    return bodyEnd
 }
 
 function insertBlock(
@@ -343,10 +400,17 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
                 'A markdown cell has no header to title — put the heading in the markdown itself (e.g. "## Weekly signups").'
             )
         }
+        const proseNodeId = `${STORED_NODE_ID_PREFIX}${uuidv4()}`
         await applyMarkdownEdit(context, params.notebook_id, (markdown, version) =>
-            insertBlock(markdown, params.markdown!.trim(), params.after_node_id, proseAnchor, version)
+            insertBlock(
+                markdown,
+                anchoredMarkdownBlock(proseNodeId, params.markdown!.trim()),
+                params.after_node_id,
+                proseAnchor,
+                version
+            )
         )
-        return {}
+        return { node_id: proseNodeId }
     }
 
     const nodeId = uuidv4()
