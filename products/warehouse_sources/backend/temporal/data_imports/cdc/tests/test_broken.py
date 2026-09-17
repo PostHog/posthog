@@ -94,13 +94,20 @@ def test_re_marking_reports_once_per_reason(team, second_reason, expects_new_evi
     source = _source(team)
     schema = _cdc_schema(team, source)
 
-    with _mocked_boundaries() as (_pause, mock_digest, _notify, _capture):
+    with (
+        _mocked_boundaries() as (_pause, mock_digest, _notify, _capture),
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sync_failure_events.produce_internal_event"
+        ) as mock_produce,
+    ):
         mark_cdc_broken(source, "critical_lag_self_managed", "lag too high", pause=False)
         mark_cdc_broken(source, second_reason, "still broken", pause=False)
 
     expected_evidence_rounds = 2 if expects_new_evidence else 1
     assert ExternalDataJob.objects.filter(schema=schema).count() == expected_evidence_rounds
     assert mock_digest.call_count == expected_evidence_rounds
+    assert mock_produce.call_count == expected_evidence_rounds
+    assert all(call.kwargs["event"].properties["sync_paused"] for call in mock_produce.call_args_list)
 
 
 def test_visibility_jobs_can_be_disabled_for_in_run_callers(team):
