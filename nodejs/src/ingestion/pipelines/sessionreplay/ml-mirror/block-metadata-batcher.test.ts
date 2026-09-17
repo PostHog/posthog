@@ -8,10 +8,11 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { BlockMetadataBatcher, OffsetStore } from './block-metadata-batcher'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
 import { MlBlockMetadataRow } from './block-metadata-row'
-import { MlDataKey, decryptEnvelope } from './privacy/crypto'
-import { MlKeyReader } from './privacy/reader'
-import { sessionKeyId, tableKeyString } from './privacy/schema'
-import { MlKafkaEncryption, encryptedKafkaValue } from './privacy/transport'
+import { MlDataKey } from './keys/crypto'
+import { decryptEnvelope } from './keys/envelope-testing'
+import { MlKeyReader } from './keys/reader'
+import { sessionKeyId, tableKeyString } from './keys/schema'
+import { MlKafkaTransport, mlKafkaRecord } from './keys/transport'
 
 const row = (sessionId: string): MlBlockMetadataRow => ({
     session_id: sessionId,
@@ -131,9 +132,8 @@ describe('BlockMetadataBatcher', () => {
                 { kind: 'json_ld', eventIndex: 0, eventTimestamp: timestamp, windowId: 'w1', rootTypes: ['Product'] },
             ],
         }
-        const encrypted = encryptedKafkaValue(
-            key,
-            'metadata',
+        const encrypted = mlKafkaRecord(
+            '2',
             Buffer.from(JSON.stringify({ ...metadata, distinct_id: 'legacy-user', distinctId: 'unexpected-user' }))
         )
         const message = {
@@ -149,7 +149,7 @@ describe('BlockMetadataBatcher', () => {
             offsets,
             { flushIntervalMs: 1000, maxRows: 1 },
             0,
-            new MlKafkaEncryption(reader)
+            new MlKafkaTransport(reader)
         )
         await expect(batcher.handleBatch([message], 0)).rejects.toThrow('index upload failed')
         expect(offsets.offsetsStore).not.toHaveBeenCalled()

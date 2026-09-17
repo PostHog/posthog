@@ -80,9 +80,6 @@ describe('nodeDetailSceneLogic', () => {
                 },
             })
             savedQuery = { ...savedQuery, is_materialized: true, status: 'Failed', suspended: savedSuspension }
-            flagsLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES], {
-                [FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES]: true,
-            })
             await mountScene(urls.nodeDetail(NODE_ID))
             const jobs = materializationJobsLogic({ viewId: SAVED_QUERY_ID })
             jobs.mount()

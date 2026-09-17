@@ -14,7 +14,6 @@ from posthog.temporal.data_modeling.activities.preempt_dag_run import ABANDONED_
 from products.data_modeling.backend.facade.api import (
     clear_node_suspension,
     is_node_suspended,
-    is_suspension_enforced,
     mark_node_suspended,
     query_fingerprint,
     suspension_reset_at,
@@ -38,7 +37,6 @@ __all__ = [
     "get_previous_jobs",
     "is_externally_aborted",
     "is_node_suspended",
-    "is_suspension_enforced",
     "mark_node_suspended",
     "maybe_suspend_node_for_engine",
     "starts_a_failure_streak",
@@ -97,6 +95,9 @@ EXTERNALLY_ABORTED_MARKERS = (
     "Code: 202",  # TOO_MANY_SIMULTANEOUS_QUERIES
     "Cannot connect to host",
     "Connection refused",
+    # our own egress proxy was unreachable, so nothing left the cluster - the trailing colon keeps a
+    # customer column of the same name out of the match, as with the two below
+    "ProxyConnectionError: ",
     # the trailing colon is load-bearing: it keeps a customer column of the same name out of the match
     "QueueEmpty: ",  # no root node to start from, so the graph was refused rather than the query
     "Preempted: ",
@@ -213,9 +214,9 @@ def maybe_suspend_node_for_engine(
         )
         mark_node_suspended(node, engine=engine, reason=reason, job_id=job_id, fingerprint=fingerprint)
         node.save()
-    # Without enforcement the node keeps materializing every tick, so telling the customer it stopped
-    # would be false.
-    if str(engine) == DataModelingJobEngine.CLICKHOUSE.value and is_suspension_enforced(team_id):
+    # Only ClickHouse serves queries, so a marker on a shadow engine stopped the comparison run,
+    # not the model the customer reads.
+    if str(engine) == DataModelingJobEngine.CLICKHOUSE.value:
         job = DataModelingJob.objects.get(id=job_id)
         job.error = (
             f"This model has been suspended after {CONSECUTIVE_FAILURES_TO_SUSPEND} consecutive failed "

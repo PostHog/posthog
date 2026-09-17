@@ -33,6 +33,7 @@ from products.replay_vision.backend.temporal.errors import ScannerFailureError
 from products.replay_vision.backend.temporal.gemini import gemini_api_key
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.snapshots import ScannerSnapshot
+from products.replay_vision.backend.temporal.video_clock import VideoClock, video_clock_from_export_context
 from products.replay_vision.evals.dataset import (
     DATASET_ENV_VAR,
     GoldenCase,
@@ -169,6 +170,9 @@ async def _scan_task(
                 file_uri=uploaded.uri or "",
                 mime_type=uploaded.mime_type or "video/mp4",
                 team_id=golden.team_id,
+                # A case collected before the map was captured scores as if nothing was cut.
+                video_clock=video_clock_from_export_context({"inactivity_periods": golden.inactivity_periods})
+                or VideoClock(spans=()),
             )
         except ScannerFailureError as exc:
             # A scan the model cannot complete is a prompt-quality signal (broken schema compliance),
@@ -191,6 +195,7 @@ async def _scan_task(
         "error": None,
         "scanner_type": golden.scanner_type,
         "signals_count": len(result.signals),
+        "signals": [signal.model_dump(mode="json") for signal in result.signals],
         "verification": result.verification.model_dump(mode="json") if result.verification else None,
         "primary": primary,
         "last_message": primary or "",

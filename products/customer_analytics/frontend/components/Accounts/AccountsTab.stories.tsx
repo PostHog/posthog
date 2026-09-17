@@ -463,6 +463,54 @@ export const ManyColumns: Story = {
             }
             scrollContainer.scrollLeft = 0
         })
+
+        for (const definitionIndex of [2, 4]) {
+            const header = canvasElement
+                .querySelector(
+                    `[data-attr="accounts-table-sort-${customPropertyAlias(ADDITIONAL_COLUMN_DEFINITIONS[definitionIndex].id)}"]`
+                )
+                ?.closest('th')
+            const cell = header?.closest('table')?.querySelector('tbody tr')?.children[header.cellIndex]
+            const editButton = cell?.querySelector<HTMLElement>('[data-attr="accounts-custom-property-value-edit"]')
+            if (!cell || !editButton) {
+                throw new Error('Editable custom property cell is missing')
+            }
+            const originalWidth = cell.getBoundingClientRect().width
+            await userEvent.click(editButton)
+            await waitFor(() => {
+                const input = cell.querySelector('[data-attr="accounts-custom-property-value-input"]')
+                const save = cell.querySelector('[data-attr="accounts-custom-property-value-save"]')
+                const cancel = cell.querySelector('[data-attr="accounts-custom-property-value-cancel"]')
+                if (!input || !save || !cancel) {
+                    throw new Error('Inline editor controls are missing')
+                }
+                const cellBounds = cell.getBoundingClientRect()
+                for (const control of [input, save, cancel]) {
+                    const bounds = control.getBoundingClientRect()
+                    if (
+                        bounds.left < cellBounds.left ||
+                        bounds.right > cellBounds.right ||
+                        bounds.top < cellBounds.top ||
+                        bounds.bottom > cellBounds.bottom
+                    ) {
+                        throw new Error('Inline editor controls must stay inside the cell')
+                    }
+                }
+                const inputBounds = input.getBoundingClientRect()
+                const saveBounds = save.getBoundingClientRect()
+                const cancelBounds = cancel.getBoundingClientRect()
+                if (saveBounds.top < inputBounds.bottom || saveBounds.top !== cancelBounds.top) {
+                    throw new Error('Save and Cancel must wrap together below the input in narrow columns')
+                }
+                if (cancelBounds.right <= inputBounds.right) {
+                    throw new Error('Save and Cancel must align to the right of the available cell space')
+                }
+                if (cellBounds.width !== originalWidth) {
+                    throw new Error('Inline editing must not widen the column')
+                }
+            })
+        }
+        canvasElement.querySelector('[data-attr="accounts-custom-property-value-save"]')?.scrollIntoView()
     },
 }
 

@@ -375,6 +375,27 @@ describe('metricsViewerLogic', () => {
         expect(insightsApi.create).toHaveBeenCalledTimes(2)
     })
 
+    // A group-by-requiring panel must not stay selected once nothing is grouped anymore:
+    // the bar gauge would otherwise render a single bar for an ungrouped result.
+    it('falls back to the default display when the last group-by is removed', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setGroupByKeys(['container'])
+        logic.actions.setDisplayType('bargauge')
+        expect(logic.values.displayType).toBe('bargauge')
+
+        logic.actions.setGroupByKeys([])
+        expect(logic.values.displayType).toBe('line')
+    })
+
+    it('keeps a group-by panel when a group-by is still present', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setGroupByKeys(['container'])
+        logic.actions.setDisplayType('bargauge')
+
+        logic.actions.setGroupByKeys(['namespace'])
+        expect(logic.values.displayType).toBe('bargauge')
+    })
+
     it('carries the configured chart settings onto the saved node', () => {
         logic.actions.setMetricName('queue_depth')
         logic.actions.setDisplayType('bar')

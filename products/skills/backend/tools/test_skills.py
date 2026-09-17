@@ -200,13 +200,21 @@ class TestCreateLLMSkillTool(BaseTest):
         assert first_file is not None
         assert first_file.path == "scripts/mandelbrot.py"
 
-    def test_reserved_name_raises_fatal(self):
+    @parameterized.expand(
+        [
+            ("route_name", "community", "reserved name"),
+            # A name PostHog bundles: the tool writes through create_skill, which runs no name
+            # validation of its own, so the check has to sit on the tool.
+            ("bundled_skill_name", "signals-scout-logs", "already ships a skill"),
+        ]
+    )
+    def test_unusable_name_raises_fatal(self, _label, name, expected_error):
         tool = CreateLLMSkillTool(team=self.team, user=self.user)
 
-        with self.assertRaisesRegex(MaxToolFatalError, "reserved name"):
-            _run(tool, name="community", description="d", body="b")
+        with self.assertRaisesRegex(MaxToolFatalError, expected_error):
+            _run(tool, name=name, description="d", body="b")
 
-        assert not LLMSkill.objects.filter(team=self.team, name="community").exists()
+        assert not LLMSkill.objects.filter(team=self.team, name=name).exists()
 
     def test_duplicate_name_raises_fatal(self):
         LLMSkill.objects.create(team=self.team, name="dup", description="d", body="b")

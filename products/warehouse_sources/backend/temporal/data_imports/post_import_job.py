@@ -61,7 +61,6 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.enrich_table_semantics import (
     EnrichTableSemanticsInputs,
     EnrichTableSemanticsWorkflow,
-    enrichment_enabled,
 )
 
 LOGGER = get_logger(__name__)
@@ -151,12 +150,7 @@ def _enrichment_gate(gate: PostImportGateContext) -> bool:
     # Same gates create_external_data_job_model_activity applies for V2, but evaluated
     # post-register: columns this sync added are already visible, so enrichment picks
     # them up now instead of on the next sync. Both children re-check and are idempotent.
-    return bool(
-        gate.ai_data_processing_approved
-        and gate.team is not None
-        and enrichment_enabled(gate.team)
-        and _enrichment_pending(gate.team_id, gate.schema.table, gate.schema)
-    )
+    return gate.ai_data_processing_approved and _enrichment_pending(gate.team_id, gate.schema.table, gate.schema)
 
 
 def _statistics_gate(gate: PostImportGateContext) -> bool:

@@ -79,6 +79,7 @@ function relationshipProperty(
         name,
         description: null,
         is_single_holder: isSingleHolder,
+        is_controlled: false,
     }
     return { key: `relationship:${id}`, kind: 'relationship', definition, members }
 }
