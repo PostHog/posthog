@@ -17,6 +17,7 @@ import { BaseMathType, ChartDisplayType, InsightShortId } from '~/types'
 
 import { ChartAlternatives } from './ChartAlternatives'
 import { chartAlternativesLogic } from './chartAlternativesLogic'
+import { chartPreviewsLogic } from './chartPreviewsLogic'
 
 const insightProps = { dashboardItemId: 'chart-alternatives' as InsightShortId }
 
@@ -108,6 +109,13 @@ describe('ChartAlternatives', () => {
         })
         expect(currentTrendsQuery().breakdownFilter).toBeUndefined()
         expect(logic.values.galleryOpen).toBe(false)
+    })
+
+    it('mounts preview state with the chart control', () => {
+        setQuery(makeTrendsQuery())
+        alternativesLogic()
+
+        expect(chartPreviewsLogic.findMounted({ editMode: true, embedded: false, ...insightProps })).not.toBeUndefined()
     })
 
     it('opens the gallery in a popover anchored to the chart type button', async () => {

@@ -3,8 +3,9 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 
 import type { InsightLogicProps } from '~/types'
 
-import type { ChartPreview } from './chartAlternativesLogic'
 import { chartAlternativesLogic } from './chartAlternativesLogic'
+import type { ChartPreview } from './chartPreviewsLogic'
+import { chartPreviewsLogic } from './chartPreviewsLogic'
 import { ChartPreviewTile } from './ChartPreviewTile'
 
 const GRID = 'grid grid-cols-1 gap-2 @sm:grid-cols-2 @lg:grid-cols-3'
@@ -22,17 +23,13 @@ export function ChartGallery({
     inSharedMode?: boolean
     insightProps: InsightLogicProps
 }): JSX.Element {
-    const logic = useMountedLogic(chartAlternativesLogic({ editMode, embedded, inSharedMode, ...insightProps }))
-    const { previewGroups, selectionDisabledReason } = useValues(logic)
-    const { selectChart } = useActions(logic)
-
-    const suggestedGroup = previewGroups.find((group) => group.title === 'Suggested')
-    const suggested = suggestedGroup?.previews ?? []
-    const rest = previewGroups.filter((group) => group !== suggestedGroup).flatMap((group) => group.previews)
-    const ordered = [
-        ...rest.filter((preview) => !preview.option.disabledReason),
-        ...rest.filter((preview) => !!preview.option.disabledReason),
-    ]
+    const logicProps = { editMode, embedded, inSharedMode, ...insightProps }
+    const alternativesLogic = useMountedLogic(chartAlternativesLogic(logicProps))
+    const { selectionDisabledReason } = useValues(alternativesLogic)
+    const { selectChart } = useActions(alternativesLogic)
+    const { previews } = useValues(chartPreviewsLogic(logicProps))
+    const suggested = previews.filter((preview) => preview.suggested)
+    const remaining = previews.filter((preview) => !preview.suggested)
 
     const renderTile = (preview: ChartPreview): JSX.Element => (
         <ChartPreviewTile
@@ -47,7 +44,7 @@ export function ChartGallery({
         <div className={clsx('@container overflow-y-auto p-2', className)} data-attr="chart-alternatives-gallery">
             <div className="flex flex-col gap-3">
                 {suggested.length > 0 && <div className={GRID}>{suggested.map(renderTile)}</div>}
-                <div className={GRID}>{ordered.map(renderTile)}</div>
+                <div className={GRID}>{remaining.map(renderTile)}</div>
             </div>
         </div>
     )

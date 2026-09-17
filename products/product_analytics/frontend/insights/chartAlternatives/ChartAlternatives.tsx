@@ -8,6 +8,7 @@ import type { InsightLogicProps } from '~/types'
 import { chartAlternativesLogic } from './chartAlternativesLogic'
 import { ChartDisplayIcon } from './ChartDisplayIcon'
 import { ChartGallery } from './ChartGallery'
+import { chartPreviewsLogic } from './chartPreviewsLogic'
 
 // Leaves the gallery 33rem of content box, just over the @lg breakpoint that puts three tiles in a row.
 const GALLERY_WIDTH = 'w-[34rem] max-w-[calc(100vw-2rem)]'
@@ -23,7 +24,9 @@ export function ChartAlternatives({
     inSharedMode?: boolean
     insightProps: InsightLogicProps
 }): JSX.Element | null {
-    const logic = useMountedLogic(chartAlternativesLogic({ editMode, embedded, inSharedMode, ...insightProps }))
+    const logicProps = { editMode, embedded, inSharedMode, ...insightProps }
+    const logic = useMountedLogic(chartAlternativesLogic(logicProps))
+    useMountedLogic(chartPreviewsLogic(logicProps))
     const { canShowAlternatives, currentOption, galleryOpen, selectionDisabledReason } = useValues(logic)
     const { closeGallery, toggleGallery } = useActions(logic)
     const triggerRef = useRef<HTMLButtonElement>(null)
