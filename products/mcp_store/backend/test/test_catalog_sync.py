@@ -105,6 +105,7 @@ class TestSyncMCPCatalog(TestCase):
             assert template.name == "Slack (dev)"
             assert template.oauth_credentials_source == "slack_dev_app"
             assert template.oauth_credentials == {}
+            assert entry.oauth_scope_allowlist is not None
             assert template.oauth_scope_allowlist == list(entry.oauth_scope_allowlist)
             assert counts.activated == 1
             assert MCPServerTemplate.available_for_team(42).filter(id=template.id).exists()

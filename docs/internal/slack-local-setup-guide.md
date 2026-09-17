@@ -270,6 +270,8 @@ It does not move bot events to production or change the production Slack app's c
 3. Set `MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS` to a comma-separated list of permitted project IDs in that region's server configuration.
    The default is empty, which blocks access.
    Apply the same configuration to the web processes and workers.
+   Production deployments must also add these variables to `posthog/charts` and provision their values through `posthog/secrets`.
+   Adding the settings in this repository does not configure production.
 4. Run `python manage.py sync_mcp_server_templates` in that environment.
    The existing Slack MCP entry becomes **Slack (dev)** and uses the separate credentials.
    It activates only after the shared-client probe passes.
