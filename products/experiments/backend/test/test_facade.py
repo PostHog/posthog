@@ -33,6 +33,8 @@ class TestCreateExperiment(APIBaseTest):
         experiment = Experiment.objects.get(id=result.id)
         assert experiment.name == "Test Experiment"
         assert experiment.feature_flag.key == "test-flag"
+        assert experiment.feature_flag_rule_id is None
+        assert experiment.feature_flag_rule_snapshot is None
 
     def test_create_experiment_with_description(self):
         """Test creating experiment with description."""

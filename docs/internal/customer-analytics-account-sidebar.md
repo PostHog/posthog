@@ -36,6 +36,11 @@ Clearing a custom value requires confirmation and posts a null value to
 The endpoint returns 204, soft-deletes the current value, and preserves its history.
 Warehouse-backed and canonical values reject both manual sets and clears.
 
+A warehouse sync clears a saved custom property when the source row contains an explicit
+null for that property. The sidebar then displays "Not set". The clear preserves history
+and emits a property-change event. Repeated nulls do not emit another change event.
+Missing source rows or columns leave saved values unchanged.
+
 Relationship editors support single and multiple holders. Removing a holder ends the
 assignment without deleting its history. Multi-holder changes retain unchanged holders.
 Relationship saves apply the edits relative to the assignments shown when editing began.

@@ -34,9 +34,7 @@ export async function fetchInsightsUsingVariable(
                 `api/environments/${teamId}/insights/?basic=true&limit=${limit}&offset=${offset}`
             )
 
-            const insights = legacyResponse.results.map((legacyInsight) =>
-                getQueryBasedInsightModel(legacyInsight, 'variable_insights_list')
-            )
+            const insights = legacyResponse.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
 
             // Filter insights that use this variable
             const filtered = insights.filter((insight) => insightUsesVariable(insight, variableId))

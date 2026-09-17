@@ -7,7 +7,9 @@ import {
   deriveStatus,
   deriveTaskCellStatus,
   hasUnseenCompletion,
+  latestStopReason,
   type SessionStatusInput,
+  trackLatestStopReason,
 } from "./status";
 
 function makeSession(
@@ -172,5 +174,65 @@ describe("buildStatusSummary", () => {
       { taskId: "x", task: undefined, status: "running" },
     ]);
     expect(summary.total).toBe(0);
+  });
+});
+
+describe("trackLatestStopReason", () => {
+  function chunk(ts: number): AcpMessage {
+    return {
+      type: "acp_message",
+      ts,
+      message: {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: { update: { sessionUpdate: "agent_message_chunk" } },
+      },
+    };
+  }
+
+  it.each([
+    {
+      name: "append",
+      next: (events: AcpMessage[]) => [...events, completedTurn("refusal", 9)],
+    },
+    {
+      name: "hydrated replacement",
+      next: (events: AcpMessage[]) => [
+        events[0],
+        completedTurn("refusal", 9),
+        events[2],
+      ],
+    },
+    { name: "truncation", next: (events: AcpMessage[]) => events.slice(0, 1) },
+    { name: "eviction", next: () => [] },
+  ])("agrees with a full scan after $name", ({ next }) => {
+    const events = [chunk(1), completedTurn("cancelled", 2), chunk(3)];
+    expect(trackLatestStopReason(events)).toBe("cancelled");
+    const changed = next(events);
+    expect(trackLatestStopReason(changed)).toBe(latestStopReason(changed));
+  });
+
+  it("visits only appended events while a transcript streams", () => {
+    let reads = 0;
+    const counted = (ts: number): AcpMessage => {
+      const { message } = chunk(ts);
+      return {
+        type: "acp_message",
+        ts,
+        get message() {
+          reads++;
+          return message;
+        },
+      };
+    };
+    const events = [completedTurn("end_turn", 1)];
+    for (let ts = 2; ts <= 200; ts++) events.push(counted(ts));
+    trackLatestStopReason(events);
+    reads = 0;
+    for (let batch = 0; batch < 5; batch++) {
+      events.push(counted(1000 + batch));
+      expect(trackLatestStopReason([...events])).toBe("end_turn");
+    }
+    expect(reads).toBe(5);
   });
 });

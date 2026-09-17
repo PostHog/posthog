@@ -1,4 +1,5 @@
 import {
+  type AgentRuntime,
   TASKS_PREWARM_SANDBOX_FLAG,
   type WorkspaceMode,
 } from "@posthog/shared";
@@ -16,7 +17,7 @@ const log = logger.scope("warm-task");
 
 const WARM_DEBOUNCE_MS = 600;
 
-interface UseWarmTaskOptions {
+export interface UseWarmTaskOptions {
   workspaceMode: WorkspaceMode;
   claudeModelAccess?: string;
   selectedRepository?: string | null;
@@ -25,6 +26,7 @@ interface UseWarmTaskOptions {
   allowNoRepo?: boolean;
   branch?: string | null;
   editorIsEmpty: boolean;
+  agentRuntime?: AgentRuntime;
   runtimeAdapter?: string | null;
   model?: string | null;
   reasoningEffort?: string | null;
@@ -41,6 +43,7 @@ export function useWarmTask({
   allowNoRepo = false,
   branch,
   editorIsEmpty,
+  agentRuntime,
   runtimeAdapter,
   model,
   reasoningEffort,
@@ -77,9 +80,11 @@ export function useWarmTask({
   const warmGithubIntegrationId = warmRepositories.length
     ? (githubIntegrationId ?? null)
     : null;
+  const heldLeaseIsUnusable =
+    agentRuntime === "pi" || claudeModelAccess === "own-subscription";
   const eligible =
     enabled &&
-    claudeModelAccess !== "own-subscription" &&
+    !heldLeaseIsUnusable &&
     isCloud &&
     !!client &&
     (allowNoRepo || (!!warmRepository && warmGithubIntegrationId !== null)) &&
@@ -110,11 +115,7 @@ export function useWarmTask({
 
     if (!eligible || !key || !client) {
       clearDebounce();
-      if (
-        client &&
-        leaseRef.current &&
-        claudeModelAccess === "own-subscription"
-      ) {
+      if (client && leaseRef.current && heldLeaseIsUnusable) {
         const lease = leaseRef.current;
         forgetWarmTaskLease(lease);
         leaseRef.current = null;
@@ -198,7 +199,7 @@ export function useWarmTask({
     return clearDebounce;
   }, [
     eligible,
-    claudeModelAccess,
+    heldLeaseIsUnusable,
     key,
     client,
     warmRepository,

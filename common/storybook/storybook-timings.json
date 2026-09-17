@@ -1027,15 +1027,15 @@
         "chromium": 6.294,
         "webkit": 2.51
     },
-    "frontend/src/scenes/insights/views/BoldNumber/BoldNumber.stories.tsx": {
+    "products/product_analytics/frontend/insights/shared/BoldNumber/BoldNumber.stories.tsx": {
         "chromium": 11.991,
         "webkit": 2.629
     },
-    "frontend/src/scenes/insights/views/BoldNumber/Textfit.stories.tsx": {
+    "products/product_analytics/frontend/insights/shared/BoldNumber/Textfit.stories.tsx": {
         "chromium": 5.228,
         "webkit": 2.11
     },
-    "frontend/src/scenes/insights/views/BoxPlot/BoxPlot.stories.tsx": {
+    "products/product_analytics/frontend/insights/trends/BoxPlot/BoxPlot.stories.tsx": {
         "chromium": 6.229,
         "webkit": 2.209
     },
@@ -1055,19 +1055,19 @@
         "chromium": 13.933,
         "webkit": 2.926
     },
-    "frontend/src/scenes/insights/views/InsightsTable/InsightsTable.stories.tsx": {
+    "products/product_analytics/frontend/insights/shared/InsightsTable/InsightsTable.stories.tsx": {
         "chromium": 30.027,
         "webkit": 6.248
     },
-    "frontend/src/scenes/insights/views/Metric/Metric.stories.tsx": {
+    "products/product_analytics/frontend/insights/trends/Metric/Metric.stories.tsx": {
         "chromium": 6.969,
         "webkit": 2.109
     },
-    "frontend/src/scenes/insights/views/RegionMap/RegionMap.stories.tsx": {
+    "products/product_analytics/frontend/insights/trends/RegionMap/RegionMap.stories.tsx": {
         "chromium": 7.432,
         "webkit": 2.225
     },
-    "frontend/src/scenes/insights/views/WorldMap/WorldMap.stories.tsx": {
+    "products/product_analytics/frontend/insights/trends/WorldMap/WorldMap.stories.tsx": {
         "chromium": 7.118,
         "webkit": 3.811
     },
@@ -1143,7 +1143,7 @@
         "chromium": 31.702,
         "webkit": 4.317
     },
-    "frontend/src/scenes/paths/Paths.stories.tsx": {
+    "products/product_analytics/frontend/insights/paths/Paths.stories.tsx": {
         "chromium": 17.987,
         "webkit": 5.896
     },
@@ -1151,7 +1151,7 @@
         "chromium": 12.236,
         "webkit": 2.119
     },
-    "frontend/src/scenes/persons/PersonScene.stories.tsx": {
+    "products/persons/frontend/pages/PersonScene.stories.tsx": {
         "chromium": 14.518,
         "webkit": 2.907
     },

@@ -310,15 +310,22 @@ No quill equivalent and no plain-HTML answer? Build it from HTML + Tailwind in t
 feature, or add it to quill (see [`.claude/skills/quill-code/SKILL.md`](./.claude/skills/quill-code/SKILL.md)).
 Pulling in a Radix package is not the fallback.
 
-### The two carve-outs
+### Design tokens
 
-- **CSS variables are not components.** Tailwind classes like `text-(--gray-12)`,
-  `bg-(--gray-2)`, and `rounded-(--radius-2)` come from Radix's *CSS token* layer and
-  stay. Keep using them; do not "de-Radix" a stylesheet.
-- **The `<Theme>` root stays for now.** The app-level provider (`Providers.tsx`,
-  `.storybook/preview.tsx`) and the `<Theme>` wrapper in existing tests supply those
-  tokens. Leave them alone — removing them is a separate migration. Do not add
-  `<Theme>` to new files; new tests should not need it.
+- Use the semantic design tokens from `@posthog/quill-tokens` by default.
+- Do not add raw color utilities such as `text-(--gray-11)` or `bg-(--gray-2)`.
+- Use `text-foreground` for important or high-contrast text.
+- Use `text-muted-foreground` for less important or low-contrast text.
+- Use `text-xs` for body text.
+- Deviate from these design-system rules only when the task explicitly requires it.
+
+### Theme carve-out
+
+The `<Theme>` root stays for now.
+The app-level provider (`Providers.tsx`), `.storybook/preview.tsx`, and the `<Theme>` wrapper in existing tests supply legacy tokens.
+Leave these wrappers unchanged.
+Do not add `<Theme>` to new files.
+New tests must not need it.
 
 ## Code Style
 
@@ -331,6 +338,7 @@ Pulling in a Radix package is not the fallback.
 - No barrel files (`index.ts`).
 - Use Tailwind first. Keep classes sorted. Use inline `style` only for runtime values, library configuration, or CSS variables.
 - Empty/placeholder/loading screens (canvas and elsewhere) are a `@posthog/quill` `<Empty>` (`EmptyHeader` → `EmptyMedia variant="icon"` → `EmptyTitle` → `EmptyDescription`, then `EmptyContent` for CTAs). Don't hand-roll the centered Flex + dashed icon box. CTAs are quill `Button`s: primary action `variant="primary"`, secondary `variant="outline"`, `size="default"`. For a link CTA use `render={<Link … />}` (Base UI), not `asChild`.
+- The bar across the top of a pane, a column or a side panel is `ChromeBar` (`packages/ui/src/primitives`), never a hand-written row. It fixes the height at 40px, the border and the colour; the caller supplies the breadcrumb, title or search header inside it and the controls through `actions`. `inset` says how far from the edges the contents sit: `control` when the bar starts with a button, `text` when it starts with a label, `even` for a bar with the same padding both ends. Fifteen copies of this row had drifted into three border colours and four paddings before it existed.
 - Loading indicators are `Spinner` and `LoadingState` from `packages/ui/src/primitives`. `LoadingState` fills a pane or section while its data loads (24px spinner, optional label). `Spinner` sits inline in a button, row or badge; omit `size` inside quill buttons and media slots so it matches the icons beside it, and pick `xs`/`sm`/`md`/`lg` elsewhere. Do not import `Spinner` from `@posthog/quill` or `@radix-ui/themes`, and do not spin phosphor's `CircleNotch` or `SpinnerGap`: Biome rejects those imports. Pass `aria-hidden="true"` when the spinner sits next to visible loading text or inside an element that already announces the loading state, so the label is not read twice. The braille `DotsCircleSpinner` and `DotRingSpinner` mark agent activity (a running tool call, a working task), not data loading.
 - Abort controllers before awaiting cleanup that depends on them.
 
@@ -344,7 +352,10 @@ See [docs/CONVENTIONS.md](./docs/CONVENTIONS.md).
 
 ## Key Libraries
 
-- React 19, Tailwind CSS, `@posthog/quill` (the component library — Radix is banned in new code, see [UI Components](#ui-components); Radix Themes remains only as the CSS-token layer and legacy imports pending migration)
+- React 19, Tailwind CSS, `@posthog/quill` (components), and `@posthog/quill-tokens` (design tokens).
+  Radix is banned in new code.
+  See [UI Components](#ui-components).
+  Existing Radix imports await migration.
 - TanStack Query, TanStack Router
 - Zustand, InversifyJS (with `@inversifyjs/strongly-typed`), Zod
 - xterm.js, CodeMirror, Tiptap

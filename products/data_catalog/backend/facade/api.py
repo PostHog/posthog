@@ -19,7 +19,13 @@ from ..logic.certifications import (
 )
 from ..logic.drift import compute_drift
 from ..logic.execution import run_metric
-from ..logic.metric_reads import get_metric_summary, live_metric_summaries, metric_names_for_ids, metric_reads_for_ids
+from ..logic.metric_reads import (
+    get_metric_summary,
+    live_metric_ids,
+    live_metric_summaries,
+    metric_names_for_ids,
+    metric_reads_for_ids,
+)
 from ..logic.metrics import (
     BULK_SKIP_NOT_FOUND,
     METRIC_BULK_MAX,
@@ -66,6 +72,7 @@ __all__ = [
     "deprecate",
     "get_hogql_metric_definition",
     "get_metric_summary",
+    "live_metric_ids",
     "live_metric_summaries",
     "metric_names_for_ids",
     "metrics_for_team",

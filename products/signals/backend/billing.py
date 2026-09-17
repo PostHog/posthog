@@ -6,9 +6,8 @@ deterministic — the first implementation `TaskRun` with a `pr_url` set — so 
 billed exactly once, in the period that PR first appeared, regardless of any later status
 changes, re-judgements, or additional runs.
 
-The PR↔report link lives on the `SignalReportTask` bridge (relationship="implementation"); the
-PR URL itself is written to `TaskRun.output['pr_url']`. There is no artefact that records the
-implementation task or its PR, so the query is rooted on that bridge, not on artefacts.
+Billing eligibility uses the `SignalReportTask` implementation bridge and the first task-run
+PR URL. PR-link artefacts also include external work, so their presence cannot authorize a charge.
 
 Because this is a billing source it fails closed: a run only bills when its PR URL is a GitHub
 URL and the run, task, bridge, and report teams all agree, so malformed bridge rows never
@@ -211,21 +210,13 @@ def first_billable_pr_run_at(report_id: str | uuid.UUID) -> datetime | None:
     return run.created_at if run else None
 
 
-def report_pr_is_merged(report_id: str | uuid.UUID, pr_url: str) -> bool:
-    """Whether *this* PR of the report merged, per the tasks GitHub webhook.
+def report_pr_is_merged(report_id: str | uuid.UUID, pr_url: str, *, team_id: int) -> bool:
+    from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 
-    Reads `output.pr_merged`, the flag the webhook persists when a PR merges — the factual record of
-    a merge, independent of report status. A report can now reach RESOLVED without a merged PR (a
-    user or agent can resolve it directly), so status alone no longer attests a merge.
+    for pr in fetch_implementation_prs_for_reports([str(report_id)], team_id=team_id).get(str(report_id), []):
+        if pr.url == pr_url and pr.attached_at is not None:
+            return pr.merged
 
-    Scoped to one `pr_url` rather than the whole report, because the caller is deciding about a
-    specific PR: the refund reverses the charge for the billable run's PR, and it's that PR which
-    must be closed if it never merged. A report-level check would let an unrelated later PR that did
-    merge vouch for the refunded one, leaving the refunded PR open.
-
-    Fail closed like `_bridges_with_pr_run`: the PR URL, the merge flag, and the four team checks all
-    sit in one `filter()` so they resolve against the same `TaskRun` row.
-    """
     return SignalReportTask.objects.filter(
         relationship=_IMPLEMENTATION,
         report_id=report_id,

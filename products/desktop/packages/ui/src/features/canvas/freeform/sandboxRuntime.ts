@@ -307,7 +307,7 @@ export function buildSandboxDocument(
       agent: {
         request: (prompt) => call("agentRequest", { prompt }),
       },
-      // Brokered by the host: PostHog-only https URLs, rate-limited, and
+      // Brokered by the host: PostHog and GitHub PR HTTPS URLs, rate-limited, and
       // ignored while the canvas is unfocused (no auto-opens on load).
       openExternal: (url) => post({ type: "open-external", url }),
       // Navigate the host app. Fire-and-forget: the host validates the intent
@@ -315,7 +315,10 @@ export function buildSandboxDocument(
       // cannot pick the channel or an arbitrary path — only these four targets.
       navigate: {
         toTask: (taskId) => post({ type: "navigate", nav: { target: "task", taskId } }),
-        toNewTask: () => post({ type: "navigate", nav: { target: "new-task" } }),
+        toNewTask: (options) => {
+          if (!navigator.userActivation?.isActive) throw new Error("Opening a task requires a user action");
+          post({ type: "navigate", nav: { target: options ? "compose-task" : "new-task", prompt: options?.prompt, repository: options?.repository } });
+        },
         toCanvas: (dashboardId) => post({ type: "navigate", nav: { target: "canvas", dashboardId } }),
         toNewCanvas: () => post({ type: "navigate", nav: { target: "new-canvas" } }),
       },

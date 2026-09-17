@@ -7,6 +7,7 @@ from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from products.growth.backend.enrichment.bridge import ClayBridgeInputs, OrganizationBridgeInputs, WizardBridgeInputs
+from products.growth.backend.enrichment.context import EnrichmentContext, EnrichmentPhase
 from products.growth.backend.enrichment.core import _MISS_PAYLOAD, enrich_organization
 from products.growth.backend.enrichment.fields import EnrichmentFields
 from products.growth.backend.enrichment.icp_lists import clear_lists_cache
@@ -110,6 +111,7 @@ class TestEnrichmentCore(BaseTest):
         geoip_country_code=None,
         domain="stripe.com",
         provider=None,
+        phase=None,
     ):
         person_patch_kwargs = {"side_effect": person} if isinstance(person, Exception) else {"return_value": person}
         bridge_error = None
@@ -127,19 +129,20 @@ class TestEnrichmentCore(BaseTest):
                 )
             }
         )
+        ctx = EnrichmentContext(
+            organization_id=str(self.organization.id),
+            domain=domain,
+            phase=phase or (EnrichmentPhase.RECHECK if is_recheck else EnrichmentPhase.AT_SIGNUP),
+            distinct_id=distinct_id,
+            role_at_organization=role_at_organization,
+            geoip_country_code=geoip_country_code,
+        )
         with (
             patch("products.growth.backend.enrichment.core.read_organization_bridge_inputs", **bridge_patch_kwargs),
             patch("products.growth.backend.enrichment.core.get_person_by_distinct_id", **person_patch_kwargs),
         ):
             return async_to_sync(enrich_organization)(
-                organization_id=str(self.organization.id),
-                domain=domain,
-                provider=provider or _FakeProvider(lookup),
-                pha_client=pha_client or MagicMock(),
-                is_recheck=is_recheck,
-                role_at_organization=role_at_organization,
-                geoip_country_code=geoip_country_code,
-                distinct_id=distinct_id,
+                ctx, provider=provider or _FakeProvider(lookup), pha_client=pha_client or MagicMock()
             )
 
     # ---------- archive + legacy clay behavior (unchanged contracts) ----------
@@ -324,6 +327,13 @@ class TestEnrichmentCore(BaseTest):
 
     def test_first_attempt_does_not_look_up_the_person(self):
         fields = EnrichmentFields(headcount=750, country="US", founded_year=2021)
+        ctx = EnrichmentContext(
+            organization_id=str(self.organization.id),
+            domain="stripe.com",
+            phase=EnrichmentPhase.AT_SIGNUP,
+            distinct_id="signer-distinct-id",
+            role_at_organization="engineering",
+        )
         with (
             patch(
                 "products.growth.backend.enrichment.core.read_organization_bridge_inputs",
@@ -332,13 +342,9 @@ class TestEnrichmentCore(BaseTest):
             patch("products.growth.backend.enrichment.core.get_person_by_distinct_id") as person_mock,
         ):
             async_to_sync(enrich_organization)(
-                organization_id=str(self.organization.id),
-                domain="stripe.com",
+                ctx,
                 provider=_FakeProvider(ProviderLookup(fields=fields, raw_payload=_empty_shell())),
                 pha_client=MagicMock(),
-                is_recheck=False,
-                role_at_organization="engineering",
-                distinct_id="signer-distinct-id",
             )
 
         person_mock.assert_not_called()
@@ -426,6 +432,12 @@ class TestEnrichmentCore(BaseTest):
         # no person lookup, mirrored on every attempt — unlike the guarded clay mirror.
         pha_client = MagicMock()
         fields = EnrichmentFields(company_type="STARTUP")
+        ctx = EnrichmentContext(
+            organization_id=str(self.organization.id),
+            domain="acme.ai",
+            phase=EnrichmentPhase.AT_SIGNUP,
+            distinct_id="signer-distinct-id",
+        )
         with (
             patch(
                 "products.growth.backend.enrichment.core.read_organization_bridge_inputs",
@@ -434,12 +446,9 @@ class TestEnrichmentCore(BaseTest):
             patch("products.growth.backend.enrichment.core.get_person_by_distinct_id") as person_mock,
         ):
             async_to_sync(enrich_organization)(
-                organization_id=str(self.organization.id),
-                domain="acme.ai",
+                ctx,
                 provider=_FakeProvider(ProviderLookup(fields=fields, raw_payload=_company())),
                 pha_client=pha_client,
-                is_recheck=False,
-                distinct_id="signer-distinct-id",
             )
 
         person_mock.assert_not_called()
@@ -510,11 +519,29 @@ class TestEnrichmentCore(BaseTest):
 
         assert outcome.provider_fields is None
         record = OrganizationEnrichment.objects.get(organization=self.organization)
-        assert record.data == {
+        assert record.data["icp_fit_evaluation_kind"] == "initial"
+        assert outcome.fit_evaluated_at is not None
+        assert record.data["icp_fit_evaluated_at"] == outcome.fit_evaluated_at.isoformat()
+        data = {k: v for k, v in record.data.items() if not k.startswith("icp_fit_eval")}
+        assert data == {
             "icp_fit_status": "not_found",
             "icp_fit_version": "v0.6",
             "icp_fit_lists_version": "test-lists-1",
         }
+
+    @parameterized.expand(
+        [
+            ("at_signup", EnrichmentPhase.AT_SIGNUP, "initial"),
+            ("recheck", EnrichmentPhase.RECHECK, "recheck"),
+            ("sweep", EnrichmentPhase.SWEEP, "sweep"),
+        ]
+    )
+    def test_fit_evaluation_kind_derives_from_the_phase(self, _name, phase, expected_kind):
+        fields = EnrichmentFields(company_type="STARTUP", headcount=12)
+        self._enrich(ProviderLookup(fields=fields, raw_payload=_company()), phase=phase, domain="acme.ai")
+
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert record.data["icp_fit_evaluation_kind"] == expected_kind
 
     def test_no_active_lists_degrades_to_clay_and_fields_only(self):
         IcpScoringConfig.objects.update(is_active=False)
@@ -570,16 +597,15 @@ class TestEnrichmentCore(BaseTest):
     def test_recheck_reads_the_wizard_bridge(self):
         fields = EnrichmentFields(company_type="STARTUP", headcount=12)
         payload = _company(description="We sell shoes", tagsV2=[{"displayValue": "S25", "type": "YC_BATCH"}])
+        ctx = EnrichmentContext(
+            organization_id=str(self.organization.id), domain="acme.com", phase=EnrichmentPhase.RECHECK
+        )
         with patch(
             "products.growth.backend.enrichment.core.read_organization_bridge_inputs",
             return_value=OrganizationBridgeInputs(wizard=WizardBridgeInputs(ai_sdk_detected=True)),
         ) as bridge_mock:
             outcome = async_to_sync(enrich_organization)(
-                organization_id=str(self.organization.id),
-                domain="acme.com",
-                provider=_FakeProvider(ProviderLookup(fields=fields, raw_payload=payload)),
-                pha_client=MagicMock(),
-                is_recheck=True,
+                ctx, provider=_FakeProvider(ProviderLookup(fields=fields, raw_payload=payload)), pha_client=MagicMock()
             )
 
         bridge_mock.assert_called_once_with(organization_id=str(self.organization.id))
@@ -591,6 +617,9 @@ class TestEnrichmentCore(BaseTest):
     def test_recheck_reads_the_organization_group_once_for_both_scores(self):
         fields = EnrichmentFields(company_type="STARTUP", headcount=12)
         group = MagicMock(group_properties={"wizard_ai_sdk_detected": True})
+        ctx = EnrichmentContext(
+            organization_id=str(self.organization.id), domain="acme.com", phase=EnrichmentPhase.RECHECK
+        )
         with (
             patch("products.growth.backend.enrichment.bridge.get_instance_region", return_value="US"),
             patch("products.growth.backend.enrichment.bridge.Team.objects.get", return_value=self.team),
@@ -601,11 +630,9 @@ class TestEnrichmentCore(BaseTest):
             patch("products.growth.backend.enrichment.bridge.get_group_by_key", return_value=group) as get_group,
         ):
             outcome = async_to_sync(enrich_organization)(
-                organization_id=str(self.organization.id),
-                domain="acme.com",
+                ctx,
                 provider=_FakeProvider(ProviderLookup(fields=fields, raw_payload=_company())),
                 pha_client=MagicMock(),
-                is_recheck=True,
             )
 
         assert outcome.fit is not None
@@ -614,16 +641,17 @@ class TestEnrichmentCore(BaseTest):
 
     def test_first_attempt_ignores_the_wizard_bridge_input(self):
         fields = EnrichmentFields(company_type="STARTUP", headcount=12)
+        ctx = EnrichmentContext(
+            organization_id=str(self.organization.id), domain="acme.ai", phase=EnrichmentPhase.AT_SIGNUP
+        )
         with patch(
             "products.growth.backend.enrichment.core.read_organization_bridge_inputs",
             return_value=OrganizationBridgeInputs(wizard=WizardBridgeInputs(ai_sdk_detected=True)),
         ):
             outcome = async_to_sync(enrich_organization)(
-                organization_id=str(self.organization.id),
-                domain="acme.ai",
+                ctx,
                 provider=_FakeProvider(ProviderLookup(fields=fields, raw_payload=_company())),
                 pha_client=MagicMock(),
-                is_recheck=False,
             )
 
         assert outcome.fit is not None
@@ -632,6 +660,9 @@ class TestEnrichmentCore(BaseTest):
 
     def test_wizard_bridge_read_failure_skips_a_fit_score_without_persisted_evidence(self):
         fields = EnrichmentFields(company_type="STARTUP", headcount=12)
+        ctx = EnrichmentContext(
+            organization_id=str(self.organization.id), domain="acme.ai", phase=EnrichmentPhase.RECHECK
+        )
         with (
             patch(
                 "products.growth.backend.enrichment.core.read_organization_bridge_inputs",
@@ -640,11 +671,9 @@ class TestEnrichmentCore(BaseTest):
             patch("products.growth.backend.enrichment.core.capture_exception") as capture_mock,
         ):
             outcome = async_to_sync(enrich_organization)(
-                organization_id=str(self.organization.id),
-                domain="acme.ai",
+                ctx,
                 provider=_FakeProvider(ProviderLookup(fields=fields, raw_payload=_company())),
                 pha_client=MagicMock(),
-                is_recheck=True,
             )
 
         capture_mock.assert_called_once()
@@ -661,6 +690,9 @@ class TestEnrichmentCore(BaseTest):
         )
         fields = EnrichmentFields(company_type="STARTUP", headcount=12)
         payload = _company(description="We sell shoes", tagsV2=[{"displayValue": "S25", "type": "YC_BATCH"}])
+        ctx = EnrichmentContext(
+            organization_id=str(self.organization.id), domain="acme.com", phase=EnrichmentPhase.RECHECK
+        )
         with (
             patch(
                 "products.growth.backend.enrichment.core.read_organization_bridge_inputs",
@@ -669,11 +701,9 @@ class TestEnrichmentCore(BaseTest):
             patch("products.growth.backend.enrichment.core.capture_exception"),
         ):
             outcome = async_to_sync(enrich_organization)(
-                organization_id=str(self.organization.id),
-                domain="acme.com",
+                ctx,
                 provider=_FakeProvider(ProviderLookup(fields=fields, raw_payload=payload)),
                 pha_client=MagicMock(),
-                is_recheck=True,
             )
 
         assert outcome.fit is not None

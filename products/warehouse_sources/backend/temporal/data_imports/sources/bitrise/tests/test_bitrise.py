@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bitrise.bi
     INCREMENTAL_LOOKBACK,
     BitriseResumeConfig,
     _build_after_param,
+    _build_after_rfc3339_param,
     _to_unix_timestamp,
     bitrise_source,
     validate_credentials,
@@ -29,7 +30,7 @@ BITRISE_SESSION_PATCH = (
 )
 
 
-def _response(body: dict[str, Any], status_code: int = 200) -> Response:
+def _response(body: Any, status_code: int = 200) -> Response:
     resp = Response()
     resp.status_code = status_code
     resp._content = json.dumps(body).encode()
@@ -107,6 +108,16 @@ class TestBuildAfterParam:
     )
     def test_no_filter_when_not_incremental(self, should_use_incremental_field, last_value):
         assert _build_after_param(should_use_incremental_field, last_value) is None
+
+
+class TestBuildAfterRfc3339Param:
+    def test_formats_the_lookback_cutoff_as_rfc3339(self):
+        after = _build_after_rfc3339_param(True, datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC))
+        # 24h lookback subtracted from the watermark, rendered in the format pipelines expects.
+        assert after == "2026-01-01T03:04:05Z"
+
+    def test_no_filter_without_a_watermark(self):
+        assert _build_after_rfc3339_param(False, datetime(2026, 1, 2, tzinfo=UTC)) is None
 
 
 class TestValidateCredentials:
@@ -339,6 +350,151 @@ class TestWorkflows:
         ]
 
 
+class TestPipelines:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_apps_and_injects_app_slug(self, MockSession):
+        session = MockSession.return_value
+        _params, urls = _wire(
+            session,
+            [
+                _response({"data": [{"slug": "app1"}], "paging": {}}),
+                _response({"data": [{"slug": "p1", "triggered_at": "2026-01-01T00:00:00Z"}], "paging": {}}),
+            ],
+        )
+
+        rows = _rows(_source("pipelines", _make_manager()))
+
+        assert [(row["slug"], row["app_slug"]) for row in rows] == [("p1", "app1")]
+        assert urls[1].endswith("/apps/app1/pipelines")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_via_the_before_param(self, MockSession):
+        session = MockSession.return_value
+        params, _urls = _wire(
+            session,
+            [
+                _response({"data": [{"slug": "app1"}], "paging": {}}),
+                _response({"data": [{"slug": "p1"}], "paging": {"next": "2026-01-01T00:00:00Z"}}),
+                _response({"data": [{"slug": "p2"}], "paging": {}}),
+            ],
+        )
+
+        rows = _rows(_source("pipelines", _make_manager()))
+
+        assert [row["slug"] for row in rows] == ["p1", "p2"]
+        # Bitrise renamed the pipelines paging param to `before`; `next` is its deprecated spelling.
+        assert params[2]["before"] == "2026-01-01T00:00:00Z"
+        assert "next" not in params[2]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_passes_an_rfc3339_after_param(self, MockSession):
+        session = MockSession.return_value
+        params, _urls = _wire(
+            session,
+            [
+                _response({"data": [{"slug": "app1"}], "paging": {}}),
+                _response({"data": [], "paging": {}}),
+            ],
+        )
+
+        _rows(
+            _source(
+                "pipelines",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 1, 2, tzinfo=UTC),
+            )
+        )
+
+        # Unlike builds, the pipelines filter is a date string rather than a Unix timestamp.
+        assert params[1]["after"] == "2026-01-01T00:00:00Z"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_has_no_after_param(self, MockSession):
+        session = MockSession.return_value
+        params, _urls = _wire(
+            session,
+            [
+                _response({"data": [{"slug": "app1"}], "paging": {}}),
+                _response({"data": [], "paging": {}}),
+            ],
+        )
+
+        _rows(_source("pipelines", _make_manager()))
+
+        assert "after" not in params[1]
+
+
+class TestBranches:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_maps_branch_names_to_rows(self, MockSession):
+        session = MockSession.return_value
+        _params, urls = _wire(
+            session,
+            [
+                _response({"data": [{"slug": "app1"}], "paging": {}}),
+                _response({"data": ["main", "release/1.0"]}),
+            ],
+        )
+
+        rows = _rows(_source("branches", _make_manager()))
+
+        assert rows == [
+            {"app_slug": "app1", "branch": "main"},
+            {"app_slug": "app1", "branch": "release/1.0"},
+        ]
+        assert urls[1].endswith("/apps/app1/branches")
+
+
+class TestOrganizations:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_reads_the_single_page_listing(self, MockSession):
+        session = MockSession.return_value
+        _params, urls = _wire(session, [_response({"data": [{"slug": "org1", "name": "Acme"}]})])
+
+        rows = _rows(_source("organizations", _make_manager()))
+
+        assert rows == [{"slug": "org1", "name": "Acme"}]
+        assert urls[0].endswith("/organizations")
+
+
+class TestOrganizationMembers:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_organizations_and_injects_org_slug(self, MockSession):
+        session = MockSession.return_value
+        _params, urls = _wire(
+            session,
+            [
+                _response({"data": [{"slug": "org1"}, {"slug": "org2"}]}),
+                # The members listing answers with a bare array, not a `data` envelope.
+                _response([{"slug": "u1", "username": "ada", "email": "ada@example.com"}]),
+                _response([{"slug": "u2", "username": "grace", "email": "grace@example.com"}]),
+            ],
+        )
+
+        rows = _rows(_source("organization_members", _make_manager()))
+
+        assert [(row["slug"], row["org_slug"]) for row in rows] == [("u1", "org1"), ("u2", "org2")]
+        assert urls[1].endswith("/organizations/org1/members")
+        assert urls[2].endswith("/organizations/org2/members")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_deleted_organization_404_is_skipped(self, MockSession):
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"data": [{"slug": "org1"}, {"slug": "org2"}]}),
+                _response({"message": "Not Found"}, status_code=404),
+                _response([{"slug": "u2"}]),
+            ],
+        )
+
+        rows = _rows(_source("organization_members", _make_manager()))
+
+        assert [(row["slug"], row["org_slug"]) for row in rows] == [("u2", "org2")]
+
+
 class TestArtifacts:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_fans_out_over_builds_and_injects_parent_identifiers(self, MockSession):
@@ -416,3 +572,6 @@ class TestSourceResponse:
         assert BITRISE_ENDPOINTS["builds"].primary_keys == ["app_slug", "slug"]
         assert BITRISE_ENDPOINTS["workflows"].primary_keys == ["app_slug", "workflow"]
         assert BITRISE_ENDPOINTS["artifacts"].primary_keys == ["app_slug", "build_slug", "slug"]
+        assert BITRISE_ENDPOINTS["pipelines"].primary_keys == ["app_slug", "slug"]
+        assert BITRISE_ENDPOINTS["branches"].primary_keys == ["app_slug", "branch"]
+        assert BITRISE_ENDPOINTS["organization_members"].primary_keys == ["org_slug", "slug"]

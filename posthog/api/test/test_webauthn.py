@@ -12,10 +12,37 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.webauthn import WEBAUTHN_REGISTRATION_CHALLENGE_KEY, WebAuthnLoginViewSet
-from posthog.models import User
+from posthog.models import Organization, User
+from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.session.models import Session
+
+
+def _enforce_sso(user: User, organization: Organization) -> None:
+    email_domain = user.email.split("@", 1)[1]
+    organization.available_product_features = [
+        {"key": "sso_enforcement", "name": "sso_enforcement"},
+        {"key": "saml", "name": "saml"},
+    ]
+    organization.save()
+
+    domain = OrganizationDomain.objects.create(
+        domain=email_domain,
+        organization=organization,
+        verified_at=timezone.now(),
+        sso_enforcement="saml",
+    )
+    config = IdentityProviderConfig.objects.create(
+        organization=organization,
+        config_scope="saml",
+        domain_scope="all",
+        saml_entity_id="https://idp.example.com",
+        saml_acs_url="https://idp.example.com/saml",
+        saml_x509_cert="test-certificate",
+    )
+    LinkedIdentityProviderConfig.objects.create(organization_domain=domain, identity_provider_config=config)
 
 
 class TestWebAuthnRegistration(APIBaseTest):
@@ -61,40 +88,14 @@ class TestWebAuthnRegistration(APIBaseTest):
         self.assertEqual(len(data["excludeCredentials"]), 1)
 
     def test_registration_begin_disallowed_when_sso_enforced(self):
-        email_domain = self.user.email.split("@", 1)[1]
-
-        self.organization.available_product_features = [
-            {"key": "sso_enforcement", "name": "sso_enforcement"},
-            {"key": "saml", "name": "saml"},
-        ]
-        self.organization.save()
-
-        OrganizationDomain.objects.create(
-            domain=email_domain,
-            organization=self.organization,
-            verified_at=timezone.now(),
-            sso_enforcement="saml",
-        )
+        _enforce_sso(self.user, self.organization)
 
         response = self.client.post("/api/webauthn/register/begin/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("requires SSO", response.json().get("detail", ""))
 
     def test_registration_complete_disallowed_when_sso_enforced(self):
-        email_domain = self.user.email.split("@", 1)[1]
-
-        self.organization.available_product_features = [
-            {"key": "sso_enforcement", "name": "sso_enforcement"},
-            {"key": "saml", "name": "saml"},
-        ]
-        self.organization.save()
-
-        OrganizationDomain.objects.create(
-            domain=email_domain,
-            organization=self.organization,
-            verified_at=timezone.now(),
-            sso_enforcement="saml",
-        )
+        _enforce_sso(self.user, self.organization)
 
         session = self.client.session
         session[WEBAUTHN_REGISTRATION_CHALLENGE_KEY] = "dummy"
@@ -405,20 +406,7 @@ class TestWebAuthnLogin(APIBaseTest):
 
         from posthog.api.webauthn import user_uuid_to_handle
 
-        email_domain = self.user.email.split("@", 1)[1]
-
-        self.organization.available_product_features = [
-            {"key": "sso_enforcement", "name": "sso_enforcement"},
-            {"key": "saml", "name": "saml"},
-        ]
-        self.organization.save()
-
-        OrganizationDomain.objects.create(
-            domain=email_domain,
-            organization=self.organization,
-            verified_at=timezone.now(),
-            sso_enforcement="saml",
-        )
+        _enforce_sso(self.user, self.organization)
 
         self.client.post("/api/webauthn/login/begin/")
         mock_verify.return_value = MagicMock(new_sign_count=1)

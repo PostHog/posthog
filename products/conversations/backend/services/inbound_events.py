@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import random
 import hashlib
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timedelta
 from typing import Any, cast
 from uuid import UUID
@@ -32,8 +34,12 @@ from products.conversations.backend.models.inbound_event import (
 logger = structlog.get_logger(__name__)
 
 # Covers a crashed worker. Live Slack create+backfill has no Celery time_limit, so this
-# is reclaim latency, not a handler wall-clock.
+# is reclaim latency, not a handler wall-clock. Backfill renews the same lease so a live
+# worker is not reclaimed mid-page.
 INBOUND_LEASE_SECONDS = 20 * 60
+# Slack pages are 200 replies. Renewing every 25 keeps the lease alive through user
+# lookups and file downloads without a write per message.
+INBOUND_LEASE_RENEW_EVERY_REPLIES = 25
 INBOUND_MAX_ATTEMPTS = 20
 INBOUND_BACKOFF_BASE_SECONDS = 15
 INBOUND_BACKOFF_MAX_SECONDS = 15 * 60
@@ -56,6 +62,22 @@ class InboundClaim:
     expired_reclaim: bool
 
 
+_current_inbound_claim: ContextVar[InboundClaim | None] = ContextVar("conversations_inbound_claim", default=None)
+
+
+@contextmanager
+def inbound_claim_scope(claim: InboundClaim) -> Iterator[None]:
+    token = _current_inbound_claim.set(claim)
+    try:
+        yield
+    finally:
+        _current_inbound_claim.reset(token)
+
+
+def get_current_inbound_claim() -> InboundClaim | None:
+    return _current_inbound_claim.get()
+
+
 @frozen
 class InboundQueueMetrics:
     pending_count: int
@@ -63,18 +85,25 @@ class InboundQueueMetrics:
     oldest_ready_age_seconds: float
 
 
-def slack_retry_metadata(request: HttpRequest) -> tuple[int | None, str]:
-    raw_num = request.headers.get("X-Slack-Retry-Num")
-    reason = (request.headers.get("X-Slack-Retry-Reason") or "")[:64]
-    if not raw_num:
+def slack_retry_metadata_from_values(*, raw_retry_num: str, retry_reason: str) -> tuple[int | None, str]:
+    """Parse Slack's retry headers from values, for callers that hold no request."""
+    reason = retry_reason[:64]
+    if not raw_retry_num:
         return None, reason
     try:
-        retry_num = int(raw_num)
+        retry_num = int(raw_retry_num)
     except ValueError:
         return None, reason
     if retry_num < 0:
         return None, reason
     return retry_num, reason
+
+
+def slack_retry_metadata(request: HttpRequest) -> tuple[int | None, str]:
+    return slack_retry_metadata_from_values(
+        raw_retry_num=request.headers.get("X-Slack-Retry-Num") or "",
+        retry_reason=request.headers.get("X-Slack-Retry-Reason") or "",
+    )
 
 
 def slack_events_source_id(*, event_id: str | None, signed_body: bytes) -> str:
@@ -297,6 +326,19 @@ def _fenced(claim: InboundClaim) -> QuerySet[ConversationInboundEvent]:
         fencing_token=claim.event.fencing_token,
         status=ConversationInboundEvent.Status.PROCESSING,
     )
+
+
+def renew_inbound_lease(claim: InboundClaim) -> bool:
+    now = timezone.now()
+    updated = _fenced(claim).update(
+        lease_expires_at=now + timedelta(seconds=INBOUND_LEASE_SECONDS),
+        updated_at=now,
+    )
+    if updated:
+        INBOUND_LEASES_TOTAL.labels(result="renewed").inc()
+        return True
+    INBOUND_LEASES_TOTAL.labels(result="renew_rejected").inc()
+    return False
 
 
 def complete_inbound_event(claim: InboundClaim, *, error_code: str = "", error: str = "") -> bool:

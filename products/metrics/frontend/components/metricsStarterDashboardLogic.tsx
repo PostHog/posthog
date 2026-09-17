@@ -12,8 +12,8 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import type { MetricsQuery, MetricsQueryClause } from '~/queries/schema/schema-general'
 import type { DashboardType } from '~/types'
 
-import { metricsAttributeValuesRetrieve, metricsValuesRetrieve } from 'products/metrics/frontend/generated/api'
-import type { _MetricNameApi } from 'products/metrics/frontend/generated/api.schemas'
+import { metricsAttributeValuesRetrieve, metricsNamesRetrieve } from 'products/metrics/frontend/generated/api'
+import type { _MetricPickerNameApi } from 'products/metrics/frontend/generated/api.schemas'
 
 import type { InsightModel } from '../../../../frontend/src/types'
 import { RECOMMENDED_AGGREGATION_BY_TYPE, nodeAggregationFields, toKnownMetricType } from './metricsViewerLogic'
@@ -28,7 +28,7 @@ export interface metricsStarterDashboardLogicValues {
     creating: boolean
     dashboardName: string
     isModalOpen: boolean
-    metricOptions: _MetricNameApi[]
+    metricOptions: _MetricPickerNameApi[]
     metricOptionsLoading: boolean
     selectedMetrics: string[]
     serviceName: string
@@ -63,10 +63,10 @@ export interface metricsStarterDashboardLogicActions {
         errorObject?: any
     }
     loadMetricOptionsSuccess: (
-        metricOptions: _MetricNameApi[],
+        metricOptions: _MetricPickerNameApi[],
         payload?: any
     ) => {
-        metricOptions: _MetricNameApi[]
+        metricOptions: _MetricPickerNameApi[]
         payload?: any
     }
     loadServices: (_: any) => any
@@ -161,11 +161,11 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
             },
         ],
         metricOptions: [
-            [] as _MetricNameApi[],
+            [] as _MetricPickerNameApi[],
             {
                 loadMetricOptions: async (_, breakpoint) => {
                     await breakpoint(100)
-                    const response = await metricsValuesRetrieve(String(values.currentTeamId), {})
+                    const response = await metricsNamesRetrieve(String(values.currentTeamId), {})
                     breakpoint()
                     return response.results
                 },
@@ -189,12 +189,12 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
             const name = values.dashboardName.trim()
             const selectedMetrics = [...values.selectedMetrics]
             const serviceName = values.serviceName
-            const optionByKey: Record<string, _MetricNameApi> = Object.fromEntries(
+            const optionByKey: Record<string, _MetricPickerNameApi> = Object.fromEntries(
                 values.metricOptions.map((option) => [metricOptionKey(option.name, option.metric_type), option])
             )
             // Resolve keys to options up front so a name shared by two OTel types
             // keeps the type the user actually picked.
-            const pickedMetrics: _MetricNameApi[] = selectedMetrics.map(
+            const pickedMetrics: _MetricPickerNameApi[] = selectedMetrics.map(
                 (key) => optionByKey[key] ?? { name: key, metric_type: '' }
             )
             let dashboard: DashboardType | null = null

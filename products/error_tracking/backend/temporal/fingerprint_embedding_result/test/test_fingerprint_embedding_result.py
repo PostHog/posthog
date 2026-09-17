@@ -6,7 +6,10 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
 from django.test import override_settings
+
+from temporalio.exceptions import CancelledError
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.models import Team
@@ -183,6 +186,34 @@ class TestFingerprintEmbeddingResultActivity:
 
         assert result == FingerprintEmbeddingMergeResult()
         capture_exception.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "error,expect_captured",
+        [
+            # A drain cancels the activity, and Temporal retries it on a fresh worker.
+            (CancelledError("Cancelled"), False),
+            (OperationalError("server closed the connection unexpectedly"), False),
+            (ValueError("boom"), True),
+        ],
+    )
+    def test_merge_activity_captures_only_genuine_failures(self, error: Exception, expect_captured: bool) -> None:
+        with (
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.Team.objects.get",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities._query_closest_fingerprints",
+                side_effect=error,
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities._capture_activity_exception"
+            ) as capture_activity_exception,
+            pytest.raises(type(error)),
+        ):
+            merge_issue_created_fingerprint_activity(_inputs())
+
+        assert capture_activity_exception.called is expect_captured
 
     def test_merge_fingerprint_skips_when_auto_merge_disabled(self) -> None:
         with override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=False):

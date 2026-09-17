@@ -5,6 +5,7 @@ import {
     personhogStoreShadowCompareFailedCounter,
     personhogStoreShadowComparedCounter,
     personhogStoreShadowDivergenceCounter,
+    personhogStoreShadowDurationSeconds,
     personhogStoreShadowErrorsCounter,
     personhogStoreShadowFoldRedriveCounter,
     personhogStoreShadowSkipsCounter,
@@ -150,6 +151,7 @@ export class RoutingPersonsStore implements PersonsStore {
      * abandoned and counted as lost fidelity; the bound is per verb.
      */
     private async shadowed(verb: string, run: () => Promise<unknown>): Promise<void> {
+        const stopTimer = personhogStoreShadowDurationSeconds.labels({ verb }).startTimer()
         let timer: ReturnType<typeof setTimeout> | undefined
         const running = run()
         // The abandoned leg keeps running against the personhog side; its
@@ -170,6 +172,7 @@ export class RoutingPersonsStore implements PersonsStore {
             logger.warn('personhog shadow verb failed', { verb, error: String(error) })
         } finally {
             clearTimeout(timer)
+            stopTimer()
         }
     }
 

@@ -114,6 +114,18 @@ export interface GapTopicActionResultApi {
     readonly updated: number
 }
 
+export interface BusinessKnowledgeSettingsApi {
+    /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Requires Support to be enabled for this environment. */
+    learn_from_support_enabled: boolean
+    /** Whether Support is enabled for this environment. Learning cannot be turned on while this is false. */
+    readonly support_enabled: boolean
+}
+
+export interface PatchedBusinessKnowledgeSettingsUpdateApi {
+    /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Rejected when Support is off for this environment. */
+    learn_from_support_enabled?: boolean
+}
+
 /**
  * * `text` - Text
  * * `url` - URL
@@ -226,6 +238,16 @@ export interface KnowledgeSourceApi {
     readonly has_unsafe_documents: boolean
     /** Semantic-index state of this source. A `ready` source serves keyword (full-text) search immediately, but semantic search needs a background job to classify and embed its documents, which can take up to an hour. `pending` — at least one document is still awaiting classification or embedding. `completed` — every eligible document has been submitted to the embedding pipeline. `disabled` — the organization has not approved AI data processing, so embeddings never run and search stays keyword-only. Only meaningful while `status` is `ready`. */
     readonly embedding_status: EmbeddingStatusEnumApi
+    /**
+     * Support ticket number this learned source came from. Null for sources you added yourself.
+     * @nullable
+     */
+    readonly learned_from_ticket_number: number | null
+    /**
+     * App URL of the originating support ticket. Null for sources you added yourself.
+     * @nullable
+     */
+    readonly learned_from_ticket_url: string | null
     readonly crawl_mode: CrawlModeEnumApi
     readonly crawl_config: unknown
     readonly original_filename: string
@@ -322,7 +344,24 @@ export type BusinessKnowledgeSourcesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Case-insensitive substring match against the source name and URL.
+     */
+    search?: string
+    /**
+     * Filter to a single source type (text, url, or file).
+     */
+    source_type?: BusinessKnowledgeSourcesListSourceType
 }
+
+export type BusinessKnowledgeSourcesListSourceType =
+    (typeof BusinessKnowledgeSourcesListSourceType)[keyof typeof BusinessKnowledgeSourcesListSourceType]
+
+export const BusinessKnowledgeSourcesListSourceType = {
+    File: 'file',
+    Text: 'text',
+    Url: 'url',
+} as const
 
 export type BusinessKnowledgeSourcesTextRetrieve200 = {
     text?: string

@@ -209,7 +209,7 @@ fn fuzz_no_deferred_image_token_reaches_output() {
                 image_policy: ImagePolicy::Parallel,
             },
             collect.then(|| ImageCollection {
-                pseudo_team: "a".repeat(32),
+                team_id: "a".repeat(32),
                 content_key: "0123456789abcdef0123456789abcdef".to_string(),
             }),
         );

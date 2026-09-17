@@ -3073,6 +3073,55 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
             QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
 
+    @parameterized.expand(
+        [
+            ("kept_when_added_after_snapshot", False, 1798761600, True),
+            ("removed_when_snapshot_org_is_under_limit", True, 1798761600, False),
+            ("expired_entry_purged", False, 1750000000, False),
+        ]
+    )
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+    def test_quota_cron_reconciles_limiter_instead_of_replacing_it(
+        self, _name, in_snapshot, score, expect_present, _feature_enabled, _capture
+    ) -> None:
+        # A PR that crosses the limit while the cron runs is written to Redis after the cron's
+        # snapshot, so a wholesale replace would wipe it and unblock the org until the next tick.
+        self._set_self_driving_usage(1500)
+        add_limited_team_tokens(
+            QuotaResource.SIGNALS_CREDITS,
+            {self.team.api_token: score},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+
+        def snapshot(resource: QuotaResource, cache_key: QuotaLimitingCaches, use_cache: bool = True) -> list[str]:
+            if (
+                in_snapshot
+                and resource == QuotaResource.SIGNALS_CREDITS
+                and cache_key == QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            ):
+                return [self.team.api_token]
+            return []
+
+        with (
+            patch("ee.billing.quota_limiting.list_limited_team_attributes", side_effect=snapshot) as snapshot_mock,
+            patch("ee.billing.quota_limiting.get_teams_with_signals_credits_used_in_period", return_value=[]),
+            patch("ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", return_value=0),
+        ):
+            update_all_orgs_billing_quotas()
+
+        # The cache is off under TEST, so only this assertion catches a refactor that drops the kwarg
+        # and hands the cron the previous run's snapshot in production.
+        assert snapshot_mock.call_args_list
+        assert all(call.kwargs.get("use_cache") is False for call in snapshot_mock.call_args_list)
+
+        zset_score = get_client().zscore(
+            f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{QuotaResource.SIGNALS_CREDITS.value}",
+            self.team.api_token,
+        )
+        assert (zset_score is not None) == expect_present
+
     def test_refresh_is_a_noop_without_self_driving_usage(self) -> None:
         self.organization.usage = {"events": {"usage": 1, "todays_usage": 0, "limit": None}}
         self.organization.save()

@@ -3,6 +3,8 @@
 ## Commands
 
 - `pnpm test`: run unit tests across packages.
+  Turbo runs two packages at a time.
+  Each Vitest process already uses every core, so turbo's default of ten packages at once starved the 4 core CI runner and made trivial tests hit their 5 second timeout.
 - `pnpm --filter code test`: run desktop app unit tests.
 - `pnpm test:e2e`: run Playwright E2E tests.
 - `pnpm --filter <pkg> test`: run tests for one package.

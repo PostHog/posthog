@@ -36,7 +36,7 @@ use personhog_leader::fencing::{
     preregister_fencing_metrics, FencedChangelogProducers, FencedProducerConfig,
 };
 use personhog_leader::inflight::InflightTracker;
-use personhog_leader::pg::{validate_table_name, PgFallback};
+use personhog_leader::pg::{validate_table_name, LifecycleTables, PgFallback};
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService, PropertySizeLimits};
 use personhog_leader::settle::prune_and_settle_tick;
@@ -66,6 +66,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .validate_shutdown_budgets()
         .expect("Invalid shutdown configuration");
     validate_table_name(&config.fallback_table).expect("Invalid FALLBACK_TABLE");
+    validate_table_name(&config.lifecycle_op_table).expect("Invalid LIFECYCLE_OP_TABLE");
+    validate_table_name(&config.lifecycle_op_person_table)
+        .expect("Invalid LIFECYCLE_OP_PERSON_TABLE");
 
     // Initialize tracing
     let log_layer = fmt::layer()
@@ -201,6 +204,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 WRITE_PATH_LATENCY_BUCKETS_MS,
             ),
             (
+                Matcher::Full("personhog_leader_release_phase_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_fallback_pool_acquire_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_fenced_producer_window_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
                 Matcher::Full("grpc_server_request_duration_ms".into()),
                 WRITE_PATH_LATENCY_BUCKETS_MS,
             ),
@@ -296,13 +311,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             statement_timeout_ms: Some(5_000),
             ..Default::default()
         };
-        Some(PgFallback {
+        let fallback = PgFallback {
             pool: common_database::get_pool_with_config(
                 &config.fallback_database_url,
                 pool_config,
             )?,
             table: config.fallback_table.clone(),
-        })
+            lifecycle: LifecycleTables::new(
+                &config.lifecycle_op_table,
+                &config.lifecycle_op_person_table,
+            ),
+        };
+        personhog_common::spawn_pool_monitor(
+            vec![personhog_common::MonitoredPool {
+                pool: fallback.pool.clone(),
+                label: "fallback".to_string(),
+                max_connections: config.fallback_pg_max_connections,
+            }],
+            Duration::from_secs(10),
+        );
+        Some(fallback)
     };
 
     // Connect to etcd for coordination and the partition count
@@ -349,7 +377,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         kafka_producer.clone(),
         config.ingestion_warnings_topic.clone(),
     );
-    let fence_scan_pool = fallback.as_ref().map(|f| f.pool.clone());
+    let fence_scan = fallback.clone();
     let mut fence_repair_nudge: Option<Arc<Notify>> = None;
     let fenced = if config.kafka_transactional_fencing {
         // Every one of these is derived from LEASE_TTL rather than set
@@ -374,9 +402,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // shared one: its writes must resolve inside the lease runway.
         let fencing_kafka = common_kafka::config::KafkaConfig {
             kafka_message_timeout_ms: config.fencing_message_timeout().as_millis() as u32,
-            // One producer per owned partition, so the shared producer's
-            // queue limits are an aggregate to divide rather than a
-            // per-producer figure to copy.
+            // One producer per lane per owned partition, so the shared
+            // producer's queue limits are an aggregate to divide rather
+            // than a per-producer figure to copy.
             kafka_producer_queue_mib: config.fencing_queue_mib(num_partitions),
             kafka_producer_queue_messages: config.fencing_queue_messages(num_partitions),
             ..config.kafka.clone()
@@ -391,6 +419,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 window: Duration::from_millis(config.fencing_window_ms),
                 window_max_writes: config.fencing_window_max_writes,
                 settle_budget: config.fencing_settle_budget(),
+                lanes: config.fencing_lanes,
             })
             .with_repair_nudge(repair_nudge),
         ))
@@ -506,7 +535,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         },
         Arc::clone(&fences),
-        fence_scan_pool,
+        fence_scan,
         num_partitions,
         Arc::clone(&warm_pools),
         fenced.clone(),

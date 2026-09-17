@@ -165,18 +165,18 @@ class StamphogInstallInfoSerializer(serializers.Serializer):
     install_url = serializers.CharField(
         read_only=True,
         help_text=(
-            "GitHub install URL (github.com/apps/<slug>/installations/new) the user opens to install the "
-            "App, or blank if the App slug is unconfigured. Used for the genuinely-not-installed case; the "
-            "primary 'Connect' button uses authorize_url instead."
+            "GitHub install URL (github.com/apps/<slug>/installations/new) the 'Connect' button opens. The "
+            "user picks a GitHub account there and chooses which repositories the App can reach, including "
+            "an account where the App is already installed. Blank if the App slug is unconfigured."
         ),
     )
     authorize_url = serializers.CharField(
         read_only=True,
         help_text=(
-            "GitHub authorize URL (github.com/login/oauth/authorize) the 'Connect' button opens. "
-            "Authorize-first: an already-installed user is redirected straight back with an OAuth code (no "
-            "installation_id), and sync_installation then discovers their installations server-side. Blank "
-            "if the App client id is unconfigured."
+            "GitHub authorize URL (github.com/login/oauth/authorize). GitHub's redirect after configuring an "
+            "existing installation carries no OAuth code, so the client passes through this URL once: an "
+            "installed App redirects straight back with a code, which sync_installation uses to prove "
+            "ownership. Blank if the App client id is unconfigured."
         ),
     )
 

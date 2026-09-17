@@ -9,6 +9,8 @@ from parameterized import parameterized
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.cloudzero import (
+    KEY_REJECTED_MESSAGE,
+    PROBE_FAILED_MESSAGE,
     CloudzeroResumeConfig,
     _rolling_incremental_start_date,
     cloudzero_source,
@@ -231,12 +233,16 @@ class TestCloudzeroSourceTransport:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True),
-            ("forbidden", 403, False),
-            ("unauthorized", 401, False),
+            ("ok", 200, (True, None)),
+            ("forbidden", 403, (False, KEY_REJECTED_MESSAGE)),
+            ("unauthorized", 401, (False, KEY_REJECTED_MESSAGE)),
+            # A CloudZero-side failure leaves the key unjudged, so it must not be blamed on the key.
+            ("server_error", 500, (False, PROBE_FAILED_MESSAGE)),
         ]
     )
-    def test_status_code_maps_to_validity(self, _name: str, status_code: int, expected: bool) -> None:
+    def test_status_code_maps_to_validity(
+        self, _name: str, status_code: int, expected: tuple[bool, str | None]
+    ) -> None:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.cloudzero.make_tracked_session"
         ) as mock_make_session:
@@ -244,7 +250,15 @@ class TestValidateCredentials:
             mock_response.status_code = status_code
             mock_make_session.return_value.get.return_value = mock_response
 
-            assert validate_credentials("test-key") is expected
+            assert validate_credentials("test-key") == expected
+
+    def test_does_not_blame_the_key_when_cloudzero_is_unreachable(self) -> None:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.cloudzero.make_tracked_session"
+        ) as mock_make_session:
+            mock_make_session.return_value.get.side_effect = ConnectionError("boom")
+
+            assert validate_credentials("test-key") == (False, PROBE_FAILED_MESSAGE)
 
     def test_sends_raw_api_key_without_bearer_prefix(self) -> None:
         with patch(

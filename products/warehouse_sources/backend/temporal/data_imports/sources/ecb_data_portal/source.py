@@ -1,12 +1,10 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -103,7 +101,7 @@ class EcbDataPortalSource(ResumableSource[EcbDataPortalSourceConfig, ECBResumeCo
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ECB_DATA_PORTAL,
+            name=ExternalDataSourceType.ECBDATAPORTAL,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="European Central Bank (ECB Data Portal)",
             caption="Import euro-area statistics from the ECB Data Portal's free, keyless public API: reference exchange rates, key interest rates, and HICP inflation. No API key or account is required.",

@@ -1,17 +1,27 @@
 import '@xyflow/react/dist/style.css'
 
-import { Background, BackgroundVariant, Controls, MiniMap, Panel, ReactFlow, ReactFlowProvider } from '@xyflow/react'
+import {
+    Background,
+    BackgroundVariant,
+    Controls,
+    FitViewOptions,
+    MiniMap,
+    Panel,
+    PanelPosition,
+    ReactFlow,
+    ReactFlowProvider,
+    useReactFlow,
+} from '@xyflow/react'
 import { useValues } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, useEffect } from 'react'
 
 import { IconArchive } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
-import { ElkDirection } from 'scenes/data-warehouse/scene/modeling/types'
-
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { DataModelingEdge, DataModelingNode } from '~/types'
 
+import { ElkDirection } from './autolayout'
 import { lineageGraphLogic } from './lineageGraphLogic'
 import { LINEAGE_NODE_TYPES, LineageNodeCallbacks, LineageNodeState, LineageVariant } from './LineageNode'
 
@@ -26,7 +36,10 @@ export interface LineageGraphProps {
     direction?: ElkDirection
     /** Enable zoom/pan. Off by default for inline previews */
     interactive?: boolean
+    fitViewOptions?: FitViewOptions
+    focusNodeIds?: Set<string>
     showMinimap?: boolean
+    minimapPosition?: PanelPosition
     showControls?: boolean
     className?: string
     loading?: boolean
@@ -37,13 +50,15 @@ export interface LineageGraphProps {
     nodeCallbacks?: (node: DataModelingNode) => LineageNodeCallbacks
     /** Convenience click handler, used when nodeCallbacks is not provided */
     onNodeClick?: (node: DataModelingNode) => void
-    /** Caller-specific chrome (search, legend, layout toggle) rendered over the canvas */
+    /** Caller-specific chrome (legend, layout toggle) rendered over the canvas */
     panels?: ReactNode
+    panelPosition?: PanelPosition
 }
 
 function LineageGraphContent(props: LineageGraphProps): JSX.Element {
+    const { fitView, viewportInitialized } = useReactFlow()
     const { isDarkModeOn } = useValues(themeLogic)
-    const { currentNodeId, nodeState, nodeCallbacks, onNodeClick } = props
+    const { currentNodeId, nodeState, nodeCallbacks, onNodeClick, focusNodeIds } = props
     const { layout } = useValues(
         lineageGraphLogic({
             nodes: props.nodes,
@@ -52,6 +67,16 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             direction: props.direction ?? 'RIGHT',
         })
     )
+
+    useEffect(() => {
+        if (!viewportInitialized || !focusNodeIds?.size || !layout) {
+            return
+        }
+        const nodes = layout.nodes.filter((node) => focusNodeIds.has(node.id))
+        if (nodes.length > 0) {
+            void fitView({ nodes, padding: 0.2, maxZoom: 1 })
+        }
+    }, [fitView, viewportInitialized, focusNodeIds, layout])
 
     if (!layout) {
         return (
@@ -85,6 +110,7 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             nodesDraggable={false}
             nodesConnectable={false}
             fitView
+            fitViewOptions={props.fitViewOptions}
             minZoom={0.1}
             maxZoom={2}
             zoomOnScroll={props.interactive ?? false}
@@ -96,9 +122,15 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
             {props.showControls && <Controls showInteractive={false} position="bottom-right" />}
             {props.showMinimap && (
-                <MiniMap zoomable pannable position="bottom-left" nodeStrokeWidth={2} className="hidden lg:block" />
+                <MiniMap
+                    zoomable
+                    pannable
+                    position={props.minimapPosition ?? 'bottom-left'}
+                    nodeStrokeWidth={2}
+                    className="hidden lg:block border rounded shadow-sm"
+                />
             )}
-            {props.panels && <Panel position="top-right">{props.panels}</Panel>}
+            {props.panels && <Panel position={props.panelPosition ?? 'top-right'}>{props.panels}</Panel>}
         </ReactFlow>
     )
 }

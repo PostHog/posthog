@@ -2,11 +2,11 @@
 
 Reads `metric_series` (one row per metric + label-set) rather than the raw
 `metrics` datapoint table. Both are fed from the same Kafka Avro stream, so
-they carry the same names, but the series table is two orders of magnitude
-smaller for the same window — on a busy team, ~3.6M rows against ~800M. It also
-sorts by `(team_id, metric_name, series_fingerprint)`, so `metric_name` is the
-leading key once `team_id` is pinned, where `metrics1` buries it behind
-`time_bucket` and `service_name`.
+they carry the same names, but the series table holds one row per series
+where the datapoint table holds one per scrape, so it is orders of magnitude
+smaller for the same window. It also sorts by `(team_id, metric_name,
+series_fingerprint)` with a materialized `last_seen`, so the lookback needs no
+scan over the datapoint rows.
 
 No FINAL. ReplacingMergeTree duplicates share `(team_id, metric_name,
 series_fingerprint)`, and `max(last_seen)` picks the row FINAL would keep, since
@@ -35,6 +35,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
+from products.metrics.backend.facade.contracts import MAX_SPARKLINE_BATCH_SIZE
 from products.metrics.backend.search import ilike_pattern
 
 # Autocomplete tolerates partial results, so reads break at the budget instead
@@ -43,8 +44,13 @@ _QUERY_SETTINGS = HogQLGlobalSettings(
     max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,
     read_overflow_mode="break",
 )
+_SPARKLINE_QUERY_SETTINGS = HogQLGlobalSettings(
+    max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,
+    read_overflow_mode="throw",
+)
 
-# `metric_series` drops rows 90 days past `last_seen`; `metrics1` has no TTL.
+# Both `metric_series` and `metrics` expire at the same `original_expiry_timestamp`,
+# which ingest sets to the team's retention (90 days by default).
 # A lookback beyond this would quietly return fewer names than the raw table has.
 SERIES_RETENTION = dt.timedelta(days=90)
 
@@ -81,6 +87,7 @@ class MetricNamesQueryRunner:
         lookback: dt.timedelta = dt.timedelta(days=7),
         services: Sequence[str] = (),
         include_sparklines: bool = True,
+        names: Sequence[str] = (),
     ) -> None:
         if limit <= 0 or limit > 1000:
             raise ValueError("limit must be in [1, 1000]")
@@ -88,6 +95,8 @@ class MetricNamesQueryRunner:
             raise ValueError("lookback must be positive")
         if len(services) > MAX_PICKER_SERVICES:
             raise ValueError(f"at most {MAX_PICKER_SERVICES} services may be selected")
+        if len(names) > MAX_SPARKLINE_BATCH_SIZE:
+            raise ValueError(f"at most {MAX_SPARKLINE_BATCH_SIZE} metric names may be selected")
 
         self.team = team
         self.search = search.strip()
@@ -98,10 +107,11 @@ class MetricNamesQueryRunner:
         # selection: a sender that omits the `service.name` resource attribute
         # lands in the group the overview labels "unknown".
         self.services = tuple(sorted(set(services)))
-        # Sparklines read `metric_samples`, whose ordering puts `timestamp`
-        # behind `series_fingerprint`, so the scan is the expensive part of a
-        # name lookup. Callers that only need the type (anomaly defaults) skip it.
+        # Sparklines read the `metrics` data points, so the scan is the
+        # expensive part of a name lookup. Callers that only need the type
+        # (anomaly defaults) skip it.
         self.include_sparklines = include_sparklines
+        self.names = tuple(sorted(set(names)))
 
     def _build_query(self) -> ast.SelectQuery:
         # The alias is `last_seen_at`, not `last_seen`: HogQL registers select
@@ -158,6 +168,17 @@ class MetricNamesQueryRunner:
         # Both variants above filter on the lookback, so there is always a WHERE to
         # extend; the assert is what tells the type checker so.
         assert query.where is not None
+        if self.names:
+            query.where = ast.And(
+                exprs=[
+                    query.where,
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=ast.Field(chain=["metric_name"]),
+                        right=ast.Tuple(exprs=[ast.Constant(value=name) for name in self.names]),
+                    ),
+                ]
+            )
 
         # Appended to the parsed tree rather than written into both SQL variants
         # above, so the scoped and unscoped pickers stay one query definition.
@@ -183,7 +204,7 @@ class MetricNamesQueryRunner:
             query=self._build_query(),
             team=self.team,
             workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
-            settings=_QUERY_SETTINGS,
+            settings=_SPARKLINE_QUERY_SETTINGS if self.names else _QUERY_SETTINGS,
         )
 
         names = [row[0] for row in response.results]
@@ -203,31 +224,32 @@ class MetricNamesQueryRunner:
     def _sparklines(self, names: Sequence[str]) -> dict[str, list[float]]:
         """A small recent shape per metric, for the catalog cards.
 
-        Reads `metric_samples` (raw emissions) rather than the pre-aggregated
-        `metrics` table, so a series written without a metrics row still draws —
-        the same reason the name list reads `metric_series`. Each metric is
-        bucketed onto a fixed grid and averaged per bucket across its series; a
-        card only shows direction and spikes, so per-series fidelity is not worth
-        the rows it would cost. Only the names this page returned are read, so a
-        scoped picker never scans the whole samples table.
+        Reads the raw `metrics` data points. Each metric is bucketed onto a
+        fixed grid and averaged per bucket across its series; a card only shows
+        direction and spikes, so per-series fidelity is not worth the rows it
+        would cost. Only the names this page returned are read, so a scoped
+        picker never scans the whole table.
         """
         if not names:
             return {}
 
-        # The grid anchors to the query's `now()`: bucket edges land on the
-        # window endpoints, so the window always holds exactly MAX_POINTS buckets
-        # (a bare toStartOfInterval aligns to wall-clock boundaries and a window
-        # starting mid-bucket intersects one extra).
+        # The grid anchors to the window start: bucket edges land on the window
+        # endpoints, so the window always holds exactly MAX_POINTS buckets (a
+        # bare toStartOfInterval aligns to wall-clock boundaries and a window
+        # starting mid-bucket intersects one extra). The anchor is computed here
+        # rather than from the query's `now()` so the predicate below and the
+        # grid agree on the same instant.
         bucket_seconds = max(int(SPARKLINE_WINDOW.total_seconds()) // SPARKLINE_MAX_POINTS, 1)
-        window_seconds = int(SPARKLINE_WINDOW.total_seconds())
+        window_start = dt.datetime.now(dt.UTC) - SPARKLINE_WINDOW
         query = parse_select(
             """
                 SELECT
                     metric_name AS name,
-                    toDateTime(intDiv(toUnixTimestamp(timestamp) - toUnixTimestamp(now() - {window_interval}), {bucket_seconds}) * {bucket_seconds} + toUnixTimestamp(now() - {window_interval})) AS bucket_start,
+                    toDateTime(intDiv(toUnixTimestamp(timestamp) - toUnixTimestamp({window_start}), {bucket_seconds}) * {bucket_seconds} + toUnixTimestamp({window_start})) AS bucket_start,
                     avg(value) AS bucket_value
-                FROM posthog.metric_samples
-                WHERE timestamp > now() - {window_interval}
+                FROM posthog.metrics
+                WHERE timestamp > {window_start}
+                  AND time_bucket >= {bucket_from}
                   AND metric_name IN {names}
                   AND series_fingerprint IN {series_scope}
                 GROUP BY name, bucket_start
@@ -235,7 +257,11 @@ class MetricNamesQueryRunner:
             """,
             placeholders={
                 "bucket_seconds": ast.Constant(value=bucket_seconds),
-                "window_interval": ast.Call(name="toIntervalSecond", args=[ast.Constant(value=window_seconds)]),
+                "window_start": ast.Constant(value=window_start),
+                # `metrics` sorts by `time_bucket` (the UTC hour) before
+                # `timestamp`, so the hour bound is what lets ClickHouse skip
+                # everything older than the window.
+                "bucket_from": ast.Constant(value=window_start.replace(minute=0, second=0, microsecond=0)),
                 "names": ast.Tuple(exprs=[ast.Constant(value=name) for name in names]),
                 # A sample carries no service column; its series_fingerprint is
                 # the link back to the series row that does. Without this scope,
@@ -251,7 +277,7 @@ class MetricNamesQueryRunner:
             query=query,
             team=self.team,
             workload=Workload.LOGS,
-            settings=_QUERY_SETTINGS,
+            settings=_SPARKLINE_QUERY_SETTINGS,
         )
 
         sparklines: dict[str, list[float]] = {}

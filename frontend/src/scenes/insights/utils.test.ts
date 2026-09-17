@@ -11,7 +11,6 @@ import {
     NOT_IN_COHORT_ID,
 } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { IndexedTrendResult } from 'scenes/trends/types'
 
 import {
     ActionsNode,
@@ -23,6 +22,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { isEventsNode } from '~/queries/utils'
 import { BaseMathType, CompareLabelType, Entity, EntityFilter, FilterType, InsightType, TeamType } from '~/types'
+
+import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
     return {

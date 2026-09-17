@@ -15,6 +15,8 @@ import { PersonhogPersonsStore } from './personhog-persons-store'
 import { MergePersonsResult, PersonsBackend, PersonsStore } from './persons-store'
 import { RoutingPersonsStore, assertPersonsStoreModeConfig, parsePersonsStoreMode } from './routing-persons-store'
 
+const mockShadowTimerStop = jest.fn()
+
 jest.mock('~/common/persons/metrics', () => ({
     personhogStoreShadowErrorsCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personhogStoreShadowSkipsCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
@@ -22,6 +24,9 @@ jest.mock('~/common/persons/metrics', () => ({
     personhogStoreShadowComparedCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personhogStoreShadowCompareFailedCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personhogStoreShadowFoldRedriveCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
+    personhogStoreShadowDurationSeconds: {
+        labels: jest.fn().mockReturnValue({ startTimer: jest.fn(() => mockShadowTimerStop) }),
+    },
 }))
 
 const emptyMergeResult = (): MergePersonsResult => ({ survivor: null, results: [] })
@@ -533,6 +538,7 @@ describe('RoutingPersonsStore', () => {
                 verb: 'fetchForUpdate',
                 error: 'Error',
             })
+            expect(mockShadowTimerStop).toHaveBeenCalled()
         })
 
         it('a shadow verb that outruns its ceiling is abandoned, not waited out', async () => {

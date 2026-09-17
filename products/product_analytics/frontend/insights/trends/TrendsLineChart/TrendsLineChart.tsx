@@ -17,8 +17,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import type { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -27,6 +25,9 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, type IntervalType } from '~/types'
+
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { hasTrendsChartData } from '../../shared/hasTrendsChartData'

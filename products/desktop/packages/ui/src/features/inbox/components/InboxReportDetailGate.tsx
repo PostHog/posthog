@@ -48,6 +48,7 @@ interface InboxReportDetailGateProps {
    */
   trackTab?: InboxDetailTab | null;
   missingCopy: string;
+  fallbackAction?: ReactNode;
   children: (report: SignalReport) => ReactNode;
 }
 
@@ -86,6 +87,7 @@ export function InboxReportDetailGate({
   backLinkLabel,
   trackTab = tabFromBackTo(backTo),
   missingCopy,
+  fallbackAction,
   children,
 }: InboxReportDetailGateProps) {
   const navigate = useNavigate();
@@ -162,7 +164,14 @@ export function InboxReportDetailGate({
   }, [redirectTo, redirectReportId, navigate, backTo, backLabel, triageOrigin]);
 
   if ((isLoading && !resolvedReport) || statusUnconfirmed) {
-    return <LoadingState className="py-16" />;
+    return (
+      <div className="relative h-full">
+        <LoadingState className="py-16" />
+        {fallbackAction && (
+          <div className="absolute top-4 right-6">{fallbackAction}</div>
+        )}
+      </div>
+    );
   }
 
   if (redirectTo) {
@@ -175,10 +184,13 @@ export function InboxReportDetailGate({
     return (
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex flex-col gap-3 border-(--gray-5) border-b px-6 py-6">
-          <DetailBackLink
-            to={backLinkTo ?? backTo}
-            label={backLinkLabel ?? backLabel}
-          />
+          <div className="flex items-center justify-between gap-3">
+            <DetailBackLink
+              to={backLinkTo ?? backTo}
+              label={backLinkLabel ?? backLabel}
+            />
+            {fallbackAction}
+          </div>
           <p className="m-0 text-[13px] text-gray-11">{missingCopy}</p>
         </div>
       </div>

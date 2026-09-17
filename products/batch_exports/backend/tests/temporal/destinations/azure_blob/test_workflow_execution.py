@@ -1,8 +1,8 @@
 import pytest
 
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
-from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import SUPPORTED_COMPRESSIONS
 from products.batch_exports.backend.tests.temporal.destinations.azure_blob.utils import (
+    SUPPORTED_FILE_FORMAT_COMPRESSIONS,
     TEST_AZURE_BLOB_MODELS,
     assert_clickhouse_records_in_azure_blob,
     list_blobs,
@@ -13,6 +13,7 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
+@pytest.mark.parametrize(("file_format", "compression"), SUPPORTED_FILE_FORMAT_COMPRESSIONS, indirect=True)
 @pytest.mark.parametrize("model", TEST_AZURE_BLOB_MODELS)
 async def test_workflow_exports_model_successfully(
     ateam,
@@ -29,9 +30,6 @@ async def test_workflow_exports_model_successfully(
     model: BatchExportModel | BatchExportSchema | None,
 ):
     """Test that the workflow exports events, persons, or sessions to Azure Blob Storage."""
-    if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
-        pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
-
     batch_export_model = model if isinstance(model, BatchExportModel) else None
     batch_export_schema = model if isinstance(model, dict) else None
 

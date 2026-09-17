@@ -199,7 +199,9 @@ def record_last_slack_message_at(*, team_id: int, account_id: str | UUID, timest
 def set_synced_custom_property_value(
     *, team_id: int, account_id: str | UUID, definition: CustomPropertyDefinition, value: Any
 ) -> bool:
-    """Set a staged warehouse value for an account already resolved inside this team."""
+    """Set or clear a warehouse value for an account already resolved inside this team."""
+    if value is None:
+        return _clear_value(team_id=team_id, account_id=account_id, definition=definition)
     _, coerced = _coerce_to_column(definition, value)
     current = (
         CustomPropertyValue.objects.for_team(team_id)
@@ -272,14 +274,14 @@ def _clear_value(
     definition: CustomPropertyDefinition,
     actor: User | None = None,
     workflow_id: str | None = None,
-) -> None:
+) -> bool:
     with transaction.atomic():
         active_rows = CustomPropertyValue.objects.for_team(team_id).filter(
             account_id=account_id, definition_id=definition.id, is_deleted=False
         )
         previous_row = active_rows.first()
         if previous_row is None:
-            return
+            return False
         cleared_rows = active_rows.filter(id=previous_row.id).update(is_deleted=True)
         if cleared_rows == 0:
             raise CustomPropertyValueConflict(
@@ -294,6 +296,7 @@ def _clear_value(
             actor=actor,
             workflow_id=workflow_id,
         )
+    return True
 
 
 def _schedule_value_changed_event(

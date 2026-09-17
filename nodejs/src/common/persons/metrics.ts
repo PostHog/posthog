@@ -196,6 +196,13 @@ export const personhogStoreShadowCompareFailedCounter = new Counter({
     labelNames: ['verb'],
 })
 
+export const personhogStoreShadowDurationSeconds = new Histogram({
+    name: 'personhog_store_shadow_duration_seconds',
+    help: 'Wall time the shadowed personhog side of a store verb adds to the event pipeline, by verb',
+    labelNames: ['verb'],
+    buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+})
+
 export const personProfileUpdateOutcomeCounter = new Counter({
     name: 'person_profile_update_outcome_total',
     help: 'Outcome of person profile update operations at event level',

@@ -12,7 +12,7 @@ carries the atomic `(runtime_adapter, model)` pair, that level's entire
 preference object wins (including its absent `reasoning_effort`). A
 field-by-field merge would blend mismatched configurations — for example a
 team `reasoning_effort` glued onto the user's non-thinking model — which is
-never what anyone picked. Mirrors the Slack app's `resolve_ai_preferences`.
+never what anyone picked.
 
 Lenient at resolve time by design: preferences are stored as raw ids and the
 available model list drifts as the LLM gateway evolves, so an unknown model id
