@@ -8,15 +8,8 @@ the triggering exception's properties are flattened under the lifecycle event's
 own properties, with the lifecycle properties winning on key collisions.
 """
 
-import json
-
 import structlog
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.models import Team
 
 from products.error_tracking.backend.models import ErrorTrackingAlert
@@ -27,11 +20,6 @@ from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.stl import BLOCKING_FUNCTIONS
 
 logger = structlog.get_logger(__name__)
-
-# issue_id on events resolves through the fingerprint-state join, which cannot prune by
-# partition on its own; the time bound keeps the manual-opener fallback from scanning a
-# team's whole exception history. An issue quiet for longer has no useful sample anyway.
-MANUAL_FALLBACK_LOOKBACK_DAYS = 30
 
 
 def has_configured_filters(alert: ErrorTrackingAlert) -> bool:
@@ -53,9 +41,44 @@ def _coerce_numeric(value: str) -> object:
             return value
 
 
+# Every key the lifecycle snapshot can carry, populated or not: a filter on one of
+# these is decidable without the exception (an absent value is a real "not set").
+LIFECYCLE_PROPERTY_KEYS = frozenset(
+    {
+        "name",
+        "description",
+        "issue_description",
+        "first_seen",
+        "severity",
+        "status",
+        "exception_timestamp",
+        "fingerprint",
+        "assignee",
+    }
+)
+
+
+def _filter_property_keys(alert: ErrorTrackingAlert, event: str) -> set[str]:
+    # Global properties apply to every branch; event branches are OR'd by the
+    # compiler, so only the branch for this event can constrain the outcome.
+    filters = alert.filters or {}
+    leaves = list(filters.get("properties") or [])
+    for entity in filters.get("events") or []:
+        if isinstance(entity, dict) and entity.get("id") == event:
+            leaves.extend(entity.get("properties") or [])
+    return {leaf["key"] for leaf in leaves if isinstance(leaf, dict) and isinstance(leaf.get("key"), str)}
+
+
 def alert_filters_match(
-    alert: ErrorTrackingAlert, inputs: AlertDeliveryWorkflowInputs, exception_properties: dict[str, object]
+    alert: ErrorTrackingAlert, inputs: AlertDeliveryWorkflowInputs, exception_properties: dict[str, object] | None
 ) -> bool:
+    """Whether the transition passes the alert's filters.
+
+    `exception_properties` is None when the transition has no triggering event to
+    read them from (manual reopen, assign). Filters on lifecycle keys still evaluate;
+    one on any other key fails closed, because negated operators (is not, is not
+    set) would otherwise pass on the missing value and open excluded issues.
+    """
     if not has_configured_filters(alert):
         return True
     bytecode = (alert.filters or {}).get("bytecode")
@@ -85,6 +108,21 @@ def alert_filters_match(
         "assignee": inputs.assignee,
     }
     lifecycle_properties.update({key: value for key, value in optional_properties.items() if value is not None})
+    if exception_properties is None:
+        # Conservative on purpose: one OR'd branch that needs the exception makes the
+        # whole filter undecidable, even if a sibling branch would match on its own.
+        decidable_keys = LIFECYCLE_PROPERTY_KEYS | (inputs.extra or {}).keys()
+        unavailable_keys = _filter_property_keys(alert, inputs.event) - decidable_keys
+        if unavailable_keys:
+            logger.info(
+                "error_tracking_alert_filter_needs_exception_properties",
+                alert_id=str(alert.id),
+                team_id=inputs.team_id,
+                lifecycle_event=inputs.event,
+                keys=sorted(unavailable_keys),
+            )
+            return False
+        exception_properties = {}
     filter_globals = {
         "event": inputs.event,
         "distinct_id": inputs.issue_id,
@@ -122,54 +160,16 @@ class _EventPropertiesInputs:
         self.issue = self._Snapshot(inputs.first_seen or "")
 
 
-def fetch_exception_properties(inputs: AlertDeliveryWorkflowInputs) -> dict[str, object]:
+def fetch_exception_properties(inputs: AlertDeliveryWorkflowInputs) -> dict[str, object] | None:
     """The triggering exception's properties, for openers with configured filters.
 
     Ingestion transitions carry the event uuid: the Redis handoff (with a
     ClickHouse fallback) that the lifecycle activities already use serves those,
-    and a miss raises so the activity retries. Manual openers carry no triggering
-    event, so the issue's latest exception stands in, resolved through the
-    fingerprint override mapping so merges and splits keep matching; a miss there
-    is expected (old issues age out of retention) and evaluates as no event
-    properties.
+    and a miss raises so the activity retries. Manual transitions (reopen, assign)
+    have no triggering event and get no lookup (a bulk action would turn into one
+    ClickHouse scan per issue): None tells the filter the data is unavailable.
     """
+    if not inputs.event_uuid:
+        return None
     team = Team.objects.get(id=inputs.team_id)
-    if inputs.event_uuid:
-        return fetch_event_properties(team, _EventPropertiesInputs(inputs))
-    return _fetch_latest_issue_exception_properties(team, inputs)
-
-
-def _fetch_latest_issue_exception_properties(team: Team, inputs: AlertDeliveryWorkflowInputs) -> dict[str, object]:
-    query = parse_select(
-        """
-        SELECT properties
-        FROM events
-        WHERE event = '$exception'
-            AND issue_id = toUUID({issue_id})
-            AND timestamp > now() - INTERVAL {lookback_days} DAY
-        ORDER BY timestamp DESC
-        LIMIT 1
-        """,
-        placeholders={
-            "issue_id": ast.Constant(value=inputs.issue_id),
-            "lookback_days": ast.Constant(value=MANUAL_FALLBACK_LOOKBACK_DAYS),
-        },
-    )
-    response = execute_hogql_query(
-        query=query,
-        team=team,
-        query_type="ErrorTrackingAlertFilterEventProperties",
-        workload=Workload.OFFLINE,
-        ch_user=ClickHouseUser.ERROR_TRACKING,
-    )
-    if not response.results:
-        logger.warning(
-            "error_tracking_alert_filter_event_not_found",
-            team_id=inputs.team_id,
-            issue_id=inputs.issue_id,
-        )
-        return {}
-    properties = response.results[0][0]
-    if isinstance(properties, str):
-        properties = json.loads(properties)
-    return properties if isinstance(properties, dict) else {}
+    return fetch_event_properties(team, _EventPropertiesInputs(inputs))

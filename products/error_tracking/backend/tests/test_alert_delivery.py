@@ -175,6 +175,19 @@ class TestAlertDeliveryPlanning(AlertTestMixin):
         assert planned[0].is_opener is False
         assert planned[0].thread is not None
 
+    def test_bulk_transition_only_replies_into_existing_threads(self):
+        # A bulk action over many issues must not open one thread per issue.
+        alert = self._create_alert(triggers=["issue_assigned"])
+        inputs = self._inputs("$error_tracking_issue_assigned", opener_allowed=False)
+
+        assert plan_alert_deliveries(inputs) == []
+
+        thread = self._thread(alert)
+        (planned,) = plan_alert_deliveries(inputs)
+        assert planned.is_opener is False
+        assert planned.thread is not None
+        assert planned.thread.id == thread.id
+
     def test_multi_destination_alert_plans_per_destination(self):
         alert = self._create_alert(triggers=["issue_created"])
         with team_scope(self.team.id):
@@ -727,6 +740,93 @@ class TestAlertFilterEvaluation(AlertTestMixin):
 
         assert (skipped, delivered) == (0, 1)
         client.chat_postMessage.assert_called_once()
+
+    def _patch_event_properties_lookup(self):
+        lookup = patch("products.error_tracking.backend.temporal.alerts.filtering.fetch_event_properties")
+        mock = lookup.start()
+        self.addCleanup(lookup.stop)
+        return mock
+
+    @parameterized.expand(
+        [
+            ("equals", {"key": "environment", "value": "production", "type": "event"}),
+            # Negated operators pass on a missing property; unavailable data must still fail closed.
+            ("is_not", {"key": "environment", "value": "staging", "operator": "is_not", "type": "event"}),
+            ("is_not_set", {"key": "environment", "operator": "is_not_set", "type": "event"}),
+        ]
+    )
+    def test_manual_opener_fails_closed_on_exception_property_filters(self, _name, leaf):
+        # No triggering event to look up: an exception-property filter cannot be
+        # decided, so the opener is skipped rather than scanning ClickHouse for a sample.
+        client = self._mock_slack()
+        self._create_filtered_alert({"properties": [leaf]}, triggers=["issue_assigned"])
+        lookup = self._patch_event_properties_lookup()
+
+        delivered = deliver_alert_notifications(self._inputs("$error_tracking_issue_assigned", event_uuid=None))
+
+        assert delivered == 0
+        client.chat_postMessage.assert_not_called()
+        lookup.assert_not_called()
+        with team_scope(self.team.id):
+            assert not ErrorTrackingAlertThread.objects.filter(issue=self.issue).exists()
+
+    @parameterized.expand(
+        [
+            (
+                "populated_lifecycle_key",
+                {"properties": [{"key": "severity", "value": "critical", "type": "event"}]},
+                {"severity": "critical"},
+            ),
+            # An absent lifecycle value is a real "not set", not unavailable data.
+            (
+                "absent_lifecycle_key",
+                {"properties": [{"key": "assignee", "operator": "is_not_set", "type": "event"}]},
+                {"assignee": None},
+            ),
+            # Event branches are OR'd: another branch's exception-property leaf is irrelevant.
+            (
+                "other_event_branch",
+                {
+                    "events": [
+                        {
+                            "id": "$error_tracking_issue_created",
+                            "type": "events",
+                            "properties": [{"key": "environment", "value": "production", "type": "event"}],
+                        },
+                        {"id": "$error_tracking_issue_assigned", "type": "events", "properties": []},
+                    ]
+                },
+                {},
+            ),
+        ]
+    )
+    def test_manual_opener_evaluates_lifecycle_filters(self, _name, filters, overrides):
+        client = self._mock_slack()
+        self._create_filtered_alert(filters, triggers=["issue_assigned"])
+        lookup = self._patch_event_properties_lookup()
+
+        delivered = deliver_alert_notifications(
+            self._inputs("$error_tracking_issue_assigned", event_uuid=None, **overrides)
+        )
+
+        assert delivered == 1
+        client.chat_postMessage.assert_called_once()
+        lookup.assert_not_called()
+
+    def test_ingestion_opener_looks_up_the_triggering_event(self):
+        client = self._mock_slack()
+        self._create_filtered_alert(self.ENVIRONMENT_FILTER)
+        lookup = self._patch_event_properties_lookup()
+        lookup.return_value = {"environment": "production"}
+
+        delivered = deliver_alert_notifications(
+            self._inputs("$error_tracking_issue_created", event_uuid="evt-1", event_timestamp="2026-07-21T14:00:00Z")
+        )
+
+        assert delivered == 1
+        client.chat_postMessage.assert_called_once()
+        lookup.assert_called_once()
+        assert lookup.call_args.args[1].event_uuid == "evt-1"
 
     def test_replies_are_never_filtered(self):
         client = self._mock_slack()

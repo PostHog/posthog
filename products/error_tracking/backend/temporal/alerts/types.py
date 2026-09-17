@@ -38,6 +38,9 @@ class AlertDeliveryWorkflowInputs:
     lifecycle_timestamp: str | None = None
     # Small event-specific extras (e.g. spike baseline values); never exception payloads.
     extra: dict[str, str] | None = None
+    # Bulk mutations set this off: they only reply into threads that already exist,
+    # so one action over many issues cannot open a thread per issue.
+    opener_allowed: bool = True
 
     @classmethod
     def build(

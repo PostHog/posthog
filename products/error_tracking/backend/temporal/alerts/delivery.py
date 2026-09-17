@@ -104,10 +104,10 @@ def plan_alert_deliveries(inputs: AlertDeliveryWorkflowInputs) -> list[PlannedDe
 
     planned: list[PlannedDelivery] = []
     for alert in alerts:
-        trigger_matched = trigger is not None and trigger in alert.triggers
+        can_open = inputs.opener_allowed and trigger is not None and trigger in alert.triggers
         for destination in destinations_by_alert.get(alert.id, []):
             thread = threads_by_destination.get(destination.id)
-            if thread is None and not trigger_matched:
+            if thread is None and not can_open:
                 # Replies never open threads: an update with no rooted thread stays
                 # unclaimed so a later opener can still start the conversation cleanly.
                 continue
@@ -116,7 +116,7 @@ def plan_alert_deliveries(inputs: AlertDeliveryWorkflowInputs) -> list[PlannedDe
             # repeated opener event (e.g. spiking again, or reopen after resolve).
             # An unrooted row is a failed root post: the next opener roots it.
             rooted = thread is not None and bool(thread.external_ref.get("ts"))
-            is_opener = trigger_matched and not rooted
+            is_opener = can_open and not rooted
             planned.append(PlannedDelivery(alert=alert, destination=destination, is_opener=is_opener, thread=thread))
     return planned
 
@@ -133,7 +133,7 @@ def _opener_filter_matches(
     opener_alerts = {delivery.alert.id: delivery.alert for delivery in planned if delivery.is_opener}
     if not opener_alerts:
         return {}
-    exception_properties: dict[str, object] = {}
+    exception_properties: dict[str, object] | None = None
     if any(has_configured_filters(alert) for alert in opener_alerts.values()):
         try:
             exception_properties = fetch_exception_properties(inputs)
