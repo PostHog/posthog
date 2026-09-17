@@ -1601,6 +1601,17 @@ class TestTicketLinkUnfurl(BaseTest):
 
         client.chat_unfurl.assert_not_called()
 
+    def test_a_ticket_the_sharer_cannot_read_is_not_unfurled(self):
+        # Organization membership is not access to the ticket, and nothing downstream of this
+        # card applies that rule, so the lookup has to go through access control.
+        with patch(f"{MODULE}.UserAccessControl") as mock_access:
+            mock_access.return_value.filter_queryset_by_access_level.return_value = Ticket.objects.none()
+            client = self._run(self._event())
+
+        assert mock_access.call_args.args[0].id == self.user.id
+        assert mock_access.return_value.filter_queryset_by_access_level.call_args.kwargs["resource"] == "ticket"
+        client.chat_unfurl.assert_not_called()
+
     def test_unknown_ticket_number_is_not_unfurled(self):
         client = self._run(self._event(urls=[f"{settings.SITE_URL}/project/{self.team.id}/support/tickets/424242"]))
 

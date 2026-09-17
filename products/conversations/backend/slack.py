@@ -37,6 +37,8 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.ph_client import ph_scoped_capture
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+
 from .cache import (
     NUDGE_COOLDOWN_TTL,
     get_cached_bot_user_id,
@@ -1678,13 +1680,20 @@ def handle_link_shared(event: dict, team: Team, slack_team_id: str) -> None:
         return
 
     sharer = resolve_slack_user(client, event.get("user") or "", workspace=slack_team_id)
-    if sharer.get("team_id") != slack_team_id or not resolve_posthog_user_for_slack(sharer.get("email"), team):
+    if sharer.get("team_id") != slack_team_id:
+        return
+    sharer_user = resolve_posthog_user_for_slack(sharer.get("email"), team)
+    if sharer_user is None:
         return
 
-    tickets = {
-        ticket.ticket_number: ticket
-        for ticket in Ticket.objects.filter(team=team, ticket_number__in=set(candidates.values()))
-    }
+    # Belonging to the organization is not access to the ticket: "ticket" is an access-controlled
+    # resource, so a member can be denied the resource or a single ticket. The card is rendered
+    # here instead of in the app, so nothing downstream would apply that rule, and pasting guessed
+    # URLs would otherwise read out status for tickets the person cannot open.
+    readable = UserAccessControl(sharer_user, team=team).filter_queryset_by_access_level(
+        Ticket.objects.filter(team=team, ticket_number__in=set(candidates.values())), resource="ticket"
+    )
+    tickets = {ticket.ticket_number: ticket for ticket in readable}
     unfurls = {url: ticket_unfurl(tickets[number], team) for url, number in candidates.items() if number in tickets}
     if not unfurls:
         return
