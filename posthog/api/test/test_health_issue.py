@@ -66,7 +66,7 @@ class TestHealthIssueAPI(APIBaseTest):
             for index in range(6)
         ]
 
-        paged_ids = []
+        paged_ids: list[str] = []
         for offset in range(0, len(issues), 2):
             response = self.client.get(self._url(), {"limit": 2, "offset": offset})
             self.assertEqual(response.status_code, status.HTTP_200_OK)
