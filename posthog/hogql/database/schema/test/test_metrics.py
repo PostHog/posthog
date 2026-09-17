@@ -79,6 +79,56 @@ class TestMetricsSeriesJoin(ClickhouseTestMixin, APIBaseTest):
         routes = {row[0] for row in response.results}
         assert "/checkout" in routes, f"expected the seeded route label, got: {response.results}"
 
+    def test_metric_name_filter_is_pushed_into_the_series_subquery(self):
+        # metric_name is a fingerprint input and the sort-key prefix of metric_series, so bounding the
+        # subquery by it is semantics-preserving and turns the read into a primary-key range scan.
+        sql = self._print_clickhouse(
+            f"SELECT series.attributes FROM {METRICS_TABLE} WHERE metric_name = 'cpu_seconds_total' LIMIT 10"
+        )
+        subquery = sql.split("LEFT JOIN (", 1)[1]
+        assert "metric_name" in subquery, f"expected metric_name bound inside the join subquery, got:\n{sql}"
+
+    def test_time_lower_bound_is_pushed_into_the_series_subquery_as_last_seen(self):
+        # A series last seen before the window cannot have points in it. The pushed bound is
+        # last_seen >= timestamp - buffer (the Viewer's `_active_since_expr` shape).
+        sql = self._print_clickhouse(
+            f"SELECT series.attributes FROM {METRICS_TABLE} "
+            f"WHERE metric_name = 'cpu_seconds_total' AND timestamp > '2026-06-01 00:00:00' LIMIT 10"
+        )
+        subquery = sql.split("LEFT JOIN (", 1)[1].split("GROUP BY", 1)[0]
+        assert "greaterOrEquals(" in subquery and "last_seen" in subquery and "toIntervalHour(1)" in subquery, (
+            f"expected last_seen >= <bound - 1h> inside the subquery, got:\n{sql}"
+        )
+
+    def test_or_filter_is_not_pushed_into_the_series_subquery(self):
+        # Failing open: an OR term mixing a metric filter with something else must leave the
+        # subquery unbounded, or series rows the outer query still needs would be dropped.
+        sql = self._print_clickhouse(
+            f"SELECT series.attributes FROM {METRICS_TABLE} "
+            f"WHERE metric_name = 'cpu_seconds_total' OR metric_name = 'disk_bytes' LIMIT 10"
+        )
+        subquery = sql.split("LEFT JOIN (", 1)[1].split("GROUP BY", 1)[0]
+        assert "metric_name" not in subquery, f"OR-ed metric filter must not be pushed down, got:\n{sql}"
+
+    def test_pushdown_preserves_results_end_to_end(self):
+        # Same query, with and without a pushdown-eligible filter shape, must return the same
+        # label rows for the series that have points in the window.
+        truncate_metrics_tables()
+        seed_metric(
+            team_id=self.team.pk,
+            metric_name="cpu_seconds_total",
+            metric_type="sum",
+            service_name="web",
+            points=[(dt.datetime(2026, 6, 1, 1, 0, 0, tzinfo=dt.UTC), 1.0)],
+            labels={"route": "/checkout"},
+        )
+        response = execute_hogql_query(
+            f"SELECT series.attributes['route'] AS route, count() AS c FROM {METRICS_TABLE} "
+            f"WHERE metric_name = 'cpu_seconds_total' AND timestamp > '2026-06-01 00:00:00' GROUP BY route",
+            self.team,
+        )
+        assert response.results == [("/checkout", 1)], f"unexpected results: {response.results}"
+
     def test_last_seen_uses_max_not_any_across_duplicate_versions(self):
         # `last_seen` is the ReplacingMergeTree version column, the one field that differs across a
         # series' duplicate rows. `any()` could return a stale duplicate, so it must be `max`.
