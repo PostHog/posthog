@@ -1,3 +1,4 @@
+import { cn } from "@posthog/quill";
 import type { BrowserTab } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { usePinnedTabsStore } from "@posthog/ui/features/browser-tabs/pinnedTabsStore";
@@ -74,12 +75,14 @@ function TileTree(props: TileTreeProps) {
       {node.children.map((child, index) => (
         <Fragment key={nodeKey(child)}>
           {index > 0 && (
+            // The handle sits above the tiles: a positioned element in the
+            // next tile that touches the divider would otherwise take the
+            // pointer, and the drag selects text instead of resizing.
             <PanelResizeHandle
-              className={
-                node.direction === "horizontal"
-                  ? "w-px bg-border transition-colors hover:bg-accent-8 data-[resize-handle-active]:bg-accent-8"
-                  : "h-px bg-border transition-colors hover:bg-accent-8 data-[resize-handle-active]:bg-accent-8"
-              }
+              className={cn(
+                "relative z-10 bg-border transition-colors hover:bg-accent-8 data-[resize-handle-active]:bg-accent-8",
+                node.direction === "horizontal" ? "w-px" : "h-px",
+              )}
             />
           )}
           <Panel
