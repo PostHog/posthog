@@ -266,7 +266,7 @@ export interface PermissionRequestRecord {
 export const SCOUT_CADENCES = ['daily', 'weekly'] as const
 export type ScoutSuggestionCadence = (typeof SCOUT_CADENCES)[number]
 
-export const SCOUT_MODES = ['report', 'watch', 'investigate', 'check_back', 'digest'] as const
+export const SCOUT_MODES = ['report', 'watch', 'investigate', 'digest'] as const
 export type ScoutSuggestionMode = (typeof SCOUT_MODES)[number]
 
 export const ALERT_DIRECTIONS = ['decrease', 'increase'] as const
