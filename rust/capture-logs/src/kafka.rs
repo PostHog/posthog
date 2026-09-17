@@ -8,9 +8,10 @@ use anyhow::anyhow;
 use apache_avro::{Codec, Schema, Writer, ZstandardSettings};
 use capture::config::KafkaConfig;
 use chrono::Utc;
+use common_kafka::error::error_code_tag;
 use health::HealthHandle;
 use metrics::{counter, gauge};
-use rdkafka::error::{KafkaError, RDKafkaErrorCode};
+use rdkafka::error::KafkaError;
 use rdkafka::message::{Header, OwnedHeaders};
 use rdkafka::producer::future_producer::OwnedDeliveryResult;
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
@@ -207,37 +208,32 @@ fn count_produce_error(topic: &str, reason: &'static str) {
     .increment(1);
 }
 
-/// The outer error means no delivery report arrived, which is what `message.timeout.ms`
-/// expiring during retries looks like. It and the inner broker error both mean the batch
-/// is not in Kafka, so both must reach the handler, which answers 5xx and makes the
-/// sender redeliver. `E` is generic to keep the `futures` oneshot channel out of this
-/// crate's dependencies.
-fn interpret_delivery_result<E>(
-    result: Result<OwnedDeliveryResult, E>,
+/// `None` means the delivery report never arrived, which is what a producer teardown
+/// with the batch still in flight looks like. A `message.timeout.ms` expiry is not this
+/// case: librdkafka always reports it, as an inner `MessageTimedOut`.
+fn interpret_delivery_result(
+    result: Option<OwnedDeliveryResult>,
     topic: &str,
 ) -> Result<(), anyhow::Error> {
     match result {
-        Err(_) => {
-            count_produce_error(topic, "cancelled");
+        None => {
+            count_produce_error(topic, "delivery_cancelled");
             Err(anyhow!(
-                "kafka error: delivery timed out before the broker acknowledged the batch"
+                "kafka error: the producer dropped the batch without a delivery report"
             ))
         }
-        Ok(Err((KafkaError::MessageProduction(RDKafkaErrorCode::MessageSizeTooLarge), _))) => {
-            // Counted apart from the retryable failures because a batch above
-            // message.max.bytes cannot succeed on a retry. Still an error: the batch is
-            // lost either way, and every caller maps any error to the same 5xx.
-            count_produce_error(topic, "message_too_large");
-            Err(anyhow!(
-                "kafka error: broker rejected the batch as too large"
-            ))
-        }
-        Ok(Err((err, _))) => {
-            count_produce_error(topic, "broker_error");
+        Some(Err((err, _))) => {
+            count_produce_error(topic, kafka_error_tag(&err));
             Err(anyhow!("kafka error: delivery failed: {err}"))
         }
-        Ok(Ok(_)) => Ok(()),
+        Some(Ok(_)) => Ok(()),
     }
+}
+
+fn kafka_error_tag(err: &KafkaError) -> &'static str {
+    err.rdkafka_error_code()
+        .map(error_code_tag)
+        .unwrap_or("rdkafka_other")
 }
 
 impl KafkaSink {
@@ -452,12 +448,12 @@ impl KafkaSink {
         }) {
             Err((err, _)) => {
                 count_produce_error(topic, "enqueue");
-                Err(anyhow!(format!("kafka error: {err}")))
+                Err(anyhow!("kafka error: {err}"))
             }
             Ok(delivery_future) => Ok(delivery_future),
         }?;
 
-        interpret_delivery_result(future.await, topic)
+        interpret_delivery_result(future.await.ok(), topic)
     }
 
     pub async fn write(
@@ -563,14 +559,15 @@ impl KafkaSink {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rdkafka::error::RDKafkaErrorCode;
     use rdkafka::message::OwnedMessage;
     use rdkafka::Timestamp;
 
-    fn rejected_by_broker(err: KafkaError) -> Result<OwnedDeliveryResult, ()> {
-        Ok(Err((
-            err,
+    fn rejected_by_broker(code: RDKafkaErrorCode) -> Option<OwnedDeliveryResult> {
+        Some(Err((
+            KafkaError::MessageProduction(code),
             OwnedMessage::new(
-                Some(b"avro batch".to_vec()),
+                None,
                 None,
                 "logs".to_string(),
                 Timestamp::NotAvailable,
@@ -583,20 +580,30 @@ mod tests {
 
     #[test]
     fn a_failed_delivery_is_never_reported_as_a_write() {
-        let cancelled: Result<OwnedDeliveryResult, ()> = Err(());
-        assert!(interpret_delivery_result(cancelled, "logs").is_err());
+        assert!(interpret_delivery_result(None, "logs").is_err());
+        assert!(interpret_delivery_result(
+            rejected_by_broker(RDKafkaErrorCode::MessageTimedOut),
+            "logs"
+        )
+        .is_err());
+    }
 
-        let broker_error = rejected_by_broker(KafkaError::MessageProduction(
-            RDKafkaErrorCode::BrokerTransportFailure,
-        ));
-        assert!(interpret_delivery_result(broker_error, "logs").is_err());
+    #[test]
+    fn a_delivered_batch_is_reported_as_a_write() {
+        assert!(interpret_delivery_result(Some(Ok((0, 42))), "logs").is_ok());
+    }
 
-        let too_large = rejected_by_broker(KafkaError::MessageProduction(
-            RDKafkaErrorCode::MessageSizeTooLarge,
-        ));
-        assert!(interpret_delivery_result(too_large, "logs").is_err());
-
-        let delivered: Result<OwnedDeliveryResult, ()> = Ok(Ok((0, 42)));
-        assert!(interpret_delivery_result(delivered, "logs").is_ok());
+    #[test]
+    fn a_broker_error_is_tagged_with_the_shared_vocabulary() {
+        assert_eq!(
+            kafka_error_tag(&KafkaError::MessageProduction(
+                RDKafkaErrorCode::MessageSizeTooLarge
+            )),
+            "message_size_too_large"
+        );
+        assert_eq!(
+            kafka_error_tag(&KafkaError::NoMessageReceived),
+            "rdkafka_other"
+        );
     }
 }
