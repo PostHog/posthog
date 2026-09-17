@@ -17,6 +17,7 @@ describe("FeedbackSubmissionService", () => {
       getValidAccessToken: vi
         .fn()
         .mockResolvedValue({ apiHost: "https://app.example.com" }),
+      getState: vi.fn().mockReturnValue({ currentProjectId: 42 }),
       authenticatedFetch,
     } as unknown as AuthService;
     const service = new FeedbackSubmissionService(authService);
@@ -42,7 +43,9 @@ describe("FeedbackSubmissionService", () => {
     ).resolves.toBeUndefined();
 
     const [, url, init] = authenticatedFetch.mock.calls[0];
-    expect(url).toBe("https://app.example.com/api/desktop_feedback/");
+    expect(url).toBe(
+      "https://app.example.com/api/projects/42/desktop_feedback/",
+    );
     expect(init).toMatchObject({ method: "POST" });
     const form = init.body as FormData;
     expect(form.get("response")).toBe("The page did not load");
@@ -76,6 +79,7 @@ describe("FeedbackSubmissionService", () => {
         getValidAccessToken: vi
           .fn()
           .mockResolvedValue({ apiHost: "https://app.example.com" }),
+        getState: vi.fn().mockReturnValue({ currentProjectId: 42 }),
         authenticatedFetch: vi.fn().mockResolvedValue(response),
       } as unknown as AuthService;
       const service = new FeedbackSubmissionService(authService);

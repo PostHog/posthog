@@ -40,6 +40,10 @@ export class FeedbackSubmissionService implements IFeedbackSubmissionService {
     input: FeedbackSubmissionInput & { appVersion?: string },
   ): Promise<void> {
     const { apiHost } = await this.authService.getValidAccessToken();
+    const projectId = this.authService.getState().currentProjectId;
+    if (projectId === null) {
+      throw new Error("Select a project before sending feedback");
+    }
     const form = new FormData();
     form.append("response", input.response);
     form.append("source", input.source);
@@ -64,7 +68,7 @@ export class FeedbackSubmissionService implements IFeedbackSubmissionService {
 
     const response = await this.authService.authenticatedFetch(
       fetch,
-      `${apiHost}/api/desktop_feedback/`,
+      `${apiHost}/api/projects/${projectId}/desktop_feedback/`,
       { method: "POST", body: form },
     );
     if (!response.ok) {
