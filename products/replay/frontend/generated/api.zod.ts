@@ -177,26 +177,6 @@ export const SessionRecordingsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional(),
 })
 
-export const SessionRecordingsAiRegexCreateBody = /* @__PURE__ */ zod.object({
-    person: zod
-        .object({
-            id: zod.number().describe('Numeric person ID.'),
-            name: zod.string().describe('Display name derived from person properties (email, name, or username).'),
-            distinct_ids: zod.array(zod.string()),
-            properties: zod
-                .unknown()
-                .optional()
-                .describe('Key-value map of person properties set via $set and $set_once operations.'),
-            created_at: zod.iso.datetime({ offset: true }).describe('When this person was first seen (ISO 8601).'),
-            uuid: zod.uuid().describe('Unique identifier (UUID) for this person.'),
-            last_seen_at: zod.iso
-                .datetime({ offset: true })
-                .nullable()
-                .describe('Timestamp of the last event from this person, or null.'),
-        })
-        .optional(),
-})
-
 /**
  * Delete a batch of session recordings by session ID. Deletion is permanent and cannot be undone. IDs that don't match an existing recording are skipped and counted in `total_requested` but not `deleted_count`.
  */

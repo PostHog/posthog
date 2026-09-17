@@ -313,23 +313,6 @@ export const sessionRecordingsDestroy = async (projectId: string, id: string, op
     })
 }
 
-export const getSessionRecordingsAiRegexCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/session_recordings/ai/regex/`
-}
-
-export const sessionRecordingsAiRegexCreate = async (
-    projectId: string,
-    sessionRecordingApi?: NonReadonly<SessionRecordingApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getSessionRecordingsAiRegexCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sessionRecordingApi),
-    })
-}
-
 export const getSessionRecordingsBulkDeleteCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/session_recordings/bulk_delete/`
 }

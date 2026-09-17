@@ -1676,6 +1676,10 @@ class SessionRecordingViewSet(
 
         return asyncio.run(_run())
 
+    @extend_schema(
+        exclude=True,
+        description="Generate regex patterns using AI. This is in development and likely to change, you should not depend on this API.",
+    )
     @action(methods=["POST"], detail=False, url_path="ai/regex")
     def ai_regex(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if not request.user.is_authenticated:
