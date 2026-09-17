@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconExternal, IconTarget, IconWarning } from '@posthog/icons'
+import { IconExternal, IconTarget } from '@posthog/icons'
 import { LemonBanner, LemonTable, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -20,7 +20,7 @@ import { urls } from 'scenes/urls'
 import { DataModelingNode, DataWarehouseSavedQuery } from '~/types'
 
 import { LineageGraph } from 'products/data_modeling/frontend/lineage/LineageGraph'
-import { lineageIssueMessage } from 'products/data_modeling/frontend/lineage/LineageNode'
+import { LineageIssueMarker } from 'products/data_modeling/frontend/lineage/LineageNode'
 import { lineageNodeUrl } from 'products/data_modeling/frontend/lineage/lineageNodeUrl'
 import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
 import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
@@ -207,14 +207,7 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                                                         </Tooltip>
                                                     )}
                                                     {name}
-                                                    {lineage_issue && (
-                                                        <Tooltip
-                                                            placement="right"
-                                                            title={lineageIssueMessage(lineage_issue)}
-                                                        >
-                                                            <IconWarning className="text-warning" />
-                                                        </Tooltip>
-                                                    )}
+                                                    {lineage_issue && <LineageIssueMarker issue={lineage_issue} />}
                                                 </div>
                                             ),
                                         },
