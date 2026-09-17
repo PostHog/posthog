@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.utils import timezone
 
 import httpx
+from google.genai import types
 from google.genai.errors import APIError
 from pydantic import BaseModel
 from temporalio.testing import ActivityEnvironment
@@ -29,7 +30,12 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.events_tool import events_tool
 from products.replay_vision.backend.temporal.metrics import REPLAY_VISION_VERIFICATION_OUTCOMES
-from products.replay_vision.backend.temporal.scanners.base import MissionStep, SignalFinding, SignalsResponse
+from products.replay_vision.backend.temporal.scanners.base import (
+    STEP_MAX_OUTPUT_TOKENS,
+    MissionStep,
+    SignalFinding,
+    SignalsResponse,
+)
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorOutput, MonitorScanner
 from products.replay_vision.backend.temporal.types import ScannerSnapshot, VerificationRecord
 from products.replay_vision.backend.temporal.video_clock import VideoClock
@@ -55,10 +61,10 @@ class _FakeContent:
 
 
 class _Resp:
-    """Minimal genai response: `.text` and `.candidates[0].content.parts`."""
+    """Minimal genai response: `.text`, `.candidates[0].content.parts`, and an optional finish reason."""
 
-    def __init__(self, text: str = "", function_call: Any = None) -> None:
-        self.candidates = [type("Cand", (), {"content": _FakeContent(function_call)})()]
+    def __init__(self, text: str = "", function_call: Any = None, finish_reason: Any = None) -> None:
+        self.candidates = [type("Cand", (), {"content": _FakeContent(function_call), "finish_reason": finish_reason})()]
         self.text = text
 
 
@@ -234,6 +240,22 @@ async def test_cached_tool_budget_exhaustion_forces_an_inline_tool_free_answer()
     assert forced_turn["config"].tools is None and forced_turn["config"].tool_config is None  # ...and offers no tool
     assert forced_turn["contents"][0] == _VIDEO  # video + preamble re-supplied inline so context isn't lost
     assert forced_turn["contents"][1].text == "PRE"
+
+
+@pytest.mark.asyncio
+async def test_output_cap_hit_re_prompts_for_briefer_reasoning() -> None:
+    # A MAX_TOKENS finish means thinking ate the cap and the JSON never arrived. The generic "raw JSON only"
+    # correction would re-run the same reasoning into the same wall, so the re-prompt has to name the cause.
+    steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
+    responses = [
+        _Resp(text='{"verd', finish_reason=types.FinishReason.MAX_TOKENS),
+        _Resp(text='{"verdict":"yes"}'),
+    ]
+    client = _FakeClient(responses)
+    out = await _run(client, steps)
+    assert out["core"].verdict == "yes"
+    correction = client.models.calls[1]["contents"][-1].text
+    assert "ran out of output tokens" in correction
 
 
 @pytest.mark.asyncio
@@ -738,6 +760,7 @@ class TestStepConfig:
         assert config.cached_content is None
         assert config.response_json_schema is not None
         assert config.thinking_config is not None and config.thinking_config.include_thoughts is True
+        assert config.max_output_tokens == STEP_MAX_OUTPUT_TOKENS
 
     def test_cached_path_references_the_cache_and_omits_tools(self) -> None:
         config = _step_config(
