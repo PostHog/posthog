@@ -43,8 +43,8 @@ type Story = StoryObj<{}>
 
 // One new-export story per destination so visual regression covers each destination's
 // edit form (the per-destination `Fields` components in destinations/). The default
-// configuration drives any conditional UI: Redshift defaults to COPY (shows the S3
-// staging section), Snowflake to password auth.
+// configuration drives any conditional UI: Redshift defaults to COPY, which shows the
+// S3 staging section.
 export const NewAwsS3Export: Story = {
     parameters: {
         pageUrl: urls.batchExportNew('awss3'),
