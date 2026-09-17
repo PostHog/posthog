@@ -51,7 +51,12 @@ from products.signals.backend.scout_harness import (
 )
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
-from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, failure_streak_pause_threshold
+from products.signals.backend.scout_harness.limits import (
+    STALE_RUN_CUTOFF_S,
+    TRIGGERED_BY_CHECK,
+    TRIGGERED_BY_SCHEDULE,
+    failure_streak_pause_threshold,
+)
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import (
     _EXTERNAL_MCP_LISTING_CAP,
@@ -599,7 +604,7 @@ class TestStructuredOutputPromptSection(SimpleTestCase):
 
 
 class TestRunNotePromptSection(SimpleTestCase):
-    def _prompt(self, run_note: str | None) -> str:
+    def _prompt(self, run_note: str | None, triggered_by: str = TRIGGERED_BY_SCHEDULE) -> str:
         return build_run_prompt(
             LoadedSkill(
                 name="signals-scout-errors",
@@ -616,6 +621,7 @@ class TestRunNotePromptSection(SimpleTestCase):
             team_id=1,
             started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
             run_note=run_note,
+            triggered_by=triggered_by,
         )
 
     @parameterized.expand([("absent", None), ("blank", "   \n  ")])
@@ -640,6 +646,16 @@ class TestRunNotePromptSection(SimpleTestCase):
         assert "# A note for this run" in prompt
         assert "do not record it in the scratchpad as a durable memory" in prompt
         assert "# Notes left for you" in prompt
+
+    def test_a_check_dispatch_frames_its_note_as_the_run_assignment(self) -> None:
+        # Framed as a person's nudge, a check run reads its assignment as optional steering and is
+        # never told about the one tool that closes the check.
+        prompt = self._prompt("Check id: abc. Did the exception stop?", triggered_by=TRIGGERED_BY_CHECK)
+
+        assert "# The check this run must answer" in prompt
+        assert "<check>\nCheck id: abc. Did the exception stop?\n</check>" in prompt
+        assert "scout-check-record-result" in prompt
+        assert "# A note for this run" not in prompt
 
 
 class TestExternalMcpServersPromptSection(SimpleTestCase):

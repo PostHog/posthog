@@ -1,4 +1,6 @@
-use capture_logs::endpoints::prometheus::{decode_write_request, write_request_to_kafka_rows};
+use capture_logs::endpoints::prometheus::{
+    decode_write_request, write_request_to_kafka_rows, RemoteWriteEncoding,
+};
 use chrono::{Duration, Utc};
 use prometheus_rw_proto::prometheus::v1::{
     metric_metadata::MetricType, Label, MetricMetadata, Sample, TimeSeries, WriteRequest,
@@ -273,7 +275,8 @@ fn snappy_round_trip_decodes_and_maps() {
     let compressed = snap::raw::Encoder::new().compress_vec(&encoded).unwrap();
 
     let (decoded, _) =
-        decode_write_request(&compressed, MAX_DECOMPRESSED).expect("snappy+protobuf decode");
+        decode_write_request(&compressed, RemoteWriteEncoding::Snappy, MAX_DECOMPRESSED)
+            .expect("snappy+protobuf decode");
     let (rows, _) = write_request_to_kafka_rows(decoded);
 
     assert_eq!(rows.len(), 1);
@@ -283,7 +286,12 @@ fn snappy_round_trip_decodes_and_maps() {
 
 #[test]
 fn rejects_non_snappy_garbage() {
-    assert!(decode_write_request(b"not snappy at all", MAX_DECOMPRESSED).is_err());
+    assert!(decode_write_request(
+        b"not snappy at all",
+        RemoteWriteEncoding::Snappy,
+        MAX_DECOMPRESSED
+    )
+    .is_err());
 }
 
 /// The raw-snappy length header is sender-controlled: a tiny body can claim a
@@ -307,10 +315,89 @@ fn rejects_decompression_bomb_before_allocating() {
     let compressed = snap::raw::Encoder::new().compress_vec(&encoded).unwrap();
 
     // A cap below the (legitimate) decompressed size must reject the payload.
-    assert!(decode_write_request(&compressed, encoded.len() - 1).is_err());
+    assert!(
+        decode_write_request(&compressed, RemoteWriteEncoding::Snappy, encoded.len() - 1).is_err()
+    );
     // The same payload passes with an adequate cap, so the rejection above is
     // the cap and not a decode failure.
-    assert!(decode_write_request(&compressed, encoded.len()).is_ok());
+    assert!(decode_write_request(&compressed, RemoteWriteEncoding::Snappy, encoded.len()).is_ok());
+}
+
+/// vmagent sends the same protobuf zstd-compressed (the VictoriaMetrics
+/// remote-write protocol). Before it was accepted, vmagent got a 400 on its
+/// first request and fell back to snappy, so a regression here is silent.
+#[test]
+fn zstd_round_trip_decodes_and_maps() {
+    let req = WriteRequest {
+        timeseries: vec![series(
+            vec![label("__name__", "up"), label("job", "vmagent")],
+            vec![Sample {
+                value: 1.0,
+                timestamp: now_ms(),
+            }],
+        )],
+        metadata: vec![],
+    };
+
+    let mut encoded = Vec::new();
+    req.encode(&mut encoded).unwrap();
+    let compressed = common_compression::compress_zstd(&encoded).unwrap();
+
+    let (decoded, uncompressed_bytes) =
+        decode_write_request(&compressed, RemoteWriteEncoding::Zstd, MAX_DECOMPRESSED)
+            .expect("zstd+protobuf decode");
+    let (rows, _) = write_request_to_kafka_rows(decoded);
+
+    assert_eq!(uncompressed_bytes, encoded.len() as u64);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].metric_name, "up");
+    assert_eq!(rows[0].service_name, "vmagent");
+
+    // A snappy body labelled as zstd must fail, not be accepted by accident.
+    let snappy = snap::raw::Encoder::new().compress_vec(&encoded).unwrap();
+    assert!(decode_write_request(&snappy, RemoteWriteEncoding::Zstd, MAX_DECOMPRESSED).is_err());
+}
+
+/// zstd compresses repetitive input past 1000:1, so the cap has to hold on the
+/// decompressed size and not on the body size.
+#[test]
+fn zstd_rejects_decompression_bomb() {
+    let bomb = vec![0u8; 4 * MAX_DECOMPRESSED];
+    let compressed = common_compression::compress_zstd(&bomb).unwrap();
+    assert!(compressed.len() < 4096, "bomb should compress small");
+
+    assert!(
+        decode_write_request(&compressed, RemoteWriteEncoding::Zstd, MAX_DECOMPRESSED).is_err()
+    );
+    // The same body under an adequate cap fails only on the protobuf decode, so
+    // the rejection above comes from the cap and not from the zstd decoder.
+    let err = decode_write_request(&compressed, RemoteWriteEncoding::Zstd, bomb.len())
+        .expect_err("zeros are not a WriteRequest");
+    assert!(err.to_string().contains("protobuf"), "{err}");
+}
+
+#[test]
+fn content_encoding_header_selects_encoding() {
+    use axum::http::HeaderMap;
+
+    let cases: [(Option<&str>, RemoteWriteEncoding); 5] = [
+        (None, RemoteWriteEncoding::Snappy),
+        (Some("snappy"), RemoteWriteEncoding::Snappy),
+        (Some("zstd"), RemoteWriteEncoding::Zstd),
+        (Some(" ZSTD "), RemoteWriteEncoding::Zstd),
+        (Some("gzip"), RemoteWriteEncoding::Snappy),
+    ];
+    for (value, expected) in cases {
+        let mut headers = HeaderMap::new();
+        if let Some(value) = value {
+            headers.insert("content-encoding", value.parse().unwrap());
+        }
+        assert_eq!(
+            RemoteWriteEncoding::from_headers(&headers),
+            expected,
+            "content-encoding {value:?}"
+        );
+    }
 }
 
 /// Quota and rate limiting charge the payload size the handler reports. This
@@ -336,7 +423,8 @@ fn reports_decompressed_payload_size() {
     let compressed = snap::raw::Encoder::new().compress_vec(&encoded).unwrap();
 
     let (_, uncompressed_bytes) =
-        decode_write_request(&compressed, MAX_DECOMPRESSED).expect("snappy+protobuf decode");
+        decode_write_request(&compressed, RemoteWriteEncoding::Snappy, MAX_DECOMPRESSED)
+            .expect("snappy+protobuf decode");
 
     assert_eq!(uncompressed_bytes, encoded.len() as u64);
     // Keeps the assertion above from passing vacuously: a payload that did not
