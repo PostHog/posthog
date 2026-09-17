@@ -104,6 +104,15 @@ export function SubscriptionSubmenu({
     scopedAccess !== undefined
       ? scopedAccess === "own-subscription"
       : subscription.subscriptionOn;
+  // A running conversation can only switch to a provider the agent can reach. The
+  // subprocess takes its credentials at spawn, and the server silently falls back
+  // to PostHog when the provider login is not active, which would leave the run
+  // billing PostHog while the menu reads the provider. Offer the option only once
+  // login is confirmed. New-task composers keep it, since login can complete
+  // before the task starts.
+  const scopedRunning = onScopedChange !== undefined && !cloudTask;
+  const ownSubscriptionLoginBlocked =
+    scopedRunning && subscription.loginState !== "logged-in";
 
   return (
     <DropdownMenuSub>
@@ -162,28 +171,33 @@ export function SubscriptionSubmenu({
             <DropdownMenuRadioItem
               value="own-subscription"
               closeOnClick={closeOnChange}
+              disabled={ownSubscriptionLoginBlocked}
+              className={ownSubscriptionLoginBlocked ? "opacity-60" : undefined}
             >
               {providerLabel}
             </DropdownMenuRadioItem>
           )}
         </DropdownMenuRadioGroup>
-        {!cloudTask && wantsOwnSubscription && !subscription.loggedIn && (
-          // Inline note rather than a menu row: it shows only after the provider
-          // is picked without a confirmed login. Unknown status counts as not
-          // logged in, so the note still shows when the check is pending or failed.
-          <div className="px-2 py-1.5 text-muted-foreground text-xs">
-            <button
-              type="button"
-              className="underline underline-offset-2 hover:text-foreground"
-              onClick={() =>
-                openSettings("harness", SUBSCRIPTION_LOGIN_ACTION[adapter])
-              }
-            >
-              {LOGIN_NOTE[adapter].link}
-            </button>
-            {LOGIN_NOTE[adapter].rest}
-          </div>
-        )}
+        {!cloudTask &&
+          (wantsOwnSubscription || ownSubscriptionLoginBlocked) &&
+          !subscription.loggedIn && (
+            // Inline note rather than a menu row: it shows after the provider is
+            // picked, or for a running conversation where the provider is disabled
+            // until login. Unknown status counts as not logged in, so the note
+            // still shows when the check is pending or failed.
+            <div className="px-2 py-1.5 text-muted-foreground text-xs">
+              <button
+                type="button"
+                className="underline underline-offset-2 hover:text-foreground"
+                onClick={() =>
+                  openSettings("harness", SUBSCRIPTION_LOGIN_ACTION[adapter])
+                }
+              >
+                {LOGIN_NOTE[adapter].link}
+              </button>
+              {LOGIN_NOTE[adapter].rest}
+            </div>
+          )}
       </DropdownMenuSubContent>
     </DropdownMenuSub>
   );
