@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import TYPE_CHECKING, Optional
 
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
@@ -38,10 +39,14 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     resource_type = models.CharField(max_length=64)
     resource_id = models.CharField(max_length=128, null=True, blank=True)
 
-    intent = models.JSONField()
-    intent_display = models.JSONField()
+    # `intent` carries an endpoint serializer's `validated_data` verbatim, and DRF deserializes a
+    # typed field into its native Python object — a `DateTimeField` arrives as a `datetime`, which
+    # psycopg refuses to dump. The encoder renders those as the ISO strings the serializer parses
+    # again on the apply path, so every writer gets it for free instead of remembering to.
+    intent = models.JSONField(encoder=DjangoJSONEncoder)
+    intent_display = models.JSONField(encoder=DjangoJSONEncoder)
 
-    policy_snapshot = models.JSONField()
+    policy_snapshot = models.JSONField(encoder=DjangoJSONEncoder)
 
     validation_status = models.CharField(
         max_length=16,
