@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconInfo, IconPulse, IconThumbsDown, IconThumbsUp, IconWarning } from '@posthog/icons'
+import { IconClock, IconInfo, IconPulse, IconThumbsDown, IconThumbsUp, IconWarning } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
@@ -250,9 +250,8 @@ export function InsightMeta({
     // A killed run has no result to carry the scan, so it arrives on the query status instead.
     const queryScan: QueryBasedInsightModel['query_scan'] = insight.query_scan ?? insight.query_status?.query_scan
     const scanFindings = queryScan?.analysis?.findings ?? []
-    // Without an actionable finding the tag can only say that PostHog was slow, which leaves the viewer nothing to do.
     const queryScanTooltip =
-        canEditInsight && queryScan && queryScanHasActionableFinding(scanFindings) ? (
+        canEditInsight && queryScan && scanFindings.length > 0 ? (
             <QueryScanTileTooltip summary={queryScan} findings={scanFindings} />
         ) : null
 
@@ -473,6 +472,7 @@ export function InsightMeta({
                         showDescription={tile?.show_description !== false}
                         dataRetentionWarning={dataRetentionWarning}
                         queryScanTooltip={queryScanTooltip}
+                        queryScanActionable={queryScanHasActionableFinding(scanFindings)}
                         infoPopover={
                             showCompactTile ? (
                                 <CompactInfoPopover
@@ -804,6 +804,7 @@ export function InsightMetaContent({
     infoPopover,
     dataRetentionWarning,
     queryScanTooltip,
+    queryScanActionable,
 }: {
     title: string
     fallbackTitle?: string
@@ -817,6 +818,8 @@ export function InsightMetaContent({
     infoPopover?: JSX.Element | null
     dataRetentionWarning?: string | null
     queryScanTooltip?: JSX.Element | null
+    /** Whether the person can act on a finding. Without one the tile only notes that the query is slow. */
+    queryScanActionable?: boolean
 }): JSX.Element {
     const dataRetentionIndicator = dataRetentionWarning ? (
         <Tooltip title={dataRetentionWarning}>
@@ -825,9 +828,16 @@ export function InsightMetaContent({
     ) : null
     const queryScanIndicator = queryScanTooltip ? (
         <Tooltip title={queryScanTooltip}>
-            <LemonTag type="warning" size="small" className="ml-1.5 shrink-0" data-attr="insight-card-query-scan">
-                Slow query
-            </LemonTag>
+            {queryScanActionable ? (
+                <LemonTag type="warning" size="small" className="ml-1.5 shrink-0" data-attr="insight-card-query-scan">
+                    Slow query
+                </LemonTag>
+            ) : (
+                <IconClock
+                    className="ml-1.5 text-base shrink-0 text-secondary"
+                    data-attr="insight-card-query-scan-note"
+                />
+            )}
         </Tooltip>
     ) : null
     const titleContent = (
