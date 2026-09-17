@@ -5254,8 +5254,6 @@ class TestSurveysRecurringIterations(APIBaseTest):
     @parameterized.expand(
         [
             ("once", "once"),
-            # `schedule` is nullable and the edit form reads a null as "Once", so a null has to
-            # clear the iteration state too.
             ("null", None),
         ]
     )
@@ -5286,9 +5284,6 @@ class TestSurveysRecurringIterations(APIBaseTest):
         ]
     )
     def test_setting_iterations_without_a_schedule_marks_the_survey_recurring(self, _name: str, schedule_payload: dict):
-        # The iteration fields alone have always configured repeats, so a survey that gets them
-        # must not keep a `once` schedule: the edit form would then show it as one-shot while
-        # update_survey_iteration still rotates its iterations.
         survey = self._create_non_recurring_survey()
         assert survey.schedule == Survey.Schedule.ONCE
 

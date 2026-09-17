@@ -68,9 +68,6 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.assertEqual(self.recurring_survey.current_iteration, 1)
 
     def test_survey_with_once_schedule_is_not_ended_by_stale_iteration_fields(self) -> None:
-        # Iteration fields can outlive a recurring schedule, and the edit form then shows the
-        # survey as "Once" with no auto-close date. Closing it here surprises the user, who has
-        # to reopen it after every run of this task.
         self.recurring_survey.schedule = Survey.Schedule.ONCE
         self.recurring_survey.start_date = now() - timedelta(days=self.iteration_frequency_days * 3 + 1)
         self.recurring_survey.save()

@@ -1705,22 +1705,18 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
     @staticmethod
     def _reconcile_schedule_with_iterations(validated_data: dict) -> None:
-        # `schedule` and the iteration_* fields have to agree: update_survey_iteration reads the
-        # iteration columns while the edit form reads `schedule`, so a survey holding both a
-        # non-recurring schedule and iteration state repeats while presenting itself as one-shot.
+        # The edit form reads `schedule` while update_survey_iteration reads the iteration columns,
+        # so the two must agree or the survey repeats while presenting itself as one-shot.
         schedule = validated_data.get("schedule")
         if (
             schedule is None
             and validated_data.get("iteration_count")
             and validated_data.get("iteration_frequency_days")
         ):
-            # The iteration fields on their own have always been enough to set up repeats, and
-            # partial updates rely on that, so read them as asking for a recurring schedule
-            # rather than dropping the caller's values.
+            # Iteration fields alone have always configured repeats, so keep the caller's values.
             validated_data["schedule"] = Survey.Schedule.RECURRING
         elif "schedule" in validated_data and schedule != Survey.Schedule.RECURRING:
-            # Every schedule the API accepts other than `recurring` is non-recurring, an explicit
-            # null included: the field is nullable and the edit form reads a null as "Once".
+            # An explicit null counts as non-recurring: the edit form reads it as "Once".
             validated_data["iteration_count"] = None
             validated_data["iteration_frequency_days"] = None
 
