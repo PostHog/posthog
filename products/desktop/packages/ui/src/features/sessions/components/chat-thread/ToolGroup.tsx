@@ -73,7 +73,7 @@ function friendlyName(key: string): string {
 }
 
 function formatMcpToolName(name: string): string {
-  const withoutPrefix = name.startsWith("mcp_") ? name.slice(4) : name;
+  const withoutPrefix = name.replace(/^mcp_+/, "");
   return withoutPrefix
     .replace(/[_-]+/g, " ")
     .replace(/([a-z\d])([A-Z])/g, "$1 $2");

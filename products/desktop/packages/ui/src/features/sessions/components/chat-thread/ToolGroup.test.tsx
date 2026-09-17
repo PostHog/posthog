@@ -168,7 +168,7 @@ describe("ToolGroup", () => {
     },
     {
       name: "names a direct MCP tool while it is active",
-      items: [piToolItem("mcp-direct", "mcp_posthog_query_trends", {})],
+      items: [piToolItem("mcp-direct", "mcp__posthog__query-trends", {})],
       expected: "MCP: posthog query trends",
     },
     {
