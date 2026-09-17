@@ -197,8 +197,7 @@ _NO_EVENT_FILTER_SQL_BY_CAUSE: dict[FindingCause, _Copy] = {
     FindingCause.UNFILTERED_HELPER_READ: _Copy(
         lead=(
             "Queries are fastest when every read of the events table names a fixed set of events. {subject} "
-            "names events in one place but reads all events in another, a subquery or CTE with no event filter, "
-            "and that unfiltered read is the large one, which is slow."
+            "names events in one read, but its largest read of the events table has no event filter, which is slow."
         ),
         advice="Add an event filter, or at least the same start date, to the unfiltered read too.",
         fix=(

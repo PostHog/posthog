@@ -140,7 +140,7 @@ class TestQueryScanJob(BaseTest):
                 {"STUBBED_MARKER": "plan_event_filter_used", "SUB_MARKER": "plan_no_event_filter"},
                 ("SUB_MARKER",),
                 None,
-                ["no_event_filter/helper_read/subquery"],
+                ["no_event_filter/subquery"],
                 ["no_event_filter"],
                 True,
             ),

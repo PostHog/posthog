@@ -15,7 +15,16 @@ from posthog.query_scan.findings import SQL_QUERY_KIND, FindingCause, build_warn
 from posthog.query_scan.flag import QueryScanFlag
 from posthog.query_scan.tree_facts import TreeFacts
 
-__all__ = ["PlanSet", "QueryScanResult", "analyze"]
+__all__ = ["PlanSet", "QueryScanResult", "SubqueryPlan", "analyze"]
+
+
+@frozen
+class SubqueryPlan:
+    """One subquery's plan, with the project's events over the subquery's own date range, so it is
+    judged by the rule the outer query is."""
+
+    plan: QueryPlan
+    range_granules: int | None = None
 
 
 @frozen
@@ -25,7 +34,7 @@ class PlanSet:
     """
 
     outer: QueryPlan | None
-    subqueries: tuple[QueryPlan, ...] = ()
+    subqueries: tuple[SubqueryPlan, ...] = ()
     team_granules: int | None = None
     range_granules: int | None = None
 
@@ -97,7 +106,6 @@ def analyze(
     project_share = _share(numerator, plans.team_granules)
 
     findings: list[QueryScanWarning] = []
-    # Only the outer read has a range share; a subquery gates on the skip-step fallback.
     findings += _findings_for_plan(
         plans.outer,
         flag,
@@ -106,21 +114,22 @@ def analyze(
         range_share=range_share,
         team_granules=plans.team_granules,
         subquery_index=None,
-        outer_uses_event_key=False,
         table_row_averages=averages,
         event_filter=event_filter,
     )
-    outer_uses_event_key = outer_events is not None and outer_events.uses_event_key()
     for index, subquery in enumerate(plans.subqueries):
+        subquery_events = subquery.plan.heaviest_events_read()
         findings += _findings_for_plan(
-            subquery,
+            subquery.plan,
             flag,
             query_kind=query_kind,
             run=run,
-            range_share=None,
+            range_share=_share(
+                subquery_events.selected_granules() if subquery_events is not None else None,
+                subquery.range_granules,
+            ),
             team_granules=plans.team_granules,
             subquery_index=index,
-            outer_uses_event_key=outer_uses_event_key,
             table_row_averages=averages,
             event_filter=None,
         )
@@ -142,7 +151,6 @@ def _findings_for_plan(
     range_share: float | None,
     team_granules: int | None,
     subquery_index: int | None,
-    outer_uses_event_key: bool,
     table_row_averages: dict[str, float],
     event_filter: EventFilterOutcome | None,
 ) -> list[QueryScanWarning]:
@@ -211,9 +219,7 @@ def _findings_for_plan(
 
     if reads_all_events:
         if event_cause is None:
-            sibling_uses_event_key = outer_uses_event_key or any(
-                read is not heaviest and read.uses_event_key() for read in plan.events_reads()
-            )
+            sibling_uses_event_key = any(read is not heaviest and read.uses_event_key() for read in plan.events_reads())
             event_cause = _unfiltered_cause(run, is_sql=is_sql, sibling_uses_event_key=sibling_uses_event_key)
         findings.append(
             build_warning(
@@ -326,8 +332,8 @@ def _passes_start_date_gate(read: PlanTableRead, team_granules: int | None, star
 
 
 def _passes_event_gate(read: PlanTableRead, range_share: float | None, event_ratio: float) -> bool:
-    """With the range share known, gate on it. Without one (a subquery, or a failed denominator), a
-    skip index that already pruned most of the read means an event filter would not help much.
+    """With the range share known, gate on it. Without one, because the denominator failed, a skip
+    index that already pruned most of the read means an event filter would not help much.
     """
     if range_share is not None:
         return range_share >= event_ratio

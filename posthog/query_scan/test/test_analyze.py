@@ -2,7 +2,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.query_scan.analyze import PlanSet, QueryScanResult, RunFacts, analyze
+from posthog.query_scan.analyze import PlanSet, QueryScanResult, RunFacts, SubqueryPlan, analyze
 from posthog.query_scan.event_filter import EventFilterOutcome
 from posthog.query_scan.explain import QueryPlan, parse_query_plan
 from posthog.query_scan.findings import finding_label
@@ -58,6 +58,7 @@ def analyze_fixture(
     outer: str | QueryPlan,
     *,
     subqueries: tuple[str, ...] = (),
+    subquery_range_granules: int | None = None,
     team_granules: int | None = None,
     range_granules: int | None = None,
     persons_ratio: float = 0.5,
@@ -74,7 +75,9 @@ def analyze_fixture(
     return analyze(
         PlanSet(
             outer=plan(outer) if isinstance(outer, str) else outer,
-            subqueries=tuple(plan(name) for name in subqueries),
+            subqueries=tuple(
+                SubqueryPlan(plan=plan(name), range_granules=subquery_range_granules) for name in subqueries
+            ),
             team_granules=team_granules,
             range_granules=range_granules,
         ),
@@ -196,9 +199,22 @@ class TestAnalyze(SimpleTestCase):
             ),
             ("object storage read yields nothing", "plan_object_storage_read", {}, []),
             ("a replay list query reads no events", "plan_replay_list_in_subqueries", {}, []),
-            # a subquery whose events read pruned nothing is flagged through the skip-step fallback
+            # a subquery is gated on its share of its own date range, the way the outer query is
             (
-                "a subquery with no event filter is flagged",
+                "a subquery that reads most of its date range is flagged",
+                "plan_event_filter_used",
+                {"subqueries": ("plan_no_event_filter",), "subquery_range_granules": 400_000},
+                ["no_event_filter"],
+            ),
+            (
+                "a subquery that reads little of its date range is not flagged",
+                "plan_event_filter_used",
+                {"subqueries": ("plan_no_event_filter",), "subquery_range_granules": 40_000_000},
+                [],
+            ),
+            # without its denominator, a subquery falls back to the skip steps, as the outer query does
+            (
+                "a subquery with no denominator and no pruning is flagged",
                 "plan_event_filter_used",
                 {"subqueries": ("plan_no_event_filter",)},
                 ["no_event_filter"],
@@ -350,10 +366,10 @@ class TestAnalyze(SimpleTestCase):
                 [("no_event_filter", False)],
             ),
             (
-                "an unfiltered subquery beside an outer read that names events",
+                "an unfiltered subquery is worded like an unfiltered outer query",
                 "plan_event_filter_used",
                 {"subqueries": ("plan_no_event_filter",)},
-                [("no_event_filter/helper_read/subquery", True)],
+                [("no_event_filter/subquery", True)],
             ),
             (
                 "a negated event filter",

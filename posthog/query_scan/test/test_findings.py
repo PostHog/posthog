@@ -77,7 +77,7 @@ class TestFindings(SimpleTestCase):
                 QueryScanFindingKind.NO_EVENT_FILTER,
                 {"cause": FindingCause.UNFILTERED_HELPER_READ},
                 "HogQLQuery",
-                "reads all events in another, a subquery or CTE",
+                "its largest read of the events table has no event filter",
                 "Add an event filter to the unfiltered read",
             ),
             (

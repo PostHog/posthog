@@ -22,7 +22,7 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.ph_client import ph_scoped_capture
-from posthog.query_scan.analyze import PlanSet, QueryScanResult, RunFacts, analyze
+from posthog.query_scan.analyze import PlanSet, QueryScanResult, RunFacts, SubqueryPlan, analyze
 from posthog.query_scan.event_filter import (
     EventFilterClass,
     EventFilterOutcome,
@@ -137,7 +137,7 @@ def _run(job: QueryScanJob, started: float) -> None:
     for execution in job.executions:
         outer = _plan(execution.stubbed_sql, execution.values, job.team.pk)
         subqueries = tuple(
-            plan
+            SubqueryPlan(plan=plan, range_granules=_range_granules(job.team.pk, plan, team_granules, range_cache))
             for plan in (_plan(sql, execution.values, job.team.pk) for sql in execution.subqueries)
             if plan is not None
         )
@@ -212,14 +212,14 @@ def _combined_event_filter(execution: Execution, outer: QueryPlan | None) -> Eve
 
 def _range_granules(
     team_id: int,
-    outer: QueryPlan | None,
+    plan: QueryPlan | None,
     team_granules: int | None,
     cache: dict[tuple[int | None, int | None], int | None],
 ) -> int | None:
-    """The team's granules over the run's date range, cached per distinct bounds. With no bound the
+    """The team's granules over the plan's date range, cached per distinct bounds. With no bound the
     range is all time, so it equals the team denominator.
     """
-    events_read = outer.heaviest_events_read() if outer is not None else None
+    events_read = plan.heaviest_events_read() if plan is not None else None
     bounds = events_read.timestamp_bounds() if events_read is not None else TimestampBounds(lower=None, upper=None)
     if bounds.lower is None and bounds.upper is None:
         return team_granules
