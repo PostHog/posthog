@@ -100,7 +100,9 @@ export const dashboardWidgetMenusLogic = kea<dashboardWidgetMenusLogicType>([
                         return { next: null, previous: null, results: [] } as PaginatedResponse<DashboardBasicType>
                     }
                     const params = new URLSearchParams({ limit: '50', exclude_generated: 'true' })
-                    return api.get(url ?? `api/environments/${teamId}/dashboards/?${params.toString()}`)
+                    return api.get(
+                        url ?? `api/projects/${teamLogic.values.currentTeamIdStrict}/dashboards/?${params.toString()}`
+                    )
                 },
             },
         ],
