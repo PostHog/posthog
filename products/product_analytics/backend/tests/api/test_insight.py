@@ -466,6 +466,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Create feature flag insights
         Insight.objects.create(
             name=FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
+            description="Shows the number of total calls made on feature flag with key: my-flag",
             filters=Filter(data=filter_dict).to_dict(),
             saved=True,
             team=self.team,
@@ -474,6 +475,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         Insight.objects.create(
             name=FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
+            description="Shows the number of unique user calls made on feature flag per variant with key: my-flag",
             filters=Filter(data=filter_dict).to_dict(),
             saved=True,
             team=self.team,
@@ -489,16 +491,28 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        # Without filter, should return all 3 insights
+        # An insight a user wrote that happens to carry a generated name
+        Insight.objects.create(
+            name=FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
+            description="My own copy of this chart",
+            filters=Filter(data=filter_dict).to_dict(),
+            saved=True,
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Without filter, should return all 4 insights
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 3)
+        self.assertEqual(len(response.json()["results"]), 4)
 
-        # With filter, should exclude feature flag insights
+        # With filter, should exclude the generated insights and keep the rest
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true&hide_feature_flag_insights=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["name"], "Regular Insight")
+        self.assertEqual(
+            sorted(result["name"] for result in response.json()["results"]),
+            sorted(["Regular Insight", FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME]),
+        )
 
     def test_get_insight_in_dashboard_context(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard(

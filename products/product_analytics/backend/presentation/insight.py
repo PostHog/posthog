@@ -2052,14 +2052,21 @@ class InsightViewSet(
                 queryset = queryset.filter(Q(favorited=True))
             elif key == "hide_feature_flag_insights":
                 if str_to_bool(request.GET["hide_feature_flag_insights"]):
-                    # Exclude insights with the specific feature flag names
                     from posthog.helpers.dashboard_templates import (
+                        FEATURE_FLAG_CALLS_DESCRIPTION_FRAGMENT,
+                        FEATURE_FLAG_CALLS_DESCRIPTION_PREFIX,
                         FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
                         FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
                     )
 
+                    # A name a user can type is not provenance, so the generated description has to
+                    # match too. Same pair the delete_feature_flag_usage_insights sweep keys on.
                     queryset = queryset.exclude(
-                        name__in=[FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME, FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME]
+                        Q(name__in=[FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME, FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME])
+                        & Q(
+                            description__startswith=FEATURE_FLAG_CALLS_DESCRIPTION_PREFIX,
+                            description__contains=FEATURE_FLAG_CALLS_DESCRIPTION_FRAGMENT,
+                        )
                     )
             elif key == "date_from":
                 queryset = queryset.filter(
