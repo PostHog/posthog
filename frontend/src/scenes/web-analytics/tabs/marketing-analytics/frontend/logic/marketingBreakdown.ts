@@ -1,4 +1,4 @@
-import { BREAKDOWN_OTHER_STRING_LABEL } from 'scenes/insights/utils'
+import { BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL } from 'scenes/insights/utils'
 
 import {
     ConversionGoalFilter,
@@ -53,7 +53,13 @@ export const displayBreakdownValue = (value: string, dimensionLabel: string): st
     if (isFoldedBreakdownValue(value)) {
         return 'Other'
     }
-    return value || `(no ${dimensionLabel.toLowerCase()})`
+    // The stats tables return an empty string for an untagged visit and trends returns its own
+    // null sentinel. Both have to read the same, or the same row and line get different labels
+    // and clicking the row cannot focus its line.
+    if (!value || value === BREAKDOWN_NULL_STRING_LABEL) {
+        return `(no ${dimensionLabel.toLowerCase()})`
+    }
+    return value
 }
 
 /** Warehouse goals are keyed by distinct id, so the events-based session queries can't join them. */

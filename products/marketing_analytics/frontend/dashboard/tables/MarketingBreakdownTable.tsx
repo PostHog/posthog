@@ -56,7 +56,8 @@ export function MarketingBreakdownTable<Row extends Record<string, any>>({
 }: MarketingBreakdownTableProps<Row>): JSX.Element {
     const { dashboardBreakdown } = useValues(marketingAnalyticsLogic)
     const { setDashboardBreakdown } = useActions(marketingAnalyticsLogic)
-    const { breakdownLabel, compare } = useValues(marketingDashboardLogic)
+    const { breakdownLabel, compare, expandedMetric, focusedBreakdownValue } = useValues(marketingDashboardLogic)
+    const { setFocusedBreakdownValue } = useActions(marketingDashboardLogic)
 
     const tableColumns: LemonTableColumn<Row, keyof Row | undefined>[] = [
         {
@@ -141,6 +142,27 @@ export function MarketingBreakdownTable<Row extends Record<string, any>>({
                         rowKey={rowKey as (row: Row) => string}
                         defaultSorting={{ columnKey: defaultSortKey, order: -1 }}
                         emptyState={emptyState}
+                        onRow={
+                            expandedMetric
+                                ? (row) => ({
+                                      onClick: () =>
+                                          setFocusedBreakdownValue(
+                                              displayBreakdownValue(breakdownValue(row), breakdownLabel)
+                                          ),
+                                      className: 'cursor-pointer',
+                                      title: 'Focus this line in the chart',
+                                  })
+                                : undefined
+                        }
+                        // rowStatus rather than a background class: the first column is sticky and
+                        // paints its own background, so a class on the row alone leaves that cell
+                        // unhighlighted.
+                        rowStatus={(row) =>
+                            focusedBreakdownValue &&
+                            displayBreakdownValue(breakdownValue(row), breakdownLabel) === focusedBreakdownValue
+                                ? 'highlighted'
+                                : null
+                        }
                     />
                 </div>
             )}

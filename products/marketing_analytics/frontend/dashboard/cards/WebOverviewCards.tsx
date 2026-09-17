@@ -9,6 +9,7 @@ import { WebOverviewItem, WebOverviewQuery, WebOverviewQueryResponse } from '~/q
 
 import { MarketingMetricCard } from './MarketingMetricCard'
 import type { MetricCardSpec } from './metricCardSpec'
+import { useCardExpansion } from './useCardExpansion'
 
 export interface WebOverviewCardsProps {
     query: WebOverviewQuery
@@ -32,6 +33,7 @@ export function WebOverviewCards({
     })
     const { response, responseLoading, responseError } = useValues(logic)
     const { loadData } = useActions(logic)
+    const expandable = useCardExpansion()
 
     if (responseError && !responseLoading) {
         return (
@@ -60,7 +62,7 @@ export function WebOverviewCards({
             {select((response as WebOverviewQueryResponse | undefined)?.results).map((spec) => (
                 <MarketingMetricCard
                     key={spec.kind === 'metric' ? spec.item.key : spec.key}
-                    spec={spec}
+                    spec={expandable(spec)}
                     loading={false}
                     labelFromKey={labelFromKey}
                 />

@@ -27,7 +27,8 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <MarketingDashboardHeader />
-            <div id="marketing-dashboard-section" className="flex flex-col gap-4">
+            {/* The trailing space keeps the last table off the bottom edge of the scene. */}
+            <div id="marketing-dashboard-section" className="flex flex-col gap-4 pb-8">
                 <Section />
             </div>
         </div>

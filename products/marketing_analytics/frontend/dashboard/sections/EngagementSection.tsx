@@ -7,6 +7,7 @@ import { labelFromKey } from '~/queries/nodes/WebOverview/WebOverview'
 import { MarketingMetricCardGrid } from '../cards/MarketingMetricCardGrid'
 import { pickOverviewItems } from '../cards/metricCardSpec'
 import { WebOverviewCards } from '../cards/WebOverviewCards'
+import { MetricChart } from '../charts/MetricChart'
 import { marketingDashboardLogic } from '../marketingDashboardLogic'
 import { ratioItem } from '../marketingDashboardMetrics'
 import { WebStatsBreakdownTable } from '../tables/WebStatsBreakdownTable'
@@ -61,6 +62,7 @@ export function EngagementSection(): JSX.Element {
                     labelFromKey={(key) => ENGAGEMENT_LABELS[key] ?? labelFromKey(key)}
                 />
             </MarketingMetricCardGrid>
+            <MetricChart />
             <WebStatsBreakdownTable
                 tileId={TileId.MARKETING_ENGAGEMENT_TABLE}
                 titlePrefix="Engagement by"

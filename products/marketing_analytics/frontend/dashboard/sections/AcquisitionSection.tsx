@@ -8,6 +8,7 @@ import { MarketingMetricCardGrid } from '../cards/MarketingMetricCardGrid'
 import { pickOverviewItems } from '../cards/metricCardSpec'
 import { RetentionCards } from '../cards/RetentionCards'
 import { WebOverviewCards } from '../cards/WebOverviewCards'
+import { MetricChart } from '../charts/MetricChart'
 import { marketingDashboardLogic } from '../marketingDashboardLogic'
 import { WebStatsBreakdownTable } from '../tables/WebStatsBreakdownTable'
 import { SESSIONS_COLUMN, SESSIONS_PER_VISITOR_COLUMN, VIEWS_COLUMN, VISITORS_COLUMN } from '../tables/webStatsColumns'
@@ -44,6 +45,7 @@ export function AcquisitionSection(): JSX.Element {
                     labelFromKey={(key) => ACQUISITION_LABELS[key] ?? labelFromKey(key)}
                 />
             </MarketingMetricCardGrid>
+            <MetricChart />
             <WebStatsBreakdownTable
                 tileId={TileId.MARKETING_ACQUISITION_TABLE}
                 titlePrefix="Acquisition by"

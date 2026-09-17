@@ -16,6 +16,7 @@ import { MetricNoticeCard } from '../cards/MetricNoticeCard'
 import { RetentionCards } from '../cards/RetentionCards'
 import { RevenueCard } from '../cards/RevenueCard'
 import { WebOverviewCards } from '../cards/WebOverviewCards'
+import { MetricChart } from '../charts/MetricChart'
 import { marketingDashboardLogic } from '../marketingDashboardLogic'
 import { WebStatsBreakdownTable } from '../tables/WebStatsBreakdownTable'
 import { CONVERSION_RATE_COLUMN, SESSION_DURATION_COLUMN, VISITORS_COLUMN } from '../tables/webStatsColumns'
@@ -96,6 +97,7 @@ export function OverviewSection(): JSX.Element {
                     </div>
                 ))}
             </MarketingMetricCardGrid>
+            <MetricChart />
             <WebStatsBreakdownTable
                 tileId={TileId.MARKETING_OVERVIEW_TABLE}
                 titlePrefix="Overview by"

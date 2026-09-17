@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { NodeKind } from '~/queries/schema/schema-general'
+import { ChartDisplayType } from '~/types'
 
 const FLAGS = [
     FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
@@ -112,6 +113,22 @@ const REVENUE = {
     ],
 }
 
+/** The seven days ending on the story's mocked date, the range "Last 7 days" resolves to. */
+const CHART_DAYS = Array.from({ length: 7 }, (_, index) => `2026-09-${String(10 + index).padStart(2, '0')}`)
+
+const chartSeries = (label: string, base: number, breakdownValue?: string): Record<string, unknown> => ({
+    label,
+    days: CHART_DAYS,
+    data: CHART_DAYS.map((_, index) => Math.round(base * (1 + index * 0.06))),
+    ...(breakdownValue === undefined ? {} : { breakdown_value: breakdownValue }),
+})
+
+const CHART_TOTAL = { results: [chartSeries('Visitors', 2040)] }
+
+const CHART_BREAKDOWN = {
+    results: CHANNELS.map((channel, index) => chartSeries(channel, 740 - index * 100, channel)),
+}
+
 const MARKETING_CONFIG = {
     conversion_goals: [
         {
@@ -136,7 +153,14 @@ const MARKETING_CONFIG = {
 }
 
 const queryMock = async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
-    const body = (await request.json()) as { query?: { kind?: string; conversionGoal?: unknown } }
+    const body = (await request.json()) as {
+        query?: {
+            kind?: string
+            conversionGoal?: unknown
+            breakdownFilter?: unknown
+            trendsFilter?: { display?: string }
+        }
+    }
     const query = body?.query
     switch (query?.kind) {
         case NodeKind.WebOverviewQuery:
@@ -146,7 +170,11 @@ const queryMock = async ({ request }: { request: Request }): Promise<[number, Re
         case NodeKind.MarketingAnalyticsRetentionQuery:
             return [200, RETENTION]
         case NodeKind.TrendsQuery:
-            return [200, REVENUE]
+            // The cards ask for a single aggregate; only the expanded metric chart draws a line.
+            if (query.trendsFilter?.display !== ChartDisplayType.ActionsLineGraph) {
+                return [200, REVENUE]
+            }
+            return [200, query.breakdownFilter ? CHART_BREAKDOWN : CHART_TOTAL]
         default:
             return [200, { results: [] }]
     }
@@ -192,17 +220,17 @@ export function Overview(): JSX.Element {
 }
 
 export function Acquisition(): JSX.Element {
-    return <App />
+    return <WithGoals />
 }
 Acquisition.parameters = { pageUrl: `${urls.marketingAnalyticsApp()}?view=acquisition`, featureFlags: FLAGS }
 
 export function Engagement(): JSX.Element {
-    return <App />
+    return <WithGoals />
 }
 Engagement.parameters = { pageUrl: `${urls.marketingAnalyticsApp()}?view=engagement`, featureFlags: FLAGS }
 
 export function Retention(): JSX.Element {
-    return <App />
+    return <WithGoals />
 }
 Retention.parameters = { pageUrl: `${urls.marketingAnalyticsApp()}?view=retention`, featureFlags: FLAGS }
 
@@ -226,13 +254,13 @@ Conversion.parameters = { pageUrl: `${urls.marketingAnalyticsApp()}?view=convers
 export function Narrow(): JSX.Element {
     return (
         <div className="w-[520px] border-x">
-            <App />
+            <WithGoals />
         </div>
     )
 }
 Narrow.parameters = { layout: 'padded', pageUrl: urls.marketingAnalyticsApp(), featureFlags: FLAGS }
 
 export function AllTime(): JSX.Element {
-    return <App />
+    return <WithGoals />
 }
 AllTime.parameters = { pageUrl: `${urls.marketingAnalyticsApp()}?date_from=all`, featureFlags: FLAGS }

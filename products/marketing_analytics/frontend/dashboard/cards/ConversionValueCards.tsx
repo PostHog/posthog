@@ -11,6 +11,7 @@ import { seriesTotal } from '../marketingDashboardMetrics'
 import { MarketingMetricCard } from './MarketingMetricCard'
 import { pctChange } from './metricCardSpec'
 import { MetricNoticeCard } from './MetricNoticeCard'
+import { useCardExpansion } from './useCardExpansion'
 
 const LABELS: Record<string, string> = {
     conversion_value: 'Conversion value',
@@ -43,6 +44,7 @@ function ConversionValueLoaded({ query }: { query: TrendsQuery }): JSX.Element {
         dataNodeCollectionId: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
     })
     const { response, responseLoading } = useValues(logic)
+    const expandable = useCardExpansion()
 
     const results = (response as { results?: TrendResult[] } | undefined)?.results
     // Series order, not label: the query asks for the sum first and the average second.
@@ -62,7 +64,7 @@ function ConversionValueLoaded({ query }: { query: TrendsQuery }): JSX.Element {
                 key={key}
                 loading={responseLoading}
                 labelFromKey={(k) => LABELS[k] ?? k}
-                spec={{
+                spec={expandable({
                     kind: 'metric',
                     item: {
                         key,
@@ -71,7 +73,7 @@ function ConversionValueLoaded({ query }: { query: TrendsQuery }): JSX.Element {
                         previous: amount.previous,
                         changeFromPreviousPct: pctChange(amount.value, amount.previous),
                     } as never,
-                }}
+                })}
             />
         )
 

@@ -13,6 +13,7 @@ import { marketingDashboardLogic } from '../marketingDashboardLogic'
 import { RetentionTotals, retentionTotals } from '../marketingDashboardMetrics'
 import { MarketingMetricCard } from './MarketingMetricCard'
 import { MetricCardSpec, pctChange } from './metricCardSpec'
+import { useCardExpansion } from './useCardExpansion'
 
 const RETENTION_LABELS: Record<string, string> = {
     acquired: 'New visitors',
@@ -82,6 +83,7 @@ const newVisitorShareSpec = (totals: RetentionTotals, visitors: WebOverviewItem 
 
 export function RetentionCards({ only }: RetentionCardsProps = {}): JSX.Element {
     const { retentionQuery, webOverviewQuery } = useValues(marketingDashboardLogic)
+    const expandable = useCardExpansion()
     const logic = dataNodeLogic({
         query: retentionQuery,
         key: 'marketing-dashboard-retention',
@@ -167,7 +169,7 @@ export function RetentionCards({ only }: RetentionCardsProps = {}): JSX.Element 
             {shown.map((spec) => (
                 <MarketingMetricCard
                     key={spec.kind === 'metric' ? spec.item.key : spec.key}
-                    spec={spec}
+                    spec={expandable(spec)}
                     loading={false}
                     labelFromKey={(key) => RETENTION_LABELS[key] ?? key}
                 />
