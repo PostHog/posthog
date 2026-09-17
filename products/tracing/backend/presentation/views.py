@@ -896,8 +896,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         session_ids = data.get("sessionIds") or []
         window = {"date_from": data["dateFrom"], "date_to": data["dateTo"]}
 
-        return Response(
-            {
+        # Through the response serializer, not a bare dict: `api-response-must-match-schema` keeps
+        # the wire shape tied to the declaration the generated types are built from.
+        response = _TracingErrorCountsResponseSerializer(
+            instance={
                 "traceResults": _error_count_rows(
                     count_trace_exceptions(team=self.team, trace_ids=trace_ids, **window), "trace_id"
                 ),
@@ -907,9 +909,9 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 "sessionResults": _error_count_rows(
                     count_session_exceptions(team=self.team, session_ids=session_ids, **window), "session_id"
                 ),
-            },
-            status=status.HTTP_200_OK,
+            }
         )
+        return Response(response.data, status=status.HTTP_200_OK)
 
     @extend_schema(parameters=[_TracingServiceNamesQuerySerializer])
     @action(detail=False, methods=["GET"], url_path="service-names", required_scopes=["tracing:read"])
