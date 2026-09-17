@@ -153,6 +153,8 @@ import {
 interface HogQLGrid {
   results: unknown[][];
   columns: string[];
+  /** The query as the server printed it back: canonical, pretty HogQL. */
+  hogql: string | null;
 }
 
 export type * from "./mcp-gateway";
@@ -7253,12 +7255,17 @@ export class PostHogAPIClient {
     const data = (await response.json()) as {
       results?: unknown[][];
       columns?: string[];
+      hogql?: string | null;
       error?: string | null;
     };
     if (data.error) {
       throw new Error(data.error);
     }
-    return { results: data.results ?? [], columns: data.columns ?? [] };
+    return {
+      results: data.results ?? [],
+      columns: data.columns ?? [],
+      hogql: data.hogql ?? null,
+    };
   }
 
   /**

@@ -26,6 +26,7 @@ import {
 } from "@posthog/quill";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import type { GoalMeasureTask } from "@posthog/ui/features/canvas/goalMeasureTasks";
+import { goalValueSuffix } from "@posthog/ui/features/canvas/goalUnits";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useMutation } from "@tanstack/react-query";
 import {
@@ -35,7 +36,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { SqlEditor } from "./SqlEditor";
+import { SqlEditor, type SqlEditorHandle } from "./SqlEditor";
 
 interface GoalComposerProps {
   /** The goal being edited, or null for a new one. */
@@ -117,6 +118,7 @@ export function GoalComposer({
       return {
         value: firstNumericCell(grid.results),
         rows: grid.results.length,
+        hogql: grid.hogql,
       };
     },
   });
@@ -259,7 +261,7 @@ export function GoalComposer({
                 aria-label="Goal name"
                 placeholder="Name this goal"
                 aria-invalid={duplicate || undefined}
-                className="w-full bg-transparent font-medium text-base text-foreground outline-none placeholder:text-muted-foreground/60"
+                className="-mx-1 w-full rounded-md bg-transparent px-1 font-medium text-base text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 hover:bg-fill-hover focus:bg-fill-hover"
               />
             </div>
 
@@ -280,6 +282,8 @@ export function GoalComposer({
                 onRun={(sql) => runMutate(sql)}
                 value={run.data?.value ?? null}
                 rows={run.data?.rows ?? null}
+                formatted={run.data?.hogql ?? null}
+                unit={goalValueSuffix(name)}
                 running={run.isPending}
                 error={run.error?.message ?? null}
               />
@@ -443,6 +447,8 @@ function MeasureReview({
   onRun,
   value,
   rows,
+  formatted,
+  unit,
   running,
   error,
 }: {
@@ -451,9 +457,17 @@ function MeasureReview({
   onRun: (sql: string) => void;
   value: number | null;
   rows: number | null;
+  /** The query as the server printed it after the last run. */
+  formatted: string | null;
+  unit: string;
   running: boolean;
   error: string | null;
 }) {
+  const editorRef = useRef<SqlEditorHandle>(null);
+  useEffect(() => {
+    if (formatted) editorRef.current?.setValue(formatted);
+  }, [formatted]);
+
   if (measure?.kind === "insight") {
     return (
       <div className="flex items-center gap-2 rounded-md bg-muted px-3 py-2">
@@ -479,26 +493,33 @@ function MeasureReview({
   return (
     <div className="flex flex-col overflow-hidden rounded-md border border-border bg-background">
       <SqlEditor
+        ref={editorRef}
         initialValue={sql}
         onChange={onChange}
         onRun={(next) => next.trim() && onRun(next)}
-        className="h-44"
       />
       <div className="flex items-center justify-between gap-3 border-border border-t px-3 py-1.5">
-        <Text size="xs" variant="muted" className="min-w-0 truncate">
-          {label}
-        </Text>
-        <span className="flex shrink-0 items-center gap-3">
-          <Button
-            variant="link-muted"
+        <Button
+          variant="link-muted"
+          size="xs"
+          disabled={running || !sql.trim()}
+          onClick={() => onRun(sql)}
+        >
+          Run
+          <Kbd className="ml-1">⌘↵</Kbd>
+        </Button>
+        <span className="flex min-w-0 flex-1 items-center justify-end gap-2">
+          <Text
             size="xs"
-            disabled={running || !sql.trim()}
-            onClick={() => onRun(sql)}
+            variant="muted"
+            className={cn(
+              "min-w-0 truncate",
+              error && "text-warning-foreground",
+            )}
           >
-            Run
-            <Kbd className="ml-1">⌘↵</Kbd>
-          </Button>
-          <span className="font-semibold text-foreground text-sm tabular-nums">
+            {label}
+          </Text>
+          <span className="shrink-0 font-semibold text-foreground text-sm tabular-nums">
             {running ? (
               <Spinner size="xs" aria-hidden="true" />
             ) : error ? (
@@ -509,7 +530,7 @@ function MeasureReview({
             ) : value === null ? (
               "–"
             ) : (
-              formatNumber(value)
+              `${formatNumber(value)}${unit}`
             )}
           </span>
         </span>

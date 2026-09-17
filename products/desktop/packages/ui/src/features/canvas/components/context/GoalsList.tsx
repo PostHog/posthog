@@ -23,6 +23,7 @@ import {
   Text,
 } from "@posthog/quill";
 import type { GoalMeasureTask } from "@posthog/ui/features/canvas/goalMeasureTasks";
+import { goalValueSuffix } from "@posthog/ui/features/canvas/goalUnits";
 import { useGoalMeasure } from "@posthog/ui/features/canvas/hooks/useGoalMeasure";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useState } from "react";
@@ -274,6 +275,7 @@ function GoalTile({
           {measured ? (
             <span className="font-semibold text-2xl text-foreground tabular-nums leading-none">
               {formatNumber(current)}
+              {goalValueSuffix(goal.name)}
             </span>
           ) : measure.isLoading ? (
             <Spinner size="xs" aria-hidden="true" />
