@@ -1,6 +1,7 @@
 import hmac
 import json
 import hashlib
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -8,10 +9,15 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
 from django.core.cache import cache
+from django.db import transaction
 from django.test import SimpleTestCase
 
+import structlog
+from celery import current_app
 from parameterized import parameterized
 from rest_framework import status
+from structlog.contextvars import bound_contextvars, clear_contextvars, merge_contextvars
+from structlog.testing import capture_logs
 
 from posthog.constants import AvailableFeature
 from posthog.ingress.contracts import WebhookDelivery
@@ -58,41 +64,61 @@ class TestFeatureRequestGitHubIssueUrl(SimpleTestCase):
             with self.assertRaises(FeatureRequestValidationError):
                 _parse_issue_url(url)
 
-    @patch("products.customer_analytics.backend.facade.api.process_feature_request_github_delivery")
-    def test_issue_delivery_queues_only_issue_metadata(self, process_delivery: Mock) -> None:
-        _run_github_issue_delivery(
-            WebhookDelivery(
-                provider="github",
-                app="posthog",
-                delivery_id="delivery-1",
-                event_type="issues",
-                payload={
-                    "action": "closed",
-                    "installation": {"id": 123},
-                    "repository": {"full_name": "PostHog/PostHog"},
-                    "issue": {
-                        "number": 42,
-                        "title": "Export CSV",
-                        "state": "closed",
-                        "state_reason": "completed",
-                        "updated_at": "2026-01-01T00:00:00Z",
-                        "body": "This must never enter the worker payload.",
+    def test_issue_delivery_queues_only_issue_metadata(self) -> None:
+        clear_contextvars()
+        self.addCleanup(clear_contextvars)
+        task = current_app.tasks["customer_analytics.process_feature_request_github_issue"]
+        with (
+            patch.object(task, "delay", return_value=Mock(id="task-1")) as delay,
+            patch(
+                "products.customer_analytics.backend.webhook_consumers.logger",
+                structlog.get_logger("test.feature_request_github.delivery"),
+            ),
+            capture_logs(processors=[merge_contextvars]) as logs,
+        ):
+            _run_github_issue_delivery(
+                WebhookDelivery(
+                    provider="github",
+                    app="posthog",
+                    delivery_id="delivery-1",
+                    event_type="issues",
+                    payload={
+                        "action": "closed",
+                        "installation": {"id": 123},
+                        "repository": {"full_name": "PostHog/PostHog"},
+                        "issue": {
+                            "number": 42,
+                            "title": "Export CSV",
+                            "state": "closed",
+                            "state_reason": "completed",
+                            "updated_at": "2026-01-01T00:00:00Z",
+                            "body": "This must never enter the worker payload.",
+                        },
                     },
-                },
-                received_at=datetime(2026, 1, 1, tzinfo=UTC),
-                context={},
+                    received_at=datetime(2026, 1, 1, tzinfo=UTC),
+                    context={},
+                )
             )
-        )
 
-        process_delivery.assert_called_once_with(
+        delay.assert_called_once_with(
             installation_id="123",
             repository="posthog/posthog",
             issue_number=42,
             issue_title="Export CSV",
             issue_state="closed",
             issue_state_reason="completed",
-            github_updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+            github_updated_at="2026-01-01T00:00:00+00:00",
+            github_delivery_id="delivery-1",
+            github_received_at="2026-01-01T00:00:00+00:00",
         )
+        queued = [log for log in logs if log["event"] == "feature_request_github_delivery_queued"][-1]
+        self.assertEqual(
+            {key: queued[key] for key in ("github_delivery_id", "task_id", "sync_attempt")},
+            {"github_delivery_id": "delivery-1", "task_id": "task-1", "sync_attempt": 0},
+        )
+        self.assertNotIn("Export CSV", repr(queued))
+        self.assertNotIn("This must never enter the worker payload.", repr(queued))
+        self.assertNotIn("PostHog/PostHog", repr(queued))
 
     @parameterized.expand(
         (
@@ -152,7 +178,6 @@ class TestFeatureRequestGitHubIngress(SimpleTestCase):
     @patch("posthog.models.integration.github.GitHubIntegration.api_request")
     @patch("products.workflows.backend.facade.api.accept_github_event")
     @patch("products.tasks.backend.facade.api.accept_github_event_for_loops")
-    @patch("products.conversations.backend.facade.api.github_delivery_ownership")
     @patch("products.conversations.backend.facade.api.accept_github_event")
     @patch("products.customer_analytics.backend.facade.api.process_feature_request_github_delivery")
     @patch("posthog.ingress.github.provider.get_instance_setting", return_value="test-webhook-secret")
@@ -161,7 +186,6 @@ class TestFeatureRequestGitHubIngress(SimpleTestCase):
         _get_secret: Mock,
         process_delivery: Mock,
         conversations: Mock,
-        ownership: Mock,
         loops: Mock,
         workflows: Mock,
         api_request: Mock,
@@ -201,9 +225,11 @@ class TestFeatureRequestGitHubIngress(SimpleTestCase):
             issue_state="closed",
             issue_state_reason="completed",
             github_updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+            github_delivery_id="delivery-1",
+            github_received_at=process_delivery.call_args.kwargs["github_received_at"],
         )
+        self.assertIsNotNone(datetime.fromisoformat(process_delivery.call_args.kwargs["github_received_at"]))
         conversations.assert_called_once()
-        ownership.assert_called_once()
         loops.assert_called_once()
         workflows.assert_called_once()
         api_request.assert_not_called()
@@ -350,15 +376,39 @@ class TestFeatureRequestGitHubAPI(APIBaseTest):
 
     def test_failed_refetch_keeps_the_existing_link_unchanged(self) -> None:
         linked = self._link()
-        self.mock_api_request.return_value = Mock(status_code=500)
+        paused = self.client.post(
+            f"{self.url}pause_github/", {"expected_version": linked.json()["version"]}, format="json"
+        )
+        self.mock_api_request.return_value = Mock(
+            status_code=500,
+            text="private upstream error",
+            title="private issue title",
+            body="private issue body",
+        )
+        clear_contextvars()
 
-        response = self._link(version=linked.json()["version"])
+        with (
+            patch(
+                "products.customer_analytics.backend.logic.feature_request_github.logger",
+                structlog.get_logger("test.feature_request_github.fetch_failure"),
+            ),
+            capture_logs(processors=[merge_contextvars]) as logs,
+        ):
+            response = self.client.post(
+                f"{self.url}resume_github/", {"expected_version": paused.json()["version"]}, format="json"
+            )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         link = FeatureRequestGitHubLink.objects.for_team(self.team.id).get()
         self.assertEqual(link.repository, "posthog/posthog")
         self.assertEqual(link.issue_number, 42)
-        self.assertTrue(link.sync_enabled)
+        self.assertFalse(link.sync_enabled)
+        failed_fetch = [log for log in logs if log["event"] == "feature_request_github_issue_fetch_failed"][-1]
+        self.assertEqual(failed_fetch["feature_request_id"], str(self.request.id))
+        self.assertIsInstance(failed_fetch["action"], str)
+        self.assertEqual(failed_fetch["status_code"], 500)
+        for private_value in ("private issue title", "private issue body", "private upstream error"):
+            self.assertNotIn(private_value, repr(failed_fetch))
 
     def test_concurrent_request_change_while_linking_does_not_create_a_link(self) -> None:
         def change_request_during_fetch(*args: object, **kwargs: object) -> Mock:
@@ -583,9 +633,14 @@ class TestFeatureRequestGitHubWorker(APIBaseTest):
         self.flag.start()
         self.addCleanup(self.flag.stop)
 
+    @staticmethod
+    def _log(logs: Sequence[Mapping[str, object]], event: str) -> Mapping[str, object]:
+        return next(log for log in logs if log["event"] == event)
+
     def _deliver(
         self,
         *,
+        issue_number: int = 42,
         title: str = "Updated title",
         state: str = "closed",
         reason: str = "completed",
@@ -594,7 +649,7 @@ class TestFeatureRequestGitHubWorker(APIBaseTest):
         process_github_issue_update(
             installation_id="installation-1",
             repository="PostHog/PostHog",
-            issue_number=42,
+            issue_number=issue_number,
             issue_title=title,
             issue_state=state,
             issue_state_reason=reason,
@@ -654,6 +709,103 @@ class TestFeatureRequestGitHubWorker(APIBaseTest):
         self.link.refresh_from_db()
         self.assertEqual(self.request.status, FeatureRequestStatus.PLANNED)
         self.assertEqual(self.link.issue_title, "Original title")
+
+    def test_worker_logs_applied_target_after_commit_with_delivery_correlation(self) -> None:
+        with capture_logs(processors=[merge_contextvars]) as logs:
+            with bound_contextvars(
+                github_delivery_id="delivery-1",
+                task_id="task-1",
+                sync_attempt=0,
+                github_received_at="2026-01-01T00:00:00+00:00",
+            ):
+                with self.captureOnCommitCallbacks(execute=True):
+                    self._deliver()
+                    self.assertFalse(any(log["event"] == "feature_request_github_target_applied" for log in logs))
+
+        applied = self._log(logs, "feature_request_github_target_applied")
+        self.assertEqual(
+            {key: applied[key] for key in ("github_delivery_id", "task_id", "sync_attempt", "installation_id")},
+            {
+                "github_delivery_id": "delivery-1",
+                "task_id": "task-1",
+                "sync_attempt": 0,
+                "installation_id": "installation-1",
+            },
+        )
+        self.assertEqual(
+            {key: applied[key] for key in ("status_before", "status_after", "changed")},
+            {"status_before": "planned", "status_after": "completed", "changed": True},
+        )
+        summary = self._log(logs, "feature_request_github_delivery_summary")
+        self.assertNotIn("feature_request_id", summary)
+        self.assertNotIn("github_link_id", summary)
+        self.assertEqual(
+            {key: summary[key] for key in ("outcome", "matched", "applied", "skipped", "conflicted", "failed")},
+            {"outcome": "success", "matched": 1, "applied": 1, "skipped": 0, "conflicted": 0, "failed": 0},
+        )
+
+    @parameterized.expand(
+        (
+            ("flag_disabled",),
+            ("user_missing",),
+            ("unavailable",),
+            ("stale",),
+            ("duplicate",),
+            ("no_matches",),
+        )
+    )
+    def test_worker_logs_skipped_target_reasons_and_summary_counts(self, reason: str) -> None:
+        if reason == "user_missing":
+            self.link.sync_enabled_by = None
+            self.link.save(update_fields=["sync_enabled_by"])
+        elif reason == "unavailable":
+            self.link.integration = None
+            self.link.save(update_fields=["integration"])
+        elif reason in {"stale", "duplicate"}:
+            self.link.github_updated_at = datetime(2026, 1, 2, tzinfo=UTC)
+            self.link.issue_state = "closed"
+            self.link.issue_state_reason = "completed"
+            self.link.save(update_fields=["github_updated_at", "issue_state", "issue_state_reason"])
+
+        with capture_logs(processors=[merge_contextvars]) as logs:
+            if reason == "flag_disabled":
+                with patch(
+                    "products.customer_analytics.backend.logic.feature_request_github.posthog_feature_flag_enabled",
+                    return_value=False,
+                ):
+                    self._deliver()
+            else:
+                self._deliver(
+                    issue_number=43 if reason == "no_matches" else 42,
+                    updated_at=datetime(2026, 1, 1, tzinfo=UTC)
+                    if reason == "stale"
+                    else datetime(2026, 1, 2, tzinfo=UTC),
+                )
+
+        summary = self._log(logs, "feature_request_github_delivery_summary")
+        self.assertEqual(summary["matched"], 0 if reason == "no_matches" else 1)
+        self.assertEqual(summary["applied"], 0)
+        self.assertEqual(summary["skipped"], 0 if reason == "no_matches" else 1)
+        if reason != "no_matches":
+            skipped = self._log(logs, "feature_request_github_target_skipped")
+            self.assertEqual(skipped["reason"], reason)
+
+    def test_worker_logs_no_applied_target_when_transaction_rolls_back(self) -> None:
+        original_on_commit = transaction.on_commit
+
+        def schedule_then_fail(callback: Callable[[], None]) -> None:
+            original_on_commit(callback)
+            raise RuntimeError("rollback")
+
+        with capture_logs(processors=[merge_contextvars]) as logs:
+            with patch(
+                "products.customer_analytics.backend.logic.feature_request_github.transaction.on_commit",
+                side_effect=schedule_then_fail,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "rollback"):
+                    self._deliver()
+
+        self.assertFalse(any(log["event"] == "feature_request_github_target_applied" for log in logs))
 
     def test_shared_installation_fans_out_only_to_matching_issue_links(self) -> None:
         second_team = Team.objects.create(organization=self.organization, name="Second project")
@@ -725,12 +877,33 @@ class TestFeatureRequestGitHubWorker(APIBaseTest):
                 conflicted_request.save(update_fields=["version"])
             return True
 
-        with patch(
-            "products.customer_analytics.backend.logic.feature_request_github.posthog_feature_flag_enabled",
-            side_effect=change_first_target_before_locking,
-        ):
-            with self.assertRaises(FeatureRequestConflictError):
-                self._deliver()
+        with capture_logs(processors=[merge_contextvars]) as logs:
+            with patch(
+                "products.customer_analytics.backend.logic.feature_request_github.posthog_feature_flag_enabled",
+                side_effect=change_first_target_before_locking,
+            ):
+                with self.captureOnCommitCallbacks(execute=True):
+                    with self.assertRaises(FeatureRequestConflictError):
+                        self._deliver()
+
+        self.assertEqual(self._log(logs, "feature_request_github_target_conflicted")["reason"], "version_conflict")
+        self.assertEqual(self._log(logs, "feature_request_github_target_applied")["changed"], True)
+        summary = self._log(logs, "feature_request_github_delivery_summary")
+        self.assertEqual(
+            {
+                key: summary[key]
+                for key in ("outcome", "matched", "applied", "skipped", "conflicted", "failed", "error_type")
+            },
+            {
+                "outcome": "failure",
+                "matched": 2,
+                "applied": 1,
+                "skipped": 0,
+                "conflicted": 1,
+                "failed": 0,
+                "error_type": "FeatureRequestConflictError",
+            },
+        )
 
         if conflicted_request is None:
             self.fail("Expected a target to conflict.")

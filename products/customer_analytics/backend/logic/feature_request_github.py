@@ -1,11 +1,16 @@
 import re
 from datetime import datetime
+from functools import partial
 from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlparse
 from uuid import UUID
 
 from django.db import transaction
 from django.utils import timezone
+
+import requests
+import structlog
+from structlog.contextvars import bound_contextvars, get_contextvars
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
@@ -48,8 +53,45 @@ class GitHubIssueState:
     updated_at: datetime
 
 
+logger = structlog.get_logger(__name__)
+
 _CONFLICT_MESSAGE = "This request changed since you opened it. Reload it and try again."
 _REPOSITORY = re.compile(r"[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+")
+
+
+def _log_manual_action_after_commit(
+    *,
+    action: str,
+    team_id: int,
+    feature_request_id: UUID,
+    github_link_id: UUID | None,
+    integration_id: int | None,
+    changed: bool,
+) -> None:
+    with bound_contextvars(
+        team_id=team_id,
+        feature_request_id=str(feature_request_id),
+        github_link_id=str(github_link_id) if github_link_id is not None else None,
+        integration_id=integration_id,
+        action=action,
+    ):
+        committed_context = get_contextvars()
+    transaction.on_commit(
+        partial(logger.info, "feature_request_github_manual_action_committed", changed=changed, **committed_context)
+    )
+
+
+def _log_issue_fetch_failure(
+    integration: Integration, *, stage: str, error_type: str, status_code: int | None = None
+) -> None:
+    logger.warning(
+        "feature_request_github_issue_fetch_failed",
+        team_id=integration.team_id,
+        integration_id=integration.id,
+        stage=stage,
+        error_type=error_type,
+        status_code=status_code,
+    )
 
 
 def _parse_issue_url(issue_url: str) -> tuple[str, int]:
@@ -168,21 +210,43 @@ def _fetch_issue(
             priority=priority,
             retry_transient=False,
         )
-    except (GitHubIntegrationError, GitHubEgressBudgetExhausted, GitHubRateLimitError) as exc:
+    except GitHubEgressBudgetExhausted as exc:
+        _log_issue_fetch_failure(integration, stage="budget", error_type=type(exc).__name__)
         raise GitHubLinkUnavailableError("GitHub could not load this issue. Try again.") from exc
+    except GitHubRateLimitError as exc:
+        _log_issue_fetch_failure(integration, stage="rate_limit", error_type=type(exc).__name__)
+        raise GitHubLinkUnavailableError("GitHub could not load this issue. Try again.") from exc
+    except GitHubIntegrationError as exc:
+        _log_issue_fetch_failure(integration, stage="integration", error_type=type(exc).__name__)
+        raise GitHubLinkUnavailableError("GitHub could not load this issue. Try again.") from exc
+    except requests.RequestException as exc:
+        _log_issue_fetch_failure(integration, stage="transport", error_type=type(exc).__name__)
+        raise
     if response.status_code in {401, 403, 404}:
+        _log_issue_fetch_failure(
+            integration, stage="status", error_type="GitHubResponseError", status_code=response.status_code
+        )
         raise FeatureRequestValidationError(
             "issue_url", "GitHub cannot access this issue. Check the integration's repository access."
         )
     if response.status_code != 200:
+        _log_issue_fetch_failure(
+            integration, stage="status", error_type="GitHubResponseError", status_code=response.status_code
+        )
         raise GitHubLinkUnavailableError("GitHub could not load this issue. Try again.")
     try:
         payload = response.json()
     except ValueError as exc:
+        _log_issue_fetch_failure(integration, stage="invalid_payload", error_type=type(exc).__name__, status_code=200)
         raise GitHubLinkUnavailableError("GitHub returned an invalid issue. Try again.") from exc
     if not isinstance(payload, dict):
+        _log_issue_fetch_failure(integration, stage="invalid_payload", error_type="InvalidPayload", status_code=200)
         raise GitHubLinkUnavailableError("GitHub returned an invalid issue. Try again.")
-    return _parse_issue_payload(payload, repository, issue_number)
+    try:
+        return _parse_issue_payload(payload, repository, issue_number)
+    except GitHubLinkUnavailableError as exc:
+        _log_issue_fetch_failure(integration, stage="invalid_payload", error_type=type(exc).__name__, status_code=200)
+        raise
 
 
 def _editable_request(
@@ -256,7 +320,13 @@ def link_feature_request_github(
             )
     integration = _integration(team_id, input.integration_id, user_access_control=user_access_control)
     installation_id = integration.integration_id
-    issue = _fetch_issue(integration, repository, issue_number)
+    with bound_contextvars(
+        team_id=team_id,
+        feature_request_id=str(feature_request_id),
+        integration_id=integration.id,
+        action="link",
+    ):
+        issue = _fetch_issue(integration, repository, issue_number)
     with transaction.atomic():
         request = _editable_request(team_id, feature_request_id, input.expected_version, user_access_control)
         if request is None:
@@ -279,6 +349,14 @@ def link_feature_request_github(
         changes = _apply_state(request, link, issue)
         changes.insert(0, {"field": "github_link", "before": None, "after": _issue_snapshot(link)})
         _save_change(request, changes, actor_id)
+        _log_manual_action_after_commit(
+            action="link",
+            team_id=team_id,
+            feature_request_id=feature_request_id,
+            github_link_id=link.id,
+            integration_id=integration.id,
+            changed=True,
+        )
     return _refresh_feature_request(
         team_id=team_id, feature_request_id=feature_request_id, user_access_control=user_access_control
     )
@@ -301,18 +379,34 @@ def set_feature_request_github_sync(
         if link is None:
             raise FeatureRequestValidationError("github_link", "Link a GitHub issue first.")
         if not enabled:
-            if link.sync_enabled:
+            changed = link.sync_enabled
+            if changed:
                 _ensure_initial_history(request)
                 link.sync_enabled = False
                 link.save(update_fields=["sync_enabled"])
                 _save_change(request, [{"field": "github_sync", "before": True, "after": False}], actor_id)
+            _log_manual_action_after_commit(
+                action="pause",
+                team_id=team_id,
+                feature_request_id=feature_request_id,
+                github_link_id=link.id,
+                integration_id=link.integration_id,
+                changed=changed,
+            )
             return _refresh_feature_request(
                 team_id=team_id, feature_request_id=feature_request_id, user_access_control=user_access_control
             )
     integration = _integration(
         team_id, link.integration_id, link.installation_id, user_access_control=user_access_control
     )
-    issue = _fetch_issue(integration, link.repository, link.issue_number)
+    with bound_contextvars(
+        team_id=team_id,
+        feature_request_id=str(feature_request_id),
+        github_link_id=str(link.id),
+        integration_id=integration.id,
+        action="resume",
+    ):
+        issue = _fetch_issue(integration, link.repository, link.issue_number)
     with transaction.atomic():
         request = _editable_request(team_id, feature_request_id, expected_version, user_access_control)
         if request is None:
@@ -331,8 +425,17 @@ def set_feature_request_github_sync(
         current.sync_enabled = True
         current.sync_enabled_by_id = actor_id
         changes.extend(_apply_state(request, current, issue))
-        if changes or before != _issue_snapshot(current):
+        changed = bool(changes or before != _issue_snapshot(current))
+        if changed:
             _save_change(request, changes, actor_id)
+        _log_manual_action_after_commit(
+            action="resume",
+            team_id=team_id,
+            feature_request_id=feature_request_id,
+            github_link_id=current.id,
+            integration_id=current.integration_id,
+            changed=bool(changed),
+        )
     return _refresh_feature_request(
         team_id=team_id, feature_request_id=feature_request_id, user_access_control=user_access_control
     )
@@ -354,20 +457,34 @@ def unlink_feature_request_github(
         if link is not None:
             _ensure_initial_history(request)
             before = _issue_snapshot(link)
+            link_id = link.id
+            integration_id = link.integration_id
             link.delete()
             _save_change(request, [{"field": "github_link", "before": before, "after": None}], actor_id)
+            _log_manual_action_after_commit(
+                action="unlink",
+                team_id=team_id,
+                feature_request_id=feature_request_id,
+                github_link_id=link_id,
+                integration_id=integration_id,
+                changed=True,
+            )
     return _refresh_feature_request(
         team_id=team_id, feature_request_id=feature_request_id, user_access_control=user_access_control
     )
 
 
-def _eligible_integration(link: FeatureRequestGitHubLink) -> Integration | None:
-    if link.integration_id is None or not link.sync_enabled or link.feature_request.archived_at is not None:
-        return None
+def _eligible_integration(link: FeatureRequestGitHubLink) -> tuple[Integration | None, str | None]:
+    if not link.sync_enabled:
+        return None, "paused"
+    if link.feature_request.archived_at is not None:
+        return None, "archived"
+    if link.integration_id is None:
+        return None, "unavailable"
     try:
-        return _integration(link.team_id, link.integration_id, link.installation_id)
+        return _integration(link.team_id, link.integration_id, link.installation_id), None
     except FeatureRequestValidationError:
-        return None
+        return None, "unavailable"
 
 
 def process_github_issue_update(
@@ -380,77 +497,180 @@ def process_github_issue_update(
     issue_state_reason: str,
     github_updated_at: datetime,
 ) -> None:
-    if issue_state not in {"open", "closed"} or timezone.is_naive(github_updated_at):
-        return
-    if issue_state == "closed" and issue_state_reason not in {"completed", "not_planned", ""}:
-        return
-    issue = GitHubIssueState(
-        title=issue_title,
-        state="closed" if issue_state == "closed" else "open",
-        reason=issue_state_reason,
-        updated_at=github_updated_at,
-    )
-    # One installation can serve several projects; each mutation below re-enters its team's scope.
-    targets = (
-        FeatureRequestGitHubLink.objects.unscoped()
-        .filter(
-            installation_id=installation_id,
-            repository=repository.lower(),
-            issue_number=issue_number,
-            sync_enabled=True,
-        )
-        .values_list("id", "team_id")
-    )
-    conflicted = False
-    for link_id, team_id in targets.iterator():
-        link = (
-            FeatureRequestGitHubLink.objects.for_team(team_id)
-            .select_related("feature_request", "team", "sync_enabled_by")
-            .filter(id=link_id)
-            .first()
-        )
-        if link is None or (integration := _eligible_integration(link)) is None:
-            continue
-        user = link.sync_enabled_by
-        if user is None or not posthog_feature_flag_enabled(
-            CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG,
-            str(user.distinct_id),
-            organization_id=link.team.organization_id,
-            team_id=team_id,
-        ):
-            continue
-        if link.github_updated_at is not None and issue.updated_at < link.github_updated_at:
-            continue
-        current_issue = issue
-        if issue.updated_at == link.github_updated_at:
-            if (issue.state, issue.reason) == (link.issue_state, link.issue_state_reason):
-                continue
-            # GitHub timestamps have second precision. Resolve conflicting same-second events from the API.
-            current_issue = _fetch_issue(integration, link.repository, link.issue_number, priority=Priority.BATCH)
-        expected_version = link.feature_request.version
-        with transaction.atomic():
-            request = (
-                FeatureRequest.objects.for_team(team_id).select_for_update().filter(id=link.feature_request_id).first()
+    with bound_contextvars(installation_id=installation_id):
+        matched = applied = skipped = conflicted = failed = 0
+        outcome = "success"
+        ignored_reason: str | None = None
+        error_type: str | None = None
+        try:
+            if issue_state not in {"open", "closed"} or timezone.is_naive(github_updated_at):
+                outcome = "ignored"
+                ignored_reason = "invalid_state"
+                return
+            if issue_state == "closed" and issue_state_reason not in {"completed", "not_planned", ""}:
+                outcome = "ignored"
+                ignored_reason = "unsupported_closure_reason"
+                return
+            issue = GitHubIssueState(
+                title=issue_title,
+                state="closed" if issue_state == "closed" else "open",
+                reason=issue_state_reason,
+                updated_at=github_updated_at,
             )
-            if request is None:
-                continue
-            current = FeatureRequestGitHubLink.objects.for_team(team_id).select_for_update().filter(id=link_id).first()
-            if current is None or _eligible_integration(current) is None:
-                continue
-            if request.version != expected_version:
-                conflicted = True
-                continue
-            if current.github_updated_at is not None and current_issue.updated_at < current.github_updated_at:
-                continue
-            if current_issue.updated_at == current.github_updated_at and (
-                current_issue.state,
-                current_issue.reason,
-            ) == (current.issue_state, current.issue_state_reason):
-                continue
-            _ensure_initial_history(request)
-            before = _issue_snapshot(current)
-            changes = _apply_state(request, current, current_issue)
-            if changes or before != _issue_snapshot(current):
-                _save_change(request, changes, None)
-    if conflicted:
-        raise FeatureRequestConflictError(_CONFLICT_MESSAGE)
+            # One installation can serve several projects; each mutation below re-enters its team's scope.
+            targets = (
+                FeatureRequestGitHubLink.objects.unscoped()
+                .filter(
+                    installation_id=installation_id,
+                    repository=repository.lower(),
+                    issue_number=issue_number,
+                    sync_enabled=True,
+                )
+                .values_list("id", "team_id", "feature_request_id", "integration_id")
+            )
+            for link_id, team_id, feature_request_id, integration_id in targets.iterator():
+                matched += 1
+                with bound_contextvars(
+                    team_id=team_id,
+                    feature_request_id=str(feature_request_id),
+                    github_link_id=str(link_id),
+                    integration_id=integration_id,
+                ):
+                    stage = "load_target"
+                    try:
+                        link = (
+                            FeatureRequestGitHubLink.objects.for_team(team_id)
+                            .select_related("feature_request", "team", "sync_enabled_by")
+                            .filter(id=link_id)
+                            .first()
+                        )
+                        if link is None:
+                            skipped += 1
+                            logger.info("feature_request_github_target_skipped", reason="not_found")
+                            continue
+                        integration, skip_reason = _eligible_integration(link)
+                        if integration is None or skip_reason is not None:
+                            skipped += 1
+                            logger.info("feature_request_github_target_skipped", reason=skip_reason)
+                            continue
+                        user = link.sync_enabled_by
+                        if user is None:
+                            skipped += 1
+                            logger.info("feature_request_github_target_skipped", reason="user_missing")
+                            continue
+                        if not posthog_feature_flag_enabled(
+                            CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG,
+                            str(user.distinct_id),
+                            organization_id=link.team.organization_id,
+                            team_id=team_id,
+                        ):
+                            skipped += 1
+                            logger.info("feature_request_github_target_skipped", reason="flag_disabled")
+                            continue
+                        if link.github_updated_at is not None and issue.updated_at < link.github_updated_at:
+                            skipped += 1
+                            logger.debug("feature_request_github_target_skipped", reason="stale")
+                            continue
+                        current_issue = issue
+                        if issue.updated_at == link.github_updated_at:
+                            if (issue.state, issue.reason) == (link.issue_state, link.issue_state_reason):
+                                skipped += 1
+                                logger.debug("feature_request_github_target_skipped", reason="duplicate")
+                                continue
+                            # GitHub timestamps have second precision. Resolve conflicting same-second events from the API.
+                            stage = "same_second_fetch"
+                            current_issue = _fetch_issue(
+                                integration, link.repository, link.issue_number, priority=Priority.BATCH
+                            )
+                        expected_version = link.feature_request.version
+                        stage = "apply"
+                        with transaction.atomic():
+                            request = (
+                                FeatureRequest.objects.for_team(team_id)
+                                .select_for_update()
+                                .filter(id=link.feature_request_id)
+                                .first()
+                            )
+                            if request is None:
+                                skipped += 1
+                                logger.info("feature_request_github_target_skipped", reason="not_found")
+                                continue
+                            current = (
+                                FeatureRequestGitHubLink.objects.for_team(team_id)
+                                .select_for_update()
+                                .filter(id=link_id)
+                                .first()
+                            )
+                            if current is None:
+                                skipped += 1
+                                logger.info("feature_request_github_target_skipped", reason="not_found")
+                                continue
+                            _, skip_reason = _eligible_integration(current)
+                            if skip_reason is not None:
+                                skipped += 1
+                                logger.info("feature_request_github_target_skipped", reason=skip_reason)
+                                continue
+                            if request.version != expected_version:
+                                conflicted += 1
+                                logger.info("feature_request_github_target_conflicted", reason="version_conflict")
+                                continue
+                            if (
+                                current.github_updated_at is not None
+                                and current_issue.updated_at < current.github_updated_at
+                            ):
+                                skipped += 1
+                                logger.debug("feature_request_github_target_skipped", reason="stale")
+                                continue
+                            if current_issue.updated_at == current.github_updated_at and (
+                                current_issue.state,
+                                current_issue.reason,
+                            ) == (current.issue_state, current.issue_state_reason):
+                                skipped += 1
+                                logger.debug("feature_request_github_target_skipped", reason="duplicate")
+                                continue
+                            _ensure_initial_history(request)
+                            before = _issue_snapshot(current)
+                            status_before = request.status
+                            changes = _apply_state(request, current, current_issue)
+                            changed = bool(changes)
+                            if changes or before != _issue_snapshot(current):
+                                _save_change(request, changes, None)
+                            committed_context = get_contextvars()
+                            transaction.on_commit(
+                                partial(
+                                    logger.info,
+                                    "feature_request_github_target_applied",
+                                    changed=changed,
+                                    status_before=status_before,
+                                    status_after=request.status,
+                                    **committed_context,
+                                )
+                            )
+                        applied += 1
+                    except Exception as exc:
+                        failed += 1
+                        logger.error(  # noqa: TRY400 - records the error category without exception details
+                            "feature_request_github_target_failed",
+                            error_type=type(exc).__name__,
+                            stage=stage,
+                        )
+                        raise
+            if conflicted:
+                raise FeatureRequestConflictError(_CONFLICT_MESSAGE)
+        except Exception as exc:
+            outcome = "failure"
+            error_type = type(exc).__name__
+            raise
+        finally:
+            log_method = logger.error if outcome == "failure" else logger.info
+            log_method(
+                "feature_request_github_delivery_summary",
+                outcome=outcome,
+                ignored_reason=ignored_reason,
+                matched=matched,
+                applied=applied,
+                skipped=skipped,
+                conflicted=conflicted,
+                failed=failed,
+                error_type=error_type,
+            )

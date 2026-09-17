@@ -2594,12 +2594,14 @@ def process_feature_request_github_delivery(
     issue_state: str,
     issue_state_reason: str,
     github_updated_at: datetime,
-) -> None:
+    github_delivery_id: str | None = None,
+    github_received_at: str | None = None,
+) -> str:
     from products.customer_analytics.backend.tasks.tasks import (
         process_feature_request_github_issue,  # noqa: PLC0415 — Celery task registration must stay off the facade import path
     )
 
-    process_feature_request_github_issue.delay(
+    task = process_feature_request_github_issue.delay(
         installation_id=installation_id,
         repository=repository,
         issue_number=issue_number,
@@ -2607,7 +2609,10 @@ def process_feature_request_github_delivery(
         issue_state=issue_state,
         issue_state_reason=issue_state_reason,
         github_updated_at=github_updated_at.isoformat(),
+        github_delivery_id=github_delivery_id,
+        github_received_at=github_received_at,
     )
+    return task.id
 
 
 def add_feature_request_account(

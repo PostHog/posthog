@@ -1,6 +1,9 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
-from celery import shared_task
+import structlog
+import posthoganalytics
+from celery import Task, shared_task
+from structlog.contextvars import bound_contextvars
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping import with_team_scope
@@ -13,9 +16,60 @@ from products.customer_analytics.backend.logic.announcements import send_pending
 from products.customer_analytics.backend.logic.custom_property_sync import sync_custom_property_values
 from products.customer_analytics.backend.logic.feature_request_github import process_github_issue_update
 
+logger = structlog.get_logger(__name__)
+
+
+class FeatureRequestGitHubTaskFailed(Exception):
+    pass
+
+
+def _delivery_age_seconds(github_received_at: str | None) -> float | None:
+    if github_received_at is None:
+        return None
+    try:
+        received_at = datetime.fromisoformat(github_received_at)
+    except ValueError:
+        return None
+    if received_at.tzinfo is None:
+        return None
+    delay_seconds = (datetime.now(UTC) - received_at).total_seconds()
+    return delay_seconds if delay_seconds >= 0 else None
+
+
+def _capture_terminal_feature_request_github_failure(
+    error: Exception,
+    *,
+    github_delivery_id: str | None,
+    task_id: str | None,
+    sync_attempt: int,
+    installation_id: str,
+    github_received_at: str | None,
+) -> None:
+    sanitized_error = FeatureRequestGitHubTaskFailed().with_traceback(error.__traceback__)
+    try:
+        with posthoganalytics.new_context(fresh=True, capture_exceptions=False):
+            posthoganalytics.set_capture_exception_code_variables_context(False)
+            try:
+                raise sanitized_error from None
+            except FeatureRequestGitHubTaskFailed as captured_error:
+                capture_exception(
+                    captured_error,
+                    {
+                        "github_delivery_id": github_delivery_id,
+                        "task_id": task_id,
+                        "sync_attempt": sync_attempt,
+                        "installation_id": installation_id,
+                        "github_received_at": github_received_at,
+                        "exception_type": type(error).__name__,
+                    },
+                )
+    except Exception:
+        logger.warning("feature_request_github_exception_capture_failed")
+
 
 @shared_task(
     name="customer_analytics.process_feature_request_github_issue",
+    bind=True,
     ignore_result=True,
     autoretry_for=(Exception,),
     max_retries=3,
@@ -23,6 +77,7 @@ from products.customer_analytics.backend.logic.feature_request_github import pro
     retry_jitter=True,
 )
 def process_feature_request_github_issue(
+    self: Task,
     installation_id: str,
     repository: str,
     issue_number: int,
@@ -30,16 +85,42 @@ def process_feature_request_github_issue(
     issue_state: str,
     issue_state_reason: str,
     github_updated_at: str,
+    github_delivery_id: str | None = None,
+    github_received_at: str | None = None,
 ) -> None:
-    process_github_issue_update(
+    task_id = self.request.id
+    sync_attempt = self.request.retries
+    with bound_contextvars(
+        github_delivery_id=github_delivery_id,
+        task_id=task_id,
+        sync_attempt=sync_attempt,
         installation_id=installation_id,
-        repository=repository,
-        issue_number=issue_number,
-        issue_title=issue_title,
-        issue_state=issue_state,
-        issue_state_reason=issue_state_reason,
-        github_updated_at=datetime.fromisoformat(github_updated_at),
-    )
+        github_received_at=github_received_at,
+    ):
+        logger.info(
+            "feature_request_github_task_started", delivery_age_seconds=_delivery_age_seconds(github_received_at)
+        )
+        try:
+            process_github_issue_update(
+                installation_id=installation_id,
+                repository=repository,
+                issue_number=issue_number,
+                issue_title=issue_title,
+                issue_state=issue_state,
+                issue_state_reason=issue_state_reason,
+                github_updated_at=datetime.fromisoformat(github_updated_at),
+            )
+        except Exception as error:
+            if self.max_retries is not None and sync_attempt >= self.max_retries:
+                _capture_terminal_feature_request_github_failure(
+                    error,
+                    github_delivery_id=github_delivery_id,
+                    task_id=task_id,
+                    sync_attempt=sync_attempt,
+                    installation_id=installation_id,
+                    github_received_at=github_received_at,
+                )
+            raise
 
 
 @shared_task(name="customer_analytics.process_custom_property_sync", ignore_result=True)
