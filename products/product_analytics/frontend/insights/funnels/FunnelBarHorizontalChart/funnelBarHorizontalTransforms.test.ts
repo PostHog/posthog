@@ -336,6 +336,18 @@ describe('buildFunnelBarHorizontalData', () => {
             // chart treats the blank gap above it as inert (no hover, tooltip, pointer cursor, or click).
             expect(result.map((s) => s.bars[0].series[1].trackData)).toEqual([[100], [100]])
             expect(result.map((s) => s.bars[1].series[1].trackData)).toEqual([[80], [80]])
+
+            // A step that lost the current period shifts previous into slot 0, so the entry level has to
+            // come from the matching period rather than the slot.
+            const sparseSteps = [
+                compareSteps[0],
+                { ...compareSteps[1], nested_breakdown: [compareSteps[1].nested_breakdown![1]] },
+            ]
+            const sparseResult = buildFunnelBarHorizontalCompareData(sparseSteps, options)
+
+            expect(sparseResult[1].bars[0].series[0].data[0]).toBe(40)
+            expect(sparseResult[1].bars[0].series[1].data[0]).toBe(40)
+            expect(sparseResult[1].bars[0].series[1].trackData).toEqual([80])
         })
 
         // At the first step every bar sits exactly at its own entry level, so drop-off is always 0 —

@@ -116,8 +116,6 @@ export function buildFunnelBarHorizontalCompareData(
         return buildBreakdownCompareStacks(steps, options)
     }
 
-    // Each period's entry level on the shared axis, indexed to match nested_breakdown order.
-    const entryLevels = firstNested.map((variant) => variant.conversionRates.fromBasisStep * RATE_TO_PERCENT)
     return steps.map((step, stepIndex) => {
         const bars = (step.nested_breakdown ?? []).map((variant, breakdownIndex) => {
             const representative =
@@ -135,7 +133,7 @@ export function buildFunnelBarHorizontalCompareData(
                     segment,
                     buildFunnelBarHorizontalDropOff(
                         [segment],
-                        entryLevels[breakdownIndex] ?? 0,
+                        representative.conversionRates.fromBasisStep * RATE_TO_PERCENT,
                         options.fillerColor,
                         breakdownIndex
                     ),
