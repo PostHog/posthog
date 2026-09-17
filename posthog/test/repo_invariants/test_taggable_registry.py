@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from django.apps import apps
@@ -12,6 +14,7 @@ from posthog.models.tagged_item_registry import (
     base_model_for,
     taggable_for,
 )
+from posthog.models.tagged_items_relation import TaggedItemsRelation
 
 INTEGER_FIELDS = (models.AutoField, models.IntegerField, models.BigAutoField, models.BigIntegerField)
 
@@ -58,6 +61,16 @@ def test_object_column_holds_the_primary_key_range(entry: TaggableModel) -> None
     if entry.object_field != OBJECT_ID:
         return
     assert isinstance(TaggedItem._meta.get_field(OBJECT_ID), models.IntegerField)
+
+
+@pytest.mark.parametrize("entry", TAGGABLE_MODELS, ids=lambda entry: entry.legacy_field)
+def test_model_declares_the_tagged_items_relation(entry: TaggableModel) -> None:
+    meta: Any = _model_for(entry)._meta
+    field = meta.get_field("tagged_items")
+    assert isinstance(field, TaggedItemsRelation), (
+        f"{entry.model_label} must declare `tagged_items = TaggedItemsRelation()`"
+    )
+    assert field.object_id_field_name == entry.object_field
 
 
 def test_inherited_models_resolve_to_their_registered_base() -> None:

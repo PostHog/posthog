@@ -7,6 +7,7 @@ from django.utils import timezone
 from django.utils.functional import Promise
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.tagged_items_relation import TaggedItemsRelation
 from posthog.models.utils import UUIDModel
 
 # This model loads at django.setup() in every process; posthog.schema (the pydantic
@@ -107,6 +108,8 @@ class ReplayScannerManager(models.Manager["ReplayScanner"]):
 
 class ReplayScanner(ModelActivityMixin, UUIDModel):
     """A configured probe that gets applied to completed session recordings (see README)."""
+
+    tagged_items = TaggedItemsRelation()
 
     # A scanner sends recordings to an LLM, so its removal stays visible after the row is gone.
     activity_logging_on_delete = True

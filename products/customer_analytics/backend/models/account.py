@@ -8,6 +8,7 @@ from django.dispatch import receiver
 from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.tagged_items_relation import TaggedItemsRelation
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from products.customer_analytics.backend.domain import parse_company_domain
@@ -72,6 +73,7 @@ class AccountProperties(BaseModel):
 
 
 class Account(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+    tagged_items = TaggedItemsRelation()
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     external_id = models.CharField(max_length=400, null=True, blank=True)

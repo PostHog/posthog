@@ -7,6 +7,7 @@ from django.core.validators import MinLengthValidator
 from django.db import models, transaction
 from django.utils import timezone
 
+from posthog.models.tagged_items_relation import TaggedItemsRelation
 from posthog.models.utils import UpdatedMetaFields, sane_repr
 
 if TYPE_CHECKING:
@@ -71,6 +72,7 @@ class ProjectManager(models.Manager["Project"]):
 
 
 class Project(UpdatedMetaFields):
+    tagged_items = TaggedItemsRelation()
     id = models.BigIntegerField(primary_key=True, verbose_name="ID")  # Same as Team.id field
     organization = models.ForeignKey(
         "posthog.Organization",

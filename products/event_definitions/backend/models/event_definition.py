@@ -4,6 +4,7 @@ from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
 
+from posthog.models.tagged_items_relation import TaggedItemsRelation
 from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 from posthog.utils import invalidate_default_event_info_cache
 
@@ -16,6 +17,7 @@ class SchemaEnforcementMode(models.TextChoices):
 
 
 class EventDefinition(UUIDTModel):
+    tagged_items = TaggedItemsRelation()
     team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,

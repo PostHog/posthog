@@ -14,6 +14,7 @@ from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.signals import mutable_receiver
+from posthog.models.tagged_items_relation import TaggedItemsRelation
 from posthog.models.utils import RootTeamMixin
 from posthog.plugins.plugin_server_api import drop_action_on_workers, reload_action_on_workers
 
@@ -40,6 +41,7 @@ class ActionStepJSON:
 
 
 class Action(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
+    tagged_items = TaggedItemsRelation()
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True, default="")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
