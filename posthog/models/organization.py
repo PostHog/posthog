@@ -235,6 +235,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
     )
     # Transient flag set by the pre_save signal to communicate active-state changes to post_save.
     _is_active_changed: bool = False
+    _has_active_subscription_changed: bool = False
 
     # Security / management settings
     session_cookie_age = models.IntegerField(
