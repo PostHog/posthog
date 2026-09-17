@@ -80,15 +80,22 @@ describe('trendsDataLogic', () => {
 
     describe('based on insightDataLogic', () => {
         describe('results', () => {
-            it('for standard trend', async () => {
-                const insight: Partial<InsightModel> = {
-                    result: trendResult.result,
-                }
+            const aggregatedFormulaResult = { ...trendResult.result[0], data: null }
+
+            it.each([
+                ['standard trend', trendResult.result, trendResult.result],
+                [
+                    'aggregated formula result with null data',
+                    [aggregatedFormulaResult, ...trendResult.result],
+                    [{ ...aggregatedFormulaResult, data: [] }, ...trendResult.result],
+                ],
+            ])('for %s', async (_name, result, expected) => {
+                const insight: Partial<InsightModel> = { result }
 
                 await expectLogic(logic, () => {
                     builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
-                    results: trendResult.result,
+                    results: expected,
                 })
             })
         })

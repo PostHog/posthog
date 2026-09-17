@@ -532,7 +532,10 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             (s) => [s.insightData],
             (insightData: TrendAPIResponse | null): TrendResult[] => {
                 if (insightData?.result && Array.isArray(insightData.result)) {
-                    return insightData.result
+                    // A formula on a total-value display (number, table, pie, bar value) returns
+                    // `data: null`. A time-series chart can render that result while the query for
+                    // a new display loads, and every chart reader expects an array.
+                    return insightData.result.map((result) => (result.data ? result : { ...result, data: [] }))
                 }
                 return []
             },
