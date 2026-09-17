@@ -127,7 +127,7 @@ The dispatch section at the top of this file says when you are in this mode. Run
 | Post-soak observation                                                         | Verdict            | Action                                                         |
 | ----------------------------------------------------------------------------- | ------------------ | -------------------------------------------------------------- |
 | Entities quiet / rate at or near zero vs baseline                             | **Held**           | `passed`; close-out sentence                                   |
-| Rate down materially but nonzero, with a declining tail                       | Deploy lag         | `errored`, saying the fix is still landing; attach a later check |
+| Rate down materially but nonzero, with a declining tail                       | Deploy lag         | `errored`, saying the fix is still landing — the check looks again itself |
 | Same entity firing at a comparable-to-baseline rate, flat or rising           | **Failed**         | `failed`; author a report when it is worth attention now       |
 | Entities quiet but fresh signals / a sibling report describe the same problem | **Failed (moved)** | `failed`; author on the weaker basis, citing both reports      |
 | Surface has no fresh traffic at all (quiet ≠ fixed — check a denominator)     | Inconclusive       | `errored`, naming the missing denominator                      |
@@ -135,7 +135,7 @@ The dispatch section at the top of this file says when you are in this mode. Run
 
 Tiny baselines are common on auto-generated fix reports — a single transient error becomes a report, a PR, and a resolution. Post-fix silence can't strongly confirm those; record them as passed with the weak basis stated rather than claiming validation you don't have. The one strong signal a tiny baseline _can_ give: the exact fingerprint recurring post-soak after a fix that specifically targeted it — that's report-worthy, P3.
 
-An `errored` verdict costs the check one of its three retries, so use it for a look that could settle later (deploy lag, no denominator yet) and not for one that never will.
+An `errored` verdict re-arms the same check about six hours out and costs it one of its three retries, so use it for a look that could settle later (deploy lag, no denominator yet) and not for one that never will. Attaching a second check to buy more soak only doubles the runs, because the original is still active.
 
 ### Save memory as you go
 
