@@ -1493,7 +1493,7 @@ export interface DataWarehouseSavedQueryApi {
      */
     edited_history_id?: string | null
     /**
-     * Activity log ID of the most recent query edit to this view. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
+     * Revision of this view's query. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
      * @nullable
      */
     readonly latest_history_id: string | null
@@ -1620,7 +1620,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
      */
     edited_history_id?: string | null
     /**
-     * Activity log ID of the most recent query edit to this view. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
+     * Revision of this view's query. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
      * @nullable
      */
     readonly latest_history_id?: string | null
