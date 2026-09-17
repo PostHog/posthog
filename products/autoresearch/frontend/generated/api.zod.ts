@@ -223,8 +223,8 @@ export const AutoresearchTrainingRunsIterationsCreateBody = /* @__PURE__ */ zod
                 model_class: zod.string().describe('Dotted path of the estimator class.'),
                 model_params: zod
                     .record(zod.string(), zod.unknown())
-                    .optional()
-                    .describe("Keyword arguments for the estimator's constructor."),
+                    .nullish()
+                    .describe("Keyword arguments for the estimator's constructor; null or absent means the defaults."),
             })
             .describe(
                 'model_class and model_params tried this iteration. Any class is accepted here; the sklearn\/xgboost allowlist applies at completion, to a run that uploaded no bundle.'

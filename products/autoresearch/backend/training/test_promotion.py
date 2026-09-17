@@ -197,6 +197,7 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
             # was measured on transformed features would serve a different model.
             ("feature_transforms", {"feature_transforms": [{"column": "c", "transform": "log1p"}]}),
             ("string_model_params", {"model_params": "bad"}),
+            ("trailing_limit", {"feature_sql": ANCHORED_FEATURE_SQL + " LIMIT 10"}),
             # sklearn refuses an unknown keyword only in the constructor, which inference would hit on
             # every cadence.
             ("unknown_model_param", {"model_params": {"unexpected": 1}}),

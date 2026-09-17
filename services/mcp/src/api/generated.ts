@@ -11246,9 +11246,10 @@ export namespace Schemas {
     };
 
     /**
-     * Keyword arguments for the estimator's constructor.
+     * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+     * @nullable
      */
-    export type AutoresearchIterationModelSpecModelParams = { [key: string]: unknown };
+    export type AutoresearchIterationModelSpecModelParams = { [key: string]: unknown } | null;
 
     /**
      * Model class and hyperparameters tried in this iteration.
@@ -11256,7 +11257,10 @@ export namespace Schemas {
     export type AutoresearchIterationModelSpec = {
       /** Dotted path of the estimator class. */
       model_class: string;
-      /** Keyword arguments for the estimator's constructor. */
+      /**
+         * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+         * @nullable
+         */
       model_params?: AutoresearchIterationModelSpecModelParams;
     };
 
@@ -11751,9 +11755,10 @@ export namespace Schemas {
     }
 
     /**
-     * Keyword arguments for the estimator's constructor.
+     * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+     * @nullable
      */
-    export type IterationTrailModelSpecModelParams = { [key: string]: unknown };
+    export type IterationTrailModelSpecModelParams = { [key: string]: unknown } | null;
 
     /**
      * Model class and hyperparameters tried in this iteration.
@@ -11761,7 +11766,10 @@ export namespace Schemas {
     export type IterationTrailModelSpec = {
       /** Dotted path of the estimator class. */
       model_class: string;
-      /** Keyword arguments for the estimator's constructor. */
+      /**
+         * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+         * @nullable
+         */
       model_params?: IterationTrailModelSpecModelParams;
     };
 
@@ -50198,9 +50206,10 @@ export namespace Schemas {
     }
 
     /**
-     * Keyword arguments for the estimator's constructor.
+     * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+     * @nullable
      */
-    export type IterationTrailWithRecipeModelSpecModelParams = { [key: string]: unknown };
+    export type IterationTrailWithRecipeModelSpecModelParams = { [key: string]: unknown } | null;
 
     /**
      * Model class and hyperparameters tried in this iteration.
@@ -50208,7 +50217,10 @@ export namespace Schemas {
     export type IterationTrailWithRecipeModelSpec = {
       /** Dotted path of the estimator class. */
       model_class: string;
-      /** Keyword arguments for the estimator's constructor. */
+      /**
+         * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+         * @nullable
+         */
       model_params?: IterationTrailWithRecipeModelSpecModelParams;
     };
 
@@ -79472,9 +79484,10 @@ export namespace Schemas {
     };
 
     /**
-     * Keyword arguments for the estimator's constructor.
+     * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+     * @nullable
      */
-    export type RecordIterationModelSpecModelParams = { [key: string]: unknown };
+    export type RecordIterationModelSpecModelParams = { [key: string]: unknown } | null;
 
     /**
      * model_class and model_params tried this iteration. Any class is accepted here; the sklearn/xgboost allowlist applies at completion, to a run that uploaded no bundle.
@@ -79482,7 +79495,10 @@ export namespace Schemas {
     export type RecordIterationModelSpec = {
       /** Dotted path of the estimator class. */
       model_class: string;
-      /** Keyword arguments for the estimator's constructor. */
+      /**
+         * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+         * @nullable
+         */
       model_params?: RecordIterationModelSpecModelParams;
     };
 

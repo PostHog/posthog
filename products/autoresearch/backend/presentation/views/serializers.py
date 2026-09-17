@@ -188,7 +188,11 @@ class FiniteFloatField(serializers.FloatField):
     def to_internal_value(self, data: Any) -> float:
         if isinstance(data, bool):
             raise serializers.ValidationError("Must be a number, not a boolean.")
-        value = super().to_internal_value(data)
+        try:
+            value = super().to_internal_value(data)
+        except OverflowError as exc:
+            # float() raises this, not ValueError, on an integer past the float range.
+            raise serializers.ValidationError("Must be a finite number.") from exc
         if not math.isfinite(value):
             raise serializers.ValidationError("Must be a finite number.")
         return value
@@ -394,8 +398,9 @@ class IterationRecipeField(ObjectJSONField):
             "model_class": {"type": "string", "description": "Dotted path of the estimator class."},
             "model_params": {
                 "type": "object",
+                "nullable": True,
                 "additionalProperties": True,
-                "description": "Keyword arguments for the estimator's constructor.",
+                "description": "Keyword arguments for the estimator's constructor; null or absent means the defaults.",
             },
         },
         "required": ["model_class"],

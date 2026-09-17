@@ -552,9 +552,10 @@ export const AutoresearchIterationStatusEnumApi = {
 } as const
 
 /**
- * Keyword arguments for the estimator's constructor.
+ * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+ * @nullable
  */
-export type IterationTrailApiModelSpecModelParams = { [key: string]: unknown }
+export type IterationTrailApiModelSpecModelParams = { [key: string]: unknown } | null
 
 /**
  * Model class and hyperparameters tried in this iteration.
@@ -562,7 +563,10 @@ export type IterationTrailApiModelSpecModelParams = { [key: string]: unknown }
 export type IterationTrailApiModelSpec = {
     /** Dotted path of the estimator class. */
     model_class: string
-    /** Keyword arguments for the estimator's constructor. */
+    /**
+     * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+     * @nullable
+     */
     model_params?: IterationTrailApiModelSpecModelParams
 }
 
@@ -719,9 +723,10 @@ export type RecordIterationApiRecipeSnapshot = {
 }
 
 /**
- * Keyword arguments for the estimator's constructor.
+ * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+ * @nullable
  */
-export type RecordIterationApiModelSpecModelParams = { [key: string]: unknown }
+export type RecordIterationApiModelSpecModelParams = { [key: string]: unknown } | null
 
 /**
  * model_class and model_params tried this iteration. Any class is accepted here; the sklearn/xgboost allowlist applies at completion, to a run that uploaded no bundle.
@@ -729,7 +734,10 @@ export type RecordIterationApiModelSpecModelParams = { [key: string]: unknown }
 export type RecordIterationApiModelSpec = {
     /** Dotted path of the estimator class. */
     model_class: string
-    /** Keyword arguments for the estimator's constructor. */
+    /**
+     * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+     * @nullable
+     */
     model_params?: RecordIterationApiModelSpecModelParams
 }
 
@@ -813,9 +821,10 @@ export type AutoresearchIterationApiRecipeSnapshot = {
 }
 
 /**
- * Keyword arguments for the estimator's constructor.
+ * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+ * @nullable
  */
-export type AutoresearchIterationApiModelSpecModelParams = { [key: string]: unknown }
+export type AutoresearchIterationApiModelSpecModelParams = { [key: string]: unknown } | null
 
 /**
  * Model class and hyperparameters tried in this iteration.
@@ -823,7 +832,10 @@ export type AutoresearchIterationApiModelSpecModelParams = { [key: string]: unkn
 export type AutoresearchIterationApiModelSpec = {
     /** Dotted path of the estimator class. */
     model_class: string
-    /** Keyword arguments for the estimator's constructor. */
+    /**
+     * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+     * @nullable
+     */
     model_params?: AutoresearchIterationApiModelSpecModelParams
 }
 
@@ -862,9 +874,10 @@ export interface AutoresearchIterationApi {
 }
 
 /**
- * Keyword arguments for the estimator's constructor.
+ * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+ * @nullable
  */
-export type IterationTrailWithRecipeApiModelSpecModelParams = { [key: string]: unknown }
+export type IterationTrailWithRecipeApiModelSpecModelParams = { [key: string]: unknown } | null
 
 /**
  * Model class and hyperparameters tried in this iteration.
@@ -872,7 +885,10 @@ export type IterationTrailWithRecipeApiModelSpecModelParams = { [key: string]: u
 export type IterationTrailWithRecipeApiModelSpec = {
     /** Dotted path of the estimator class. */
     model_class: string
-    /** Keyword arguments for the estimator's constructor. */
+    /**
+     * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+     * @nullable
+     */
     model_params?: IterationTrailWithRecipeApiModelSpecModelParams
 }
 

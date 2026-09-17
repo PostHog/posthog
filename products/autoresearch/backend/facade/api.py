@@ -15,7 +15,7 @@ from typing import Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils import timezone as django_timezone
 
 from posthog.models.team import Team
@@ -686,11 +686,14 @@ def training_run_history(team_id: int, pipeline_id: str | UUID, *, limit: int = 
         .select_related("pipeline")
         .prefetch_related("iterations")
     )
-    runs = list(completed.filter(pipeline=pipeline).order_by("-completed_at")[:limit])
+    # Postgres puts NULLs first on a bare DESC, so an undated completed run would outrank every
+    # dated one; the id breaks ties so a page is the same on every read.
+    newest_first = (F("completed_at").desc(nulls_last=True), "-id")
+    runs = list(completed.filter(pipeline=pipeline).order_by(*newest_first)[:limit])
     remaining = limit - len(runs)
     if remaining > 0:
         runs += list(
-            completed.filter(_same_target_as(pipeline)).exclude(pipeline=pipeline).order_by("-completed_at")[:remaining]
+            completed.filter(_same_target_as(pipeline)).exclude(pipeline=pipeline).order_by(*newest_first)[:remaining]
         )
 
     return TrainingRunHistory(

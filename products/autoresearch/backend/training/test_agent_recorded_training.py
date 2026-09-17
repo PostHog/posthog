@@ -519,6 +519,11 @@ class TestTrainingRunHistory(TeamScopedTestMixin, APIBaseTest):
     def test_history_respects_limit(self):
         for _ in range(3):
             self._completed_run(self.pipeline, iterations=[("kept", 0.8, "run")])
+        # An undated completed run sorts after the dated ones instead of taking the first slot.
+        undated = AutoresearchTrainingRun.objects.create(
+            pipeline=self.pipeline, status=AutoresearchTrainingRun.Status.COMPLETED, completed_at=None
+        )
+        assert [r["run_id"] for r in self._history(limit=4).json()["runs"]][-1] == str(undated.id)
         assert len(self._history(limit=2).json()["runs"]) == 2
         assert self._history(limit=0).status_code == status.HTTP_400_BAD_REQUEST
         assert self._history(limit="many").status_code == status.HTTP_400_BAD_REQUEST
@@ -583,6 +588,7 @@ class TestAgentWriteSerializers(SimpleTestCase):
             ("nested_nan_in_spec", {"model_spec": {**VALID_SPEC, "model_params": {"C": float("nan")}}}, "model_spec"),
             ("lone_surrogate_in_recipe", {"recipe_snapshot": {**VALID_RECIPE, "note": "\ud800"}}, "recipe_snapshot"),
             ("boolean_holdout", {"holdout_score": True}, "holdout_score"),
+            ("integer_past_float_range", {"holdout_score": 10**400}, "holdout_score"),
             ("string_model_params", {"model_spec": {**VALID_SPEC, "model_params": "bad"}}, "non_field_errors"),
             ("oversized_spec", {"model_spec": {**VALID_SPEC, "pad": "x" * MODEL_SPEC_MAX_BYTES}}, "model_spec"),
             (

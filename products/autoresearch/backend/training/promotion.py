@@ -25,7 +25,11 @@ from posthog.hogql.visitor import clear_locations
 
 from posthog.models.scoping import team_scope
 
-from products.autoresearch.backend.inference.sandbox import fit_champion_model
+from products.autoresearch.backend.inference.sandbox import (
+    SandboxInferenceError,
+    fit_champion_model,
+    validate_runnable_feature_sql,
+)
 from products.autoresearch.backend.inference.scoring import check_recipe_estimator
 from products.autoresearch.backend.models import (
     AutoresearchIteration,
@@ -231,6 +235,12 @@ def _require_legacy_recipe_is_runnable(recipe: dict[str, Any]) -> None:
             "Cannot persist a model: no complete bundle was uploaded and the selected "
             "iteration recorded no feature_sql for the legacy scoring path."
         )
+    try:
+        # Scoring runs the feature SQL as the top-level query and refuses a trailing LIMIT,
+        # OFFSET or SETTINGS, so a champion that would fail every cadence is refused here.
+        validate_runnable_feature_sql(str(recipe["feature_sql"]), source="feature_sql")
+    except SandboxInferenceError as exc:
+        raise PromotionError(f"Cannot persist a model on the legacy scoring path: {exc}") from exc
     if recipe.get("feature_transforms"):
         # The in-process scorer fits on the raw feature_sql columns and never applies the
         # transforms, so the served model would not be the one the holdout score describes.
