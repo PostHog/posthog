@@ -15,15 +15,11 @@ import { LoopForm } from "./LoopForm";
 
 const mocks = vi.hoisted(() => ({
   hogFlow: undefined as unknown,
-  workflowBacked: true,
   updateHogFlow: vi.fn(),
   createHogFlow: vi.fn(),
   toastError: vi.fn(),
 }));
 
-vi.mock("@posthog/ui/features/feature-flags/useLoopsHogFlowsEnabled", () => ({
-  useLoopsHogFlowsEnabled: () => mocks.workflowBacked,
-}));
 vi.mock("@posthog/ui/features/feature-flags/useBluebirdFlag", () => ({
   useBluebirdFlag: () => false,
 }));
@@ -61,11 +57,7 @@ vi.mock("../hooks/useLoop", () => ({
   useLoopHogFlow: () => ({ data: mocks.hogFlow }),
 }));
 vi.mock("../hooks/useLoopMutations", () => {
-  const idle = () => ({ mutateAsync: vi.fn(), isPending: false });
   return {
-    useCreateLoop: idle,
-    useUpdateLoop: idle,
-    useDeleteLoop: idle,
     useCreateLoopHogFlow: () => ({
       mutateAsync: mocks.createHogFlow,
       isPending: false,
@@ -76,22 +68,13 @@ vi.mock("../hooks/useLoopMutations", () => {
     }),
   };
 });
-vi.mock("../hooks/useLoopSkillBundles", () => {
-  const idle = () => ({ mutateAsync: vi.fn(), isPending: false });
-  return { useBundleLocalSkill: idle, useReplaceLoopSkillBundles: idle };
-});
 vi.mock("@posthog/ui/features/settings/SettingsOptionSelect", () => ({
   SettingsOptionSelect: () => null,
 }));
-vi.mock("./LoopBehaviorFields", () => ({ LoopBehaviorFields: () => null }));
 vi.mock("./LoopContextFields", () => ({ LoopContextFields: () => null }));
 vi.mock("./LoopHeaderTitle", () => ({ LoopHeaderTitle: () => null }));
 vi.mock("./LoopModelFields", () => ({ LoopModelFields: () => null }));
-vi.mock("./LoopNotificationsFields", () => ({
-  LoopNotificationsFields: () => null,
-}));
 vi.mock("./LoopRepositoryPicker", () => ({ LoopRepositoryPicker: () => null }));
-vi.mock("./LoopSkillFields", () => ({ LoopInstructionsFields: () => null }));
 vi.mock("./LoopSpaceBreadcrumb", () => ({ LoopSpaceBreadcrumb: () => null }));
 vi.mock("./LoopWorkflowPromptFields", () => ({
   LoopWorkflowPromptFields: () => null,
@@ -195,7 +178,6 @@ const nameInput = () => screen.getByPlaceholderText("Daily standup summary");
 
 describe("LoopForm", () => {
   beforeEach(() => {
-    mocks.workflowBacked = true;
     mocks.hogFlow = undefined;
     mocks.updateHogFlow.mockReset();
     mocks.createHogFlow.mockReset();
@@ -325,26 +307,6 @@ describe("LoopForm", () => {
 
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
   });
-
-  it.each([
-    {
-      workflowBacked: true,
-      description:
-        "Pick a schedule or a GitHub event. Every loop has one trigger.",
-    },
-    {
-      workflowBacked: false,
-      description: "Add automatic triggers, or leave this manual-only.",
-    },
-  ])(
-    "describes the When step for workflowBacked=$workflowBacked",
-    ({ workflowBacked, description }) => {
-      mocks.workflowBacked = workflowBacked;
-      renderEdit(loopShapedFlow(formValues(), "2026-09-02T08:00:00Z"));
-
-      expect(screen.getByText(description)).toBeInTheDocument();
-    },
-  );
 
   it("keeps the space a new workflow loop was started from", async () => {
     const user = userEvent.setup();

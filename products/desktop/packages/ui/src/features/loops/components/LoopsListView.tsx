@@ -1,10 +1,8 @@
 import { ChatCircleDotsIcon, CloudIcon, PlusIcon } from "@phosphor-icons/react";
 import type { LoopSchemas } from "@posthog/api-client/loops";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { UserBasic } from "@posthog/shared/domain-types";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
-import { useLoopsHogFlowsEnabled } from "@posthog/ui/features/feature-flags/useLoopsHogFlowsEnabled";
 import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/StopCloudRunDialog";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { Button } from "@posthog/ui/primitives/Button";
@@ -14,7 +12,6 @@ import {
   PageHeaderChip,
   PageHeaderDescription,
   PageHeaderHeading,
-  PageHeaderNav,
   PageHeaderTitle,
   PageHeaderTitleRow,
 } from "@posthog/ui/primitives/PageHeader";
@@ -27,7 +24,7 @@ import { track } from "@posthog/ui/shell/analytics";
 import { Flex, Text } from "@radix-ui/themes";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useLoopBuilderSessions } from "../hooks/useLoopBuilderSessions";
-import { useLoopLimits, useLoops } from "../hooks/useLoops";
+import { useLoops } from "../hooks/useLoops";
 import {
   type LoopBuilderSession,
   useLoopBuilderSessionStore,
@@ -39,12 +36,6 @@ import { LoopsEmptyNotice, LoopsSkeleton } from "./LoopFallbacks";
 import { LoopRow } from "./LoopRow";
 import { LoopsEmptyState } from "./LoopsEmptyState";
 import { LoopTemplatesSection } from "./LoopTemplatesSection";
-
-/** Copy shown when the project is at its loop cap. `max` comes from the backend so the number
- * never drifts from the limit the server actually enforces. */
-function loopLimitReason(max: number): string {
-  return `You've reached the limit of ${max} loops for this project. Delete one to add another.`;
-}
 
 const EMPTY_MEMBERS: UserBasic[] = [];
 const EMPTY_BUILDER_SESSIONS: LoopBuilderSession[] = [];
@@ -77,10 +68,6 @@ export function LoopsListView({
   headerContent?: ReactNode;
 }) {
   const { data: loops, isLoading, isError, error } = useLoops();
-  const limits = useLoopLimits();
-  const workflowBacked = useLoopsHogFlowsEnabled();
-  const limitReason =
-    limits?.atLimit === true ? loopLimitReason(limits.max) : null;
 
   // The standalone page names itself in-page and has no breadcrumb. When the
   // registry is hosted inside a space, its caller supplies that navigation
@@ -116,8 +103,7 @@ export function LoopsListView({
       loop_count: allLoops.length,
       personal_loop_count: personalLoops.length,
       team_loop_count: teamLoops.length,
-      is_at_limit: limits?.atLimit ?? false,
-      loop_limit: limits?.max,
+      is_at_limit: false,
       builder_session_count: builderSessions.length,
     });
   }, [
@@ -127,7 +113,6 @@ export function LoopsListView({
     allLoops.length,
     personalLoops.length,
     teamLoops.length,
-    limits,
     builderSessions.length,
   ]);
 
@@ -136,8 +121,6 @@ export function LoopsListView({
       loops={allLoops}
       isLoading={isLoading}
       error={isError ? error : null}
-      limitReason={limitReason}
-      workflowBacked={workflowBacked}
       members={members}
       membersLoading={membersLoading}
       membersError={membersError}
@@ -155,9 +138,6 @@ interface LoopsListViewPresentationProps {
   loops: LoopSchemas.Loop[];
   isLoading?: boolean;
   error?: unknown;
-  limitReason?: string | null;
-  /** Loops backed by workflows are all team-visible and have no API trigger. */
-  workflowBacked?: boolean;
   members?: UserBasic[];
   membersLoading?: boolean;
   membersError?: boolean;
@@ -173,8 +153,6 @@ export function LoopsListViewPresentation({
   loops,
   isLoading = false,
   error = null,
-  limitReason = null,
-  workflowBacked = false,
   members = EMPTY_MEMBERS,
   membersLoading = false,
   membersError = false,
@@ -185,31 +163,31 @@ export function LoopsListViewPresentation({
   onResumeBuilderSession,
   onBuilderSessionStopped,
 }: LoopsListViewPresentationProps) {
-  const personalLoops = loops.filter((loop) => loop.visibility === "personal");
-  const teamLoops = loops.filter((loop) => loop.visibility === "team");
-
   const createButton = (
-    <Button
-      variant="soft"
-      color="gray"
-      size="2"
-      onClick={onStartBlank}
-      disabled={limitReason != null}
-      disabledReason={limitReason}
-    >
+    <Button variant="soft" color="gray" size="2" onClick={onStartBlank}>
       <PlusIcon size={14} />
       Create manually
     </Button>
   );
 
-  // Only the loaded, non-empty list has tabs to show — the skeleton, the error
-  // notice and the empty state all render without them.
-  // Workflow-backed loops are all team-visible, so the personal/team split
-  // would show one empty tab and one full one.
-  const hasTabs = !isLoading && !error && loops.length > 0 && !workflowBacked;
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-0">
+      <PageHeader>
+        <PageHeaderHeading>
+          <PageHeaderTitleRow>
+            <PageHeaderTitle>Loops</PageHeaderTitle>
+            <PageHeaderChip icon={<CloudIcon size={12} weight="fill" />}>
+              Runs entirely in the cloud
+            </PageHeaderChip>
+            <PageHeaderActions>{createButton}</PageHeaderActions>
+          </PageHeaderTitleRow>
+          <PageHeaderDescription>
+            Put your work on autopilot. Loops run on a schedule or when
+            something happens on GitHub. You can finally close the laptop!
+          </PageHeaderDescription>
+        </PageHeaderHeading>
+      </PageHeader>
 
-  const body = (
-    <>
       <div className="min-h-0 flex-1 overflow-auto">
         <Flex
           direction="column"
@@ -225,14 +203,12 @@ export function LoopsListViewPresentation({
                 hint={
                   error instanceof Error
                     ? error.message
-                    : "The loops API returned an error."
+                    : "The workflows API returned an error."
                 }
               />
             ) : loops.length > 0 ? (
-              // Triggers live in the page header; only the panels sit here.
-              <LoopTabPanels
-                personalLoops={personalLoops}
-                teamLoops={teamLoops}
+              <LoopListSection
+                loops={loops}
                 members={members}
                 membersLoading={membersLoading}
                 membersError={membersError}
@@ -261,123 +237,10 @@ export function LoopsListViewPresentation({
               onStopped={onBuilderSessionStopped}
             />
           ))}
-          <LoopBuilderComposer disabledReason={limitReason} />
+          <LoopBuilderComposer />
         </Flex>
       </div>
-    </>
-  );
-
-  // One Tabs root spanning header and body: the trigger strip sits in the
-  // header's sub-nav, its panels stay down in the scrolling body.
-  // The default tab is read once at mount, and the flag can flip after that.
-  // Remount on a mode change so workflow loops never sit behind a hidden tab.
-  return (
-    <Tabs
-      key={workflowBacked ? "workflow" : "loops"}
-      defaultValue={workflowBacked ? "team" : "personal"}
-      className="flex h-full min-h-0 flex-col gap-0"
-    >
-      <PageHeader>
-        <PageHeaderHeading>
-          <PageHeaderTitleRow>
-            <PageHeaderTitle>Loops</PageHeaderTitle>
-            <PageHeaderChip icon={<CloudIcon size={12} weight="fill" />}>
-              Runs entirely in the cloud
-            </PageHeaderChip>
-            <PageHeaderActions>{createButton}</PageHeaderActions>
-          </PageHeaderTitleRow>
-          <PageHeaderDescription>
-            {workflowBacked
-              ? "Put your work on autopilot. Loops run on a schedule or when something happens on GitHub. You can finally close the laptop!"
-              : "Put your work on autopilot. Loops run on a schedule, on an API call, or when something happens on GitHub. You can finally close the laptop!"}
-          </PageHeaderDescription>
-        </PageHeaderHeading>
-        {hasTabs && (
-          <PageHeaderNav>
-            <LoopTabsList
-              personalCount={personalLoops.length}
-              teamCount={teamLoops.length}
-            />
-          </PageHeaderNav>
-        )}
-      </PageHeader>
-      {body}
-    </Tabs>
-  );
-}
-
-/** The trigger strip. Rendered inside the page header. */
-function LoopTabsList({
-  personalCount,
-  teamCount,
-}: {
-  personalCount: number;
-  teamCount: number;
-}) {
-  return (
-    <TabsList variant="line" className="h-auto gap-0.5">
-      <TabsTrigger value="personal" className="gap-1.5 px-2.5 py-2">
-        <span className="font-medium text-[13px]">
-          My loops ({personalCount})
-        </span>
-      </TabsTrigger>
-      <TabsTrigger value="team" className="gap-1.5 px-2.5 py-2">
-        <span className="font-medium text-[13px]">
-          Team loops ({teamCount})
-        </span>
-      </TabsTrigger>
-    </TabsList>
-  );
-}
-
-/** The panels. Always in the scrolling body, wherever the triggers live. */
-function LoopTabPanels({
-  personalLoops,
-  teamLoops,
-  members,
-  membersLoading,
-  membersError,
-  membersComplete,
-}: {
-  personalLoops: LoopSchemas.Loop[];
-  teamLoops: LoopSchemas.Loop[];
-  members: UserBasic[];
-  membersLoading: boolean;
-  membersError: boolean;
-  membersComplete: boolean;
-}) {
-  return (
-    <>
-      <TabsContent value="personal">
-        {personalLoops.length > 0 ? (
-          <LoopListSection
-            loops={personalLoops}
-            members={members}
-            membersLoading={membersLoading}
-            membersError={membersError}
-            membersComplete={membersComplete}
-          />
-        ) : (
-          <LoopsEmptyState />
-        )}
-      </TabsContent>
-      <TabsContent value="team">
-        {teamLoops.length > 0 ? (
-          <LoopListSection
-            loops={teamLoops}
-            members={members}
-            membersLoading={membersLoading}
-            membersError={membersError}
-            membersComplete={membersComplete}
-          />
-        ) : (
-          <LoopsEmptyNotice
-            title="No team loops yet."
-            hint="Loops shared with your team will appear here."
-          />
-        )}
-      </TabsContent>
-    </>
+    </div>
   );
 }
 

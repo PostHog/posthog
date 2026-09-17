@@ -24,7 +24,7 @@ import {
 import { LoopRow } from "../../loops/components/LoopRow";
 import { LoopsEmptyState } from "../../loops/components/LoopsEmptyState";
 import { LoopTemplatesSection } from "../../loops/components/LoopTemplatesSection";
-import { useLoopLimits, useLoops } from "../../loops/hooks/useLoops";
+import { useLoops } from "../../loops/hooks/useLoops";
 import { useLoopDraftStore } from "../../loops/loopDraftStore";
 import { defaultLoopContextOutputs } from "../../loops/loopFormTypes";
 import type { LoopTemplate } from "../../loops/loopTemplates";
@@ -94,11 +94,6 @@ function SpaceAttachedLoops({
 }) {
   const { data: loops, isLoading, isError } = useLoops();
   const spacesLayout = useChannelsLayout();
-  const limits = useLoopLimits();
-  const limitReason =
-    limits?.atLimit === true
-      ? `You've reached the limit of ${limits.max} loops for this project. Delete one to add another.`
-      : null;
 
   useSetHeaderContent(
     useMemo(
@@ -148,16 +143,9 @@ function SpaceAttachedLoops({
   const contextReference = channelDisplayReference(contextName);
   const title = `Automate ${contextReference}`;
   const description =
-    "Put your work on autopilot. Loops run on a schedule, on an API call, or when something happens on GitHub. You can finally close the laptop!";
+    "Put your work on autopilot. Loops run on a schedule or when something happens on GitHub. You can finally close the laptop!";
   const createButton = (
-    <Button
-      variant="soft"
-      color="gray"
-      size="2"
-      onClick={startBlank}
-      disabled={limitReason != null}
-      disabledReason={limitReason}
-    >
+    <Button variant="soft" color="gray" size="2" onClick={startBlank}>
       <PlusIcon size={14} />
       Create manually
     </Button>
@@ -264,7 +252,6 @@ function SpaceAttachedLoops({
             context={{ folderId: channelId, name: contextName }}
             placeholder={`What should ${contextReference} keep an eye on?`}
             quickStarts={contextQuickStarts(contextName)}
-            disabledReason={limitReason}
           />
         </Flex>
       </div>

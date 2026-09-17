@@ -12,12 +12,10 @@ export interface LoopsApiClient {
 }
 
 /**
- * The Loops endpoints aren't in the generated OpenAPI client yet (see
- * `@posthog/api-client/loops`), so `PostHogAPIClient` has no wrapper methods
- * for them and its underlying `ApiClient` is private. This builds a
- * standalone `ApiClient` the same way `PostHogAPIClient`'s constructor does,
- * so `listLoops`/`createLoop`/etc. from `@posthog/api-client/loops` have
- * something to call against.
+ * `PostHogAPIClient` has no wrapper methods for the workflow calls behind
+ * loops and its underlying `ApiClient` is private. This builds a standalone
+ * `ApiClient` the same way `PostHogAPIClient`'s constructor does, so
+ * `@posthog/api-client/hogFlowLoops` has something to call against.
  */
 export function useLoopsClient(): LoopsApiClient | null {
   const hostClient = useHostTRPCClient();

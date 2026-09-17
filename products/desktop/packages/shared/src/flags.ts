@@ -21,8 +21,6 @@ export const PROJECT_BLUEBIRD_FLAG = featureFlagKeys.PROJECT_BLUEBIRD_FLAG;
 export const CHANNELS_LAYOUT_FLAG = featureFlagKeys.CHANNELS_LAYOUT_FLAG;
 // Gates the Loops feature: the sidebar Loops space and the per-channel Loops tab.
 export const LOOPS_FLAG = featureFlagKeys.LOOPS_FLAG;
-/** Desktop Loops read and write workflows (`hog_flows`) instead of the loops API. */
-export const LOOPS_HOG_FLOWS_FLAG = featureFlagKeys.LOOPS_HOG_FLOWS_FLAG;
 export const DESKTOP_HOME_FLAG = featureFlagKeys.DESKTOP_HOME_FLAG;
 export const SAVED_SEARCHES_RAIL_FLAG =
   featureFlagKeys.SAVED_SEARCHES_RAIL_FLAG;

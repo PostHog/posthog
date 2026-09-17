@@ -51,7 +51,6 @@ vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
 }));
 vi.mock("@posthog/ui/features/loops/hooks/useLoops", () => ({
   useLoops: mocks.useLoops,
-  useLoopLimits: () => null,
 }));
 vi.mock("@posthog/ui/features/loops/components/LoopBuilderComposer", () => ({
   LoopBuilderComposer: () => null,

@@ -7,11 +7,7 @@ function Harness({ initial }: { initial: LoopTriggerDraft[] }) {
   const [triggers, setTriggers] = useState(initial);
   return (
     <div className="w-[600px] p-4">
-      <LoopTriggerEditor
-        triggers={triggers}
-        onChange={setTriggers}
-        triggerEndpointPath={null}
-      />
+      <LoopTriggerEditor triggers={triggers} onChange={setTriggers} />
     </div>
   );
 }
@@ -40,15 +36,7 @@ const gh = (config: object): LoopTriggerDraft[] => [
 export const ReviewRequestedFromTeam: Story = {
   args: {
     initial: gh({
-      filters: {
-        actions: ["review_requested"],
-        payload: [
-          {
-            path: "requested_team.slug",
-            equals: ["team-security", "team-infra"],
-          },
-        ],
-      },
+      filters: { actions: ["review_requested"] },
     }),
   },
 };

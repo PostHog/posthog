@@ -1,13 +1,6 @@
 import type { Schemas } from "@posthog/api-client/generated";
 import { deleteHogFlow } from "@posthog/api-client/hogFlowLoops";
-import {
-  createLoop,
-  destroyLoop,
-  type LoopSchemas,
-  partialUpdateLoop,
-  runLoop,
-} from "@posthog/api-client/loops";
-import { useLoopsHogFlowsEnabled } from "@posthog/ui/features/feature-flags/useLoopsHogFlowsEnabled";
+import type { LoopSchemas } from "@posthog/api-client/loops";
 import {
   type QueryClient,
   useMutation,
@@ -25,11 +18,10 @@ import {
 import { loopsKeys } from "./loopsKeys";
 import { type LoopsApiClient, useLoopsClient } from "./useLoopsClient";
 
-function invalidateLoopLists(
+function invalidateLoopList(
   queryClient: QueryClient,
   projectId: string | null,
 ): void {
-  void queryClient.invalidateQueries({ queryKey: loopsKeys.list(projectId) });
   void queryClient.invalidateQueries({
     queryKey: loopsKeys.hogFlowList(projectId),
   });
@@ -45,27 +37,12 @@ function applyHogFlowToCache(
     loopsKeys.hogFlow(loopsClient.projectId, flow.id),
     flow,
   );
-  invalidateLoopLists(queryClient, loopsClient.projectId);
+  invalidateLoopList(queryClient, loopsClient.projectId);
   return hogFlowToLoop(flow, { projectId: Number(loopsClient.projectId) });
 }
 
-export function useCreateLoop() {
-  const loopsClient = useLoopsClient();
-  const queryClient = useQueryClient();
-
-  return useMutation<LoopSchemas.Loop, Error, LoopSchemas.LoopWrite>({
-    mutationFn: async (body) => {
-      if (!loopsClient) throw new Error("Not authenticated");
-      return await createLoop(loopsClient.client, loopsClient.projectId, body);
-    },
-    onSuccess: () => {
-      invalidateLoopLists(queryClient, loopsClient?.projectId ?? null);
-    },
-  });
-}
-
-/** Creates a workflow-backed loop from the form. `enabled` picks between a
- * live workflow and a draft, since the form has no separate enable step. */
+/** Creates a loop from the form. `enabled` picks between a live workflow and
+ * a draft, since the form has no separate enable step. */
 export function useCreateLoopHogFlow() {
   const loopsClient = useLoopsClient();
   const queryClient = useQueryClient();
@@ -87,50 +64,27 @@ export function useCreateLoopHogFlow() {
   });
 }
 
-/** Partial updates against the loop's lifecycle fields. For a workflow-backed
- * loop only `enabled` applies; content edits go through `useUpdateLoopHogFlow`. */
+/** Pauses or resumes a loop. Content edits go through `useUpdateLoopHogFlow`. */
 export function useUpdateLoop(loopId: string) {
-  const hogFlows = useLoopsHogFlowsEnabled();
   const loopsClient = useLoopsClient();
   const queryClient = useQueryClient();
 
-  return useMutation<LoopSchemas.Loop, Error, LoopSchemas.PatchedLoop>({
-    mutationFn: async (body) => {
+  return useMutation<LoopSchemas.Loop, Error, { enabled: boolean }>({
+    mutationFn: async ({ enabled }) => {
       if (!loopsClient) throw new Error("Not authenticated");
-      if (!hogFlows) {
-        return await partialUpdateLoop(
-          loopsClient.client,
-          loopsClient.projectId,
-          loopId,
-          body,
-        );
-      }
-      if (typeof body.enabled !== "boolean") {
-        throw new Error(
-          "Only the enabled state can be patched on a workflow-backed loop.",
-        );
-      }
       const flow = await setLoopHogFlowEnabled(
         loopsClient.client,
         loopsClient.projectId,
         loopId,
-        body.enabled,
+        enabled,
       );
       return applyHogFlowToCache(queryClient, loopsClient, flow);
-    },
-    onSuccess: (loop) => {
-      if (hogFlows) return;
-      queryClient.setQueryData(
-        loopsKeys.detail(loopsClient?.projectId ?? null, loopId),
-        loop,
-      );
-      invalidateLoopLists(queryClient, loopsClient?.projectId ?? null);
     },
   });
 }
 
-/** Saves the whole form onto an existing workflow-backed loop. Needs the
- * current workflow so the schedule row can be reconciled rather than rewritten. */
+/** Saves the whole form onto an existing loop. Needs the current workflow so
+ * the schedule row can be reconciled rather than rewritten. */
 export function useUpdateLoopHogFlow(loopId: string) {
   const loopsClient = useLoopsClient();
   const queryClient = useQueryClient();
@@ -173,52 +127,37 @@ export function useUpdateLoopHogFlow(loopId: string) {
 }
 
 export function useDeleteLoop() {
-  const hogFlows = useLoopsHogFlowsEnabled();
   const loopsClient = useLoopsClient();
   const queryClient = useQueryClient();
 
   return useMutation<void, Error, string>({
     mutationFn: async (loopId) => {
       if (!loopsClient) throw new Error("Not authenticated");
-      if (hogFlows) {
-        await deleteHogFlow(loopsClient.client, loopsClient.projectId, loopId);
-        return;
-      }
-      await destroyLoop(loopsClient.client, loopsClient.projectId, loopId);
+      await deleteHogFlow(loopsClient.client, loopsClient.projectId, loopId);
     },
     onSuccess: () => {
-      invalidateLoopLists(queryClient, loopsClient?.projectId ?? null);
+      invalidateLoopList(queryClient, loopsClient?.projectId ?? null);
     },
   });
 }
 
 export function useRunLoop(loopId: string) {
-  const hogFlows = useLoopsHogFlowsEnabled();
   const loopsClient = useLoopsClient();
   const queryClient = useQueryClient();
 
   return useMutation<LoopSchemas.LoopFireRun, Error, void>({
     mutationFn: async () => {
       if (!loopsClient) throw new Error("Not authenticated");
-      if (hogFlows) {
-        return await runLoopHogFlow(
-          loopsClient.client,
-          loopsClient.projectId,
-          loopId,
-        );
-      }
-      return await runLoop(loopsClient.client, loopsClient.projectId, loopId);
+      return await runLoopHogFlow(
+        loopsClient.client,
+        loopsClient.projectId,
+        loopId,
+      );
     },
     onSuccess: () => {
       const projectId = loopsClient?.projectId ?? null;
       void queryClient.invalidateQueries({
-        queryKey: loopsKeys.runs(projectId, loopId),
-      });
-      void queryClient.invalidateQueries({
         queryKey: loopsKeys.hogFlowRuns(projectId, loopId),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: loopsKeys.detail(projectId, loopId),
       });
       void queryClient.invalidateQueries({
         queryKey: loopsKeys.hogFlow(projectId, loopId),

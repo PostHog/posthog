@@ -1,20 +1,12 @@
 import type { TaskCreationInput } from "@posthog/core/task-detail/taskService";
-import { resolveFeatureFlagAfterLoad } from "@posthog/ui/features/feature-flags/useFeatureFlagsLoaded";
 import {
   type InboxCloudTaskInputContext,
   useInboxCloudTaskRunner,
 } from "@posthog/ui/features/inbox/hooks/useInboxCloudTaskRunner";
 import { renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useLoopBuilderTask } from "./useLoopBuilderTask";
 
-vi.mock("@posthog/di/react", () => ({
-  useService: () => ({}),
-}));
-vi.mock("@posthog/ui/features/feature-flags/useFeatureFlagsLoaded", () => ({
-  useFeatureFlagsLoaded: () => true,
-  resolveFeatureFlagAfterLoad: vi.fn(),
-}));
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxCloudTaskRunner", () => ({
   useInboxCloudTaskRunner: vi.fn(),
 }));
@@ -23,7 +15,6 @@ vi.mock("@posthog/ui/features/auth/store", () => ({
   useAuthStore: { getState: () => ({ authState: {} }) },
 }));
 
-const mockedResolveFlag = vi.mocked(resolveFeatureFlagAfterLoad);
 const mockedRunner = vi.mocked(useInboxCloudTaskRunner);
 
 const inputContext: InboxCloudTaskInputContext = {
@@ -51,40 +42,28 @@ async function buildInputFor(instructions: string): Promise<TaskCreationInput> {
 }
 
 describe("useLoopBuilderTask", () => {
-  beforeEach(() => {
-    mockedResolveFlag.mockReset();
+  it("briefs the agent to build the loop as a workflow", async () => {
+    const input = await buildInputFor("Summarize open PRs");
+    expect(input.customInstructions).toContain("`workflows-create`");
+    expect(input.customInstructions).not.toContain("`loops-create`");
+    expect(input.content).toBe("Summarize open PRs");
+    expect(input.repository).toBeUndefined();
   });
 
-  it.each([
-    { flag: false, expects: "`loops-create`", forbids: "`workflows-create`" },
-    { flag: true, expects: "`workflows-create`", forbids: "`loops-create`" },
-  ])(
-    "briefs the agent for the backend the flag selects (flag=$flag)",
-    async ({ flag, expects, forbids }) => {
-      mockedResolveFlag.mockResolvedValue(flag);
-      const input = await buildInputFor("Summarize open PRs");
-      expect(input.customInstructions).toContain(expects);
-      expect(input.customInstructions).not.toContain(forbids);
-      expect(input.content).toBe("Summarize open PRs");
-      expect(input.repository).toBeUndefined();
-    },
-  );
-
-  it("starts one task when a second submit lands while the flag is still loading", async () => {
-    let releaseFlag = (): void => {};
-    mockedResolveFlag.mockImplementation(
+  it("starts one task when a second submit lands while the first is still starting", async () => {
+    let release = (): void => {};
+    const run = vi.fn(
       () =>
         new Promise<boolean>((resolve) => {
-          releaseFlag = () => resolve(false);
+          release = () => resolve(true);
         }),
     );
-    const run = vi.fn(async () => true);
     mockedRunner.mockImplementation(() => ({ run, isRunning: false }));
 
     const { result } = renderHook(() => useLoopBuilderTask());
     const first = result.current.runTask("Summarize open PRs");
     const second = result.current.runTask("Summarize open PRs");
-    releaseFlag();
+    release();
     await Promise.all([first, second]);
 
     expect(run).toHaveBeenCalledTimes(1);

@@ -23,7 +23,6 @@
   "KIMI_MODEL_FLAG": "tasks-kimi-k3",
   "LOCAL_MCP_IMPORT_FLAG": "posthog-code-local-mcp-import",
   "LOOPS_FLAG": "loops",
-  "LOOPS_HOG_FLOWS_FLAG": "loops-hog-flows",
   "MCP_GATEWAY_FLAG": "mcp-gateway",
   "ONBOARDING_TEST_TOOLS_FLAG": "posthog-desktop-onboarding-test-tools",
   "PI_HARNESS_FLAG": "pi-harness",
