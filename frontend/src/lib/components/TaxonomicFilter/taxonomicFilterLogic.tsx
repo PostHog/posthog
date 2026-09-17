@@ -1977,6 +1977,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.Dashboards,
                         logic: dashboardsModel,
                         value: 'nameSortedDashboards',
+                        valueLoading: 'dashboardsLoading',
                         getName: (dashboard: DashboardType) => dashboard.name,
                         getValue: (dashboard: DashboardType) => dashboard.id,
                         getPopoverHeader: () => `Dashboards`,
