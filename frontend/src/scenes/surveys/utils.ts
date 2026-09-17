@@ -920,9 +920,10 @@ export function buildSurveyResponsesExportQuery(
 ): DataTableNode & { source: HogQLQuery } {
     const questions = getAnswerableQuestions(survey)
     const merged = buildMergedSubmissionsSubquery(survey, filters, questions, { includeRespondentMetadata: true })
-    const columns = ['Respondent ID', 'Submitted at (UTC)', 'Status']
+    const columns = ['Respondent ID', 'Email', 'Submitted at (UTC)', 'Status']
     const expressions = [
         'distinct_id',
+        "coalesce(nullIf(JSONExtractString(person_properties, '$email'), ''), nullIf(JSONExtractString(person_properties, 'email'), ''), '')",
         "formatDateTime(submitted_at, '%Y-%m-%d %H:%i:%S', 'UTC')",
         "multiIf(outcome = 'completed', 'Completed', outcome = 'dismissed', 'Dismissed', 'Abandoned')",
     ]

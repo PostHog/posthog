@@ -1756,6 +1756,8 @@ class TestCSVExporter(APIBaseTest):
         assert _format_breakdown_value(["a", "b", "c"]) == "a::b::c"
         assert _format_breakdown_value(["single"]) == "single"
 
+
+class TestExcelWriter:
     def test_excel_writer_raises_column_limit_exceeded(self) -> None:
         writer = ExcelWriter()
         # Create more columns than openpyxl supports (18,278 max)
@@ -1768,15 +1770,27 @@ class TestCSVExporter(APIBaseTest):
         assert "18,278 columns" in str(exc_info.value)
         assert "CSV format" in str(exc_info.value)
 
-    def test_excel_writer_normal_column_count_works(self) -> None:
+    def test_excel_writer_formats_readable_rows(self) -> None:
         writer = ExcelWriter()
-        columns = ["col_a", "col_b", "col_c"]
+        columns = ["Respondent ID", "Email", "Q1: What could we improve about the report builder?"]
         writer.write_header(columns)
-        writer.write_row({"col_a": "1", "col_b": "2", "col_c": "3"})
+        answer = 'Please keep the "weekly" filter.\n' + "Long responses should wrap without widening every column. " * 8
+        writer.write_row(dict(zip(columns, ["anonymous-1", None, answer])))
         path = writer.finish()
-
-        assert os.path.exists(path)
-        os.unlink(path)
+        try:
+            workbook = load_workbook(path)
+            sheet = workbook.active
+            assert list(sheet.values) == [tuple(columns), ("anonymous-1", None, answer)]
+            assert sheet.freeze_panes == "A2"
+            assert sheet.auto_filter.ref == "A1:C2"
+            assert sheet["C1"].font.bold
+            assert sheet["C1"].alignment.wrap_text
+            assert sheet["C2"].alignment.wrap_text
+            assert sheet["C2"].alignment.vertical == "top"
+            assert 24 <= sheet.column_dimensions["C"].width <= 60
+            assert sheet.row_dimensions[2].height > sheet.sheet_format.defaultRowHeight
+        finally:
+            os.unlink(path)
 
 
 @override_settings(SITE_URL="http://testserver")
