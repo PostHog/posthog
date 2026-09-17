@@ -55,8 +55,13 @@ from products.replay_vision.backend.temporal.events_tool import (
 )
 from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error, gemini_api_key
 from products.replay_vision.backend.temporal.metrics import (
+    record_events_tool_call,
     record_mission_pass,
+    record_network_state,
+    record_network_tool_call,
     record_provider_call,
+    record_tool_round,
+    record_unknown_tool_call,
     record_verification_outcome,
 )
 from products.replay_vision.backend.temporal.network_capture import SessionNetworkPayload
@@ -540,6 +545,12 @@ async def _run_mission(
 
     # The network tool is offered only when the recording has requests to return. Otherwise every lookup
     # would be a dead call against the budget the events tool shares.
+    scanner_type = snapshot.scanner_type.value
+    record_network_state(scanner_type, network_index.state())
+    counters: dict[str, Callable[[str, str], None]] = {
+        GET_EVENTS_TOOL_NAME: record_events_tool_call,
+        GET_NETWORK_TOOL_NAME: record_network_tool_call,
+    }
     handlers: dict[str, Callable[[Any], dict[str, Any]]] = {
         GET_EVENTS_TOOL_NAME: lambda call: dispatch_events_tool(call, events_index),
     }
@@ -549,8 +560,10 @@ async def _run_mission(
         tools.append(network_tool())
 
     def dispatch(call: Any) -> dict[str, Any]:
-        name = getattr(call, "name", None)
-        handler = handlers.get(name) if isinstance(name, str) else None
+        raw_name = getattr(call, "name", None)
+        name = raw_name if isinstance(raw_name, str) else ""
+        counters.get(name, record_unknown_tool_call)(scanner_type, snapshot.model)
+        handler = handlers.get(name)
         if handler is None:
             # An unoffered or hallucinated name must not fall through to a lookup that returns
             # plausible data for a question the model did not ask.
@@ -572,6 +585,10 @@ async def _run_mission(
         else step
         for step in scanner.mission_steps()
     ]
+
+    def on_round(calls: int) -> None:
+        record_tool_round(scanner_type, snapshot.model, calls)
+
     run = functools.partial(
         _run_steps,
         client=client,
@@ -584,6 +601,7 @@ async def _run_mission(
         metric_labels=metric_labels,
         trace_id=trace_id,
         tools=tools,
+        on_round=on_round,
     )
     verification: VerificationRecord | None = None
     try:
@@ -767,6 +785,7 @@ async def _run_steps(
     metric_labels: dict[str, str],
     trace_id: str,
     tools: list[types.Tool],
+    on_round: Callable[[int], None] | None = None,
 ) -> dict[str, BaseModel]:
     """Run the ordered steps over one growing conversation; return the validated output keyed by step name."""
     # The video + preamble lead the conversation inline unless they're already cached as the prefix.
@@ -788,6 +807,7 @@ async def _run_steps(
             tools=tools,
             metric_labels=metric_labels,
             trace_id=trace_id,
+            on_round=on_round,
         )
         if result.output is None:
             # Roll the failed step's half-finished exchange back so the next instruction follows the last good
@@ -829,6 +849,7 @@ async def _run_step(
     metric_labels: dict[str, str],
     trace_id: str,
     tools: list[types.Tool],
+    on_round: Callable[[int], None] | None = None,
 ) -> "_StepResult":
     """Run one step's tool loop with one re-prompt on failure. Returns the validated output, or why it was exhausted.
 
@@ -860,7 +881,11 @@ async def _run_step(
         started = time.monotonic()
         try:
             response = await run_tool_loop(
-                generate=_generate, convo=convo, dispatch=dispatch, max_tool_iterations=_tool_budget(model)
+                generate=_generate,
+                convo=convo,
+                dispatch=dispatch,
+                max_tool_iterations=_tool_budget(model),
+                on_round=on_round,
             )
             if function_calls(response):
                 # Tool budget spent and the model still wants a lookup. Rather than hard-fail, complete the
@@ -893,9 +918,14 @@ async def _run_step(
 
         text = (response.text or "").strip()
         parsed, error = _parse_and_validate(step, text)
+        capped = error is not None and _hit_output_cap(response)
+        if capped:
+            # The cap counts thoughts, so the usual "respond with raw JSON" correction would only re-run the
+            # same reasoning into the same wall. Name the cause so the re-prompt asks for less thinking.
+            error = "the response ran out of output tokens before the JSON was complete; reason more briefly"
         record_provider_call(
             **metric_labels,
-            outcome="ok" if error is None else "validation_failed",
+            outcome="ok" if error is None else "output_cap_hit" if capped else "validation_failed",
             seconds=time.monotonic() - started,
         )
 
@@ -915,7 +945,11 @@ async def _run_step(
             # Keep turn roles alternating on retry: the model's rejected answer is a model turn, then our
             # correction is the user turn. Without this, a turn that called a tool then returned bad JSON
             # would leave two consecutive user turns (the tool response and the correction).
-            convo.append(response.candidates[0].content)
+            # Thinking can consume the whole output cap and leave a candidate with no parts, which the API
+            # rejects on resend, so only a turn that carries something goes back into the conversation.
+            rejected = response.candidates[0].content
+            if rejected is not None and rejected.parts:
+                convo.append(rejected)
             convo.append(
                 types.Part(
                     text=(
@@ -960,6 +994,11 @@ async def _force_final_answer(*, generate: Any, convo: list[Any], exhausted: Any
     return await generate(convo)
 
 
+def _hit_output_cap(response: Any) -> bool:
+    candidates = getattr(response, "candidates", None) or []
+    return bool(candidates) and getattr(candidates[0], "finish_reason", None) == types.FinishReason.MAX_TOKENS
+
+
 def _step_config(
     step: MissionStep, cache_name: str | None, *, allow_tools: bool = True, tools: list[types.Tool] | None = None
 ) -> types.GenerateContentConfig:
@@ -978,6 +1017,7 @@ def _step_config(
         # Return thought summaries so the model's reasoning is visible in LLM analytics. Answer parsing is
         # unaffected (`response.text` skips thought parts); models with thinking off just return none.
         "thinking_config": types.ThinkingConfig(include_thoughts=True),
+        "max_output_tokens": step.max_output_tokens,
     }
     if not allow_tools:
         return types.GenerateContentConfig(**kwargs)  # inline, no tool to call — the model must answer now

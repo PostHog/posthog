@@ -38,7 +38,7 @@ from rest_framework.throttling import UserRateThrottle
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
-from posthog.auth import SessionAuthentication
+from posthog.auth import SessionAuthentication, is_mcp_request
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
@@ -103,6 +103,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     FeatureRequestEvidenceCreateSerializer,
     FeatureRequestEvidenceDeleteSerializer,
     FeatureRequestEvidenceUpdateSerializer,
+    FeatureRequestGitHubLinkSerializerInput,
     FeatureRequestHistorySerializer,
     FeatureRequestListQuerySerializer,
     FeatureRequestProductAreaListQuerySerializer,
@@ -619,6 +620,82 @@ class FeatureRequestViewSet(
     @extend_schema(request=FeatureRequestUpdateSerializer, responses={200: FeatureRequestSerializer})
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         return self.update(request, *args, **kwargs)
+
+    @extend_schema(request=FeatureRequestGitHubLinkSerializerInput, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
+    def link_github(self, request: Request, *args, **kwargs) -> Response:
+        serializer = FeatureRequestGitHubLinkSerializerInput(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            feature_request = api.link_feature_request_github(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                input=contracts.LinkFeatureRequestGitHubInput(**serializer.validated_data),
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.GitHubLinkUnavailableError as error:
+            raise ValidationError({"issue_url": str(error)})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
+
+    def _set_github_sync(self, request: Request, *, enabled: bool) -> Response:
+        serializer = FeatureRequestVersionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            feature_request = api.set_feature_request_github_sync(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                expected_version=serializer.validated_data["expected_version"],
+                enabled=enabled,
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.GitHubLinkUnavailableError as error:
+            raise ValidationError({"github_link": str(error)})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
+
+    @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
+    def pause_github(self, request: Request, *args, **kwargs) -> Response:
+        return self._set_github_sync(request, enabled=False)
+
+    @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
+    def resume_github(self, request: Request, *args, **kwargs) -> Response:
+        return self._set_github_sync(request, enabled=True)
+
+    @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
+    def unlink_github(self, request: Request, *args, **kwargs) -> Response:
+        serializer = FeatureRequestVersionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            feature_request = api.unlink_feature_request_github(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                expected_version=serializer.validated_data["expected_version"],
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
 
     @extend_schema(request=FeatureRequestAddAccountSerializer, responses={200: FeatureRequestSerializer})
     @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
@@ -1213,6 +1290,8 @@ class AccountRelationshipDefinitionViewSet(
             )
         except api.AccountRelationshipDefinitionConflictError as e:
             raise Conflict(str(e))
+        except api.AccountRelationshipDefinitionControlledError:
+            raise Conflict("This relationship is controlled and must stay single-holder.")
         if definition is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountRelationshipDefinitionSerializer(instance=definition).data)
@@ -1222,7 +1301,11 @@ class AccountRelationshipDefinitionViewSet(
         return self.update(request, *args, **kwargs)
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
-        if not api.delete_account_relationship_definition(team_id=self.team_id, definition_id=self.kwargs["pk"]):
+        try:
+            deleted = api.delete_account_relationship_definition(team_id=self.team_id, definition_id=self.kwargs["pk"])
+        except api.AccountRelationshipDefinitionControlledError:
+            raise Conflict("This relationship is controlled and can't be deleted while it is.")
+        if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -2059,6 +2142,11 @@ class AccountViewSet(
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         except api.ResourceForbiddenError:
             raise PermissionDenied()
+        except api.AccountOwnershipManagedError:
+            raise Conflict(
+                "This account has a controlled relationship, or history under one, so it can't be deleted. "
+                "Ignore the account to hide it instead."
+            )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -2366,6 +2454,11 @@ class AccountRelationshipDeletePermission(BasePermission):
         return request.method != "DELETE" or TeamMemberStrictManagementPermission().has_permission(request, view)
 
 
+_AGENT_ROLE_MANAGED = (
+    "This relationship is controlled here and can't be changed by an agent. Change it from the account page."
+)
+
+
 @extend_schema(
     tags=["customer_analytics"],
     parameters=[
@@ -2425,6 +2518,7 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
                 definition_id=write.validated_data["definition"],
                 user_id=write.validated_data["user"],
                 created_by=cast(User, request.user),
+                via_agent=is_mcp_request(request),
             )
         except api.Account_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -2432,6 +2526,8 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             raise ValidationError({"definition": "Relationship definition not found."})
         except api.AccountRelationshipAssigneeNotInOrganization:
             raise ValidationError({"user": "User is not a member of this organization."})
+        except api.AccountRelationshipRoleManagedError:
+            raise Conflict(_AGENT_ROLE_MANAGED)
         return Response(AccountRelationshipSerializer(relationship).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(request=None, responses={200: AccountRelationshipSerializer})
@@ -2440,12 +2536,16 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         account_id = self._accessible_account_id()
         if account_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        relationship = api.end_account_relationship(
-            team_id=self.team_id,
-            account_id=account_id,
-            relationship_id=self.kwargs["pk"],
-            actor=cast(User, request.user),
-        )
+        try:
+            relationship = api.end_account_relationship(
+                team_id=self.team_id,
+                account_id=account_id,
+                relationship_id=self.kwargs["pk"],
+                actor=cast(User, request.user),
+                via_agent=is_mcp_request(request),
+            )
+        except api.AccountRelationshipRoleManagedError:
+            raise Conflict(_AGENT_ROLE_MANAGED)
         if relationship is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountRelationshipSerializer(relationship).data)
@@ -2457,12 +2557,16 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         )
         if account_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        deleted = api.delete_account_relationship(
-            team_id=self.team_id,
-            account_id=account_id,
-            relationship_id=self.kwargs["pk"],
-            actor=cast(User, request.user),
-        )
+        try:
+            deleted = api.delete_account_relationship(
+                team_id=self.team_id,
+                account_id=account_id,
+                relationship_id=self.kwargs["pk"],
+                actor=cast(User, request.user),
+                via_agent=is_mcp_request(request),
+            )
+        except api.AccountRelationshipProtectedError:
+            raise Conflict("The history of a controlled relationship can't be deleted. End the assignment instead.")
         if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)

@@ -159,6 +159,7 @@ export interface InsightCardProps extends Resizeable {
     insight: QueryBasedInsightModel
     /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
     dashboardId?: DashboardType['id']
+    canEditDashboard?: boolean
     /** Whether the insight has been called to load. */
     loadingQueued?: boolean
     /** Whether the insight is loading. */
@@ -232,6 +233,7 @@ function InsightCardInternal(
         tile,
         insight,
         dashboardId,
+        canEditDashboard,
         ribbonColor,
         loadingQueued,
         loading,
@@ -491,6 +493,7 @@ function InsightCardInternal(
                         insight={insight}
                         ribbonColor={ribbonColor}
                         dashboardId={dashboardId}
+                        canEditDashboard={canEditDashboard}
                         persistDisplayOptions={canPersistDisplayOptions ? persistDisplayOptions : undefined}
                         refreshAfterDisplayOptionsChange={handleRefreshAfterDisplayOptionsChange}
                         updateColor={updateColor}

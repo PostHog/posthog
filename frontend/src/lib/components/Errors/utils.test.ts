@@ -11,6 +11,8 @@ import {
     getInstructionAddress,
     getRuntimeFromLib,
     getSessionId,
+    getSpanId,
+    getTraceId,
     isReleaseIdMissingFromSDK,
 } from './utils'
 
@@ -228,6 +230,15 @@ describe('Error Display', () => {
         ['null session id', { $session_id: null }, undefined],
     ])('getSessionId normalizes %s', (_name, properties, expected) => {
         expect(getSessionId(properties as ErrorEventProperties)).toEqual(expected)
+    })
+
+    it.each([
+        ['trace ID', getTraceId, '$trace_id'],
+        ['span ID', getSpanId, '$span_id'],
+    ] as const)('normalizes the exception %s', (_name, getId, property) => {
+        expect(getId({ [property]: 'correlation-id' })).toEqual('correlation-id')
+        expect(getId({ [property]: 42 })).toBeUndefined()
+        expect(getId({ [property]: '' })).toBeUndefined()
     })
 
     it('normalizes the singular exception release property', () => {
