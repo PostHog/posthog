@@ -181,12 +181,9 @@ describe('Hono App Routes', () => {
     })
 
     describe('hostname-based region detection', () => {
-        it('should detect EU from mcp.eu.posthog.com via X-Forwarded-Host', async () => {
+        it('should detect EU from mcp.eu.posthog.com', async () => {
             const { app } = createApp(mockRedis)
-            const res = await app.request('/mcp', {
-                method: 'POST',
-                headers: { 'X-Forwarded-Host': 'mcp.eu.posthog.com' },
-            })
+            const res = await app.request(new Request('http://mcp.eu.posthog.com/mcp', { method: 'POST' }))
             expect(res.status).toBe(401)
             const wwwAuth = res.headers.get('WWW-Authenticate') || ''
             expect(wwwAuth).toContain('mcp.eu.posthog.com')
@@ -202,13 +199,33 @@ describe('Hono App Routes', () => {
 
         it('should detect EU from legacy mcp-eu.posthog.com', async () => {
             const { app } = createApp(mockRedis)
-            const res = await app.request('/mcp', {
-                method: 'POST',
-                headers: { 'X-Forwarded-Host': 'mcp-eu.posthog.com' },
-            })
+            const res = await app.request(new Request('http://mcp-eu.posthog.com/mcp', { method: 'POST' }))
             expect(res.status).toBe(401)
             const wwwAuth = res.headers.get('WWW-Authenticate') || ''
             expect(wwwAuth).toContain('region=eu')
+        })
+    })
+
+    describe('client-sent X-Forwarded-Host', () => {
+        const headers = { 'X-Forwarded-Host': 'mcp-eu.posthog.com', 'X-Forwarded-Proto': 'https' }
+
+        it('does not change the resource in protected resource metadata', async () => {
+            const { app } = createApp(mockRedis)
+            const res = await app.request(
+                new Request('http://mcp.us.posthog.com/.well-known/oauth-protected-resource/mcp', { headers })
+            )
+            expect(res.status).toBe(200)
+            const body = (await res.json()) as Record<string, any>
+            expect(body.resource).toBe('https://mcp.us.posthog.com/mcp')
+        })
+
+        it('does not change the host or region in the 401 challenge', async () => {
+            const { app } = createApp(mockRedis)
+            const res = await app.request(new Request('http://mcp.us.posthog.com/mcp', { method: 'POST', headers }))
+            expect(res.status).toBe(401)
+            expect(res.headers.get('WWW-Authenticate')).toBe(
+                'Bearer resource_metadata="https://mcp.us.posthog.com/.well-known/oauth-protected-resource/mcp?region=us"'
+            )
         })
     })
 

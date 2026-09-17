@@ -1,14 +1,20 @@
+import { env } from '@/lib/env'
 import type { CloudRegion } from '@/tools/types'
 
-// Resolve the public-facing URL for a request, honoring reverse-proxy headers.
-// Needed for local dev with ngrok/cloudflared, and for k8s deployments behind an ingress
-// where `request.url` is the in-cluster URL but the well-known/RFC-9728 metadata must
-// advertise the externally reachable origin.
+// Resolve the public-facing URL for a request, as advertised in the well-known/RFC-9728 metadata.
+// In production `request.url` already carries the host the client connected to: Cloudflare sets
+// it for the worker, and the Node server builds it from the Host header, which the ingress only
+// accepts for configured hostnames. X-Forwarded-Host is a client-supplied header there, so it is
+// only read when MCP_TRUST_FORWARDED_HOST is set — for local dev behind ngrok/cloudflared, where
+// `request.url` shows http://localhost. X-Forwarded-Proto always applies, because the Node server
+// sits behind a TLS-terminating load balancer and sees http.
 export function getPublicUrl(request: Request): URL {
     const url = new URL(request.url)
 
-    const forwardedHost = request.headers.get('X-Forwarded-Host')
+    const forwardedHost = trustForwardedHost() ? request.headers.get('X-Forwarded-Host') : null
     if (forwardedHost) {
+        // Setting `host` without a port keeps the local port, which the public host does not serve.
+        url.port = ''
         url.host = forwardedHost
     }
 
@@ -18,6 +24,11 @@ export function getPublicUrl(request: Request): URL {
     }
 
     return url
+}
+
+function trustForwardedHost(): boolean {
+    const value = env.MCP_TRUST_FORWARDED_HOST
+    return value === 'true' || value === '1'
 }
 
 // Detect region from the request hostname.
