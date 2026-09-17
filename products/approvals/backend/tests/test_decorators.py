@@ -163,10 +163,11 @@ class TestApprovalGateFailsClosed(APIBaseTest):
         assert flag.active is False
 
 
-class TestChangeRequestIntentIsJsonSafe(APIBaseTest):
-    """`intent` holds the endpoint serializer's validated_data, which carries native Python
-    objects for typed fields. A `datetime` in there used to abort the INSERT inside psycopg and
-    surface as an opaque "Failed to create approval request", blocking every gated save."""
+class TestChangeRequestPayloadsAreJsonSafe(APIBaseTest):
+    """`intent` and `intent_display` hold the endpoint serializer's validated_data, which carries
+    native Python objects for typed fields. A `datetime` in there used to abort the INSERT inside
+    psycopg and surface as an opaque "Failed to create approval request", blocking every gated
+    save."""
 
     def _create_change_request(
         self, intent: dict[str, Any], display_data: dict[str, Any] | None = None
@@ -194,7 +195,7 @@ class TestChangeRequestIntentIsJsonSafe(APIBaseTest):
             ("intent_display", "after"),
         ]
     )
-    def test_datetime_in_a_json_payload_is_stored_as_an_iso_string(self, field: str, key: str):
+    def test_datetime_in_a_json_payload_is_stored_as_an_iso_string(self, field: str, payload_key: str):
         called_at = timezone.now()
         payload = {"key": "test-flag", "last_called_at": called_at}
 
@@ -206,7 +207,7 @@ class TestChangeRequestIntentIsJsonSafe(APIBaseTest):
         )
 
         change_request.refresh_from_db()
-        stored = getattr(change_request, field)[key]["last_called_at"]
+        stored = getattr(change_request, field)[payload_key]["last_called_at"]
         assert isinstance(stored, str), "the datetime must be rendered, not handed to psycopg as-is"
         assert abs(datetime.fromisoformat(stored) - called_at) < timedelta(milliseconds=1)
 
