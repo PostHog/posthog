@@ -34,6 +34,12 @@ class TestLokiQueryApi(APIBaseTest):
         patcher = patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=_upstream())
         self.request_mock = patcher.start()
         self.addCleanup(patcher.stop)
+        # LokiQueryViewSet is gated behind the shared Snuffle feature flag; enable it here so
+        # every other test in this file matches production for teams on the alpha, and let the
+        # dedicated gate test below override it to assert the 403.
+        ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        ff_patcher.start()
+        self.addCleanup(ff_patcher.stop)
 
     @parameterized.expand([("bare", "query_range"), ("trailing_slash", "query_range/")])
     def test_get_is_forwarded_with_team_header_and_credentials(self, _name: str, path: str):
@@ -144,6 +150,13 @@ class TestLokiQueryApi(APIBaseTest):
 
         assert response.status_code == expected_status
         assert response.json()["status"] == "error"
+
+    def test_snuffle_flag_gates_the_api(self):
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.get(f"{self.base}/labels")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.request_mock.assert_not_called()
 
     @parameterized.expand(
         [
