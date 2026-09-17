@@ -264,7 +264,7 @@ class TestOwningLazyPrecomputeFamily(BaseTest):
                 WebStatsTableQuery(
                     dateRange=DateRange(date_from="-7d"), properties=[], breakdownBy=WebStatsBreakdown.PAGE
                 ),
-                "simple",
+                "paths",
             ),
             (
                 "page with a conversion goal",
@@ -292,7 +292,7 @@ class TestOwningLazyPrecomputeFamily(BaseTest):
                 WebStatsTableQuery(
                     dateRange=DateRange(date_from="-7d"), properties=[], breakdownBy=WebStatsBreakdown.INITIAL_PAGE
                 ),
-                "simple",
+                "paths",
             ),
             (
                 "frustration metrics",
