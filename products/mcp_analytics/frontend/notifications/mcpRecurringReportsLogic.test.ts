@@ -46,7 +46,7 @@ describe('mcpRecurringReportsLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        mockedDeleteWithUndo.mockReset().mockResolvedValue()
+        mockedDeleteWithUndo.mockReset().mockResolvedValue(true)
         mockedToggle.mockReset().mockResolvedValue(true)
         mockedList.mockReset()
         listReturns([])
@@ -141,7 +141,10 @@ describe('mcpRecurringReportsLogic', () => {
     it('restores a deleted report when the delete is undone', async () => {
         listReturns([makeReport(1), makeReport(2)])
         await expectLogic(logic, () => logic.actions.loadReports()).toFinishAllListeners()
-        mockedDeleteWithUndo.mockImplementation(async ({ callback }: any) => callback(true, {}))
+        mockedDeleteWithUndo.mockImplementation(async ({ callback }: any) => {
+            callback(true, {})
+            return true
+        })
 
         await expectLogic(logic, () => logic.actions.deleteReport(logic.values.reports[0])).toFinishAllListeners()
 
@@ -151,7 +154,10 @@ describe('mcpRecurringReportsLogic', () => {
     it('drops a deleted report from the list', async () => {
         listReturns([makeReport(1), makeReport(2)])
         await expectLogic(logic, () => logic.actions.loadReports()).toFinishAllListeners()
-        mockedDeleteWithUndo.mockImplementation(async ({ callback }: any) => callback(false, {}))
+        mockedDeleteWithUndo.mockImplementation(async ({ callback }: any) => {
+            callback(false, {})
+            return true
+        })
 
         await expectLogic(logic, () => logic.actions.deleteReport(logic.values.reports[0])).toFinishAllListeners()
 
@@ -163,7 +169,7 @@ describe('mcpRecurringReportsLogic', () => {
         // would otherwise stay optimistically gone while the report is alive and still delivering.
         listReturns([makeReport(1), makeReport(2)])
         await expectLogic(logic, () => logic.actions.loadReports()).toFinishAllListeners()
-        mockedDeleteWithUndo.mockResolvedValue()
+        mockedDeleteWithUndo.mockResolvedValue(false)
 
         await expectLogic(logic, () => logic.actions.deleteReport(logic.values.reports[0])).toFinishAllListeners()
 
@@ -183,6 +189,7 @@ describe('mcpRecurringReportsLogic', () => {
             } else {
                 callback(false, object)
             }
+            return true
         })
 
         await expectLogic(logic, () => logic.actions.deleteReport(first)).toFinishAllListeners()

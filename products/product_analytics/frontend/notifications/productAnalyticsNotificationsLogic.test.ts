@@ -51,7 +51,7 @@ describe('productAnalyticsNotificationsLogic', () => {
         })
         jest.spyOn(api.hogFunctions, 'update').mockResolvedValue(makeNotification('updated'))
         jest.spyOn(lemonToast, 'warning').mockImplementation(() => 'toast-id')
-        mockedDeleteWithUndo.mockReset().mockResolvedValue()
+        mockedDeleteWithUndo.mockReset().mockResolvedValue(true)
 
         logic = productAnalyticsNotificationsLogic()
         logic.mount()

@@ -1,4 +1,5 @@
-import { escapePath, joinPath, matchesRefType, reparentPath, splitPath } from './utils'
+import { matchesRefType } from './refTypes'
+import { escapePath, joinPath, reparentPath, splitPath } from './utils'
 
 describe('project tree utils', () => {
     describe('escapePath', () => {

@@ -51,7 +51,7 @@ describe('mcpAnalyticsNotificationsLogic', () => {
         })
         jest.spyOn(api.hogFunctions, 'update').mockResolvedValue(makeNotification('updated'))
         jest.spyOn(lemonToast, 'warning').mockImplementation(() => 'toast-id')
-        mockedDeleteWithUndo.mockReset().mockResolvedValue()
+        mockedDeleteWithUndo.mockReset().mockResolvedValue(true)
 
         logic = mcpAnalyticsNotificationsLogic()
         logic.mount()
@@ -160,7 +160,7 @@ describe('mcpAnalyticsNotificationsLogic', () => {
         const deletedNotification = makeNotification('delete')
         const concurrentlyUpdatedNotification = makeNotification('keep', { enabled: true })
         const serverNotification = makeNotification('server')
-        const deleteDeferred = createDeferred<void>()
+        const deleteDeferred = createDeferred<boolean>()
         mockedDeleteWithUndo.mockReturnValue(deleteDeferred.promise)
         listSpy.mockReset().mockResolvedValue({
             count: 2,
@@ -174,7 +174,7 @@ describe('mcpAnalyticsNotificationsLogic', () => {
         expect(logic.values.notifications).toEqual([makeNotification('keep')])
 
         logic.actions.loadNotificationsSuccess([concurrentlyUpdatedNotification])
-        deleteDeferred.resolve()
+        deleteDeferred.resolve(false)
 
         await expectLogic(logic)
             .toFinishAllListeners()

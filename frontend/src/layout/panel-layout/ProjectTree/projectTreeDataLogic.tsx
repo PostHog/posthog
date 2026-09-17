@@ -28,6 +28,7 @@ import {
     getDefaultTreeProducts,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { RecentResults, SearchResults, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { matchesRefType, refTypeParams } from '~/layout/panel-layout/ProjectTree/refTypes'
 import { FolderState, ProjectTreeAction } from '~/layout/panel-layout/ProjectTree/types'
 import {
     appendResultsToFolders,
@@ -37,9 +38,7 @@ import {
     isGroupViewShortcut,
     isPathUnder,
     joinPath,
-    matchesRefType,
     parentPath,
-    refTypeParams,
     reparentPath,
     sortFilesAndFolders,
     splitPath,

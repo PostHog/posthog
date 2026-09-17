@@ -138,6 +138,26 @@ describe('recentItemsModel', () => {
         expect(logic.values.recents).toEqual([])
     })
 
+    it('keeps a deleted item out of a response the delete raced', async () => {
+        jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(true)
+        let resolveList: (response: { count: number; results: FileSystemEntry[]; users: [] }) => void = () => {}
+        jest.spyOn(api.fileSystem, 'list').mockReturnValue(
+            new Promise((resolve) => {
+                resolveList = resolve
+            })
+        )
+        jest.spyOn(api.fileSystemLogView, 'list').mockResolvedValue([])
+
+        logic = recentItemsModel()
+        logic.mount()
+
+        // The load started before the delete, so its response still carries the deleted item.
+        deleteFromTree(recentItem.type as string, recentItem.ref as string)
+        resolveList({ count: 1, results: [recentItem], users: [] })
+
+        await expectLogic(logic).toDispatchActions(['loadRecentsSuccess']).toMatchValues({ recents: [] })
+    })
+
     it('degrades to empty fallbacks when the loaders hit a fetch failure', async () => {
         jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(true)
         jest.spyOn(api.fileSystem, 'list').mockRejectedValue(new TypeError('Failed to fetch'))

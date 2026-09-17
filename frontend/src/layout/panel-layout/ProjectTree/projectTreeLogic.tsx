@@ -33,6 +33,7 @@ import { ProjectTreeRef } from '~/types'
 import type { Breadcrumb, UserBasicType } from '../../../types'
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import type { PanelLayoutNavIdentifier } from '../panelLayoutLogic'
+import { matchesRefType, refTypeParams } from './refTypes'
 import type { FolderState, ProjectTreeAction } from './types'
 import {
     convertFileSystemEntryToTreeDataItem,
@@ -40,8 +41,6 @@ import {
     formatUrlAsName,
     calculateMovePath,
     joinPath,
-    matchesRefType,
-    refTypeParams,
     sortFilesAndFolders,
     splitPath,
     splitProtocolPath,
@@ -1692,6 +1691,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
 
 export function refreshTreeItem(type: string, ref: string): void {
     projectTreeDataLogic.findMounted()?.actions.syncTypeAndRef(type, ref)
+    recentItemsModel.findMounted()?.actions.restoreItem(type, ref)
 }
 
 export function deleteFromTree(type: string, ref: string): void {
