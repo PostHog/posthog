@@ -260,6 +260,31 @@ class TestUniqueMigrationPrefixes(TestCase):
             error_message += "For more information, see posthog/clickhouse/migrations/AGENTS.md\n"
             self.fail(error_message)
 
+    def test_crash_log_reads_are_preceded_by_a_flush(self):
+        """A migration that reads system.crash_log must flush the logs first.
+
+        ClickHouse creates system.crash_log on the first flush rather than at startup, so on a
+        node that never crashed the table is absent and the read fails with UNKNOWN_TABLE,
+        which aborts migrate_clickhouse for the whole cluster build.
+        """
+        violations: list[tuple[str, int]] = []
+        for name, module in self._checked_modules():
+            operations = getattr(module, "operations", None) or []
+            flushed = False
+            for idx, operation in enumerate(operations):
+                sql = getattr(operation, "_sql", None) or ""
+                if re.search(r"\bSYSTEM\s+FLUSH\s+LOGS\b", sql, re.IGNORECASE):
+                    flushed = True
+                elif "system.crash_log" in sql and not flushed:
+                    violations.append((name, idx))
+
+        if violations:
+            msg = "Found migration operations that read system.crash_log without flushing first:\n\n"
+            for name, idx in violations:
+                msg += f"  {name}: operation {idx}\n"
+            msg += '\nAdd run_sql_with_exceptions("SYSTEM FLUSH LOGS", ...) before the operation.\n'
+            self.fail(msg)
+
     def test_no_on_cluster_in_migration_source_strings(self):
         """Static backstop: flag ``ON CLUSTER`` in any string literal in migration source.
 
