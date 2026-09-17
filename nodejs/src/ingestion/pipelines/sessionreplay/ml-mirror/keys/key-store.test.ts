@@ -622,9 +622,17 @@ describe('ML session key batches', () => {
             team_id: { N: String(other.teamId) },
             session_month: { S: '2025-09' },
         })
-        const keys = await reader.read([sessionKeyId(session.teamId, session.sessionId), legacy])
+        const mismatch = jest.spyOn(MlMirrorMetrics, 'incrementMlKeyIdentityMismatch')
+        const keys = await reader.read([
+            sessionKeyId(session.teamId, session.sessionId),
+            sessionKeyId(other.teamId, other.sessionId),
+            legacy,
+        ])
         expect(keys.has(tableKeyString(sessionKeyId(session.teamId, session.sessionId)))).toBe(false)
+        expect(keys.has(tableKeyString(sessionKeyId(other.teamId, other.sessionId)))).toBe(false)
         expect(keys.has(tableKeyString(legacy))).toBe(true)
+        // One refused month key counts once, however many sessions needed it, so the writer and the reader mean the same thing.
+        expect(mismatch.mock.calls).toEqual([['month_key_unavailable', 1]])
     })
 
     it('counts an unusable row once however often the batch re-reads it', async () => {

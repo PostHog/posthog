@@ -71,7 +71,7 @@ export class MlMirrorMetrics {
     })
     private static readonly mlKeyIdentityMismatch = new Counter({
         name: 'recording_blob_ingestion_v2_ml_key_identity_mismatch_total',
-        help: 'Stored ML key rows the mirror could not use: the row has no wrapped key and no tombstone, so its sessions are dropped (ml_key_stored_key_unusable log names the rows)',
+        help: 'Stored ML key rows the mirror could not use, so their sessions are dropped, by reason. wrapped_key_missing: the row has no key and no tombstone, and the ml_key_stored_key_unusable log names these rows. seal_unopenable: the row and its team month key disagree. month_key_unavailable: the row is intact but its team month key gave no key, so one month key can raise this once per session that needed it. Each reason counts a row once per batch',
         labelNames: ['reason'],
     })
     private static readonly mlProducedVersion = new Counter({

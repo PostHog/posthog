@@ -1,3 +1,4 @@
+import { logger } from '~/common/utils/logger'
 import { MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 
 import { MlDataKey, MlKeyEncryption, openSessionKey } from './crypto'
@@ -71,6 +72,7 @@ export class MlKeyReader {
         ])
         const blocked = (teamId: number): boolean => state.has(tableKeyString(teamBlockId(teamId)))
         const months = new Map<string, MlDataKey>()
+        const refused: { id: string; error: string }[] = []
         await Promise.all(
             [...monthKeys.keys()].map(async (id) => {
                 const item = state.get(id)
@@ -88,9 +90,17 @@ export class MlKeyReader {
                     if (isTransientError(error)) {
                         throw error
                     }
+                    refused.push({ id, error: error instanceof Error ? error.name : String(error) })
                 }
             })
         )
+        const missing = [...monthKeys.keys()].filter((id) => !months.has(id))
+        if (missing.length) {
+            MlMirrorMetrics.incrementMlKeyIdentityMismatch('month_key_unavailable', missing.length)
+        }
+        if (refused.length) {
+            logger.error('🔑', 'ml_key_month_key_refused', { count: refused.length, rows: refused })
+        }
         const result = new Map<string, MlDataKey>()
         await Promise.all(
             [...identities].map(async ([id, identity]) => {
@@ -102,7 +112,6 @@ export class MlKeyReader {
                     const monthId = monthKeyOf.get(id)
                     const month = monthId ? months.get(monthId) : undefined
                     if (!month) {
-                        MlMirrorMetrics.incrementMlKeyIdentityMismatch('month_key_unavailable', 1)
                         return
                     }
                     const sealed = { sealed: Buffer.from(item.sealed_key.B), nonce: Buffer.from(item.key_nonce.B) }
