@@ -72,6 +72,40 @@ function patchAddOverlay(cmAdapter: any): () => void {
     }
 }
 
+// Mirrors what monaco-vim's own search cursor does when the query has no matches.
+const NO_MATCHES_CURSOR = {
+    getMatches: () => [],
+    findNext: () => false,
+    findPrevious: () => false,
+    jumpTo: () => false,
+    find: () => false,
+    from: () => null,
+    to: () => null,
+    replace: () => {},
+}
+
+// The overlay patch above is not enough on its own: monaco-vim asks for a search cursor
+// synchronously, which calls findMatches 50 ms before the overlay does, so `/` search reaches
+// the uncompilable pattern first. Searching nothing beats an unhandled SyntaxError.
+function patchGetSearchCursor(cmAdapter: any): () => void {
+    const original = cmAdapter.getSearchCursor.bind(cmAdapter)
+
+    cmAdapter.getSearchCursor = function (query: any, pos: any): any {
+        try {
+            return original(query, pos)
+        } catch (error) {
+            if (!(error instanceof SyntaxError)) {
+                throw error
+            }
+            return NO_MATCHES_CURSOR
+        }
+    }
+
+    return () => {
+        cmAdapter.getSearchCursor = original
+    }
+}
+
 // monaco-vim's statusbar passes `closeInput` as the `close` callback to
 // onKeyDown/onKeyUp. But keymap_vim.ts calls `close(value)` with a string
 // to mean "update the input" (the CodeMirror dialog convention), while
@@ -257,6 +291,7 @@ export function setupVimMode(
     const cmAdapter = vimMode as any
 
     const restoreAddOverlay = patchAddOverlay(cmAdapter)
+    const restoreGetSearchCursor = patchGetSearchCursor(cmAdapter)
     const restoreCloseInput = patchCloseInput(cmAdapter.statusBar)
     const restoreArrowKeys = patchStatusBarArrowKeys(statusBarEl)
     const restoreSetSec = patchSubstituteHighlight(cmAdapter, cmAdapter.statusBar)
@@ -278,6 +313,7 @@ export function setupVimMode(
             restoreSetSec()
             restoreArrowKeys()
             restoreCloseInput()
+            restoreGetSearchCursor()
             restoreAddOverlay()
             vimMode.dispose()
         },
