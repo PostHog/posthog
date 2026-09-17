@@ -62,7 +62,7 @@ class TestPrometheusQueryApi(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         self.request_mock.assert_not_called()
 
-    def test_metrics_flag_gates_the_api(self):
+    def test_snuffle_flag_gates_the_api(self):
         with patch("posthoganalytics.feature_enabled", return_value=False):
             response = self.client.get(f"{self.base}/query", {"query": "up"})
 

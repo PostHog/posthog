@@ -38,9 +38,13 @@ ML outputs omit distinct IDs, including their hashes and pseudonyms.
 The metadata consumer projects supported fields before storage, including for messages already in Kafka.
 A session has one data key.
 A team has one image key per session start month.
-KMS wraps each data key with an encryption context that binds its owner and purpose.
+KMS wraps each data key with an encryption context that binds the team, the session or month, and the purpose.
+A team can change organization while a session is open, so the organization is not part of that context; keys wrapped before this change carry the organization they were wrapped under on their row, and the mirror unwraps them under it.
 Payload encryption uses XSalsa20-Poly1305.
 The authenticated payload also binds the dataset kind and, for images, the object or reference being encrypted.
+The envelope seals the raw payload with AES-256-GCM.
+Its additional authenticated data is the JSON of `{"v": 3, "context": ...}` with sorted keys and no whitespace, so every reader rebuilds the same bytes.
+The envelope is JSON with `v`, `context`, `nonce` (12 bytes, base64) and `ciphertext` (the sealed bytes followed by the 16-byte tag, base64).
 
 Ingestion processes key state in batches:
 
@@ -68,14 +72,14 @@ Restoring a deleted wrapped key would defeat deletion.
 
 ## Deletion
 
-Existing recording, person, team, and organization deletion flows enqueue ML privacy work.
+Existing recording, person, team, and organization deletion flows enqueue ML deletion work.
 Person deletion resolves the combined supplied and profile distinct IDs through the replay ClickHouse index.
 This lookup also runs when the user does not select replay deletion and includes IDs with no remaining person profile.
-Only the resulting session IDs enter the ML privacy outbox.
+Only the resulting session IDs enter the ML deletion outbox.
 A lookup failure stops the request before profile deletion so it can retry.
-Team deletion and its privacy outbox request commit in the same database transaction.
+Team deletion and its deletion outbox request commit in the same database transaction.
 If the outbox write fails, team deletion fails and can retry.
-Consent changes do not enqueue privacy requests.
+Consent changes do not enqueue deletion requests.
 The outbox survives removal of the source team or organization.
 Its team IDs refer to the original environment, without resolving a child environment to its parent.
 
@@ -157,7 +161,7 @@ Resolve image references before training because they contain team IDs.
 
 V2 references are `image:v2:<team>:<month>:<hash>` and `imageurl:v2:<team>:<month>:<hash>`.
 Images do not deduplicate across teams or session months.
-Source messages use session keys; stored scrubbed images use team image keys.
+Kafka records between the ML lanes travel in cleartext; only objects in S3 are sealed, and stored scrubbed images use team image keys.
 Consumers reject malformed UUIDv7 session identifiers before reading DynamoDB.
 Oversized identifiers cannot fail a whole bulk key lookup.
 Inline images have an encrypted lookup for each reference, published after the shard and its index.
@@ -170,9 +174,11 @@ Robots.txt and TDM reservation caches keep their shared origin keys and existing
 It does not inherit v1 seen flags or successful fetch results.
 
 ML Kafka producers write `ai_research_ingestion_version: 1` or `2`.
-Retries and dead-letter replay preserve this header and the encrypted bytes.
+Retries and dead-letter replay preserve this header and the record bytes.
+Consumers drop records that still use the sealed envelope shape from before cleartext records, and count them in `recording_blob_ingestion_v2_ml_legacy_envelopes_dropped_total`.
 Headerless queued messages mean v1.
-Unknown versions and conflicting v2 ownership are rejected; a failed v2 decode never falls back to v1.
+Unknown versions are rejected, and so is an image reference whose version does not match the header.
+The metadata sink resolves each row's session key from the row's own team and session identifiers before it seals the row for Parquet; a row whose key is deleted or blocked is dropped.
 
 Legacy image references and paths remain available for v1 sessions.
 Their HMAC key must remain stable while that data is in use.
@@ -220,14 +226,14 @@ The exclusion must cover every training month, not only the eval partition's mon
 Use the encrypted reader for index entries, then fetch selected recording blocks to inspect their JSON-LD payloads.
 Legacy v1 indexes retain their pseudonymized identifiers and daily partitions.
 
-### Privacy worker isolation
+### Deletion worker isolation
 
-The privacy task uses the `ai_research_privacy` Celery queue.
+The deletion task uses the `ai_research_privacy` Celery queue.
 In prod-us, only the dedicated `ai-research-privacy-worker` deployment consumes this queue.
 Its service account has a dedicated IAM role and cloud-database user.
 The database user needs SELECT and UPDATE only on `posthog_aitrainingdeletionrequest`.
 The worker starts with `bin/docker-worker-ai-training-privacy` and does not use shared Django signing secrets.
 Its process-local signing key is not used for application requests.
 The worker skips general migration checks; the outbox table must exist before deployment.
-All processes that enqueue privacy work, including the general-purpose Temporal worker, need the key table setting.
+All processes that enqueue deletion work, including the general-purpose Temporal worker, need the key table setting.
 Shared Django and Temporal workers cannot delete keys from the key table.

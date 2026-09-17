@@ -135,6 +135,9 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     # Lets users pick which columns to sync (and, in the wizard, surfaces the
     # row-filter editor that shares the same column-selection modal).
     supports_column_selection: bool = True
+    # Discovery reads the merge key off the table's sorting key, so a table without one has
+    # nothing to merge on and is asked for a key like any SQL source.
+    detects_primary_keys: bool = True
     supports_row_filters: bool = True
 
     api_docs_url = "https://clickhouse.com/docs"
@@ -363,6 +366,14 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # `_get_client`'s in-process retry never sees it; Temporal's activity retry
             # reopens a fresh tunnel + client and resumes from the last committed cursor.
             "Connection broken: IncompleteRead",
+            # pyarrow raises this `OSError` from its own IPC framing (not urllib3) when the
+            # connection carrying `query_arrow_stream` closes mid-message: the Arrow message
+            # header already promised a body length, and the stream delivered fewer bytes
+            # than that before ending. Same mid-transfer connection drop as
+            # "Connection broken: IncompleteRead" above, just detected one layer up, in
+            # pyarrow's message reader instead of urllib3. The byte counts vary; the
+            # "bytes for message body, got" wording is stable.
+            "bytes for message body, got",
             # requests/urllib3 raises this when the server accepts the connection but never
             # answers within our timeout — typically ClickHouse Cloud still cold-resuming an
             # idle service past our `METADATA_QUERY_TIMEOUT_SECONDS` allowance. Not in

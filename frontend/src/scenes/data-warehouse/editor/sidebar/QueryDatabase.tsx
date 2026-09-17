@@ -60,6 +60,7 @@ import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import { escapeDottedHogQLIdentifier, escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { endpointModelUrl } from 'products/data_modeling/frontend/endpointModelName'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
 import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
@@ -369,16 +370,7 @@ export const QueryDatabase = ({
         router.actions.push(url)
     }
 
-    const getEndpointUrl = (item: TreeDataItem): string => {
-        const endpointName = item.record?.table?.name ?? item.name
-        const versionMatch = endpointName.match(/^(.+)_v(\d+)$/)
-
-        if (versionMatch) {
-            return urls.endpoint(versionMatch[1], parseInt(versionMatch[2], 10))
-        }
-
-        return urls.endpoint(item.name)
-    }
+    const getEndpointUrl = (item: TreeDataItem): string => endpointModelUrl(item.record?.table?.name ?? item.name)
 
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {

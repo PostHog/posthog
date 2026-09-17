@@ -10,6 +10,7 @@ import {
   IMPERATIVE_QUERY_CLIENT,
   type ImperativeQueryClient,
 } from "../../shell/queryClient";
+import { reportImplementationStatesQueryRoot } from "../inbox/hooks/useReportImplementationStates";
 import { useDraftStore } from "../message-editor/draftStore";
 import { useSettingsStore } from "../settings/settingsStore";
 import { taskKeys } from "../tasks/taskKeys";
@@ -42,6 +43,9 @@ export const taskCreationEffects: TaskCreationEffects = {
       ),
     );
     void client.invalidateQueries({ queryKey: taskKeys.allSummaries() });
+    void client.invalidateQueries({
+      queryKey: reportImplementationStatesQueryRoot,
+    });
   },
 
   onCreateSuccess(output: TaskCreationOutput, input?: TaskCreationInput): void {

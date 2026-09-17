@@ -563,7 +563,7 @@ def _get_ch_expires_at(job: "PreaggregationJob", table: LazyComputationTable) ->
     return job.expires_at + timedelta(seconds=EXPIRY_BUFFER_SECONDS, days=extra_days)
 
 
-@dataclass
+@dataclass(frozen=False)
 class LazyComputationQuery:
     """Normalized query information for lazy computation matching."""
 
@@ -571,6 +571,7 @@ class LazyComputationQuery:
     table: LazyComputationTable
     timezone: str = "UTC"
     breakdown_fields: list[str] = field(default_factory=list)
+    cache_key_context: dict[str, str] | None = None
 
 
 @dataclass
@@ -599,14 +600,15 @@ def compute_query_hash(query_info: LazyComputationQuery) -> str:
 
     # Include timezone and breakdown fields in the hash
     # Timezone matters because toStartOfDay uses the team timezone
-    hash_input = json.dumps(
-        {
-            "query": query_str,
-            "timezone": query_info.timezone,
-            "breakdown_fields": sorted(query_info.breakdown_fields),
-        },
-        sort_keys=True,
-    )
+    payload: dict[str, object] = {
+        "query": query_str,
+        "timezone": query_info.timezone,
+        "breakdown_fields": sorted(query_info.breakdown_fields),
+    }
+    # Omit absent context so callers with unchanged semantics can reuse existing jobs.
+    if query_info.cache_key_context:
+        payload["cache_key_context"] = query_info.cache_key_context
+    hash_input = json.dumps(payload, sort_keys=True)
 
     return hashlib.sha256(hash_input.encode()).hexdigest()
 
@@ -1559,6 +1561,7 @@ def ensure_precomputed(
     empty_result_ttl_seconds: int | None = None,
     empty_result_max_age_seconds: int | None = None,
     end_is_data_horizon: bool = False,
+    cache_key_context: dict[str, str] | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1621,9 +1624,11 @@ def ensure_precomputed(
                       would serve stale to themselves and never recompute.
         modifiers: HogQL modifiers used when printing the INSERT's SELECT (defaults to
                       the team's default modifiers). NOT part of job identity — the job
-                      hash covers only the substituted AST — so modifiers must never
-                      change what the query computes, only how it executes (e.g.
-                      `sessionIdPushdown`, which is semantics-preserving by design).
+                      hash covers the substituted AST and cache_key_context. Callers
+                      must include result-changing modifier semantics in cache_key_context.
+                      Execution-only modifiers such as sessionIdPushdown need no context.
+        cache_key_context: Versioned result semantics not represented in the substituted AST.
+                           Use the same effective modifiers for this context and SQL generation.
         end_is_data_horizon: Set True when the insert query bakes `time_range_end`
                       into its own filters, so it stores no rows past it. Job claims
                       then clamp to a historical end instead of claiming the full
@@ -1686,6 +1691,7 @@ def ensure_precomputed(
         query=parsed_for_hash,
         table=table,
         timezone=team.timezone,
+        cache_key_context=cache_key_context,
     )
 
     def _run_manual_insert(t: Team, job: PreaggregationJob) -> int:

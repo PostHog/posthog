@@ -591,14 +591,10 @@ def test_create_batch_export_fails_with_invalid_query(
         (
             "Snowflake",
             {
-                "account": "my-account",
-                "user": "user",
                 "database": "my-db",
                 "warehouse": "COMPUTE_WH",
                 "schema": "public",
                 "table_name": 2,  # Wrong type
-                "authentication_type": "keypair",
-                "private_key": "SECRET_KEY",
             },
             "invalid type: got 'int', expected 'str'",
         ),

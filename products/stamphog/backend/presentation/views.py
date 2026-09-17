@@ -187,10 +187,11 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
     serializer_class = StamphogRepoConfigSerializer
 
     def _get_or_404(self, pk: str | None) -> contracts.RepoConfigDTO:
-        for config in facade_api.list_repo_configs(self.canonical_team_id):
-            if str(config.id) == str(pk):
-                return config
-        raise NotFound()
+        # A keyed lookup, not a scan: an installation can surface hundreds of repositories.
+        config = facade_api.get_repo_config_by_id(self.canonical_team_id, str(pk))
+        if config is None:
+            raise NotFound()
+        return config
 
     def _require_review_gate_manager(self, request: Request) -> None:
         """Refuse a review-gating write below the manager level on the stamphog resource.
