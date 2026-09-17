@@ -379,7 +379,7 @@ export interface metricsViewerLogicValues {
     heatmapEligible: boolean
     histogramQueryNode: MetricsHistogramQuery | null
     isAddToDashboardModalOpen: boolean
-    lastSavedQueryNode: MetricsQuery | MetricsHistogramQuery | null
+    lastSavedQueryNode: MetricsHistogramQuery | MetricsQuery | null
     liveRefresh: boolean
     metricName: string
     metricsDisplay: MetricsDisplaySettings | undefined
@@ -398,7 +398,7 @@ export interface metricsViewerLogicValues {
     queryState: MetricsViewerQueryState
     savedInsight: QueryBasedInsightModel | null
     savedInsightLoading: boolean
-    savedQueryNode: MetricsQuery | MetricsHistogramQuery | null
+    savedQueryNode: MetricsHistogramQuery | MetricsQuery | null
     selectedMetricType: OtelMetricTypeEnumApi | null
     selectedServices: string[]
     viewerClauses: MetricsViewerClause[]
@@ -589,8 +589,8 @@ export interface metricsViewerLogicActions {
     setGroupBySearch: (groupBySearch: string) => {
         groupBySearch: string
     }
-    setLastSavedQueryNode: (query: MetricsQuery | MetricsHistogramQuery) => {
-        query: MetricsQuery | MetricsHistogramQuery
+    setLastSavedQueryNode: (query: MetricsHistogramQuery | MetricsQuery) => {
+        query: MetricsHistogramQuery | MetricsQuery
     }
     setLiveRefresh: (liveRefresh: boolean) => {
         liveRefresh: boolean
@@ -666,7 +666,7 @@ export interface metricsViewerLogicMeta {
             displayType: MetricsDisplayType,
             metricsQueryNode: MetricsQuery | null,
             histogramQueryNode: MetricsHistogramQuery | null
-        ) => MetricsQuery | MetricsHistogramQuery | null
+        ) => MetricsHistogramQuery | MetricsQuery | null
         queryFilters: (activeClause: MetricsViewerClause) => _MetricFilterApi[]
         selectedServices: (activeClause: MetricsViewerClause) => string[]
         correlationServices: (selectedServices: string[], queryResults: _MetricSeriesApi[]) => string[]
