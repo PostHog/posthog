@@ -638,12 +638,8 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
 
     def test_conversion_goal_one_custom_event_conversion(self):
         s1 = str(uuid7("2023-12-01"))
-        self._create_events(
-            [
-                ("p1", [("2023-12-01", s1, "https://www.example.com/foo")]),
-            ],
-            event="custom_event",
-        )
+        self._create_events([("p1", [("2023-12-01", s1, "https://www.example.com/foo")])])
+        self._create_events([("p1", [("2023-12-01", s1)])], event="custom_event")
 
         results = self._run_web_overview_query("2023-12-01", "2023-12-03", custom_event="custom_event").results
 
@@ -661,12 +657,8 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
 
     def test_conversion_goal_one_custom_action_conversion(self):
         s1 = str(uuid7("2023-12-01"))
-        self._create_events(
-            [
-                ("p1", [("2023-12-01", s1)]),
-            ],
-            event="custom_event",
-        )
+        self._create_events([("p1", [("2023-12-01", s1, "https://www.example.com/foo")])])
+        self._create_events([("p1", [("2023-12-01", s1)])], event="custom_event")
 
         action = Action.objects.create(
             team=self.team,
@@ -694,6 +686,7 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
 
     def test_conversion_goal_one_autocapture_conversion(self):
         s1 = str(uuid7("2023-12-01"))
+        self._create_events([("p1", [("2023-12-01", s1, "https://www.example.com/foo")])])
         self._create_events(
             [
                 ("p1", [("2023-12-01", s1, [Element(nth_of_type=1, nth_child=0, tag_name="button", text="Pay $10")])]),
