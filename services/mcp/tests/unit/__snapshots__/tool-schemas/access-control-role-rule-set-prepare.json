@@ -1,0 +1,43 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "access_level": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null to remove the rule."
+        },
+        "id": {
+            "description": "Project id. If omitted, uses the active project.",
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "number"
+        },
+        "resource": {
+            "description": "The scope: `project`, a tool name such as `dashboard` or `feature_flag`, or `property_definition`. The tool names are the keys of `resources` in access-control-roles-list.",
+            "type": "string"
+        },
+        "resource_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional. The object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Omit for the project or a whole tool."
+        },
+        "role_id": {
+            "description": "The role id, as `role_id` in access-control-roles-list or `id` in roles-list.",
+            "type": "string"
+        }
+    },
+    "required": ["resource", "access_level", "role_id"],
+    "type": "object"
+}
