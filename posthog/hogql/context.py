@@ -1,4 +1,5 @@
-from collections.abc import Mapping
+import contextlib
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import cached_property
@@ -233,6 +234,20 @@ class HogQLContext:
 
     def add_data_warehouse_sync_warning(self, table_id: str, warning: "DataWarehouseSyncWarning") -> None:
         self.data_warehouse_sync_warnings[(table_id, warning.schema_name)] = warning
+
+    @contextlib.contextmanager
+    def schema_only_resolution(self) -> Iterator[None]:
+        """Resolve a table for its shape alone, keeping its sync warnings off this query's response.
+
+        Resolving a table records the state of its warehouse sync, which only describes rows the query
+        reads. A caller that resolves a table to read its schema reads no rows, so it must not collect
+        that warning; a table the query really reads, resolved outside this block, still does.
+        """
+        snapshot = dict(self.data_warehouse_sync_warnings)
+        try:
+            yield
+        finally:
+            self.data_warehouse_sync_warnings = snapshot
 
     @cached_property
     def project_id(self) -> int:

@@ -415,16 +415,25 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         type_names = {row[0] for row in response.results or []}
         assert {"String", "DateTime", "JSON", "Integer", "Boolean"}.issubset(type_names)
 
-    def _create_warehouse_table(self, name: str = "stripe_charges", column: str = "id") -> DataWarehouseTable:
+    def _create_warehouse_table(
+        self,
+        name: str = "stripe_charges",
+        column: str = "id",
+        *,
+        columns: dict | None = None,
+        source: ExternalDataSource | None = None,
+    ) -> DataWarehouseTable:
         credentials = DataWarehouseCredential.objects.create(access_key="x", access_secret="x", team=self.team)
         return DataWarehouseTable.objects.create(
             name=name,
             format="Parquet",
             team=self.team,
+            external_data_source=source,
             credential=credentials,
             url_pattern="https://bucket.s3/data/*",
             row_count=42,
-            columns={column: {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+            columns=columns
+            or {column: {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
         )
 
     def _create_saved_query_view(
@@ -730,3 +739,52 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         assert len(results) == 1
         assert results[0][0] == "persons"
         assert results[0][1] > 0
+
+    def _create_table_with_a_failed_sync(self, name: str = "stripe_charge") -> DataWarehouseTable:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        table = self._create_warehouse_table(
+            name=name,
+            source=source,
+            # `created` is what the Stripe table definition builds its `created_at` expression column
+            # from. Introspection types an expression column by resolving the table it belongs to, so
+            # without this column the table has none and never gets resolved.
+            columns={
+                "id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True},
+                "created": {"hogql": "IntegerDatabaseField", "clickhouse": "Nullable(Int64)", "schema_valid": True},
+            },
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name=name,
+            source=source,
+            table=table,
+            should_sync=True,
+            status=ExternalDataSchema.Status.FAILED,
+        )
+        return table
+
+    def test_catalog_query_does_not_warn_about_syncs_of_tables_it_only_describes(self):
+        self._create_table_with_a_failed_sync()
+        response = execute_hogql_query("SELECT table_name FROM system.information_schema.tables", team=self.team)
+        assert response.warnings is None
+
+    def test_warehouse_read_still_warns_when_the_query_also_reads_the_catalog(self):
+        self._create_table_with_a_failed_sync()
+        db = Database.create_for(team=self.team)
+        context = self._context(db)
+        prepare_and_print_ast(
+            parse_select(
+                """
+                SELECT c.id, t.table_name
+                FROM stripe_charge AS c
+                CROSS JOIN system.information_schema.tables AS t
+                """
+            ),
+            context,
+            dialect="clickhouse",
+        )
+        assert [w.table_name for w in context.data_warehouse_sync_warnings.values()] == ["stripe_charge"]
