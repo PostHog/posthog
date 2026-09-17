@@ -1,13 +1,13 @@
-"""Bulk on/off for the per-user inbox review toggles on `ReviewUserSettings`.
+"""Bulk on/off for the per-user boolean toggles on `ReviewUserSettings`.
 
-`review_inbox_prs` and `stamphog_review_inbox_prs` default to off per user because they are the
-budget gate for 100%-coverage review cost, so flipping them for a whole team is a deliberate
-operator action rather than a default change. The `enable_*` / `disable_*` inbox review management
-commands are thin wrappers over `plan_inbox_toggle` + `apply_inbox_toggle`: one toggle, one
-direction, for every active member of the team's organization or for an explicit list of user ids.
-Other fields on existing rows (urgency threshold, label and resolution opt-outs, the other inbox
-toggle) are untouched, users can still change the toggle in the Code review settings afterwards,
-and members who join later keep the default until a command is re-run.
+The inbox toggles (`review_inbox_prs`, `stamphog_review_inbox_prs`) default to off per user because
+they are the budget gate for 100%-coverage review cost, and `resolve_comments` defaults to on
+because reviewing includes resolving. Flipping any of them for a whole team is a deliberate operator
+action rather than a default change. The `enable_*` / `disable_*` management commands are thin
+wrappers over `plan_toggle` + `apply_toggle`: one toggle, one direction, for every active member of
+the team's organization or for an explicit list of user ids. Other fields on existing rows are
+untouched, users can still change the toggle in the Code review settings afterwards, and members
+who join later keep the default until a command is re-run.
 """
 
 from collections.abc import Sequence
@@ -22,7 +22,11 @@ from posthog.models.team import Team
 
 from products.review_hog.backend.models import ReviewUserSettings
 
-InboxToggleField = Literal["review_inbox_prs", "stamphog_review_inbox_prs"]
+ToggleField = Literal["review_inbox_prs", "stamphog_review_inbox_prs", "resolve_comments"]
+
+
+def toggle_default(field: ToggleField) -> bool:
+    return bool(ReviewUserSettings._meta.get_field(field).get_default())
 
 
 class UsersNotInOrganization(ValueError):
@@ -33,12 +37,13 @@ class UsersNotInOrganization(ValueError):
 
 
 @frozen
-class InboxTogglePlan:
+class TogglePlan:
     team_id: int
-    field: InboxToggleField
+    field: ToggleField
     enabled: bool
     target_count: int
-    # Users with no row yet. Always empty when turning off, because no row already means off.
+    # Users with no row yet. Empty when the requested value is the field's default, because a
+    # missing row already reads as the default.
     to_create: tuple[int, ...]
     to_flip: tuple[int, ...]
 
@@ -60,9 +65,9 @@ class InboxTogglePlan:
         )
 
 
-def plan_inbox_toggle(
-    *, team_id: int, field: InboxToggleField, enabled: bool, user_ids: Sequence[int] | None = None
-) -> InboxTogglePlan:
+def plan_toggle(
+    *, team_id: int, field: ToggleField, enabled: bool, user_ids: Sequence[int] | None = None
+) -> TogglePlan:
     """Work out which `ReviewUserSettings` rows a bulk toggle change touches, without writing.
 
     Raises `TeamScopeError` / `Team.DoesNotExist` for a bad team id and `UsersNotInOrganization`
@@ -70,7 +75,7 @@ def plan_inbox_toggle(
     of silently changing nothing.
     """
     # Environment ids resolve to the root team, mirroring the settings API: the rows must land
-    # on the same team the inbox trigger's `ReviewUserSettings.load_many` reads them from.
+    # on the same team the workflow's `ReviewUserSettings.load` reads them from.
     team_id = resolve_effective_team_id(team_id)
     team = Team.objects.get(id=team_id)
     memberships = OrganizationMembership.objects.filter(organization_id=team.organization_id)
@@ -90,8 +95,9 @@ def plan_inbox_toggle(
     to_flip = tuple(
         user_id for user_id in target_ids if user_id in existing and getattr(existing[user_id], field) is not enabled
     )
-    to_create = tuple(user_id for user_id in target_ids if user_id not in existing) if enabled else ()
-    return InboxTogglePlan(
+    missing = tuple(user_id for user_id in target_ids if user_id not in existing)
+    to_create = missing if enabled is not toggle_default(field) else ()
+    return TogglePlan(
         team_id=team_id,
         field=field,
         enabled=enabled,
@@ -101,12 +107,12 @@ def plan_inbox_toggle(
     )
 
 
-def apply_inbox_toggle(plan: InboxTogglePlan) -> None:
+def apply_toggle(plan: TogglePlan) -> None:
     rows = ReviewUserSettings.objects.for_team(plan.team_id, canonical=True)
     with transaction.atomic():
         to_flip = list(rows.filter(user_id__in=plan.to_flip))
         for user_id in plan.to_create:
-            # get_or_create because a settings GET auto-creates rows with the off defaults: a
+            # get_or_create because a settings GET auto-creates rows with the model defaults: a
             # user opening the Code review tab between the plan and this write must end at the
             # requested value, not crash the run on the unique (team, user) constraint.
             row, created = rows.get_or_create(

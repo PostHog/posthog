@@ -1,4 +1,4 @@
-"""Base class for the `enable_*` / `disable_*` inbox review management commands.
+"""Base class for the `enable_*` / `disable_*` review settings management commands.
 
 Each command names one toggle and one direction; this class carries the shared arguments, the
 error mapping, and the output. It lives outside `commands/` so Django does not register it as a
@@ -12,16 +12,11 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from posthog.models.scoping.manager import TeamScopeError
 from posthog.models.team import Team
 
-from products.review_hog.backend.inbox_review_toggles import (
-    InboxToggleField,
-    UsersNotInOrganization,
-    apply_inbox_toggle,
-    plan_inbox_toggle,
-)
+from products.review_hog.backend.settings_toggles import ToggleField, UsersNotInOrganization, apply_toggle, plan_toggle
 
 
-class InboxToggleCommand(BaseCommand):
-    field: ClassVar[InboxToggleField]
+class SettingsToggleCommand(BaseCommand):
+    field: ClassVar[ToggleField]
     enabled: ClassVar[bool]
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -46,7 +41,7 @@ class InboxToggleCommand(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         try:
-            plan = plan_inbox_toggle(
+            plan = plan_toggle(
                 team_id=options["team_id"],
                 field=self.field,
                 enabled=self.enabled,
@@ -61,6 +56,6 @@ class InboxToggleCommand(BaseCommand):
             self.stdout.write(f"Would change user id(s): {changed}")
             return
 
-        apply_inbox_toggle(plan)
+        apply_toggle(plan)
         self.stdout.write(self.style.SUCCESS(f"Done. {plan.summary}."))
         self.stdout.write(f"Changed user id(s): {changed}")

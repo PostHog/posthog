@@ -8,18 +8,21 @@ from parameterized import parameterized
 from posthog.models import Organization, User
 
 from products.review_hog.backend.models import ReviewUserSettings
+from products.review_hog.backend.settings_toggles import toggle_default
 
-REVIEWHOG, STAMPHOG = "review_inbox_prs", "stamphog_review_inbox_prs"
-OTHER_FIELD = {REVIEWHOG: STAMPHOG, STAMPHOG: REVIEWHOG}
+REVIEWHOG, STAMPHOG, RESOLVE = "review_inbox_prs", "stamphog_review_inbox_prs", "resolve_comments"
+OTHER_FIELD = {REVIEWHOG: STAMPHOG, STAMPHOG: REVIEWHOG, RESOLVE: REVIEWHOG}
 COMMANDS = [
     ("enable_inbox_reviews", REVIEWHOG, True),
     ("disable_inbox_reviews", REVIEWHOG, False),
     ("enable_stamphog_inbox_reviews", STAMPHOG, True),
     ("disable_stamphog_inbox_reviews", STAMPHOG, False),
+    ("enable_comment_resolution", RESOLVE, True),
+    ("disable_comment_resolution", RESOLVE, False),
 ]
 
 
-class TestInboxReviewCommands(BaseTest):
+class TestSettingsToggleCommands(BaseTest):
     def _row(self, user: User) -> ReviewUserSettings | None:
         return ReviewUserSettings.objects.for_team(self.team.id).filter(user_id=user.id).first()
 
@@ -52,14 +55,14 @@ class TestInboxReviewCommands(BaseTest):
         assert getattr(opposite_row, field) is enabled
         assert getattr(opposite_row, OTHER_FIELD[field]) is not enabled
         assert opposite_row.urgency_threshold == ReviewUserSettings.UrgencyThreshold.MUST_FIX
-        if enabled:
+        if enabled is not toggle_default(field):
             for member in (self.user, member_without_row):
                 row = self._row(member)
                 assert row is not None
-                assert getattr(row, field) is True
-                assert getattr(row, OTHER_FIELD[field]) is False
+                assert getattr(row, field) is enabled
+                assert getattr(row, OTHER_FIELD[field]) is toggle_default(OTHER_FIELD[field])
         else:
-            # No row already means off, so turning off must not create rows.
+            # A missing row already reads as the default, so no rows get created.
             assert self._row(self.user) is None
             assert self._row(member_without_row) is None
         inactive_row = self._row(inactive_member)
