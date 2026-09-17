@@ -46,6 +46,15 @@ describe('taxonomicFilterLogic', () => {
         actionRequestCount = 0
         useMocks({
             get: {
+                '/api/environments/:team/dashboards/': () => [
+                    200,
+                    {
+                        count: 1,
+                        next: null,
+                        previous: null,
+                        results: [{ id: 1, name: 'Weekly metrics', pinned: false }],
+                    },
+                ],
                 '/api/projects/:team/actions/': () => {
                     actionRequestCount++
                     return [200, { results: [], count: 0 }]
@@ -160,7 +169,9 @@ describe('taxonomicFilterLogic', () => {
             dashboardsList.mount()
 
             await expectLogic(dashboardsModel).toDispatchActions(['loadDashboardsSuccess'])
-            expect(dashboardsList.values.localItems.results).toEqual([])
+            expect(dashboardsList.values.localItems.results).toEqual([
+                expect.objectContaining({ name: 'Weekly metrics' }),
+            ])
 
             dashboardsList.unmount()
         }
