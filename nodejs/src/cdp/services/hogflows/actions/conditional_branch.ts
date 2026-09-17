@@ -124,7 +124,7 @@ export class ConditionalBranchHandler implements ActionHandler {
             }
             return { scheduledAt: conditionResult.scheduledAt, result: { conditionResult } }
         } else if (conditionResult.nextAction) {
-            if (isWait && matchedAtMaxWait(invocation, action)) {
+            if (isWait && !rekeyWoken && !anchorWoken && matchedAtMaxWait(invocation, action)) {
                 counterHogflowWaitAdvancedAtMaxWait
                     .labels({ team_id: invocation.hogFlow.team_id, hog_flow_id: invocation.hogFlow.id })
                     .inc()
