@@ -182,9 +182,15 @@ The alerts product imports nothing from a source: the binding holds a name, and 
 `logs-alert-evaluate` evaluates one batch key, a team's alerts due in one minute, and previews one delivery per notification.
 The evaluation is a plain function in `products/logs/backend/alert_source_cycle.py`, so a test calls it without Temporal.
 
-It writes nothing. The production `logs-alerting-task-queue` fleet evaluates these same alerts every minute,
-so a state transition, a schedule advance, a `LogsAlertEvent` row or a Kafka message here would notify a person twice for one breach.
+It writes its own state and never the logs product's rows.
+The production `logs-alerting-task-queue` fleet evaluates these same alerts every minute against `LogsAlertConfiguration`,
+so a write to those rows, a `LogsAlertEvent` row or a Kafka message here would transition an alert twice and notify a person twice for one breach.
+State transitions land on `WIPAlert` and schedule advancement on `WIPAlertConfiguration`, which the logs fleet never reads.
 Delivery stops at `alerts-product-deliver-preview`, which records what would have been sent and contacts no destination.
+
+The lifecycle decision comes from `products/alerts/backend/facade/lifecycle.py` configured with `LOGS_ALERT_POLICY`,
+which is the shared machine the logs product's own state machine is a thin adapter over.
+Going to the shared machine directly keeps the platform's lifecycle out of a source product's import path.
 
 It evaluates against the tick cutoff rather than the clock, so a retried attempt selects the same alerts,
 resolves the same windows and derives the same evaluation keys as the attempt it replaced.
@@ -196,6 +202,19 @@ all come from the existing logs code, so a preview says what production would ha
 
 Delivery previews carry a list of group transitions with one entry and an empty grouping key.
 Logs does not group yet; the list is the shape that lets fan-out change the evaluation and nothing downstream.
+
+### Seeding the shared tables
+
+`WIPAlertConfiguration` starts empty, so discovery finds nothing and no evaluation runs until configurations are copied in.
+Run the copy once per environment from any pod that carries the application image and a database connection:
+
+```bash
+python manage.py backfill_wip_alert_configurations
+```
+
+Pass `--team-id` to copy one team's configurations only.
+It is a seed, not a sync: the logs product keeps the control plane, and a later change to a logs alert reaches these tables only on the next run.
+A second run updates rather than duplicates, because `legacy_configuration_id` carries the row each copy came from.
 
 ## Postgres connectivity probe
 
