@@ -11,9 +11,8 @@ from products.tasks.backend.constants import (
     AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG,
     DEV_STACK_IMAGE_BAKE_FEATURE_FLAG,
     MCP_EXEC_SKILLS_FEATURE_FLAG,
-    WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
+    WORKFLOW_DISPATCH_OUTBOX_FEATURE_FLAG,
     WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
-    WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG,
     get_required_model_flag,
 )
 
@@ -23,22 +22,28 @@ NATIVE_STEERING_SIGNALS_FEATURE_FLAG = "tasks-native-steering-signals"
 NATIVE_STEERING_SIGNALS_DISTINCT_ID = "tasks-native-steering-signals"
 
 DEV_STACK_IMAGE_BAKE_DISTINCT_ID = "tasks-dev-stack-image-bake"
-WORKFLOW_DISPATCH_SHADOW_DISTINCT_ID = "tasks-workflow-dispatch-shadow"
+WORKFLOW_DISPATCH_OUTBOX_DISTINCT_ID = "tasks-workflow-dispatch-shadow"
 
 
-def is_workflow_dispatch_shadow_enabled() -> bool:
+def is_workflow_dispatch_outbox_enabled() -> bool:
+    """Whether a new run goes to the dispatch outbox instead of starting its workflow inline.
+
+    The flag is conditioned on the deployment region. A deployment with no local flag
+    evaluation, such as local dev or the eval harness, therefore keeps the inline start.
+    That is the only path that works without the dispatcher process.
+    """
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG,
-                distinct_id=WORKFLOW_DISPATCH_SHADOW_DISTINCT_ID,
+                WORKFLOW_DISPATCH_OUTBOX_FEATURE_FLAG,
+                distinct_id=WORKFLOW_DISPATCH_OUTBOX_DISTINCT_ID,
                 person_properties={"region": get_instance_region() or "DEV"},
                 only_evaluate_locally=True,
                 send_feature_flag_events=False,
             )
         )
     except Exception:
-        logger.exception("workflow_dispatch_shadow_flag_check_failed")
+        logger.exception("workflow_dispatch_outbox_flag_check_failed")
         return False
 
 
@@ -57,10 +62,6 @@ def _is_workflow_dispatch_org_flag_enabled(flag: str, organization_id: str, dist
     except Exception:
         logger.exception("workflow_dispatch_org_flag_check_failed", extra={"flag": flag})
         return False
-
-
-def is_workflow_dispatch_async_enabled(organization_id: str, distinct_id: str) -> bool:
-    return _is_workflow_dispatch_org_flag_enabled(WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG, organization_id, distinct_id)
 
 
 def is_workflow_dispatch_restart_enabled(organization_id: str, distinct_id: str) -> bool:

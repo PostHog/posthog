@@ -81,7 +81,7 @@ from products.tasks.backend.constants import (
     is_same_run_resume_state,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
-from products.tasks.backend.feature_flags import get_model_access_error, is_workflow_dispatch_shadow_enabled
+from products.tasks.backend.feature_flags import get_model_access_error, is_workflow_dispatch_outbox_enabled
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
@@ -1297,7 +1297,7 @@ def filter_uncovered_workflow_dispatch_run_ids(candidate_ids: list[UUID]) -> lis
         .values_list("task_run_id", flat=True)
     )
     uncovered_ids = [run_id for run_id in candidate_ids if run_id not in live_dispatch_run_ids]
-    if not is_workflow_dispatch_shadow_enabled():
+    if not is_workflow_dispatch_outbox_enabled():
         return uncovered_ids
     runs = {
         run.id: run

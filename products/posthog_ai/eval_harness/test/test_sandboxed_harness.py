@@ -23,7 +23,7 @@ from products.posthog_ai.eval_harness.harness.live_server import EvalLiveServer
 from products.posthog_ai.eval_harness.harness.providers import ModalProviderStrategy, SandboxProviderStrategy
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter
 from products.tasks.backend.constants import (
-    WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
+    WORKFLOW_DISPATCH_OUTBOX_FEATURE_FLAG,
     WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
 )
 from products.tasks.backend.facade.agents import TurnPollResult
@@ -155,7 +155,7 @@ def test_parse_args_resolves_team_setup_concurrency(
 
 @parameterized.expand(
     [
-        ("workflow dispatch async", WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG, False),
+        ("workflow dispatch outbox", WORKFLOW_DISPATCH_OUTBOX_FEATURE_FLAG, False),
         ("workflow dispatch restart", WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG, False),
         ("anything else", "tasks-modal-vm-sandbox", True),
     ]

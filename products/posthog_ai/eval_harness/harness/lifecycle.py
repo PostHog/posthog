@@ -21,7 +21,7 @@ from posthog.ph_client import get_client
 
 from products.tasks.backend.constants import (
     MCP_EXEC_SKILLS_FEATURE_FLAG,
-    WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
+    WORKFLOW_DISPATCH_OUTBOX_FEATURE_FLAG,
     WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
 )
 from products.tasks.backend.temporal.process_task.utils import get_reasoning_effort_error
@@ -72,7 +72,7 @@ logger = logging.getLogger(__name__)
 # QUEUED, with nothing to fail it, until the case's poll budget runs out.
 FORCED_OFF_FEATURE_FLAGS = frozenset(
     {
-        WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
+        WORKFLOW_DISPATCH_OUTBOX_FEATURE_FLAG,
         WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
     }
 )
