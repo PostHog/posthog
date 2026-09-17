@@ -193,6 +193,19 @@ class TestWebhookDispatcher(SimpleTestCase):
         second.assert_not_called()
 
 
+class _WriteClient:
+    """A django_redis client that answers from the Redis primary, as its write client does."""
+
+    def __init__(self, primary: dict[str, object]) -> None:
+        self.primary = primary
+
+    def get_client(self, write: bool = True) -> dict[str, object]:
+        return self.primary
+
+    def get_many(self, keys: list[str], version: int | None = None, client: dict | None = None) -> dict:
+        return {key: self.primary[key] for key in keys if key in self.primary}
+
+
 @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
 class TestDeliveryDedup(SimpleTestCase):
     def setUp(self) -> None:
@@ -207,6 +220,21 @@ class TestDeliveryDedup(SimpleTestCase):
         key = DeliveryDedup.key(**self.mark)
         self.assertEqual(cache.get(key), "in_progress")
         self.assertEqual(cache.get(f"{key}:holder"), claim.token)
+
+    def test_the_lease_fence_reads_the_cache_primary(self) -> None:
+        dedup = DeliveryDedup()
+        claim = dedup.claim(**self.mark)
+        key = DeliveryDedup.key(**self.mark)
+        # The lease ran out and a newer run took the key, so the primary names the newer run. The
+        # LocMemCache beside it stands in for a replica that still serves this run's token.
+        client = _WriteClient({key: "in_progress", f"{key}:holder": "a-token-from-a-newer-run"})
+
+        with patch.object(cache, "client", client, create=True):
+            dedup.release(**self.mark, token=claim.token)
+
+        # A replica can still serve a token the primary already replaced, so a fence that read one
+        # would drop the mark the newer run holds and start a third run beside the two going.
+        self.assertEqual(dedup.claim(**self.mark).state, DeliveryClaim.IN_PROGRESS)
 
     def test_the_mark_reports_the_state_its_holder_left_it_in(self) -> None:
         dedup = DeliveryDedup()

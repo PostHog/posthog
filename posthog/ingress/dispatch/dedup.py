@@ -36,6 +36,23 @@ def _holder_key(key: str) -> str:
     return f"{key}:holder"
 
 
+def _read_lease(key: str, holder_key: str) -> dict[str, object]:
+    """Read the mark and its holder token together, from the cache's primary.
+
+    The default cache is django_redis, which is replica aware when REDIS_READER_URL is set: it
+    serves a read from a replica and sends a delete to the primary. A fence that reads a replica
+    can act on a token the primary already replaced, and then `release()` deletes a mark this run
+    does not hold. Ask the write client so that the read and the delete see the same Redis.
+
+    A backend with no replica-aware client, such as the LocMemCache the tests run on, has a
+    single cache to answer from.
+    """
+    client = getattr(cache, "client", None)
+    if client is None or not hasattr(client, "get_client"):
+        return cache.get_many([key, holder_key])
+    return client.get_many([key, holder_key], client=client.get_client(write=True))
+
+
 def delivery_claim_lease_seconds() -> float:
     """How long an unsettled claim keeps a redelivery out.
 
@@ -100,6 +117,10 @@ class DeliveryDedup:
 
         Fail-open on a cache error: dropping deliveries during a cache outage is worse than
         running a consumer twice, and consumers carry their own idempotency.
+
+        The follow-up read can be served by a replica, unlike the fenced read in `release()`. A
+        stale value there answers in progress where the mark is free, which costs the delivery one
+        redelivery and never a receipt the work did not earn.
         """
         key = self.key(provider=provider, consumer=consumer, delivery_id=delivery_id)
         token = uuid4().hex
@@ -187,7 +208,7 @@ class DeliveryDedup:
         key = self.key(provider=provider, consumer=consumer, delivery_id=delivery_id)
         holder_key = _holder_key(key)
         try:
-            held = cache.get_many([key, holder_key])
+            held = _read_lease(key, holder_key)
             if held.get(holder_key) != token or held.get(key) != _IN_PROGRESS:
                 return
             cache.delete_many([key, holder_key])
