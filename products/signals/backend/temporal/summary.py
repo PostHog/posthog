@@ -73,6 +73,49 @@ logger = structlog.get_logger(__name__)
 EMPTY_FETCH_RETRY_ATTEMPTS = 6
 EMPTY_FETCH_RETRY_INTERVAL = timedelta(seconds=10)
 
+# Reason recorded when a failure carries nothing to attribute it to. Anything the workflow can
+# unwrap reads as "<activity type>:<error class>" instead.
+UNATTRIBUTED_FAILURE_REASON = "agentic_activity_error"
+# `failure_reason` is an event property, so only the error class rides in it, capped to bound the
+# cardinality a remote type name can add. The message goes to the report's stored error.
+FAILURE_LABEL_LIMIT = 80
+
+
+def _cause_label(error: BaseException) -> str:
+    if isinstance(error, temporalio.exceptions.TimeoutError):
+        return f"timeout_{error.type.name.lower()}" if error.type is not None else "timeout"
+    if isinstance(error, temporalio.exceptions.ApplicationError) and error.type:
+        label = error.type
+    else:
+        label = type(error).__name__
+    return "_".join(label.split())[:FAILURE_LABEL_LIMIT]
+
+
+def _failure_attribution(error: BaseException) -> tuple[str, str]:
+    """Return the `(failure_reason, error)` pair to record for a failed report run.
+
+    A failing activity reaches the workflow as an `ActivityError` that stringifies to "Activity task
+    failed" whatever went wrong under it, so the reason names the activity plus the class of the
+    underlying error, and the stored error carries that error's own message.
+    """
+    activity_type: str | None = None
+    cause: BaseException | None = None
+    seen: set[int] = set()
+    link: BaseException | None = error
+    while link is not None and id(link) not in seen:
+        seen.add(id(link))
+        if isinstance(link, temporalio.exceptions.ActivityError):
+            activity_type = activity_type or link.activity_type
+        else:
+            cause = link
+        link = link.__cause__
+    if cause is None:
+        return UNATTRIBUTED_FAILURE_REASON, str(error)
+    label = _cause_label(cause)
+    reason = f"{activity_type}:{label}" if activity_type else label
+    message = cause.message if isinstance(cause, temporalio.exceptions.FailureError) else str(cause)
+    return reason, f"{reason}: {message}" if message else reason
+
 
 def _capture_report_event(
     event: str,
@@ -612,13 +655,14 @@ class SignalReportSummaryWorkflow:
                     )
             return has_new_signals
         except Exception as e:
+            failure_reason, error = _failure_attribution(e)
             await workflow.execute_activity(
                 mark_report_failed_activity,
                 MarkReportFailedInput(
                     team_id=inputs.team_id,
                     report_id=inputs.report_id,
-                    error=str(e),
-                    failure_reason="agentic_activity_error",
+                    error=error,
+                    failure_reason=failure_reason,
                     signal_count=signal_count,
                     source_products=source_products,
                 ),

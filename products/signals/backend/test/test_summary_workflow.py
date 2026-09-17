@@ -7,8 +7,10 @@ import pytest
 from unittest.mock import patch
 
 import pytest_asyncio
+import temporalio.exceptions
 from asgiref.sync import sync_to_async
 from temporalio import activity
+from temporalio.client import WorkflowFailureError
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -27,6 +29,7 @@ from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInp
 from products.signals.backend.temporal.signal_queries import FetchSignalsForReportInput, FetchSignalsForReportOutput
 from products.signals.backend.temporal.summary import (
     EMPTY_FETCH_RETRY_ATTEMPTS,
+    UNATTRIBUTED_FAILURE_REASON,
     CheckReportQuotaGateInput,
     MarkReportFailedInput,
     MarkReportInProgressInput,
@@ -37,6 +40,7 @@ from products.signals.backend.temporal.summary import (
     ResetReportToPotentialInput,
     RevertReportToCandidateInput,
     SignalReportSummaryWorkflow,
+    _failure_attribution,
     check_report_quota_gate_activity,
     report_has_assigned_signals_activity,
     revert_report_to_candidate_activity,
@@ -181,16 +185,19 @@ class _Recorder:
         has_assigned_signals: bool = True,
         research_choice: ActionabilityChoice = ActionabilityChoice.NOT_ACTIONABLE,
         research_metrics: list[dict[str, object]] | None = None,
+        research_error: BaseException | None = None,
     ) -> None:
         self.gate_answers = gate_answers or {}
         self.fetch_results = fetch_results or [[_signal_data()]]
         self.has_assigned_signals = has_assigned_signals
         self.research_choice = research_choice
         self.research_metrics = research_metrics
+        self.research_error = research_error
         self.gate_checks: list[str] = []
         self.fetches = 0
         self.assigned_signal_checks = 0
         self.failure_reasons: list[str | None] = []
+        self.failure_errors: list[str] = []
         self.marks_in_progress = 0
         self.safety_checks = 0
         self.repo_selections = 0
@@ -232,7 +239,7 @@ def test_legacy_agentic_activity_payload_defaults_metrics_to_preserve() -> None:
     assert decoded.charts is None
 
 
-async def _run_summary_workflow(recorder: _Recorder) -> None:
+async def _run_summary_workflow(recorder: _Recorder, expect_failure: bool = False) -> None:
     @activity.defn(name="check_report_quota_gate_activity")
     async def fake_quota(input: CheckReportQuotaGateInput) -> bool:
         recorder.gate_checks.append(input.stage)
@@ -266,6 +273,8 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     @activity.defn(name="run_agentic_report_activity")
     async def fake_research(input: RunAgenticReportInput) -> RunAgenticReportOutput:
         recorder.researches += 1
+        if recorder.research_error is not None:
+            raise recorder.research_error
         return RunAgenticReportOutput(
             title="t",
             summary="s",
@@ -302,6 +311,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     async def fake_failed(input: MarkReportFailedInput) -> None:
         recorder.failures += 1
         recorder.failure_reasons.append(input.failure_reason)
+        recorder.failure_errors.append(input.error)
 
     # The production self-driving worker runs with the pydantic data converter; the default converter
     # mangles the enum/pydantic payloads these activities exchange (RepoSelectionResult,
@@ -328,7 +338,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            await asyncio.wait_for(
+            run = asyncio.wait_for(
                 env.client.execute_workflow(
                     SignalReportSummaryWorkflow.run,
                     SignalReportSummaryWorkflowInputs(team_id=1, report_id=str(uuid.uuid4())),
@@ -337,6 +347,11 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
                 ),
                 timeout=30,
             )
+            if expect_failure:
+                with pytest.raises(WorkflowFailureError):
+                    await run
+            else:
+                await run
 
 
 @pytest.mark.asyncio
@@ -427,6 +442,62 @@ async def test_persistently_empty_fetch_fails_report_with_no_assigned_signals():
     assert recorder.fetches == 1 + EMPTY_FETCH_RETRY_ATTEMPTS
     assert recorder.researches == 0
     assert recorder.failure_reasons == ["no_signals_found"]
+
+
+# ---------------------------------------------------------------------------
+# Failure attribution: a failed run must say which activity failed and why
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_failed_run_names_the_activity_and_the_underlying_error():
+    recorder = _Recorder(research_error=ValueError("the sandbox closed the connection"))
+
+    await _run_summary_workflow(recorder, expect_failure=True)
+
+    assert recorder.failure_reasons == ["run_agentic_report_activity:ValueError"]
+    assert "the sandbox closed the connection" in recorder.failure_errors[0]
+
+
+def _activity_error(cause: BaseException | None = None) -> BaseException:
+    error = temporalio.exceptions.ActivityError(
+        "Activity task failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="worker",
+        activity_type="run_agentic_report_activity",
+        activity_id="1",
+        retry_state=None,
+    )
+    error.__cause__ = cause
+    return error
+
+
+@pytest.mark.parametrize(
+    "error,expected_reason",
+    [
+        (
+            _activity_error(
+                temporalio.exceptions.TimeoutError(
+                    "activity StartToClose timeout",
+                    type=temporalio.exceptions.TimeoutType.START_TO_CLOSE,
+                    last_heartbeat_details=[],
+                )
+            ),
+            "run_agentic_report_activity:timeout_start_to_close",
+        ),
+        (
+            _activity_error(temporalio.exceptions.ApplicationError("boom", type="SandboxClosedError")),
+            "run_agentic_report_activity:SandboxClosedError",
+        ),
+        (RuntimeError("raised in the workflow itself"), "RuntimeError"),
+        (_activity_error(), UNATTRIBUTED_FAILURE_REASON),
+    ],
+)
+def test_failure_attribution_reads_the_cause_under_the_temporal_wrapper(error, expected_reason) -> None:
+    reason, _ = _failure_attribution(error)
+
+    assert reason == expected_reason
 
 
 # ---------------------------------------------------------------------------
