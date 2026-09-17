@@ -1,4 +1,5 @@
 import json
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -1675,12 +1676,12 @@ class TestScoutReportAPI(APIBaseTest):
         expected_metrics_set: int | None,
     ) -> None:
         run = _make_run(self.team)
-        metric_field = {
+        instructions: dict[str, dict[str, Any]] = {
             "omit": {},
             "null": {"metrics": None},
             "clear": {"metrics": []},
             "replace": {"metrics": [{**self._affected_users_metric(), "metric_id": "replacement"}]},
-        }[instruction]
+        }
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH):
             created = self.client.post(
                 self._emit_url(str(run.id)),
@@ -1690,7 +1691,7 @@ class TestScoutReportAPI(APIBaseTest):
             self.metrics_enabled_mock.return_value = opted_in
             response = self.client.post(
                 self._edit_url(str(run.id)),
-                data={"report_id": created["report_id"], "append_note": "checked", **metric_field},
+                data={"report_id": created["report_id"], "append_note": "checked", **instructions[instruction]},
                 format="json",
             )
 
