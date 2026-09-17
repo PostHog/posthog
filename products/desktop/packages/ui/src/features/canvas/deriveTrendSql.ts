@@ -27,14 +27,17 @@ export interface DerivedTrend {
   period: TrendPeriod;
 }
 
-const BUCKETS: Record<TrendPeriod, { fn: string; window: string }> = {
-  day: { fn: "toStartOfDay", window: "timestamp >= now() - INTERVAL 30 DAY" },
+const BUCKETS: Record<TrendPeriod, { truncate: string; window: string }> = {
+  day: {
+    truncate: "toStartOfDay",
+    window: "timestamp >= now() - INTERVAL 30 DAY",
+  },
   week: {
-    fn: "toStartOfWeek",
+    truncate: "toStartOfWeek",
     window: "timestamp >= now() - INTERVAL 12 WEEK",
   },
   month: {
-    fn: "toStartOfMonth",
+    truncate: "toStartOfMonth",
     window: "timestamp >= now() - INTERVAL 12 MONTH",
   },
 };
@@ -65,14 +68,18 @@ export function deriveTrendSql(
   if (segments.some((segment) => BLOCKING.has(segment.keyword))) return null;
   const select = segments[0].body.trim();
   if (!select || splitOn(select, COMMA).length !== 1) return null;
-  const from = segments.find((s) => s.keyword === "FROM")?.body.trim();
+  const from = segments
+    .find((segment) => segment.keyword === "FROM")
+    ?.body.trim();
   if (!from || !/^events\b/i.test(from)) return null;
-  const where = segments.find((s) => s.keyword === "WHERE")?.body.trim();
+  const where = segments
+    .find((segment) => segment.keyword === "WHERE")
+    ?.body.trim();
   const conditions = where ? withoutTimeFilters(where) : [];
   if (conditions === null) return null;
   const bucket = BUCKETS[period];
   const sql = [
-    `SELECT ${bucket.fn}(timestamp) AS period, ${select}`,
+    `SELECT ${bucket.truncate}(timestamp) AS period, ${select}`,
     `FROM ${from}`,
     `WHERE ${[...conditions, bucket.window].join(" AND ")}`,
     "GROUP BY period",

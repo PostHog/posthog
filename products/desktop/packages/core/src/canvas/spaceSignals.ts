@@ -93,19 +93,23 @@ ORDER BY signal_ts DESC
 LIMIT ${SPACE_SIGNALS_LIMIT}`;
 }
 
+function text(cell: unknown): string {
+  return typeof cell === "string" ? cell : "";
+}
+
 export function parseSpaceSignalRows(rows: unknown[][]): SpaceSignal[] {
-  const signals: SpaceSignal[] = [];
-  for (const row of rows) {
+  return rows.flatMap((row) => {
     const [content, sourceProduct, sourceType, sourceId, timestamp, url] = row;
-    if (typeof content !== "string" || !content.trim()) continue;
-    signals.push({
-      content: content.trim(),
-      sourceProduct: typeof sourceProduct === "string" ? sourceProduct : "",
-      sourceType: typeof sourceType === "string" ? sourceType : "",
-      sourceId: typeof sourceId === "string" ? sourceId : "",
-      timestamp: typeof timestamp === "string" ? timestamp : "",
-      url: typeof url === "string" && url ? url : null,
-    });
-  }
-  return signals;
+    if (!text(content).trim()) return [];
+    return [
+      {
+        content: text(content).trim(),
+        sourceProduct: text(sourceProduct),
+        sourceType: text(sourceType),
+        sourceId: text(sourceId),
+        timestamp: text(timestamp),
+        url: text(url) || null,
+      },
+    ];
+  });
 }

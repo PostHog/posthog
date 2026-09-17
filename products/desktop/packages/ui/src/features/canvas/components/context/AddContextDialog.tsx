@@ -109,7 +109,7 @@ export function AddContextDialog({
   const uploadExists =
     uploadPath !== null && existingTargets.includes(uploadPath);
 
-  const work = ((): (() => Promise<void>) | null => {
+  const plannedWork = (): (() => Promise<void>) | null => {
     if (mode === "link") {
       if (!detected || detected.kind === "invalid") return null;
       const finalTitle = (title ?? detected.title).trim() || detected.title;
@@ -131,8 +131,19 @@ export function AddContextDialog({
       const text = await upload.text();
       await onAddFile(uploadPath, newFileContent(upload.name, text));
     };
-  })();
+  };
+  const work = plannedWork();
   const canSubmit = !busy && work !== null;
+
+  const pickUpload = (file: File) => {
+    const accepted = isUploadableFile(file);
+    setUpload(accepted ? file : null);
+    setError(
+      accepted
+        ? null
+        : "Only Markdown and text files for now. Link to anything else.",
+    );
+  };
 
   const submit = async () => {
     if (busy || !work) return;
@@ -220,14 +231,7 @@ export function AddContextDialog({
             <DropZone
               file={upload}
               exists={uploadExists}
-              onFile={(file) => {
-                setError(
-                  isUploadableFile(file)
-                    ? null
-                    : "Only Markdown and text files for now. Link to anything else.",
-                );
-                setUpload(isUploadableFile(file) ? file : null);
-              }}
+              onFile={pickUpload}
               onClear={() => setUpload(null)}
             />
           ) : null}

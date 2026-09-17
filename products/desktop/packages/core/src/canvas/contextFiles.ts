@@ -16,19 +16,22 @@ export function fileDisplayName(target: string): string {
   return target.split("/").pop() ?? target;
 }
 
+const TEXT_EXTENSION = /\.(md|markdown|txt)$/i;
+
+function fileStem(name: string): string {
+  return name.trim().replace(TEXT_EXTENSION, "");
+}
+
 export function fileNameToPath(folder: string, name: string): string | null {
-  const stem = name
-    .trim()
-    .replace(/\.(md|markdown|txt)$/i, "")
+  const slug = fileStem(name)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return stem ? `${folder}${stem}.md` : null;
+  return slug ? `${folder}${slug}.md` : null;
 }
 
 export function fileTitle(name: string): string {
-  const stem = name.trim().replace(/\.(md|markdown|txt)$/i, "");
-  return stem.replace(/[-_]+/g, " ").trim() || "Untitled";
+  return fileStem(name).replace(/[-_]+/g, " ").trim() || "Untitled";
 }
 
 const FRONTMATTER_START = /^---\r?\n/;

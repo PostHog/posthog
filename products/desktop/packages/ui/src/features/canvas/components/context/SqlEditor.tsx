@@ -57,7 +57,7 @@ export function SqlEditor({
   className,
   ref,
 }: SqlEditorProps) {
-  const base = useEditorExtensions("measure.sql");
+  const baseExtensions = useEditorExtensions("measure.sql");
   const docRef = useRef(formatHogQL(initialValue));
   const onChangeRef = useRef(onChange);
   const onRunRef = useRef(onRun);
@@ -71,7 +71,7 @@ export function SqlEditor({
 
   const extensions = useMemo(
     () => [
-      ...base,
+      ...baseExtensions,
       sqlEditorTheme,
       EditorView.updateListener.of((update) => {
         if (!update.docChanged) return;
@@ -91,7 +91,7 @@ export function SqlEditor({
         ]),
       ),
     ],
-    [base],
+    [baseExtensions],
   );
   const options = useMemo(
     () => ({ doc: docRef.current, extensions }),

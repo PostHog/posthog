@@ -343,28 +343,29 @@ export function resolveContextSources(
   servers: readonly McpRecommendedServer[],
   installations: readonly McpServerInstallation[],
 ): ResolvedContextSource[] {
-  const byTemplate = new Map<string, McpServerInstallation>();
-  for (const installation of installations) {
-    if (installation.template_id) {
-      byTemplate.set(installation.template_id, installation);
-    }
-  }
-  const resolved: ResolvedContextSource[] = [];
-  for (const source of CONTEXT_SOURCES) {
+  const byTemplate = new Map(
+    installations.flatMap((installation) =>
+      installation.template_id
+        ? [[installation.template_id, installation] as const]
+        : [],
+    ),
+  );
+  return CONTEXT_SOURCES.flatMap((source) => {
     const template = servers.find(
       (candidate) => contextSourceForTemplate(candidate)?.id === source.id,
     );
-    if (!template) continue;
+    if (!template) return [];
     const installation = byTemplate.get(template.id) ?? null;
-    resolved.push({
-      source,
-      template,
-      installation,
-      status: installation
-        ? getInstallationStatus(installation)
-        : "not_connected",
-      needsCredentials: (template.auth_type ?? "oauth") !== "oauth",
-    });
-  }
-  return resolved;
+    return [
+      {
+        source,
+        template,
+        installation,
+        status: installation
+          ? getInstallationStatus(installation)
+          : "not_connected",
+        needsCredentials: (template.auth_type ?? "oauth") !== "oauth",
+      },
+    ];
+  });
 }

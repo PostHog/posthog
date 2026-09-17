@@ -65,16 +65,25 @@ export function GoalsList({
     const adding = editingIndex === null;
     const primary = goal.primary || (adding && goals.length === 0);
     const next = { ...goal, primary };
-    const rest = primary ? goals.map((g) => ({ ...g, primary: false })) : goals;
-    const replaced = rest.map((g, i) => (i === editingIndex ? next : g));
-    await onChange(adding ? [...rest, next] : replaced);
+    const rest = primary
+      ? goals.map((goal) => ({ ...goal, primary: false }))
+      : goals;
+    await onChange(
+      adding
+        ? [...rest, next]
+        : rest.map((goal, index) => (index === editingIndex ? next : goal)),
+    );
     setEditing(null);
   };
-  const makePrimary = (index: number) =>
-    onChange(goals.map((g, i) => ({ ...g, primary: i === index })));
-  const ordered = goals
-    .map((goal, index) => ({ goal, index }))
-    .sort((a, b) => Number(b.goal.primary) - Number(a.goal.primary));
+  const makePrimary = (chosen: number) =>
+    onChange(
+      goals.map((goal, index) => ({ ...goal, primary: index === chosen })),
+    );
+  const indexed = goals.map((goal, index) => ({ goal, index }));
+  const ordered = [
+    ...indexed.filter(({ goal }) => goal.primary),
+    ...indexed.filter(({ goal }) => !goal.primary),
+  ];
 
   const askAgent = async (goal: ContextGoal) => {
     await save(goal);
@@ -83,7 +92,7 @@ export function GoalsList({
 
   const remove = async () => {
     if (editingIndex === null) return;
-    await onChange(goals.filter((_, i) => i !== editingIndex));
+    await onChange(goals.filter((_, index) => index !== editingIndex));
     setEditing(null);
   };
 
@@ -158,7 +167,7 @@ export function GoalsList({
               key={editing}
               initial={editingGoal}
               takenNames={goals
-                .filter((_, i) => i !== editingIndex)
+                .filter((_, index) => index !== editingIndex)
                 .map((goal) => goal.name)}
               onSave={save}
               onAskAgent={askAgent}

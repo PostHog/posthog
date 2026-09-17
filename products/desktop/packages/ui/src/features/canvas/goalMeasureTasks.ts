@@ -1,7 +1,11 @@
+import { z } from "zod";
+
 export interface GoalMeasureTask {
   taskId: string;
   state: "running" | "ended";
 }
+
+const taskIdsByGoal = z.record(z.string(), z.string());
 
 const storageKey = (channelId: string) =>
   `context-goal-measure-tasks:${channelId}`;
@@ -11,10 +15,8 @@ export function readGoalMeasureTaskIds(
 ): Record<string, string> {
   try {
     const raw = window.localStorage.getItem(storageKey(channelId));
-    const parsed: unknown = raw ? JSON.parse(raw) : null;
-    return parsed && typeof parsed === "object"
-      ? (parsed as Record<string, string>)
-      : {};
+    const parsed = taskIdsByGoal.safeParse(raw ? JSON.parse(raw) : null);
+    return parsed.success ? parsed.data : {};
   } catch {
     return {};
   }

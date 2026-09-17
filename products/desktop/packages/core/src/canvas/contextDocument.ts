@@ -145,31 +145,28 @@ const OWN_KEYS = ["goals", "reading", "watching"] as const;
 type OwnKey = (typeof OWN_KEYS)[number];
 
 function splitFrontmatter(markdown: string): {
-  own: Partial<Record<OwnKey, string>>;
+  blocks: Partial<Record<OwnKey, string[]>>;
   rest: string;
   body: string;
 } {
   const match = FRONTMATTER.exec(markdown);
-  if (!match) return { own: {}, rest: "", body: markdown };
+  if (!match) return { blocks: {}, rest: "", body: markdown };
   const blocks: Partial<Record<OwnKey, string[]>> = {};
   const rest: string[] = [];
   let current = rest;
   for (const line of match[1].split(/\r?\n/)) {
     const key = KEY_LINE.exec(line)?.[1];
-    if (key) {
-      const own = OWN_KEYS.find((candidate) => candidate === key);
-      current = own ? [] : rest;
-      if (own) blocks[own] = current;
+    const own = OWN_KEYS.find((candidate) => candidate === key);
+    if (own) {
+      current = [];
+      blocks[own] = current;
+    } else if (key) {
+      current = rest;
     }
     current.push(line);
   }
-  const own: Partial<Record<OwnKey, string>> = {};
-  for (const key of OWN_KEYS) {
-    const lines = blocks[key];
-    if (lines) own[key] = lines.join("\n");
-  }
   return {
-    own,
+    blocks,
     rest: rest.join("\n").trim(),
     body: markdown.slice(match[0].length),
   };
@@ -177,31 +174,28 @@ function splitFrontmatter(markdown: string): {
 
 function readList<T>(
   key: OwnKey,
-  block: string | undefined,
+  lines: string[] | undefined,
   schema: z.ZodType<T>,
 ): T[] {
-  if (block === undefined) return [];
-  const data: unknown = parseYaml(block);
-  const value =
-    data && typeof data === "object" ? Reflect.get(data, key) : undefined;
-  if (value === undefined || value === null) return [];
-  const result = z.array(schema).safeParse(value);
+  if (!lines) return [];
+  const block = z.object({ [key]: z.array(schema).nullish() });
+  const result = block.safeParse(parseYaml(lines.join("\n")));
   if (!result.success) {
     throw new Error(
       `The frontmatter key \`${key}\` is not in the expected shape.\n${z.prettifyError(result.error)}`,
     );
   }
-  return result.data;
+  return result.data[key] ?? [];
 }
 
 export function parseContextDocument(markdown: string): ContextDocument {
-  const { own, rest, body } = splitFrontmatter(markdown);
+  const { blocks, rest, body } = splitFrontmatter(markdown);
   return {
     frontmatter: rest,
     knowledge: body.trim(),
-    goals: readList("goals", own.goals, goalSchema),
-    links: readList("reading", own.reading, linkSchema),
-    objects: readList("watching", own.watching, objectSchema),
+    goals: readList("goals", blocks.goals, goalSchema),
+    links: readList("reading", blocks.reading, linkSchema),
+    objects: readList("watching", blocks.watching, objectSchema),
   };
 }
 

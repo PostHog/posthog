@@ -79,16 +79,7 @@ export function SpaceContextPage({
     useChannelFeed(channelId);
   const contextLayerEnabled = useContextLayerFlag();
   const { generate } = useGenerateContext();
-  const parsed = useMemo(() => {
-    try {
-      return { doc: parseContextDocument(store.content), error: null };
-    } catch (cause) {
-      return {
-        doc: EMPTY_DOCUMENT,
-        error: cause instanceof Error ? cause.message : String(cause),
-      };
-    }
-  }, [store.content]);
+  const parsed = useMemo(() => parseDocument(store.content), [store.content]);
   const doc = parsed.doc;
   const problem = store.isLoading ? null : documentProblem(store, parsed.error);
   const ready = !store.isLoading && problem === null;
@@ -97,19 +88,18 @@ export function SpaceContextPage({
     doc.goals.length === 0 &&
     doc.links.length === 0 &&
     doc.objects.length === 0;
-  const measureTasks = useMemo(() => {
-    const map = new Map<string, GoalMeasureTask>();
-    for (const goal of doc.goals) {
-      const taskId = measureTaskIds[goal.name];
-      if (taskId && goal.measure === null) {
-        map.set(
-          goal.name,
-          taskStateFor(taskId, channelTasks, channelTasksLoading),
-        );
-      }
-    }
-    return map;
-  }, [doc.goals, measureTaskIds, channelTasks, channelTasksLoading]);
+  const measureTasks = useMemo(
+    () =>
+      new Map(
+        doc.goals.flatMap((goal) => {
+          const taskId = measureTaskIds[goal.name];
+          if (!taskId || goal.measure !== null) return [];
+          const task = taskStateFor(taskId, channelTasks, channelTasksLoading);
+          return [[goal.name, task] as const];
+        }),
+      ),
+    [doc.goals, measureTaskIds, channelTasks, channelTasksLoading],
+  );
 
   const rememberTask = (key: string, taskId: string) => {
     const next = { ...measureTaskIds, [key]: taskId };
@@ -119,15 +109,11 @@ export function SpaceContextPage({
 
   const saveDoc = (next: ContextDocument) =>
     store.save(serializeContextDocument(next));
-  const knowledgeStore = useMemo<ContextDocumentStore>(
-    () => ({
-      ...store,
-      content: doc.knowledge,
-      save: (knowledge) =>
-        store.save(serializeContextDocument({ ...doc, knowledge })),
-    }),
-    [store, doc],
-  );
+  const knowledgeStore: ContextDocumentStore = {
+    ...store,
+    content: doc.knowledge,
+    save: (knowledge) => saveDoc({ ...doc, knowledge }),
+  };
 
   const askAgentForMeasure = async (goal: ContextGoal) => {
     const task = await generate({
@@ -286,6 +272,20 @@ export function SpaceContextPage({
   );
 }
 
+function parseDocument(content: string): {
+  doc: ContextDocument;
+  error: string | null;
+} {
+  try {
+    return { doc: parseContextDocument(content), error: null };
+  } catch (cause) {
+    return {
+      doc: EMPTY_DOCUMENT,
+      error: cause instanceof Error ? cause.message : String(cause),
+    };
+  }
+}
+
 function documentProblem(
   store: ContextDocumentStore,
   parseError: string | null,
@@ -310,7 +310,7 @@ function taskStateFor(
   channelTasks: Task[],
   loading: boolean,
 ): GoalMeasureTask {
-  const task = channelTasks.find((t) => t.id === taskId);
+  const task = channelTasks.find((candidate) => candidate.id === taskId);
   const ended = task
     ? isTerminalStatus(task.latest_run?.status)
     : !loading && channelTasks.length > 0;

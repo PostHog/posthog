@@ -70,20 +70,18 @@ function ThresholdArea({
   const plotBottom = plotTop + plotHeight;
 
   const paths = useMemo(() => {
-    const coords = points
-      .map((point) => {
-        const x = scales.x(point.label);
-        return x === undefined || Number.isNaN(x)
-          ? null
-          : `${x},${scales.y(point.value)}`;
-      })
-      .filter((coord): coord is string => coord !== null);
+    const coords = points.flatMap((point) => {
+      const x = scales.x(point.label);
+      if (x === undefined || Number.isNaN(x)) return [];
+      return [{ x, y: scales.y(point.value) }];
+    });
     if (coords.length < 2) return null;
-    const [firstX] = coords[0].split(",");
-    const [lastX] = coords[coords.length - 1].split(",");
+    const line = coords.map(({ x, y }) => `${x},${y}`).join(" L");
+    const first = coords[0];
+    const last = coords[coords.length - 1];
     return {
-      line: `M${coords.join(" L")}`,
-      area: `M${firstX},${plotBottom} L${coords.join(" L")} L${lastX},${plotBottom} Z`,
+      line: `M${line}`,
+      area: `M${first.x},${plotBottom} L${line} L${last.x},${plotBottom} Z`,
     };
   }, [points, scales, plotBottom]);
 
@@ -94,19 +92,19 @@ function ThresholdArea({
       : Math.min(plotBottom, Math.max(plotTop, scales.y(threshold)));
   const layers =
     splitY === null
-      ? [{ key: "all", color: red, y: plotTop, h: plotHeight }]
+      ? [{ key: "all", color: red, y: plotTop, height: plotHeight }]
       : [
           {
             key: "above",
             color: goodAbove ? green : red,
             y: plotTop,
-            h: splitY - plotTop,
+            height: splitY - plotTop,
           },
           {
             key: "below",
             color: goodAbove ? red : green,
             y: splitY,
-            h: plotBottom - splitY,
+            height: plotBottom - splitY,
           },
         ];
 
@@ -144,7 +142,7 @@ function ThresholdArea({
               x={plotLeft}
               y={layer.y}
               width={plotWidth}
-              height={Math.max(0, layer.h)}
+              height={Math.max(0, layer.height)}
             />
           </clipPath>
         ))}

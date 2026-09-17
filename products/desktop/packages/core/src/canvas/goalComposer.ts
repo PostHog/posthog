@@ -9,6 +9,10 @@ const AT_LEAST_WORDS =
 const AT_MOST_WORDS = /\b(at most|less than|under|below|no more than|≤|<=)\s*/i;
 const NUMBER = /(-?\d[\d,]*(?:\.\d+)?)\s*(%|k|m)?/i;
 const BY_DATE = /\bby\s+(.+?)\s*$/i;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const QUARTER = /^q([1-4])(?:\s+(\d{4}))?$/;
+const MONTH_DAY =
+  /^([a-z]+)\.?(?:\s+(\d{1,2})(?:st|nd|rd|th)?)?(?:,?\s+(\d{4}))?$/;
 
 const MONTHS = [
   "january",
@@ -34,51 +38,38 @@ function lastDay(year: number, monthIndex: number): number {
   return new Date(year, monthIndex + 1, 0).getDate();
 }
 
+function monthEnd(year: number, monthIndex: number): string {
+  return isoDate(year, monthIndex, lastDay(year, monthIndex));
+}
+
 export function parseDueDate(text: string, now = new Date()): string | null {
   const trimmed = text
     .trim()
     .toLowerCase()
     .replace(/^(the\s+)?end of\s+/, "");
-  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
-  if (iso) return trimmed;
+  if (ISO_DATE.test(trimmed)) return trimmed;
 
-  const quarter = /^q([1-4])(?:\s+(\d{4}))?$/.exec(trimmed);
+  const quarter = QUARTER.exec(trimmed);
   if (quarter) {
-    const q = Number(quarter[1]);
     const year = quarter[2] ? Number(quarter[2]) : now.getFullYear();
-    const monthIndex = q * 3 - 1;
-    return isoDate(year, monthIndex, lastDay(year, monthIndex));
+    return monthEnd(year, Number(quarter[1]) * 3 - 1);
   }
-
-  if (trimmed === "year" || trimmed === "the year" || trimmed === "eoy") {
+  if (["year", "the year", "eoy"].includes(trimmed)) {
     return isoDate(now.getFullYear(), 11, 31);
   }
-  if (trimmed === "month" || trimmed === "eom") {
-    return isoDate(
-      now.getFullYear(),
-      now.getMonth(),
-      lastDay(now.getFullYear(), now.getMonth()),
-    );
+  if (["month", "eom"].includes(trimmed)) {
+    return monthEnd(now.getFullYear(), now.getMonth());
   }
 
-  const monthDay =
-    /^([a-z]+)\.?(?:\s+(\d{1,2})(?:st|nd|rd|th)?)?(?:,?\s+(\d{4}))?$/.exec(
-      trimmed,
-    );
-  if (monthDay) {
-    const monthIndex = MONTHS.findIndex((m) => m.startsWith(monthDay[1]));
-    if (monthIndex >= 0 && monthDay[1].length >= 3) {
-      let year = monthDay[3] ? Number(monthDay[3]) : now.getFullYear();
-      const day = monthDay[2] ? Number(monthDay[2]) : lastDay(year, monthIndex);
-      if (!monthDay[3] && monthIndex < now.getMonth()) year += 1;
-      return isoDate(
-        year,
-        monthIndex,
-        Math.min(day, lastDay(year, monthIndex)),
-      );
-    }
-  }
-  return null;
+  const monthDay = MONTH_DAY.exec(trimmed);
+  if (!monthDay || monthDay[1].length < 3) return null;
+  const monthIndex = MONTHS.findIndex((month) => month.startsWith(monthDay[1]));
+  if (monthIndex < 0) return null;
+  const explicitYear = monthDay[3] ? Number(monthDay[3]) : null;
+  const rollsOver = explicitYear === null && monthIndex < now.getMonth();
+  const year = explicitYear ?? now.getFullYear() + (rollsOver ? 1 : 0);
+  const day = monthDay[2] ? Number(monthDay[2]) : lastDay(year, monthIndex);
+  return isoDate(year, monthIndex, Math.min(day, lastDay(year, monthIndex)));
 }
 
 export interface ParsedGoalSentence {
@@ -95,50 +86,44 @@ function parseNumber(match: RegExpMatchArray): number | null {
   return raw;
 }
 
+interface TargetWords {
+  index: number;
+  direction: GoalDirection;
+  value: number;
+}
+
+const TARGET_WORDS: readonly [RegExp, GoalDirection][] = [
+  [AT_MOST_WORDS, "at_most"],
+  [AT_LEAST_WORDS, "at_least"],
+];
+
+function findTargetWords(text: string): TargetWords | null {
+  const found = TARGET_WORDS.flatMap(([pattern, direction]) => {
+    const words = pattern.exec(text);
+    if (!words) return [];
+    const number = NUMBER.exec(text.slice(words.index + words[0].length));
+    if (!number || number.index > 3) return [];
+    const value = parseNumber(number);
+    return value === null ? [] : [{ index: words.index, direction, value }];
+  });
+  return found.sort((a, b) => a.index - b.index)[0] ?? null;
+}
+
 export function parseGoalSentence(
   sentence: string,
   now = new Date(),
 ): ParsedGoalSentence {
-  let text = sentence.trim().replace(/\s+/g, " ");
-  let dueDate: string | null = null;
-
+  const text = sentence.trim().replace(/\s+/g, " ");
   const by = BY_DATE.exec(text);
-  if (by) {
-    const parsed = parseDueDate(by[1], now);
-    if (parsed) {
-      dueDate = parsed;
-      text = text.slice(0, by.index).trim();
-    }
-  }
-
-  let direction: GoalDirection | null = null;
-  let cut = -1;
-  let numberMatch: RegExpMatchArray | null = null;
-  for (const [re, dir] of [
-    [AT_MOST_WORDS, "at_most"],
-    [AT_LEAST_WORDS, "at_least"],
-  ] as const) {
-    const m = re.exec(text);
-    if (!m) continue;
-    const after = text.slice(m.index + m[0].length);
-    const num = NUMBER.exec(after);
-    if (!num || num.index > 3) continue;
-    if (cut === -1 || m.index < cut) {
-      cut = m.index;
-      direction = dir;
-      numberMatch = num;
-    }
-  }
-
-  let target: GoalTarget | null = null;
-  if (direction && numberMatch) {
-    const value = parseNumber(numberMatch);
-    if (value !== null) {
-      target = { direction, value, dueDate };
-      text = text.slice(0, cut).trim();
-    }
-  }
-
-  const name = text.replace(/[\s,.;:]+$/, "");
-  return { name: name || sentence.trim(), target };
+  const dueDate = by ? parseDueDate(by[1], now) : null;
+  const withoutDate = by && dueDate ? text.slice(0, by.index) : text;
+  const target = findTargetWords(withoutDate);
+  const rawName = target ? withoutDate.slice(0, target.index) : withoutDate;
+  const name = rawName.trim().replace(/[\s,.;:]+$/, "");
+  return {
+    name: name || text,
+    target: target
+      ? { direction: target.direction, value: target.value, dueDate }
+      : null,
+  };
 }

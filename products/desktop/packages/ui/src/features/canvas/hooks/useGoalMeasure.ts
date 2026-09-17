@@ -20,7 +20,7 @@ export const goalMeasureQueryKey = (measure: GoalMeasure | null) =>
     measure?.kind === "hogql" ? measure.sql : (measure?.shortId ?? ""),
   ] as const;
 
-export async function readGoalMeasure(
+async function readGoalMeasure(
   client: PostHogAPIClient,
   measure: GoalMeasure,
 ): Promise<number | null> {
@@ -70,42 +70,67 @@ export function goalTrendQuery(
   return explicit ? { sql: explicit, period } : null;
 }
 
-function lastNumericCell(row: unknown[]): number | null {
-  for (let index = row.length - 1; index >= 0; index -= 1) {
-    const value = numericCell(row[index]);
-    if (value !== null) return value;
-  }
-  return null;
-}
-
 const BUCKET_COUNT: Record<TrendPeriod, number> = {
   day: 30,
   week: 12,
   month: 12,
 };
 
-function bucketKey(label: string): string | null {
-  const match = /^(\d{4}-\d{2}-\d{2})/.exec(label.trim());
-  return match ? match[1] : null;
+function isoDay(date: Date): string {
+  return date.toISOString().slice(0, 10);
 }
 
-function bucketStarts(period: TrendPeriod): Date[] {
+function bucketKey(label: string): string | null {
+  return /^(\d{4}-\d{2}-\d{2})/.exec(label.trim())?.[1] ?? null;
+}
+
+function lastNumericCell(row: unknown[]): number | null {
+  const values = row.map(numericCell).reverse();
+  return values.find((value) => value !== null) ?? null;
+}
+
+function currentBucketStart(period: TrendPeriod): Date {
   const now = new Date();
   const start = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
   );
-  if (period === "week")
+  if (period === "week") {
     start.setUTCDate(start.getUTCDate() - start.getUTCDay());
-  if (period === "month") start.setUTCDate(1);
-  const starts: Date[] = [];
-  for (let offset = BUCKET_COUNT[period] - 1; offset >= 0; offset -= 1) {
-    const date = new Date(start);
-    if (period === "day") date.setUTCDate(date.getUTCDate() - offset);
-    if (period === "week") date.setUTCDate(date.getUTCDate() - offset * 7);
-    if (period === "month") date.setUTCMonth(date.getUTCMonth() - offset);
-    starts.push(date);
   }
-  return starts;
+  if (period === "month") start.setUTCDate(1);
+  return start;
+}
+
+function bucketsBefore(start: Date, period: TrendPeriod, count: number): Date {
+  const date = new Date(start);
+  if (period === "month") {
+    date.setUTCMonth(date.getUTCMonth() - count);
+  } else {
+    date.setUTCDate(date.getUTCDate() - count * (period === "week" ? 7 : 1));
+  }
+  return date;
+}
+
+function bucketStarts(period: TrendPeriod): Date[] {
+  const start = currentBucketStart(period);
+  const count = BUCKET_COUNT[period];
+  return Array.from({ length: count }, (_, index) =>
+    bucketsBefore(start, period, count - 1 - index),
+  );
+}
+
+function trendPoints(rows: unknown[][], period: TrendPeriod): GoalTrendPoint[] {
+  const byBucket = new Map(
+    rows.flatMap((row) => {
+      const key = bucketKey(String(row[0] ?? ""));
+      const value = lastNumericCell(row);
+      return key && value !== null ? [[key, value] as const] : [];
+    }),
+  );
+  return bucketStarts(period).map((start) => ({
+    label: start.toISOString(),
+    value: byBucket.get(isoDay(start)) ?? 0,
+  }));
 }
 
 export function useGoalTrend(goalName: string, measure: GoalMeasure | null) {
@@ -115,17 +140,10 @@ export function useGoalTrend(goalName: string, measure: GoalMeasure | null) {
     async (client) => {
       if (!query) return { period: "day", points: [] };
       const grid = await client.runHogQLQuery(query.sql);
-      const byBucket = new Map<string, number>();
-      for (const row of grid.results) {
-        const value = lastNumericCell(row);
-        const key = bucketKey(String(row[0] ?? ""));
-        if (value !== null && key) byBucket.set(key, value);
-      }
-      const points = bucketStarts(query.period).map((start) => ({
-        label: start.toISOString(),
-        value: byBucket.get(start.toISOString().slice(0, 10)) ?? 0,
-      }));
-      return { period: query.period, points };
+      return {
+        period: query.period,
+        points: trendPoints(grid.results, query.period),
+      };
     },
     {
       enabled: query !== null,

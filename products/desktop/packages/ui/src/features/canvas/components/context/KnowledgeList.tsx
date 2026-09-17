@@ -74,6 +74,11 @@ export function KnowledgeList({
   const sources = useContextSources();
   const { mutateAsync: writePage } = useContextWikiPageMutation();
 
+  const replaceLink = (index: number, next: ContextLink) =>
+    onLinksChange(links.map((link, at) => (at === index ? next : link)));
+  const removeLink = (index: number) =>
+    onLinksChange(links.filter((_, at) => at !== index));
+
   const addFile = async (path: string, content: string | null) => {
     await onLinksChange([
       ...links,
@@ -152,15 +157,9 @@ export function KnowledgeList({
                 title={fileDisplayName(link.target)}
                 prefix="Markdown file"
                 note={link.note}
-                onNoteChange={(note) =>
-                  onLinksChange(
-                    links.map((l, i) => (i === index ? { ...l, note } : l)),
-                  )
-                }
+                onNoteChange={(note) => replaceLink(index, { ...link, note })}
                 onOpen={() => setOpenFile(link.target)}
-                onRemove={() =>
-                  onLinksChange(links.filter((_, i) => i !== index))
-                }
+                onRemove={() => removeLink(index)}
                 trailing={<CaretRightIcon size={13} />}
                 disabled={isSaving}
               />
@@ -168,12 +167,8 @@ export function KnowledgeList({
               <LinkRow
                 link={link}
                 sources={sources}
-                onChange={(next) =>
-                  onLinksChange(links.map((l, i) => (i === index ? next : l)))
-                }
-                onRemove={() =>
-                  onLinksChange(links.filter((_, i) => i !== index))
-                }
+                onChange={(next) => replaceLink(index, next)}
+                onRemove={() => removeLink(index)}
                 disabled={isSaving}
               />
             )}
@@ -185,7 +180,7 @@ export function KnowledgeList({
             <ObjectRow
               object={object}
               onRemove={() =>
-                onObjectsChange(objects.filter((_, i) => i !== index))
+                onObjectsChange(objects.filter((_, at) => at !== index))
               }
               disabled={isSaving}
             />

@@ -53,6 +53,11 @@ interface GoalComposerProps {
 
 type Step = "ask" | "review";
 
+const DIRECTIONS: readonly [GoalDirection, string][] = [
+  ["at_least", "≥"],
+  ["at_most", "≤"],
+];
+
 function growToFit(el: HTMLTextAreaElement): void {
   el.style.height = "0px";
   el.style.height = `${Math.max(el.scrollHeight, 56)}px`;
@@ -147,8 +152,15 @@ export function GoalComposer({
     setStep("review");
   };
 
+  const canSubmit =
+    !targetInvalid &&
+    !isSaving &&
+    !askedAgent &&
+    !duplicate &&
+    name.trim() !== "";
+
   const submit = async () => {
-    if (targetInvalid || isSaving || askedAgent || duplicate) return;
+    if (!canSubmit) return;
     const goal: ContextGoal = {
       name: sentenceCase(name.trim()) || "Untitled goal",
       why: initial?.why ?? "",
@@ -188,9 +200,9 @@ export function GoalComposer({
             <textarea
               ref={askRef}
               value={sentence}
-              onChange={(e) => {
-                setSentence(e.target.value);
-                growToFit(e.target);
+              onChange={(event) => {
+                setSentence(event.target.value);
+                growToFit(event.target);
               }}
               onKeyDown={onAskKeyDown}
               spellCheck={!isHogQL}
@@ -223,7 +235,7 @@ export function GoalComposer({
               ) : null}
               <input
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(event) => setName(event.target.value)}
                 aria-label="Goal name"
                 placeholder="Name this goal"
                 aria-invalid={duplicate || undefined}
@@ -251,7 +263,7 @@ export function GoalComposer({
                       : { kind: "hogql", sql },
                   )
                 }
-                onRun={(sql) => runMutate(sql)}
+                onRun={runMutate}
                 result={{
                   running: run.isPending,
                   error: run.error?.message ?? null,
@@ -267,26 +279,26 @@ export function GoalComposer({
                 Target
               </Text>
               <div className="flex overflow-hidden rounded-md border border-border">
-                {(["at_least", "at_most"] as const).map((dir) => (
+                {DIRECTIONS.map(([option, sign]) => (
                   <button
-                    key={dir}
+                    key={option}
                     type="button"
-                    onClick={() => setDirection(dir)}
+                    onClick={() => setDirection(option)}
                     className={cn(
                       "px-2 py-1 text-xs tabular-nums",
-                      direction === dir
+                      direction === option
                         ? "bg-fill-selected text-foreground"
                         : "text-muted-foreground hover:bg-fill-hover",
                     )}
                   >
-                    {dir === "at_least" ? "≥" : "≤"}
+                    {sign}
                   </button>
                 ))}
               </div>
               <Input
                 inputMode="decimal"
                 value={targetValue}
-                onChange={(e) => setTargetValue(e.target.value)}
+                onChange={(event) => setTargetValue(event.target.value)}
                 placeholder="1,200"
                 aria-label="Target value"
                 aria-invalid={targetInvalid || undefined}
@@ -298,7 +310,7 @@ export function GoalComposer({
               <Input
                 type="date"
                 value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
+                onChange={(event) => setDueDate(event.target.value)}
                 aria-label="Due date"
                 className="w-40"
               />
@@ -350,13 +362,7 @@ export function GoalComposer({
             <Button
               variant="primary"
               size="sm"
-              disabled={
-                targetInvalid ||
-                isSaving ||
-                askedAgent ||
-                !name.trim() ||
-                duplicate
-              }
+              disabled={!canSubmit}
               loading={isSaving || askedAgent}
               onClick={() => void submit()}
             >
@@ -519,7 +525,9 @@ function MeasureReview({
         ref={editorRef}
         initialValue={sql}
         onChange={onChange}
-        onRun={(next) => next.trim() && onRun(next)}
+        onRun={(next) => {
+          if (next.trim()) onRun(next);
+        }}
       />
       <div className="flex items-center justify-between gap-3 border-border border-t px-3 py-1.5">
         <Button

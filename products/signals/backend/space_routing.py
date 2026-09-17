@@ -58,18 +58,22 @@ class SpaceWatchlist:
 
 
 def parse_watchlist(channel_id: UUID, markdown: str) -> SpaceWatchlist:
-    objects: list[WatchedObject] = []
-    for entry in _frontmatter_list(channel_id, markdown, "watching"):
-        url = str(entry.get("url", ""))
-        for kind, pattern in _OBJECT_PATHS:
-            found = pattern.search(url)
-            if found:
-                objects.append(WatchedObject(kind=kind, id=found.group(1), title=str(entry.get("title", "")).strip()))
-                break
-    goal_names = [
-        str(entry["name"]).strip() for entry in _frontmatter_list(channel_id, markdown, "goals") if entry.get("name")
-    ]
-    return SpaceWatchlist(channel_id=channel_id, objects=objects, goal_names=goal_names)
+    watched = (_watched_object(entry) for entry in _frontmatter_list(channel_id, markdown, "watching"))
+    goals = _frontmatter_list(channel_id, markdown, "goals")
+    return SpaceWatchlist(
+        channel_id=channel_id,
+        objects=[obj for obj in watched if obj is not None],
+        goal_names=[str(entry["name"]).strip() for entry in goals if entry.get("name")],
+    )
+
+
+def _watched_object(entry: dict[str, object]) -> WatchedObject | None:
+    url = str(entry.get("url", ""))
+    for kind, pattern in _OBJECT_PATHS:
+        found = pattern.search(url)
+        if found:
+            return WatchedObject(kind=kind, id=found.group(1), title=str(entry.get("title", "")).strip())
+    return None
 
 
 def _frontmatter_list(channel_id: UUID, markdown: str, key: str) -> list[dict[str, object]]:
@@ -105,42 +109,41 @@ def score_report(
     evidence_text: str,
     prose: str,
 ) -> int:
-    score = 0
     lowered_prose = prose.lower()
-    for obj in watchlist.objects:
-        if _id_pattern(obj.id).search(evidence_text):
+
+    def named(text: str) -> bool:
+        return len(text) >= MIN_NAME_LENGTH and text.lower() in lowered_prose
+
+    score = 0
+    for watched in watchlist.objects:
+        if _id_pattern(watched.id).search(evidence_text):
             score += ID_MATCH
-        elif len(obj.title) >= MIN_NAME_LENGTH and obj.title.lower() in lowered_prose:
+        elif named(watched.title):
             score += NAME_MATCH
-    for name in watchlist.goal_names:
-        if len(name) >= MIN_NAME_LENGTH and name.lower() in lowered_prose:
-            score += NAME_MATCH
+    score += NAME_MATCH * sum(1 for name in watchlist.goal_names if named(name))
     return score
 
 
 def choose_space(scores: dict[UUID, int]) -> UUID | None:
     ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
-    if not ranked or ranked[0][1] <= 0:
+    if not ranked:
         return None
-    best_id, best = ranked[0]
-    second = ranked[1][1] if len(ranked) > 1 else 0
-    if best >= ASSIGN_SCORE and best > second:
+    best_id, best_score = ranked[0]
+    runner_up = ranked[1][1] if len(ranked) > 1 else 0
+    if best_score >= ASSIGN_SCORE and best_score > runner_up:
         return best_id
-    if best >= CLEAR_LEAD_SCORE and second == 0:
+    if best_score >= CLEAR_LEAD_SCORE and runner_up == 0:
         return best_id
     return None
 
 
 def _load_watchlists(team_id: int) -> list[SpaceWatchlist]:
-    watchlists: list[SpaceWatchlist] = []
-    for channel in tasks_facade.list_channels(team_id, None):
-        instructions = tasks_facade.get_channel_instructions(channel.id, team_id, None)
-        if instructions is None or not instructions.content.strip():
-            continue
-        watchlist = parse_watchlist(channel.id, instructions.content)
-        if watchlist.objects or watchlist.goal_names:
-            watchlists.append(watchlist)
-    return watchlists
+    watchlists = (
+        parse_watchlist(channel.id, instructions.content)
+        for channel in tasks_facade.list_channels(team_id, None)
+        if (instructions := tasks_facade.get_channel_instructions(channel.id, team_id, None)) is not None
+    )
+    return [watchlist for watchlist in watchlists if watchlist.objects or watchlist.goal_names]
 
 
 def _has_assignment(team_id: int, report_id: str) -> bool:

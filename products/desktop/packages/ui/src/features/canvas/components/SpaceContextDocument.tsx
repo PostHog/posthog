@@ -88,7 +88,7 @@ function useChannelName(channelId: string): string {
   const spacesLayout = useChannelsLayout();
   const { channels } = useChannels();
   return (
-    channels.find((c) => c.id === channelId)?.name ??
+    channels.find((channel) => channel.id === channelId)?.name ??
     (spacesLayout ? "this space" : "this channel")
   );
 }
