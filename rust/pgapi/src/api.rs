@@ -7,12 +7,21 @@ use crate::AppState;
 use axum::{
     extract::{Extension, Path, Query, State},
     http::StatusCode,
+    middleware::map_response,
     response::{IntoResponse, Json, Response},
     routing::get,
     Router,
 };
 use serde::Deserialize;
 use std::sync::Arc;
+
+/// A page left open across a deploy sees a new token on its next API call and reloads,
+/// instead of running the old script against the new API.
+async fn stamp_build(mut res: Response) -> Response {
+    res.headers_mut()
+        .insert("x-pgapi-build", crate::ui::BUILD_TOKEN.clone());
+    res
+}
 
 type S = State<Arc<AppState>>;
 
@@ -56,6 +65,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/collector/health", get(collector_health))
         .route("/sql", get(sql))
         .route("/stats-schema", get(stats_schema))
+        .layer(map_response(stamp_build))
 }
 
 async fn me(Extension(p): Extension<Principal>) -> R {

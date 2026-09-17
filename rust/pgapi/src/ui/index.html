@@ -88,7 +88,7 @@
     ['tables', 'Tables'], ['indexes', 'Indexes'], ['vacuum', 'Vacuum'], ['events', 'Events'], ['logs', 'Logs'],
     ['system', 'System'], ['schema', 'Schema'], ['settings', 'Settings'], ['collector', 'Collector health'],
   ];
-  const state = { servers: [], server: null, page: 'overview', params: {}, range: '1h' };
+  const state = { servers: [], server: null, page: 'overview', params: {}, range: '1h', build: null };
   const $ = (s, r = document) => r.querySelector(s);
   const el = (tag, attrs = {}, ...kids) => {
     const e = document.createElement(tag);
@@ -128,6 +128,10 @@
   async function api(path, params = {}) {
     const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null && v !== '')).toString();
     const r = await fetch(`/api/v1${path}${qs ? '?' + qs : ''}`, { headers: { accept: 'application/json' } });
+    // The page only ever hash-navigates, so this is the one place it can notice a deploy.
+    const build = r.headers.get('x-pgapi-build');
+    if (build && state.build && state.build !== build) location.reload();
+    state.build = build;
     if (!r.ok) { let msg = `${r.status} ${r.statusText}`; try { msg += ': ' + (await r.json()).error; } catch {} throw new Error(msg); }
     return r.json();
   }
