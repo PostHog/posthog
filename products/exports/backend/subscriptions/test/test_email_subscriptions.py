@@ -13,17 +13,16 @@ from posthog.tasks.test.utils_email_tests import mock_email_messages
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription
+from products.exports.backend.subscriptions.email_subscriptions import send_email_subscription_report
+from products.exports.backend.subscriptions.test.subscriptions_test_factory import create_subscription
 from products.product_analytics.backend.facade.models import Insight
 
-from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
-from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
+
+def mock_subscription_email_messages(MockEmailMessage: MagicMock):
+    return mock_email_messages(MockEmailMessage, path="products/exports/backend/subscriptions/test/__emails__/")
 
 
-def mock_ee_email_messages(MockEmailMessage: MagicMock):
-    return mock_email_messages(MockEmailMessage, path="ee/tasks/test/__emails__/")
-
-
-@patch("ee.tasks.subscriptions.email_subscriptions.EmailMessage")
+@patch("products.exports.backend.subscriptions.email_subscriptions.EmailMessage")
 @time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 class TestEmailSubscriptionsTasks(APIBaseTest):
     subscription: Subscription
@@ -47,7 +46,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         self.subscription = create_subscription(team=self.team, insight=self.insight, created_by=self.user)
 
     def test_subscription_delivery(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
+        mocked_email_messages = mock_subscription_email_messages(MockEmailMessage)
 
         send_email_subscription_report("test1@posthog.com", self.subscription, [self.asset])
 
@@ -61,7 +60,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         )
 
     def test_new_subscription_delivery(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
+        mocked_email_messages = mock_subscription_email_messages(MockEmailMessage)
 
         send_email_subscription_report(
             "test1@posthog.com",
@@ -87,7 +86,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert "My invite message" in mocked_email_messages[0].html_body
 
     def test_should_have_different_text_for_self(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
+        mocked_email_messages = mock_subscription_email_messages(MockEmailMessage)
 
         send_email_subscription_report(
             self.user.email,
@@ -102,7 +101,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert "You have been subscribed to a PostHog Insight" == mocked_email_messages[0].subject
 
     def test_sends_dashboard_subscription(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
+        mocked_email_messages = mock_subscription_email_messages(MockEmailMessage)
 
         subscription = create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user)
 
@@ -121,7 +120,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert f"SHOWING 1 OF 10 DASHBOARD INSIGHTS" in mocked_email_messages[0].html_body
 
     def test_shows_summary_skipped_notice_when_over_budget(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
+        mocked_email_messages = mock_subscription_email_messages(MockEmailMessage)
 
         send_email_subscription_report(
             "test1@posthog.com",
@@ -137,7 +136,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
 
     def test_no_summary_skipped_notice_when_summary_present(self, MockEmailMessage: MagicMock) -> None:
         # A generated summary renders instead of the skip notice — never both.
-        mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
+        mocked_email_messages = mock_subscription_email_messages(MockEmailMessage)
 
         send_email_subscription_report(
             "test1@posthog.com",
@@ -151,7 +150,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert "AI summary skipped" not in mocked_email_messages[0].html_body
 
     def test_hides_out_of_memory_cause_in_failed_asset(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
+        mocked_email_messages = mock_subscription_email_messages(MockEmailMessage)
         oom_error = (
             "This query ran out of memory before it could finish, usually because it's scanning too "
             "much data. Try a shorter date range or narrower filters."
@@ -168,7 +167,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert "Failed to generate content" in body
 
     def test_same_recipient_gets_distinct_campaign_per_subscription(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
+        mocked_email_messages = mock_subscription_email_messages(MockEmailMessage)
 
         insight_b = Insight.objects.create(team=self.team, short_id="789abc", name="Second insight")
         subscription_b = create_subscription(team=self.team, insight=insight_b, created_by=self.user)
@@ -183,7 +182,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert str(subscription_b.pk) in mocked_email_messages[1].campaign_key
 
     def test_delivery_id_scopes_campaign_deduplication(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
+        mocked_email_messages = mock_subscription_email_messages(MockEmailMessage)
         first_delivery_id = uuid.uuid4()
         second_delivery_id = uuid.uuid4()
 
@@ -203,7 +202,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert str(second_delivery_id) in mocked_email_messages[2].campaign_key
 
     def test_invite_retries_reuse_delivery_campaign(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
+        mocked_email_messages = mock_subscription_email_messages(MockEmailMessage)
         delivery_id = uuid.uuid4()
 
         for _ in range(2):

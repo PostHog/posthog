@@ -13,6 +13,8 @@ from slack_sdk.errors import SlackApiError
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
 from products.exports.backend.models.subscription import AIQueryPlanStatus, Subscription, SubscriptionDelivery
+from products.exports.backend.subscriptions.slack_subscriptions import SlackMessage
+from products.exports.backend.subscriptions.teams_subscriptions import TEAMS_CARD_TEXT_BUDGET
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import _deliver_ai_subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     CHART_IMAGE_URL_TTL,
@@ -40,9 +42,6 @@ from products.exports.backend.temporal.subscriptions.types import (
     DeliverSubscriptionResult,
     SubscriptionTriggerType,
 )
-
-from ee.tasks.subscriptions.slack_subscriptions import SlackMessage
-from ee.tasks.subscriptions.teams_subscriptions import TEAMS_CARD_TEXT_BUDGET
 
 _DELIVERY = "products.exports.backend.temporal.subscriptions.ai_subscription.delivery"
 _ACTIVITIES = "products.exports.backend.temporal.subscriptions.ai_subscription.activities"

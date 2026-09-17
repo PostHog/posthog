@@ -8,8 +8,7 @@ from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription, get_unsubscribe_token
-
-from ee.tasks.subscriptions.subscription_utils import (
+from products.exports.backend.subscriptions.subscription_utils import (
     UTM_TAGS_BASE,
     _has_asset_failed,
     failed_asset_details,

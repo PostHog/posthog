@@ -16,10 +16,8 @@ from posthog.models.integration import Integration
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription
-from products.product_analytics.backend.facade.models import Insight
-
-from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS
-from ee.tasks.subscriptions.slack_subscriptions import (
+from products.exports.backend.subscriptions import SLACK_USER_CONFIG_ERRORS
+from products.exports.backend.subscriptions.slack_subscriptions import (
     MAX_SLACK_UPLOAD_BYTES,
     SlackGallery,
     _block_for_asset,
@@ -29,8 +27,9 @@ from ee.tasks.subscriptions.slack_subscriptions import (
     send_slack_message_with_integration_async,
     send_slack_subscription_report,
 )
-from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE
-from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
+from products.exports.backend.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE
+from products.exports.backend.subscriptions.test.subscriptions_test_factory import create_subscription
+from products.product_analytics.backend.facade.models import Insight
 
 
 def _make_slack_api_error(error_code: str, **extra_data) -> SlackApiError:
@@ -43,7 +42,7 @@ def _make_slack_api_error(error_code: str, **extra_data) -> SlackApiError:
     )
 
 
-@patch("ee.tasks.subscriptions.slack_subscriptions.SlackIntegration")
+@patch("products.exports.backend.subscriptions.slack_subscriptions.SlackIntegration")
 @time_machine.travel("2022-02-02T08:30:00.000Z", tick=False)
 class TestSlackSubscriptionsTasks(APIBaseTest):
     subscription: Subscription
@@ -285,7 +284,7 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
         # TODO: Should we perhaps save something to say the Subscription failed?
 
 
-@patch("ee.tasks.subscriptions.slack_subscriptions.SlackIntegration")
+@patch("products.exports.backend.subscriptions.slack_subscriptions.SlackIntegration")
 @time_machine.travel("2025-01-01T08:30:00.000Z", tick=False)
 class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
     TOTAL_ASSET_COUNT = 10
@@ -344,7 +343,10 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         # select_related, subscription/integration via the cached setUp instances.
         assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight"))
 
-        with patch("ee.tasks.subscriptions.slack_subscriptions._prepare_slack_message", side_effect=_spy):
+        with patch(
+            "products.exports.backend.subscriptions.slack_subscriptions._prepare_slack_message",
+            side_effect=_spy,
+        ):
             result = asyncio.run(
                 send_slack_message_with_integration_async(
                     self.integration, self.subscription, assets, self.TOTAL_ASSET_COUNT
@@ -389,7 +391,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         assert len(result.failed_thread_message_indices) == 0
         assert result.total_thread_messages == 3
 
-    @patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
+    @patch("products.exports.backend.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
     def test_async_delivery_partial_success(self, mock_sleep: AsyncMock, MockSlackIntegration: MagicMock) -> None:
         """Test that thread message timeouts are retried and result in partial success."""
         mock_async_client = self._setup_async_mock(MockSlackIntegration)
@@ -432,7 +434,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         assert result.failed_thread_message_indices == [1]  # Second thread message (index 1)
         assert result.total_thread_messages == 3
 
-    @patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
+    @patch("products.exports.backend.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
     def test_async_delivery_main_message_timeout_raises(
         self, mock_sleep: AsyncMock, MockSlackIntegration: MagicMock
     ) -> None:
@@ -455,7 +457,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
 
         assert mock_async_client.chat_postMessage.call_count == 3
 
-    @patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
+    @patch("products.exports.backend.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
     def test_async_delivery_retry_succeeds_on_second_attempt(
         self, mock_sleep: AsyncMock, MockSlackIntegration: MagicMock
     ) -> None:
@@ -481,7 +483,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         assert result.is_complete_success
         assert result.main_message_sent
 
-    @patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
+    @patch("products.exports.backend.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
     def test_async_delivery_retry_on_invalid_blocks_failure(
         self, mock_sleep: AsyncMock, MockSlackIntegration: MagicMock
     ) -> None:
@@ -504,7 +506,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         assert mock_async_client.chat_postMessage.call_count == 3
         mock_sleep.assert_has_awaits([call(1), call(2)])
 
-    @patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
+    @patch("products.exports.backend.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
     def test_async_delivery_retry_on_invalid_blocks_success(
         self, mock_sleep: AsyncMock, MockSlackIntegration: MagicMock
     ) -> None:
@@ -553,7 +555,9 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         mock_async_client.chat_postMessage.side_effect = [slack_error, slack_error, slack_error]
         assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight"))
 
-        with patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with patch(
+            "products.exports.backend.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock
+        ) as mock_sleep:
             with pytest.raises(SlackApiError):
                 asyncio.run(
                     send_slack_message_with_integration_async(
@@ -565,7 +569,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
             assert mock_async_client.chat_postMessage.call_count == 3
             mock_sleep.assert_has_awaits([call(1), call(2)])
 
-    @patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
+    @patch("products.exports.backend.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
     def test_async_delivery_retry_on_internal_error_success(
         self, mock_sleep: AsyncMock, MockSlackIntegration: MagicMock
     ) -> None:
@@ -613,7 +617,9 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         mock_async_client.chat_postMessage.side_effect = [slack_error]
         assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight"))
 
-        with patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with patch(
+            "products.exports.backend.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock
+        ) as mock_sleep:
             with pytest.raises(SlackApiError):
                 asyncio.run(
                     send_slack_message_with_integration_async(
@@ -641,7 +647,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         assert kwargs["file_uploads"] == gallery.file_uploads
         assert result.main_message_sent is True
 
-    @patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
+    @patch("products.exports.backend.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
     def test_deliver_slack_gallery_retries_timeout(
         self, mock_sleep: AsyncMock, MockSlackIntegration: MagicMock
     ) -> None:
@@ -874,7 +880,7 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
         )
         assets = list(ExportedAsset.objects.filter(id=asset.id).select_related("insight"))
         with patch(
-            "ee.tasks.subscriptions.slack_subscriptions.object_storage.read_bytes",
+            "products.exports.backend.subscriptions.slack_subscriptions.object_storage.read_bytes",
             return_value=b"STORAGEBYTES",
         ):
             gallery = _prepare_slack_gallery(subscription, assets, total_asset_count=1)
@@ -891,7 +897,7 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
         )
         assets = list(ExportedAsset.objects.filter(id=asset.id).select_related("insight"))
         with patch(
-            "ee.tasks.subscriptions.slack_subscriptions.object_storage.read_bytes",
+            "products.exports.backend.subscriptions.slack_subscriptions.object_storage.read_bytes",
             return_value=None,
         ):
             gallery = _prepare_slack_gallery(subscription, assets, total_asset_count=1)

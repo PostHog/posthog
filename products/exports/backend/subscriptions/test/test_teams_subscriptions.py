@@ -3,11 +3,13 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.subscriptions.subscription_utils import MAX_INSIGHTS, TRUNCATION_MARKER
+from products.exports.backend.subscriptions.teams_subscriptions import (
+    TEAMS_CARD_TEXT_BUDGET,
+    build_teams_subscription_card,
+)
+from products.exports.backend.subscriptions.test.subscriptions_test_factory import create_subscription
 from products.product_analytics.backend.facade.models import Insight
-
-from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS, TRUNCATION_MARKER
-from ee.tasks.subscriptions.teams_subscriptions import TEAMS_CARD_TEXT_BUDGET, build_teams_subscription_card
-from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 VALID_TEAMS_WEBHOOK_URL = (
     "https://prod-25.westeurope.logic.azure.com:443/workflows/abc123/triggers/manual/paths/invoke?sig=secret"

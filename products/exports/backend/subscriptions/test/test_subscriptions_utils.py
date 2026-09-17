@@ -7,19 +7,18 @@ from parameterized import parameterized
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.product_analytics.backend.facade.models import Insight
-
-from ee.tasks.subscriptions.subscription_utils import (
+from products.exports.backend.subscriptions.subscription_utils import (
     ASSET_GENERATION_FAILED_MESSAGE,
     MAX_INSIGHTS,
     generate_assets,
     subscription_asset_error_message,
 )
-from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
+from products.exports.backend.subscriptions.test.subscriptions_test_factory import create_subscription
+from products.product_analytics.backend.facade.models import Insight
 
 
-@patch("ee.tasks.subscriptions.subscription_utils.chain")
-@patch("ee.tasks.subscriptions.subscription_utils.exporter.export_asset")
+@patch("products.exports.backend.subscriptions.subscription_utils.chain")
+@patch("products.exports.backend.subscriptions.subscription_utils.exporter.export_asset")
 class TestSubscriptionsTasksUtils(APIBaseTest):
     dashboard: Dashboard
     insight: Insight

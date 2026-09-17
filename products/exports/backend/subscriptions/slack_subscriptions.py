@@ -17,8 +17,7 @@ from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription, SubscriptionResource
-
-from ee.tasks.subscriptions.subscription_utils import (
+from products.exports.backend.subscriptions.subscription_utils import (
     DEBUG_PLACEHOLDER_IMAGE_URL,
     UTM_TAGS_BASE,
     _has_asset_failed,

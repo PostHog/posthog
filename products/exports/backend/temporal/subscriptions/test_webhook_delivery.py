@@ -17,13 +17,12 @@ from temporalio.exceptions import ApplicationError
 from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.exports.backend.models.subscription import Subscription
+from products.exports.backend.subscriptions.test.subscriptions_test_factory import create_subscription
 from products.exports.backend.temporal.subscriptions.delivery_webhook import (
     _WEBHOOK_SEND_CAPACITY,
     deliver_teams_webhook,
 )
 from products.exports.backend.temporal.subscriptions.types import RecipientResult
-
-from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 pytestmark = pytest.mark.asyncio
 
@@ -36,7 +35,7 @@ CARD = {"type": "message", "attachments": []}
 _PINNED_SESSION = "products.exports.backend.temporal.subscriptions.delivery_webhook.pinned_session"
 _VALIDATE_URL = "posthog.security.pinned_requests.validate_url_and_pin_ips"
 _CAPTURE_FAILED = "products.exports.backend.temporal.subscriptions.delivery_webhook._capture_delivery_failed_event"
-_DISABLED_EMAIL = "ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"
+_DISABLED_EMAIL = "products.exports.backend.subscriptions.auto_disable.send_notifications_for_disabled_subscription"
 
 
 def _unsaved_teams_subscription(url: str = WEBHOOK_URL) -> Subscription:

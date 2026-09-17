@@ -61,6 +61,12 @@ from products.exports.backend.models.subscription import (
     unsubscribe_using_token,
 )
 from products.exports.backend.models.subscription_context import SubscriptionContext
+from products.exports.backend.subscriptions.auto_disable import validate_re_enable
+from products.exports.backend.subscriptions.subscription_utils import MAX_INSIGHTS
+from products.exports.backend.subscriptions.teams_subscriptions import (
+    TEAMS_WEBHOOK_URL_ERROR,
+    TEAMS_WEBHOOK_URL_MASKED_ERROR,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
     PromptRejectedError,
@@ -81,9 +87,6 @@ from products.product_analytics.backend.facade.api import insights_including_sof
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
-from ee.tasks.subscriptions.auto_disable import validate_re_enable
-from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
-from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, TEAMS_WEBHOOK_URL_MASKED_ERROR
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600

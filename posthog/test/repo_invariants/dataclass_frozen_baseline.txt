@@ -1368,7 +1368,6 @@
 19 products/conversations/backend/temporal/ai_reply/schemas.py
 19 products/signals/backend/temporal/types.py
 2 common/hogvm/python/objects.py
-2 ee/tasks/subscriptions/slack_subscriptions.py
 2 posthog/api/embedding_worker.py
 2 posthog/dags/common/overrides_manager.py
 2 posthog/dags/data_deletion_requests.py
@@ -1417,6 +1416,7 @@
 2 products/demo/backend/logic/products/hedgebox/models.py
 2 products/experiments/backend/experiment_summary_data_service.py
 2 products/experiments/stats/shared/cuped.py
+2 products/exports/backend/subscriptions/slack_subscriptions.py
 2 products/growth/backend/product_push/service.py
 2 products/growth/dags/user_product_list.py
 2 products/managed_warehouse/backend/facade/contracts.py

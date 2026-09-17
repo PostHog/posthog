@@ -28,6 +28,21 @@ from products.exports.backend.models.subscription import (
     SubscriptionDelivery,
     get_unsubscribe_token,
 )
+from products.exports.backend.subscriptions.slack_subscriptions import (
+    UTM_TAGS_BASE,
+    SlackDeliveryResult,
+    SlackMessage,
+    deliver_slack_message_data,
+)
+from products.exports.backend.subscriptions.teams_subscriptions import (
+    TEAMS_CARD_TEXT_BUDGET,
+    TEAMS_UTM_TAGS,
+    fit_to_teams_budget,
+    teams_byte_size,
+    teams_card_message,
+    teams_open_url_action,
+    teams_text_block,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportResult,
     generate_ai_report,
@@ -38,22 +53,6 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     compute_report_window,
 )
 from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
-
-from ee.tasks.subscriptions.slack_subscriptions import (
-    UTM_TAGS_BASE,
-    SlackDeliveryResult,
-    SlackMessage,
-    deliver_slack_message_data,
-)
-from ee.tasks.subscriptions.teams_subscriptions import (
-    TEAMS_CARD_TEXT_BUDGET,
-    TEAMS_UTM_TAGS,
-    fit_to_teams_budget,
-    teams_byte_size,
-    teams_card_message,
-    teams_open_url_action,
-    teams_text_block,
-)
 
 logger = structlog.get_logger(__name__)
 

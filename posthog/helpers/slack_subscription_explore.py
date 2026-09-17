@@ -1,4 +1,4 @@
-# In core ``posthog`` so the delivery paths (``ee/tasks``, ``products/exports``) can import this
+# In core ``posthog`` so the delivery paths under ``products/exports`` can import this
 # without crossing tach's ``products.slack_app`` boundary.
 
 from typing import Any

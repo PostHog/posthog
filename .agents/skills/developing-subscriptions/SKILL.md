@@ -112,11 +112,11 @@ Use a mock destination or test transport for external delivery checks.
 | API, serializers, validation, delivery history      | `ee/api/subscription.py`                                 |
 | Subscription and delivery models                    | `products/exports/backend/models/subscription.py`        |
 | Delivery workflows and activities                   | `products/exports/backend/temporal/subscriptions/`       |
-| Destination delivery and automatic disable behavior | `ee/tasks/subscriptions/`                                |
+| Destination delivery and automatic disable behavior | `products/exports/backend/subscriptions/`                |
 | Management UI and frontend logic                    | `products/subscriptions/frontend/`                       |
 | MCP tool definitions                                | `products/subscriptions/mcp/tools.yaml`                  |
 | API behavior tests                                  | `ee/api/test/test_subscription.py`                       |
-| Destination delivery tests                          | `ee/tasks/test/subscriptions/`                           |
+| Destination delivery tests                          | `products/exports/backend/subscriptions/test/`           |
 | Workflow tests                                      | `posthog/temporal/tests/test_subscriptions_workflows.py` |
 | Published operational guidance                      | `products/subscriptions/skills/managing-subscriptions/`  |
 

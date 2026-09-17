@@ -13,5 +13,3 @@ rules:
       owners: team-self-driving
     - match: '/surveys/'
       owners: conversations
-    - match: '/tasks/subscriptions/'
-      owners: team-product-analytics

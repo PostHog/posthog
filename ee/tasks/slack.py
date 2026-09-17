@@ -10,8 +10,7 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.sharing_configuration import SharingConfiguration
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-
-from ee.tasks.subscriptions.subscription_utils import DEBUG_PLACEHOLDER_IMAGE_URL, generate_assets
+from products.exports.backend.subscriptions.subscription_utils import DEBUG_PLACEHOLDER_IMAGE_URL, generate_assets
 
 logger = structlog.get_logger(__name__)
 

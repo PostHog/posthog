@@ -16,6 +16,7 @@ from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.types import ExportAssetResult
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.subscriptions.test.subscriptions_test_factory import create_subscription
 from products.exports.backend.temporal.subscriptions.activities import (
     advance_next_delivery_date,
     create_delivery_record,
@@ -43,8 +44,6 @@ from products.exports.backend.temporal.subscriptions.workflows import (
 )
 from products.product_analytics.backend.facade.models import Insight
 
-from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
-
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
 
@@ -69,8 +68,8 @@ async def test_deliver_slack_explains_missing_file_upload_scope(team, user) -> N
 
     with (
         patch("products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"),
-        patch("ee.tasks.subscriptions.auto_disable.create_subscription_auto_disabled_notification"),
-        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
+        patch("products.exports.backend.subscriptions.auto_disable.create_subscription_auto_disabled_notification"),
+        patch("products.exports.backend.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
     ):
         result = await deliver_slack(subscription, [], AsyncMock(side_effect=SlackApiError("Error", response)))
 

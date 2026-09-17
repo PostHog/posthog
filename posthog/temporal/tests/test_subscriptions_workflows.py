@@ -39,6 +39,12 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.subscriptions.auto_disable import (
+    AI_CONSENT_REVOKED_DISABLE_REASON,
+    SLACK_DISCONNECTED_DISABLE_REASON,
+)
+from products.exports.backend.subscriptions.slack_subscriptions import SlackDeliveryResult
+from products.exports.backend.subscriptions.test.subscriptions_test_factory import create_subscription
 from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExceeded
 from products.exports.backend.temporal.subscriptions.activities import (
     _resolve_exportable_insights,
@@ -87,10 +93,6 @@ from products.exports.backend.temporal.subscriptions.workflows import (
     _summarize_export_failure_details,
 )
 from products.product_analytics.backend.facade.models import Insight
-
-from ee.tasks.subscriptions.auto_disable import AI_CONSENT_REVOKED_DISABLE_REASON, SLACK_DISCONNECTED_DISABLE_REASON
-from ee.tasks.subscriptions.slack_subscriptions import SlackDeliveryResult
-from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
@@ -283,7 +285,7 @@ async def subscriptions_worker(temporal_client: Client):
 
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
-@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.exports.backend.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
@@ -359,7 +361,7 @@ async def test_subscription_delivery_scheduling(
 
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
-@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.exports.backend.subscriptions.get_metric_meter")
 @patch(
     "products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team", return_value=None
 )
@@ -425,7 +427,7 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
 
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
-@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.exports.backend.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @pytest.mark.parametrize(
     ("previous_target_value", "expected_recipients"),
@@ -514,7 +516,7 @@ async def test_handle_subscription_value_change_email(
 @patch("products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team")
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
-@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.exports.backend.subscriptions.get_metric_meter")
 @pytest.mark.asyncio
 async def test_deliver_subscription_report_slack(
     mock_metric_meter: MagicMock,
@@ -585,7 +587,7 @@ async def test_deliver_subscription_report_slack(
 
 @patch("products.exports.backend.temporal.subscriptions.delivery_webhook.pinned_session")
 @patch("posthog.temporal.exports.activities.exporter")
-@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.exports.backend.subscriptions.get_metric_meter")
 @pytest.mark.asyncio
 async def test_deliver_subscription_report_teams(
     mock_metric_meter: MagicMock,
@@ -648,7 +650,7 @@ async def test_deliver_subscription_report_teams(
     assert delivery.target_value == "prod-25.westeurope.logic.azure.com"
 
 
-@patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription")
+@patch("products.exports.backend.subscriptions.auto_disable.send_notifications_for_disabled_subscription")
 @patch("products.exports.backend.temporal.subscriptions.activities.build_insight_delivery_snapshot")
 @patch(
     "products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team", return_value=None
@@ -778,7 +780,7 @@ async def test_deliver_subscription_auto_disables_invalid_subscriptions(
     env = ActivityEnvironment()
 
     with (
-        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
+        patch("products.exports.backend.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
         # Always patched — only consulted on the slack branch, harmless otherwise.
         patch(
             "products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team",
@@ -827,7 +829,7 @@ async def test_no_assets_does_not_auto_disable(team, user):
     env = ActivityEnvironment()
 
     with (
-        patch("ee.tasks.subscriptions.auto_disable.disable_invalid_subscription") as disable_mock,
+        patch("products.exports.backend.subscriptions.auto_disable.disable_invalid_subscription") as disable_mock,
         patch(
             "products.exports.backend.temporal.subscriptions.activities._capture_delivery_failed_event"
         ) as capture_mock,
@@ -884,7 +886,7 @@ async def test_deliver_subscription_retry_idempotent_after_auto_disable(team, us
 
     # First call: unsupported_target triggers auto-disable + per-recipient failure.
     with (
-        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
+        patch("products.exports.backend.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
         patch(
             "products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"
         ) as capture_mock,
@@ -903,7 +905,9 @@ async def test_deliver_subscription_retry_idempotent_after_auto_disable(team, us
     # Second call simulates the Temporal redispatch — the entry guard short-circuits
     # so the disable email and analytics event do NOT fire again.
     with (
-        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        patch(
+            "products.exports.backend.subscriptions.auto_disable.send_notifications_for_disabled_subscription"
+        ) as send_mock,
         patch(
             "products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"
         ) as capture_mock,
@@ -947,7 +951,7 @@ async def test_validate_subscription_for_delivery(
 
     env = ActivityEnvironment()
     with (
-        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
+        patch("products.exports.backend.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
         patch(
             "products.exports.backend.temporal.subscriptions.activities._capture_delivery_failed_event"
         ) as capture_mock,
@@ -1062,7 +1066,9 @@ async def test_deliver_subscription_handles_slack_api_errors(team, user, slack_e
     )
 
     with (
-        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        patch(
+            "products.exports.backend.subscriptions.auto_disable.send_notifications_for_disabled_subscription"
+        ) as send_mock,
         patch(
             "products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team",
             return_value=mock_integration,
@@ -1633,7 +1639,7 @@ async def test_create_export_assets_excludes_deleted_standalone_insight(team, us
     assert result.failure_context["reason"] == NoExportableInsightsReason.MISSING_RESOURCE
 
 
-@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.exports.backend.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
@@ -1671,7 +1677,7 @@ async def test_deliver_subscription_legacy_false_sends_all_recipients(
 
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
-@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.exports.backend.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
@@ -1748,7 +1754,7 @@ async def test_deliver_subscription_workflow_end_to_end(
 
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
-@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.exports.backend.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @pytest.mark.asyncio
 async def test_new_subscription_sends_invite_email(
@@ -1812,7 +1818,7 @@ async def test_new_subscription_sends_invite_email(
 
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
-@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.exports.backend.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @pytest.mark.asyncio
 async def test_manual_send_uses_regular_template_not_invite(
@@ -1872,7 +1878,7 @@ async def test_manual_send_uses_regular_template_not_invite(
 
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
-@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.exports.backend.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
@@ -1960,7 +1966,7 @@ def _make_export_counter(fail_count: int, error_factory):
 )
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
-@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.exports.backend.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
@@ -2066,7 +2072,7 @@ async def test_export_error_slo_outcome(
 )
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
-@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.exports.backend.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
@@ -2174,7 +2180,7 @@ async def test_partial_export_failure_delivers_successful_assets(
 
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
-@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.exports.backend.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
@@ -2243,7 +2249,7 @@ async def test_delivery_failure_replaces_partial_export_slo_attribution(
 
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
-@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.exports.backend.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @patch("products.exports.backend.temporal.subscriptions.activities.build_insight_delivery_snapshot")
 @pytest.mark.asyncio
@@ -2377,7 +2383,7 @@ async def test_fetch_due_subscriptions_excludes_disabled(team, user):
     assert disabled_sub.id not in fetched_ids
 
 
-@patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription")
+@patch("products.exports.backend.subscriptions.auto_disable.send_notifications_for_disabled_subscription")
 @patch("products.exports.backend.temporal.subscriptions.activities.build_insight_delivery_snapshot")
 @patch(
     "products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team", return_value=None
@@ -2534,7 +2540,7 @@ async def test_generate_ai_report_consent_revoked_aborts_and_auto_disables(team,
     sub = await _create_ai_subscription(team, user)
     delivery = await _create_ai_delivery(sub)
 
-    with patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"):
+    with patch("products.exports.backend.subscriptions.auto_disable.send_notifications_for_disabled_subscription"):
         result = await ActivityEnvironment().run(
             generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
         )
@@ -2553,7 +2559,7 @@ async def test_generate_ai_report_prompt_rejected_aborts_and_auto_disables(team,
 
     with (
         patch(_GENERATE_REPORT, side_effect=PromptRejectedError("Prompt is empty.")),
-        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
+        patch("products.exports.backend.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
     ):
         result = await ActivityEnvironment().run(
             generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
@@ -2632,7 +2638,7 @@ async def test_deliver_ai_subscription_missing_slack_integration_auto_disables(t
             "products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team",
             return_value=None,
         ),
-        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
+        patch("products.exports.backend.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
     ):
         result = await ActivityEnvironment().run(deliver_subscription, _ai_delivery_inputs(sub.id, delivery.id))
 
@@ -2884,7 +2890,7 @@ async def test_skip_helper_falls_back_when_billing_period_unsynced(team, user):
 
 
 @patch("posthog.slo.events.posthoganalytics")
-@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.exports.backend.subscriptions.get_metric_meter")
 @patch(_CREDIT_LIMITED_EMAIL)
 @patch("products.exports.backend.temporal.subscriptions.ai_subscription.activities.send_email_ai_subscription_report")
 @patch(_GENERATE_REPORT)
@@ -2939,7 +2945,7 @@ async def test_schedule_ai_subscription_over_credit_budget_lands_skipped(
 
 
 @patch("posthog.slo.events.posthoganalytics")
-@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.exports.backend.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.ai_subscription.activities.send_email_ai_subscription_report")
 @patch(
     "products.exports.backend.temporal.subscriptions.ai_subscription.activities.build_ai_subscription_report",

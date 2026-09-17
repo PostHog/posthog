@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from ee.tasks.subscriptions.slack_subscriptions import _prepare_slack_message
+from products.exports.backend.subscriptions.slack_subscriptions import _prepare_slack_message
 
 
 def _make_subscription(title: str = "Weekly report"):

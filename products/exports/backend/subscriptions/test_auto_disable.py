@@ -9,8 +9,7 @@ from parameterized import parameterized
 from posthog.models import User
 
 from products.exports.backend.models.subscription import Subscription
-
-from ee.tasks.subscriptions.auto_disable import (
+from products.exports.backend.subscriptions.auto_disable import (
     AI_PROMPT_INVALID_DISABLE_REASON,
     SLACK_DISCONNECTED_DISABLE_REASON,
     disable_invalid_subscription,
@@ -18,7 +17,7 @@ from ee.tasks.subscriptions.auto_disable import (
     target_type_label,
     validate_re_enable,
 )
-from ee.tasks.subscriptions.failure_notifications import (
+from products.exports.backend.subscriptions.failure_notifications import (
     create_subscription_delivery_failure_notification,
     send_subscription_delivery_failure_email,
 )
@@ -89,8 +88,12 @@ class TestDisableInvalidSubscription(APIBaseTest):
         sub = self._make_subscription()
 
         with (
-            patch("ee.tasks.subscriptions.auto_disable.create_notification") as create_notification_mock,
-            patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+            patch(
+                "products.exports.backend.subscriptions.auto_disable.create_notification"
+            ) as create_notification_mock,
+            patch(
+                "products.exports.backend.subscriptions.auto_disable.send_notifications_for_disabled_subscription"
+            ) as send_mock,
         ):
             disable_invalid_subscription(sub, SLACK_DISCONNECTED_DISABLE_REASON)
 
@@ -110,8 +113,12 @@ class TestDisableInvalidSubscription(APIBaseTest):
         sub = self._make_subscription(enabled=False)
 
         with (
-            patch("ee.tasks.subscriptions.auto_disable.create_notification") as create_notification_mock,
-            patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+            patch(
+                "products.exports.backend.subscriptions.auto_disable.create_notification"
+            ) as create_notification_mock,
+            patch(
+                "products.exports.backend.subscriptions.auto_disable.send_notifications_for_disabled_subscription"
+            ) as send_mock,
         ):
             disable_invalid_subscription(sub, SLACK_DISCONNECTED_DISABLE_REASON)
 
@@ -135,8 +142,12 @@ class TestDisableInvalidSubscription(APIBaseTest):
             sub = self._make_subscription(created_by=None)
 
         with (
-            patch("ee.tasks.subscriptions.auto_disable.create_notification") as create_notification_mock,
-            patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+            patch(
+                "products.exports.backend.subscriptions.auto_disable.create_notification"
+            ) as create_notification_mock,
+            patch(
+                "products.exports.backend.subscriptions.auto_disable.send_notifications_for_disabled_subscription"
+            ) as send_mock,
         ):
             disable_invalid_subscription(sub, SLACK_DISCONNECTED_DISABLE_REASON)
 
@@ -166,8 +177,12 @@ class TestDisableInvalidSubscription(APIBaseTest):
         sub = self._make_subscription(created_by=creator)
 
         with (
-            patch("ee.tasks.subscriptions.auto_disable.create_notification") as create_notification_mock,
-            patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+            patch(
+                "products.exports.backend.subscriptions.auto_disable.create_notification"
+            ) as create_notification_mock,
+            patch(
+                "products.exports.backend.subscriptions.auto_disable.send_notifications_for_disabled_subscription"
+            ) as send_mock,
         ):
             disable_invalid_subscription(sub, SLACK_DISCONNECTED_DISABLE_REASON)
 
@@ -177,7 +192,7 @@ class TestDisableInvalidSubscription(APIBaseTest):
     def test_send_notifications_uses_unique_campaign_key_per_call(self):
         sub = self._make_subscription()
 
-        with patch("ee.tasks.subscriptions.auto_disable.EmailMessage") as email_cls:
+        with patch("products.exports.backend.subscriptions.auto_disable.EmailMessage") as email_cls:
             send_notifications_for_disabled_subscription(sub, SLACK_DISCONNECTED_DISABLE_REASON, [self.user.email])
             send_notifications_for_disabled_subscription(sub, SLACK_DISCONNECTED_DISABLE_REASON, [self.user.email])
 
@@ -193,7 +208,7 @@ class TestDisableInvalidSubscription(APIBaseTest):
     def test_disabled_email_includes_actionable_remediation(self):
         sub = self._make_subscription()
 
-        with patch("ee.tasks.subscriptions.auto_disable.EmailMessage") as email_cls:
+        with patch("products.exports.backend.subscriptions.auto_disable.EmailMessage") as email_cls:
             send_notifications_for_disabled_subscription(sub, AI_PROMPT_INVALID_DISABLE_REASON, [self.user.email])
 
         ctx = email_cls.call_args.kwargs["template_context"]
@@ -213,10 +228,10 @@ class TestDisableInvalidSubscription(APIBaseTest):
 
         with (
             patch(
-                "ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription",
+                "products.exports.backend.subscriptions.auto_disable.send_notifications_for_disabled_subscription",
                 side_effect=RuntimeError("smtp down"),
             ) as send_mock,
-            patch("ee.tasks.subscriptions.auto_disable.capture_exception") as capture_mock,
+            patch("products.exports.backend.subscriptions.auto_disable.capture_exception") as capture_mock,
         ):
             disable_invalid_subscription(sub, SLACK_DISCONNECTED_DISABLE_REASON)
 
@@ -239,7 +254,7 @@ class TestSubscriptionDeliveryFailureNotification(APIBaseTest):
             created_by=self.user,
         )
 
-        with patch("ee.tasks.subscriptions.failure_notifications.EmailMessage") as email_cls:
+        with patch("products.exports.backend.subscriptions.failure_notifications.EmailMessage") as email_cls:
             send_subscription_delivery_failure_email(subscription)
 
         assert email_cls.call_args.kwargs["subject"] == 'PostHog subscription "Weekly report" could not be delivered'
@@ -259,7 +274,9 @@ class TestSubscriptionDeliveryFailureNotification(APIBaseTest):
             created_by=self.user,
         )
 
-        with patch("ee.tasks.subscriptions.failure_notifications.create_notification") as create_notification_mock:
+        with patch(
+            "products.exports.backend.subscriptions.failure_notifications.create_notification"
+        ) as create_notification_mock:
             create_subscription_delivery_failure_notification(subscription)
 
         data = create_notification_mock.call_args.args[0]
@@ -283,8 +300,10 @@ class TestSubscriptionDeliveryFailureNotification(APIBaseTest):
         )
 
         with (
-            patch("ee.tasks.subscriptions.failure_notifications.EmailMessage") as email_cls,
-            patch("ee.tasks.subscriptions.failure_notifications.create_notification") as create_notification_mock,
+            patch("products.exports.backend.subscriptions.failure_notifications.EmailMessage") as email_cls,
+            patch(
+                "products.exports.backend.subscriptions.failure_notifications.create_notification"
+            ) as create_notification_mock,
         ):
             send_subscription_delivery_failure_email(subscription)
             create_subscription_delivery_failure_notification(subscription)

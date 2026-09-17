@@ -36,6 +36,13 @@ from products.exports.backend.models.subscription import (
     SubscriptionDelivery,
 )
 from products.exports.backend.models.subscription_context import SubscriptionContext
+from products.exports.backend.subscriptions.slack_subscriptions import get_slack_integration_for_team
+from products.exports.backend.subscriptions.subscription_utils import MAX_INSIGHTS
+from products.exports.backend.subscriptions.teams_subscriptions import (
+    TEAMS_WEBHOOK_URL_ERROR,
+    TEAMS_WEBHOOK_URL_MASKED_ERROR,
+)
+from products.exports.backend.subscriptions.test.subscriptions_test_factory import create_subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import AI_QUERY_PLAN_VERSION
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
@@ -50,10 +57,6 @@ from products.exports.backend.temporal.subscriptions.types import (
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.api.test.base import APILicensedTest
-from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
-from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
-from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, TEAMS_WEBHOOK_URL_MASKED_ERROR
-from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 VALID_TEAMS_WEBHOOK_URL = "https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke"
 VALID_AI_QUERY_PLAN = {

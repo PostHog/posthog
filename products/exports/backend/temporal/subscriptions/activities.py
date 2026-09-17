@@ -17,6 +17,20 @@ from posthog.sync import database_sync_to_async
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.subscriptions import _capture_delivery_failed_event
+from products.exports.backend.subscriptions.auto_disable import (
+    UNSUPPORTED_TARGET_DISABLE_REASON,
+    disable_invalid_subscription,
+    get_subscription_disable_reason,
+)
+from products.exports.backend.subscriptions.email_subscriptions import send_email_subscription_report
+from products.exports.backend.subscriptions.failure_notifications import (
+    create_subscription_delivery_failure_notification,
+    send_subscription_delivery_failure_email,
+)
+from products.exports.backend.subscriptions.slack_subscriptions import send_slack_message_with_integration_async
+from products.exports.backend.subscriptions.subscription_utils import MAX_INSIGHTS
+from products.exports.backend.subscriptions.teams_subscriptions import build_teams_subscription_card
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import _deliver_ai_subscription
 from products.exports.backend.temporal.subscriptions.delivery_common import (
     auto_disable_and_return,
@@ -44,21 +58,6 @@ from products.exports.backend.temporal.subscriptions.types import (
     UpdateDeliveryRecordInputs,
 )
 from products.product_analytics.backend.facade.models import Insight
-
-from ee.tasks.subscriptions import _capture_delivery_failed_event
-from ee.tasks.subscriptions.auto_disable import (
-    UNSUPPORTED_TARGET_DISABLE_REASON,
-    disable_invalid_subscription,
-    get_subscription_disable_reason,
-)
-from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
-from ee.tasks.subscriptions.failure_notifications import (
-    create_subscription_delivery_failure_notification,
-    send_subscription_delivery_failure_email,
-)
-from ee.tasks.subscriptions.slack_subscriptions import send_slack_message_with_integration_async
-from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
-from ee.tasks.subscriptions.teams_subscriptions import build_teams_subscription_card
 
 LOGGER = get_logger(__name__)
 

@@ -373,7 +373,7 @@ def deliver_slack_report(
         # The Slack channel picker stores the target as "<channel_id>|#<channel_name>"
         # (e.g. "C0B5CHB0JQH|#tech-devops-cron"). chat.postMessage only accepts the channel
         # ID, so strip the "|#name" suffix before sending. Mirrors the subscriptions path in
-        # ee/tasks/subscriptions/slack_subscriptions.py, which splits the same composite value.
+        # products/exports/backend/subscriptions/slack_subscriptions.py, which splits the same composite value.
         channel_id = channel.split("|")[0]
         if not channel_id:
             error_msg = f"Failed to send Slack message to {channel}: no channel ID in target value"

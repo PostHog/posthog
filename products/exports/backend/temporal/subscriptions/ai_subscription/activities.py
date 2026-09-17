@@ -17,6 +17,11 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.subscriptions import _capture_delivery_failed_event
+from products.exports.backend.subscriptions.auto_disable import (
+    AI_CONSENT_REVOKED_DISABLE_REASON,
+    AI_PROMPT_INVALID_DISABLE_REASON,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     build_ai_subscription_report,
     build_ai_teams_card,
@@ -50,8 +55,6 @@ from products.exports.backend.temporal.subscriptions.types import (
 )
 
 from ee.billing.quota_limiting import is_team_over_ai_credit_budget
-from ee.tasks.subscriptions import _capture_delivery_failed_event
-from ee.tasks.subscriptions.auto_disable import AI_CONSENT_REVOKED_DISABLE_REASON, AI_PROMPT_INVALID_DISABLE_REASON
 
 LOGGER = get_logger(__name__)
 

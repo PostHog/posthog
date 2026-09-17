@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import ChartDisplayType
 
-from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
+from products.exports.backend.subscriptions.subscription_utils import MAX_INSIGHTS
 
 # Hard cap on AI report query-plan steps — the contract the schema validator, planner prompt, and
 # synthesis result budget all key off. Named once here so they can't silently drift apart.

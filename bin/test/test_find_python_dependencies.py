@@ -41,7 +41,11 @@ class TestFindPythonDependencies(unittest.TestCase):
             ),
             ("nested_module", "posthog.hogql_queries.query_runner", "posthog/hogql_queries/query_runner.py"),
             ("nonexistent_module", "posthog.nonexistent.module", None),
-            ("ee_module", "ee.tasks.subscriptions.subscription_utils", "ee/tasks/subscriptions/subscription_utils.py"),
+            (
+                "product_module",
+                "products.exports.backend.subscriptions.subscription_utils",
+                "products/exports/backend/subscriptions/subscription_utils.py",
+            ),
         ]
     )
     def test_module_to_file(self, _name, module, expected_file):
@@ -83,7 +87,7 @@ class TestFindPythonDependencies(unittest.TestCase):
             # Export-related files - should trigger rebuild
             ("exporter", "posthog/tasks/exporter.py", True),
             ("image_exporter", "products/exports/backend/tasks/image_exporter.py", True),
-            ("subscription_utils", "ee/tasks/subscriptions/subscription_utils.py", True),
+            ("subscription_utils", "products/exports/backend/subscriptions/subscription_utils.py", True),
             # Files that should NOT affect the worker
             ("api_endpoint", "ee/api/subscription.py", False),
             ("schedule_config", "posthog/temporal/schedule.py", False),
@@ -183,9 +187,9 @@ class TestFindPythonDependencies(unittest.TestCase):
             # products/exports/backend/tasks/ - should trigger rebuild
             ("image_exporter", "products/exports/backend/tasks/image_exporter.py", True),
             ("csv_exporter", "products/exports/backend/tasks/csv_exporter.py", True),
-            # ee/tasks/subscriptions/ - should trigger rebuild
-            ("subscription_utils", "ee/tasks/subscriptions/subscription_utils.py", True),
-            ("email_subscriptions", "ee/tasks/subscriptions/email_subscriptions.py", True),
+            # products/exports/backend/subscriptions/ - should trigger rebuild
+            ("subscription_utils", "products/exports/backend/subscriptions/subscription_utils.py", True),
+            ("email_subscriptions", "products/exports/backend/subscriptions/email_subscriptions.py", True),
             # Transitive dependencies - should trigger rebuild
             ("utils", "posthog/utils.py", True),
             ("query_runner", "posthog/hogql_queries/query_runner.py", True),

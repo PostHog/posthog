@@ -13,15 +13,14 @@ from posthog.security.url_validation import is_microsoft_teams_webhook_url
 from posthog.settings.utils import get_from_env
 
 from products.exports.backend.models.subscription import Subscription
+from products.exports.backend.subscriptions import _capture_delivery_failed_event
+from products.exports.backend.subscriptions.auto_disable import WEBHOOK_REJECTED_DISABLE_REASON
 from products.exports.backend.temporal.subscriptions.delivery_common import (
     auto_disable_and_return,
     error_detail_results,
 )
 from products.exports.backend.temporal.subscriptions.retry_policy import SUBSCRIPTION_DELIVER_ATTEMPT_TIMEOUT
 from products.exports.backend.temporal.subscriptions.types import DeliverSubscriptionResult, RecipientResult
-
-from ee.tasks.subscriptions import _capture_delivery_failed_event
-from ee.tasks.subscriptions.auto_disable import WEBHOOK_REJECTED_DISABLE_REASON
 
 LOGGER = get_logger(__name__)
 
