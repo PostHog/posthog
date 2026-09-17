@@ -104,6 +104,9 @@ export class MlKeyDynamoDB {
                                 throw error
                             }
                             await this.backoff(attempt, deadline)
+                            if (deadline.aborted) {
+                                throw error
+                            }
                             continue
                         }
                         for (const item of response.Responses?.[this.tableName] ?? []) {
@@ -122,6 +125,9 @@ export class MlKeyDynamoDB {
                         pending = response.UnprocessedKeys?.[this.tableName]?.Keys ?? []
                         if (pending.length) {
                             await this.backoff(attempt, deadline)
+                            if (deadline.aborted) {
+                                break
+                            }
                         }
                     }
                     if (pending.length) {
