@@ -46,12 +46,7 @@ export function ChartGallery({
     return (
         <div className={clsx('@container overflow-y-auto p-2', className)} data-attr="chart-alternatives-gallery">
             <div className="flex flex-col gap-3">
-                {suggested.length > 0 && (
-                    <div className="flex flex-col gap-1.5">
-                        <h5 className="m-0 text-xs font-semibold uppercase text-secondary">Suggested</h5>
-                        <div className={GRID}>{suggested.map(renderTile)}</div>
-                    </div>
-                )}
+                {suggested.length > 0 && <div className={GRID}>{suggested.map(renderTile)}</div>}
                 <div className={GRID}>{ordered.map(renderTile)}</div>
             </div>
         </div>
