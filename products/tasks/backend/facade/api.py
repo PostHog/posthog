@@ -2411,6 +2411,10 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "rtk_effective",
         "benjamin_effective",
         "usage_metrics_recorded",
+        # get_task_run_actor_user mints the sandbox OAuth token for slack_actor_user_id when
+        # interaction_origin is "slack"; a removed actor falls back to the task creator.
+        "interaction_origin",
+        "slack_actor_user_id",
     }
 )
 
