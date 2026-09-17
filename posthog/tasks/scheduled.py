@@ -75,9 +75,14 @@ from posthog.tasks.uploaded_media import sweep_abandoned_media_uploads_task
 from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credentials
 from posthog.utils import get_crontab, get_instance_region
 
+from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task
 from products.ai_training.backend.facade.api import privacy_enabled
 from products.ai_training.backend.facade.tasks import process_ai_training_privacy_requests
-from products.approvals.backend.tasks import expire_old_change_requests, validate_pending_change_requests
+from products.approvals.backend.tasks import (
+    expire_old_change_requests,
+    sync_experiment_approval_policies,
+    validate_pending_change_requests,
+)
 from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
 from products.conversations.backend.tasks.email import flush_pending_email_replies
 from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
@@ -109,6 +114,7 @@ from products.signals.backend.tasks import (
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     refresh_signal_repository_activity,
+    sweep_implementation_dispatches,
     sync_pending_signals_refund_credits,
 )
 from products.skills.backend.tasks import sync_community_skills
@@ -392,6 +398,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         refresh_dev_stack_image_task.s(),
         name="refresh prebaked dev-stack VM image on base change",
         expires_seconds=2 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        sweep_implementation_dispatches.s(),
+        name="recover pending signals implementation starts",
+        expires_seconds=5 * 60,
     )
 
     # Re-enqueue signals PR refunds whose billing credit sync hasn't landed - hourly at minute 25
@@ -1000,6 +1014,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="expire old change requests",
     )
 
+    # TODO(experiment-approval-policies): temporary. See products/approvals/backend/experiment_policy_sync.py.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="15"),
+        sync_experiment_approval_policies.s(),
+        name="sync experiment approval policies",
+    )
+
     # Deactivate endpoint materializations that haven't been used in 30+ days
     sender.add_periodic_task(
         crontab(hour="5", minute="0"),
@@ -1117,6 +1139,17 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         DAILY_DIGEST_CRONTAB,
         send_daily_digests.s(),
         name="stamphog daily merged-pr digests",
+    )
+
+    # AEO citation-tracking POC: daily citation checks for allowlisted, flag-enabled teams.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="7", minute="30"),
+        run_aeo_citation_checks_task.s(),
+        name="AEO citation checks",
+        # Well under the daily interval, so a backed-up queue drops the stale dispatch
+        # instead of fanning out a second day's checks and paying for them twice.
+        expires_seconds=60 * 60,
     )
 
     # MCP registry daily sync: crawl the official registry, aggregate measured servers,

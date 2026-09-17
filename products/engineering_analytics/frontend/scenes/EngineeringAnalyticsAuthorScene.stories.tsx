@@ -92,7 +92,9 @@ function timeline(
         created_at: startedAt,
         started_at: startedAt,
         merged_at: options.merged ? end : null,
-        pushes: steps.filter(([kind]) => kind === 'ci_running').length,
+        pushes: segments
+            .filter((segment) => segment.kind === 'ci_running')
+            .map((segment, index) => ({ head_sha: `sha${number}${index}`, pushed_at: segment.started_at })),
         estimated_cost_usd: 4.2 * number,
         billable_minutes: 40 * number,
         segments,

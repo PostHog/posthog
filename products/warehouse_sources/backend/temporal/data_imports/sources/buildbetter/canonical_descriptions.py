@@ -67,6 +67,29 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "end_sec": "End time of the sentence within the recording, in seconds.",
         },
     },
+    "interview_tags": {
+        "description": "A tag applied to a call, resolving the tag references carried on interviews.",
+        "docs_url": "https://docs.buildbetter.ai/pages/api/data-access.md",
+        "columns": {
+            "interview_id": "Identifier of the interview the tag is applied to.",
+            "interview_created_at": "Time at which the interview record was created.",
+            "interview_updated_at": "Time at which the interview record was last updated.",
+            "tag_id": "Unique identifier of the tag.",
+            "tag_name": "Name of the tag.",
+            "tag_color": "Display color of the tag.",
+        },
+    },
+    "interview_types": {
+        "description": "The call type of an interview, such as a demo call or a user interview.",
+        "docs_url": "https://docs.buildbetter.ai/pages/api/data-access.md",
+        "columns": {
+            "interview_id": "Identifier of the interview the call type is assigned to.",
+            "interview_created_at": "Time at which the interview record was created.",
+            "interview_updated_at": "Time at which the interview record was last updated.",
+            "type_id": "Unique identifier of the call type.",
+            "type_name": "Name of the call type.",
+        },
+    },
     "extractions": {
         "description": "An AI-extracted insight from an interview — a quote with sentiment, topics, and context.",
         "docs_url": "https://docs.buildbetter.app/",
@@ -96,6 +119,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "extraction_created_at": "Time at which the extraction was created.",
             "topic_id": "Unique identifier of the topic.",
             "topic_text": "Text of the topic.",
+        },
+    },
+    "extraction_types": {
+        "description": "A signal type assigned to an extraction, such as a pain point or a feature request.",
+        "docs_url": "https://docs.buildbetter.ai/pages/api/data-access.md",
+        "columns": {
+            "extraction_id": "Identifier of the extraction the signal type is assigned to.",
+            "extraction_created_at": "Time at which the extraction was created.",
+            "type_id": "Unique identifier of the signal type.",
+            "type_name": "Name of the signal type.",
         },
     },
     "documents": {

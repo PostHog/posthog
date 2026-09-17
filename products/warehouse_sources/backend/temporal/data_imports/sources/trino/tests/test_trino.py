@@ -5,7 +5,9 @@ from unittest.mock import MagicMock, patch
 
 from trino.exceptions import TrinoExternalError
 
-from products.warehouse_sources.backend.presentation.views.external_data_source import _classify_refresh_schemas_error
+from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
+    _classify_refresh_schemas_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trino import (
     TrinoAuthTypeConfig,
     TrinoSourceConfig,

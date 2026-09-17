@@ -1279,6 +1279,22 @@ def _is_statement_timeout_error(error: BaseException) -> bool:
     )
 
 
+def _is_pooler_login_cooldown_error(error: BaseException) -> bool:
+    """True when a connection pooler (PgBouncer and similar) is in its `server_login_retry`
+    cooldown after a backend login attempt failed.
+
+    The cooldown clears on its own once the pooler's next scheduled retry succeeds, so it's the
+    same "expected, not a bug" shape the other exclusions here degrade quietly for. Matched on
+    message rather than exception type: a Postgres-wire-compatible engine backed by DuckDB's
+    `postgres_query()` table function (e.g. DuckLake's duckgres bridge) can wrap the underlying
+    connection failure in an unrelated exception class (observed as
+    `SyntaxErrorOrAccessRuleViolation`), so the type-based checks above (`_is_connection_dropped_error`
+    et al.) don't catch it here.
+    """
+    message = str(error).lower()
+    return "server login has been failing" in message and "server_login_retry" in message
+
+
 def _rls_active_from_conn(
     connection: psycopg.Connection,
     schema: str | None,
@@ -1359,8 +1375,10 @@ def _rls_active_from_conn(
         # outcome: this lookup is best-effort like the PK/xmin/index lookups it runs alongside, and
         # they all run under the same 30s SET LOCAL guard against a runaway catalog scan — hitting
         # it is the guard working, not new information about a bug here (mirrors
-        # `_xmin_capable_tables_from_conn`, which already degrades quietly for it). Still capture
-        # genuinely unexpected failures.
+        # `_xmin_capable_tables_from_conn`, which already degrades quietly for it). A pooler
+        # login-retry cooldown (e.g. a duckgres-backed source's own metadata store momentarily
+        # can't log in) is the same self-healing shape — see `_is_pooler_login_cooldown_error`.
+        # Still capture genuinely unexpected failures.
         if (
             not connection.closed
             and not connection.broken
@@ -1368,6 +1386,7 @@ def _rls_active_from_conn(
             and not _is_unsupported_function_error(e, "row_security_active")
             and not _is_unsupported_statement_timeout_error(e)
             and not _is_statement_timeout_error(e)
+            and not _is_pooler_login_cooldown_error(e)
         ):
             capture_exception(e)
         return {}
