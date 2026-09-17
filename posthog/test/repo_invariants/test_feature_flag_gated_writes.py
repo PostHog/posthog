@@ -119,6 +119,17 @@ def _own_nodes(scope: ast.AST):
             stack.extend(ast.iter_child_nodes(node))
 
 
+def _bound_names(target: ast.expr) -> set[str]:
+    # Only names the target assigns. `holder.item = ...` binds nothing to `holder`.
+    if isinstance(target, ast.Name):
+        return {target.id}
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return set().union(*(_bound_names(element) for element in target.elts))
+    if isinstance(target, ast.Starred):
+        return _bound_names(target.value)
+    return set()
+
+
 def _scope_flag_names(scope: ast.AST, models: set[str]) -> set[str]:
     # Catches flags and querysets held in variables whose name does not say "flag", such as
     # `existing = FeatureFlag.objects.filter(...).first()`, `row, _ = FeatureFlag.objects.get_or_create(...)`
@@ -140,7 +151,7 @@ def _scope_flag_names(scope: ast.AST, models: set[str]) -> set[str]:
         elif isinstance(node, (ast.For, ast.AsyncFor)) and _is_model_query(node.iter, models):
             targets = [node.target]
         for target in targets:
-            names.update(sub.id for sub in ast.walk(target) if isinstance(sub, ast.Name))
+            names.update(_bound_names(target))
     return names
 
 
@@ -300,6 +311,11 @@ def test_feature_flag_gated_fields_are_written_through_the_facade() -> None:
         ("def f(feature: FeatureFlag):\n    feature.active = False", 1),
         ("def f(feature: 'FeatureFlag | None'):\n    feature.filters = {}", 1),
         ("def f(feature: 'ArchivedFeatureFlag'):\n    feature.active = False", 0),
+        (
+            "async def f(holder):\n    async for holder.item in FeatureFlag.objects.all():\n        holder.active = False",
+            0,
+        ),
+        ("first, *rest = FeatureFlag.objects.all()\nrest.update(active=False)", 1),
         ("async def f():\n    async for item in FeatureFlag.objects.all():\n        item.active = False", 1),
         ("item: FeatureFlag = load()\nitem.active = True", 1),
         ("FeatureFlag.objects.filter(pk=1).update(last_called_at=now)", 0),
