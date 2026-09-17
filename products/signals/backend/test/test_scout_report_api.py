@@ -533,6 +533,22 @@ class TestScoutReportAPI(APIBaseTest):
         assert "collapse_after_four" in json.dumps(response.json())
         judge_mock.assert_not_awaited()
 
+    def test_an_edit_left_empty_by_ignored_fields_names_them(self) -> None:
+        # A declared field can be present and still leave nothing to apply, so the serializer lets the
+        # edit through and the emptiness check refuses it. Its generic wording cannot tell the caller
+        # a skew apart from its own mistake unless the ignored names ride along.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "title": None, "collapse_after_four": True},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "collapse_after_four" in json.dumps(response.json())
+
     @parameterized.expand([("corroboration_only",), ("supersedes_implementation",)])
     def test_an_omitted_edit_flag_stays_out_of_the_request_body(self, field: str) -> None:
         # A DRF default renders as a default on the generated client, which sends an explicit `false`
