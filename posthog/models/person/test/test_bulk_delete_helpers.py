@@ -159,6 +159,24 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
         assert log.activity == "deleted"
         assert log.was_impersonated is True
 
+    def test_does_not_log_a_deletion_twice_when_a_stale_read_resolves_the_person_again(self):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        with (
+            patch("posthog.models.person.bulk_delete.delete_person"),
+            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres"),
+        ):
+            for _attempt in range(2):
+                process_queued_person_deletion(
+                    self.team.pk,
+                    [str(p.uuid)],
+                    delete_profile=True,
+                    delete_recordings=False,
+                    actor=self.user,
+                    was_impersonated=False,
+                    organization_id=self.organization.id,
+                )
+        assert ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", item_id=str(p.pk)).count() == 1
+
     def test_logs_deletion_without_a_user_when_the_actor_is_gone(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
         with (

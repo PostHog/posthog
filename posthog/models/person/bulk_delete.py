@@ -15,7 +15,7 @@ from temporalio import common
 
 from posthog.dataclasses import frozen
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models.activity_logging.activity_log import Detail, LogActivityEntry, bulk_log_activity
+from posthog.models.activity_logging.activity_log import ActivityLog, Detail, LogActivityEntry, bulk_log_activity
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import Person
 from posthog.models.person.util import (
@@ -385,7 +385,18 @@ def _tombstone_and_delete_persons(
             )
             deleted = []
 
-    if organization_id is not None:
+    if organization_id is not None and deleted:
+        # Person reads are eventually consistent, so a retry can resolve and delete a person that
+        # an earlier attempt already removed. Skip persons that already have a deleted entry so the
+        # audit trail does not record the same deletion twice.
+        already_logged = set(
+            ActivityLog.objects.filter(
+                team_id=team_id,
+                scope="Person",
+                activity="deleted",
+                item_id__in=[str(person.pk) for person in deleted],
+            ).values_list("item_id", flat=True)
+        )
         bulk_log_activity(
             [
                 LogActivityEntry(
@@ -399,6 +410,7 @@ def _tombstone_and_delete_persons(
                     detail=Detail(name=str(person.uuid)),
                 )
                 for person in deleted
+                if str(person.pk) not in already_logged
             ]
         )
 
