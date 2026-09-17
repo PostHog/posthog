@@ -405,11 +405,12 @@ url = resume.next_url if resume else initial_url
 
 while True:
     data = fetch_page(url)
-    # yield batch
     next_url = data.get("links", {}).get("next")
+    if next_url:
+        manager.save_state(MyResumeConfig(next_url=next_url))  # stage before the yield it covers
+    # yield batch
     if not next_url:
         break
-    manager.save_state(MyResumeConfig(next_url=next_url))
     url = next_url  # advance before the next fetch, otherwise we loop on the same page
 ```
 
