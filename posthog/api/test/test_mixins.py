@@ -41,6 +41,14 @@ class RaisingResponseSerializer(serializers.Serializer):
         raise RuntimeError("boom")
 
 
+class RequiresFlavorSerializer(serializers.Serializer):
+    value = serializers.CharField()
+
+    def __init__(self, *args, flavor: str, **kwargs):
+        self.flavor = flavor
+        super().__init__(*args, **kwargs)
+
+
 class TestValidatedRequestDecorator(SimpleTestCase):
     def test_request_validation_with_valid_event_data(self):
         """All valid data, should return 200 OK"""
@@ -171,18 +179,25 @@ class TestValidatedRequestDecorator(SimpleTestCase):
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert response.data["type"] == "server_error"
 
-    def test_invalid_response_data_logs_warning(self):
+    @parameterized.expand(
+        [
+            ("class", EventCaptureResponseSerializer, {"wrong_field": "value"}, "EventCaptureResponseSerializer"),
+            ("instance", EventCaptureResponseSerializer(), {"wrong_field": "value"}, "EventCaptureResponseSerializer"),
+            ("many", EventCaptureResponseSerializer(many=True), [{"wrong_field": "value"}], "ListSerializer"),
+        ]
+    )
+    def test_invalid_response_data_logs_warning(self, _name, declared_response, response_data, serializer_class_name):
         """Invalid response data, should log warning and return response"""
 
         @validated_request(
             request_serializer=EventCaptureRequestSerializer,
             responses={
-                200: OpenApiResponse(response=EventCaptureResponseSerializer),
+                200: OpenApiResponse(response=declared_response),
             },
         )
         def mock_endpoint(view_self, request):
             # Missing required fields in response
-            return Response({"wrong_field": "value"}, status=status.HTTP_200_OK)
+            return Response(response_data, status=status.HTTP_200_OK)
 
         view_instance = Mock()
         view_instance.get_serializer_context = Mock(return_value={})
@@ -205,11 +220,53 @@ class TestValidatedRequestDecorator(SimpleTestCase):
                 )
                 assert call_args[1]["view_func"] == "mock_endpoint"
                 assert call_args[1]["status_code"] == 200
-                assert call_args[1]["serializer_class"] == "EventCaptureResponseSerializer"
+                assert call_args[1]["serializer_class"] == serializer_class_name
                 assert "validation_errors" in call_args[1]
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.data["wrong_field"] == "value"
+        assert response.data == response_data
+
+    @override_settings(DEBUG=True)
+    def test_declared_serializer_instance_keeps_its_constructor_options(self):
+        declared = EventCaptureResponseSerializer(many=True, allow_empty=False)
+
+        @validated_request(responses={200: OpenApiResponse(response=declared)})
+        def mock_endpoint(view_self, request):
+            return Response([], status=status.HTTP_200_OK)
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {}
+
+        with patch("posthog.api.mixins.logger") as mock_logger:
+            response = mock_endpoint(view_instance, mock_request)
+
+            mock_logger.warning.assert_called_once()
+            assert "Response data does not match declared serializer" in mock_logger.warning.call_args[0][0]
+
+        assert response.status_code == status.HTTP_200_OK
+        assert not hasattr(declared, "initial_data")
+
+    def test_declared_serializer_instance_with_a_required_constructor_argument(self):
+        @validated_request(
+            responses={200: OpenApiResponse(response=RequiresFlavorSerializer(flavor="vanilla"))},
+            strict_response_validation=True,
+        )
+        def mock_endpoint(view_self, request):
+            return Response({"value": "ok"}, status=status.HTTP_200_OK)
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {}
+
+        response = mock_endpoint(view_instance, mock_request)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["value"] == "ok"
 
     def test_response_serializer_that_raises_while_parsing_logs_warning(self):
         @validated_request(
@@ -280,6 +337,29 @@ class TestValidatedRequestDecorator(SimpleTestCase):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.data["custom_response"] == "anything goes"
+
+        with patch("posthog.api.mixins.settings") as mock_settings:
+            mock_settings.DEBUG = True
+            with patch("posthog.api.mixins.logger") as mock_logger:
+                mock_endpoint(view_instance, mock_request)
+
+                mock_logger.warning.assert_called_once()
+                assert "No responses parameter defined" in mock_logger.warning.call_args[0][0]
+
+    def test_strict_response_validation_without_responses_raises(self):
+        @validated_request(strict_response_validation=True)
+        def mock_endpoint(view_self, request):
+            return Response({"anything": True}, status=status.HTTP_200_OK)
+
+        view_instance = Mock()
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {}
+
+        with pytest.raises(serializers.ValidationError) as exc_info:
+            mock_endpoint(view_instance, mock_request)
+
+        assert "Responses parameter is required when strict_response_validation is True" in str(exc_info.value)
 
     @parameterized.expand(
         [
@@ -609,6 +689,7 @@ class TestValidatedRequestDecorator(SimpleTestCase):
         assert response.data["distinct_id"] == "user_123"
         assert mock_request.data["event"] == "$pageview"
 
+    @override_settings(DEBUG=True)
     def test_no_body_response_declared_as_none_succeeds(self):
         """When status code is declared as None (no body), response with no body should succeed"""
 
@@ -625,7 +706,10 @@ class TestValidatedRequestDecorator(SimpleTestCase):
         mock_request._full_data = {}
         mock_request.data = {}
 
-        response = mock_endpoint(view_instance, mock_request)
+        with patch("posthog.api.mixins.logger") as mock_logger:
+            response = mock_endpoint(view_instance, mock_request)
+
+            mock_logger.warning.assert_not_called()
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert response.data is None

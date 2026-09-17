@@ -104,7 +104,11 @@ You can generate an account-specific API secret in your [Chameleon account setti
             ENDPOINTS,
             {},
             names,
-            descriptions={"responses": "Microsurvey responses, fanned out across every Microsurvey. Full refresh only"},
+            descriptions={
+                "responses": "Microsurvey responses, fanned out across every Microsurvey. Full refresh only",
+                "interactions": "Per-user Tour state, fanned out across every Tour. Full refresh only",
+                "properties": "Custom data property definitions for both User Profiles and Companies. Full refresh only",
+            },
             should_sync_default={
                 endpoint: config.should_sync_default for endpoint, config in CHAMELEON_ENDPOINTS.items()
             },
