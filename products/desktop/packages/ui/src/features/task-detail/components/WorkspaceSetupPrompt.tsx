@@ -8,7 +8,8 @@ import type { WorkspaceSetupService } from "@posthog/core/workspace/WorkspaceSet
 import { useService } from "@posthog/di/react";
 import { getTaskRepository } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
-import { Box, Button, Code, Flex, Spinner, Text } from "@radix-ui/themes";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
+import { Box, Button, Code, Flex, Text } from "@radix-ui/themes";
 import { useCallback, useMemo, useState } from "react";
 import { FolderPicker } from "../../folder-picker/FolderPicker";
 import { useFolders } from "../../folders/useFolders";
@@ -96,10 +97,7 @@ export function WorkspaceSetupPrompt({
       className="absolute inset-0"
     >
       {isSettingUp ? (
-        <>
-          <Spinner size="3" />
-          <Text className="text-gray-11 text-sm">Setting up workspace...</Text>
-        </>
+        <LoadingState label="Setting up workspace..." />
       ) : pendingPath ? (
         <>
           <Warning size={32} weight="duotone" className="text-amber-9" />

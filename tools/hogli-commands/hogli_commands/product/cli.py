@@ -189,13 +189,18 @@ def cmd_isolate_move(name: str, views: tuple[str, ...], dry_run: bool) -> None:
 @click.argument("name", required=False)
 @click.option("--all", "scan_all", is_flag=True, help="Scan every product that holds crossing entries")
 @click.option("--json", "as_json", is_flag=True, help="Emit one JSON object per use instead of the report")
-@click.option("--write-baseline", is_flag=True, help="Regenerate products/model_crossing_uses_baseline.txt")
+@click.option(
+    "--write-baseline",
+    is_flag=True,
+    help="Record removals in products/model_crossing_uses_baseline.txt; refuses to add a line",
+)
 def cmd_crossings(name: str | None, scan_all: bool, as_json: bool, write_baseline: bool) -> None:
     import json as json_module
     from dataclasses import asdict
 
     from .crossings import (
         BASELINE_PATH,
+        BaselineWouldGrow,
         all_crossing_uses,
         crossing_classes,
         render_report,
@@ -210,7 +215,10 @@ def cmd_crossings(name: str | None, scan_all: bool, as_json: bool, write_baselin
     products = None if scan_all else [name] if name else None
     uses = all_crossing_uses(products)
     if write_baseline:
-        write_baseline_file(uses)
+        try:
+            write_baseline_file(uses)
+        except BaselineWouldGrow as refusal:
+            raise click.ClickException(str(refusal)) from refusal
         click.echo(f"Baseline written: {BASELINE_PATH}")
         return
     if as_json:

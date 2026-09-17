@@ -7,7 +7,7 @@ files and read them back: the DB stays the source of truth, files are a projecti
 The fingerprint is the identity agents author against -- re-creating a semantically identical check
 upserts instead of duplicating -- so it must depend only on what the check *asserts*, never on
 presentation (name, description, tags, owner). ``subject_uuid`` here is the id of whichever subject
-FK the check carries (saved query or table); the file format keeps the loose pair so it stays
+FK the check carries (saved query, table, or metric); the file format keeps the loose pair so it stays
 portable.
 """
 

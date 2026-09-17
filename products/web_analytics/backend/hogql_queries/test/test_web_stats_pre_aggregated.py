@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 from unittest.mock import MagicMock
 
@@ -33,7 +33,7 @@ from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_ba
 @snapshot_clickhouse_queries
 class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
     def _setup_test_data(self):
-        with freeze_time("2024-01-01T09:00:00Z"):
+        with time_machine.travel("2024-01-01T09:00:00Z", tick=False):
             sessions = [str(uuid7("2024-01-01")) for _ in range(20)]
 
             for i in range(20):
@@ -506,7 +506,7 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
     )
     def test_include_host_concatenates_host_and_path(self, breakdown):
         self._truncate_preaggregated_tables()
-        with freeze_time("2024-01-02T09:00:00Z"):
+        with time_machine.travel("2024-01-02T09:00:00Z", tick=False):
             sessions = [str(uuid7("2024-01-02")) for _ in range(3)]
 
             for i in range(3):
@@ -631,7 +631,7 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
     )
     def test_include_host_false_returns_path_only(self, breakdown):
         self._truncate_preaggregated_tables()
-        with freeze_time("2024-01-02T09:00:00Z"):
+        with time_machine.travel("2024-01-02T09:00:00Z", tick=False):
             sessions = [str(uuid7("2024-01-02")) for _ in range(2)]
 
             for i in range(2):
@@ -689,7 +689,7 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
 
     def test_include_host_page_breakdown_groups_same_paths_separately(self):
         self._truncate_preaggregated_tables()
-        with freeze_time("2024-01-02T09:00:00Z"):
+        with time_machine.travel("2024-01-02T09:00:00Z", tick=False):
             sessions = [str(uuid7("2024-01-02")) for _ in range(3)]
 
             for i in range(3):

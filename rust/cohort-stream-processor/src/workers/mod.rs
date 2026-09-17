@@ -1,15 +1,21 @@
 //! Stage 1 per-partition workers: the I/O and channel layer over [`crate::stage1`].
 
 pub mod cascade_path;
+mod composition_inputs;
 pub mod event_path;
 pub mod merge_gc;
 pub mod merge_path;
 pub mod person_seed_path;
 pub mod reconcile;
+mod reconcile_page;
+pub mod seed_apply;
 pub mod seed_path;
+pub mod seed_run;
 pub mod stage2_gc;
 pub mod stage2_path;
+pub mod stage2_person_inputs;
 pub mod sweep_callback;
+pub mod sweep_path;
 pub mod worker;
 
 pub use event_path::{

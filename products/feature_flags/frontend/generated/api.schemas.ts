@@ -397,6 +397,39 @@ export interface EvaluationContextSuggestionResponseApi {
 }
 
 /**
+ * * `remote_evaluation` - remote_evaluation
+ * * `local_evaluation` - local_evaluation
+ */
+export type FeatureFlagRequestTypeEnumApi =
+    (typeof FeatureFlagRequestTypeEnumApi)[keyof typeof FeatureFlagRequestTypeEnumApi]
+
+export const FeatureFlagRequestTypeEnumApi = {
+    RemoteEvaluation: 'remote_evaluation',
+    LocalEvaluation: 'local_evaluation',
+} as const
+
+export interface FeatureFlagRequestUsageItemApi {
+    /** Remote flag evaluation or local flag-definition request.
+     *
+     * * `remote_evaluation` - remote_evaluation
+     * * `local_evaluation` - local_evaluation */
+    request_type: FeatureFlagRequestTypeEnumApi
+    /** Start of the UTC billing-aggregation bucket. Hourly buckets approximate request time. */
+    bucket: string
+    /** SDK family parsed from the request user agent. */
+    sdk: string
+    /** Number of billable requests in this bucket. */
+    request_count: number
+    /** Estimated billing units. Local evaluation requests count as 10 units each. */
+    billing_units: number
+}
+
+export interface FeatureFlagRequestUsageResponseApi {
+    /** Feature flag request usage by SDK. */
+    results: FeatureFlagRequestUsageItemApi[]
+}
+
+/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -527,7 +560,7 @@ export interface FeatureFlagApi {
     /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
     archived?: boolean
     readonly created_by: UserBasicApi
-    created_at?: string
+    readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
     version?: number
@@ -542,7 +575,7 @@ export interface FeatureFlagApi {
     tags?: unknown[]
     evaluation_contexts?: unknown[]
     /**
-     * Dashboard of saved usage insights for this flag, or null if it has none. Flags do not get one on creation; create it with POST /api/projects/{project_id}/feature_flags/{id}/dashboard/.
+     * Legacy dashboard of saved usage insights for this flag, or null if it has none. New flags show usage charts inline instead. The dashboard creation endpoint is deprecated and will be removed after September 25, 2026.
      * @nullable
      */
     readonly usage_dashboard: number | null
@@ -583,9 +616,9 @@ export interface FeatureFlagApi {
      * Last time this feature flag was called (from $feature_flag_called events)
      * @nullable
      */
-    last_called_at?: string | null
+    readonly last_called_at: string | null
     _create_in_folder?: string
-    /** Check if this feature flag is used in any team's session recording linked flag setting. */
+    /** Check if any team gates session recording on this flag, by linked flag or trigger group. */
     readonly is_used_in_replay_settings: boolean
     /** Whether this flag can back an experiment: multivariate with 2 to 20 variants. */
     readonly is_eligible_for_experiment: boolean
@@ -1155,7 +1188,7 @@ export interface ActivityLogEntryApi {
     /** Whether the acting user was being impersonated by PostHog staff. */
     readonly was_impersonated: boolean
     /**
-     * API client that triggered the activity, from the x-posthog-client request header (e.g. 'mcp'). Null for requests that did not send the header.
+     * API client that triggered the activity. Self-reported through the x-posthog-client request header (e.g. 'mcp'), or 'scout:<skill_name>' when a scout run made the change, which the server derives from the run's own token. Null for requests that did neither.
      * @nullable
      */
     readonly client: string | null
@@ -1527,7 +1560,11 @@ export interface BulkUpdateTagsRequestApi {
      * * `remove` - remove
      * * `set` - set */
     action: BulkUpdateTagsActionEnumApi
-    /** Tag names to add, remove, or set. */
+    /**
+     * Tag names to add, remove, or set (up to 100 per request, 255 characters each).
+     * @maxItems 100
+     * @items.maxLength 255
+     */
     tags: string[]
 }
 
@@ -1873,12 +1910,32 @@ export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
     context_name: string
 }
 
-export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
+export type FeatureFlagRequestUsageListParams = {
     /**
-     * Name of the evaluation context to restore to suggestions.
+     * Inclusive start of the usage period.
      */
-    context_name: string
+    date_from: string
+    /**
+     * Exclusive end of the usage period.
+     */
+    date_to: string
+    /**
+     * Time bucket used to group request usage. Hourly queries are limited to 8 days.
+     *
+     * * `hour` - hour
+     * * `day` - day
+     * @minLength 1
+     */
+    time_interval?: FeatureFlagRequestUsageListTimeInterval
 }
+
+export type FeatureFlagRequestUsageListTimeInterval =
+    (typeof FeatureFlagRequestUsageListTimeInterval)[keyof typeof FeatureFlagRequestUsageListTimeInterval]
+
+export const FeatureFlagRequestUsageListTimeInterval = {
+    Hour: 'hour',
+    Day: 'day',
+} as const
 
 export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive

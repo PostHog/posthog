@@ -151,7 +151,7 @@ describe('hogFlowEditorTestLogic', () => {
     describe('createExampleEventForTrigger', () => {
         it('builds a slack message example for Slack-connected triggers, seeded from the channel filter', () => {
             const properties = encodeSlackFilters({
-                channel: 'C0ALERTS|#alerts',
+                channels: ['C0ALERTS|#alerts', 'C0INCIDENTS|#incidents'],
                 posterMode: 'anyone',
                 posterIds: [],
                 topLevelOnly: false,
@@ -228,7 +228,7 @@ describe('hogFlowEditorTestLogic', () => {
             ],
         ])('seeds a sample that satisfies the %s poster filter', (posterMode, posterIds, assertion) => {
             const properties = encodeSlackFilters({
-                channel: 'C0ALERTS',
+                channels: ['C0ALERTS'],
                 posterMode: posterMode as any,
                 posterIds,
                 topLevelOnly: false,

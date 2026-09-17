@@ -544,6 +544,7 @@ const commentsList = (): ToolBase<ReturnType<typeof CommentsListSchema>, Schemas
             path: `/api/projects/${encodeURIComponent(String(projectId))}/comments/`,
             query: {
                 completed: params.completed,
+                created_by: params.created_by,
                 cursor: params.cursor,
                 item_id: params.item_id,
                 kind: params.kind,

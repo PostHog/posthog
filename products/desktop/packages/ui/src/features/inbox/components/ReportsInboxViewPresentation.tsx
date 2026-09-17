@@ -2,6 +2,7 @@ import {
   EnvelopeSimpleIcon,
   FunnelIcon,
   ListChecksIcon,
+  SparkleIcon,
 } from "@phosphor-icons/react";
 import {
   Button,
@@ -12,20 +13,12 @@ import {
   EmptyMedia,
   EmptyTitle,
   Skeleton,
-  Spinner,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
-import {
-  PageHeader,
-  PageHeaderActions,
-  PageHeaderDescription,
-  PageHeaderHeading,
-  PageHeaderTitle,
-  PageHeaderTitleRow,
-} from "@posthog/ui/primitives/PageHeader";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import type { ReactNode } from "react";
 
 export interface ReportsInboxViewPresentationProps {
@@ -71,34 +64,21 @@ export function ReportsInboxViewPresentation({
 }: ReportsInboxViewPresentationProps): React.JSX.Element {
   return (
     <div className="flex h-full min-h-0 flex-col bg-gray-1">
-      <PageHeader>
-        <PageHeaderHeading>
-          <PageHeaderTitleRow>
-            <PageHeaderTitle>Self-driving</PageHeaderTitle>
-            {!showConfigureAgentsEmptyState && (
-              <PageHeaderActions>
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="sm"
-                  onClick={onConfigureAgents}
-                >
-                  Configure agents
-                </Button>
-              </PageHeaderActions>
-            )}
-          </PageHeaderTitleRow>
-          <PageHeaderDescription>
-            Issues and opportunities found in your product, ready to review
-          </PageHeaderDescription>
-        </PageHeaderHeading>
-      </PageHeader>
-
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-6 py-4">
           <div className="flex w-full flex-wrap items-center justify-between gap-2">
             {filterControl}
             <div className="flex flex-wrap items-center justify-end gap-2">
+              {!showConfigureAgentsEmptyState && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="default"
+                  onClick={onConfigureAgents}
+                >
+                  Configure agents
+                </Button>
+              )}
               {triageEnabled && (
                 <Tooltip>
                   <TooltipTrigger
@@ -156,21 +136,27 @@ export function ReportsInboxViewPresentation({
             <Empty className="mx-auto max-w-md flex-none border-0 py-12">
               <EmptyHeader>
                 <EmptyMedia variant="icon">
-                  {hasActiveFilters ? (
+                  {showConfigureAgentsEmptyState ? (
+                    <SparkleIcon size={24} />
+                  ) : hasActiveFilters ? (
                     <FunnelIcon size={24} />
                   ) : (
                     <EnvelopeSimpleIcon size={24} />
                   )}
                 </EmptyMedia>
                 <EmptyTitle>
-                  {hasActiveFilters
-                    ? "No reports match your filters"
-                    : "Nothing to review"}
+                  {showConfigureAgentsEmptyState
+                    ? "Ship fixes while you sleep"
+                    : hasActiveFilters
+                      ? "No reports match your filters"
+                      : "Nothing to review"}
                 </EmptyTitle>
                 <EmptyDescription>
-                  {hasActiveFilters
-                    ? "Clear the filters to check for hidden reports."
-                    : "Reports show up here as your agents find things worth acting on."}
+                  {showConfigureAgentsEmptyState
+                    ? "PostHog watches your session replays, errors, and Slack, then opens a pull request when it finds something worth fixing. Connect a source to get started."
+                    : hasActiveFilters
+                      ? "Clear the filters to check for hidden reports."
+                      : "Reports show up here as your agents find things worth acting on."}
                 </EmptyDescription>
               </EmptyHeader>
               {(hasActiveFilters || showConfigureAgentsEmptyState) && (

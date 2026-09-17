@@ -28,7 +28,11 @@ const WELCOME_DIALOG_ALLOWED_SCENES = new Set<Scene>([Scene.ProjectHomepage, Sce
 /** Only mount the welcome dialog (and its kea logic) for users actually eligible to see it.
  * Lives in GlobalModals so it can render regardless of which scene the user lands on after
  * signup (project home, primary dashboard, etc.). Scene gating ensures the dialog only auto-opens
- * on the home / primary-dashboard scenes, not over deep-linked settings/billing/replay pages. */
+ * on the home / primary-dashboard scenes, not over deep-linked settings/billing/replay pages.
+ *
+ * This must stay the only mount of the dialog. Two mounts give two react-modal instances at the
+ * same z-index, and the overlay of the one on top covers the buttons of the one below, so the
+ * user clicks a button that receives nothing. */
 export function MaybeWelcomeDialog(): JSX.Element | null {
     const { user, isProvisionedUser } = useValues(userLogic)
     const { sceneId } = useValues(sceneLogic)
@@ -80,7 +84,7 @@ export function WelcomeDialog(): JSX.Element | null {
     return (
         <LemonModal
             isOpen={shouldShowDialog}
-            onClose={() => closeDialog()}
+            onClose={() => closeDialog('modal_close')}
             width={640}
             title={`Welcome to ${organizationName || 'PostHog'}`}
             description={inviterLine}
@@ -90,7 +94,11 @@ export function WelcomeDialog(): JSX.Element | null {
                     <LemonButton type="tertiary" onClick={() => dismissWelcome()} data-attr="welcome-dismiss">
                         Don't show again
                     </LemonButton>
-                    <LemonButton type="primary" onClick={() => closeDialog()} data-attr="welcome-close">
+                    <LemonButton
+                        type="primary"
+                        onClick={() => closeDialog('start_exploring')}
+                        data-attr="welcome-close"
+                    >
                         Start exploring
                     </LemonButton>
                 </div>

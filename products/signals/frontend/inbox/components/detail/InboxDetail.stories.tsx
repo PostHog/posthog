@@ -20,6 +20,7 @@ import {
     reportTabReports,
     runReportsMany,
 } from '../../__mocks__/inboxMocks'
+import { reportMetricQueryHandler, reportMetricsFixture } from '../../__mocks__/reportMetricMocks'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { AgentRunDetail } from './AgentRunDetail'
@@ -111,6 +112,24 @@ const detailMocks = mswDecorator({
         ],
         '/api/projects/:id/tasks/:taskId/runs/:runId/logs': () => new HttpResponse(mockRunLog()),
     },
+    post: {
+        '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
+    },
+})
+
+const readyToImplementMocks = mswDecorator({
+    get: {
+        '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => {
+            const artefacts = mockArtefacts(req.params.reportId as string)
+            return [
+                200,
+                {
+                    ...artefacts,
+                    results: artefacts.results.filter((artefact) => artefact.type !== 'task_run'),
+                },
+            ]
+        },
+    },
 })
 
 const meta: Meta = {
@@ -119,7 +138,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-11',
-        featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: true },
+        featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: true, [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true },
     },
     decorators: [detailMocks],
 }
@@ -135,6 +154,38 @@ export const Report: Story = {
     render: () => (
         <Frame>
             <ReportDetail report={reportTabReports[0]} />
+        </Frame>
+    ),
+}
+
+export const ReportReadyToImplement: Story = {
+    decorators: [readyToImplementMocks],
+    render: () => (
+        <Frame>
+            <ReportDetail report={reportTabReports[0]} />
+        </Frame>
+    ),
+}
+
+export const ReportWithMetrics: Story = {
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...reportTabReports[0],
+                    title: 'Creating an API key does nothing when validation fails',
+                    summary: [
+                        'The Create key button swallows its own validation error, so people click it repeatedly and leave settings without a key.',
+                        '## Problem',
+                        'When the new API key form fails validation, the click handler returns early before the error state reaches the form. The button stays enabled and nothing renders.',
+                        '## Impact',
+                        'People creating keys are usually mid-setup, wiring an SDK or a CI job, so a silent failure here stalls an integration without leaving an error event behind.',
+                        '## Solution',
+                        'Set the form errors before the early return so the existing error rendering works again, and give the button a disabled reason while the request is in flight.',
+                    ].join('\n\n'),
+                    metrics: reportMetricsFixture,
+                })}
+            />
         </Frame>
     ),
 }
@@ -158,6 +209,27 @@ export const PullRequest: Story = {
     render: () => (
         <Frame>
             <ReportDetail report={pullRequestReports[0]} />
+        </Frame>
+    ),
+}
+
+export const PullRequestStack: Story = {
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...pullRequestReports[0],
+                    pull_requests: [1, 2].map((number) => ({
+                        id: `019e64b8-0000-7000-8000-00000000000${number}`,
+                        url: `https://github.com/example/app/pull/${number}`,
+                        state: number === 1 ? 'merged' : 'open',
+                        merged: number === 1,
+                        claim_id: null,
+                        attached_at: null,
+                        attached_by: null,
+                    })),
+                })}
+            />
         </Frame>
     ),
 }

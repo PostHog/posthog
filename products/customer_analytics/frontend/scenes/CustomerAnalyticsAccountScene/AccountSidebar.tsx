@@ -1,14 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 
 import { tagsModel } from '~/models/tagsModel'
 
 import type { AccountApi } from '../../generated/api.schemas'
-import { openAccountDetailWorkInProgress } from './accountDetailWorkInProgress'
+import { AccountPinnedPropertiesPanel } from './components/AccountPinnedPropertiesPanel'
 import { customerAnalyticsAccountSceneLogic } from './customerAnalyticsAccountSceneLogic'
 
 export function AccountSidebar({ account }: { account: AccountApi }): JSX.Element {
@@ -18,7 +17,7 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
 
     return (
         <aside
-            className="w-full shrink-0  @max-[60rem]:border @max-[60rem]:rounded border-r rounded-r bg-surface-primary flex flex-col @min-[60rem]/account-detail:w-60"
+            className="w-full shrink-0 @max-[60rem]:border @max-[60rem]:rounded border-r rounded-r bg-surface-primary flex flex-col @min-[60rem]/account-detail:h-full @min-[60rem]/account-detail:min-h-0 @min-[60rem]/account-detail:w-60 @min-[60rem]/account-detail:overflow-y-auto"
             data-attr="account-sidebar"
         >
             <div className="flex flex-col gap-1 p-4" data-attr="account-rail-tags">
@@ -32,21 +31,7 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
                 />
             </div>
             <LemonDivider className="my-0" />
-            <div className="flex flex-col gap-3 p-4" data-attr="account-rail-properties">
-                <div className="flex items-center gap-2">
-                    <span className="secondary text-secondary">Properties</span>
-                    <LemonButton
-                        size="xsmall"
-                        icon={<IconGear />}
-                        className="ml-auto"
-                        tooltip="Configure properties"
-                        aria-label="Configure properties"
-                        onClick={() => openAccountDetailWorkInProgress('Configure properties')}
-                        data-attr="account-detail-configure-properties"
-                    />
-                </div>
-                <span className="text-xs text-muted">No properties pinned.</span>
-            </div>
+            <AccountPinnedPropertiesPanel accountId={account.id} />
         </aside>
     )
 }

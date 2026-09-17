@@ -54,12 +54,15 @@ export const manifest: ProductManifest = {
     routes: {
         '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
         '/customer_analytics/accounts': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
+        // Match before UUID routes; the wildcard also accepts characters excluded from named segments.
+        '/customer_analytics/accounts/by-external-id/*': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
         // The detail scene serves these paths behind its flag and falls back to the list for legacy deep links.
         '/customer_analytics/accounts/:accountId': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
         '/customer_analytics/accounts/:accountId/:tab': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
         '/customer_analytics/notes': ['CustomerAnalytics', 'customerAnalyticsNotes'],
         '/customer_analytics/announcements': ['CustomerAnalytics', 'customerAnalyticsAnnouncements'],
         '/customer_analytics/feed': ['CustomerAnalytics', 'customerAnalyticsFeed'],
+        '/customer_analytics/tasks': ['CustomerAnalytics', 'customerAnalyticsTasks'],
         '/customer_analytics/feature-requests': ['CustomerAnalytics', 'customerAnalyticsFeatureRequests'],
         '/customer_analytics/feature-requests/:requestId': ['CustomerAnalytics', 'customerAnalyticsFeatureRequests'],
         '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
@@ -85,9 +88,12 @@ export const manifest: ProductManifest = {
         // Account detail path. The flag-off scene falls back to the filtered, expanded Accounts list.
         customerAnalyticsAccount: (accountId: string, tab?: string): string =>
             `/customer_analytics/accounts/${accountId}${tab ? `/${tab}` : ''}`,
+        customerAnalyticsAccountByExternalId: (externalId: string, tab?: string): string =>
+            `/customer_analytics/accounts/by-external-id/${encodeURIComponent(externalId)}${tab ? `/${tab}` : ''}`,
         customerAnalyticsNotes: (): string => '/customer_analytics/notes',
         customerAnalyticsAnnouncements: (): string => '/customer_analytics/announcements',
         customerAnalyticsFeed: (): string => '/customer_analytics/feed',
+        customerAnalyticsTasks: (): string => '/customer_analytics/tasks',
         customerAnalyticsFeatureRequests: (requestId?: string): string =>
             `/customer_analytics/feature-requests${requestId ? `/${requestId}` : ''}`,
         customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',

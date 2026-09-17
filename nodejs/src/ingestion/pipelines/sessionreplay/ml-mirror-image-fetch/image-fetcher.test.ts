@@ -56,6 +56,17 @@ describe('HttpImageFetcher', () => {
     })
     afterEach(() => jest.restoreAllMocks())
 
+    it('opts every image request into HTTP/2', async () => {
+        fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png'))
+
+        await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
+
+        expect(fetchStreamedMock).toHaveBeenCalledWith(
+            'https://cdn.example.com/a.png',
+            expect.objectContaining({ allowH2: true })
+        )
+    })
+
     it('identifies every request as PostHogImageFetcherBot', async () => {
         fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png'))
 

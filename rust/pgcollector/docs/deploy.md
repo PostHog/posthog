@@ -27,6 +27,12 @@ Nothing here requires a parameter-group change or a reboot.
   cluster-wide stats from the **maintenance database (`postgres`)**. Run
   `CREATE EXTENSION IF NOT EXISTS pg_stat_statements` there (DDL user) if it
   hasn't been. This is the only step that is genuinely required.
+  A cluster upgraded in place keeps the old extension definition, so also run
+  `ALTER EXTENSION pg_stat_statements UPDATE` there after a major upgrade. The
+  collector reads the columns the installed version has and emits one
+  `pgss_stale` event (plus a warning log) until the extension catches up.
+  Below 1.8 (the PG13 definition) `query_stats` and `aurora_plans` collect
+  nothing until the extension is updated.
 * `pg_proctab` — optional. Not installed anywhere today; `CREATE EXTENSION
   pg_proctab` in the maintenance database enables `system_cpu`,
   `system_memory`, `system_disk`, `backend_cpu`. Until then those four log one
@@ -36,11 +42,12 @@ Nothing here requires a parameter-group change or a reboot.
   `aurora_compute_plan_id` (default on, 14.10+/15.5+) must stay on for
   `aurora_plans` and `plan_id` in activity samples.
 
-Parameter-group niceties (dynamic, no reboot; both optional): append `%Q` to
-`log_line_prefix` so log rows join `cur_queries` by query id instead of text
-fingerprint; the log sampling, lock-wait and CloudWatch-export settings the
-logs collector relies on are already set fleet-wide. Clusters that don't
-preload `auto_explain` simply produce no `ts_log_plans`.
+Parameter-group niceties (dynamic, no reboot): the log sampling, lock-wait and
+CloudWatch-export settings the logs collector relies on are already set
+fleet-wide. RDS and Aurora refuse to modify `log_line_prefix`, so there is no
+`%Q` (query id) on log lines; the collector joins log rows to `cur_queries` by
+text fingerprint instead. Clusters that don't preload `auto_explain` simply
+produce no `ts_log_plans`.
 
 ### Load profile on the monitored cluster
 
@@ -49,7 +56,7 @@ misbehaving collector is cut off, not merely slow. Per tick:
 
 | collector | interval | cost | notes |
 |---|---|---|---|
-| `activity_samples`, `activity_sessions` | 10s | one `pg_stat_activity` scan each | `pg_blocking_pids()` only for lock waiters |
+| `activity_samples`, `activity_sessions` | 10s | one `pg_stat_activity` scan each, plus a regexp over each active backend's query text for query tags | `pg_blocking_pids()` only for lock waiters |
 | `lock_waits` | 10s | `pg_stat_activity` scan; `pg_blocking_pids()` per lock waiter only | empty unless something is blocked |
 | `query_stats` | 60s | `pg_stat_statements(false)` (no text); text for ≤500 new ids per tick | no query text on the hot path |
 | `database_stats`, `bgwriter`, `wal`, `replication*`, `vacuum_progress`, `aurora_system_waits`, `aurora_db_latency`, `aurora_replica_status` | 60s | shared-memory counter reads | negligible |
@@ -94,7 +101,13 @@ for the values. Key points:
 ## 3. Logs (statement durations, plans, autovacuum, checkpoints, errors)
 
 The `logs` collector reads the Postgres log and writes typed rows —
-`ts_query_durations` is where **real per-query latency quantiles** come from.
+`ts_query_latency` is where **real per-query latency quantiles** come from: one row
+per statement fingerprint and minute holding log-spaced histograms of the sampled
+and of the always-logged durations (20 buckets per decade from 0.01 ms to 100 s),
+with the sample rate they were collected under, so a statement's cost is
+independent of how often it runs and the weighting survives a settings change. Durations at or above `sample_rows_over_ms`
+(default 100) also keep their own `ts_query_durations` row for the slowest-samples
+view; the statement text itself is stored once per fingerprint in `cur_query_texts`.
 On Aurora the log is already exported to CloudWatch Logs
 (`enabled_cloudwatch_logs_exports = ["postgresql"]`), one group per cluster,
 one stream per instance:
@@ -115,7 +128,7 @@ Parameter-group settings that make this worthwhile (mostly already set):
 |---|---|---|
 | `log_min_duration_sample` / `log_statement_sample_rate` | `1000` / `0.01` | sampled per-statement durations → p50/p95/p99 |
 | `log_min_duration_statement` | `10000` | every slow statement |
-| `log_line_prefix` | RDS default + `%Q` | **query id on every line** so log rows join `cur_queries` exactly; without it we join on a text fingerprint |
+| `log_line_prefix` | RDS default (not modifiable) | no query id on log lines, so log rows join `cur_queries` on a text fingerprint; self-managed Postgres can append `%Q` for an exact join |
 | `auto_explain.*` | json, sample 0.01 | plans for sampled slow statements → `ts_log_plans` |
 | `log_lock_waits`, `log_temp_files=0`, `log_checkpoints`, `log_autovacuum_min_duration=0` | on | events + `ts_temp_files`, `ts_checkpoints`, `ts_autovacuum_runs` |
 

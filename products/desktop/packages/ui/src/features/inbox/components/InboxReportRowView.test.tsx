@@ -23,7 +23,7 @@ function fakeReport(overrides: Partial<SignalReport> = {}): SignalReport {
   };
 }
 
-describe("InboxReportRowView resolved badge", () => {
+describe("InboxReportRowView", () => {
   afterEach(cleanup);
 
   it("labels a resolved report Shipped only when its PR merged", () => {
@@ -53,6 +53,42 @@ describe("InboxReportRowView resolved badge", () => {
 
     expect(screen.getByText("Resolved")).toBeTruthy();
     expect(screen.queryByText("Shipped")).toBeNull();
+  });
+
+  it("marks a draft pull request as draft", () => {
+    render(
+      <InboxReportRowView
+        report={fakeReport({
+          status: "ready",
+          implementation_pr_url: "https://github.com/PostHog/posthog/pull/1",
+          implementation_pr_state: "draft",
+        })}
+        onOpen={vi.fn()}
+        onOpenPr={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByTitle("Open the draft pull request on GitHub").textContent,
+    ).toContain("draft");
+  });
+
+  it("does not mark a resolved report's stale draft PR as draft", () => {
+    render(
+      <InboxReportRowView
+        report={fakeReport({
+          status: "resolved",
+          implementation_pr_url: "https://github.com/PostHog/posthog/pull/1",
+          implementation_pr_state: "draft",
+        })}
+        onOpen={vi.fn()}
+        onOpenPr={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.queryByTitle("Open the draft pull request on GitHub"),
+    ).toBeNull();
   });
 
   it("labels a reasonless suppressed report Archived", () => {

@@ -168,23 +168,6 @@ export const OrganizationsProjectsEvaluationContextSuggestionsCreateBody = /* @_
 })
 
 /**
- * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
- *
- * POST hides the name; DELETE restores it. The underlying context row and any flags already
- * using it are never modified — this only controls what gets suggested.
- */
-export const environmentsEvaluationContextSuggestionsCreateBodyContextNameMax = 255
-
-export const EnvironmentsEvaluationContextSuggestionsCreateBody = /* @__PURE__ */ zod.object({
-    context_name: zod
-        .string()
-        .max(environmentsEvaluationContextSuggestionsCreateBodyContextNameMax)
-        .describe(
-            "Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed."
-        ),
-})
-
-/**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
  *
  * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
@@ -568,7 +551,6 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
             ),
-        created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsUpdateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
@@ -617,10 +599,6 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Identifier used for bucketing users into rollout and variants\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'
             ),
-        last_called_at: zod.iso
-            .datetime({ offset: true })
-            .nullish()
-            .describe('Last time this feature flag was called (from $feature_flag_called events)'),
         _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
@@ -1009,7 +987,6 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
             .describe(
                 'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
             ),
-        created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsCreateStaticCohortForFlagCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
@@ -1058,10 +1035,6 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
             .describe(
                 'Identifier used for bucketing users into rollout and variants\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'
             ),
-        last_called_at: zod.iso
-            .datetime({ offset: true })
-            .nullish()
-            .describe('Last time this feature flag was called (from $feature_flag_called events)'),
         _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
@@ -1196,6 +1169,10 @@ export const FeatureFlagsBulkKeysRetrieveBody = /* @__PURE__ */ zod.object({
  */
 export const featureFlagsBulkUpdateTagsCreateBodyIdsMax = 500
 
+export const featureFlagsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const featureFlagsBulkUpdateTagsCreateBodyTagsMax = 100
+
 export const FeatureFlagsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
     ids: zod
         .array(zod.number())
@@ -1207,7 +1184,10 @@ export const FeatureFlagsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
-    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+    tags: zod
+        .array(zod.string().max(featureFlagsBulkUpdateTagsCreateBodyTagsItemMax))
+        .max(featureFlagsBulkUpdateTagsCreateBodyTagsMax)
+        .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
 })
 
 /**

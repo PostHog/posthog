@@ -6,16 +6,15 @@ import secrets
 import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
-from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional, cast
+from typing import Any, NoReturn, Optional, cast
 
 from django.conf import settings
 from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone as django_timezone
@@ -48,6 +47,7 @@ from two_factor.utils import default_device
 from posthog.schema import UserUIConfiguration
 
 from posthog.api.email_verification import email_verification_code_verifier
+from posthog.api.notification_settings import validate_notification_settings
 from posthog.api.oauth.toolbar_service import (
     ToolbarOAuthError,
     ToolbarOAuthState,
@@ -86,6 +86,7 @@ from posthog.event_usage import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import (
+    EmailLookupHandler,
     EmailNormalizer,
     EmailValidationHelper,
     reject_plus_addressed_email,
@@ -109,15 +110,9 @@ from posthog.models.oauth import OAuthGrant, find_oauth_refresh_token, has_live_
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
-from posthog.models.organization_notification_lock import GovernedSetting, notification_locks_for_users
+from posthog.models.organization_notification_lock import notification_locks_for_users
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.user import (
-    NOTIFICATION_DEFAULTS,
-    ROLE_CHOICES,
-    Notifications,
-    OnboardingSkippedReason,
-    ShortcutPosition,
-)
+from posthog.models.user import ROLE_CHOICES, Notifications, OnboardingSkippedReason, ShortcutPosition
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import (
@@ -151,69 +146,14 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notifications.backend.facade.api import NotificationType
 
-_VALID_NOTIFICATION_TYPE_VALUES: frozenset[str] = frozenset(t.value for t in NotificationType)
-
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
 REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
 
 NUM_2FA_BACKUP_CODES = 10
 
-MAX_PIPELINE_NOTIFICATIONS = 1000
-_PIPELINE_ID_PATTERN = re.compile(r"^(?:hog_function|batch_export|plugin_config):[0-9a-zA-Z-]{1,128}$")
-
 # `product_intro_seen` is exempt from the re-auth gate, so it gets a ceiling of its own. Only a new key
 # is refused at the ceiling, so an intro the user already dismissed still reopens and closes.
 MAX_PRODUCT_INTROS_SEEN = 100
-
-
-def _reject_locked_notification_settings(user: User, incoming: Notifications, current: Mapping[str, Any]) -> None:
-    """Stop a member changing a setting their organization enforces.
-
-    The settings page disables these controls, but the disabling has to be enforced here too, or
-    the rule is only a suggestion to anyone using the API directly. Only a changed value is
-    refused: the page submits the whole map on every save, so an untouched governed setting has
-    to pass through.
-
-    Deliberately not scoped to one organization: a value the member stores is the one every
-    organization that has no rule of its own falls back to, so any single rule freezes it.
-    """
-    locks = notification_locks_for_users([user.id]).get(user.id, {})
-    if not locks:
-        return
-
-    for key, value in incoming.items():
-        if isinstance(value, dict):
-            stored: dict = current.get(key) or {}
-            blocked = [
-                scope_id
-                for scope_id, scoped_value in value.items()
-                if GovernedSetting(setting=key, scope_id=str(scope_id)) in locks
-                and stored.get(scope_id) != scoped_value
-            ]
-            if blocked:
-                raise serializers.ValidationError(
-                    f"{key} is set by your organization for {', '.join(sorted(blocked))} and cannot be changed here",
-                    code="permission_denied",
-                )
-        elif GovernedSetting(setting=key, scope_id="") in locks and current.get(key) != value:
-            raise serializers.ValidationError(
-                f"{key} is set by your organization and cannot be changed here",
-                code="permission_denied",
-            )
-
-
-def _validate_pipeline_notifications(incoming: dict, merged: dict) -> None:
-    for pipeline_id in incoming:
-        if not isinstance(pipeline_id, str) or not _PIPELINE_ID_PATTERN.match(pipeline_id):
-            raise serializers.ValidationError(
-                f"Invalid pipeline id: {pipeline_id!r}",
-                code="invalid_input",
-            )
-    if len(merged) > MAX_PIPELINE_NOTIFICATIONS:
-        raise serializers.ValidationError(
-            f"pipeline_notifications_disabled cannot have more than {MAX_PIPELINE_NOTIFICATIONS} entries",
-            code="invalid_input",
-        )
 
 
 logger = structlog.get_logger(__name__)
@@ -464,16 +404,26 @@ class UserSerializer(serializers.ModelSerializer):
         return validate_display_name(value)
 
     def validate_email(self, value: str) -> str:
-        if self.instance and value.lower() == self.instance.email.lower():
-            # Unchanged — don't re-validate a legacy '+' address on an unrelated profile edit.
-            return value
+        normalized = EmailNormalizer.normalize(value)
+        if self.instance and normalized == EmailNormalizer.normalize(self.instance.email):
+            # Unchanged — don't re-validate a legacy '+' address on an unrelated profile edit. The
+            # stored string is returned as it is, because an edit of the case alone reaches no
+            # verification and so cannot rewrite the address a person signs in with.
+            return self.instance.email
         reject_plus_addressed_email(value)
         # Excluding the editor lets a legacy '+' account holder drop their own alias.
         if EmailValidationHelper.user_exists_with_stripped_alias(
             value, exclude_user_id=self.instance.pk if self.instance else None
         ):
             raise serializers.ValidationError("There is already an account with this email address.", code="unique")
-        return value
+        # The alias check above reads active accounts, so a deactivated holder of the same folded
+        # address passes it. Resolve on the fold every lookup shares, across every account.
+        holders = EmailLookupHandler.users_matching_email(normalized, User.objects.all())
+        if self.instance:
+            holders = holders.exclude(pk=self.instance.pk)
+        if holders.exists():
+            raise serializers.ValidationError("There is already an account with this email address.", code="unique")
+        return normalized
 
     def get_has_password(self, instance: User) -> bool:
         return bool(instance.password) and instance.has_usable_password()
@@ -679,97 +629,7 @@ class UserSerializer(serializers.ModelSerializer):
         raise serializers.ValidationError(f"Object with id={value} does not exist.", code="does_not_exist")
 
     def validate_notification_settings(self, notification_settings: Notifications) -> Notifications:
-        instance = cast(User, self.instance)
-        current_settings = {
-            **NOTIFICATION_DEFAULTS,
-            **(instance.partial_notification_settings or {}),
-        }
-
-        _reject_locked_notification_settings(instance, notification_settings, current_settings)
-
-        _dict_notification_keys = (
-            "project_weekly_digest_disabled",
-            "error_tracking_weekly_digest_project_enabled",
-            "web_analytics_weekly_digest_project_enabled",
-            "organization_member_join_email_disabled",
-            "pipeline_notifications_disabled",
-        )
-
-        for key, value in notification_settings.items():
-            if key not in Notifications.__annotations__:
-                raise serializers.ValidationError(
-                    f"Key {key} is not valid as a key for notification settings",
-                    code="invalid_input",
-                )
-
-            expected_type = Notifications.__annotations__[key]
-
-            if key in _dict_notification_keys:
-                if not isinstance(value, dict):
-                    raise serializers.ValidationError(
-                        f"{key} must be a dictionary mapping IDs to boolean values",
-                        code="invalid_input",
-                    )
-                for _, disabled in value.items():
-                    if not isinstance(disabled, bool):
-                        raise serializers.ValidationError(
-                            f"Notification setting values must be boolean, got {type(disabled)} instead",
-                            code="invalid_input",
-                        )
-                merged = {**current_settings.get(key, {}), **value}
-                if key == "pipeline_notifications_disabled":
-                    _validate_pipeline_notifications(value, merged)
-                current_settings[key] = merged
-            elif key == "realtime_notifications_disabled":
-                if not isinstance(value, dict):
-                    raise serializers.ValidationError(
-                        "realtime_notifications_disabled must be a dict",
-                        code="invalid_input",
-                    )
-                for type_key, team_map in value.items():
-                    if type_key not in _VALID_NOTIFICATION_TYPE_VALUES:
-                        raise serializers.ValidationError(
-                            f"Unknown notification type {type_key}",
-                            code="invalid_input",
-                        )
-                    if not isinstance(team_map, dict):
-                        raise serializers.ValidationError(
-                            f"Per-type value for {type_key} must be a dict of team_id to bool",
-                            code="invalid_input",
-                        )
-                    for _team_id, disabled in team_map.items():
-                        if not isinstance(disabled, bool):
-                            raise serializers.ValidationError(
-                                f"Disabled flag for {type_key} must be boolean, got {type(disabled)}",
-                                code="invalid_input",
-                            )
-                existing = current_settings.get("realtime_notifications_disabled", {}) or {}
-                realtime_merged: dict[str, dict[str, bool]] = {**existing}
-                for type_key, team_map in value.items():
-                    realtime_merged[type_key] = {**(existing.get(type_key, {}) or {}), **team_map}
-                current_settings["realtime_notifications_disabled"] = realtime_merged
-            elif key == "data_pipeline_error_threshold":
-                if not isinstance(value, (int, float)):
-                    raise serializers.ValidationError(
-                        f"data_pipeline_error_threshold must be a number, got {type(value)} instead",
-                        code="invalid_input",
-                    )
-                if value < 0.0 or value > 1.0:
-                    raise serializers.ValidationError(
-                        f"data_pipeline_error_threshold must be between 0.0 and 1.0, got {value}",
-                        code="invalid_input",
-                    )
-                current_settings[key] = float(value)
-            else:
-                # For non-dict settings, validate type directly
-                if not isinstance(value, expected_type):
-                    raise serializers.ValidationError(
-                        f"{value} is not a valid type for notification settings, should be {expected_type}",
-                        code="invalid_input",
-                    )
-                current_settings[key] = value
-
-        return cast(Notifications, current_settings)
+        return validate_notification_settings(cast(User, self.instance), notification_settings)
 
     def validate_ui_configuration(self, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
         if value is None:
@@ -849,9 +709,11 @@ class UserSerializer(serializers.ModelSerializer):
             validated_data["current_team"] = current_team
             validated_data["current_organization"] = current_team.organization
 
+        # Fold both sides: `validate_email` hands back the stored address for an edit of the case
+        # alone, and a legacy row can hold that address in any case.
         if (
             "email" in validated_data
-            and validated_data["email"].lower() != instance.email.lower()
+            and EmailNormalizer.normalize(validated_data["email"]) != EmailNormalizer.normalize(instance.email)
             and is_email_available()
         ):
             new_email = validated_data["email"]
@@ -882,7 +744,7 @@ class UserSerializer(serializers.ModelSerializer):
                     code="sso_enforced_new_email",
                 )
             validated_data.pop("email", None)  # staged as pending_email below, not written to `email` directly
-            instance.pending_email = new_email
+            instance.pending_email = EmailNormalizer.normalize(new_email)
             instance.save(update_fields=["pending_email"])
             # The code is bound to the captured address, so a concurrent email change cannot
             # redirect this code: once a different address is staged, the code stops verifying.
@@ -1063,6 +925,20 @@ class UserGithubLoginSerializer(serializers.Serializer):
     github_login = serializers.CharField(
         allow_null=True,
         help_text="The user's resolved GitHub login, or null when no GitHub identity is linked.",
+    )
+
+
+def refuse_pending_email_promotion() -> NoReturn:
+    """Refuse the change, because the address is no longer free.
+
+    The staged address stays. Clearing it would leave a verified account with nothing staged, which
+    is the state the replay shortcut in `verify_email` reads as a completed change, so the next
+    request would report success for a change that never happened. Keeping it staged also keeps
+    `cancel_email_change_request` available as the way out.
+    """
+    raise serializers.ValidationError(
+        {"email": ["Another account now uses this email address. Start the change again with a different address."]},
+        code="email_taken",
     )
 
 
@@ -1286,12 +1162,26 @@ class UserViewSet(
         # and in the verifier.
         if user.pending_email and user.is_email_verified is not False:
             old_email = user.email
-            with transaction.atomic():
-                user.email = user.pending_email
-                user.pending_email = None
-                user.save(update_fields=["email", "pending_email"])
-                # Delete social auth so the old external identity can't keep logging in.
-                UserSocialAuth.objects.filter(user=user).delete()
+            # `pending_email` holds whatever case the change was staged in.
+            new_email = EmailNormalizer.normalize(user.pending_email)
+            # Anyone can claim the address while the change waits for this code.
+            taken = (
+                EmailValidationHelper.user_exists_with_stripped_alias(new_email, exclude_user_id=user.pk)
+                or EmailLookupHandler.users_matching_email(new_email, User.objects.all()).exclude(pk=user.pk).exists()
+            )
+            if taken:
+                refuse_pending_email_promotion()
+            try:
+                with transaction.atomic():
+                    user.email = EmailNormalizer.normalize(new_email)
+                    user.pending_email = None
+                    user.save(update_fields=["email", "pending_email"])
+                    # Delete social auth so the old external identity can't keep logging in.
+                    UserSocialAuth.objects.filter(user=user).delete()
+            except IntegrityError:
+                # A row that appeared since the check above reaches this write.
+                user.refresh_from_db()
+                refuse_pending_email_promotion()
             send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
             revoke_other_sessions_for_request(request, user)
 

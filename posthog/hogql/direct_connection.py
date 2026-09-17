@@ -151,6 +151,7 @@ def resolve_database_for_connection(
     modifiers: HogQLQueryModifiers | None = None,
     timings: HogQLTimings | None = None,
     error_factory: Callable[[str], Exception],
+    use_cached_sources: bool = False,
 ) -> tuple[ExternalDataSource | None, Database]:
     source = get_direct_connection_source_none_or_raise(team, connection_id, user=user, error_factory=error_factory)
     database = Database.create_for(
@@ -159,5 +160,6 @@ def resolve_database_for_connection(
         modifiers=modifiers,
         timings=timings,
         connection_id=str(source.id) if source else None,
+        use_cached_sources=use_cached_sources,
     )
     return source, database

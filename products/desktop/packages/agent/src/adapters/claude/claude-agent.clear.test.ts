@@ -331,6 +331,16 @@ describe("ClaudeAcpAgent /clear", () => {
     expect(
       findExtNotification(client, POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED),
     ).toBeDefined();
+    expect(
+      client.sessionUpdate.mock.calls
+        .map(([call]) => call.update)
+        .filter((update) => update.sessionUpdate === "user_message_chunk"),
+    ).toEqual([
+      {
+        sessionUpdate: "user_message_chunk",
+        content: { type: "text", text: "/clear" },
+      },
+    ]);
   });
 
   // A mode change updates the running query; queryOptions keeps the mode the session

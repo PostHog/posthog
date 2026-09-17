@@ -297,7 +297,13 @@ export const WarehouseSavedQueriesListParams = () => zod.object({
         ),
 })
 
+export const warehouseSavedQueriesListQueryIncludeColumnsDefault = true
+
 export const WarehouseSavedQueriesListQueryParams = () => zod.object({
+    include_columns: zod
+        .boolean()
+        .default(warehouseSavedQueriesListQueryIncludeColumnsDefault)
+        .describe('Include column definitions. Set to false for table-only lists.'),
     page: zod.number().optional().describe('A page number within the paginated result set.'),
     search: zod.string().optional().describe('A search term.'),
 })
@@ -388,7 +394,7 @@ export const WarehouseSavedQueriesCreateBody = () => zod
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .string()
@@ -502,7 +508,7 @@ export const WarehouseSavedQueriesPartialUpdateBody = () => zod
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .string()
@@ -652,7 +658,7 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = () => zod
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the stored cadence wherever it lives. On teams whose DAG schedules are managed per-node, that is the view's DAG node rather than the view itself.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available. Null means no scheduled materialization. Read back after a write, this reflects the cadence stored on the view's DAG node.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .string()

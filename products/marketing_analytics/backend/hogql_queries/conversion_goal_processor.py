@@ -29,7 +29,10 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.dataclasses import frozen
 from posthog.models import PropertyDefinition, Team, User
 
-from products.access_control.backend.property_access_control import get_restricted_property_names
+from products.access_control.backend.property_access_control import (
+    get_restricted_properties_for_team,
+    get_restricted_property_names,
+)
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
@@ -50,7 +53,7 @@ from .conversion_goal_conditions import (
 from .marketing_analytics_config import MarketingAnalyticsConfig
 from .marketing_lazy_precompute import marketing_ensure_precomputed
 from .metrics import CONVERSION_GOAL_PRECOMPUTE_FALLBACK_COUNTER
-from .utils import build_source_normalization_expr
+from .utils import build_source_normalization_expr, test_account_conditions
 
 # Freshness windows for the precompute read path. The Dagster warmer
 # (products/marketing_analytics/dags/marketing_precompute.py) MUST drive ensure_precomputed with this
@@ -153,12 +156,19 @@ def build_pageview_touchpoint_condition(source_field: str) -> ast.Expr:
     return ast.Or(exprs=[not_empty(source_field), *[not_empty(p) for p in CLICK_ID_PROPERTIES]])
 
 
-def build_touchpoints_precompute_query() -> ast.SelectQuery:
-    """Config-agnostic touchpoint precompute: one row per UTM-tagged pageview, independent of any
+def build_touchpoints_precompute_query(
+    team: Optional[Team] = None, filter_test_accounts: bool = False
+) -> ast.SelectQuery:
+    """Goal-agnostic touchpoint precompute: one row per UTM-tagged pageview, independent of any
     goal, attribution mode or window. Every attribution query reuses the same materialized rows
     (identical query hash → one shared lazy-computation job per team); attribution happens at read
     time. Columns are aliased to the marketing_touchpoints_preaggregated schema — the lazy framework
     prepends team_id/job_id and appends expires_at, and resolves the time_window placeholders per job.
+
+    Test-account filtering is the one thing that splits that shared job in two. It has to be baked in
+    rather than applied on read, because the framework keys the job on this query's AST, and the rows
+    it materializes would otherwise already have the internal traffic in them. A team that never turns
+    the toggle on keeps exactly one job, since the arguments then add nothing to the query.
     """
 
     def _prop_to_string(event_property: str) -> ast.Expr:
@@ -202,6 +212,7 @@ def build_touchpoints_precompute_query() -> ast.SelectQuery:
                     right=ast.Placeholder(expr=ast.Field(chain=["time_window_max"])),
                 ),
                 build_pageview_touchpoint_condition("utm_source"),
+                *(test_account_conditions(team, filter_test_accounts) if team else []),
             ]
         ),
     )
@@ -219,9 +230,10 @@ class SharedTouchpointsPrecompute:
     the lock.
     """
 
-    def __init__(self, team: Team, config: MarketingAnalyticsConfig) -> None:
+    def __init__(self, team: Team, config: MarketingAnalyticsConfig, filter_test_accounts: bool = False) -> None:
         self._team = team
         self._config = config
+        self._filter_test_accounts = filter_test_accounts
         self._lock = threading.Lock()
         self._result: Optional[LazyComputationResult] = None
         self._range: Optional[tuple[datetime, datetime]] = None
@@ -233,7 +245,7 @@ class SharedTouchpointsPrecompute:
                 self._range = (date_from, date_to)
                 self._result = marketing_ensure_precomputed(
                     team=self._team,
-                    insert_query=build_touchpoints_precompute_query(),
+                    insert_query=build_touchpoints_precompute_query(self._team, self._filter_test_accounts),
                     time_range_start=date_from - window,
                     time_range_end=date_to,
                     ttl_seconds=PRECOMPUTE_TTL_SECONDS,
@@ -287,6 +299,8 @@ class ConversionGoalProcessor:
     # Set when this goal's precompute was served from expired-within-grace rows instead of rebuilt. Read
     # by the runner after the goal pool joins, to schedule one background revalidation for the read.
     precompute_stale: bool = False
+    # Passed down by the runner, since a processor has no query of its own to read it from.
+    filter_test_accounts: bool = False
 
     _UTM_LEVEL_FIELD_MAP: ClassVar[dict[MarketingAnalyticsDrillDownLevel, str]] = {
         MarketingAnalyticsDrillDownLevel.MEDIUM: "medium",
@@ -577,7 +591,22 @@ class ConversionGoalProcessor:
         # per-user masking. When any is restricted for THIS user, fall back to the masked direct path.
         if self._precompute_properties_restricted_for_user():
             return False
+        if self._test_account_filters_restricted_for_user():
+            return False
         return True
+
+    def _test_account_filters_restricted_for_user(self) -> bool:
+        """True when dropping test accounts inside the precompute could leak a property this user can't read.
+
+        The precompute evaluates the rules with no user attached, so they compare against real values
+        rather than masked ones, and toggling the filter would report how many rows match.
+
+        Coarse on purpose: it asks whether the user has any restriction, not which properties the rules
+        name, since reading those means walking arbitrary filter trees where a miss fails open.
+        """
+        if not self.filter_test_accounts or not self.team.test_account_filters:
+            return False
+        return bool(get_restricted_properties_for_team(team_id=self.team.pk, user=self.user))
 
     def _precompute_materialized_event_properties(self) -> set[str]:
         """Event property names the precompute path resolves into scalar columns of the preagg table."""
@@ -659,6 +688,10 @@ class ConversionGoalProcessor:
             ),
         ]
         where_exprs = add_conversion_goal_property_filters(where_exprs, self.goal, self.team)
+        # Baked into the precompute rather than applied when it is read. The lazy framework hashes this
+        # query's AST for the job key, so a filtered read gets its own materialization instead of
+        # reusing the unfiltered team's rows.
+        where_exprs.extend(test_account_conditions(self.team, self.filter_test_accounts))
 
         return ast.SelectQuery(
             select=select_columns,
@@ -686,7 +719,9 @@ class ConversionGoalProcessor:
         # Touchpoints are config-agnostic, so a multi-goal read shares one materialization. Without a
         # shared handle each goal materializes the same window itself, which is what a standalone
         # caller gets.
-        shared_touchpoints = touchpoints or SharedTouchpointsPrecompute(self.team, self.config)
+        shared_touchpoints = touchpoints or SharedTouchpointsPrecompute(
+            self.team, self.config, self.filter_test_accounts
+        )
         with self.timings.measure("ma_ensure_touchpoints"):
             touchpoints_result = shared_touchpoints.get(date_from, date_to)
         if not touchpoints_result.ready:
@@ -1094,8 +1129,12 @@ class ConversionGoalProcessor:
             # For general queries, apply date conditions to all events
             event_filter = self._build_general_event_filter(date_conditions)
 
-        # Combine all conditions
-        all_conditions = [event_filter, *non_event_conditions]
+        # Test accounts sit outside `event_filter`, which is an OR over the conversion and pageview arms.
+        all_conditions = [
+            event_filter,
+            *non_event_conditions,
+            *test_account_conditions(self.team, self.filter_test_accounts),
+        ]
         return ast.And(exprs=all_conditions) if len(all_conditions) > 1 else all_conditions[0]
 
     def _build_action_event_filter(

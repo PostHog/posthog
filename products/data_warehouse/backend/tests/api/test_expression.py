@@ -17,6 +17,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.data_warehouse.backend.presentation.views.expression import (
     MAX_EXPRESSION_LENGTH,
@@ -71,6 +72,60 @@ class TestExpressionApi(APIBaseTest):
         response = self._create(table_name=table_name, field_name=field_name, expression=expression)
         self.assertEqual(response.status_code, 400, response.content)
         self.assertEqual(DataWarehouseExpression.objects.for_team(self.team.pk).count(), 0)
+
+    def _view(self, name: str, *, materialized: bool = False, deleted: bool = False) -> DataWarehouseSavedQuery:
+        columns = {"one": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}}
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=name,
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS one"},
+            columns=columns,
+            created_by=self.user,
+            is_materialized=materialized,
+            deleted=deleted,
+        )
+        if materialized:
+            view.table = DataWarehouseTable.objects.create(
+                team=self.team,
+                name=name,
+                format="Delta",
+                # The catalog hides a view's own backing table by matching the view's folder path,
+                # so the name resolves through the view rather than through this row.
+                url_pattern=f"https://bucket.s3.amazonaws.com/{view.folder_path}/{name}",
+                columns=columns,
+            )
+            view.save()
+        return view
+
+    def _table(self, name: str) -> DataWarehouseTable:
+        return DataWarehouseTable.objects.create(
+            team=self.team,
+            name=name,
+            format="Parquet",
+            url_pattern=f"https://bucket.s3.amazonaws.com/{name}/*.parquet",
+            columns={"one": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+    @parameterized.expand([("virtual", False), ("materialized", True)])
+    def test_expression_on_a_view_rejected(self, _name: str, materialized: bool) -> None:
+        self._view("orders", materialized=materialized)
+
+        response = self._create(table_name="orders", field_name="derived", expression="one + 1")
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("is a view", response.json()["detail"])
+        self.assertEqual(DataWarehouseExpression.objects.for_team(self.team.pk).count(), 0)
+
+    @parameterized.expand([("view_is_deleted", True), ("table_shadows_the_view_name", False)])
+    def test_expression_on_a_table_sharing_a_views_name_allowed(self, _name: str, deleted: bool) -> None:
+        # A saved query may share its name with a warehouse table, and the catalog resolves that
+        # name to the table. The expression lands on the table, so the view rule must not block it.
+        self._table("orders")
+        self._view("orders", deleted=deleted)
+
+        response = self._create(table_name="orders", field_name="derived", expression="one + 1")
+
+        self.assertEqual(response.status_code, 201, response.content)
 
     def test_per_team_count_cap(self):
         with patch(

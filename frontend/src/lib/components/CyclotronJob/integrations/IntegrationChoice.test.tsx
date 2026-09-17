@@ -23,7 +23,7 @@ describe('IntegrationChoice', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/integrations': () => [200, { results: [GITHUB_INTEGRATION] }],
+                '/api/projects/:team_id/integrations': () => [200, { results: [GITHUB_INTEGRATION] }],
             },
             post: {
                 '/api/environments/:team_id/integrations': () => [

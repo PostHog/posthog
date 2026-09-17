@@ -58,9 +58,12 @@ rules:
                               |Account
                               |AccountChannelSummary
                               |AccountRelationship
+                              |AccountRelationshipControl
                               |AccountRelationshipDefinition
                               |AccountTrackRuleRun
                               |Action
+                              |AEOCitationCheck
+                              |AEOPrompt
                               |AgentApplication
                               |AgentArtifact
                               |AgentIdentityCredential
@@ -74,6 +77,7 @@ rules:
                               |AgentTransportBinding
                               |AgentUser
                               |AIObservabilityChecklistItemState
+                              |AITrainingDeletionRequest
                               |Alert
                               |AlertConfiguration
                               |Annotation
@@ -102,6 +106,7 @@ rules:
                               |ChangeRequest
                               |ChannelContextGeneration
                               |ChannelInstructions
+                              |ChannelMembership
                               |ChannelStar
                               |ClusteringConfig
                               |ClusteringJob
@@ -114,10 +119,13 @@ rules:
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
                               |Conversation
+                              |ConversationInboundEvent
                               |ConversationRestoreToken
                               |CoreMemory
                               |CustomerJourney
                               |CustomerProfileConfig
+                              |CustomerTask
+                              |CustomerTaskActivity
                               |CustomOAuth2Integration
                               |CustomPropertyDefinition
                               |CustomPropertySource
@@ -239,6 +247,7 @@ rules:
                               |KnowledgeChunk
                               |KnowledgeDocument
                               |KnowledgeGapSuggestion
+                              |KnowledgeLearningRun
                               |KnowledgeSource
                               |Link
                               |LiveDebuggerBreakpoint
@@ -253,6 +262,7 @@ rules:
                               |LoopTrigger
                               |LLMModelConfiguration
                               |LLMPrompt
+                              |LLMPromptDependency
                               |LLMPromptLabel
                               |LLMProviderKey
                               |LLMSkill
@@ -304,6 +314,7 @@ rules:
                               |ReplayObservation
                               |ReplayObservationLabel
                               |ReplayObservationUsage
+                              |ReplayObservationView
                               |ReplayScanner
                               |ReplayScannerBackfill
                               |ReplayScannerPromptSuggestion
@@ -328,9 +339,13 @@ rules:
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
+                              |SignalReportCheck
+                              |SignalReportGithubComment
+                              |SignalReportPullRequest
                               |SignalReportAssignment
                               |SignalReportRefund
                               |SignalReportTask
+                              |SignalReportTrackerIssue
                               |SignalRepositoryAreaActivity
                               |SignalTeamConfig
                               |SignalSourceConfig
@@ -348,6 +363,7 @@ rules:
                               |SourceGroupLease
                               |StreamlitApp
                               |Subscription
+                              |SubscriptionContext
                               |SubscriptionDelivery
                               |Survey
                               |SurveyResponseArchive
@@ -371,6 +387,7 @@ rules:
                               |ChannelFeedMessage
                               |EmailChannel
                               |EvaluationReport
+                              |EvaluationBackfill
                               |Text
                               |Threshold
                               |ToleratedHash
@@ -391,6 +408,7 @@ rules:
                               |UserRepoPreference
                               |VisionAlertConfiguration
                               |VisionAlertMatch
+                              |WikiPageProposal
                               |WarehouseColumnAnnotation
                               |WarehouseColumnStatistics
                               |WebAnalyticsAchievementProgress
@@ -460,6 +478,7 @@ rules:
                         |Account
                         |AccountChannelSummary
                         |AccountRelationship
+                        |AccountRelationshipControl
                         |AccountRelationshipDefinition
                         |AccountTrackRuleRun
                         |Action
@@ -476,6 +495,7 @@ rules:
                         |AgentTransportBinding
                         |AgentUser
                         |AIObservabilityChecklistItemState
+                        |AITrainingDeletionRequest
                         |Alert
                         |AlertConfiguration
                         |Annotation
@@ -504,6 +524,7 @@ rules:
                         |ChangeRequest
                         |ChannelContextGeneration
                         |ChannelInstructions
+                        |ChannelMembership
                         |ChannelStar
                         |ClusteringConfig
                         |ClusteringJob
@@ -516,10 +537,13 @@ rules:
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
                         |Conversation
+                        |ConversationInboundEvent
                         |ConversationRestoreToken
                         |CoreMemory
                         |CustomerJourney
                         |CustomerProfileConfig
+                        |CustomerTask
+                        |CustomerTaskActivity
                         |CustomOAuth2Integration
                         |CustomPropertyDefinition
                         |CustomPropertySource
@@ -638,6 +662,7 @@ rules:
                         |KnowledgeChunk
                         |KnowledgeDocument
                         |KnowledgeGapSuggestion
+                        |KnowledgeLearningRun
                         |KnowledgeSource
                         |Link
                         |LiveDebuggerBreakpoint
@@ -647,6 +672,7 @@ rules:
                         |NotebookWidgetInstance
                         |LLMModelConfiguration
                         |LLMPrompt
+                        |LLMPromptDependency
                         |LLMPromptLabel
                         |LLMProviderKey
                         |LLMSkill
@@ -696,6 +722,7 @@ rules:
                         |ReplayObservation
                         |ReplayObservationLabel
                         |ReplayObservationUsage
+                        |ReplayObservationView
                         |ReplayScanner
                         |ReplayScannerBackfill
                         |ReplayScannerPromptSuggestion
@@ -720,9 +747,13 @@ rules:
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
+                        |SignalReportCheck
+                        |SignalReportGithubComment
+                        |SignalReportPullRequest
                         |SignalReportAssignment
                         |SignalReportRefund
                         |SignalReportTask
+                        |SignalReportTrackerIssue
                         |SignalRepositoryAreaActivity
                         |SignalTeamConfig
                         |SignalSourceConfig
@@ -740,6 +771,7 @@ rules:
                         |SourceGroupLease
                         |StreamlitApp
                         |Subscription
+                        |SubscriptionContext
                         |SubscriptionDelivery
                         |Survey
                         |SurveyResponseArchive
@@ -762,6 +794,7 @@ rules:
                         |ChannelFeedMessage
                         |EmailChannel
                         |EvaluationReport
+                        |EvaluationBackfill
                         |Text
                         |Threshold
                         |ToleratedHash
@@ -782,6 +815,7 @@ rules:
                         |UserRepoPreference
                         |VisionAlertConfiguration
                         |VisionAlertMatch
+                        |WikiPageProposal
                         |WarehouseColumnAnnotation
                         |WarehouseColumnStatistics
                         |WebAnalyticsAchievementProgress
@@ -1217,7 +1251,6 @@ rules:
                               |InsightViewed
                               |KernelRuntime
                               |MCPServerInstallation
-                              |PersistedFolder
                               |Reminder
                               |SessionRecordingViewed
                               |UserFacetSettings
@@ -1291,7 +1324,6 @@ rules:
                         |FileSystemViewLog
                         |InsightViewed
                         |KernelRuntime
-                        |PersistedFolder
                         |Reminder
                         |SessionRecordingViewed
                         |UserFacetSettings

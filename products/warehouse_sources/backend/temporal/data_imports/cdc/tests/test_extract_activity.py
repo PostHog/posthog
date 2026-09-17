@@ -412,6 +412,22 @@ class TestBackpressureGuard:
         assert act.reader is None
 
 
+class TestMarkSchemasRunning:
+    def test_skips_activity_log_to_avoid_stale_pooled_connection(self):
+        # A previous attempt may have left the pooler connection stale; the extra
+        # _get_before_update SELECT that activity logging would run raises OperationalError
+        # ("the connection is closed") on it, failing the run before extraction even starts.
+        source = _make_source()
+        act = _make_extract_activity(source)
+        schema = _make_schema("users", source=source)
+        act.cdc_schemas = [schema]
+
+        act._mark_schemas_running()
+
+        assert schema.status == ExternalDataSchema.Status.RUNNING
+        schema.save.assert_called_once_with(update_fields=["status", "updated_at"], skip_activity_log=True)
+
+
 class TestFlushDeferredRuns:
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
     def test_sends_kafka_messages_for_deferred_runs(self, MockProducer):
@@ -3695,10 +3711,12 @@ class TestBufferedIngressCapture:
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
     def test_an_ineligible_schema_on_a_flipped_source_keeps_the_legacy_path(self, MockBufferWriter):
         source = _make_source()
-        companion = _make_schema("events", cdc_mode="streaming", cdc_table_mode="cdc_only", source=source)
+        # No table yet, so the buffer has nothing to merge its changes into.
+        seeding = _make_schema("events", cdc_mode="streaming", source=source)
+        seeding.initial_sync_complete = False
         events = [_make_event(op="I", position="0/100", table="events", columns={"id": 1})]
 
-        _reader, mock_s3, mock_producer = self._run(MockBufferWriter, events, [companion], source)
+        _reader, mock_s3, mock_producer = self._run(MockBufferWriter, events, [seeding], source)
 
         MockBufferWriter.return_value.write_batch.assert_not_called()
         mock_s3.write_batch.assert_called_once()
@@ -3740,7 +3758,8 @@ class TestBufferedIngressCapture:
         # tick would erase a failing consumer run within a minute and hide a buffer backlog.
         source = _make_source()
         buffered = _make_schema("users", cdc_mode="streaming", source=source)
-        legacy = _make_schema("events", cdc_mode="streaming", cdc_table_mode="cdc_only", source=source)
+        legacy = _make_schema("events", cdc_mode="streaming", source=source)
+        legacy.initial_sync_complete = False
         events = [
             _make_event(op="I", position="0/100", columns={"id": 1}),
             _make_event(op="I", position="0/100", table="events", columns={"id": 1}),

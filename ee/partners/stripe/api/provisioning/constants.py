@@ -15,6 +15,9 @@ DEEP_LINK_MAX_PATH_LENGTH = 2000
 # building blocks of header-injection and backslash-host open-redirect tricks, so reject them outright.
 DEEP_LINK_DISALLOWED_PATH_CHARS = re.compile(r"[\x00-\x20\x7f-\x9f\\]")
 
+# Pinned: the verify-email scene matches this exact value to pick the copy it shows.
+VERIFY_EMAIL_REASON = "stripe_deep_link"
+
 ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
 
 # Default scopes for a Stripe-issued token when the auth code requested none.

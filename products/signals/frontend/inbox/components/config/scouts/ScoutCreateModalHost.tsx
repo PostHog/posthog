@@ -4,7 +4,10 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import type { SignalScoutCreateResponseApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    SignalScoutConfigApi,
+    SignalScoutCreateResponseApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import { captureScoutAction } from '../../../inboxAnalytics'
 import type { ScoutCreateInitialValues } from '../../../logics/scoutCreateModalLogic'
@@ -24,6 +27,8 @@ export interface ScoutCreateModalHostProps {
     initialValues: ScoutCreateInitialValues | null
     onClose: () => void
     onCreated?: (scout: SignalScoutCreateResponseApi) => void
+    /** Called instead of `onCreated` when the form opened on an existing scout and turned it on. */
+    onEnabled?: (config: SignalScoutConfigApi) => void
 }
 
 /**
@@ -37,6 +42,7 @@ export function ScoutCreateModalHost({
     initialValues,
     onClose,
     onCreated,
+    onEnabled,
 }: ScoutCreateModalHostProps): JSX.Element | null {
     const isOpen = initialValues !== null
     // Open is the top of the create funnel. Without it only a successful create was captured, so an
@@ -64,6 +70,7 @@ export function ScoutCreateModalHost({
                     })
                     onCreated?.(scout)
                 }}
+                onEnabled={onEnabled}
                 onClose={onClose}
             />
         </React.Suspense>

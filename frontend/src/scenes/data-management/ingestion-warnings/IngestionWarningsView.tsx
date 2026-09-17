@@ -18,7 +18,6 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '~/queries/schema/schema-general'
 
 import { IngestionWarning, IngestionWarningSummary, ingestionWarningsLogic } from './ingestionWarningsLogic'
 
@@ -59,6 +58,8 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     high_volume_distinct_id: 'Skipped person profile processing for a high-volume distinct ID',
     // Emitted by the capture service for its AI endpoints
     invalid_ai_event: 'Discarded an AI event with an unsupported event name or no $ai_model',
+    misrouted_event:
+        'Discarded an event sent to the wrong capture endpoint. Send events named $ai_* to the AI endpoint, and everything else to the analytics endpoint',
     invalid_ai_payload: 'Rejected a malformed AI or OpenTelemetry request',
     no_ai_spans_ingested: 'Accepted an OpenTelemetry export with no AI spans, so nothing was ingested',
     // Emitted by the capture service for its session replay endpoint
@@ -397,9 +398,7 @@ export function IngestionWarningsView(): JSX.Element {
             />
             {showProductIntro ? (
                 <ProductIntroduction
-                    productName="Ingestion warnings"
                     thingName="ingestion warning"
-                    productKey={ProductKey.INGESTION_WARNINGS}
                     isEmpty={true}
                     titleOverride="Nice! No ingestion warnings in the past 30 days"
                     description="Your incoming events look clean. If we detect any issues with your data, we'll show them here."

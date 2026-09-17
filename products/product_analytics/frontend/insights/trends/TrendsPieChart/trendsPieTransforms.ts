@@ -1,6 +1,6 @@
 import type { Series } from '@posthog/quill-charts'
 
-import type { IndexedTrendResult } from 'scenes/trends/types'
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { humanizeSeriesLabel } from '../shared/humanizeSeriesLabel'
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'

@@ -251,6 +251,10 @@ export function ineligibleKindDescription(kind: IneligibleKind): string {
     return INELIGIBLE_KINDS[kind].description
 }
 
+export function ineligibleKindLabel(kind: IneligibleKind): string {
+    return INELIGIBLE_KINDS[kind].label
+}
+
 export const DEFAULT_PROVIDER = 'google'
 export const DEFAULT_MODEL: ScannerModelEnumApi = ScannerModelEnumApi.Gemini3FlashPreview
 
@@ -278,6 +282,15 @@ const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
 const RETIRED_MODEL_NAMES: Record<string, string> = {
     'gemini-3.7-flash': 'Gemini 3.7 Flash',
     'gemini-3.6-flash': 'Gemini 3.6 Flash',
+}
+
+// Arms of the replay-vision-home-redesign-experiment flag. Narrows a raw flag value so control,
+// booleans, and unknown variants all degrade to the control experience instead of half-applying
+// the redesigned layout.
+export type HomeRedesignVariant = 'control' | 'test'
+
+export function homeRedesignVariant(flagValue: unknown): HomeRedesignVariant | null {
+    return flagValue === 'control' || flagValue === 'test' ? flagValue : null
 }
 
 // Tier-name arms of the replay-vision-model-tier-naming-experiment flag: capability tiers instead

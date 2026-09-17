@@ -43,12 +43,18 @@ export const renderTooltipContent = (
 
             <div className="flex justify-between items-center">
                 <span className="text-muted-alt font-semibold">Total value:</span>
-                <span className="font-semibold">{humanFriendlyNumber(variantResult.sum)}</span>
+                <span className="font-semibold">
+                    {variantResult.sum != null ? humanFriendlyNumber(variantResult.sum) : '–'}
+                </span>
             </div>
 
             <div className="flex justify-between items-center">
                 <span className="text-muted-alt font-semibold">Exposures:</span>
-                <span className="font-semibold">{humanFriendlyNumber(variantResult.number_of_samples)}</span>
+                <span className="font-semibold">
+                    {variantResult.number_of_samples != null
+                        ? humanFriendlyNumber(variantResult.number_of_samples)
+                        : '–'}
+                </span>
             </div>
 
             {isBayesianResult(variantResult) ? (

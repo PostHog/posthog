@@ -3,11 +3,16 @@ import { createHash } from 'node:crypto'
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { resolvePersonMode } from '~/ingestion/common/steps/event-processing/create-event'
 import { IngestedEventInfo } from '~/ingestion/common/steps/event-processing/emit-event-step'
-import { EVENTS_USAGE_KEY, UsageKeyResolver } from '~/ingestion/common/usage-records/billable-events'
+import {
+    EVENTS_USAGE_KEY,
+    SURVEY_RESPONSES_USAGE_KEY,
+    UsageKeyResolver,
+} from '~/ingestion/common/usage-records/billable-events'
 import { BeforeBatchStep } from '~/ingestion/framework/batching-pipeline'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { Person } from '~/types'
+import { Properties } from '~/plugin-scaffold'
+import { EventHeaders, Person } from '~/types'
 
 export interface EventUsageBatchContext {
     eventUsageBatch: UsageRecordBatch
@@ -27,10 +32,30 @@ export function createEventUsageBeforeBatchStep<TInput, CInput, CBatch>(
 }
 
 export interface RecordEventUsageInput {
-    preparedEvent: { teamId: number; event: string; eventUuid: string; distinctId: string; timestamp: string }
+    preparedEvent: {
+        teamId: number
+        event: string
+        eventUuid: string
+        distinctId: string
+        timestamp: string
+        properties: Properties
+    }
+    headers: Pick<EventHeaders, 'now'>
     eventUsageBatch: UsageRecordBatch
     processPerson?: boolean
     person?: Person
+}
+
+/**
+ * Hashed rather than joined: event names and distinct IDs are client-supplied and together
+ * exceed the 512-byte identifier the service accepts, and one oversized record makes the
+ * service reject the whole request. The timestamp is UTC-normalized upstream, so its first
+ * ten characters are the day `toDate` resolves in the billing table's sorting key.
+ */
+function hashedRecordId(timestamp: string, identity: string[]): string {
+    const day = timestamp.slice(0, 10)
+    // JSON rather than a separator, so `a\nb` + `c` and `a` + `b\nc` hash differently.
+    return `${day}:${createHash('sha256').update(JSON.stringify(identity)).digest('hex').slice(0, 32)}`
 }
 
 /**
@@ -38,26 +63,34 @@ export interface RecordEventUsageInput {
  * distinct_id, uuid)`, minus the team the billing sorting key already carries. The UUID alone
  * is not that identity: two events sharing one but differing in day, name or distinct_id are
  * separate rows there, and the nightly report counts them separately, so billing must too.
- *
- * Hashed rather than joined, because event names and distinct IDs are client-supplied and
- * together exceed the 512-byte identifier the service accepts. One oversized record makes the
- * service reject the whole request, which would drop every record batched with it.
- *
- * The timestamp is UTC-normalized upstream, so its first ten characters are the same day
- * `toDate` resolves.
  */
 function analyticsRecordId(preparedEvent: RecordEventUsageInput['preparedEvent']): string {
-    const day = preparedEvent.timestamp.slice(0, 10)
-    // JSON rather than a separator: an event name and a distinct ID can both contain any
-    // character, so `a\nb` with `c` and `a` with `b\nc` would hash the same and bill once.
-    const identity = JSON.stringify([preparedEvent.event, preparedEvent.distinctId, preparedEvent.eventUuid])
-    return `${day}:${createHash('sha256').update(identity).digest('hex').slice(0, 32)}`
+    return hashedRecordId(preparedEvent.timestamp, [
+        preparedEvent.event,
+        preparedEvent.distinctId,
+        preparedEvent.eventUuid,
+    ])
+}
+
+/**
+ * Each answered step of a multi-question survey emits its own `survey sent` event. The nightly
+ * report bills one row per `($survey_id, $survey_submission_id)`, so sharing that identity lets
+ * the billing table's ReplacingMergeTree collapse the steps the same way.
+ */
+function surveyResponseRecordId(preparedEvent: RecordEventUsageInput['preparedEvent']): string {
+    const surveyId = preparedEvent.properties.$survey_id
+    const submissionId = preparedEvent.properties.$survey_submission_id
+    if (typeof submissionId !== 'string' || submissionId === '') {
+        return analyticsRecordId(preparedEvent)
+    }
+    return hashedRecordId(preparedEvent.timestamp, [typeof surveyId === 'string' ? surveyId : '', submissionId])
 }
 
 export interface EventUsageRecord {
     teamId: number
     usageKey: string
     recordId: string
+    timestampMs?: number
 }
 
 export interface EventUsageRecordContext {
@@ -95,8 +128,13 @@ export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
             return Promise.resolve(ok({ ...input, eventUsageRecords: undefined }))
         }
         const { teamId } = input.preparedEvent
-        const recordId = analyticsRecordId(input.preparedEvent)
-        const eventUsageRecords: EventUsageRecord[] = [{ teamId, usageKey, recordId }]
+        const recordId =
+            usageKey === SURVEY_RESPONSES_USAGE_KEY
+                ? surveyResponseRecordId(input.preparedEvent)
+                : analyticsRecordId(input.preparedEvent)
+        const captureTimestampMs = input.headers.now?.getTime()
+        const timestampMs = Number.isFinite(captureTimestampMs) ? captureTimestampMs : undefined
+        const eventUsageRecords: EventUsageRecord[] = [{ teamId, usageKey, recordId, timestampMs }]
         // Mirrors the report's enhanced-persons query: the plain billable count plus a `person_mode`
         // filter, so an event billed under its own key is outside both. Reading the mode stored on
         // the event rather than `processPerson` keeps force upgrades counted.
@@ -104,7 +142,7 @@ export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
             usageKey === EVENTS_USAGE_KEY &&
             resolvePersonMode(input.person, input.processPerson ?? false) !== 'propertyless'
         ) {
-            eventUsageRecords.push({ teamId, usageKey: 'enhanced_person_events', recordId })
+            eventUsageRecords.push({ teamId, usageKey: 'enhanced_person_events', recordId, timestampMs })
         }
         return Promise.resolve(ok({ ...input, eventUsageRecords }))
     }
@@ -127,7 +165,8 @@ export function createRecordEventUsageAfterIngestStep<T extends RecordEventUsage
                     input.ingested,
                     record.teamId,
                     record.usageKey,
-                    record.recordId
+                    record.recordId,
+                    record.timestampMs
                 )
             }
         }

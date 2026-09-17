@@ -2,7 +2,7 @@
 
 Run counts, success rate, and duration percentiles per ``workflow_name`` for runs
 started within ``[date_from, date_to]`` (``date_to`` optional), optionally scoped to
-a single ``head_branch`` and/or attributed pull-request runs. Rates are over conclusive
+a single ``head_branch`` and/or one ``run_scope`` group. Rates are over conclusive
 runs (success or a decisive failure), so skipped, cancelled, neutral, and action-required
 runs never read as failures. Duration percentiles are over successful runs only because
 cancelled, skipped, and failed runs end early and would bias a "how long does CI take"
@@ -44,14 +44,16 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     LATEST_COMPLETED_RUN_FAILED,
     RUN_DURATION_PERCENTILE_CONDITION,
     SUCCESSFUL_RUN_CONDITION,
+    UNPAGED_SCAN_LIMIT,
     branch_filter_clause,
     date_to_filter_clause,
-    non_default_branch_predicate,
+    default_branch_predicate,
     run_duration_percentile_expr,
     run_scope_filter_clause,
     run_started_floor_constant,
     success_rate_expr,
     window_pair_predicates,
+    workflow_name_filter_clause,
 )
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_workflow_window_costs
 
@@ -77,17 +79,19 @@ _SELECT = f"""
         argMaxIf(conclusion, (run_started_at, id), status = 'completed') AS latest_conclusion,
         argMaxIf(id, (run_started_at, id), status = 'completed') AS latest_run_id,
         argMaxIf(run_attempt, (run_started_at, id), status = 'completed') AS latest_run_attempt,
-        countIf(run_attempt > 1) AS rerun_cycles
+        countIf(run_attempt > 1) AS rerun_cycles,
+        countIf(is_merge_queue) AS merge_queue_run_count
     FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__
+    WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__ __WORKFLOW__
     GROUP BY repo_owner, repo_name, workflow_name
     ORDER BY run_count DESC
     LIMIT {_LIMIT}
 """
 
-# Success rate over the equal-length window before date_from — the delta baseline the UI renders as
+# Success rate over the equal-length window before date_from, the delta baseline the UI renders as
 # an honest Δpp instead of a server-baked percentage. Kept as its own slim scan so the main query's
-# window (and its LIMIT semantics) stay untouched.
+# window (and its LIMIT semantics) stay untouched. It is an unranked lookup, so capping it at _LIMIT
+# would drop workflows _SELECT ranked and make them read as "no previous window".
 _PREV_SELECT = f"""
     SELECT
         repo_owner,
@@ -95,8 +99,27 @@ _PREV_SELECT = f"""
         workflow_name,
         {success_rate_expr()} AS success_rate
     FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {{prev_from}} AND run_started_at < {{date_from}} __BRANCH__ __RUN_SCOPE__
+    WHERE run_started_at >= {{prev_from}} AND run_started_at < {{date_from}} __BRANCH__ __RUN_SCOPE__ __WORKFLOW__
     GROUP BY repo_owner, repo_name, workflow_name
+    LIMIT {UNPAGED_SCAN_LIMIT}
+"""
+
+# Merge-queue run counts over the same window with no branch/run_scope filter, so the list can rank
+# queue-gating workflows whatever scope is active. Only needed when a filter is on: without one, the
+# main query's own countIf already answers this. The scan covers only the workflows the main query
+# returned, HAVING keeps the gating ones, and the explicit bound keeps HogQL's default 100-row cap
+# from silently dropping some of them.
+_GATING_SELECT = f"""
+    SELECT
+        repo_owner,
+        repo_name,
+        workflow_name,
+        countIf(is_merge_queue) AS merge_queue_run_count
+    FROM __RUNS_SOURCE__ AS r
+    WHERE run_started_at >= {{date_from}} __DATE_TO__ AND workflow_name IN {{gating_workflow_names}}
+    GROUP BY repo_owner, repo_name, workflow_name
+    HAVING merge_queue_run_count > 0
+    LIMIT {_LIMIT}
 """
 
 _BUCKET_SELECT = f"""
@@ -110,7 +133,7 @@ _BUCKET_SELECT = f"""
         countIf({SUCCESSFUL_RUN_CONDITION}) AS successes,
         countIf(status = 'completed' AND conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) AS failures
     FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__
+    WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__ __WORKFLOW__
     GROUP BY repo_owner, repo_name, workflow_name, bucket_start
     LIMIT {_BUCKET_LIMIT}
 """
@@ -152,7 +175,7 @@ _TIME_TO_GREEN_CTES = f"""
         FROM __RUNS_SOURCE__ AS r
         WHERE run_started_at >= {{scan_from}} __DATE_TO__
           AND NOT r.is_merge_queue
-          AND {non_default_branch_predicate()}
+          AND NOT {default_branch_predicate()}
         GROUP BY repo_owner, repo_name, head_sha, workflow_name
     ),
     green_rounds AS (
@@ -266,6 +289,7 @@ def query_workflow_health(
     date_to: datetime | None,
     branch: str | None,
     run_scope: WorkflowHealthRunScope,
+    workflow_name: str | None = None,
     workload: Workload = Workload.DEFAULT,
 ) -> list[WorkflowHealthItem]:
     granularity = pick_granularity(date_from, date_to)
@@ -276,6 +300,7 @@ def query_workflow_health(
     date_to_clause = date_to_filter_clause(date_to, placeholders)
     branch_clause = branch_filter_clause(branch, placeholders)
     run_scope_clause = run_scope_filter_clause(run_scope)
+    workflow_clause = workflow_name_filter_clause(workflow_name, placeholders)
 
     runs_source = curated.run_source(started_floor=True)
 
@@ -285,6 +310,7 @@ def query_workflow_health(
             .replace("__DATE_TO__", date_to_clause)
             .replace("__BRANCH__", branch_clause)
             .replace("__RUN_SCOPE__", run_scope_clause)
+            .replace("__WORKFLOW__", workflow_clause)
             .replace("__BUCKET_FN__", bucket_expr(granularity))
         )
 
@@ -334,6 +360,25 @@ def query_workflow_health(
     cost_by_workflow = query_workflow_window_costs(
         curated=curated, date_from=date_from, date_to=date_to, branch=branch, run_scope=run_scope, workload=workload
     )
+    # Under an active branch or scope filter the main query's merge-queue count answers the filtered
+    # population, which cannot rank workflows: under merge_queue every row would look gating, under
+    # pull_request none would. So read the count from an unfiltered scan of the same window instead.
+    scoped = bool(branch_clause or run_scope_clause)
+    gating_by_workflow: dict[tuple[str, str, str], int] = {}
+    if scoped:
+        gating_response = curated.run(
+            fill(_GATING_SELECT),
+            query_type="engineering_analytics.workflow_health_gating",
+            placeholders={
+                **placeholders,
+                "gating_workflow_names": ast.Constant(value=sorted({row[2] for row in response.results})),
+            },
+            workload=workload,
+        )
+        gating_by_workflow = {
+            (repo_owner, repo_name, workflow_name): int(count or 0)
+            for repo_owner, repo_name, workflow_name, count in gating_response.results or []
+        }
     window = window_buckets(date_from, date_to, granularity)
     return [
         WorkflowHealthItem(
@@ -370,6 +415,11 @@ def query_workflow_health(
             ),
             rerun_cycles=rerun_cycles,
             success_rate_prev=prev_rate_by_workflow.get((repo_owner, repo_name, workflow_name)),
+            merge_queue_run_count=(
+                gating_by_workflow.get((repo_owner, repo_name, workflow_name), 0)
+                if scoped
+                else int(merge_queue_run_count or 0)
+            ),
         )
-        for repo_owner, repo_name, workflow_name, run_count, successful_run_count, conclusive_run_count, percentile_run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed, latest_conclusion, latest_run_id, latest_run_attempt, rerun_cycles in response.results
+        for repo_owner, repo_name, workflow_name, run_count, successful_run_count, conclusive_run_count, percentile_run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed, latest_conclusion, latest_run_id, latest_run_attempt, rerun_cycles, merge_queue_run_count in response.results
     ]

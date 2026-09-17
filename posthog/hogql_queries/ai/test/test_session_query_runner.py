@@ -59,6 +59,12 @@ def _select_queries_without_metadata(queries: list[str]) -> list[str]:
 
 
 class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
+    def test_evaluation_reads_do_not_share_a_cache_key_with_plain_reads(self) -> None:
+        query = SessionQuery(sessionId="session-a", dateRange=DateRange(date_from="-1d", date_to="now"))
+        plain = SessionQueryRunner(team=self.team, query=query)
+        evaluation = SessionQueryRunner(team=self.team, query=query, for_evaluation=True)
+        self.assertNotEqual(evaluation.get_cache_key(), plain.get_cache_key())
+
     def test_reads_complete_trace_when_only_root_has_session_id(self) -> None:
         bulk_create_ai_events(
             [
@@ -179,6 +185,40 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertIsNone(unpriced_trace.totalCost)
         self.assertIsNone(unpriced_trace.inputCost)
         self.assertIsNone(unpriced_trace.inputTokens)
+
+    def test_root_trace_latency_is_not_summed_with_its_children(self) -> None:
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_trace",
+                    "distinct_id": "person1",
+                    "team": self.team,
+                    "timestamp": datetime(2025, 1, 15, 0, 0, tzinfo=UTC),
+                    "properties": {
+                        "$ai_session_id": "session-root-latency",
+                        "$ai_trace_id": "trace-root-latency",
+                        "$ai_latency": 1.806,
+                    },
+                },
+                {
+                    "event": "$ai_generation",
+                    "distinct_id": "person1",
+                    "team": self.team,
+                    "timestamp": datetime(2025, 1, 15, 0, 1, tzinfo=UTC),
+                    "properties": {
+                        "$ai_trace_id": "trace-root-latency",
+                        "$ai_parent_id": "trace-root-latency",
+                        "$ai_latency": 0.917,
+                    },
+                },
+            ]
+        )
+
+        runner = SessionQueryRunner(team=self.team, query=SessionQuery(sessionId="session-root-latency"))
+        response = runner.calculate()
+
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].totalLatency, 1.81)
 
     def test_paginates_session_traces(self) -> None:
         bulk_create_ai_events(

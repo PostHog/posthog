@@ -24,9 +24,10 @@ import {
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { teamLogic } from 'scenes/teamLogic'
-import { MathCategory, mathsLogic } from 'scenes/trends/mathsLogic'
 
 import { BaseMathType, EntityTypes, InsightType } from '~/types'
+
+import { MathCategory, mathsLogic } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 import { ActionFilterRow, MathSelector, taxonomicFilterGroupTypeToEntityType } from '../ActionFilterRow/ActionFilterRow'
 import { getDefaultMathHogQLExpression } from '../ActionFilterRow/mathUtils'
@@ -52,6 +53,7 @@ interface ActionFilterGroupProps {
     showNumericalPropsOnly?: boolean
     dataWarehousePopoverFields?: any[]
     excludedProperties?: TaxonomicPopoverProps['excludedProperties']
+    includeHiddenEvents?: TaxonomicPopoverProps['includeHiddenEvents']
     groupTitle?: string
     trendsDisplayCategory?: any
     insightType?: InsightType
@@ -74,6 +76,7 @@ export function ActionFilterGroup({
     showNumericalPropsOnly,
     dataWarehousePopoverFields,
     excludedProperties,
+    includeHiddenEvents,
     groupTitle,
     trendsDisplayCategory,
     insightType,
@@ -369,6 +372,7 @@ export function ActionFilterGroup({
                                     showNumericalPropsOnly={showNumericalPropsOnly}
                                     dataWarehousePopoverFields={dataWarehousePopoverFields}
                                     excludedProperties={excludedProperties}
+                                    includeHiddenEvents={includeHiddenEvents}
                                     definitionPopoverRenderer={definitionPopoverRenderer}
                                 />
                                 {eventIndex < nestedFilters.length - 1 && (
@@ -423,6 +427,7 @@ export function ActionFilterGroup({
                             showNumericalPropsOnly={showNumericalPropsOnly}
                             dataWarehousePopoverFields={dataWarehousePopoverFields}
                             excludedProperties={excludedProperties}
+                            includeHiddenEvents={includeHiddenEvents}
                         />
                     </div>
                 )}

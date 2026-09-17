@@ -1,9 +1,12 @@
-from collections.abc import Callable
-from datetime import timedelta
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from datetime import date, timedelta
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from products.web_analytics.backend.achievements import tasks
@@ -157,3 +160,49 @@ class TestRecomputeTask(BaseTest):
         ):
             tasks.recompute_web_analytics_achievements(self.team.id, self.user.id)
         self.assertFalse(WebAnalyticsAchievementProgress.objects.for_team(self.team.id).filter(user=self.user).exists())
+
+
+class TestAchievementEnqueueRecovery(SimpleTestCase):
+    today = date(2026, 1, 2)
+
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    @contextmanager
+    def _publish_fails(self) -> Iterator[MagicMock]:
+        with patch.object(
+            tasks.recompute_web_analytics_achievements, "delay", side_effect=RuntimeError("Publish failed")
+        ) as publish:
+            yield publish
+
+    def test_publish_failure_allows_retry_and_success_retains_daily_debounce(self) -> None:
+        with patch.object(tasks.recompute_web_analytics_achievements, "delay") as publish:
+            publish.side_effect = RuntimeError("Publish failed")
+            with self.assertRaisesMessage(RuntimeError, "Publish failed"):
+                tasks.enqueue_recompute_web_analytics_achievements_debounced(12, None, self.today)
+            publish.side_effect = None
+            self.assertTrue(tasks.enqueue_recompute_web_analytics_achievements_debounced(12, None, self.today))
+            self.assertFalse(tasks.enqueue_recompute_web_analytics_achievements_debounced(12, None, self.today))
+            self.assertEqual(publish.call_count, 2)
+            publish.assert_called_with(12, user_id=None)
+
+    def test_cleanup_failure_does_not_hide_the_original_publish_error(self) -> None:
+        with (
+            self._publish_fails(),
+            patch.object(tasks.cache, "delete", side_effect=RuntimeError("Cache unavailable")) as delete,
+        ):
+            with self.assertRaisesMessage(RuntimeError, "Publish failed"):
+                tasks.enqueue_recompute_web_analytics_achievements_debounced(12, None, self.today)
+        delete.assert_called_once()
+
+    def test_cache_fail_open_does_not_delete_an_unclaimed_key_after_publish_failure(self) -> None:
+        with (
+            self._publish_fails(),
+            patch.object(tasks.cache, "add", side_effect=RuntimeError("Cache unavailable")),
+            patch.object(tasks.cache, "delete") as delete,
+            patch.object(tasks, "capture_exception"),
+        ):
+            with self.assertRaisesMessage(RuntimeError, "Publish failed"):
+                tasks.enqueue_recompute_web_analytics_achievements_debounced(12, None, self.today)
+        delete.assert_not_called()

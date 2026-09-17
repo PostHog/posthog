@@ -25,12 +25,11 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { Query } from '~/queries/Query/Query'
-import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
@@ -53,13 +52,6 @@ if (output ilike '%billing%') {
     print('Found: billing')
 }
 return result`
-
-export const scene: SceneExport = {
-    component: AIObservabilityTagScene,
-    logic: llmTaggerLogic,
-    paramsToProps: ({ params }): { id: string } => ({ id: params.id || 'new' }),
-    productKey: ProductKey.AI_OBSERVABILITY,
-}
 
 function TagDefinitionsEditor({ id }: { id: string }): JSX.Element {
     const { taggerForm } = useValues(llmTaggerLogic({ id }))
@@ -738,7 +730,7 @@ function getTaggerProviderKeyIssue(tagger: Tagger | null, providerKeys: LLMProvi
     return getUnhealthyProviderKey(providerKeys, tagger.model_configuration?.provider_key_id)
 }
 
-export function AIObservabilityTagScene({ id }: { id?: string }): JSX.Element {
+export function AIObservabilityTag({ id }: { id?: string }): JSX.Element {
     const taggerId = id || 'new'
     const isNew = taggerId === 'new'
     const { tagger, taggerLoading, activeTab, providerKeys } = useValues(llmTaggerLogic({ id: taggerId }))

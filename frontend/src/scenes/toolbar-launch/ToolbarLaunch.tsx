@@ -1,22 +1,41 @@
-import './ToolbarLaunch.scss'
+import {
+    IconBolt,
+    IconCursorClick,
+    IconExternal,
+    IconFlask,
+    IconInfo,
+    IconPieChart,
+    IconSearch,
+    IconToggle,
+} from '@posthog/icons'
+import {
+    Button,
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+    Item,
+    ItemContent,
+    ItemGroup,
+    ItemMedia,
+    ItemTitle,
+    Text,
+    TooltipProvider,
+} from '@posthog/quill'
 
-import { IconFlag, IconFlask, IconPieChart, IconSearch } from '@posthog/icons'
-import { LemonBanner } from '@posthog/lemon-ui'
-
-import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
-import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { IconGroupedEvents, IconHeatmap } from 'lib/lemon-ui/icons'
-import { Link } from 'lib/lemon-ui/Link'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { ProductIconWrapper } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { ToolbarAuthorizedUrls } from './ToolbarAuthorizedUrls'
 
 export const scene: SceneExport = {
     component: ToolbarLaunch,
@@ -32,88 +51,113 @@ export function ToolbarLaunch(): JSX.Element {
             ? true
             : userHasAccess(AccessControlResourceType.WebAnalytics, AccessControlLevel.Editor)
 
-    const features: FeatureHighlightProps[] = [
+    const features: Array<{ title: string; caption: string; icon: JSX.Element; type: FileSystemIconType }> = [
         {
             title: 'Heatmaps',
             caption: 'Understand where your users interact the most.',
-            icon: <IconHeatmap />,
+            icon: <IconCursorClick className="size-5" />,
+            type: 'heatmap',
         },
         {
             title: 'Actions',
             caption: 'Create actions visually from elements in your website.',
-            icon: <IconGroupedEvents />,
+            icon: <IconBolt className="size-5" />,
+            type: 'action',
         },
         {
-            title: 'Feature Flags',
-            caption: 'Toggle feature flags on/off right on your app.',
-            icon: <IconFlag />,
+            title: 'Feature flags',
+            caption: 'Override feature flags while you test your app.',
+            icon: <IconToggle className="size-5" />,
+            type: 'feature_flag',
         },
         {
             title: 'Inspect',
             caption: 'Inspect clickable elements on your website.',
-            icon: <IconSearch />,
+            icon: <IconSearch className="size-5" />,
+            type: 'product_analytics',
         },
         {
-            title: 'Web Vitals',
+            title: 'Web vitals',
             caption: "Measure your website's performance.",
-            icon: <IconPieChart />,
+            icon: <IconPieChart className="size-5" />,
+            type: 'web_analytics',
         },
         {
             title: 'Experiments',
             caption: 'Run experiments and A/B test your website.',
-            icon: <IconFlask />,
+            icon: <IconFlask className="size-5" />,
+            type: 'experiment',
         },
     ]
 
     return (
-        <SceneContent>
-            <SceneTitleSection
-                name="Toolbar"
-                description="PostHog toolbar launches PostHog right in your app or website."
-                resourceType={{
-                    type: 'toolbar',
-                }}
-            />
-
-            <SceneSection title="Authorized URLs for Toolbar" description="Click on the URL to launch the toolbar.">
-                <AuthorizedUrlList
-                    type={AuthorizedUrlListType.TOOLBAR_URLS}
-                    addText="Add authorized URL"
-                    allowAdd={canEdit}
-                    allowDelete={canEdit}
-                    displaySuggestions={canEdit}
+        <TooltipProvider>
+            <SceneContent>
+                <SceneTitleSection
+                    name="Toolbar"
+                    description="Open PostHog on your website to inspect elements, review behavior, and test changes in context."
+                    resourceType={{ type: 'toolbar' }}
                 />
-                <LemonBanner type="info">
-                    Make sure you're using the <Link to={`${urls.settings('project')}#snippet`}>HTML snippet</Link> or
-                    the latest <code>posthog-js</code> version.
-                </LemonBanner>
-            </SceneSection>
 
-            <SceneSection>
-                <div className="grid grid-cols-2 gap-4 max-w-[800px] mb-6 mt-4 mx-auto">
-                    {features.map((feature) => (
-                        <FeatureHighlight key={feature.title} {...feature} />
-                    ))}
+                <div className="@container/toolbar-launch mt-4 flex max-w-6xl flex-col gap-4">
+                    <div className="grid grid-cols-1 gap-4 @min-[64rem]/toolbar-launch:grid-cols-3">
+                        <Card className="min-w-0 @min-[64rem]/toolbar-launch:col-span-2">
+                            <CardHeader>
+                                <CardTitle>Authorized URLs</CardTitle>
+                                <CardDescription>Add a URL, then launch the toolbar on that website.</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <ToolbarAuthorizedUrls canEdit={canEdit} />
+                            </CardContent>
+                        </Card>
+
+                        <Card size="sm" className="group/colorful-product-icons colorful-product-icons-true">
+                            <CardHeader>
+                                <CardTitle>What you can do</CardTitle>
+                                <CardDescription>Use the toolbar without leaving your website.</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <ItemGroup>
+                                    {features.map((feature) => (
+                                        <Item key={feature.title} size="xs">
+                                            <ItemMedia variant="icon">
+                                                <ProductIconWrapper type={feature.type}>
+                                                    {feature.icon}
+                                                </ProductIconWrapper>
+                                            </ItemMedia>
+                                            <ItemContent>
+                                                <ItemTitle>{feature.title}</ItemTitle>
+                                                <Text size="xs" variant="muted">
+                                                    {feature.caption}
+                                                </Text>
+                                            </ItemContent>
+                                        </Item>
+                                    ))}
+                                </ItemGroup>
+                            </CardContent>
+                        </Card>
+                    </div>
+
+                    <Card size="sm">
+                        <CardContent className="flex flex-wrap items-center gap-2">
+                            <IconInfo />
+                            <Text size="sm" className="min-w-64 flex-1">
+                                The toolbar requires the HTML snippet or a recent version of posthog-js.
+                            </Text>
+                            <Button
+                                variant="link"
+                                render={
+                                    // eslint-disable-next-line react/forbid-elements
+                                    <a href={`${urls.settings('project')}#snippet`} />
+                                }
+                            >
+                                View installation settings
+                                <IconExternal />
+                            </Button>
+                        </CardContent>
+                    </Card>
                 </div>
-            </SceneSection>
-        </SceneContent>
-    )
-}
-
-interface FeatureHighlightProps {
-    title: string
-    caption: string
-    icon: JSX.Element
-}
-
-function FeatureHighlight({ title, caption, icon }: FeatureHighlightProps): JSX.Element {
-    return (
-        <div className="fh-item flex items-center mt-4">
-            <div className="fh-icon mr-4 text-secondary">{icon}</div>
-            <div>
-                <h4 className="mb-0 text-secondary">{title}</h4>
-                <div className="caption">{caption}</div>
-            </div>
-        </div>
+            </SceneContent>
+        </TooltipProvider>
     )
 }

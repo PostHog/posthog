@@ -1,13 +1,18 @@
-import { useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
 import { LemonTabs } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { CustomerTasksTabContent } from '../CustomerTasks/CustomerTasksTabContent'
 import { AccountEventStreamToggle } from '../EventStream/AccountEventStreamToggle'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
+import { accountBillingLogic } from './accountBillingLogic'
 import { AccountConversationsExpansion } from './AccountConversationsExpansion'
 import { AccountFeatureRequestsExpansion } from './AccountFeatureRequestsExpansion'
 import { AccountMeetingsExpansion } from './AccountMeetingsExpansion'
@@ -34,8 +39,11 @@ export function AccountDetailTabs({
     rightSlot,
     embedded = true,
 }: AccountDetailTabsProps): JSX.Element {
+    useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'usage' }))
     const { featureFlags } = useValues(featureFlagLogic)
     const visibleActiveTab = getVisibleAccountExpansionTab(activeTab, featureFlags)
+    const canCreateTasks = userHasAccess(AccessControlResourceType.CustomerAnalytics, AccessControlLevel.Editor)
+    const canViewAllTasks = userHasAccess(AccessControlResourceType.CustomerAnalytics, AccessControlLevel.Viewer)
 
     return (
         <LemonTabs
@@ -48,6 +56,18 @@ export function AccountDetailTabs({
                     key: 'notes',
                     label: 'Notes',
                     content: <AccountNotesExpansion accountId={accountId} embedded={embedded} />,
+                },
+                !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS] && {
+                    key: 'tasks' as const,
+                    label: 'Tasks',
+                    content: (
+                        <CustomerTasksTabContent
+                            accountId={accountId}
+                            canCreate={canCreateTasks}
+                            canViewAll={canViewAllTasks}
+                            embedded={embedded}
+                        />
+                    ),
                 },
                 {
                     key: 'users',
@@ -67,26 +87,12 @@ export function AccountDetailTabs({
                 {
                     key: 'usage',
                     label: 'Usage',
-                    content: (
-                        <AccountBillingExpansion
-                            accountId={accountId}
-                            externalId={externalId}
-                            kind="usage"
-                            embedded={embedded}
-                        />
-                    ),
+                    content: <AccountBillingExpansion accountId={accountId} externalId={externalId} kind="usage" />,
                 },
                 {
                     key: 'spend',
                     label: 'Spend',
-                    content: (
-                        <AccountBillingExpansion
-                            accountId={accountId}
-                            externalId={externalId}
-                            kind="spend"
-                            embedded={embedded}
-                        />
-                    ),
+                    content: <AccountBillingExpansion accountId={accountId} externalId={externalId} kind="spend" />,
                 },
                 {
                     key: 'opportunities',
