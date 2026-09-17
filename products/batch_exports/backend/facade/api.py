@@ -100,9 +100,10 @@ def _to_ref(batch_export: BatchExport) -> contracts.BatchExportRef:
 
 
 def _to_detail(batch_export: BatchExport) -> contracts.BatchExportDetail:
-    # The destination config is an encrypted field, so reading it decrypts the
-    # destination's credentials. Only the two event filters are lifted out of it, which is
-    # all any consumer reads. Never widen this to the whole config.
+    # The destination config is an encrypted field, so reading it decrypts the destination's
+    # credentials. Only the two event filters are lifted out of it, which is all any consumer reads.
+    # Do not widen this to the whole config unless we are certain all credentials have been migrated
+    # to integrations and dropped from the config.
     config = batch_export.destination.config
     return contracts.BatchExportDetail(
         id=batch_export.id,
