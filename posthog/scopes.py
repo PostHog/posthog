@@ -335,7 +335,7 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
         ),
     ),
     (
-        "PostHog AI, agents & knowledge",
+        "AI & context management tools",
         (
             "conversation",
             "business_knowledge",

@@ -118,7 +118,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
         ],
     },
     {
-        label: 'PostHog AI, agents & knowledge',
+        label: 'AI & context management tools',
         objects: [
             'conversation',
             'business_knowledge',
