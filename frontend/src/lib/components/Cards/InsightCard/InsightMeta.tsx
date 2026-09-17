@@ -239,7 +239,7 @@ export function InsightMeta({
 
     const canViewInsight = insight.user_access_level
         ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Viewer)
-        : false
+        : true
     const canEditInsight =
         insight.user_access_level && canViewInsight
             ? accessLevelSatisfied(
