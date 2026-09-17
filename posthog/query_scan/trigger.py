@@ -116,7 +116,7 @@ SkipReason = Literal[
 ]
 
 
-def is_mcp_run() -> bool:
+def _is_mcp_run() -> bool:
     """Whether an MCP agent made the run. A PostHog AI tool the MCP server invokes carries the
     feature. A call the server proxies to the query endpoint carries the source the request
     middleware set, whichever key or token the agent authenticates with."""
@@ -170,7 +170,7 @@ def maybe_trigger_query_scan(
     # stopped, however fast it died, so a stopped run is analyzed at any duration.
     if duration_ms < flag.floor_ms and not killed:
         return "below_floor"
-    if is_mcp_run():
+    if _is_mcp_run():
         # Nothing hands an agent the advice, so the analysis would only cost.
         return "mcp"
     if is_api_key_access_method(get_query_tag_value("access_method")):
