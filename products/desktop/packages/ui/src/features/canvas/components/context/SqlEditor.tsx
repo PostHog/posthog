@@ -29,12 +29,13 @@ interface SqlEditorProps {
 const sqlEditorTheme = EditorView.theme({
   "&": { maxHeight: "320px", fontSize: "12px", backgroundColor: "transparent" },
   ".cm-scroller": { overflow: "auto", lineHeight: "1.6" },
-  ".cm-content": { color: "var(--gray-12)" },
+  ".cm-content": { color: "var(--foreground)" },
   ".cm-content, .cm-gutter": { minHeight: "96px" },
   ".cm-gutters": {
     backgroundColor: "transparent",
     border: "none",
-    color: "var(--gray-9)",
+    color: "var(--muted-foreground)",
+    opacity: "0.7",
   },
   ".cm-activeLineGutter": { backgroundColor: "transparent" },
   ".cm-activeLine": { backgroundColor: "transparent" },
@@ -43,27 +44,31 @@ const sqlEditorTheme = EditorView.theme({
 
 const quietHighlight = syntaxHighlighting(
   HighlightStyle.define([
-    { tag: tags.keyword, color: "var(--gray-12)", fontWeight: "600" },
+    { tag: tags.keyword, color: "var(--info-foreground)", fontWeight: "600" },
     {
       tag: [tags.string, tags.special(tags.string)],
-      color: "var(--accent-11)",
+      color: "var(--success-foreground)",
     },
+    { tag: tags.number, color: "var(--accent-11)" },
     {
       tag: [
-        tags.number,
         tags.name,
         tags.variableName,
         tags.propertyName,
         tags.typeName,
         tags.function(tags.variableName),
       ],
-      color: "var(--gray-12)",
+      color: "var(--foreground)",
     },
     {
       tag: [tags.operator, tags.punctuation, tags.paren, tags.bracket],
-      color: "var(--gray-11)",
+      color: "var(--muted-foreground)",
     },
-    { tag: tags.comment, color: "var(--gray-10)", fontStyle: "italic" },
+    {
+      tag: tags.comment,
+      color: "var(--muted-foreground)",
+      fontStyle: "italic",
+    },
   ]),
 );
 
