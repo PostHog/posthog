@@ -59,13 +59,26 @@ class Command(BaseCommand):
         team_id = options["team_id"]
         dry_run = options["dry_run"]
         total = TeamResult()
+        failed = 0
         for team in self._teams(team_id):
-            result = self._backfill_team(team, dry_run)
+            try:
+                result = self._backfill_team(team, dry_run)
+            except Exception as error:
+                # The team's schema is built once for the whole team, outside the per-metric error
+                # boundary in `sync_metric_lineage`, so a team whose warehouse it cannot read would
+                # otherwise end the run and leave every later team without nodes.
+                failed += 1
+                logger.exception("Failed to backfill metric lineage for team", team_id=team.pk)
+                self.stdout.write(f"team {team.pk}: failed ({error})")
+                continue
             total.add(result)
             if result.seen or result.stranded:
                 logger.info("Backfilled metric lineage for team", team_id=team.pk, result=str(result), dry_run=dry_run)
                 self.stdout.write(f"team {team.pk}: {result}")
-        self.stdout.write(f"{'would sync' if dry_run else 'done'}: {total}")
+        summary = f"{'would sync' if dry_run else 'done'}: {total}"
+        if failed:
+            summary = f"{summary}, {failed} team(s) failed"
+        self.stdout.write(summary)
 
     def _teams(self, team_id: int | None):
         """Project root teams only.

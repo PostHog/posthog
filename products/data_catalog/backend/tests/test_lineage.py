@@ -260,6 +260,28 @@ class TestBackfillMetricLineage(BaseTest):
         )
         return database_class
 
+    def test_a_team_whose_schema_fails_does_not_end_the_run(self) -> None:
+        self._upsert("mrr", definition=_HOGQL_EVENTS)
+        later_team = Team.objects.create(organization=self.organization, name="second project")
+        later_metric = upsert_metric(
+            team=later_team, user=self.user, name="arr", description="d", definition=_HOGQL_EVENTS
+        )
+        output = StringIO()
+        database_class = self._patched_database()
+        schema = database_class.create_for.return_value
+
+        def build_schema(**kwargs) -> Database:
+            if kwargs["team"].pk == self.team.pk:
+                raise RuntimeError("schema build blew up")
+            return schema
+
+        database_class.create_for.side_effect = build_schema
+
+        call_command("backfill_metric_lineage", stdout=output)
+
+        assert "1 team(s) failed" in output.getvalue()
+        assert Node.objects.filter(team=later_team, metric_id=later_metric.id).exists()
+
     def test_a_child_environment_does_not_repeat_its_projects_backfill(self) -> None:
         self._upsert("mrr", definition=_HOGQL_EVENTS)
         self._child_environment()
