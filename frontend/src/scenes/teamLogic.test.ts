@@ -5,7 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { HogQLQueryModifiers, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { AppContext, TeamType } from '~/types'
+import { AppContext, PropertyFilterType, PropertyOperator, TeamType } from '~/types'
 
 import { projectLogic } from './projectLogic'
 import { teamLogic } from './teamLogic'
@@ -59,9 +59,14 @@ describe('teamLogic', () => {
 
     describe('testAccountFilterFrequentMistakes', () => {
         const mountWithModifiers = async (
-            modifiers: Pick<TeamType, 'modifiers' | 'default_modifiers'>
+            modifiers: Pick<TeamType, 'modifiers' | 'default_modifiers'>,
+            testAccountFilters?: TeamType['test_account_filters']
         ): Promise<ReturnType<typeof teamLogic.build>> => {
-            initKeaTests(false, { ...MOCK_DEFAULT_TEAM, ...modifiers })
+            initKeaTests(false, {
+                ...MOCK_DEFAULT_TEAM,
+                ...modifiers,
+                ...(testAccountFilters ? { test_account_filters: testAccountFilters } : {}),
+            })
             const teamLogicInstance = teamLogic()
             teamLogicInstance.mount()
             await expectLogic(teamLogicInstance).toDispatchActions(['loadCurrentTeamSuccess'])
@@ -103,6 +108,13 @@ describe('teamLogic', () => {
 
         it.each(quietModes)('stays quiet on the %s mode', async (personsOnEventsMode) => {
             logic = await mountWithModifiers({ modifiers: { personsOnEventsMode } })
+            expect(logic.values.testAccountFilterFrequentMistakes).toEqual([])
+        })
+
+        it('stays quiet about an is_not_set person property filter on an event-time mode', async () => {
+            logic = await mountWithModifiers({ modifiers: eventTimeMode }, [
+                { key: 'email', type: PropertyFilterType.Person, operator: PropertyOperator.IsNotSet },
+            ])
             expect(logic.values.testAccountFilterFrequentMistakes).toEqual([])
         })
     })

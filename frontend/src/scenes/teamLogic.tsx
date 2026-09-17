@@ -28,7 +28,7 @@ import {
     type ProductIntentContext,
     ProductKey,
 } from '~/queries/schema/schema-general'
-import { CorrelationConfigType, ProjectType, TeamPublicType, TeamType } from '~/types'
+import { CorrelationConfigType, ProjectType, PropertyOperator, TeamPublicType, TeamType } from '~/types'
 
 import type { FeatureFlagsSet } from '../lib/logic/featureFlagLogic'
 import { organizationLogic } from './organizationLogic'
@@ -641,7 +641,12 @@ export const teamLogic = kea<teamLogicType>([
                             fix: 'it is more common to filter email by person properties, not event properties',
                         })
                     }
-                    if (filter.type === 'person' && filter.key && readsPersonPropertiesFromEvents) {
+                    if (
+                        filter.type === 'person' &&
+                        filter.key &&
+                        filter.operator !== PropertyOperator.IsNotSet &&
+                        readsPersonPropertiesFromEvents
+                    ) {
                         frequentMistakes.push({
                             key: filter.key,
                             type: 'person',
