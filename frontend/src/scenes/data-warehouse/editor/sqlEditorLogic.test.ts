@@ -355,6 +355,23 @@ describe('sqlEditorLogic', () => {
         expect(logic.values.hasFiltersPlaceholder).toBe(false)
     })
 
+    it('keeps the same bindings reference when an edit does not change the placeholder', () => {
+        logic = sqlEditorLogic({
+            tabId: TAB_ID,
+            monaco: createMockMonaco(),
+            editor: createMockEditor(),
+        })
+        logic.mount()
+
+        logic.actions.setQueryInput('SELECT * FROM events WHERE {filters(created_at AS timestamp)}')
+        const bindings = logic.values.filtersPlaceholderBindings
+
+        logic.actions.setQueryInput('SELECT *, 1 FROM events WHERE {filters(created_at AS timestamp)}')
+
+        expect(bindings).toEqual(['timestamp'])
+        expect(logic.values.filtersPlaceholderBindings).toBe(bindings)
+    })
+
     it('restores filters from the URL hash', async () => {
         const filters: HogQLFilters = {
             dateRange: {

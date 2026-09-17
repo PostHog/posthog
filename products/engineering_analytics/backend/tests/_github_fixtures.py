@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from posthog.test.base import BaseTest
+from posthog.test.base import PostHogTestCase
 
 import pandas as pd
 
@@ -34,7 +34,7 @@ GITHUB_SOURCE_PREFIX = "myprefix"
 
 
 @contextmanager
-def seeding_object_storage(test: BaseTest) -> Iterator[None]:
+def seeding_object_storage(test: PostHogTestCase) -> Iterator[None]:
     # Skipping locally keeps the suite usable without the dev stack; skipping in CI would drop every
     # warehouse-backed assertion behind a green job, so there it raises.
     try:
@@ -318,7 +318,9 @@ def _status_row(status_id: int, deployment_id: int, state: str, environment: str
     }
 
 
-def create_github_warehouse_table(test: BaseTest, base_name: str, columns: dict, rows: list[dict[str, Any]]) -> str:
+def create_github_warehouse_table(
+    test: PostHogTestCase, base_name: str, columns: dict, rows: list[dict[str, Any]]
+) -> str:
     # Returns the real table name (prefixed), which the builder is then told to read,
     # proving build_query honors the resolved name instead of a hardcoded one.
     df = pd.DataFrame(rows, columns=list(columns.keys()))

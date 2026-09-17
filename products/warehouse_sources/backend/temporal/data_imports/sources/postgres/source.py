@@ -10,19 +10,17 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+from posthog.psycopg_helpers import HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR
+
+from products.data_warehouse.backend.facade.api import reconcile_postgres_schemas
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSSHTunnelConfig,
 )
-
-from posthog.exceptions_capture import capture_exception
-from posthog.psycopg_helpers import HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR
-
-from products.data_warehouse.backend.facade.api import reconcile_postgres_schemas
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FAST_RETURN_PROBE_TIMEOUT,
@@ -355,7 +353,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.POSTGRES,
+            name=ExternalDataSourceType.POSTGRES,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["postgresql", "sql", "rds", "aws rds", "amazon rds", "aurora"],
             caption="Enter your Postgres credentials to automatically pull your Postgres data into the PostHog Data warehouse",
@@ -864,6 +862,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "connect until the database is available again. Upgrade your provider's plan or wait "
                 "for the quota to reset, then re-enable the sync."
             ),
+            # The same provider family (observed on Neon) blocks the handshake when the project's
+            # data-transfer allowance is spent, wording it as a plain libpq ERROR rather than a
+            # connection failure. The block only lifts when the customer upgrades the plan or the
+            # billing period resets, so a whole-activity retry re-hits it exactly like the
+            # compute-time quota above. Match the stable quota phrase and exclude the volatile
+            # host/IP and port libpq prefixes it with.
+            "exceeded the data transfer quota": (
+                "Your database provider blocked the connection because your project exceeded its data "
+                "transfer quota. Upgrade your provider's plan or wait for the quota to reset, then "
+                "re-enable the sync."
+            ),
             # A database proxy (observed on Prisma Accelerate) refuses the connection because the
             # account hit a plan limit, reporting "Your account has restrictions: planLimitReached".
             # The restriction is account-level state only the customer can lift (upgrade the plan or
@@ -900,6 +909,20 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 'connections because hot standby is turned off ("Hot standby mode is disabled"). '
                 "Enable hot_standby on the replica and restart it, or point this source at the primary "
                 "database, then re-enable the sync."
+            ),
+            # Postgres refuses to scan a temporary or unlogged relation on a hot standby:
+            # SQLSTATE 0A000 "cannot access temporary or unlogged relations during recovery".
+            # Neither relation type is WAL-logged, so a physical replica never receives their
+            # data — this is permanent for as long as the relation stays temporary/unlogged and
+            # the connection stays pointed at a standby, unlike "the database system is starting
+            # up" above (kept retryable there because it comes from a server not yet accepting
+            # connections at all, a condition that clears on its own). Match the stable Postgres
+            # message verbatim; it names no volatile detail.
+            "cannot access temporary or unlogged relations during recovery": (
+                "This relation is temporary or unlogged, and PostgreSQL doesn't replicate temporary "
+                'or unlogged relations to read replicas ("cannot access temporary or unlogged '
+                'relations during recovery"). Point this source at the primary database. If this is '
+                "an unlogged table, change it to a regular (logged) table, then re-enable the sync."
             ),
             # SQLSTATE 57P03 with the message "database <name> is not currently accepting connections":
             # the server is up (it answered with a FATAL) but the target database has datallowconn

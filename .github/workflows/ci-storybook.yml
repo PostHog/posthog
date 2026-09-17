@@ -104,6 +104,7 @@ jobs:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       frontend:
+                        - 'patches/jest-junit@16.0.0.patch'
                         - 'frontend/**'
                         - 'products/**/*.{ts,tsx}'
                         - 'products/**/frontend/**'

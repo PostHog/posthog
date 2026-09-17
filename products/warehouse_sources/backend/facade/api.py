@@ -347,13 +347,14 @@ def resolve_object_by_name(team_id: int, name: str) -> contracts.WarehouseObject
     """The warehouse table or saved query a query reaches under this name, else None.
 
     Resolves the dotted source forms (``stripe.charges``) the same way a query does, and skips
-    soft-deleted rows and orphans of a deleted source. None means the name reaches neither, so it
-    carries no object-level access control -- a PostHog table such as ``events``, or nothing at all.
+    soft-deleted rows, orphans of a deleted source, and direct-connection tables the default HogQL
+    scope hides. None means the name reaches neither, so it carries no object-level access control
+    -- a PostHog table such as ``events``, or nothing at all.
 
     For a caller recording what a query read: the identity survives the name being freed and taken
     by something else, which is what makes it usable as evidence later.
     """
-    resolved = _get_view_or_table_by_name(team_id, name)
+    resolved = _get_view_or_table_by_name(team_id, name, exclude_direct_access=True)
     if resolved is None:
         return None
     kind = (
@@ -368,6 +369,38 @@ def all_queryable_table_names(team_id: int) -> dict[UUID, str]:
     """The current name of every table in this team that is still queryable. One query."""
     rows = _DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id)
     return dict(rows.values_list("id", "name"))
+
+
+def all_queryable_table_keys(team_id: int) -> dict[UUID, contracts.TableNames]:
+    """Every queryable table of this team, by id, under both the names it answers to. One query.
+
+    A caller matching what a query read against what a person may reach has to know both spellings.
+    """
+    from posthog.hogql.database.database import (  # noqa: PLC0415 -- keeps HogQL off this module's import path
+        get_data_warehouse_table_name,
+    )
+
+    rows = (
+        _DataWarehouseTable.raw_objects.queryable()
+        .filter(team_id=team_id)
+        .select_related("external_data_source")
+        .only(
+            "id",
+            "name",
+            "external_data_source_id",
+            "external_data_source__id",
+            "external_data_source__access_method",
+            "external_data_source__source_type",
+            "external_data_source__prefix",
+        )
+    )
+    return {
+        table.id: contracts.TableNames(
+            row_name=table.name,
+            queryable_key=get_data_warehouse_table_name(table.external_data_source, table.name),
+        )
+        for table in rows
+    }
 
 
 def direct_access_table_ids(team_id: int) -> set[UUID]:

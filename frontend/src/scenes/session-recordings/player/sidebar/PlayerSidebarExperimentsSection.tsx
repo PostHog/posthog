@@ -287,8 +287,8 @@ function ExposureTime({ offsetMs, placement, onSeek }: ExposureTimeProps): JSX.E
 
 // The experiment analysis counts exposure events, and this session has none: that is the one claim
 // that holds wherever the viewer came from. The copy must not reference the recordings tab's list,
-// because when the exposure event is server-side that tab falls back to listing flag-active sessions
-// (see applySessionLinkability), and enrolled-only sessions are then exactly what its list shows.
+// because when the exposure event is server-side that tab's in-session scope falls back to listing
+// flag-active sessions, and enrolled-only sessions are then exactly what its list shows.
 const NOT_EXPOSED_CAVEAT =
     "The flag was active in this session, but no exposure event was captured here, so this session isn't where the experiment analysis counted this person's exposure."
 

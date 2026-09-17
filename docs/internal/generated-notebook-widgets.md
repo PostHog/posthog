@@ -80,6 +80,31 @@ Reusable widgets remain behind the `notebook-generated-widgets` feature flag and
 
 ## Agent access
 
+New widgets default to Claude Sonnet 5. An explicitly selected model stays selected.
+Widget IDs are saved when their settings, title, or panel visibility change, so editing a widget keeps its generation history attached.
+
+New SQL cells receive a unique name beginning with `sql_df_`; Python cells receive one beginning with `df_`.
+You can rename a dataframe in its result panel.
+The SQL and insight dataframe name rows are visible when either `revamped-py-notebooks` or `notebook-generated-widgets` is enabled.
+The widget flag enables HogQL dataframe preparation. Python, kernel-backed SQL, and direct connections require `revamped-py-notebooks`.
+Insights that expose SQL have the same dataframe name field below their results, starting with `insight_df` (with a numeric suffix when needed).
+An editor prepares the insight's dataframe when a SQL or Python cell first references it, before generating a widget, or when rerunning a widget's data dependencies.
+Widgets that use only insight dataframes refresh after preparation without requiring a SQL or Python cell.
+Opening a notebook, renaming a dataframe, or refreshing an insight's display does not prepare dataframes or save preparation metadata.
+Preparation uses the insight query cache and saves the run reference and column metadata only after the SQL run completes.
+If the insight query changes during preparation, the completed result is discarded and the editor can try again.
+Concurrent preparation requests from the same user reuse the same matching run for up to one hour.
+Run reuse is disabled for token-only callers because runs do not record their individual identities.
+An unchanged insight with a saved completed run reuses that snapshot. **Refresh dataframe** prepares a fresh snapshot; **Try again** retries a failed preparation.
+Viewers and shared notebooks do not show insight dataframe controls or prepare dataframes.
+
+SQL and Python cells save their run ID, column metadata, and row count in the notebook.
+A bounded preview keeps at most five rows within 8 KiB and up to 2,048 characters per console stream in the notebook, including runs created through MCP.
+The preview helper is shared with MCP, so the MCP TypeScript CI filter covers `products/notebooks/**`.
+Full results and images load from the saved run. Older browser tabs can still display the small preview.
+Saved result reads remain available if the execution flags are disabled, subject to notebook and query permissions.
+Loading a saved result does not execute a cell or mark dependent cells stale. If a saved run is unavailable, the preview stays visible and the cell offers a rerun.
+
 New notebooks place the typing caret in the title, including when opened through the command menu. Enter continues into the notebook body.
 The notebook's inline **Ask AI** uses LangGraph and receives widget authoring instructions when `notebook-generated-widgets` is enabled for the user.
 The bookmark toggle **Keep question with answer** is on by default, retaining the question and the submitting user's name above the answer. Turning it off saves `keepQuestion={false}` on that prompt.

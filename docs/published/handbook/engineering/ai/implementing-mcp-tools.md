@@ -80,6 +80,10 @@ Choose typed queries or SQL from the required calculation and output, as describ
 
 Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Code).
 
+### Knowledge source checks
+
+When the MCP server advertises Business Knowledge or documentation search tools, its agent instructions require one search of each available source before the first answer to a request. Business Knowledge is searched first, followed by current PostHog documentation. If a search fails or returns no relevant result, the agent continues with the other available evidence. In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
+
 ## Claude web and desktop exec schema budget
 
 Claude web and desktop silently drop a tool when its serialized `inputSchema` reaches 16,384 characters, so the final `exec` input schema has a test budget below that limit.

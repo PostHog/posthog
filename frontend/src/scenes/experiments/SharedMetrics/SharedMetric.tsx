@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconBalance, IconCheckCircle, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, Link, Spinner } from '@posthog/lemon-ui'
@@ -37,6 +38,7 @@ import { LegacySharedTrendsMetricForm } from 'products/experiments/frontend/lega
 
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
 import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
+import { openDeleteSharedMetricDialog } from './deleteSharedMetricDialog'
 import { SharedMetricLogicProps, sharedMetricLogic } from './sharedMetricLogic'
 
 export const scene: SceneExport<SharedMetricLogicProps> = {
@@ -87,36 +89,38 @@ function openSaveWithRunningExperimentsDialog(
     })
 }
 
-function openDeleteSharedMetricDialog(onDelete: () => void): void {
-    LemonDialog.open({
-        title: 'Delete this metric?',
-        content: <div className="text-sm text-secondary">This action cannot be undone.</div>,
-        primaryButton: {
-            children: 'Delete',
-            type: 'primary',
-            onClick: onDelete,
-            size: 'small',
-        },
-        secondaryButton: {
-            children: 'Cancel',
-            type: 'tertiary',
-            size: 'small',
-        },
-    })
-}
-
 export function SharedMetric(): JSX.Element {
-    const { sharedMetric, action } = useValues(sharedMetricLogic)
+    const { sharedMetric, action, metricSaving } = useValues(sharedMetricLogic)
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const { setSharedMetric, createSharedMetric, updateSharedMetric, deleteSharedMetric } =
         useActions(sharedMetricLogic)
 
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentProjectId } = useValues(teamLogic)
     const { tags: allExistingTags } = useValues(tagsModel)
+    const [deleteCheckLoading, setDeleteCheckLoading] = useState(false)
 
     const runningExperiments = (sharedMetric?.linked_experiments || []).filter((experiment) => experiment.is_running)
 
+    const handleDelete = async (): Promise<void> => {
+        if (!sharedMetric.id || deleteCheckLoading) {
+            return
+        }
+        setDeleteCheckLoading(true)
+        try {
+            await openDeleteSharedMetricDialog({
+                projectId: currentProjectId,
+                sharedMetricId: sharedMetric.id,
+                onDelete: deleteSharedMetric,
+            })
+        } finally {
+            setDeleteCheckLoading(false)
+        }
+    }
+
     const handleSave = (): void => {
+        if (metricSaving) {
+            return
+        }
         if (['create', 'duplicate'].includes(action)) {
             createSharedMetric()
             return
@@ -201,8 +205,8 @@ export function SharedMetric(): JSX.Element {
                                 <SceneMenuBarItem
                                     variant="destructive"
                                     opensFloatingUi
-                                    disabled={!!disabledReason}
-                                    onClick={() => openDeleteSharedMetricDialog(deleteSharedMetric)}
+                                    disabled={!!disabledReason || deleteCheckLoading}
+                                    onClick={() => void handleDelete()}
                                     data-attr="shared-metric-menubar-delete"
                                 >
                                     <IconTrash />
@@ -241,7 +245,8 @@ export function SharedMetric(): JSX.Element {
                             <ButtonPrimitive
                                 variant="danger"
                                 menuItem
-                                onClick={() => openDeleteSharedMetricDialog(deleteSharedMetric)}
+                                disabled={deleteCheckLoading}
+                                onClick={() => void handleDelete()}
                             >
                                 <IconTrash /> Delete
                             </ButtonPrimitive>
@@ -287,7 +292,8 @@ export function SharedMetric(): JSX.Element {
                                             icon={<IconTrash />}
                                             status="danger"
                                             data-attr="shared-metric-delete"
-                                            onClick={() => openDeleteSharedMetricDialog(deleteSharedMetric)}
+                                            loading={deleteCheckLoading}
+                                            onClick={() => void handleDelete()}
                                         >
                                             Delete
                                         </LemonButton>
@@ -302,6 +308,7 @@ export function SharedMetric(): JSX.Element {
                         >
                             <LemonButton
                                 disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
+                                loading={metricSaving}
                                 size="small"
                                 type="primary"
                                 onClick={handleSave}
@@ -338,6 +345,7 @@ export function SharedMetric(): JSX.Element {
                 >
                     <LemonButton
                         disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
+                        loading={metricSaving}
                         size="medium"
                         type="primary"
                         onClick={handleSave}
