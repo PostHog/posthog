@@ -315,8 +315,9 @@ export class RunTraceBuilder {
    * mid-flight) marks them errored so APM doesn't show a healthy-looking
    * active tool under a failed run; otherwise the outcome is unknown and the
    * status stays unset.
+   *
    * A swept span's duration runs to the end of the turn instead of measuring
-   * the tool, so `unterminated` names it — otherwise the sweep is
+   * the tool, so `unterminated` names it. Otherwise the sweep is
    * indistinguishable from a slow tool and inflates the kind's percentiles.
    */
   private closeOpenTools(time: Date, opts?: { interrupted?: boolean }): void {
