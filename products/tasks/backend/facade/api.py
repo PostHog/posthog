@@ -1145,35 +1145,42 @@ def get_pull_requests_for_tasks(
     return result
 
 
+def _jsonb_path_exists(path: str) -> Func:
+    """``jsonb_path_exists(output, <literal path>)``. The path is always a literal here, so no
+    caller input reaches the expression."""
+    return Func("output", Value(path), function="jsonb_path_exists", output_field=BooleanField())
+
+
+# A run carries a PR when its output yields a usable URL — the rule ``read_pr_urls`` applies in
+# Python: a non-empty *string* under ``pr_url``, or any non-empty string in ``pr_urls``. Both
+# halves check the JSON type, so SQL selects a run exactly when Python can read a URL out of it.
+# Without that, `{"pr_url": 123}` satisfies a bare non-empty test and wins the newest-run pick,
+# then Python finds no URL and an older run holding the real PR is never reached. Indexing
+# ``pr_urls[0]`` would be wrong for the same reason: it misses ``["", "…/pull/1"]``.
+_PR_CARRYING_OUTPUT_Q = Q(_jsonb_path_exists('$.pr_url ? (@.type() == "string" && @ != "")')) | Q(
+    _jsonb_path_exists('$.pr_urls[*] ? (@.type() == "string" && @ != "")')
+)
+
+
 def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID], *conditions: Q) -> dict[str, str]:
-    """Latest non-empty ``output.pr_url`` per task, for the supplied task ids."""
+    """Latest usable PR URL per task, for the supplied task ids.
+
+    Reads the same normalized shape as everything else: the newest run that carries a PR, and its
+    primary URL whether the run recorded ``pr_url`` or only ``pr_urls``. Matching ``pr_url`` alone
+    left a ``pr_urls``-only run with no URL here, which is how Slack App Home lost the link.
+    """
     ids = [str(t) for t in task_ids]
     if not ids:
         return {}
     rows = (
-        TaskRun.objects.filter(*conditions, task_id__in=ids, output__pr_url__isnull=False)
-        .exclude(output__pr_url="")
+        TaskRun.objects.filter(*conditions, task_id__in=ids)
+        .filter(_PR_CARRYING_OUTPUT_Q)
         .order_by("task_id", "-created_at", "-id")
-        .annotate(output_pr_url_text=KeyTextTransform("pr_url", "output"))
-        .values("task_id", "output_pr_url_text")
         .distinct("task_id")
+        .values_list("task_id", "output")
     )
-    return {str(row["task_id"]): row["output_pr_url_text"] for row in rows if row["output_pr_url_text"]}
-
-
-# A run carries a PR when its output yields a usable URL, the rule ``read_pr_urls`` applies in
-# Python: a non-empty ``pr_url``, or any non-empty ``pr_urls`` entry. Indexing ``pr_urls[0]``
-# instead would miss ``["", "…/pull/1"]`` and match ``[""]``, either dropping a real PR or letting
-# a malformed run shadow an older one that holds it. Postgres ``jsonb_path_exists`` tests every
-# entry; both of its arguments are literals, so no caller input reaches the path expression.
-_PR_CARRYING_OUTPUT_Q = (Q(output__pr_url__isnull=False) & ~Q(output__pr_url="")) | Q(
-    Func(
-        "output",
-        Value('$.pr_urls[*] ? (@ != "")'),
-        function="jsonb_path_exists",
-        output_field=BooleanField(),
-    )
-)
+    urls_by_task = ((str(task_id), read_pr_urls(output)) for task_id, output in rows)
+    return {task_id: urls[0] for task_id, urls in urls_by_task if urls}
 
 
 def get_prior_pr_output_by_task(team_id: int, task_ids: Iterable[str | UUID]) -> dict[str, dict[str, Any]]:
@@ -6076,18 +6083,23 @@ def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:
     return sorted(set(plural) | {repository for repository in legacy if repository})
 
 
-def _latest_run_summary(raw: object, *, can_read_summary: bool) -> contracts.TaskLatestRunSummaryDTO | None:
+def _latest_run_summary(
+    raw: object, prior_pr: object = None, *, can_read_summary: bool
+) -> contracts.TaskLatestRunSummaryDTO | None:
     if not isinstance(raw, dict):
         return None
-    pr_url = raw.get("pr_url")
-    pr_url = pr_url if isinstance(pr_url, str) and pr_url else None
+    # Same inheritance the task detail response applies: a run that opened no PR of its own shows
+    # the one an earlier run opened, so the sidebar and the detail view agree about a resumed task.
+    pr_source = raw if read_pr_urls(raw) else (prior_pr if isinstance(prior_pr, dict) else {})
+    urls = read_pr_urls(pr_source)
+    pr_url = urls[0] if urls else None
     return contracts.TaskLatestRunSummaryDTO(
         id=raw["id"],
         status=raw.get("status"),
         environment=raw.get("environment"),
         mode=raw.get("mode", "background"),
         pr_url=pr_url,
-        pr_state=_pull_request_state(raw) if pr_url else None,
+        pr_state=_pull_request_state(pr_source) if pr_url else None,
         task_summary=(raw.get("task_summary") or raw.get("prior_run_summary")) if can_read_summary else None,
     )
 
@@ -6120,10 +6132,27 @@ def get_task_summaries(
             ),
         )
     )
+    # The newest run that opened a PR, which is not always the newest run.
+    latest_pr_run = (
+        TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id)
+        .filter(_PR_CARRYING_OUTPUT_Q)
+        .order_by("-created_at", "-id")
+        .annotate(
+            _pr=JSONObject(
+                pr_url=KeyTransform("pr_url", "output"),
+                pr_urls=KeyTransform("pr_urls", "output"),
+                pr_state=KeyTransform("pr_state", "output"),
+                pr_merged=KeyTransform("pr_merged", "output"),
+            )
+        )
+    )
     tasks = (
         Task.objects.filter(team_id=team_id, deleted=False, id__in=ids)
         .filter(task_visibility_q(user_id))
-        .annotate(_latest_run=Subquery(latest_run.values("_data")[:1]))
+        .annotate(
+            _latest_run=Subquery(latest_run.values("_data")[:1]),
+            _latest_pr_run=Subquery(latest_pr_run.values("_pr")[:1]),
+        )
         .order_by("-created_at", "id")
     )
     count = tasks.count()
@@ -6133,7 +6162,7 @@ def get_task_summaries(
     for task in tasks:
         raw = getattr(task, "_latest_run", None)
         can_read_summary = task.origin_product != Task.OriginProduct.WORKFLOW or task.created_by_id == user_id
-        latest = _latest_run_summary(raw, can_read_summary=can_read_summary)
+        latest = _latest_run_summary(raw, getattr(task, "_latest_pr_run", None), can_read_summary=can_read_summary)
         summaries.append(
             contracts.TaskSummaryDTO(
                 id=task.id,

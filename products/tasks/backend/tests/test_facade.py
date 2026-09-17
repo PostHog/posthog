@@ -741,6 +741,91 @@ class TestFacadeReadsAndMappers(TestCase):
         assert allowed.latest_run is not None
         self.assertEqual(allowed.latest_run.log_url, "https://presigned/log")
 
+    def test_get_prior_pr_output_by_task_skips_a_non_string_pr_url(self):
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": "https://x/pull/real"}
+        )
+        # `output` is free-form JSON, and `read_pr_urls` reads only strings. A newest run whose
+        # `pr_url` is a number must not win the pick and strand the older run that holds the PR.
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": 123})
+
+        prior = facade.get_prior_pr_output_by_task(self.team.id, [task.id])
+
+        self.assertEqual(prior, {str(task.id): {"pr_url": "https://x/pull/real"}})
+
+    def test_list_tasks_never_reports_a_non_string_pr_url(self):
+        task = self._make_task(title="junk pr_url")
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": "https://x/pull/real"}
+        )
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": True})
+
+        listed = next(dto for dto in facade.list_tasks(self.team.id, self.user.id, filters={}) if dto.id == task.id)
+
+        # The list and the detail response have to agree, and neither may hand a client a
+        # non-string where a URL belongs.
+        assert listed.latest_run is not None and listed.latest_run.output is not None
+        self.assertEqual(listed.latest_run.output["pr_url"], "https://x/pull/real")
+
+    def test_get_latest_pr_url_by_task_reads_an_array_only_output(self):
+        array_only = self._make_task(title="array only")
+        TaskRun.objects.create(
+            task=array_only,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_urls": ["https://x/pull/7"]},
+        )
+        junk = self._make_task(title="junk only")
+        TaskRun.objects.create(task=junk, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": 5})
+
+        urls = facade.get_latest_pr_url_by_task([array_only.id, junk.id])
+
+        # Slack App Home reads this helper, so a run that recorded only `pr_urls` still has a link.
+        self.assertEqual(urls, {str(array_only.id): "https://x/pull/7"})
+
+    def test_task_summaries_inherit_the_pr_across_a_resume(self):
+        task = self._make_task(title="resumed")
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://x/pull/9", "pr_state": "open"},
+        )
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+        own_pr = self._make_task(title="own pr")
+        TaskRun.objects.create(
+            task=own_pr,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://x/pull/1", "pr_state": "closed"},
+        )
+
+        summaries = {
+            dto.title: dto.latest_run
+            for dto in facade.get_task_summaries(self.team.id, self.user.id, ids=[task.id, own_pr.id])
+        }
+
+        # The sidebar reads summaries while the task view reads the detail DTO; both have to show
+        # the same PR for the same task.
+        assert summaries["resumed"] is not None
+        self.assertEqual(summaries["resumed"].pr_url, "https://x/pull/9")
+        self.assertEqual(summaries["resumed"].pr_state, "open")
+        # A run that opened its own PR keeps it rather than inheriting an older one.
+        assert summaries["own pr"] is not None
+        self.assertEqual(summaries["own pr"].pr_url, "https://x/pull/1")
+        self.assertEqual(summaries["own pr"].pr_state, "closed")
+
+    def test_task_summaries_report_no_pr_when_the_task_never_opened_one(self):
+        task = self._make_task(title="no pr")
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        summary = facade.get_task_summaries(self.team.id, self.user.id, ids=[task.id])[0].latest_run
+
+        assert summary is not None
+        self.assertIsNone(summary.pr_url)
+        self.assertIsNone(summary.pr_state)
+
     def test_list_tasks_resolves_inherited_prs_in_one_query(self):
         tasks = [self._make_task(title=f"pr-task-{i}") for i in range(4)]
         for index, task in enumerate(tasks):
