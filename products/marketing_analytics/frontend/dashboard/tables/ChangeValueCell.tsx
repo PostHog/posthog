@@ -3,14 +3,26 @@ import { IconTrending } from '@posthog/icons'
 import { getColorVar } from 'lib/colors'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { getCurrencySymbol } from 'lib/utils/currency'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
+import { CurrencyCode } from '~/queries/schema/schema-general'
+
 import type { ComparedValue } from './breakdownTableColumn'
 
-export type ChangeFormat = 'number' | 'percentage' | 'duration' | 'decimal'
+export type ChangeFormat = 'number' | 'percentage' | 'duration' | 'decimal' | 'currency'
 
-const format = (value: number, kind: ChangeFormat): string => {
+/** Cents matter on an average conversion value and are noise on a five-figure total, so the
+ * precision follows the size rather than being fixed as `formatCurrency` fixes it. */
+const money = (value: number, currency: CurrencyCode): string => {
+    const { symbol, isPrefix } = getCurrencySymbol(currency)
+    const decimals = Math.abs(value) >= 1000 ? 0 : 2
+    const amount = humanFriendlyNumber(value, decimals, decimals)
+    return isPrefix ? `${symbol}${amount}` : `${amount} ${symbol}`
+}
+
+const format = (value: number, kind: ChangeFormat, currency: CurrencyCode): string => {
     switch (kind) {
         case 'percentage':
             return `${(value * 100).toFixed(1)}%`
@@ -18,6 +30,8 @@ const format = (value: number, kind: ChangeFormat): string => {
             return humanFriendlyDuration(value) ?? String(value)
         case 'decimal':
             return value.toFixed(1)
+        case 'currency':
+            return money(value, currency)
         default:
             return humanFriendlyNumber(value)
     }
@@ -28,7 +42,7 @@ const format = (value: number, kind: ChangeFormat): string => {
  *
  * Returns null when the change rounds away at the precision shown, so the cell renders a flat
  * marker rather than a signed zero. */
-const formatDelta = (difference: number, kind: ChangeFormat): string | null => {
+const formatDelta = (difference: number, kind: ChangeFormat, currency: CurrencyCode): string | null => {
     const size = Math.abs(difference)
     const sign = difference > 0 ? '+' : '-'
     switch (kind) {
@@ -44,6 +58,8 @@ const formatDelta = (difference: number, kind: ChangeFormat): string | null => {
             const decimals = size.toFixed(1)
             return Number(decimals) === 0 ? null : `${sign}${decimals}`
         }
+        case 'currency':
+            return size < 0.01 ? null : `${sign}${money(size, currency)}`
         default:
             return size < 1 ? null : `${sign}${humanFriendlyNumber(size)}`
     }
@@ -58,6 +74,8 @@ export interface ChangeValueCellProps {
     /** Neither direction is good or bad, so the change stays grey. */
     neutral?: boolean
     tooltipContent?: React.ReactNode
+    /** The project's currency, for the `currency` format. */
+    currency: CurrencyCode
 }
 
 /** The value with its change against the previous period spelled out, rather than an arrow whose
@@ -69,6 +87,7 @@ export function ChangeValueCell({
     reverseColors,
     neutral,
     tooltipContent,
+    currency,
 }: ChangeValueCellProps): JSX.Element {
     if (!value) {
         return <span className="text-muted">–</span>
@@ -78,7 +97,7 @@ export function ChangeValueCell({
     const hasComparison = previous !== null && compare
     const difference = hasComparison ? current - previous : null
 
-    const delta = difference === null ? null : formatDelta(difference, kind)
+    const delta = difference === null ? null : formatDelta(difference, kind, currency)
     const moved = difference !== null && delta !== null
     const Icon = !moved ? IconTrendingFlat : difference > 0 ? IconTrending : IconTrendingDown
     const color =
@@ -90,7 +109,7 @@ export function ChangeValueCell({
 
     const body = (
         <span className="inline-flex items-center justify-end gap-1.5 tabular-nums">
-            <span>{format(current, kind)}</span>
+            <span>{format(current, kind, currency)}</span>
             {difference !== null && (
                 // eslint-disable-next-line react/forbid-dom-props
                 <span className="inline-flex items-center gap-0.5 text-xs" style={{ color }}>
@@ -104,7 +123,7 @@ export function ChangeValueCell({
     const tooltip =
         hasComparison && previous !== null ? (
             <div className="flex flex-col gap-1">
-                <div>{`${format(previous, kind)} in the previous period`}</div>
+                <div>{`${format(previous, kind, currency)} in the previous period`}</div>
                 {tooltipContent ? <div>{tooltipContent}</div> : null}
             </div>
         ) : (

@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { TileId } from 'scenes/web-analytics/common'
 import {
     MarketingAnalyticsTab,
     SetupSection,
@@ -16,8 +15,7 @@ import { MetricNoticeCard } from '../cards/MetricNoticeCard'
 import { WebOverviewCards } from '../cards/WebOverviewCards'
 import { MetricChart } from '../charts/MetricChart'
 import { marketingDashboardLogic } from '../marketingDashboardLogic'
-import { WebStatsBreakdownTable } from '../tables/WebStatsBreakdownTable'
-import { CONVERSIONS_COLUMN, CONVERSION_RATE_COLUMN, SESSIONS_COLUMN } from '../tables/webStatsColumns'
+import { ConversionBreakdownTable } from '../tables/ConversionBreakdownTable'
 
 const CONVERSION_LABELS: Record<string, string> = {
     sessions: 'Sessions',
@@ -70,17 +68,7 @@ export function ConversionSection(): JSX.Element {
                 <ConversionValueCards />
             </MarketingMetricCardGrid>
             <MetricChart />
-            <WebStatsBreakdownTable
-                tileId={TileId.MARKETING_CONVERSION_TABLE}
-                titlePrefix="Conversion by"
-                query={conversionTableQuery}
-                dataNodeKey="marketing-dashboard-conversion-table"
-                columns={[SESSIONS_COLUMN, CONVERSIONS_COLUMN, CONVERSION_RATE_COLUMN]}
-                defaultSortKey="total_conversions"
-                exportFilename="marketing-conversion"
-                emptyState="No conversions in this range."
-                footnote="Each row counts the conversions of sessions that started on that channel. Conversion rate divides converting people by visitors."
-            />
+            <ConversionBreakdownTable query={conversionTableQuery} />
         </div>
     )
 }

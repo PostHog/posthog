@@ -93,6 +93,7 @@ export interface marketingDashboardLogicValues {
     conversionGoals: ConversionGoalFilter[]
     conversionOverviewQuery: WebOverviewQuery | null
     conversionTableQuery: WebStatsTableQuery | null
+    conversionValueBreakdownQuery: TrendsQuery | null
     conversionValueQuery: TrendsQuery | null
     dateRange: DateRange
     engagementTableQuery: WebStatsTableQuery
@@ -176,6 +177,14 @@ export interface marketingDashboardLogicMeta {
         ) => MarketingAnalyticsRetentionQuery
         conversionValueQuery: (
             selectedConversionGoal: ConversionGoalFilter | null,
+            dateRange: DateRange,
+            compareFilter: CompareFilter,
+            dashboardProperties: WebAnalyticsPropertyFilters,
+            shouldFilterTestAccounts: boolean
+        ) => TrendsQuery | null
+        conversionValueBreakdownQuery: (
+            selectedConversionGoal: ConversionGoalFilter | null,
+            dashboardBreakdown: MarketingAnalyticsAttributionBreakdown,
             dateRange: DateRange,
             compareFilter: CompareFilter,
             dashboardProperties: WebAnalyticsPropertyFilters,
@@ -274,6 +283,28 @@ const webStatsBase = (
     limit: MARKETING_TABLE_ROW_LIMIT,
     tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
 })
+
+/** The value total and its average as one pair of series, so the two can never disagree and
+ * neither depends on the session-attributed conversion count. Order is load-bearing: `seriesTotal`
+ * and the table merge both read series 0 as the total and series 1 as the average. */
+const conversionValueSeries = (goal: ConversionGoalFilter | null): TrendsQuery['series'] | null => {
+    if (!goal || goal.math !== PropertyMathType.Sum || !goal.math_property) {
+        return null
+    }
+    const base =
+        goal.kind === NodeKind.ActionsNode
+            ? { kind: NodeKind.ActionsNode as const, id: goal.id, properties: goal.properties }
+            : goal.kind === NodeKind.EventsNode
+              ? { kind: NodeKind.EventsNode as const, event: goal.event, properties: goal.properties }
+              : null
+    if (!base) {
+        return null
+    }
+    return [
+        { ...base, math: PropertyMathType.Sum, math_property: goal.math_property },
+        { ...base, math: PropertyMathType.Average, math_property: goal.math_property },
+    ] as TrendsQuery['series']
+}
 
 export const marketingDashboardLogic = kea<marketingDashboardLogicType>([
     path(['products', 'marketing_analytics', 'dashboard', 'marketingDashboardLogic']),
@@ -463,24 +494,10 @@ export const marketingDashboardLogic = kea<marketingDashboardLogicType>([
                 properties: WebAnalyticsPropertyFilters,
                 filterTestAccounts: boolean
             ): TrendsQuery | null => {
-                if (!goal || goal.math !== PropertyMathType.Sum || !goal.math_property) {
+                const series = conversionValueSeries(goal)
+                if (!series) {
                     return null
                 }
-                // The total and the average ride on one query so they can never disagree, and
-                // neither depends on the session-attributed conversion count.
-                const base =
-                    goal.kind === NodeKind.ActionsNode
-                        ? { kind: NodeKind.ActionsNode as const, id: goal.id, properties: goal.properties }
-                        : goal.kind === NodeKind.EventsNode
-                          ? { kind: NodeKind.EventsNode as const, event: goal.event, properties: goal.properties }
-                          : null
-                if (!base) {
-                    return null
-                }
-                const series = [
-                    { ...base, math: PropertyMathType.Sum, math_property: goal.math_property },
-                    { ...base, math: PropertyMathType.Average, math_property: goal.math_property },
-                ]
                 return {
                     kind: NodeKind.TrendsQuery,
                     dateRange,
@@ -489,6 +506,50 @@ export const marketingDashboardLogic = kea<marketingDashboardLogicType>([
                     filterTestAccounts,
                     interval: 'day',
                     trendsFilter: { display: ChartDisplayType.BoldNumber },
+                    tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
+                    series,
+                } as TrendsQuery
+            },
+        ],
+        conversionValueBreakdownQuery: [
+            (s) => [
+                s.selectedConversionGoal,
+                s.dashboardBreakdown,
+                s.dateRange,
+                s.compareFilter,
+                s.dashboardProperties,
+                s.shouldFilterTestAccounts,
+            ],
+            (
+                goal: ConversionGoalFilter | null,
+                breakdown: MarketingAnalyticsAttributionBreakdown,
+                dateRange: DateRange,
+                compareFilter: CompareFilter,
+                properties: WebAnalyticsPropertyFilters,
+                filterTestAccounts: boolean
+            ): TrendsQuery | null => {
+                const series = conversionValueSeries(goal)
+                const property = webStatsBreakdownToPropertyName(ATTRIBUTION_BREAKDOWN_TO_WEB_STATS[breakdown])
+                if (!series || !property) {
+                    return null
+                }
+                return {
+                    kind: NodeKind.TrendsQuery,
+                    dateRange,
+                    compareFilter,
+                    properties,
+                    filterTestAccounts,
+                    interval: 'day',
+                    // A total per breakdown rather than a line, which is what the table cells read.
+                    trendsFilter: { display: ChartDisplayType.ActionsBarValue },
+                    breakdownFilter: {
+                        breakdown: property.key,
+                        breakdown_type: 'session',
+                        // Past this, trends folds the tail into one "other" row that has no
+                        // counterpart in the stats table, so keep the fold beyond the last row the
+                        // table can show.
+                        breakdown_limit: MARKETING_TABLE_ROW_LIMIT,
+                    },
                     tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
                     series,
                 } as TrendsQuery

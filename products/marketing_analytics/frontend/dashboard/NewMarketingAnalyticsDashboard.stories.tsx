@@ -106,10 +106,14 @@ const RETENTION = {
     ],
 }
 
+/** Serves both the revenue card (one series) and the conversion value cards (a sum at order 0 and
+ * an average at order 1), so it has to carry the series order the cards pick by. */
 const REVENUE = {
     results: [
-        { aggregated_value: 184320, compare_label: 'current' },
-        { aggregated_value: 151980, compare_label: 'previous' },
+        { action: { order: 0 }, aggregated_value: 184320, compare_label: 'current' },
+        { action: { order: 0 }, aggregated_value: 151980, compare_label: 'previous' },
+        { action: { order: 1 }, aggregated_value: 74.2, compare_label: 'current' },
+        { action: { order: 1 }, aggregated_value: 66.8, compare_label: 'previous' },
     ],
 }
 
@@ -127,6 +131,32 @@ const CHART_TOTAL = { results: [chartSeries('Visitors', 2040)] }
 
 const CHART_BREAKDOWN = {
     results: CHANNELS.map((channel, index) => chartSeries(channel, 740 - index * 100, channel)),
+}
+
+const valueRow = (
+    order: number,
+    breakdownValue: string,
+    aggregated: number,
+    previous: boolean
+): Record<string, unknown> => ({
+    action: { order },
+    breakdown_value: breakdownValue,
+    aggregated_value: previous ? Math.round(aggregated * 0.85) : aggregated,
+    compare_label: previous ? 'previous' : 'current',
+})
+
+/** Conversion value per breakdown, including the two rows the merge has to special-case: the
+ * trends null sentinel, and the folded "other" bucket that has no row in the stats table. */
+const CONVERSION_VALUE_BREAKDOWN = {
+    results: [0, 1].flatMap((order) =>
+        [false, true].flatMap((previous) => [
+            ...CHANNELS.map((channel, index) =>
+                valueRow(order, channel, order === 0 ? 42100 - index * 6000 : 78 - index * 2, previous)
+            ),
+            valueRow(order, '$$_posthog_breakdown_null_$$', order === 0 ? 3100 : 61, previous),
+            valueRow(order, '$$_posthog_breakdown_other_$$', order === 0 ? 99999 : 999, previous),
+        ])
+    ),
 }
 
 const MARKETING_CONFIG = {
@@ -171,6 +201,9 @@ const queryMock = async ({ request }: { request: Request }): Promise<[number, Re
             return [200, RETENTION]
         case NodeKind.TrendsQuery:
             // The cards ask for a single aggregate; only the expanded metric chart draws a line.
+            if (query.trendsFilter?.display === ChartDisplayType.ActionsBarValue) {
+                return [200, CONVERSION_VALUE_BREAKDOWN]
+            }
             if (query.trendsFilter?.display !== ChartDisplayType.ActionsLineGraph) {
                 return [200, REVENUE]
             }

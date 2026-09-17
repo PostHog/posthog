@@ -12,6 +12,9 @@ export interface WebStatsRow {
     total_conversions?: ComparedValue
     unique_conversions?: ComparedValue
     conversion_rate?: ComparedValue
+    /** Merged in from the conversion value query, not returned by WebStatsTableQuery. */
+    conversion_value?: ComparedValue
+    avg_conversion_value?: ComparedValue
 }
 
 const COLUMN_PREFIX = 'context.columns.'

@@ -12,7 +12,11 @@ import {
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyMathType, PropertyOperator, TeamType } from '~/types'
 
-import { RETENTION_MAX_ACQUISITION_DAYS, marketingDashboardLogic } from './marketingDashboardLogic'
+import {
+    MARKETING_TABLE_ROW_LIMIT,
+    RETENTION_MAX_ACQUISITION_DAYS,
+    marketingDashboardLogic,
+} from './marketingDashboardLogic'
 
 const eventGoal = (id: string, extra: Partial<ConversionGoalFilter> = {}): ConversionGoalFilter =>
     ({
@@ -133,6 +137,34 @@ describe('marketingDashboardLogic', () => {
         expect(logic.values.revenueQuery?.series).toMatchObject([
             { kind: NodeKind.EventsNode, event: 'purchase', math: PropertyMathType.Sum, math_property: 'revenue' },
         ])
+    })
+
+    it('breaks conversion value down on the same dimension as the table it fills', async () => {
+        await loadGoals([
+            eventGoal('purchases', {
+                counts_as_revenue: true,
+                math: PropertyMathType.Sum,
+                math_property: 'revenue',
+            }),
+        ])
+
+        marketingAnalyticsLogic.actions.setDashboardBreakdown(MarketingAnalyticsAttributionBreakdown.Channel)
+        expect(logic.values.conversionValueBreakdownQuery?.breakdownFilter).toEqual({
+            breakdown: '$channel_type',
+            breakdown_type: 'session',
+            // The chart's much smaller limit would fold most of the table into one "other" row
+            // that has no counterpart to join to.
+            breakdown_limit: MARKETING_TABLE_ROW_LIMIT,
+        })
+
+        marketingAnalyticsLogic.actions.setDashboardBreakdown(MarketingAnalyticsAttributionBreakdown.Campaign)
+        expect(logic.values.conversionValueBreakdownQuery?.breakdownFilter?.breakdown).toBe('$entry_utm_campaign')
+    })
+
+    it('has no conversion value query when the goal totals no amount', async () => {
+        await loadGoals([eventGoal('signups', { counts_as_customer: true })])
+
+        expect(logic.values.conversionValueBreakdownQuery).toBeNull()
     })
 
     it('falls back to a customer goal, then to the first goal', async () => {

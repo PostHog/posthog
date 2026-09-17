@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonSelectOptionLeaf, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 
+import { teamLogic } from 'scenes/teamLogic'
 import { TileId } from 'scenes/web-analytics/common'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import {
@@ -56,6 +57,7 @@ export function MarketingBreakdownTable<Row extends Record<string, any>>({
 }: MarketingBreakdownTableProps<Row>): JSX.Element {
     const { dashboardBreakdown } = useValues(marketingAnalyticsLogic)
     const { setDashboardBreakdown } = useActions(marketingAnalyticsLogic)
+    const { baseCurrency } = useValues(teamLogic)
     const { breakdownLabel, compare, expandedMetric, focusedBreakdownValue } = useValues(marketingDashboardLogic)
     const { setFocusedBreakdownValue } = useActions(marketingDashboardLogic)
 
@@ -92,6 +94,7 @@ export function MarketingBreakdownTable<Row extends Record<string, any>>({
                         reverseColors={column.reverseColors}
                         neutral={column.neutral}
                         tooltipContent={column.tooltipContent?.(row)}
+                        currency={baseCurrency}
                     />
                 ),
             })

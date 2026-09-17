@@ -110,3 +110,26 @@ export const CONVERSION_RATE_COLUMN: BreakdownTableColumn<WebStatsRow> = {
     kind: 'percentage',
     exportLabel: 'Conversion rate',
 }
+
+export const CONVERSION_VALUE_COLUMN: BreakdownTableColumn<WebStatsRow> = {
+    key: 'conversion_value',
+    title: 'Conversion value',
+    shortTitle: 'Value',
+    tooltip: "The goal's value property, summed over the conversions of sessions that started here.",
+    value: (row) => row.conversion_value ?? null,
+    kind: 'currency',
+    exportLabel: 'Conversion value',
+    // A plain number, so a spreadsheet reads the export as money rather than as text.
+    exportValue: (value) => value.toFixed(2),
+}
+
+export const AVG_CONVERSION_VALUE_COLUMN: BreakdownTableColumn<WebStatsRow> = {
+    key: 'avg_conversion_value',
+    title: 'Avg. conversion value',
+    shortTitle: 'Avg. value',
+    tooltip: "The goal's value property, averaged over the conversions of sessions that started here.",
+    value: (row) => row.avg_conversion_value ?? null,
+    kind: 'currency',
+    exportLabel: 'Avg. conversion value',
+    exportValue: (value) => value.toFixed(2),
+}
