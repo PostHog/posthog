@@ -142,6 +142,15 @@ logger = structlog.get_logger(__name__)
 # The retired summarization sweep created one schedule per team under this prefix.
 LEGACY_SUMMARIZATION_TEAM_SCHEDULE_PREFIX = "session-summarization-team-"
 
+# Workflow types removed with the legacy session summarization feature (#80312).
+LEGACY_SUMMARIZATION_WORKFLOW_TYPES: tuple[str, ...] = (
+    "summarize-session",
+    "summarize-session-group",
+    "summarize-session-stream",
+    "summarize-team-sessions",
+    "reconcile-summarization-schedules",
+)
+
 
 async def cleanup_sync_vectors_schedule(client: Client):
     """Disabled: delete the actions embedding sync schedule. Any in-flight runs die on their own execution_timeout."""
@@ -688,20 +697,20 @@ async def cleanup_legacy_session_summarization_schedules(client: Client):
     # Workflow types removed with the legacy summarization feature. Executions started
     # before the removal have no execution timeout, so without an explicit terminate
     # Temporal retries their workflow tasks indefinitely.
-    removed_workflow_types = [
-        "summarize-session",
-        "summarize-session-group",
-        "summarize-session-stream",
-        "summarize-team-sessions",
-        "reconcile-summarization-schedules",
-    ]
-    type_clauses = " OR ".join(f'WorkflowType = "{wt}"' for wt in removed_workflow_types)
+    type_clauses = " OR ".join(f'WorkflowType = "{wt}"' for wt in LEGACY_SUMMARIZATION_WORKFLOW_TYPES)
     query = f'ExecutionStatus = "Running" AND ({type_clauses})'
     try:
         async for workflow in client.list_workflows(query=query):
-            await client.get_workflow_handle(workflow.id).terminate(
-                reason="workflow type removed with the legacy session summarization feature"
-            )
+            try:
+                await client.get_workflow_handle(workflow.id).terminate(
+                    reason="workflow type removed with the legacy session summarization feature"
+                )
+            except Exception:
+                # One stuck execution must not stop the others from being terminated.
+                logger.exception(
+                    "temporal.cleanup_legacy_summarization_execution_termination_failed",
+                    workflow_id=workflow.id,
+                )
     except Exception:
         logger.exception("temporal.cleanup_legacy_summarization_executions_failed")
 
