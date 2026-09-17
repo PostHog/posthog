@@ -1,6 +1,6 @@
 import { NodeType, serializedNodeWithId, wireframe } from '../mobile.types'
 import { ConversionContext, ConversionResult } from './types'
-import { makeStylesString } from './wireframeStyle'
+import { asStyleString, makeStylesString } from './wireframeStyle'
 
 export const PLACEHOLDER_SVG_DATA_IMAGE_URL =
     'url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg==")'
@@ -27,16 +27,20 @@ export function makePlaceholderElement(
             type: NodeType.Element,
             tagName: 'div',
             attributes: {
-                style: makeStylesString(wireframe, {
-                    verticalAlign: 'center',
-                    horizontalAlign: 'center',
-                    backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
-                    color: wireframe.style?.color || FOREGROUND,
-                    backgroundImage: PLACEHOLDER_SVG_DATA_IMAGE_URL,
-                    backgroundSize: 'auto',
-                    backgroundRepeat: 'unset',
-                    ...context.styleOverride,
-                }),
+                style: asStyleString([
+                    makeStylesString(wireframe, {
+                        verticalAlign: wireframe.style?.verticalAlign || 'center',
+                        horizontalAlign: 'center',
+                        backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
+                        color: wireframe.style?.color || FOREGROUND,
+                        backgroundImage: PLACEHOLDER_SVG_DATA_IMAGE_URL,
+                        backgroundSize: 'auto',
+                        backgroundRepeat: 'unset',
+                        ...context.styleOverride,
+                    }),
+                    // a label longer than the wireframe must not spill over the rest of the screen
+                    'overflow:hidden',
+                ]),
                 'data-rrweb-id': wireframe.id,
             },
             id: wireframe.id,
