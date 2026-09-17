@@ -293,16 +293,15 @@ class TestRelatedFieldsInIntent(APIBaseTest):
         change_request = ChangeRequest.objects.get(action_key="feature_flag.enable")
         assert change_request.intent["full_request_data"]["analytics_dashboards"] == [dashboard.id]
 
-        flag.refresh_from_db()
-        assert flag.active is False
+        assert FeatureFlag.objects.get(team=self.team, key="test-flag").active is False
 
         # Apply replays the stored intent through the serializer, so the related field has to survive the round trip.
         result = ChangeRequestService(change_request, self.user).approve()
         assert result.status == "applied"
 
-        flag.refresh_from_db()
-        assert flag.active is True
-        assert list(flag.analytics_dashboards.all()) == [dashboard]
+        applied_flag = FeatureFlag.objects.get(team=self.team, key="test-flag")
+        assert applied_flag.active is True
+        assert list(applied_flag.analytics_dashboards.all()) == [dashboard]
 
 
 class TestUpdateFeatureFlagActionDisplayData(APIBaseTest):
