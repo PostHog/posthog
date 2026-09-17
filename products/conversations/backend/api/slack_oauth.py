@@ -38,6 +38,11 @@ SUPPORTHOG_SLACK_SCOPES = [
     "files:write",
     "groups:history",
     "groups:read",
+    # links:read delivers link_shared, links:write posts the unfurl. Slack only fires
+    # link_shared for domains registered on the app config, so an install that predates
+    # these scopes simply never unfurls until an admin reconnects.
+    "links:read",
+    "links:write",
     "reactions:read",
     "users:read",
     "users:read.email",

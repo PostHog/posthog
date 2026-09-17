@@ -112,6 +112,7 @@ export enum NodeKind {
     LogAttributesQuery = 'LogAttributesQuery',
     LogValuesQuery = 'LogValuesQuery',
     MetricsQuery = 'MetricsQuery',
+    MetricsHistogramQuery = 'MetricsHistogramQuery',
     TraceSpansQuery = 'TraceSpansQuery',
     TraceSpansAggregationQuery = 'TraceSpansAggregationQuery',
     TraceSpansTreeQuery = 'TraceSpansTreeQuery',
@@ -264,6 +265,7 @@ export type AnyDataNode =
     | LogAttributesQuery
     | LogValuesQuery
     | MetricsQuery
+    | MetricsHistogramQuery
     | TraceSpansQuery
     | TraceSpansAggregationQuery
     | TraceSpansTreeQuery
@@ -388,6 +390,7 @@ export type QuerySchema =
 
     // Metrics
     | MetricsQuery
+    | MetricsHistogramQuery
 
     // Tracing
     | TraceSpansQuery
@@ -488,6 +491,8 @@ export interface QueryLogTags {
     productKey?: string
     /** Name of the query, preferably unique. For example web_analytics_vitals */
     name?: string
+    /** Short id of the saved Web analytics filter preset this query was run under, if any. */
+    presetId?: string
 }
 
 /** @internal - no need to emit to schema.json. */
@@ -3939,6 +3944,7 @@ export enum WebStatsBreakdown {
     FirstPageviewUTMContent = 'FirstPageviewUTMContent',
     FirstPageviewUTMSourceMediumCampaign = 'FirstPageviewUTMSourceMediumCampaign',
     Browser = 'Browser',
+    InAppBrowser = 'InAppBrowser',
     OS = 'OS',
     Viewport = 'Viewport',
     DeviceType = 'DeviceType',
@@ -4750,6 +4756,33 @@ export interface MetricsQueryResponse extends AnalyticsQueryResponseBase {
     results: MetricsQuerySeries[]
 }
 export type CachedMetricsQueryResponse = CachedQueryResponse<MetricsQueryResponse>
+
+/** Histogram bucket counts per time bucket, for a latency-over-time heatmap. A separate node
+ * from `MetricsQuery` because the response is a grid, not series — a display type must not
+ * change what the runner reads (the cache key excludes display). */
+export interface MetricsHistogramQuery extends DataNode<MetricsHistogramQueryResponse> {
+    kind: NodeKind.MetricsHistogramQuery
+    metricName: string
+    filters?: MetricsQueryFilter[]
+    /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
+    dateRange?: DateRange
+    /** Bucket size; auto-picked from the range when omitted */
+    interval?: string
+    /** UCUM unit for the y-axis bounds, e.g. "s", "ms". Presentation only. */
+    unit?: string
+}
+
+export interface MetricsHistogramQueryResponse extends AnalyticsQueryResponseBase {
+    /** The grid lives in `times`/`bounds`/`counts`; the base `results` array is unused and the
+     * runner returns it as null. */
+    /** Bucket start per column (x axis), ISO 8601, ascending. */
+    times: string[]
+    /** Upper bound per row (y axis), ascending. */
+    bounds: number[]
+    /** Observation count per cell: counts[row][column], row = bound, column = time. */
+    counts: number[][]
+}
+export type CachedMetricsHistogramQueryResponse = CachedQueryResponse<MetricsHistogramQueryResponse>
 
 /** How a metrics result is charted. `stat` is a single headline value plus sparkline, not a time series. */
 export type MetricsDisplayType = 'line' | 'area' | 'bar' | 'stat' | 'gauge' | 'bargauge' | 'table' | 'heatmap'
@@ -7757,6 +7790,10 @@ export interface MarketingAnalyticsRetentionQuery extends Omit<
     'orderBy' | 'compareFilter' | 'interval' | 'conversionGoal' | 'doPathCleaning' | 'sampling' | 'samplingFactor'
 > {
     kind: NodeKind.MarketingAnalyticsRetentionQuery
+    /** Return session-based 7/30-day metrics instead of the cohort matrix. Defaults to false. */
+    summary?: boolean
+    /** Include the previous acquisition period in summary mode. Defaults to false. */
+    comparePreviousPeriod?: boolean
     /** Cohort dimension, read off each person's first session. Defaults to channel. */
     breakdownBy?: MarketingAnalyticsAttributionBreakdown
     /** Period for both the cohort rows and the return columns. Defaults to week. */
@@ -7803,8 +7840,24 @@ export interface MarketingAnalyticsRetentionRow {
     values: MarketingAnalyticsRetentionCell[]
 }
 
+export interface MarketingAnalyticsRetentionSummaryRow {
+    breakdownValue: string
+    previous: boolean
+    acquired: integer
+    eligible7d: integer
+    returned7d: integer
+    eligible30d: integer
+    returned30d: integer
+    /** Median elapsed days to a second session within 30 days, among observed returners. */
+    medianReturnDays: number | null
+    /** People with an observed second session within 30 days, including incomplete windows. */
+    returners: integer
+}
+
 export interface MarketingAnalyticsRetentionQueryResponse extends AnalyticsQueryResponseBase {
     results: MarketingAnalyticsRetentionRow[]
+    /** Only populated in summary mode. Rates use the corresponding eligible population. */
+    summary?: MarketingAnalyticsRetentionSummaryRow[]
     /** Column count. Every row's values array has this length. */
     intervalCount: integer
     interval: MarketingAnalyticsRetentionInterval

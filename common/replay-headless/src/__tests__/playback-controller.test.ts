@@ -15,7 +15,7 @@ function makeSegment(
 }
 
 function mockBridge(): HostBridge {
-    return { signalEnded: jest.fn() } as unknown as HostBridge
+    return { signalEnded: jest.fn(), publishFrameTimeline: jest.fn() } as unknown as HostBridge
 }
 
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
@@ -129,15 +129,35 @@ describe('PlaybackController', () => {
     })
 
     describe('inactivity skipping', () => {
-        it('does not start skip loop without skipInactivity option', () => {
-            const rafSpy = jest.spyOn(window, 'requestAnimationFrame')
+        it('records frames but skips nothing without skipInactivity option', () => {
+            // The loop runs either way: the frame timeline is what maps video positions back to the
+            // recording clock, and it is needed whether or not anything gets skipped.
+            const rafSpy = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 0)
+            const replayer = mockReplayer()
+            const bridge = mockBridge()
+            const segments = [makeSegment({ startTimestamp: 0, endTimestamp: 5000, isActive: false, kind: 'gap' })]
+            const controller = new PlaybackController(replayer as any, segments, 0, {}, bridge)
+
+            controller.start(0)
+            rafSpy.mock.calls[0][0](0)
+
+            expect(rafSpy).toHaveBeenCalled()
+            expect(replayer.play).toHaveBeenCalledTimes(1)
+            expect(controller.getFrameSessionMs()).toHaveLength(1)
+            rafSpy.mockRestore()
+        })
+
+        it('publishes the frame timeline when playback stops', () => {
+            const rafSpy = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 0)
             const replayer = mockReplayer()
             const bridge = mockBridge()
             const controller = new PlaybackController(replayer as any, [], 0, {}, bridge)
 
             controller.start(0)
+            rafSpy.mock.calls[0][0](0)
+            controller.stop()
 
-            expect(rafSpy).not.toHaveBeenCalled()
+            expect(bridge.publishFrameTimeline).toHaveBeenCalledWith([0])
             rafSpy.mockRestore()
         })
 

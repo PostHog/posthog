@@ -48,6 +48,8 @@ export interface LogsViewerProps {
     // Seed the facet/filter rail as collapsed on first mount for this id. Persisted per id,
     // so a user who expands it keeps that choice; the "Show filters" toggle still re-expands.
     defaultFacetRailCollapsed?: boolean
+    // Same, for the volume chart. Panels embedded in a short pane start without it.
+    defaultSparklineCollapsed?: boolean
 }
 
 export function LogsViewer({
@@ -59,10 +61,14 @@ export function LogsViewer({
     personId,
     sessionId,
     defaultFacetRailCollapsed,
+    defaultSparklineCollapsed,
 }: LogsViewerProps): JSX.Element {
     return (
         <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters, personId, sessionId }}>
-            <BindLogic logic={logsViewerConfigLogic} props={{ id, defaultFacetRailCollapsed }}>
+            <BindLogic
+                logic={logsViewerConfigLogic}
+                props={{ id, defaultFacetRailCollapsed, defaultSparklineCollapsed }}
+            >
                 <BindLogic logic={logsViewerDataLogic} props={{ id }}>
                     <BindLogic logic={logDetailsModalLogic} props={{ id }}>
                         <BindLogic logic={logsViewerLogic} props={{ id }}>

@@ -190,6 +190,18 @@ export const CdcTableModeEnumApi = {
     Both: 'both',
 } as const
 
+/**
+ * * `missing_primary_key` - Missing primary key
+ * * `duplicate_primary_key` - Duplicate primary key
+ */
+export type IncrementalSyncBlockedReasonEnumApi =
+    (typeof IncrementalSyncBlockedReasonEnumApi)[keyof typeof IncrementalSyncBlockedReasonEnumApi]
+
+export const IncrementalSyncBlockedReasonEnumApi = {
+    MissingPrimaryKey: 'missing_primary_key',
+    DuplicatePrimaryKey: 'duplicate_primary_key',
+} as const
+
 export interface ExternalDataSourceApiVersionDeprecationApi {
     /** The deprecated vendor API version this source is pinned to. */
     version: string
@@ -322,6 +334,11 @@ export interface ExternalDataSchemaApi {
      * * `cdc_only` - cdc_only
      * * `both` - both */
     cdc_table_mode?: CdcTableModeEnumApi | null
+    /** Why the last sync run could not merge rows for this table, or `null` when no such failure is current, which includes a run that failed for another reason. A blocked table is disabled, and the resolution differs by reason. `missing_primary_key`: no key to merge on, so set `primary_key_columns` to a unique key, which is accepted because none was set before. `duplicate_primary_key`: the key in use does not identify one row, and that key cannot be swapped once data has synced, so either remove the duplicates at the source and set `should_sync` to true, or delete the synced data before setting a different key. Either reason also accepts a different `sync_type`: `append` is only safe for insert-only tables, because updated rows arrive again as duplicates, and `full_refresh` re-reads the whole table on every sync and bills every row. This reports the last run's failure, so it clears once a run succeeds or fails for another reason, not when an update lands.
+     *
+     * * `missing_primary_key` - Missing primary key
+     * * `duplicate_primary_key` - Duplicate primary key */
+    readonly incremental_sync_blocked: IncrementalSyncBlockedReasonEnumApi | null
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable
@@ -485,6 +502,11 @@ export interface PatchedExternalDataSchemaApi {
      * * `cdc_only` - cdc_only
      * * `both` - both */
     cdc_table_mode?: CdcTableModeEnumApi | null
+    /** Why the last sync run could not merge rows for this table, or `null` when no such failure is current, which includes a run that failed for another reason. A blocked table is disabled, and the resolution differs by reason. `missing_primary_key`: no key to merge on, so set `primary_key_columns` to a unique key, which is accepted because none was set before. `duplicate_primary_key`: the key in use does not identify one row, and that key cannot be swapped once data has synced, so either remove the duplicates at the source and set `should_sync` to true, or delete the synced data before setting a different key. Either reason also accepts a different `sync_type`: `append` is only safe for insert-only tables, because updated rows arrive again as duplicates, and `full_refresh` re-reads the whole table on every sync and bills every row. This reports the last run's failure, so it clears once a run succeeds or fails for another reason, not when an update lands.
+     *
+     * * `missing_primary_key` - Missing primary key
+     * * `duplicate_primary_key` - Duplicate primary key */
+    readonly incremental_sync_blocked?: IncrementalSyncBlockedReasonEnumApi | null
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable
@@ -1902,6 +1924,8 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `ElectricityMaps` - ElectricityMaps
  * * `Amplemarket` - Amplemarket
  * * `Quo` - Quo
+ * * `HeyReach` - HeyReach
+ * * `MoEngage` - MoEngage
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3248,6 +3272,8 @@ export const ExternalDataSourceTypeEnumApi = {
     ElectricityMaps: 'ElectricityMaps',
     Amplemarket: 'Amplemarket',
     Quo: 'Quo',
+    HeyReach: 'HeyReach',
+    MoEngage: 'MoEngage',
 } as const
 
 /**
@@ -4740,7 +4766,9 @@ export interface ExternalDataSourceCreateApi {
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
      * * `Amplemarket` - Amplemarket
-     * * `Quo` - Quo */
+     * * `Quo` - Quo
+     * * `HeyReach` - HeyReach
+     * * `MoEngage` - MoEngage */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
     payload: ExternalDataSourceCreateApiPayload
@@ -5222,6 +5250,11 @@ export interface SourceConnectLinkApi {
 
 export interface ExternalDataSourceConnectionOptionApi {
     readonly id: string
+    /**
+     * Default database schema used to group tables in the SQL editor.
+     * @nullable
+     */
+    readonly schema_name: string | null
     /** @nullable */
     readonly prefix: string | null
     /** Backend engine detected for the direct connection.
@@ -6577,7 +6610,9 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
      * * `Amplemarket` - Amplemarket
-     * * `Quo` - Quo */
+     * * `Quo` - Quo
+     * * `HeyReach` - HeyReach
+     * * `MoEngage` - MoEngage */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
@@ -7952,7 +7987,9 @@ export interface DatabaseSchemaRequestApi {
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
      * * `Amplemarket` - Amplemarket
-     * * `Quo` - Quo */
+     * * `Quo` - Quo
+     * * `HeyReach` - HeyReach
+     * * `MoEngage` - MoEngage */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -9302,7 +9339,9 @@ export interface DirectConnectionSourceOptionApi {
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
      * * `Amplemarket` - Amplemarket
-     * * `Quo` - Quo */
+     * * `Quo` - Quo
+     * * `HeyReach` - HeyReach
+     * * `MoEngage` - MoEngage */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** Human-readable name to show in the picker (falls back to the source type). */
     readonly label: string
@@ -10737,7 +10776,9 @@ export interface SourcePreviewRequestApi {
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
      * * `Amplemarket` - Amplemarket
-     * * `Quo` - Quo */
+     * * `Quo` - Quo
+     * * `HeyReach` - HeyReach
+     * * `MoEngage` - MoEngage */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -12122,7 +12163,9 @@ export interface SourceSetupApi {
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
      * * `Amplemarket` - Amplemarket
-     * * `Quo` - Quo */
+     * * `Quo` - Quo
+     * * `HeyReach` - HeyReach
+     * * `MoEngage` - MoEngage */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -13514,7 +13557,9 @@ export interface SourceCredentialCreateApi {
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
      * * `Amplemarket` - Amplemarket
-     * * `Quo` - Quo */
+     * * `Quo` - Quo
+     * * `HeyReach` - HeyReach
+     * * `MoEngage` - MoEngage */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload

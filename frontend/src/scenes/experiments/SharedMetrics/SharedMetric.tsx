@@ -90,7 +90,7 @@ function openSaveWithRunningExperimentsDialog(
 }
 
 export function SharedMetric(): JSX.Element {
-    const { sharedMetric, action } = useValues(sharedMetricLogic)
+    const { sharedMetric, action, metricSaving } = useValues(sharedMetricLogic)
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const { setSharedMetric, createSharedMetric, updateSharedMetric, deleteSharedMetric } =
         useActions(sharedMetricLogic)
@@ -118,6 +118,9 @@ export function SharedMetric(): JSX.Element {
     }
 
     const handleSave = (): void => {
+        if (metricSaving) {
+            return
+        }
         if (['create', 'duplicate'].includes(action)) {
             createSharedMetric()
             return
@@ -305,6 +308,7 @@ export function SharedMetric(): JSX.Element {
                         >
                             <LemonButton
                                 disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
+                                loading={metricSaving}
                                 size="small"
                                 type="primary"
                                 onClick={handleSave}
@@ -341,6 +345,7 @@ export function SharedMetric(): JSX.Element {
                 >
                     <LemonButton
                         disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
+                        loading={metricSaving}
                         size="medium"
                         type="primary"
                         onClick={handleSave}

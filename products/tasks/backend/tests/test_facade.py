@@ -265,7 +265,7 @@ class TestFacadeReadsAndMappers(TestCase):
         # task.description. But it embeds the triggering event wholesale (for a Slack
         # trigger, a private channel's content) and workflow tasks are team-readable,
         # so human readers must not receive it.
-        task = self._make_task()
+        task = self._make_task(origin_product=Task.OriginProduct.WORKFLOW)
         run = TaskRun.objects.create(
             task=task,
             team=self.team,
@@ -276,6 +276,7 @@ class TestFacadeReadsAndMappers(TestCase):
                 "store_skills": [{"name": "my-skill", "description": "Mine.", "version": 1}],
                 "systemPrompt": {"type": "preset", "preset": "claude_code", "append": "PostHog AI"},
                 "sandbox_jwt_kid": "secret",
+                "task_summary": "Private workflow context",
             },
         )
 
@@ -291,6 +292,7 @@ class TestFacadeReadsAndMappers(TestCase):
         assert ("store_skills" in detail.state) is include_agent_state
         assert ("systemPrompt" in detail.state) is include_agent_state
         assert "sandbox_jwt_kid" not in detail.state
+        assert detail.task_summary == ("Private workflow context" if include_agent_state else None)
 
     def test_get_task_run_maps_all_fields(self):
         task = self._make_task()
@@ -741,6 +743,27 @@ class TestFacadeReadsAndMappers(TestCase):
             self.assertNotIn("snapshot_external_id", new_run.state)
             self.assertNotIn("snapshot_kind", new_run.state)
             self.assertNotIn("snapshot_mount_path", new_run.state)
+
+    def test_run_task_pi_resume_carries_the_prior_summary(self):
+        task = self._make_task(runtime=Task.Runtime.PI)
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"task_summary": "Reviewing the API"},
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        self.assertEqual(new_run.state.get("prior_run_summary"), "Reviewing the API")
 
     def test_run_task_resume_exposes_pending_prompt_to_agent(self):
         task = self._make_task()
@@ -1824,6 +1847,24 @@ class TestApplyTaskRunModelConfig(TestCase):
     def test_nothing_to_change_is_not_a_sandbox_call(self, send_mock):
         self.assertFalse(self._apply(self._run()))
         send_mock.assert_not_called()
+
+    @patch("products.tasks.backend.facade.api.get_model_access_error", return_value=None)
+    @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
+    def test_a_pinned_sandbox_refuses_a_model_outside_its_pin(self, send_mock, _access_mock):
+        run = self._run()
+        TaskRun.objects.filter(id=run.id).update(state={**run.state, "ai_gateway_product": "slack_app"})
+
+        self.assertFalse(self._apply(run, model="zai-org/glm-5.3"))
+        send_mock.assert_not_called()
+
+    @patch("products.tasks.backend.facade.api.get_model_access_error", return_value=None)
+    @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
+    def test_a_pinned_sandbox_still_switches_within_its_pin(self, send_mock, _access_mock):
+        send_mock.return_value = MagicMock(success=True)
+        run = self._run()
+        TaskRun.objects.filter(id=run.id).update(state={**run.state, "ai_gateway_product": "slack_app"})
+
+        self.assertTrue(self._apply(run, model="claude-opus-5"))
 
 
 class TestDesktopUsersInTeam(TestCase):

@@ -10,7 +10,7 @@ from django.db import OperationalError
 
 from parameterized import parameterized
 
-from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
+from posthog.ingress.contracts import WebhookDelivery
 from posthog.models.integration import Integration
 
 from products.conversations.backend.facade import api as conversations_facade
@@ -86,45 +86,6 @@ class TestConversationsGitHubDeliveries(BaseTest):
                 self.team.conversations_settings[key] = value
         self.team.save()
 
-    @parameterized.expand(
-        [
-            ("an_installation_connected_here", "issues", 12345, {}, DeliveryOwnership.LOCAL),
-            ("an_installation_no_team_here_has", "issues", 99999, {}, DeliveryOwnership.ELSEWHERE),
-            ("github_turned_off_for_the_team", "issues", 12345, {"github_enabled": False}, DeliveryOwnership.ELSEWHERE),
-            (
-                "no_explicit_integration_binding",
-                "issues",
-                12345,
-                {"github_integration_id": None},
-                DeliveryOwnership.ELSEWHERE,
-            ),
-            ("an_event_type_this_product_ignores", "pull_request", 99999, {}, DeliveryOwnership.UNDECIDED),
-            ("a_delivery_outside_an_installation", "issues", None, {}, DeliveryOwnership.UNDECIDED),
-        ]
-    )
-    def test_ownership_answers_where_the_installations_team_lives(
-        self,
-        _name: str,
-        event_type: str,
-        installation_id: int | None,
-        settings_override: dict[str, Any],
-        expected: DeliveryOwnership,
-    ):
-        self._disable(settings_override)
-        delivery = _delivery(_issue_event(installation_id=installation_id), event_type=event_type)
-
-        assert conversations_facade.github_delivery_ownership(delivery) == expected
-
-    @patch(f"{GITHUB_EVENTS_MODULE}.Integration.objects.filter")
-    def test_a_lookup_that_hits_its_timeout_forwards_rather_than_claiming_the_delivery(self, mock_filter):
-        # Forwarding is the recoverable answer: the other region repeats the lookup and no-ops if
-        # it does not own the installation, while claiming it here would drop the delivery.
-        mock_filter.side_effect = OperationalError("canceling statement due to statement timeout")
-
-        answer = conversations_facade.github_delivery_ownership(_delivery(_issue_event()))
-
-        assert answer == DeliveryOwnership.ELSEWHERE
-
     @patch(f"{GITHUB_EVENTS_MODULE}.process_github_event")
     @patch(f"{GITHUB_EVENTS_MODULE}.Integration.objects.filter")
     def test_a_lookup_that_hits_its_timeout_fails_the_dispatch_rather_than_receipting_it(self, mock_filter, mock_task):
@@ -163,6 +124,7 @@ class TestConversationsGitHubDeliveries(BaseTest):
     @parameterized.expand(
         [
             ("github_turned_off_for_the_team", 12345, {"github_enabled": False}),
+            ("no_explicit_integration_binding", 12345, {"github_integration_id": None}),
             ("a_delivery_outside_an_installation", None, {}),
         ]
     )

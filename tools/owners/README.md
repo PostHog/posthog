@@ -4,6 +4,28 @@ Resolver, linter, and formatter for PostHog's distributed `owners.yaml` ownershi
 It walks the `owners.yaml` / `product.yaml` files a repo carries, merges them nearest-file-wins, and answers "who owns this path" as a library or CLI, plus a lint that catches schema errors, dead globs, conflicts, and coverage gaps.
 The ownership format and resolution semantics are documented in [`docs/internal/ownership-model-proposal.md`](../../docs/internal/ownership-model-proposal.md) and the `establishing-code-ownership` skill.
 
+## CODEOWNERS projection
+
+Some tools read CODEOWNERS and nothing else. `owners:codeowners` projects the map into that format
+so they can attribute a file to a team:
+
+```bash
+hogli owners:codeowners                 # to stdout
+hogli owners:codeowners -o /tmp/x/CODEOWNERS
+```
+
+It covers test files only, because the consumer this exists for (Trunk Flaky Tests) looks up nothing
+else. A test file is spelled the way the runner that ran it writes the JUnit `file` attribute, which
+is relative to that runner's working directory, so a file can appear under more than one rule. A
+spelling two teams would both claim is dropped rather than guessed. An unowned file gets a rule with
+no owner after the pattern, which keeps an ancestor rule from claiming it.
+
+This never writes `.github/CODEOWNERS`. That file carries GitHub's blocking-approval semantics, is
+hand-maintained, and is not part of the resolver's walk.
+
+CI regenerates the projection per upload in `.github/scripts/trunk-codeowners.sh`, so the consumer
+never reads a stale map.
+
 ## Use it from another repo
 
 The package is self-contained (stdlib + pyyaml + click), so any repo carrying `owners.yaml` files can run it without vendoring anything:
