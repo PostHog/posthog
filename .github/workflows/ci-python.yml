@@ -103,6 +103,10 @@ jobs:
                         - 'frontend/src/products.json'
                         # A hand-edit to the generated taxonomy JSON must reach the drift check
                         - 'frontend/src/taxonomy/core-filter-definitions-by-group.json'
+                        # Same for the generated object-tag registries
+                        - 'frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts'
+                        - 'products/desktop/packages/core/src/inbox/objectKinds.generated.ts'
+                        - 'products/desktop/packages/shared/src/objectTagKinds.generated.ts'
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
