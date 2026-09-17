@@ -10,7 +10,7 @@
  * + `optionsFromProp` and report `0` for every logic-backed tab.
  */
 import { useValues } from 'kea'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 
 import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { taxonomicFilterPinnedPropertiesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
@@ -49,6 +49,12 @@ export function useTaxonomicLocalOverrides(context: {
     const { experiments } = useValues(experimentsLogic)
     const { dataWarehouseTablesAndViews } = useValues(dataWarehouseSettingsSceneLogic)
     const { columnsJoinedToPersons } = useValues(joinsLogic)
+
+    useEffect(() => {
+        if (taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Dashboards)) {
+            dashboardsModel.actions.loadDashboardsIfNeeded()
+        }
+    }, [taxonomicGroupTypes])
 
     // Memoized so repeated calls return the same array reference — the result feeds
     // `useGroupList` memo deps and `useEffect` deps (e.g. the sole-substantive-group

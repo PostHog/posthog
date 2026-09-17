@@ -16,6 +16,7 @@ import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardBasicType, InsightLogicProps } from '~/types'
 
 interface DashboardRelationRowProps {
@@ -160,6 +161,7 @@ export function AddToDashboardModal({
 
     const { searchQuery, currentDashboards, orderedDashboards, scrollIndex, user } = useValues(logic)
     const { setSearchQuery, addNewDashboard } = useActions(logic)
+    const { loadDashboardsIfNeeded } = useActions(dashboardsModel)
     const listRef = useListRef(null)
 
     useEffect(() => {
@@ -167,6 +169,12 @@ export function AddToDashboardModal({
             listRef.current.scrollToRow({ index: scrollIndex, align: 'smart' })
         }
     }, [scrollIndex, listRef.current])
+
+    useEffect(() => {
+        if (isOpen) {
+            loadDashboardsIfNeeded()
+        }
+    }, [isOpen, loadDashboardsIfNeeded])
 
     const rowProps: DashboardRowProps = {
         orderedDashboards,

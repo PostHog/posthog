@@ -1,5 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 
@@ -27,6 +28,11 @@ export function DashboardsMenuItems({
     onLinkClick,
 }: CustomMenuProps): JSX.Element {
     const { pinnedDashboards, dashboardsLoading } = useValues(dashboardsModel)
+    const { loadDashboardsIfNeeded } = useActions(dashboardsModel)
+
+    useEffect(() => {
+        loadDashboardsIfNeeded()
+    }, [loadDashboardsIfNeeded])
 
     return (
         <>

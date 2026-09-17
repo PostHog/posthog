@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import React from 'react'
 
 import { ButtonTileCard } from 'lib/components/Cards/ButtonTileCard/ButtonTileCard'
@@ -38,13 +38,16 @@ function DashboardButtonTileItemInternal(
     ref: React.ForwardedRef<HTMLDivElement>
 ): JSX.Element {
     const buttonId = tile.button_tile?.id
-    const { copyToDestinations } = useValues(
-        dashboardWidgetMenusLogic({
-            instanceKey: buttonId != null ? `button-${buttonId}` : `button-tile-${tile.id}`,
-            dashboardId,
-            dashboards: undefined,
-            dashboard_tiles: tile.button_tile?.dashboard_tiles,
-        })
+    const dashboardWidgetMenusLogicProps = {
+        instanceKey: buttonId != null ? `button-${buttonId}` : `button-tile-${tile.id}`,
+        dashboardId,
+        dashboards: undefined,
+        dashboard_tiles: tile.button_tile?.dashboard_tiles,
+    }
+    const { copyToDestinations, destinationDashboardsLoaded, destinationPageLoading, hasMoreDestinationDashboards } =
+        useValues(dashboardWidgetMenusLogic(dashboardWidgetMenusLogicProps))
+    const { loadDestinationDashboardsIfNeeded, loadMoreDestinationDashboards } = useActions(
+        dashboardWidgetMenusLogic(dashboardWidgetMenusLogicProps)
     )
 
     return (
@@ -60,6 +63,11 @@ function DashboardButtonTileItemInternal(
 
                     <DashboardWidgetPlacementMenus
                         placementDestinations={copyToDestinations}
+                        onOpen={loadDestinationDashboardsIfNeeded}
+                        loaded={destinationDashboardsLoaded}
+                        loading={destinationPageLoading}
+                        hasMore={hasMoreDestinationDashboards}
+                        onLoadMore={loadMoreDestinationDashboards}
                         onMoveToDashboard={onMoveToDashboard}
                     />
 
