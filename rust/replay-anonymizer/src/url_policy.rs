@@ -173,6 +173,45 @@ fn collapse_slashes(path: &str) -> String {
     collapsed
 }
 
+/// Schemes that name something inside the browser rather than something on the network.
+///
+/// A recording carries a media source already resolved against the page's base URL, and the
+/// browser resolves one of these as a relative path when it reaches the recorder as text. Pinning
+/// the list to browser-local schemes is what keeps the rule precise: a path segment that merely
+/// looks like a scheme belongs to an image proxy and serves a real image. imgproxy signs
+/// `/w:800/plain/s3://bucket/key`, Cloudflare Images takes `/cdn-cgi/image/width=64/https://…`,
+/// and Thumbor takes `/filters:quality(80)/`. All three keep a bare `<scheme>:` segment, all three
+/// answer 200, and none of them may be refused here.
+const BROWSER_LOCAL_SCHEMES: [&str; 6] = [
+    "chrome-extension",
+    "moz-extension",
+    "safari-extension",
+    "safari-web-extension",
+    "ms-browser-extension",
+    "blob",
+];
+
+/// Whether the path holds a browser-local URL, which makes this the page's own origin with a
+/// foreign URL pasted behind it.
+///
+/// An extension's asset and a `blob:` handle exist only in the browser that recorded the session.
+/// The origin in the URL never served either one, so the request can only fail, and it reaches a
+/// customer's own site under our bot's user agent to do it. Both spellings occur, because the
+/// number of slashes that survive depends on the browser: `/chrome-extension://<id>/icon.png` and
+/// `/chrome-extension:/<id>/icon.png`, as well as `/blob:https://<origin>/<uuid>`.
+///
+/// This reads the percent-encoded path on purpose. A proxy that takes its upstream URL encoded,
+/// as `/proxy/https%3A%2F%2Fcdn.example.com%2Fa.png`, keeps its `%3A` here and stays collectable.
+fn has_browser_local_scheme(raw_path: &str) -> bool {
+    raw_path.split('/').any(|segment| {
+        segment.split_once(':').is_some_and(|(scheme, _)| {
+            BROWSER_LOCAL_SCHEMES
+                .iter()
+                .any(|local| scheme.eq_ignore_ascii_case(local))
+        })
+    })
+}
+
 /// Longer than this and we neither collect nor fetch it. Well past what a real image URL needs,
 /// and it bounds what one message can pin in memory alongside the count cap.
 pub const MAX_URL_LEN: usize = 2048;
@@ -309,14 +348,21 @@ pub enum Decline {
     /// An advertising or analytics beacon from `tracking_beacons.txt`. Nobody sees the one-pixel
     /// image, and a fetch of it reports a conversion or a visit to the network that serves it.
     TrackingBeacon,
+    /// The page's own origin with a browser-local URL pasted into the path. See
+    /// [`has_browser_local_scheme`].
+    BrowserLocalScheme,
 }
 
 impl Decline {
-    /// True for a URL the policy refuses because nobody wants it fetched, not because it is
-    /// malformed or unsafe. A consumer that reads jobs from a queue drops only that job for such a
-    /// decline, and rejects the whole record for every other one.
+    /// True for a URL this lane will never fetch, however well formed the record carrying it is. A
+    /// consumer that reads jobs from a queue drops only that job for such a decline, and rejects
+    /// the whole record for every other one.
+    ///
+    /// Every rule here refuses a URL the collector itself once produced, and a collector keeps
+    /// producing them until it rolls. Rejecting the record would dead-letter the real images beside
+    /// them for the length of that roll.
     pub fn is_unwanted(self) -> bool {
-        matches!(self, Decline::TrackingBeacon)
+        matches!(self, Decline::TrackingBeacon | Decline::BrowserLocalScheme)
     }
 
     /// The metric label. Stable, because a dashboard and an alert both key on it.
@@ -331,6 +377,7 @@ impl Decline {
             Decline::Credential => "credential",
             Decline::InvalidQuery => "invalid_query",
             Decline::TrackingBeacon => "tracking_beacon",
+            Decline::BrowserLocalScheme => "browser_local_scheme",
         }
     }
 }
@@ -381,6 +428,10 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
     }
     if matches_beacon_list(&host, &collapse_slashes(&lowercase_path)) {
         return Err(Decline::TrackingBeacon);
+    }
+    // After the credential check, so a URL carrying both is counted as the credential it leaked.
+    if has_browser_local_scheme(url.path()) {
+        return Err(Decline::BrowserLocalScheme);
     }
 
     let original_query = original_query(raw);
@@ -623,6 +674,46 @@ mod tests {
             assert!(
                 parse_beacon_list(malformed).is_err(),
                 "{malformed:?} must not parse"
+            );
+        }
+    }
+
+    #[test]
+    fn a_browser_local_url_resolved_into_the_page_path_is_refused() {
+        for raw in [
+            "https://example.com/chrome-extension://abcdefghijklmnop/img/icon.png",
+            "https://example.com/articles/chrome-extension:/abcdefghijklmnop/flags/fi.png",
+            "https://example.com/CHROME-EXTENSION://abcdefghijklmnop/img/icon.png",
+            "https://example.com/admin/moz-extension://abcdefghijklmnop/icon.svg",
+            "https://example.com/safari-web-extension://abcdefghijklmnop/icon.svg",
+            "https://example.com/safari-extension://abcdefghijklmnop/icon.svg",
+            "https://example.com/ms-browser-extension://abcdefghijklmnop/icon.svg",
+            "https://example.com/blob:https://example.com/2f1c8e40-0000-4000-8000-0000000000ab",
+        ] {
+            assert_eq!(
+                try_canonicalize(raw).unwrap_err(),
+                Decline::BrowserLocalScheme,
+                "{raw} should be refused as browser-local"
+            );
+        }
+        // Without this the fetcher dead-letters whole records over a collector roll.
+        assert!(Decline::BrowserLocalScheme.is_unwanted());
+    }
+
+    /// The refusal keys on the scheme, never on the shape of a segment, because every one of these
+    /// carries a bare `<scheme>:` segment and every one of them serves a real image.
+    #[test]
+    fn an_image_proxy_that_carries_a_url_in_its_path_still_collects() {
+        for raw in [
+            "https://imgproxy.example.com/c2lnbmF0dXJl/w:800/plain/s3://bucket/store/asset/1.jpg@jpg",
+            "https://images.example.com/preset:sharp/resize:fit:480/gravity:sm/plain/s3://bucket/2.jpeg",
+            "https://example.com/cdn-cgi/image/width=64,format=webp/https://cdn.example.org/logo.png",
+            "https://example.com/unsafe/filters:quality(80)/https://cdn.example.org/logo.png",
+            "https://example.com/proxy/https%3A%2F%2Fcdn.example.org%2Flogo.png",
+        ] {
+            assert!(
+                canonicalize(raw).is_some(),
+                "{raw} should still canonicalize"
             );
         }
     }

@@ -59,8 +59,9 @@ export class ImageFetchConsumerMetrics {
         labelNames: ['reason'],
     })
     /**
-     * A sustained rate here is expected after a beacon-list change, while the fetcher drains the
-     * queued beacons at parse speed. It is not the invalid-input signal that `dropped` carries.
+     * A sustained rate here is expected after the URL policy gains a rule, while the fetcher
+     * drains the URLs already queued under the old one at parse speed. It is not the invalid-input
+     * signal that `dropped` carries.
      */
     private static readonly skipped = new Counter({
         name: 'ml_image_fetch_consumer_skipped_total',
