@@ -838,6 +838,18 @@ class FeatureRequestAccountLinkView:
 
 
 @stdlib_dataclass(frozen=True)
+class FeatureRequestGitHubLinkView:
+    id: UUID | None = None
+    issue_url: str = ""
+    repository: str = ""
+    issue_number: int = 0
+    issue_title: str = ""
+    issue_state: Literal["open", "closed"] = "open"
+    sync_enabled: bool = True
+    last_synced_at: datetime | None = None
+
+
+@stdlib_dataclass(frozen=True)
 class FeatureRequestView:
     id: UUID | None = None
     title: str = ""
@@ -853,6 +865,7 @@ class FeatureRequestView:
     account_links: list[FeatureRequestAccountLinkView] = field(default_factory=list)
     evidence_count: int = 0
     product_areas: list[FeatureRequestProductAreaView] = field(default_factory=list)
+    github_link: FeatureRequestGitHubLinkView | None = None
     created_by: int | None = None
     updated_by: int | None = None
     created_at: datetime | None = None
@@ -935,6 +948,13 @@ class UpdateFeatureRequestInput:
     request_status: str | None = None
     request_priority: str | None = None
     request_priority_is_set: bool = False
+
+
+@dataclass(frozen=True)
+class LinkFeatureRequestGitHubInput:
+    expected_version: int
+    integration_id: int
+    issue_url: str
 
 
 @dataclass(frozen=True)
