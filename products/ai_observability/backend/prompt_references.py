@@ -2,6 +2,7 @@ import re
 from collections import Counter
 from typing import Any
 
+from django.db import InterfaceError, OperationalError
 from django.db.models import Q
 
 from rest_framework import serializers
@@ -258,12 +259,35 @@ class PromptReferenceResolutionError(Exception):
     `missing` distinguishes "the referenced prompt/version/label is gone"
     (a 404 for the caller) from "the referenced content is in a state
     validation normally prevents", e.g. nested references or an oversized
-    assembly reached through a raced label move (a 409).
+    assembly reached through a raced label move (a 409). `unavailable` means
+    the reference could not be checked at all (a 503): the caller should
+    retry, not edit their prompt.
     """
 
     reference_name: str
     message: str
     missing: bool
+    unavailable: bool = False
+
+
+def _confirm_reference_missing(team_id: int, name: str, version: str | None, label: str | None) -> bool:
+    """Distinguish a genuinely absent reference target from a database outage.
+
+    The cached read path deliberately degrades transient database errors to
+    None. Served raw, that tells SDK callers the referenced prompt "no longer
+    exists" during an outage. This direct check runs only on the miss path,
+    so the warm fetch stays cache-only.
+    """
+    try:
+        if version is not None:
+            return not LLMPrompt.objects.filter(
+                team_id=team_id, name=name, version=int(version), deleted=False
+            ).exists()
+        return not LLMPromptLabel.objects.filter(
+            team_id=team_id, prompt_name=name, name=label, prompt__deleted=False
+        ).exists()
+    except (OperationalError, InterfaceError):
+        return False
 
 
 def assemble_prompt_payload(team: Team, payload: dict[str, Any]) -> dict[str, Any]:
@@ -303,6 +327,13 @@ def assemble_prompt_payload(team: Team, payload: dict[str, Any]) -> dict[str, An
                 team, name, int(version) if version is not None else None, label=label
             )
             if child is None:
+                if not _confirm_reference_missing(team.id, name, version, label):
+                    raise PromptReferenceResolutionError(
+                        reference_name=name,
+                        message=f"Couldn't load the referenced prompt '{name}' right now. Try again.",
+                        missing=False,
+                        unavailable=True,
+                    )
                 selector = f"version {version}" if version is not None else f"label '{label}'"
                 raise PromptReferenceResolutionError(
                     reference_name=name,

@@ -2173,3 +2173,22 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/agent/")
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["prompt"]) == 1_000_000
+
+    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True)
+    def test_transient_reference_lookup_failure_is_503_not_404(self, _flag):
+        # A database outage degrades the cached lookup to None; that must not
+        # tell SDK callers the referenced prompt "no longer exists".
+        self._make_prompt("guardrails", label="production")
+        self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "agent", "prompt": "@@@prompt:name=guardrails|label=production@@@"},
+            format="json",
+        )
+
+        with patch(
+            "products.ai_observability.backend.prompt_references.get_prompt_by_name_from_cache", return_value=None
+        ):
+            response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/agent/")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.json()["reference_name"] == "guardrails"

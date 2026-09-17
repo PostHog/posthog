@@ -391,10 +391,12 @@ class LLMPromptViewSet(
             try:
                 prompt = assemble_prompt_payload(self.team, prompt)
             except PromptReferenceResolutionError as err:
-                return Response(
-                    {"detail": err.message, "reference_name": err.reference_name},
-                    status=status.HTTP_404_NOT_FOUND if err.missing else status.HTTP_409_CONFLICT,
-                )
+                error_status: int = status.HTTP_409_CONFLICT
+                if err.unavailable:
+                    error_status = status.HTTP_503_SERVICE_UNAVAILABLE
+                elif err.missing:
+                    error_status = status.HTTP_404_NOT_FOUND
+                return Response({"detail": err.message, "reference_name": err.reference_name}, status=error_status)
 
         self._track_prompt_fetch(prompt)
         return Response(self._apply_content_mode(prompt, content_mode))
