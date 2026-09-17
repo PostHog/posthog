@@ -79,28 +79,39 @@ The result tells you what happened: `report_id` (always set when a report was pe
 A consumer draws each one as a tile: the figure with its unit, the title, the window the query covers, and a small trend strip.
 Use one `primary` metric for the key observation, and `supporting` metrics for the facts around it.
 
-**No client renders a metric yet.** The server stores and serves them, and the API redacts and refreshes them, but no inbox or desktop surface in this repository draws the tile.
-A metric you author today is a correct, queryable record that a reader cannot see until a client lands, so spend your run's query budget on the report prose first.
+The Inbox shows live metrics on report rows and in report detail when `signals-report-metrics` is enabled.
+The server checks this organization-level flag on each scout write that supplies a non-empty metric list.
+The flag is independent of `signals-report-charts`.
+
+When the flag is off or its check fails:
+
+- `emit_report(metrics=[...])` stores the report without the supplied metrics.
+- `edit_report(metrics=[...])` ignores the supplied metrics and preserves the report's existing set.
+- `edit_report(metrics=[])` still clears the set. Omitting `metrics` preserves it.
+
+The server drops gated metrics before the safety judge.
+Keep the report useful without metrics, and do not retry a write to bypass the flag.
+Local development with `DEBUG=True` enables the metric write path without a flag check.
 
 **Omit a metric you cannot measure honestly.**
 A weak number is worse than none.
 One support ticket and a single migration crash tell the reader nothing.
 Nor does a rate over a handful of attempts, or a count with no person context.
 
-| Field          | Type                | Notes                                                                                                                                                                           |
-| -------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Field          | Type                | Notes                                                                                                                                                                         |
+| -------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `metric_id`    | string, required    | Your own slug (lowercase letters, numbers, `_`, `-`, starting with a letter or number), ≤100 characters. Unique within the report, and the key a later edit updates it under. |
-| `title`        | string, required    | What was observed, and for whom, in one line: `Users who hit "Not found" opening a shared chat link`, not a label such as `Users affected`. ≤200 characters.                    |
-| `kind`         | enum, required      | What the value measures. See _Choosing the kind_ below.                                                                                                                         |
-| `query`        | object, required    | The bounded live query behind the figure. See _Keeping the query live and bounded_ below.                                                                                       |
-| `role`         | enum, default       | `primary` for the report's key observation, else `supporting` (the default). At most one `primary` per report.                                                                  |
-| `value`        | number, optional    | A snapshot you measured in this run. Optional cached fallback only. Pair it with `value_at`.                                                                                    |
-| `value_at`     | timestamp, optional | When you measured `value`. ISO-8601 with a timezone, and not in the future.                                                                                                     |
-| `series`       | list, optional      | Trailing per-bucket values from the same run, oldest first, ≤14 points. Part of the snapshot, so it needs `value` and `value_at`.                                               |
-| `value_format` | enum, default       | How to print the figure: `count`, `percentage`, `percentage_scaled`, `duration`, `currency`, or `number` (the default).                                                         |
-| `unit`         | string, optional    | Short suffix that completes the figure, ≤40 characters. See _Keeping semantics separate from formatting_ below.                                                                 |
-| `caption`      | string, optional    | Only what the tile cannot show, ≤500 characters. See below.                                                                                                                     |
-| `comparison`   | object, optional    | Legacy. Leave it unset.                                                                                                                                                         |
+| `title`        | string, required    | What was observed, and for whom, in one line: `Users who hit "Not found" opening a shared chat link`, not a label such as `Users affected`. ≤200 characters.                  |
+| `kind`         | enum, required      | What the value measures. See _Choosing the kind_ below.                                                                                                                       |
+| `query`        | object, required    | The bounded live query behind the figure. See _Keeping the query live and bounded_ below.                                                                                     |
+| `role`         | enum, default       | `primary` for the report's key observation, else `supporting` (the default). At most one `primary` per report.                                                                |
+| `value`        | number, optional    | A snapshot you measured in this run. Optional cached fallback only. Pair it with `value_at`.                                                                                  |
+| `value_at`     | timestamp, optional | When you measured `value`. ISO-8601 with a timezone, and not in the future.                                                                                                   |
+| `series`       | list, optional      | Trailing per-bucket values from the same run, oldest first, ≤14 points. Part of the snapshot, so it needs `value` and `value_at`.                                             |
+| `value_format` | enum, default       | How to print the figure: `count`, `percentage`, `percentage_scaled`, `duration`, `currency`, or `number` (the default).                                                       |
+| `unit`         | string, optional    | Short suffix that completes the figure, ≤40 characters. See _Keeping semantics separate from formatting_ below.                                                               |
+| `caption`      | string, optional    | Only what the tile cannot show, ≤500 characters. See below.                                                                                                                   |
+| `comparison`   | object, optional    | Legacy. Leave it unset.                                                                                                                                                       |
 
 A primary affected-users metric and a supporting rate, as they arrive in `metrics`:
 
@@ -269,7 +280,7 @@ Re-send a `metric_id` with a newer query or snapshot to replace that metric.
 Read the report first (`inbox-reports-retrieve` returns its metrics) when you mean to add one.
 **A metric that comes back with a null `query` is redacted, not empty.** You cannot re-send it, because the write shape requires a query, and leaving it out deletes that tile. Omit `metrics` altogether on such a report, and leave the change to a reader who can see every row.
 
-Every metric title, caption, snapshot, and query goes before the safety judge, the same as the report prose.
+When the flag permits a metric write, every metric title, caption, snapshot, and query goes before the safety judge, the same as the report prose.
 
 ### Attaching charts
 
