@@ -9,11 +9,13 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.conversations.backend.temporal.ticket_patterns.constants import COORDINATOR_INTERVAL_MINUTES
 from products.conversations.backend.temporal.ticket_patterns.coordinator import _collect_eligible_teams
 from products.conversations.backend.temporal.ticket_patterns.detect import _qualifying_clusters
 from products.conversations.backend.temporal.ticket_patterns.schemas import DetectionSettings
 
 COORD_MODULE = "products.conversations.backend.temporal.ticket_patterns.coordinator"
+ELIGIBILITY_MODULE = "products.conversations.backend.temporal.ticket_patterns.eligibility"
 
 TEST_TEAM_UUID = uuid.UUID("11111111-1111-4111-8111-111111111111")
 TEST_ORG_UUID = uuid.UUID("22222222-2222-4222-8222-222222222222")
@@ -27,8 +29,13 @@ def _make_team(*, ticket_patterns_enabled: bool = True, ai_data_processing_appro
     team.uuid = TEST_TEAM_UUID
     team.organization_id = TEST_ORG_UUID
     team.organization = org
+    team.conversations_enabled = True
     team.conversations_settings = {"ticket_patterns_enabled": ticket_patterns_enabled}
     return team
+
+
+def _queryset(mock_team_model, rows):
+    mock_team_model.objects.filter.return_value.select_related.return_value.order_by.return_value = rows
 
 
 def _settings(min_tickets: int = 3, min_requesters: int = 3) -> DetectionSettings:
@@ -45,31 +52,53 @@ class TestCollectEligibleTeams(SimpleTestCase):
             ("master_flag_off", {"master_flag": False}),
             ("toggle_off", {"ticket_patterns_enabled": False}),
             ("ai_data_processing_not_approved", {"ai_data_processing_approved": False}),
+            ("conversations_disabled", {"conversations_enabled": False}),
         ]
     )
-    @patch(f"{COORD_MODULE}._is_master_flag_enabled")
+    @patch(f"{ELIGIBILITY_MODULE}.is_master_flag_enabled")
     @patch(f"{COORD_MODULE}.Team")
     def test_gate_blocks(self, _name, overrides, mock_team_model, mock_master_flag):
-        # The queryset filters on the toggle, so a team with it off never reaches the loop.
-        team = _make_team(ai_data_processing_approved=overrides.get("ai_data_processing_approved", True))
-        rows = [] if overrides.get("ticket_patterns_enabled", True) is False else [team]
-        mock_team_model.objects.filter.return_value.select_related.return_value = rows
+        team = _make_team(
+            ticket_patterns_enabled=overrides.get("ticket_patterns_enabled", True),
+            ai_data_processing_approved=overrides.get("ai_data_processing_approved", True),
+        )
+        team.conversations_enabled = overrides.get("conversations_enabled", True)
+        _queryset(mock_team_model, [team])
         mock_master_flag.return_value = overrides.get("master_flag", True)
 
         assert _collect_eligible_teams() == []
 
-    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    @patch(f"{ELIGIBILITY_MODULE}.is_master_flag_enabled", return_value=True)
     @patch(f"{COORD_MODULE}.Team")
     def test_opted_in_team_is_collected_with_its_thresholds(self, mock_team_model, _mock_master_flag):
         team = _make_team()
         team.conversations_settings["ticket_patterns_min_tickets"] = 8
-        mock_team_model.objects.filter.return_value.select_related.return_value = [team]
+        _queryset(mock_team_model, [team])
 
         collected = _collect_eligible_teams()
 
         assert len(collected) == 1
         assert collected[0].team_id == 7
         assert collected[0].settings.min_tickets == 8
+
+    @patch(f"{ELIGIBILITY_MODULE}.is_master_flag_enabled", return_value=True)
+    @patch(f"{COORD_MODULE}.MAX_TEAMS_PER_RUN", 2)
+    @patch(f"{COORD_MODULE}.Team")
+    def test_every_team_is_reached_across_consecutive_ticks(self, mock_team_model, _mock_master_flag):
+        teams = []
+        for team_id in (1, 2, 3):
+            team = _make_team()
+            team.id = team_id
+            teams.append(team)
+        _queryset(mock_team_model, teams)
+
+        seen: set[int] = set()
+        for tick in range(3):
+            with patch(f"{COORD_MODULE}.timezone") as mock_timezone:
+                mock_timezone.now.return_value.timestamp.return_value = tick * COORDINATOR_INTERVAL_MINUTES * 60
+                seen.update(item.team_id for item in _collect_eligible_teams())
+
+        assert seen == {1, 2, 3}
 
 
 class TestQualifyingClusters(SimpleTestCase):

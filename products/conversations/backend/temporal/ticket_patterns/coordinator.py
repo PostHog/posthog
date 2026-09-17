@@ -9,24 +9,26 @@ with workflow.unsafe.imports_passed_through():
     import asyncio
     from datetime import timedelta
 
+    from django.utils import timezone
+
     import structlog
-    import posthoganalytics
 
     from posthog.models import Team
     from posthog.sync import database_sync_to_async
     from posthog.temporal.common.heartbeat import Heartbeater
 
     from products.conversations.backend.temporal.ticket_patterns.constants import (
+        COORDINATOR_INTERVAL_MINUTES,
         DEFAULT_LOOKBACK_MINUTES,
         DEFAULT_MIN_REQUESTERS,
         DEFAULT_MIN_TICKETS,
         LOOKBACK_MINUTES_RANGE,
-        MASTER_FLAG,
         MAX_TEAMS_PER_RUN,
         MIN_REQUESTERS_RANGE,
         MIN_TICKETS_RANGE,
     )
     from products.conversations.backend.temporal.ticket_patterns.detect import ticket_patterns_detect_activity
+    from products.conversations.backend.temporal.ticket_patterns.eligibility import is_team_eligible
     from products.conversations.backend.temporal.ticket_patterns.schemas import (
         CollectEligibleTeamsOutput,
         DetectionSettings,
@@ -36,30 +38,6 @@ with workflow.unsafe.imports_passed_through():
     )
 
 logger = structlog.get_logger(__name__)
-
-
-def _is_master_flag_enabled(team: Team) -> bool:
-    # The flag is targeted by project group; release conditions can match on the project's `uuid`,
-    # so it must be in group_properties — the headless worker only sends what's listed here (unlike
-    # posthog-js, which auto-attaches full group properties). Without it a uuid filter never matches.
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                MASTER_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id), "uuid": str(team.uuid)},
-                },
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        # A flag-service blip must skip the team, not fail the whole tick. Fail closed.
-        logger.warning("ticket_patterns: master flag eval failed", team_id=team.id, exc_info=True)
-        return False
 
 
 def _clamp(value: object, default: int, bounds: tuple[int, int]) -> int:
@@ -85,18 +63,26 @@ def _read_settings(settings_dict: dict) -> DetectionSettings:
 
 def _collect_eligible_teams() -> list[EligibleTeam]:
     """Teams that have opted in and may send ticket text to an LLM."""
-    opted_in = Team.objects.filter(
-        conversations_enabled=True,
-        conversations_settings__ticket_patterns_enabled=True,
-    ).select_related("organization")
+    opted_in = list(
+        Team.objects.filter(
+            conversations_enabled=True,
+            conversations_settings__ticket_patterns_enabled=True,
+        )
+        .select_related("organization")
+        .order_by("id")
+    )
+    # Start each tick where the cap would otherwise keep cutting, so team 51 is not starved
+    # forever. Every team is reached within ceil(len / MAX_TEAMS_PER_RUN) ticks.
+    if len(opted_in) > MAX_TEAMS_PER_RUN:
+        tick = int(timezone.now().timestamp() // (COORDINATOR_INTERVAL_MINUTES * 60))
+        offset = (tick * MAX_TEAMS_PER_RUN) % len(opted_in)
+        opted_in = opted_in[offset:] + opted_in[:offset]
 
     eligible: list[EligibleTeam] = []
     for team in opted_in:
         if len(eligible) >= MAX_TEAMS_PER_RUN:
             break
-        if not team.organization.is_ai_data_processing_approved:
-            continue
-        if not _is_master_flag_enabled(team):
+        if not is_team_eligible(team):
             continue
         eligible.append(EligibleTeam(team_id=team.id, settings=_read_settings(team.conversations_settings or {})))
     return eligible

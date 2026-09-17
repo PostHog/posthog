@@ -36,6 +36,7 @@ with workflow.unsafe.imports_passed_through():
         TICKET_PATTERNS_TRACE_NAMESPACE,
     )
     from products.conversations.backend.temporal.ticket_patterns.dedupe import mark_reported, unreported_ticket_ids
+    from products.conversations.backend.temporal.ticket_patterns.eligibility import is_team_eligible
     from products.conversations.backend.temporal.ticket_patterns.schemas import (
         DetectedCluster,
         DetectionSettings,
@@ -189,9 +190,7 @@ async def _detect(team: EligibleTeam, *, report: bool = True) -> DetectOutput:
     # ticket text leaves the project.
     def load_if_still_eligible() -> tuple[Team, list[TicketCandidate], dict[str, str]] | None:
         row = Team.objects.select_related("organization").get(id=team.team_id)
-        if not row.organization.is_ai_data_processing_approved:
-            return None
-        if not (row.conversations_settings or {}).get("ticket_patterns_enabled"):
+        if not is_team_eligible(row):
             return None
         candidates, requesters = _load_candidates(team.team_id, team.settings)
         return row, candidates, requesters

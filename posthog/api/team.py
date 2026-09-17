@@ -1874,13 +1874,14 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             if threshold_key not in value:
                 continue
             threshold = value.get(threshold_key)
+            # Null stays in the payload so the settings merge writes it and the threshold falls
+            # back to its default. Popping it would make an explicit reset a silent no-op.
             if threshold is None:
-                value.pop(threshold_key)
                 continue
             if not isinstance(threshold, int) or isinstance(threshold, bool) or not low <= threshold <= high:
                 raise serializers.ValidationError({threshold_key: f"Must be a whole number from {low} to {high}."})
-        if "ticket_patterns_enabled" in value:
-            value["ticket_patterns_enabled"] = bool(value["ticket_patterns_enabled"])
+        if "ticket_patterns_enabled" in value and not isinstance(value["ticket_patterns_enabled"], bool):
+            raise serializers.ValidationError({"ticket_patterns_enabled": "Must be true or false."})
         return value
 
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:
