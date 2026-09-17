@@ -95,6 +95,7 @@ export enum Scene {
     InviteSignup = 'InviteSignup',
     BusinessKnowledge = 'BusinessKnowledge',
     BusinessKnowledgeSettings = 'BusinessKnowledgeSettings',
+    BusinessKnowledgeSource = 'BusinessKnowledgeSource',
     LegacyPlugin = 'LegacyPlugin',
     LegalDocuments = 'LegalDocuments',
     LegalDocumentNew = 'LegalDocumentNew',
