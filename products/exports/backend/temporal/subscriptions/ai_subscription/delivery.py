@@ -200,19 +200,33 @@ def _persist_ai_query_plan(
     prompt: str | None,
     plan: dict,
     *,
+    expected_plan: dict | None,
     expected_include_images: bool,
 ) -> bool:
     image_state = Q(delivery_config__include_images=expected_include_images)
+    expected_plan_state = Q(ai_query_plan__isnull=True) if expected_plan is None else Q(ai_query_plan=expected_plan)
     if expected_include_images:
         # Existing subscriptions omit this key and default to including images.
         image_state |= ~Q(delivery_config__has_key="include_images")
 
     # Targeted update, never a full save() — that would re-emit the activity-log/analytics signals.
-    # Matching both planning inputs prevents a concurrent edit from restoring an invalidated plan.
     return bool(
         Subscription.objects.filter(id=subscription_id, team_id=team_id, prompt=prompt)
+        .filter(expected_plan_state)
         .filter(image_state)
         .update(ai_query_plan=plan)
+    )
+
+
+def _clear_ai_query_plan(subscription_id: int, team_id: int, prompt: str | None, expected_plan: dict) -> bool:
+    # Matching the old plan prevents a stale delivery from clearing a concurrent repair.
+    return bool(
+        Subscription.objects.filter(
+            id=subscription_id,
+            team_id=team_id,
+            prompt=prompt,
+            ai_query_plan=expected_plan,
+        ).update(ai_query_plan=None)
     )
 
 
@@ -244,6 +258,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
                 subscription.team_id,
                 subscription.prompt,
                 result.plan_to_persist,
+                expected_plan=ai_query_plan,
                 expected_include_images=include_images,
             )
         except Exception as exc:
@@ -259,6 +274,24 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
         if not plan_persisted:
             # This delivery cannot claim the plan is frozen unless the conditional write succeeded.
             # In particular, a mid-run prompt edit intentionally makes that write a no-op.
+            result = dataclasses.replace(result, query_plan_status=AIQueryPlanStatus.NOT_FROZEN)
+    elif result.clear_persisted_plan and ai_query_plan is not None:
+        plan_cleared = False
+        try:
+            plan_cleared = await database_sync_to_async(_clear_ai_query_plan, thread_sensitive=False)(
+                subscription.id, subscription.team_id, subscription.prompt, ai_query_plan
+            )
+        except Exception as exc:
+            logger.warning(
+                "ai_report.query_plan_clear_failed",
+                subscription_id=subscription.id,
+                team_id=subscription.team_id,
+                exc_info=True,
+            )
+            capture_exception(exc, {"subscription_id": subscription.id, "feature": "ai_subscription"})
+        if plan_cleared:
+            # A structurally invalid plan is no longer frozen for future deliveries once the
+            # compare-and-set clear succeeds.
             result = dataclasses.replace(result, query_plan_status=AIQueryPlanStatus.NOT_FROZEN)
 
     return result

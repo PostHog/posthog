@@ -12,6 +12,15 @@ from posthog.slo.types import SloConfig
 UNDISCLOSED_QUERY_ERROR_TYPES = frozenset({"ClickHouseQueryMemoryLimitExceeded"})
 
 
+def iter_exception_chain(exc: BaseException) -> typing.Iterator[BaseException]:
+    seen: set[int] = set()
+    current: typing.Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        yield current
+        seen.add(id(current))
+        current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
+
+
 class QueryErrorDetails(typing.TypedDict):
     """A failed query's type paired with its optional safe code and message."""
 
@@ -22,9 +31,7 @@ class QueryErrorDetails(typing.TypedDict):
 
 def safe_query_error_details(exc: BaseException) -> typing.Optional[QueryErrorDetails]:
     """Return stable details for an explicitly safe query exception in a wrapped exception chain."""
-    seen: set[int] = set()
-    current: typing.Optional[BaseException] = exc
-    while current is not None and id(current) not in seen:
+    for current in iter_exception_chain(exc):
         if isinstance(current, ExposedHogQLError) or getattr(type(current), "user_safe", False) is True:
             code = getattr(current, "code_name", None)
             if not isinstance(code, str):
@@ -39,8 +46,6 @@ def safe_query_error_details(exc: BaseException) -> typing.Optional[QueryErrorDe
                     "code": code,
                     "message": message.replace("\x00", ""),
                 }
-        seen.add(id(current))
-        current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
     return None
 
 
