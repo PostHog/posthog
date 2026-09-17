@@ -1293,6 +1293,11 @@ class FeatureFlagSerializer(
             "is_used_in_replay_settings",
             "is_eligible_for_experiment",
         ]
+        # Server-owned timestamps. Neither is declared above, so ModelSerializer would otherwise
+        # build them as writable (`auto_now` makes `updated_at` read-only, but `created_at` only
+        # carries a default and `last_called_at` is a plain column). A client could then overwrite
+        # the usage telemetry staleness detection reads.
+        read_only_fields = ["created_at", "last_called_at"]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
         from typing import cast
