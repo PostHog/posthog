@@ -2933,7 +2933,7 @@ jobs:
             # the PR head ref, which may predate the script. Without it the uploader keeps reading
             # .github/CODEOWNERS, as it did before.
             - name: Build the Trunk ownership map
-              if: ${{ needs.sample.outputs.side_effects == 'true' && (!cancelled() && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (!cancelled() && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true') }}
               shell: bash
               run: |
                   script=.github/scripts/trunk-codeowners.sh
