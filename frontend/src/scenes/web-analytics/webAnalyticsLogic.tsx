@@ -538,7 +538,7 @@ export interface webAnalyticsLogicMeta {
         restrictedUiEnabled: (featureFlags: FeatureFlagsSet, currentTeam: TeamPublicType | TeamType | null) => boolean
         incompatibleFilters: (
             rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
-            restrictedUiEnabled: boolean | undefined
+            restrictedUiEnabled: boolean
         ) => WebAnalyticsPropertyFilters
         hasIncompatibleFilters: (incompatibleFilters: WebAnalyticsPropertyFilters) => boolean
         graphsTab: (_graphsTab: string | null) => string
@@ -564,16 +564,16 @@ export interface webAnalyticsLogicMeta {
             shouldFilterTestAccounts: boolean
         ) => WebAnalyticsFiltersConfig
         warmablePresetShortId: (
-            appliedPresetShortId: string | null, // webAnalyticsFilterLogic
-            appliedPresetFilters: WebAnalyticsFiltersConfig | null, // webAnalyticsFilterLogic
+            appliedPresetShortId: string | null,
+            appliedPresetFilters: WebAnalyticsFiltersConfig | null,
             currentFiltersConfig: WebAnalyticsFiltersConfig
         ) => string | null
         hasNonDefaultFilters: (
-            rawWebAnalyticsFilters: WebAnalyticsPropertyFilters, // webAnalyticsFilterLogic
-            domainFilter: string | null, // webAnalyticsFilterLogic
-            deviceTypeFilter: DeviceType | null, // webAnalyticsFilterLogic
-            countryFilter: string | null, // webAnalyticsFilterLogic
-            referrerFilter: string | null, // webAnalyticsFilterLogic
+            rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
+            domainFilter: string | null,
+            deviceTypeFilter: DeviceType | null,
+            countryFilter: string | null,
+            referrerFilter: string | null,
             conversionGoal: WebAnalyticsConversionGoal | null
         ) => boolean
         webAnalyticsFilters: (
@@ -694,7 +694,7 @@ export interface webAnalyticsLogicMeta {
             featureFlags: FeatureFlagsSet,
             isGreaterThanMd: boolean,
             tileVisualizations: Record<TileId, TileVisualizationOption>,
-            restrictedUiEnabled: boolean | undefined,
+            restrictedUiEnabled: boolean,
             hiddenTiles: TileId[],
             warmablePresetShortId: string | null
         ) => WebAnalyticsTile[]
