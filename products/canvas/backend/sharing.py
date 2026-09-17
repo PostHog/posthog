@@ -36,6 +36,11 @@ def canvas_is_shareable(canvas: Canvas) -> bool:
     return not canvas.deleted and canvas.kind in SHAREABLE_KINDS
 
 
+def canvas_app_path(canvas: Canvas) -> str:
+    """The web route that deep-links the canvas into PostHog Desktop (the `CodeCanvasLink` scene)."""
+    return f"/desktop/canvas/{canvas.channel_id}/{canvas.id}"
+
+
 def _ready_build(build: CanvasBuild | None) -> CanvasBuild | None:
     if (
         build is None
@@ -69,12 +74,13 @@ def clear_shared_build(canvas: Canvas) -> None:
     canvas.save(update_fields=["shared_build", "updated_at"])
 
 
-def shared_canvas_payload(canvas: Canvas) -> dict[str, Any]:
+def shared_canvas_payload(canvas: Canvas, *, build: CanvasBuild | None = None) -> dict[str, Any]:
     """The public page's view of a canvas: the build pinned when sharing was
-    turned on. The artifact URL is a fresh signed capability minted for this
-    page load; it is only handed out after the share token (and any password)
-    has been validated by the caller."""
-    build = _ready_build(canvas.shared_build)
+    turned on, or ``build`` when the caller shows a member something else (the
+    current publish, while the link is off). The artifact URL is a fresh signed
+    capability minted for this page load; it is only handed out after the share
+    token (and any password) has been validated by the caller."""
+    build = _ready_build(build if build is not None else canvas.shared_build)
     entry = build.manifest.get("entryHtml") if build is not None and isinstance(build.manifest, dict) else None
     artifact_url = create_canvas_artifact_url(build, entry) if build is not None and isinstance(entry, str) else None
     return {
@@ -84,4 +90,5 @@ def shared_canvas_payload(canvas: Canvas) -> dict[str, Any]:
         "description": canvas.description,
         "published": build is not None,
         "artifact_url": artifact_url,
+        "shared_at": (build.finished_at or build.created_at) if build is not None else None,
     }

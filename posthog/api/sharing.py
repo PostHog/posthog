@@ -78,6 +78,7 @@ from products.access_control.backend.presentation.access_control import (
 from products.canvas.backend.models import Canvas
 from products.canvas.backend.sharing import (
     CanvasNotPublished,
+    canvas_app_path,
     canvas_has_ready_build,
     canvas_is_shareable,
     clear_shared_build,
@@ -134,6 +135,53 @@ def _shared_artifact_kind(content_type: str, name: str) -> str:
     if base == "text/html" or extension in _HTML_EXTENSIONS:
         return "html"
     return "file"
+
+
+def _viewer_in_team(viewer: User, team_id: int) -> bool:
+    # The channel rule in the canvas and task access checks assumes a project member; a session from
+    # another organization would pass it for a shared space, so membership is checked here first.
+    return viewer.teams.filter(id=team_id).exists()
+
+
+def _viewer_can_edit_canvas(viewer: User, team: Team, canvas: Canvas) -> bool:
+    # The rule `_require_canvas_access` applies to changing a share, evaluated for the session user.
+    access_control = UserAccessControl(user=viewer, team=team, organization_id=str(team.organization_id))
+    access_level = access_control.get_user_access_level(canvas)
+    return access_level is not None and access_level_satisfied_for_resource("canvas", access_level, "editor")
+
+
+def _shared_page_viewer(
+    user: Optional[User],
+    open_path: str | None,
+    *,
+    sharing_enabled: bool = True,
+    sharing_api_path: str | None = None,
+    is_creator: bool = False,
+) -> dict[str, Any]:
+    """What the page knows about the person looking at it: whether they are signed in, what they may
+    open in the app, and whether they may turn the link on or off (`sharing_api_path` is the endpoint
+    that does)."""
+    if user is None:
+        return {
+            "is_authenticated": False,
+            "email": None,
+            "first_name": None,
+            "theme_mode": None,
+            "open_path": None,
+            "sharing_enabled": sharing_enabled,
+            "sharing_api_path": None,
+            "is_creator": False,
+        }
+    return {
+        "is_authenticated": True,
+        "email": user.email,
+        "first_name": user.first_name,
+        "theme_mode": user.theme_mode,
+        "open_path": open_path,
+        "sharing_enabled": sharing_enabled,
+        "sharing_api_path": sharing_api_path,
+        "is_creator": is_creator,
+    }
 
 
 def _shared_task_artifact_payload(resource: SharingConfiguration, file: SharedTaskArtifactFileDTO) -> dict[str, Any]:
@@ -1238,9 +1286,14 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
     # Set by get_object() when the resolved resource is an ExportedAsset whose token carried a purpose claim.
     _token_purpose: str | None = None
+    _session_user: Any = None
+    _viewer_payload: dict[str, Any] | None = None
 
     def initial(self, request, *args, **kwargs):
         """Override to ensure we don't apply any session authentication."""
+        # Read before the sharing authenticators run below: they replace the session user on the
+        # underlying request. Only `_signed_in_viewer` reads it, and only to fill the page's viewer hints.
+        self._session_user = getattr(request._request, "user", None)
         # Save and clear any existing user to ensure we start fresh
         self._original_user = getattr(request, "user", None)
 
@@ -1254,6 +1307,45 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         # If no sharing auth succeeded, ensure user remains anonymous
         if not request.user:
             request.user = AnonymousUser()
+
+    def _signed_in_viewer(self) -> Optional[User]:
+        user = self._session_user
+        return cast(User, user) if user is not None and user.is_authenticated else None
+
+    def _shared_page_viewer_for(self, resource: SharingConfiguration) -> dict[str, Any]:
+        if self._viewer_payload is None:
+            self._viewer_payload = self._compute_shared_page_viewer(resource)
+        return self._viewer_payload
+
+    def _compute_shared_page_viewer(self, resource: SharingConfiguration) -> dict[str, Any]:
+        viewer = self._signed_in_viewer()
+        open_path: str | None = None
+        sharing_api_path: str | None = None
+        is_creator = False
+        if viewer is not None and _viewer_in_team(viewer, resource.team_id):
+            if resource.canvas is not None:
+                is_creator = resource.canvas.created_by_id == viewer.id
+                if user_can_access_canvas(team_id=resource.team_id, user_id=viewer.id, canvas_id=resource.canvas_id):
+                    open_path = canvas_app_path(resource.canvas)
+                    if _viewer_can_edit_canvas(viewer, resource.team, resource.canvas):
+                        sharing_api_path = f"/api/projects/{resource.team_id}/canvases/{resource.canvas_id}/sharing"
+            elif resource.task_artifact is not None:
+                shared_artifact = resource.task_artifact
+                if tasks_facade.user_can_access_task(shared_artifact.task_id, resource.team_id, viewer.id):
+                    # The public bridge scene (`CodeTaskLink`) that deep-links the run into PostHog Desktop.
+                    open_path = f"/desktop/task/{shared_artifact.task_id}"
+                    if tasks_facade.user_can_control_task(shared_artifact.task_id, resource.team_id, viewer.id):
+                        sharing_api_path = (
+                            f"/api/projects/{resource.team_id}/tasks/{shared_artifact.task_id}"
+                            f"/artifacts/{shared_artifact.artifact_id}/sharing"
+                        )
+        return _shared_page_viewer(
+            viewer,
+            open_path,
+            sharing_enabled=resource.enabled,
+            sharing_api_path=sharing_api_path,
+            is_creator=is_creator,
+        )
 
     def get_object(self) -> Optional[SharingConfiguration | ExportedAsset]:
         # JWT based access (ExportedAsset)
@@ -1296,6 +1388,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         # JWT is valid but for a different share - clear authentication to show unlock page
                         self.request._not_authenticated()
 
+                return sharing_configuration
+
+            # A link that is off is gone for the public. A project member who can open the canvas or
+            # file itself still lands here, on the current version, with the switch to turn it back on.
+            if sharing_configuration and self._shared_page_viewer_for(sharing_configuration)["open_path"]:
                 return sharing_configuration
 
         return None
@@ -1383,7 +1480,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         # The /shared/ page resolves the token from the URL, so no authenticator runs and request.user
         # is a bare AnonymousUser. Shared queries execute without warehouse access control.
         shared_link_user = (
-            cast("User | None", SharedLinkUser(resource)) if isinstance(resource, SharingConfiguration) else None
+            # A link that is off only reaches a member (see get_object), and their page runs no queries.
+            cast("User | None", SharedLinkUser(resource))
+            if isinstance(resource, SharingConfiguration) and resource.enabled
+            else None
         )
 
         context: dict[str, Any] = {
@@ -1802,13 +1902,18 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             asset_description = resource.canvas.description or ""
             # The payload carries a freshly signed artifact URL, so it is only built here, after
             # the share token (and any password) has been validated above.
-            canvas_payload = shared_canvas_payload(resource.canvas)
+            canvas_payload = shared_canvas_payload(
+                resource.canvas, build=None if resource.enabled else resource.canvas.published_build
+            )
             # A password unlock lives in the public page's session, which the authenticated fork
             # endpoint cannot see, so it refuses these shares. Don't offer the copy action.
             canvas_payload["allow_forking"] = (
-                bool((resource.settings or {}).get("allowForking")) and not resource.password_required
+                bool((resource.settings or {}).get("allowForking"))
+                and not resource.password_required
+                and resource.enabled
             )
             exported_data.update({"canvas": canvas_payload})
+            exported_data["viewer"] = self._shared_page_viewer_for(resource)
         elif isinstance(resource, SharingConfiguration) and resource.task_artifact_id:
             # The link serves the upload pinned when the file was shared or its changes were last
             # published, never a later upload on its own.
@@ -1817,6 +1922,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 raise NotFound("No resource found")
             asset_title = file.name
             exported_data.update({"task_artifact": _shared_task_artifact_payload(resource, file)})
+            exported_data["viewer"] = self._shared_page_viewer_for(resource)
         else:
             raise NotFound("No resource found")
 

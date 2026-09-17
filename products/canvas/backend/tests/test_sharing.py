@@ -7,7 +7,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_sharing import mock_exporter_template
-from posthog.models import SharingConfiguration
+from posthog.models import Organization, SharingConfiguration
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
@@ -80,6 +80,7 @@ class TestCanvasSharingApi(CanvasSharingTestBase):
         assert payload["canvas"]["published"] is True
         assert payload["canvas"]["artifact_url"].startswith("https://canvas.example.com/canvas-artifacts/")
         assert payload["canvas"]["artifact_url"].endswith("/index.html")
+        assert payload["canvas"]["shared_at"] is not None
 
     def test_public_link_keeps_the_build_captured_when_sharing_was_turned_on(self):
         canvas_id = self._create_canvas()
@@ -149,6 +150,57 @@ class TestCanvasSharingApi(CanvasSharingTestBase):
         response = self.client.get(f"/shared/{access_token}")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand([("anonymous", None, False), ("outsider", "outsider", False), ("owner", "owner", True)])
+    def test_public_page_offers_the_original_only_to_a_signed_in_viewer_who_can_open_it(
+        self, _name: str, viewer: str | None, can_open: bool
+    ):
+        canvas_id = self._create_canvas()
+        self._publish_ready(canvas_id)
+        access_token = self._enable_sharing(canvas_id)
+        self.user.theme_mode = "dark"
+        self.user.save(update_fields=["theme_mode"])
+        self.client.logout()
+        signed_in: User | None = None
+        if viewer == "outsider":
+            elsewhere = Organization.objects.create(name="Elsewhere")
+            signed_in = User.objects.create_and_join(elsewhere, "outsider@example.com", None)
+        elif viewer == "owner":
+            signed_in = self.user
+        if signed_in is not None:
+            self.client.force_login(signed_in)
+
+        payload = self._shared_payload(access_token)
+
+        with team_scope(self.team.id):
+            channel_id = Canvas.objects.get(id=canvas_id).channel_id
+        assert payload["viewer"] == {
+            "is_authenticated": signed_in is not None,
+            "email": signed_in.email if signed_in else None,
+            "first_name": signed_in.first_name if signed_in else None,
+            "theme_mode": "dark" if viewer == "owner" else None,
+            "open_path": f"/desktop/canvas/{channel_id}/{canvas_id}" if can_open else None,
+            "sharing_enabled": True,
+            "sharing_api_path": f"/api/projects/{self.team.id}/canvases/{canvas_id}/sharing" if can_open else None,
+            "is_creator": viewer == "owner",
+        }
+
+    def test_a_link_that_is_off_still_opens_for_a_member_who_can_open_the_canvas(self):
+        canvas_id = self._create_canvas()
+        self._publish_ready(canvas_id)
+        access_token = self._enable_sharing(canvas_id)
+        turned_off = self.client.patch(self._sharing_url(canvas_id), {"enabled": False})
+        assert turned_off.status_code == status.HTTP_200_OK, turned_off.json()
+
+        with self.settings(CANVAS_ARTIFACT_ORIGIN="https://canvas.example.com"):
+            payload = self._shared_payload(access_token)
+        assert payload["viewer"]["sharing_enabled"] is False
+        assert payload["viewer"]["sharing_api_path"] == self._sharing_url(canvas_id)
+        assert payload["canvas"]["published"] is True
+        assert payload["canvas"]["allow_forking"] is False
+
+        self.client.logout()
+        assert self.client.get(f"/shared/{access_token}").status_code == status.HTTP_404_NOT_FOUND
 
     def test_someone_elses_personal_canvas_cannot_be_shared(self):
         owner = User.objects.create_and_join(self.organization, "owner@example.com", None)
