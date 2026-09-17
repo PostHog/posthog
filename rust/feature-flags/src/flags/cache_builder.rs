@@ -961,6 +961,21 @@ mod tests {
             .insert_flag(team.id, Some(disabled_row("unreferenced-disabled-flag")))
             .await
             .expect("Failed to insert unreferenced inactive flag");
+        for (key, active, deleted) in [("inactive-v2", false, false), ("deleted-v2", true, true)] {
+            context
+                .insert_flag(
+                    team.id,
+                    Some(FeatureFlagRow {
+                        key: key.to_string(),
+                        active,
+                        deleted,
+                        filters: serde_json::json!({"version": 2}),
+                        ..base_flag_row(team.id)
+                    }),
+                )
+                .await
+                .expect("Failed to insert unevaluable v2 flag");
+        }
         let dependent = context
             .insert_flag(
                 team.id,

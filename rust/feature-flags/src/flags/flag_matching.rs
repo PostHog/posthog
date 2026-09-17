@@ -861,13 +861,15 @@ impl FeatureFlagMatcher {
 
         // Joining `filtered_out_flag_ids` pre-seeds the flag false below, like an inactive
         // flag, so a dependent's `flag_evaluates_to: false` condition still resolves.
-        let unsupported_format = FlagError::flag_data_parsing("unsupported configuration format");
         let mut unsupported_flag_ids: Vec<FeatureFlagId> = Vec::new();
         for flag in evaluation_stages.iter().flatten() {
-            if !flag.filters.is_v1() && !self.filtered_out_flag_ids.contains(&flag.id) {
+            if self.filtered_out_flag_ids.contains(&flag.id) {
+                continue;
+            }
+            if let Err(error) = flag.filters.require_v1() {
                 evaluated_flags_map.insert(
                     flag.key.clone(),
-                    FlagDetails::create_error(flag, &unsupported_format, None),
+                    FlagDetails::create_error(flag, &error, None),
                 );
                 unsupported_flag_ids.push(flag.id);
             }

@@ -184,6 +184,10 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
                             body["flags"][key]["reason"]["code"],
                             "flag_data_parsing_error"
                         );
+                        assert_eq!(
+                            body["flags"][key]["reason"]["description"],
+                            "Failed to parse flag data: unsupported feature flag configuration format"
+                        );
                         assert!(body["flags"][key]["metadata"]["payload"].is_null());
                     } else if !active || *deleted {
                         assert!(body["flags"].get(key).is_none(), "{body}");

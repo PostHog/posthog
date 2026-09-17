@@ -107,6 +107,7 @@ pub enum BatchFlagEvaluationError {
     FlagNotFound,
     FlagInactive,
     GroupAggregatedFlag,
+    UnsupportedConfigFormat,
     VersionConflict { expected: i32, actual: i32 },
     PropertyMatchingVersionConflict { expected: i16, actual: i16 },
     Upstream(FlagError),
@@ -121,6 +122,7 @@ impl BatchFlagEvaluationError {
             Self::FlagNotFound => "flag_not_found",
             Self::FlagInactive => "flag_inactive",
             Self::GroupAggregatedFlag => "group_aggregated_flag",
+            Self::UnsupportedConfigFormat => "unsupported_config_format",
             Self::VersionConflict { .. } => "version_conflict",
             Self::PropertyMatchingVersionConflict { .. } => "property_matching_version_conflict",
             Self::Upstream(_) => "upstream_error",
@@ -166,6 +168,13 @@ impl IntoResponse for BatchFlagEvaluationError {
                 StatusCode::BAD_REQUEST,
                 "group_aggregated_flag",
                 "Group-aggregated flags are not supported for batch evaluation".to_string(),
+                None,
+                None,
+            ),
+            Self::UnsupportedConfigFormat => (
+                StatusCode::BAD_REQUEST,
+                "unsupported_config_format",
+                "Flag is stored in a configuration format this service does not evaluate".to_string(),
                 None,
                 None,
             ),
@@ -397,7 +406,7 @@ async fn handle_batch_flag_evaluation(
     target
         .filters
         .require_v1()
-        .map_err(BatchFlagEvaluationError::Upstream)?;
+        .map_err(|_| BatchFlagEvaluationError::UnsupportedConfigFormat)?;
     let target_key = target.key.clone();
 
     let expected_property_matching_version = request

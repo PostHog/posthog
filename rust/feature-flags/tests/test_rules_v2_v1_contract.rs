@@ -253,8 +253,19 @@ async fn run_hash_corpus(db: &TestContext, team_id: i32) -> HashSet<String> {
     for parity in corpus["seed_parity"].as_array().unwrap() {
         let id = str_field(parity, "id");
         let Some(v2) = parity.get("v2") else {
-            // A white-box row with no v2 input: the v1 half is already pinned by the
-            // `variant_vectors` loop above.
+            // The corpus links this white-box row to its v1 vector only through `note`.
+            assert_eq!(id, "parity.final_variant_fallback_divergent");
+            let linked = corpus["variant_vectors"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|vector| str_field(vector, "id") == "variant.hash_one_off_the_end")
+                .expect("linked v1 variant vector");
+            let variants: Vec<MultivariateFlagVariant> =
+                serde_json::from_value(linked["variants"].clone()).unwrap();
+            let hash = prescribed_hash(parity);
+            assert_eq!(hash, prescribed_hash(linked), "{id}: linked v1 hash");
+            assert_eq!(select_variant(hash, &variants), None, "{id}: v1 selection");
             covered.insert(id.to_string());
             continue;
         };

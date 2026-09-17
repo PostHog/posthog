@@ -17,8 +17,10 @@ The legacy `/flags` map and `/decide?v=3` retain false entries with `errorsWhile
 Healthy siblings still evaluate, and request eligibility remains unchanged.
 Malformed v1 documents retain the existing ingress error behavior.
 
-The internal batch evaluation endpoint rejects a non-v1 target before it pages the team.
+The internal batch evaluation endpoint rejects a non-v1 target with HTTP 400 and `unsupported_config_format` before it pages the team, so cohort generation treats the failure as permanent.
 The Rust cache builder fails a team's rebuild on an evaluable non-v1 document, the way Python does.
+The cache builder consumer labels flag data parsing failures `config_format` in metrics and dead-letter queue headers and sends them to that queue without retrying.
+Inactive and deleted non-v1 flags do not fail the team's rebuild.
 `/remote_config` stays outside this boundary: it reads `filters.payloads["true"]` raw, as Django's shadow-compared view does.
 This boundary does not make legacy definitions producers or older cache writers safe for persisted v2 rows.
 Those paths need independent exclusion and deployment-floor protection before such rows can exist.
