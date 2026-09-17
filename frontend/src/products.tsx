@@ -140,6 +140,7 @@ export const productRoutes: Record<string, [string, string]> = {
         'DataWarehouseSourceSchema',
         'dataWarehouseSourceSchema',
     ],
+    '/data-management/warehouse-destinations': ['WarehouseDestinations', 'warehouseDestinations'],
     '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
     '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
     '/data-warehouse/connect': ['DataWarehouseSourceConnect', 'dataWarehouseSourceConnect'],
@@ -680,6 +681,12 @@ export const productConfiguration: Record<string, any> = {
     DataWarehouseSourceNew: { projectBased: true, name: 'New data warehouse source' },
     DataWarehouseSourceConnect: { projectBased: true, name: 'Connect data warehouse source' },
     DataWarehouseSourceSchema: { projectBased: true, name: 'Data warehouse schema' },
+    WarehouseDestinations: {
+        projectBased: true,
+        name: 'Warehouse destinations',
+        description: 'Manage where your warehouse sources write the rows they sync.',
+        iconType: 'data_warehouse',
+    },
     EarlyAccessFeatures: {
         name: 'Early access features',
         projectBased: true,
@@ -1247,6 +1254,7 @@ export const productUrls = {
         const queryString = params.toString()
         return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
     },
+    warehouseDestinations: (): string => '/data-management/warehouse-destinations',
     dataWarehouseSourceConnect: (kind?: string): string =>
         `/data-warehouse/connect${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
     earlyAccessFeatures: (): string => '/early_access_features',
@@ -2140,6 +2148,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'DataWarehouseSourceNew',
             'DataWarehouseSourceConnect',
             'DataWarehouseSourceSchema',
+            'WarehouseDestinations',
         ],
     },
     {
@@ -2874,6 +2883,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
             'DataWarehouseSourceNew',
             'DataWarehouseSourceConnect',
             'DataWarehouseSourceSchema',
+            'WarehouseDestinations',
         ],
     },
     {
@@ -2928,6 +2938,15 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.transformations(),
         sceneKey: 'Transformations',
         sceneKeys: ['Transformations'],
+    },
+    {
+        path: 'Warehouse destinations',
+        category: 'Pipeline',
+        iconType: 'data_warehouse',
+        href: urls.warehouseDestinations(),
+        flag: FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION,
+        sceneKey: 'WarehouseDestinations',
+        sceneKeys: ['WarehouseDestinations'],
     },
     {
         path: 'Warehouse properties',
