@@ -62,6 +62,7 @@ function PreferenceEditor({
         [catalogue]
     )
     const effortOptions = useMemo(() => getEffortsForModel(catalogue, draft.model), [catalogue, draft.model])
+    const editingDisabled = restrictionReason ?? (saving ? 'Saving…' : undefined)
 
     return (
         <div className="flex flex-wrap items-end gap-2">
@@ -82,7 +83,7 @@ function PreferenceEditor({
                     }
                     options={[{ options: [{ value: null as string | null, label: inheritLabel }] }, ...modelOptions]}
                     placeholder={inheritLabel}
-                    disabledReason={restrictionReason ?? (saving ? 'Saving…' : undefined)}
+                    disabledReason={editingDisabled}
                     data-attr="task-agent-default-model"
                 />
             </LemonField.Pure>
@@ -95,9 +96,7 @@ function PreferenceEditor({
                         { value: null as string | null, label: 'Default effort' },
                         ...effortOptions.map(({ value, label }) => ({ value: value as string, label })),
                     ]}
-                    disabledReason={
-                        restrictionReason ?? (saving ? 'Saving…' : draft.model ? undefined : 'Pick a model first')
-                    }
+                    disabledReason={editingDisabled ?? (draft.model ? undefined : 'Pick a model first')}
                     data-attr="task-agent-default-effort"
                 />
             </LemonField.Pure>
