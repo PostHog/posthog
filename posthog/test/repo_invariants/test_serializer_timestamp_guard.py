@@ -7,9 +7,11 @@ value that the product reads back as server truth. `FeatureFlagSerializer` carri
 that hole on `created_at` and `last_called_at` for years, because a `ModelSerializer`
 builds every concrete column as writable unless something says otherwise.
 
-To clear a violation, put the field in `read_only_fields` on `Meta`, or declare it
-with `read_only=True`. A field that a client is supposed to set goes in
-`ALLOWED_WRITABLE` with a one-line reason.
+To clear a violation on a field the serializer generates from the model, put it in
+`read_only_fields` on `Meta`. A field the serializer declares needs `read_only=True`
+on the declaration itself, because DRF ignores `read_only_fields` for a declared
+field. A field that a client is supposed to set goes in `ALLOWED_WRITABLE` with a
+one-line reason.
 
 The failure message lists every violation:
 
@@ -23,7 +25,7 @@ from django.core.exceptions import FieldDoesNotExist
 from django.db import models
 from django.test import RequestFactory
 
-from rest_framework import serializers
+from rest_framework import serializers, viewsets
 from rest_framework.generics import GenericAPIView
 from rest_framework.request import Request
 
@@ -167,11 +169,27 @@ def test_server_owned_timestamps_are_read_only() -> None:
     unexpected = sorted(f"{key} ({reasons})" for key, reasons in violations.items() if key not in ALLOWED_WRITABLE)
     assert not unexpected, (
         "These serializers let a client write a timestamp that the model fills in itself. "
-        "Add the field to read_only_fields on Meta, or declare it with read_only=True. "
+        "Add a generated field to read_only_fields on Meta; a field the serializer declares "
+        "needs read_only=True on the declaration, because read_only_fields does not reach it. "
         "If a client is supposed to set it, add it to ALLOWED_WRITABLE in "
         "posthog/test/repo_invariants/test_serializer_timestamp_guard.py with a one-line reason:\n"
         + "\n".join(unexpected)
     )
+
+
+def test_selected_serializer_follows_get_serializer_class() -> None:
+    # Nothing in the repo today hides a violation behind a per-action serializer, so the
+    # sweep above stays green if this resolution narrows back to the class attribute.
+    class WriteSerializer(serializers.Serializer):
+        pass
+
+    class ActionSpecificViewSet(viewsets.GenericViewSet):
+        serializer_class = None
+
+        def get_serializer_class(self) -> type[serializers.Serializer]:
+            return WriteSerializer if self.action == "create" else serializers.Serializer
+
+    assert _selected_serializer(ActionSpecificViewSet, None, "POST", "create") is WriteSerializer
 
 
 def test_every_write_route_can_be_checked() -> None:
