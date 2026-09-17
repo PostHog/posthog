@@ -239,13 +239,13 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
-    def test_redis_error_falls_back_to_lookback_days(
+    def test_unparseable_checkpoint_falls_back_to_lookback_days(
         self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
     ) -> None:
-        """When checkpoint cannot be retrieved, fall back to lookback_days"""
+        """When the stored checkpoint cannot be parsed, fall back to lookback_days"""
         redis_mock = mock_redis_client()
-        # Make redis.get() raise an exception
-        redis_mock.get = Mock(side_effect=Exception("Redis error"))
+        # A malformed stored value, not a transport failure: those have to raise and retry instead
+        redis_mock.storage["posthog:feature_flag_last_called_sync:last_timestamp"] = b"not-a-timestamp"
         mock_get_client.return_value = redis_mock
         mock_sync_execute.return_value = []
 
@@ -259,6 +259,28 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         assert last_sync.year == 2024
         assert last_sync.month == 6
         assert last_sync.day == 14
+
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
+    @patch("posthog.clickhouse.client.sync_execute")
+    @patch("posthog.tasks.tasks.get_client")
+    def test_checkpoint_read_transport_error_raises_and_keeps_checkpoint(
+        self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
+    ) -> None:
+        redis_mock = mock_redis_client()
+        checkpoint_key = "posthog:feature_flag_last_called_sync:last_timestamp"
+        checkpoint_time = tz.make_aware(datetime(2024, 6, 13, 12, 0, 0))
+        redis_mock.storage[checkpoint_key] = checkpoint_time.isoformat().encode()
+        redis_mock.get = Mock(side_effect=RedisConnectionError("redis is down"))
+        mock_get_client.return_value = redis_mock
+        mock_sync_execute.return_value = []
+
+        # The lookback fallback would cap the window and then advance the checkpoint past
+        # everything older, so the run has to fail and let Celery retry it
+        with self.assertRaises(RedisConnectionError):
+            sync_feature_flag_last_called()
+
+        mock_sync_execute.assert_not_called()
+        assert redis_mock.storage[checkpoint_key] == checkpoint_time.isoformat().encode()
 
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.tasks.tasks.get_client")

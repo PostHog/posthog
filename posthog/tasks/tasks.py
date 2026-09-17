@@ -54,18 +54,22 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_FAILURE_COUNTER = Counter(
     "ClickHouse chunk queries that failed during feature flag last_called_at sync",
 )
 
-# CH_TRANSIENT_ERRORS plus the Redis transport failures the last_called_at sync can hit on its own
-# lock and checkpoint calls. Redis errors are not ClickHouse errors, so without these a Redis blip
-# ends the run with the checkpoint unmoved and no Celery retry; the 6 hour lookback cap then drops
-# the last_called_at updates for any outage longer than that. django-redis wraps the underlying
-# error in ConnectionInterrupted, and the raw redis errors cover the paths that use the redis
-# client directly.
-FEATURE_FLAG_LAST_CALLED_AT_SYNC_TRANSIENT_ERRORS = (
-    *CH_TRANSIENT_ERRORS,
+# The Redis transport failures the last_called_at sync can hit on its lock and checkpoint calls.
+# django-redis wraps the underlying error in ConnectionInterrupted, and the raw redis errors cover
+# the paths that use the redis client directly.
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_REDIS_ERRORS = (
     ConnectionInterrupted,
     RedisError,
     ConnectionError,
     TimeoutError,
+)
+
+# Redis errors are not ClickHouse errors, so without them a Redis blip ends the run with the
+# checkpoint unmoved and no Celery retry; the 6 hour lookback cap then drops the last_called_at
+# updates for any outage longer than that.
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_TRANSIENT_ERRORS = (
+    *CH_TRANSIENT_ERRORS,
+    *FEATURE_FLAG_LAST_CALLED_AT_SYNC_REDIS_ERRORS,
 )
 
 
@@ -1361,8 +1365,14 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                 last_sync_timestamp = timezone.now() - timedelta(
                     days=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS
                 )
+        except FEATURE_FLAG_LAST_CALLED_AT_SYNC_REDIS_ERRORS:
+            # The fallback below caps the window at the max lookback, and the end of the run then
+            # advances the checkpoint past everything older than that cap. So a read that failed on
+            # the transport has to reach Celery and retry, rather than take the fallback.
+            logger.warning("Failed to read last sync timestamp from Redis", exc_info=True)
+            raise
         except Exception as e:
-            logger.warning("Failed to get or parse last sync timestamp", error=str(e))
+            logger.warning("Failed to parse last sync timestamp", error=str(e))
             last_sync_timestamp = timezone.now() - timedelta(
                 days=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS
             )
