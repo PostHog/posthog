@@ -320,7 +320,8 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                     </>
                 }
             />
-            {emailSendingSuspended && (
+            {/* The Reputation tab carries its own suspension banner, which also lists the resume criteria. */}
+            {currentTab !== 'reputation' && emailSendingSuspended && (
                 <LemonBanner type="error" data-attr="workflows-email-suspended-banner">
                     Email sending is suspended for this project. Workflow emails are not being delivered.
                     {emailSendingSuspensionReason ? <> Reason: {emailSendingSuspensionReason}.</> : null} The{' '}
