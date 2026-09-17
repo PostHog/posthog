@@ -142,7 +142,8 @@ logger = structlog.get_logger(__name__)
 # The retired summarization sweep created one schedule per team under this prefix.
 LEGACY_SUMMARIZATION_TEAM_SCHEDULE_PREFIX = "session-summarization-team-"
 
-# Workflow types removed with the legacy session summarization feature (#80312).
+# Workflow types of the removed legacy session summarization feature (#80312):
+# the cleanup terminates any of their executions still running.
 LEGACY_SUMMARIZATION_WORKFLOW_TYPES: tuple[str, ...] = (
     "summarize-session",
     "summarize-session-group",
@@ -669,9 +670,9 @@ async def create_replay_count_metrics_schedule(client: Client):
 async def cleanup_legacy_session_summarization_schedules(client: Client):
     """Delete legacy schedules and terminate their still-running executions.
 
-    The removed workflows were started from chat (via ``start_workflow``) without an
-    execution timeout, so deleting the schedules alone leaves those executions retrying
-    a workflow type no worker registers, forever.
+    Executions started from chat have no execution timeout, so deleting the
+    schedules alone leaves them retrying a workflow type no worker registers,
+    forever.
     """
     legacy_schedule_ids = [
         "video-segment-clustering-coordinator-schedule",
@@ -694,9 +695,6 @@ async def cleanup_legacy_session_summarization_schedules(client: Client):
         # Reaping is best effort: a listing failure must not stop the rest of schedule setup.
         logger.exception("temporal.cleanup_legacy_summarization_team_schedules_failed")
 
-    # Workflow types removed with the legacy summarization feature. Executions started
-    # before the removal have no execution timeout, so without an explicit terminate
-    # Temporal retries their workflow tasks indefinitely.
     type_clauses = " OR ".join(f'WorkflowType = "{wt}"' for wt in LEGACY_SUMMARIZATION_WORKFLOW_TYPES)
     query = f'ExecutionStatus = "Running" AND ({type_clauses})'
     try:
@@ -706,7 +704,7 @@ async def cleanup_legacy_session_summarization_schedules(client: Client):
                     reason="workflow type removed with the legacy session summarization feature"
                 )
             except Exception:
-                # One stuck execution must not stop the others from being terminated.
+                # Keep terminating the rest: one failure must not stop the cleanup.
                 logger.exception(
                     "temporal.cleanup_legacy_summarization_execution_termination_failed",
                     workflow_id=workflow.id,

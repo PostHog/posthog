@@ -34,7 +34,7 @@ class _AsyncAwaitable:
 
 
 def _make_client(running_workflows: list[Any]) -> tuple[MagicMock, list[str]]:
-    """Build a mocked Client whose list_workflows records the visibility query."""
+    """Mocked Client; returns it plus the visibility queries list_workflows ran."""
     client = MagicMock()
     client.get_schedule_handle.return_value.describe = AsyncMock(
         side_effect=RPCError("schedule not found", RPCStatusCode.NOT_FOUND, b"")
@@ -78,8 +78,7 @@ def test_cleanup_termination_failure_does_not_stop_the_loop() -> None:
     running = [MagicMock(id=f"session-summary:group:{i}") for i in range(3)]
     client, _ = _make_client(running)
     handle = client.get_workflow_handle.return_value
-    # Fail the first termination (e.g. the execution closed between listing and
-    # terminating); the remaining two must still be terminated.
+    # The first terminate fails, e.g. the execution closed between listing and terminating.
     handle.terminate = AsyncMock(side_effect=[RPCError("gone", RPCStatusCode.NOT_FOUND, b""), None, None])
 
     asyncio.run(cleanup_legacy_session_summarization_schedules(client))
@@ -98,7 +97,7 @@ def test_cleanup_list_failure_does_not_raise() -> None:
 
     client.list_workflows = list_workflows
 
-    # Must not propagate: schedule setup continues after a listing failure.
+    # A listing failure must not propagate into the rest of schedule setup.
     asyncio.run(cleanup_legacy_session_summarization_schedules(client))
 
     assert queries == [_expected_query()]
