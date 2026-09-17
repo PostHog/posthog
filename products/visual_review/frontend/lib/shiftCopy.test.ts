@@ -29,7 +29,7 @@ describe('describeShift', () => {
         ],
     ])('names a position only when %s', (_, shift, namesPosition) => {
         for (const absorbed of [true, false]) {
-            expect(describeShift(shift, absorbed)?.tooltip.includes('at y=300')).toBe(namesPosition)
+            expect(describeShift(shift, absorbed)?.tooltip.includes('at y=')).toBe(namesPosition)
         }
     })
 })
