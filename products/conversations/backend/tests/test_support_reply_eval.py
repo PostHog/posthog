@@ -52,6 +52,16 @@ class TestEvalOutcomeFromTriage(SimpleTestCase):
                 {"status": "done", "result": "escalated_with_findings", "verdict": "blocked_on_customer"},
                 "needs_clarification",
             ),
+            (
+                "clarified_result_is_clarification",
+                {"status": "awaiting_clarification", "result": "clarified"},
+                "needs_clarification",
+            ),
+            (
+                "suggested_clarification_result",
+                {"status": "done", "result": "suggested_clarification"},
+                "needs_clarification",
+            ),
         ]
     )
     def test_maps_triage(self, _name, triage, expected):

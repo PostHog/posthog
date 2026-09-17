@@ -34,12 +34,16 @@ export function sessionShard(sessionId: string): number {
     return Number.parseInt(identityDigest(sessionId).slice(0, 8), 16) % ML_KEY_SHARDS
 }
 
+const SESSION_KEY_PREFIX = 'session:'
+const IMAGE_KEY_PREFIX = 'image:'
+const TEAM_BLOCK_SK = 'deleted'
+
 export function sessionKeyId(teamId: number, sessionId: string): TableKey {
-    return { pk: `team:${teamId}:shard:${sessionShard(sessionId)}`, sk: `session:${sessionId}` }
+    return { pk: `team:${teamId}:shard:${sessionShard(sessionId)}`, sk: `${SESSION_KEY_PREFIX}${sessionId}` }
 }
 
 export function imageKeyId(teamId: number, sessionMonth: string): TableKey {
-    return { pk: `team:${teamId}`, sk: `image:${sessionMonth}` }
+    return { pk: `team:${teamId}`, sk: `${IMAGE_KEY_PREFIX}${sessionMonth}` }
 }
 
 export function keySessionMonth(identity: MlKeyIdentity): string {
@@ -57,8 +61,18 @@ export function monthKeyIndexId(identity: MlKeyIdentity, key: TableKey): TableKe
     return { pk: `month:${keySessionMonth(identity)}:shard:${sessionShard(id)}`, sk: `key:${id}` }
 }
 
+// The only update to a stored key row is the deletion tombstone, so a cache of one is stale only for a deletion, and its lifetime is what bounds how late that tombstone is seen.
+// A team block row joins them because nothing ever clears one. Only a row that exists is ever held, so holding these caches "blocked", never "not blocked".
+export function holdsCacheableRow(key: TableKey): boolean {
+    return key.sk.startsWith(SESSION_KEY_PREFIX) || key.sk.startsWith(IMAGE_KEY_PREFIX) || key.sk === TEAM_BLOCK_SK
+}
+
+export function storedSessionId(sortKey: string): string | undefined {
+    return sortKey.startsWith(SESSION_KEY_PREFIX) ? sortKey.slice(SESSION_KEY_PREFIX.length) : undefined
+}
+
 export function teamBlockId(teamId: number): TableKey {
-    return { pk: `team:${teamId}`, sk: 'deleted' }
+    return { pk: `team:${teamId}`, sk: TEAM_BLOCK_SK }
 }
 
 export function tableKeyString(key: TableKey): string {
