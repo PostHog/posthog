@@ -290,10 +290,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                 'user_blast_radius_persons',
                 (service: HogFlowBatchPersonQueryService) => service.getBlastRadiusPersons(team, filters),
             ],
-            [
-                'account_audience',
-                (service: HogFlowBatchPersonQueryService) => service.getAccountAudiencePage(team, {}),
-            ],
+            ['account_audience', (service: HogFlowBatchPersonQueryService) => service.getAccountAudiencePage(team, {})],
         ])('reports a %s timeout as AudienceFetchTimeoutError and counts it', async (endpoint, call) => {
             const service = createService()
             const before = await timeoutCount(endpoint)
