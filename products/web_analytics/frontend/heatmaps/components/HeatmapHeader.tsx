@@ -91,6 +91,7 @@ export function HeatmapHeader(): JSX.Element {
                                 action={{
                                     children: 'Retry',
                                     onClick: regenerateScreenshot,
+                                    loading: loading,
                                 }}
                             >
                                 {screenshotError}
