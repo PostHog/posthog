@@ -223,8 +223,8 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
 
 # The product areas that the scope pickers use to group objects, in display order. Each
 # object in `API_SCOPE_OBJECTS` is in exactly one group, so a picker does not have to handle
-# an object that has no group. Internal and hidden objects are all in the last two groups,
-# "Developer experience" and "Internal tools". Tests in test_scopes.py check both rules.
+# an object that has no group. Internal and hidden objects are all in the last group,
+# "Internal tools". Tests in test_scopes.py check both rules.
 API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
     (
         "Product analytics",

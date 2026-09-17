@@ -11,7 +11,6 @@ interface OAuthScopeGroupProps {
     label: string
     rows: OAuthScopeRow[]
     appName: string
-    defaultOpen?: boolean
     onChangeRow: (scopeObject: string, level: ScopeAccessLevel) => void
     onChangeGroup: (scopeObjects: string[], level: ScopeAccessLevel) => void
 }
@@ -28,11 +27,10 @@ export function OAuthScopeGroup({
     label,
     rows,
     appName,
-    defaultOpen = false,
     onChangeRow,
     onChangeGroup,
 }: OAuthScopeGroupProps): JSX.Element {
-    const [open, setOpen] = useState(defaultOpen)
+    const [open, setOpen] = useState(false)
     const counts = countByLevel(rows)
     const uniformLevel = rows.every((row) => row.value === rows[0].value) ? rows[0].value : undefined
     const keys = rows.map((row) => row.key)

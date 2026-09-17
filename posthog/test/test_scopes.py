@@ -164,10 +164,9 @@ class TestApiScopeGroups(SimpleTestCase):
         unknown = sorted(set(filed) - set(API_SCOPE_OBJECTS))
         assert (duplicates, missing, unknown) == ([], [], [])
 
-    def test_internal_and_hidden_scope_objects_are_filed_under_staff_groups(self) -> None:
-        groups = dict(API_SCOPE_GROUPS)
-        staff_objects = set(groups["Internal tools"]) | set(groups["Developer experience"])
-        assert INTERNAL_API_SCOPE_OBJECTS | OAUTH_HIDDEN_SCOPE_OBJECTS <= staff_objects
+    def test_internal_and_hidden_scope_objects_are_filed_under_internal_tools(self) -> None:
+        internal_tools = set(dict(API_SCOPE_GROUPS)["Internal tools"])
+        assert INTERNAL_API_SCOPE_OBJECTS | OAUTH_HIDDEN_SCOPE_OBJECTS <= internal_tools
 
 
 class TestGetOAuthScopesSupported(SimpleTestCase):
