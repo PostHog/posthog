@@ -333,6 +333,7 @@ class TestConversationSerializerTaskField(APIBaseTest):
             log_url=None,
             error_message=None,
             output=None,
+            task_summary=None,
             state={},
         )
         return TaskDetailDTO(
