@@ -91,8 +91,12 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
         updates = client.transact_write_items.call_args.kwargs["TransactItems"]
         self.assertEqual([update["Update"]["Key"] for update in updates], [session_key(7, value) for value in sessions])
         for update in updates:
-            removed = update["Update"]["UpdateExpression"].partition(" REMOVE ")[2].split(", ")
-            self.assertEqual(sorted(removed), ["key_nonce", "sealed_key", "wrapped_key"])
+            expression = update["Update"]["UpdateExpression"]
+            self.assertTrue(expression.startswith("SET deleted = :deleted REMOVE "))
+            self.assertEqual(update["Update"]["ExpressionAttributeValues"], {":deleted": {"BOOL": True}})
+            self.assertEqual(
+                sorted(expression.partition(" REMOVE ")[2].split(", ")), ["key_nonce", "sealed_key", "wrapped_key"]
+            )
         client.query.assert_not_called()
 
     def test_completion_waits_for_reader_leases_then_sweeps_the_team_once_more(self) -> None:

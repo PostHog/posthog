@@ -77,6 +77,8 @@ A team block row is held once a read finds one, because nothing clears a block. 
 A tombstone is held, because a shred only ever sets one and a conditional put cannot overwrite a row that exists, so a deleted session stops costing a read and a refused write on every batch.
 A session key deleted out of band stays usable in a process that already read it, until that entry expires.
 `ROW_CACHE_LIFETIME_MS` therefore sets how soon ingestion observes a session deletion.
+A sealed session key keeps that same bound, because its seal lives on the session row and nothing else holds it.
+The team image key stays cached far longer, but it opens no session on its own.
 A team image key is one row per team per month, so it is held far longer than a session key: it survives eviction, and a short lifetime only buys re-reads.
 Data written under such a key stays unreadable, because the envelope stores no key, and the stored row is a tombstone with no wrapped key, no seal, and no nonce.
 Training readers do not use this cache.

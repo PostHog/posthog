@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 
 import { logger } from '~/common/utils/logger'
-import { MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
+import { MlKeyIdentityMismatchReason, MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 import { sessionStartMonth } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
 
 import { MlDataKey, MlKeyEncryption, openSessionKey, sealSessionKey } from './crypto'
@@ -120,9 +120,9 @@ export class MlKeyBatch {
                     }
                     if (item) {
                         const stored = await this.openStored(identity, item)
-                        if (!stored) {
-                            if (!this.reportedUnusable.has(id)) {
-                                this.reportedUnusable.add(id)
+                        if (typeof stored === 'string') {
+                            const rowNeedsRepair = stored !== 'month_key_unavailable'
+                            if (this.reportUnusable(id, stored) && rowNeedsRepair) {
                                 unusable.push({ id, teamId: identity.teamId })
                             }
                             return
@@ -130,7 +130,7 @@ export class MlKeyBatch {
                         this.keys.set(id, stored)
                     } else {
                         if (identity.sessionId && !this.monthKeyFor(identity)) {
-                            MlMirrorMetrics.incrementMlKeyIdentityMismatch('month_key_unavailable', 1)
+                            this.reportUnusable(id, 'month_key_unavailable')
                             return
                         }
                         let candidate = this.candidates.get(id)
@@ -155,17 +155,28 @@ export class MlKeyBatch {
         }
     }
 
+    private reportUnusable(id: string, reason: MlKeyIdentityMismatchReason): boolean {
+        if (this.reportedUnusable.has(id)) {
+            return false
+        }
+        this.reportedUnusable.add(id)
+        MlMirrorMetrics.incrementMlKeyIdentityMismatch(reason, 1)
+        return true
+    }
+
     private monthKeyFor(identity: MlKeyIdentity): MlDataKey | undefined {
         return this.keys.get(tableKeyString(imageKeyId(identity.teamId, keySessionMonth(identity))))
     }
 
-    /** Resolves a stored row to its key, whether KMS wrapped it or its team month key sealed it. Counts why a row gave none. */
-    private async openStored(identity: MlKeyIdentity, item: DynamoItem): Promise<MlDataKey | undefined> {
+    /** Resolves a stored row to its key, whether KMS wrapped it or its team month key sealed it. */
+    private async openStored(
+        identity: MlKeyIdentity,
+        item: DynamoItem
+    ): Promise<MlDataKey | MlKeyIdentityMismatchReason> {
         if (item.sealed_key?.B && item.key_nonce?.B) {
             const monthKey = this.monthKeyFor(identity)
             if (!monthKey) {
-                MlMirrorMetrics.incrementMlKeyIdentityMismatch('month_key_unavailable', 1)
-                return undefined
+                return 'month_key_unavailable'
             }
             const sealed = { sealed: Buffer.from(item.sealed_key.B), nonce: Buffer.from(item.key_nonce.B) }
             try {
@@ -174,13 +185,11 @@ export class MlKeyBatch {
                 return { identity, plaintext, wrapped: Buffer.alloc(0) }
             } catch {
                 // A seal opens under one month key only, so a failure here means the row and the month key disagree. One row must not stop the lane.
-                MlMirrorMetrics.incrementMlKeyIdentityMismatch('seal_unopenable', 1)
-                return undefined
+                return 'seal_unopenable'
             }
         }
         if (!item.wrapped_key?.B) {
-            MlMirrorMetrics.incrementMlKeyIdentityMismatch('wrapped_key_missing', 1)
-            return undefined
+            return 'wrapped_key_missing'
         }
         if (identity.sessionId) {
             MlMirrorMetrics.incrementMlKeyScheme('v2')
@@ -252,8 +261,22 @@ export class MlKeyBatch {
                     return
                 }
                 // A session keys its own partition, so only a rebalance overlap or a team key puts two writers on one row.
-                const winner = stored.deleted?.BOOL === true ? undefined : await this.openStored(key.identity, stored)
-                if (!winner) {
+                if (stored.deleted?.BOOL === true) {
+                    this.keys.delete(id)
+                    dropped += 1
+                    return
+                }
+                // A wrapped blob is stable, so equal bytes name this batch's own write and spare a KMS decrypt.
+                if (
+                    key.wrapped.length &&
+                    stored.wrapped_key?.B &&
+                    key.wrapped.equals(Buffer.from(stored.wrapped_key.B))
+                ) {
+                    this.encryption.rememberCommitted(key)
+                    return
+                }
+                const winner = await this.openStored(key.identity, stored)
+                if (typeof winner === 'string') {
                     this.keys.delete(id)
                     dropped += 1
                     return
@@ -279,13 +302,16 @@ export class MlKeyBatch {
         }
     }
 
-    /** A KMS-wrapped key keeps its blob. A key minted to be sealed carries the seal its month key made, so it gives no row once that month key goes. */
+    /** A month key keeps its KMS blob. A session key carries the seal its month key made, so it gives no row once that month key goes. */
     private rowFor(key: MlDataKey): DynamoItem | undefined {
         const shared = {
             team_id: { N: String(key.identity.teamId) },
             session_month: { S: keySessionMonth(key.identity) },
         }
-        if (key.wrapped.length) {
+        if (!key.identity.sessionId) {
+            if (!key.wrapped.length) {
+                throw new Error('ML month key has no KMS blob to store')
+            }
             return { wrapped_key: { B: key.wrapped }, ...shared }
         }
         const monthKey = this.monthKeyFor(key.identity)

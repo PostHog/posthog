@@ -11,6 +11,7 @@ import {
     tableKeyString,
     teamBlockId,
 } from './schema'
+import { isTransientError } from './transient'
 
 export class MlKeyReader {
     constructor(
@@ -76,11 +77,18 @@ export class MlKeyReader {
                 if (!item?.wrapped_key?.B || item.deleted?.BOOL === true) {
                     return
                 }
-                const identity = this.identityOf(item)
-                if (blocked(identity.teamId)) {
-                    return
+                try {
+                    const identity = this.identityOf(item)
+                    if (blocked(identity.teamId)) {
+                        return
+                    }
+                    months.set(id, await this.encryption.decrypt(identity, Buffer.from(item.wrapped_key.B)))
+                } catch (error) {
+                    // A throttled KMS must fail the read so the caller retries. A month key that can never open must not stall every session in the batch.
+                    if (isTransientError(error)) {
+                        throw error
+                    }
                 }
-                months.set(id, await this.encryption.decrypt(identity, Buffer.from(item.wrapped_key.B)))
             })
         )
         const result = new Map<string, MlDataKey>()
@@ -108,7 +116,9 @@ export class MlKeyReader {
                     }
                     return
                 }
-                MlMirrorMetrics.incrementMlKeyScheme('v2')
+                if (identity.sessionId) {
+                    MlMirrorMetrics.incrementMlKeyScheme('v2')
+                }
                 result.set(id, await this.encryption.decrypt(identity, Buffer.from(item.wrapped_key!.B!)))
             })
         )
