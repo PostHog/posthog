@@ -172,17 +172,32 @@ const iframeSavedPatch = (patch: MockSignature): Mocks => ({
     patch: { '/api/projects/:team_id/saved/hm_iframe/': patch },
 })
 
+const loadedViewport = { width: 1280, height: 1300 }
+const loadedNarrowViewport = { width: 1280, height: 1700 }
+const unsavedChangesTestOptions = {
+    waitForSelector: ['.heatmaps-ready', '[data-attr="heatmap-save"]'],
+    viewport: loadedViewport,
+}
+const pageSettingsDialogTestOptions = {
+    waitForSelector: ['.heatmaps-ready', '[data-attr="heatmap-page-settings-content"]'],
+    viewport: loadedViewport,
+}
+
 export const UnsavedChanges: Story = {
     ...IframeExample,
     parameters: {
         ...IframeExample.parameters,
-        testOptions: { waitForSelector: '[data-attr="heatmap-save"]', viewport: { width: 1280, height: 1000 } },
+        testOptions: unsavedChangesTestOptions,
     },
     render: () => <AfterLoad run={renameHeatmap} />,
 }
 
 export const UnsavedChangesNarrow: Story = {
     ...UnsavedChanges,
+    parameters: {
+        ...UnsavedChanges.parameters,
+        testOptions: { ...unsavedChangesTestOptions, viewport: loadedNarrowViewport },
+    },
     render: () => (
         <Narrow>
             <AfterLoad run={renameHeatmap} />
@@ -196,7 +211,8 @@ export const Saving: Story = {
         ...UnsavedChanges.parameters,
         testOptions: {
             waitForLoadersToDisappear: false,
-            waitForSelector: '[data-attr="heatmap-save"][aria-disabled="true"]',
+            waitForSelector: ['.heatmaps-ready', '[data-attr="heatmap-save"][aria-disabled="true"]'],
+            viewport: loadedViewport,
         },
     },
     decorators: [...iframeDecorators, mswDecorator(iframeSavedPatch(() => new Promise(() => {})))],
@@ -297,16 +313,17 @@ export const PageSettingsDialog: Story = {
     ...IframeExample,
     parameters: {
         ...IframeExample.parameters,
-        testOptions: {
-            waitForSelector: '[data-attr="heatmap-page-settings-content"]',
-            viewport: { width: 1280, height: 900 },
-        },
+        testOptions: pageSettingsDialogTestOptions,
     },
     render: () => <AfterLoad run={openPageSettings} />,
 }
 
 export const PageSettingsDialogNarrow: Story = {
     ...PageSettingsDialog,
+    parameters: {
+        ...PageSettingsDialog.parameters,
+        testOptions: { ...pageSettingsDialogTestOptions, viewport: loadedNarrowViewport },
+    },
     render: () => (
         <Narrow>
             <AfterLoad run={openPageSettings} />
