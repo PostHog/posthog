@@ -13,6 +13,7 @@ from products.error_tracking.backend.temporal.lifecycle.issue_spiking.types impo
     SpikeEventPersistenceResult,
 )
 from products.error_tracking.backend.temporal.lifecycle.side_effects import (
+    dispatch_issue_lifecycle_alert,
     emit_issue_lifecycle_signal,
     produce_issue_lifecycle_internal_event,
 )
@@ -55,6 +56,21 @@ def persist_issue_spiking_event_activity(inputs: IssueSpikingWorkflowInputs) -> 
 @activity.defn
 @posthoganalytics.scoped()
 @close_db_connections
+def dispatch_issue_spiking_alert_activity(inputs: IssueSpikingWorkflowInputs) -> None:
+    dispatch_issue_lifecycle_alert(
+        inputs,
+        event="$error_tracking_issue_spiking",
+        extra_properties={
+            "computed_baseline": inputs.computed_baseline,
+            "current_bucket_value": inputs.current_bucket_value,
+        },
+        include_status=False,
+    )
+
+
+@activity.defn
+@posthoganalytics.scoped()
+@close_db_connections
 def emit_issue_spiking_internal_event_activity(inputs: IssueSpikingWorkflowInputs) -> None:
     produce_issue_lifecycle_internal_event(
         inputs,
@@ -85,6 +101,7 @@ async def emit_issue_spiking_signal_activity(inputs: IssueSpikingWorkflowInputs)
 
 
 ACTIVITIES = [
+    dispatch_issue_spiking_alert_activity,
     persist_issue_spiking_event_activity,
     emit_issue_spiking_internal_event_activity,
     emit_issue_spiking_signal_activity,

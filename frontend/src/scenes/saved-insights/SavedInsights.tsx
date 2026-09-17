@@ -375,9 +375,7 @@ export function SavedInsights(): JSX.Element {
                         filters={filters}
                         setFilters={setSavedInsightsFilters}
                         quickFilters={
-                            tab === SavedInsightsTabs.Yours
-                                ? ['insightType', 'tags', 'favorites', 'featureFlags']
-                                : undefined
+                            tab === SavedInsightsTabs.Yours ? ['insightType', 'tags', 'favorites'] : undefined
                         }
                     />
                     <LemonTable

@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Any
 
 import pytest
@@ -131,3 +132,23 @@ class TestFactorialSource:
             resumable_source_manager=manager,
             api_version=resolved,
         )
+
+
+class TestFactorialVersionDeprecation:
+    def setup_method(self) -> None:
+        self.source = FactorialSource()
+
+    def test_2025_04_01_is_deprecated_with_sunset_date(self) -> None:
+        # The generic in-product warning keys off this metadata; the registry invariant test checks
+        # the set relationships but not the specific sunset date this PR pins.
+        deprecation = self.source.get_version_deprecation("2025-04-01")
+        assert deprecation is not None
+        assert deprecation.sunset_at == date(2026, 4, 1)
+
+    @pytest.mark.parametrize("version", ["2026-04-01", "2026-07-01"])
+    def test_still_served_versions_are_not_deprecated(self, version: str) -> None:
+        assert self.source.get_version_deprecation(version) is None
+
+    def test_unpinned_source_is_not_deprecated(self) -> None:
+        # An unpinned row resolves to the default, which must never carry a deprecation warning.
+        assert self.source.get_version_deprecation(None) is None

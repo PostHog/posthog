@@ -13,7 +13,7 @@ How to read PostHog experiment results without falling into common interpretatio
 - C7 — Bayesian vs Frequentist confusion (overlapping intervals, p-values)
 - C8 — Inconclusive but trending — when is it ok to ship?
 - C9 — "Significance reached" notification is not a green light to ship
-- C10 — Ship-variant default does not consider any metric result
+- C10 — Ship-variant choice does not consider any metric result
 - C11 — External calculator disagrees with PostHog
 
 ## C1 — Peeking / early stopping [HIGH]
@@ -200,16 +200,14 @@ When a previously-significant banner reverts to not-significant, that's not a bu
 analysis updated with more exposures. Explain the difference between _signal seen so far_ and
 _result confirmed_.
 
-## C10 — Ship-variant default does not consider any metric result [HIGH]
+## C10 — Ship-variant choice does not consider any metric result [LOW]
 
-The End-experiment modal pre-fills the "Variant to keep" selector with the **first non-control
-variant** (`feature_flag_variants[1].key`) every time it opens. There is no significance check,
-no primary-metric direction check, and no guardrail check feeding that default. The "End
-experiment" button is gated by **selecting a conclusion** (won / lost / inconclusive / stopped
-early), _not_ by touching the variant selector — so a user who picks a conclusion and clicks
-through without re-examining the variant ships the position-default variant. The only way to end
-without rewriting the flag is to manually clear the variant selector before clicking; the modal
-does not prompt for this.
+The End-experiment modal opens with the "Variant to keep" selector empty, so ending the experiment
+rolls out nothing unless the user picks a variant. Nothing behind that pick reads the results:
+there is no significance check, no primary-metric direction check, and no guardrail check. The
+"End experiment" button is gated by **selecting a conclusion** (won / lost / inconclusive / stopped
+early), _not_ by the variant selector, so a user who picks a conclusion and clicks through ships
+whichever variant they selected earlier in the same session, unexamined.
 
 The modal also asks **how** to release the chosen variant, with two radio options:
 
@@ -225,7 +223,7 @@ the default. If the user clicks through without re-examining, they get the safer
 release mode but still the position-default _variant_ — those are independent risks.
 
 <!-- Source for maintainers: FinishExperimentModal in
-frontend/src/scenes/experiments/ExperimentView/components.tsx. Verify before citing. -->
+frontend/src/scenes/experiments/ExperimentView/ExperimentModals.tsx. Verify before citing. -->
 
 **Recommend:** before clicking "End experiment", do three things:
 
