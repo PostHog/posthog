@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from django.http import HttpRequest
 
 import structlog
-from celery import shared_task
+from celery import Task, shared_task
 
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.person import Person
@@ -21,16 +21,20 @@ PERSONS_PER_DELETION_TASK = 100
 
 
 class PersonDeletionIncomplete(Exception):
-    """Raised once the failed persons of a chunk have used up their attempts."""
+    """Raised once the failed persons of a chunk have used up their retries."""
 
 
-# Attempts per person, including the first. Failed persons are requeued on their own rather than
-# through Celery's retry, which would re-run the whole chunk: with the person kept, every person
+# Retries per chunk. Failed persons are retried through Celery's retry with the person list
+# narrowed to them, never by re-running the original chunk: with the person kept, every person
 # still resolves on a retry, so a chunk-wide re-run would start new recording workflows and
 # training deletion for persons that already succeeded.
-MAX_DELETION_ATTEMPTS = 4
+MAX_DELETION_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 60
 RETRY_BACKOFF_MAX_SECONDS = 600
+
+
+def _retry_countdown(retries: int) -> int:
+    return min(RETRY_BACKOFF_SECONDS * 2**retries, RETRY_BACKOFF_MAX_SECONDS)
 
 
 def _chunks(items: list[str], size: int) -> Iterator[list[str]]:
@@ -75,22 +79,20 @@ def queue_person_deletion(
 
 # Late ack plus reject-on-worker-lost redeliver the chunk when a worker restarts or is killed
 # mid-run, instead of dropping a deletion the API already reported as queued. Redelivery is safe
-# because every step is idempotent and deleted persons no longer resolve. Celery's own retry only
-# covers exceptions escaping the task; recorded per-person failures requeue themselves below.
+# because every step is idempotent and deleted persons no longer resolve. There is deliberately no
+# autoretry: a retry always goes through self.retry below, so a failed retry publish is rejected
+# rather than re-running the original chunk.
 @shared_task(
+    bind=True,
     ignore_result=True,
     queue=CeleryQueue.LONG_RUNNING.value,
     acks_late=True,
     reject_on_worker_lost=True,
-    autoretry_for=(Exception,),
-    dont_autoretry_for=(PersonDeletionIncomplete,),
-    max_retries=3,
-    retry_backoff=RETRY_BACKOFF_SECONDS,
-    retry_backoff_max=RETRY_BACKOFF_MAX_SECONDS,
-    retry_jitter=True,
+    max_retries=MAX_DELETION_RETRIES,
 )
 @skip_team_scope_audit
 def delete_persons_async(
+    self: Task,
     team_id: int,
     person_uuids: list[str],
     delete_profile: bool,
@@ -98,10 +100,10 @@ def delete_persons_async(
     actor_id: int | None,
     organization_id: str | None,
     was_impersonated: bool,
-    attempt: int = 1,
     unmatched_distinct_ids: list[str] | None = None,
 ) -> None:
     unmatched_distinct_ids = unmatched_distinct_ids or []
+    retries = self.request.retries
     logger.info(
         "delete_persons_async started",
         team_id=team_id,
@@ -109,69 +111,63 @@ def delete_persons_async(
         unmatched_distinct_id_count=len(unmatched_distinct_ids),
         delete_profile=delete_profile,
         delete_recordings=delete_recordings,
-        attempt=attempt,
+        retries=retries,
     )
-    actor = User.objects.filter(pk=actor_id).first() if actor_id is not None else None
-    result = process_queued_person_deletion(
-        team_id,
-        person_uuids,
-        delete_profile=delete_profile,
-        delete_recordings=delete_recordings,
-        actor=actor,
-        was_impersonated=was_impersonated,
-        organization_id=uuid_lib.UUID(organization_id) if organization_id else None,
-        unmatched_distinct_ids=unmatched_distinct_ids,
-    )
+    try:
+        actor = User.objects.filter(pk=actor_id).first() if actor_id is not None else None
+        result = process_queued_person_deletion(
+            team_id,
+            person_uuids,
+            delete_profile=delete_profile,
+            delete_recordings=delete_recordings,
+            actor=actor,
+            was_impersonated=was_impersonated,
+            organization_id=uuid_lib.UUID(organization_id) if organization_id else None,
+            unmatched_distinct_ids=unmatched_distinct_ids,
+        )
+    except Exception as exc:
+        # Nothing per person was recorded, so the same arguments go round again.
+        logger.exception("delete_persons_async crashed", team_id=team_id, retries=retries)
+        raise self.retry(exc=exc, countdown=_retry_countdown(retries))
+
     logger.info(
         "delete_persons_async finished",
         team_id=team_id,
         deleted_count=result.deleted_count,
         error_count=len(result.errors),
-        attempt=attempt,
+        retries=retries,
     )
     if not result.failures:
         return
 
     failures_by_step = Counter(failure.step.value for failure in result.failures)
     failed_uuids = [str(u) for u in result.errors]
-    # A training failure with no person is the unmatched distinct IDs; they come back on the requeue.
+    # A training failure with no person is the unmatched distinct IDs; they come back on the retry.
     unmatched_failed = any(
         f.step is PersonDeletionStep.QUEUE_TRAINING_DELETION and f.person_uuid is None for f in result.failures
     )
-    if attempt < MAX_DELETION_ATTEMPTS:
-        countdown = min(RETRY_BACKOFF_SECONDS * 2 ** (attempt - 1), RETRY_BACKOFF_MAX_SECONDS)
-        logger.warning(
-            "delete_persons_async requeueing failed persons",
-            team_id=team_id,
-            attempt=attempt,
-            countdown_seconds=countdown,
-            failures_by_step=dict(failures_by_step),
-            failed_person_uuids=failed_uuids[:20],
-        )
-        delete_persons_async.apply_async(
-            kwargs={
-                "team_id": team_id,
-                "person_uuids": failed_uuids,
-                "delete_profile": delete_profile,
-                "delete_recordings": delete_recordings,
-                "actor_id": actor_id,
-                "organization_id": organization_id,
-                "was_impersonated": was_impersonated,
-                "attempt": attempt + 1,
-                "unmatched_distinct_ids": unmatched_distinct_ids if unmatched_failed else [],
-            },
-            countdown=countdown,
-        )
-        return
-
-    logger.error(
-        "delete_persons_async gave up",
+    summary = ", ".join(f"{step}={count}" for step, count in failures_by_step.items())
+    logger.warning(
+        "delete_persons_async retrying failed persons",
         team_id=team_id,
-        attempt=attempt,
+        retries=retries,
         failures_by_step=dict(failures_by_step),
         failed_person_uuids=failed_uuids[:20],
     )
-    summary = ", ".join(f"{step}={count}" for step, count in failures_by_step.items())
-    raise PersonDeletionIncomplete(
-        f"team {team_id}: {len(failed_uuids)} persons failed after {attempt} attempts ({summary})"
+    # Past max_retries this raises the exception given here instead of scheduling another run.
+    raise self.retry(
+        kwargs={
+            "team_id": team_id,
+            "person_uuids": failed_uuids,
+            "delete_profile": delete_profile,
+            "delete_recordings": delete_recordings,
+            "actor_id": actor_id,
+            "organization_id": organization_id,
+            "was_impersonated": was_impersonated,
+            "unmatched_distinct_ids": unmatched_distinct_ids if unmatched_failed else [],
+        },
+        countdown=_retry_countdown(retries),
+        exc=PersonDeletionIncomplete(
+            f"team {team_id}: {len(failed_uuids)} persons failed after {retries + 1} attempts ({summary})"
+        ),
     )
