@@ -482,7 +482,10 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         assert kinds.get(24, [Kind.DRAFT]) == [Kind.DRAFT]
         merged = next(item for item in timelines.items if item.number == 21)
         assert merged.author.handle == "alice"
-        assert merged.pushes == 2
+        assert [(push.head_sha, push.pushed_at) for push in merged.pushes] == [
+            ("sha21a", _dt(_ago_offset_with_duration(2, 0, 3600)[0])),
+            ("sha21b", _dt(_ago_offset_with_duration(2, 8 * 3600, 3600)[0])),
+        ]
         assert merged.segments[-1].ended_at == merged.merged_at
         assert merged.started_at == _dt(_ago(2))
         old_open = next((item for item in timelines.items if item.number == 26), None)

@@ -38,7 +38,7 @@ from rest_framework.throttling import UserRateThrottle
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
-from posthog.auth import SessionAuthentication
+from posthog.auth import SessionAuthentication, is_mcp_request
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
@@ -65,6 +65,7 @@ from products.customer_analytics.backend.facade.constants import (
     CUSTOMER_ANALYTICS_TRACK_RULES_FLAG,
 )
 from products.customer_analytics.backend.presentation.views.serializers import (
+    AccountByExternalIdQuerySerializer,
     AccountChannelSummarySerializer,
     AccountEmailThreadMessageSerializer,
     AccountEmailThreadSerializer,
@@ -1212,6 +1213,8 @@ class AccountRelationshipDefinitionViewSet(
             )
         except api.AccountRelationshipDefinitionConflictError as e:
             raise Conflict(str(e))
+        except api.AccountRelationshipDefinitionControlledError:
+            raise Conflict("This relationship is controlled and must stay single-holder.")
         if definition is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountRelationshipDefinitionSerializer(instance=definition).data)
@@ -1221,7 +1224,11 @@ class AccountRelationshipDefinitionViewSet(
         return self.update(request, *args, **kwargs)
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
-        if not api.delete_account_relationship_definition(team_id=self.team_id, definition_id=self.kwargs["pk"]):
+        try:
+            deleted = api.delete_account_relationship_definition(team_id=self.team_id, definition_id=self.kwargs["pk"])
+        except api.AccountRelationshipDefinitionControlledError:
+            raise Conflict("This relationship is controlled and can't be deleted while it is.")
+        if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -1723,6 +1730,31 @@ class AccountViewSet(
             raise PermissionDenied()
         return Response(AccountSerializer(instance=account).data)
 
+    @validated_request(
+        query_serializer=AccountByExternalIdQuerySerializer,
+        operation_id="accounts_by_external_id_retrieve",
+        responses={200: OpenApiResponse(response=AccountSerializer)},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        pagination_class=None,
+        required_scopes=["account:read"],
+    )
+    def by_external_id(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+        try:
+            account = api.get_account_for_view_by_external_id(
+                team_id=self.team_id,
+                external_id=request.validated_query_data["external_id"],
+                user_access_control=self.user_access_control,
+                required_level=_object_required_level(request, write=False),
+            )
+        except api.Account_DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        except api.ResourceForbiddenError:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AccountSerializer(instance=account).data)
+
     @extend_schema(
         parameters=[_ACCOUNT_ID_PARAM],
         request=None,
@@ -2033,6 +2065,11 @@ class AccountViewSet(
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         except api.ResourceForbiddenError:
             raise PermissionDenied()
+        except api.AccountOwnershipManagedError:
+            raise Conflict(
+                "This account has a controlled relationship, or history under one, so it can't be deleted. "
+                "Ignore the account to hide it instead."
+            )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -2340,6 +2377,11 @@ class AccountRelationshipDeletePermission(BasePermission):
         return request.method != "DELETE" or TeamMemberStrictManagementPermission().has_permission(request, view)
 
 
+_AGENT_ROLE_MANAGED = (
+    "This relationship is controlled here and can't be changed by an agent. Change it from the account page."
+)
+
+
 @extend_schema(
     tags=["customer_analytics"],
     parameters=[
@@ -2399,6 +2441,7 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
                 definition_id=write.validated_data["definition"],
                 user_id=write.validated_data["user"],
                 created_by=cast(User, request.user),
+                via_agent=is_mcp_request(request),
             )
         except api.Account_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -2406,6 +2449,8 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             raise ValidationError({"definition": "Relationship definition not found."})
         except api.AccountRelationshipAssigneeNotInOrganization:
             raise ValidationError({"user": "User is not a member of this organization."})
+        except api.AccountRelationshipRoleManagedError:
+            raise Conflict(_AGENT_ROLE_MANAGED)
         return Response(AccountRelationshipSerializer(relationship).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(request=None, responses={200: AccountRelationshipSerializer})
@@ -2414,12 +2459,16 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         account_id = self._accessible_account_id()
         if account_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        relationship = api.end_account_relationship(
-            team_id=self.team_id,
-            account_id=account_id,
-            relationship_id=self.kwargs["pk"],
-            actor=cast(User, request.user),
-        )
+        try:
+            relationship = api.end_account_relationship(
+                team_id=self.team_id,
+                account_id=account_id,
+                relationship_id=self.kwargs["pk"],
+                actor=cast(User, request.user),
+                via_agent=is_mcp_request(request),
+            )
+        except api.AccountRelationshipRoleManagedError:
+            raise Conflict(_AGENT_ROLE_MANAGED)
         if relationship is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountRelationshipSerializer(relationship).data)
@@ -2431,12 +2480,16 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         )
         if account_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        deleted = api.delete_account_relationship(
-            team_id=self.team_id,
-            account_id=account_id,
-            relationship_id=self.kwargs["pk"],
-            actor=cast(User, request.user),
-        )
+        try:
+            deleted = api.delete_account_relationship(
+                team_id=self.team_id,
+                account_id=account_id,
+                relationship_id=self.kwargs["pk"],
+                actor=cast(User, request.user),
+                via_agent=is_mcp_request(request),
+            )
+        except api.AccountRelationshipProtectedError:
+            raise Conflict("The history of a controlled relationship can't be deleted. End the assignment instead.")
         if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)

@@ -15,38 +15,13 @@ import {
     tableKeyString,
     teamBlockId,
 } from './schema'
+import { isTransientError } from './transient'
 
 // Commits retry transient DynamoDB and KMS failures; the budget counts the re-reads as well as the waits and stays under the consumer's loop stall threshold.
 const COMMIT_ATTEMPTS = 10
 const COMMIT_BUDGET_MS = 45_000
 const COMMIT_BACKOFF_BASE_MS = 100
 const COMMIT_BACKOFF_CAP_MS = 3_000
-const TRANSIENT_ERRORS = new Set([
-    'ProvisionedThroughputExceededException',
-    'ThrottlingException',
-    'RequestLimitExceeded',
-    'InternalServerError',
-    'ServiceUnavailableException',
-    'TransactionConflictException',
-    'KMSInternalException',
-    'DependencyTimeoutException',
-    'TimeoutError',
-    'AbortError',
-])
-const TRANSIENT_ERROR_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ETIMEDOUT', 'EAI_AGAIN'])
-
-function isTransientError(error: unknown): boolean {
-    if (!(error instanceof Error)) {
-        return false
-    }
-    const { code, $retryable, $fault } = error as Error & { code?: string; $retryable?: unknown; $fault?: string }
-    return (
-        TRANSIENT_ERRORS.has(error.name) ||
-        TRANSIENT_ERROR_CODES.has(code ?? '') ||
-        $retryable !== undefined ||
-        $fault === 'server'
-    )
-}
 
 function commitRetryDelayMs(attempt: number): number {
     return Math.random() * Math.min(COMMIT_BACKOFF_CAP_MS, COMMIT_BACKOFF_BASE_MS * 2 ** attempt)
@@ -105,9 +80,11 @@ export class MlKeyBatch {
 
     public async read(deadline?: AbortSignal): Promise<void> {
         this.keys.clear()
+        // The image key is the session's start month, so every row this batch needs is known before the first read.
         const initial = this.identities.flatMap((identity) => [
             teamBlockId(identity.teamId),
             sessionKeyId(identity.teamId, identity.sessionId),
+            imageKeyId(identity.teamId, sessionStartMonth(identity.sessionId)),
         ])
         this.state = await this.db.read(initial, deadline)
         const keyIdentities = new Map<string, MlKeyIdentity>()
@@ -126,10 +103,6 @@ export class MlKeyBatch {
                 }
                 keyIdentities.set(tableKeyString(storedKeyId(keyIdentity)), keyIdentity)
             }
-        }
-        const remaining = [...keyIdentities.values()].filter((identity) => !identity.sessionId).map(storedKeyId)
-        for (const [id, item] of await this.db.read(remaining, deadline)) {
-            this.state.set(id, item)
         }
         const unusable: MlStoredKeyMismatch[] = []
         await Promise.all(
@@ -183,19 +156,24 @@ export class MlKeyBatch {
 
     // The index entry goes first and is idempotent, so every stored key has an index entry even when the key put fails or a retried put reports the batch's own write as a competitor's. An index entry without a key is harmless: the month sweep leaves a tombstone that a later key put respects.
     private async persist(deadline: AbortSignal): Promise<void> {
-        const before = [...this.keys.keys()]
-        const results = await Promise.allSettled(
-            [...this.keys].map(async ([id, key]) => {
-                if (this.state.has(id)) {
-                    return
-                }
+        let dropped = 0
+        const unstored = [...this.keys].filter(([id]) => !this.state.has(id))
+        // Every index entry goes in before any key, so a key put that fails still leaves its entry, as it did when each
+        // key wrote its own. These need no condition, so they batch and a key costs one write request rather than two.
+        await this.db.putMany(
+            unstored.map(([, key]) => {
                 const location = storedKeyId(key.identity)
-                await this.db.put(
-                    monthKeyIndexId(key.identity, location),
-                    { key_pk: { S: location.pk }, key_sk: { S: location.sk } },
-                    deadline
-                )
-                const created = await this.db.putIfAbsent(
+                return {
+                    key: monthKeyIndexId(key.identity, location),
+                    attributes: { key_pk: { S: location.pk }, key_sk: { S: location.sk } },
+                }
+            }),
+            deadline
+        )
+        const results = await Promise.allSettled(
+            unstored.map(async ([id, key]) => {
+                const location = storedKeyId(key.identity)
+                const stored = await this.db.putIfAbsent(
                     location,
                     {
                         wrapped_key: { B: key.wrapped },
@@ -204,9 +182,24 @@ export class MlKeyBatch {
                     },
                     deadline
                 )
-                if (created) {
+                if (!stored) {
                     this.encryption.rememberCommitted(key)
+                    return
                 }
+                // A session keys its own partition, so only a rebalance overlap or a team key puts two writers on one row.
+                if (!stored.wrapped_key?.B || stored.deleted?.BOOL === true) {
+                    this.keys.delete(id)
+                    dropped += 1
+                    return
+                }
+                const wrapped = Buffer.from(stored.wrapped_key.B)
+                if (wrapped.equals(key.wrapped)) {
+                    this.encryption.rememberCommitted(key)
+                    return
+                }
+                const organizationId = stored.organization_id?.S
+                const identity = { ...key.identity, ...(organizationId ? { organizationId } : {}) }
+                this.keys.set(id, await this.encryption.decrypt(identity, wrapped))
             })
         )
         const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
@@ -214,8 +207,6 @@ export class MlKeyBatch {
         if (failure) {
             throw failure.reason
         }
-        await this.read(deadline)
-        const dropped = before.filter((id) => !this.keys.has(id)).length
         if (dropped) {
             logger.info('🔑', 'ml_key_commit_dropped_blocked', { dropped })
         }

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildConversationItems,
   type ConversationItem,
+  hasSetupProgressForRun,
 } from "./buildConversationItems";
 
 function consoleMsg(ts: number, message: string, level = "info"): AcpMessage {
@@ -705,6 +706,22 @@ describe("buildConversationItems", () => {
         ["checkout", "in_progress", "Checking out branch main"],
       ]);
       expect(update.isActive).toBe(true);
+    });
+
+    it("finds setup progress only for the current run", () => {
+      const events = [
+        progressMsg(
+          1,
+          "sandbox",
+          "in_progress",
+          "Setting up sandbox",
+          undefined,
+          "setup:run-1",
+        ),
+      ];
+
+      expect(hasSetupProgressForRun(events, "run-1")).toBe(true);
+      expect(hasSetupProgressForRun(events, "run-2")).toBe(false);
     });
 
     it("marks the progress group inactive once no step is in_progress", () => {

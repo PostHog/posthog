@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, Trigger, log_activity
@@ -703,13 +704,24 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
             scoped_organizations=[],
         )
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/",
-            {"name": "Weekly signups"},
-            HTTP_X_POSTHOG_INTENT="Repairing a tile that hit the query row limit",
-        )
+        with (
+            patch.object(
+                OAuthAccessTokenAuthentication,
+                "_validate_token",
+                autospec=True,
+                side_effect=OAuthAccessTokenAuthentication._validate_token,
+            ) as validate_token,
+            patch("posthog.auth.capture_exception") as capture_exception,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/",
+                {"name": "Weekly signups"},
+                HTTP_X_POSTHOG_INTENT="Repairing a tile that hit the query row limit",
+            )
 
         self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(validate_token.call_count, 1)
+        capture_exception.assert_not_called()
         log = ActivityLog.objects.filter(scope="Dashboard").latest("id")
         assert log.detail is not None
         self.assertEqual(
