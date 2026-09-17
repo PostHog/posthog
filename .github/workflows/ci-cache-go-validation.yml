@@ -1,0 +1,83 @@
+name: Go cache validation controls
+on:
+    pull_request:
+        paths:
+            - '.github/workflows/ci-cache-go-validation.yml'
+            - 'livestream/ci_cache_validation.go'
+            - 'tools/phrocs/ci_cache_validation.go'
+            - 'bin/hobby-installer/ci_cache_validation.go'
+permissions:
+    contents: read
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+    full-checkout:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        strategy:
+            matrix:
+                include:
+                    - module: livestream
+                      go: '1.26.4'
+                      dependency: livestream/go.sum
+                      packages: '.'
+                    - module: tools/phrocs
+                      go: '1.25.5'
+                      dependency: ''
+                      packages: './...'
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Set up Go
+              uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+              with:
+                  go-version: ${{ matrix.go }}
+                  cache-dependency-path: ${{ matrix.dependency }}
+            - name: Run golangci-lint
+              uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
+              with:
+                  version: latest
+                  working-directory: ${{ matrix.module }}
+                  args: --timeout=5m
+            - name: Check easyjson generated code is up to date
+              if: matrix.module == 'livestream'
+              working-directory: livestream
+              run: |
+                  go run github.com/mailru/easyjson/easyjson@v0.9.0 events/kafka.go
+                  go run github.com/mailru/easyjson/easyjson@v0.9.0 events/filter.go
+                  git diff --exit-code -- events/*_easyjson.go
+            - name: Run tests
+              working-directory: ${{ matrix.module }}
+              env:
+                  PACKAGES: ${{ matrix.packages }}
+              run: go test -v "$PACKAGES"
+    hobby-uncached:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        strategy:
+            matrix:
+                workload: [build, lint-and-test]
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: bin/hobby-installer
+            - name: Set up Go
+              uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+              with:
+                  go-version: '1.25.5'
+                  cache: false
+            - name: Run golangci-lint
+              if: matrix.workload == 'lint-and-test'
+              uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
+              with:
+                  version: v2.13.1
+                  working-directory: bin/hobby-installer
+                  args: --timeout=5m
+            - name: Run tests
+              if: matrix.workload == 'lint-and-test'
+              run: cd bin/hobby-installer && make test
+            - name: Build
+              if: matrix.workload == 'build'
+              run: cd bin/hobby-installer && make build
