@@ -72,8 +72,7 @@ def _events_timestamp_field(order_expr: ast.OrderExpr) -> ast.Field | None:
 
 
 def _is_events_timestamp_type(type_: ast.Type | None) -> bool:
-    # A select alias named `timestamp` resolves to the aliased expression's type, so a computed alias never
-    # reaches the events FieldType and does not qualify.
+    # A computed select alias named `timestamp` resolves to its expression's type, not to the events FieldType.
     while isinstance(type_, ast.FieldAliasType):
         type_ = type_.type
     if not isinstance(type_, ast.FieldType) or type_.name != "timestamp":
