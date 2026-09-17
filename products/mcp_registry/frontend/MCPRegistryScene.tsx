@@ -1,76 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonInput, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
-import { MCPDiscoverCandidateApi, MCPDiscoverCandidateApiMeasured } from './generated/api.schemas'
+import { Candidate } from './Candidate'
 import { mcpRegistryLogic } from './mcpRegistryLogic'
 
 export const scene: SceneExport = {
     component: MCPRegistryScene,
     logic: mcpRegistryLogic,
-}
-
-type LivenessLabel = { label: string; type: 'success' | 'warning' | 'danger' | 'muted' | 'default' }
-
-/** Probe states are internal keys. People need to know whether the server answers. */
-const LIVENESS: Record<string, LivenessLabel> = {
-    alive_open: { label: 'Live, no sign-in', type: 'success' },
-    alive_auth: { label: 'Live, needs sign-in', type: 'success' },
-    alive_protocol: { label: 'Responds', type: 'default' },
-    package_only: { label: 'Runs locally', type: 'muted' },
-    unprobed: { label: 'Not checked yet', type: 'muted' },
-    not_mcp: { label: 'Not an MCP server', type: 'warning' },
-    dead: { label: 'Not responding', type: 'danger' },
-}
-
-function numberFrom(measured: MCPDiscoverCandidateApiMeasured, key: string): number | null {
-    const value = measured?.[key]
-    return typeof value === 'number' ? value : null
-}
-
-function MeasuredTag({ measured }: { measured: MCPDiscoverCandidateApiMeasured }): JSX.Element | null {
-    const calls = numberFrom(measured, 'calls')
-    if (calls === null) {
-        return null
-    }
-    const errorRate = numberFrom(measured, 'error_rate_pct')
-    const success = errorRate === null ? null : `${(100 - errorRate).toFixed(1)}% success`
-    return (
-        <LemonTag type="highlight">
-            {calls.toLocaleString()} real calls{success ? `, ${success}` : ''}
-        </LemonTag>
-    )
-}
-
-function Candidate({ candidate }: { candidate: MCPDiscoverCandidateApi }): JSX.Element {
-    const liveness = LIVENESS[candidate.liveness] ?? { label: candidate.liveness, type: 'muted' as const }
-    return (
-        <li className="border rounded p-3 flex flex-col gap-1">
-            <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-muted tabular-nums">{candidate.rank}</span>
-                <span className="font-semibold">{candidate.title}</span>
-                <LemonTag type={liveness.type}>{liveness.label}</LemonTag>
-                <MeasuredTag measured={candidate.measured} />
-            </div>
-            {candidate.registry_name ? (
-                <code className="text-xs text-muted break-all">{candidate.registry_name}</code>
-            ) : null}
-            {candidate.description ? <p className="m-0 text-sm">{candidate.description}</p> : null}
-            {candidate.matched_tools.length > 0 ? (
-                <div className="flex gap-1 flex-wrap">
-                    {candidate.matched_tools.map((tool) => (
-                        <LemonTag key={tool.name} type="option">
-                            {tool.name}
-                        </LemonTag>
-                    ))}
-                </div>
-            ) : null}
-        </li>
-    )
 }
 
 export function MCPRegistryScene(): JSX.Element {

@@ -23,6 +23,22 @@ KNOWN_MEASURED_LINKS: dict[str, str] = {
     "PostHog": "io.github.PostHog/mcp",
 }
 
+# Advertised names that SDK scaffolds emit unchanged, so every project using the
+# template reports the same serverInfo.name. A standalone row keyed on one of these
+# would fold unrelated customers' servers into a single global row whose stats and
+# tool list no longer describe any real server. Normalized (see normalize_name).
+TEMPLATE_DEFAULT_SERVER_NAMES: frozenset[str] = frozenset(
+    {
+        "mcp server",  # create-mcp / @modelcontextprotocol TS SDK scaffold
+        "mcpserver",
+        "mcp-server",
+        "my-mcp-server",
+        "mcp-typescript",  # template repo names used as-is
+        "mcp-typescript server on vercel",
+        "server",  # Python SDK FastMCP default
+    }
+)
+
 
 def normalize_name(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", name.lower())
@@ -67,7 +83,7 @@ def find_registry_match(server_name: str) -> LinkResult:
 
 @frozen
 class MeasuredServerResolution:
-    server: MCPRegistryServer
+    server: MCPRegistryServer | None
     link_method: str
     link_candidates: list[str] = field(default_factory=list)
 
@@ -77,6 +93,11 @@ def resolve_measured_server(server_name: str) -> MeasuredServerResolution:
 
     Falls back to a standalone (non-registry) row when no unambiguous match exists,
     reusing a previous standalone row for the same name if one was already created.
+
+    Standalone rows are global (keyed on display_name alone), so a template-default
+    advertised name shared by many projects' scaffolds would fold unrelated servers
+    into one row. Those names resolve to None instead: the stats row still records the
+    project-level signal, but no shared server entity is created for it.
     """
     result = find_registry_match(server_name)
     if result.server is not None:
@@ -84,6 +105,9 @@ def resolve_measured_server(server_name: str) -> MeasuredServerResolution:
             result.server.is_measured = True
             result.server.save(update_fields=["is_measured", "updated_at"])
         return MeasuredServerResolution(server=result.server, link_method=result.method)
+
+    if normalize_name(server_name) in TEMPLATE_DEFAULT_SERVER_NAMES:
+        return MeasuredServerResolution(server=None, link_method="template_default", link_candidates=result.candidates)
 
     standalone = MCPRegistryServer.objects.filter(
         listed_in_registry=False, is_measured=True, display_name=server_name
