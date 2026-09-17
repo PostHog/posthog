@@ -77,7 +77,9 @@ export function reportPendingCrashDumps(
         dumpWrittenAt: new Date(dump.writtenAtMs).toISOString(),
         dumpSizeBytes: String(dump.sizeBytes),
         pendingDumpCount: String(dumps.length),
-        $exception_fingerprint: ["native-crash", process.platform],
+        // Ingestion rejects the whole property bag if this is not a string,
+        // which leaves the event with no issue at all.
+        $exception_fingerprint: `native-crash:${process.platform}`,
       });
       reported += 1;
     }

@@ -87,7 +87,7 @@ describe("pending crash dumps", () => {
       type: "native-crash",
       dumpFileName: "crash.dmp",
       pendingDumpCount: "1",
-      $exception_fingerprint: ["native-crash", process.platform],
+      $exception_fingerprint: `native-crash:${process.platform}`,
     });
     expect(readdirSync(pendingDir)).toHaveLength(0);
   });
