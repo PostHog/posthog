@@ -204,6 +204,14 @@ describe('ML session key batches', () => {
         expect([...boundary.writeBatchSizes].sort((a, b) => b - a)).toEqual([25, 25, 11])
     })
 
+    it('reads every row a batch needs in one pass', async () => {
+        const readsBefore = boundary.readSizes.length
+        await store.prepare([session])
+        // The team block, the session key and the team image key are known up front, so they go in one request.
+        expect(boundary.readSizes.length - readsBefore).toBe(1)
+        expect(boundary.readSizes.at(-1)).toBe(3)
+    })
+
     it('commits concurrent new sessions without conditional failures', async () => {
         await (await store.prepare([session])).commit()
         const identities = Array.from({ length: 120 }, (_, index) => ({
