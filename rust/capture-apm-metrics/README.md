@@ -30,7 +30,7 @@ Pull metrics, all with a `kind` label of `seed` or `periodic`: `capture_metrics_
 
 Push metrics: `capture_metrics_series_redis_pushed`, `capture_metrics_series_redis_push_failed` (with `outcome` = `timeout` or `error`), and `capture_metrics_series_redis_push_duration_seconds` (with `outcome` = `ok`, `timeout`, or `error`). `capture_metrics_series_redis_queue_full` counts series dropped because the writer could not keep up. The writer uses its own Redis connection, so a large pull page does not hold its batches back.
 
-The cache is bounded. When the global or the per-token cap is full, a new series keeps its labels on every row and is not cached or pushed to Redis, until pruning frees a slot. `capture_metrics_series_cache_full` counts those rows, with `cap` = `global` or `token` for the cap that was full. A `token` count with `capture_metrics_series_cache_size` well under the global cap means one token has more live series than `METRICS_SERIES_CACHE_MAX_ENTRIES_PER_TOKEN` allows.
+The cache is bounded. When the global or the per-token cap is full, a new series keeps its labels on every row and is not cached or pushed to Redis, until pruning frees a slot. `capture_metrics_series_cache_full` counts those rows, with `cap` = `global` or `token` for the cap that was full. The `token` series also carries the project token that hit the cap, so the project is known without a log lookup. A `token` count with `capture_metrics_series_cache_size` well under the global cap means that token has more live series than `METRICS_SERIES_CACHE_MAX_ENTRIES_PER_TOKEN` allows.
 
 ## Running the service
 

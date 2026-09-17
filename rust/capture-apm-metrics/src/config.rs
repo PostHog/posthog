@@ -20,10 +20,6 @@ pub struct Config {
     #[envconfig(from = "METRICS_SERIES_LABEL_INTERVAL_SECS", default = "1800")]
     pub metrics_series_label_interval_secs: u64,
 
-    /// Budget for one batch push. A push past it is dropped here but still
-    /// runs in Redis, so a short budget only turns a slow cache into failed
-    /// counts and more concurrent commands. Long enough that a slow cache
-    /// slows the writer and fills its channel instead.
     #[envconfig(from = "METRICS_SERIES_REDIS_TIMEOUT_MS", default = "1000")]
     pub metrics_series_redis_timeout_ms: u64,
 

@@ -123,8 +123,6 @@ async fn start_series_label_gate(config: &Config) -> Arc<SeriesLabelGate> {
         }
     };
 
-    // A pull page is large and holds every command queued behind it on the
-    // same connection, so the writer gets its own.
     let writer_client: Arc<dyn Client> = match RedisClient::with_config(
         redis_url,
         CompressionConfig::disabled(),

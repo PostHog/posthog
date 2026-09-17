@@ -13,12 +13,6 @@
 //! per-token cap limit how many series one pod remembers; a row that finds a
 //! cap full keeps its labels and is not cached. The same "more labels, never
 //! less" direction as a Redis failure.
-//!
-//! The window is shortened per series by a key-derived offset (see
-//! [`expiry_jitter`]). Series first seen together would otherwise be labelled
-//! again in the same second, window after window, and push to Redis in one
-//! burst that the cache answers slowly. With the offset they drift apart by up
-//! to a quarter window per round and are spread evenly after four rounds.
 
 use std::collections::BTreeMap;
 use std::hash::Hasher;
@@ -99,8 +93,6 @@ pub struct CacheLimits {
     pub max_entries_per_token: usize,
 }
 
-/// Which cap refused a slot, for the metric label. Pulled series carry no
-/// token, so only the request path can hit the per-token cap.
 #[derive(Debug, Clone, Copy)]
 enum Cap {
     Global,
@@ -231,7 +223,8 @@ impl SeriesLabelGate {
                 .increment(global_full);
         }
         if token_full > 0 {
-            counter!("capture_metrics_series_cache_full", "source" => "request", "cap" => Cap::Token.as_str())
+            let token: Arc<str> = Arc::from(token);
+            counter!("capture_metrics_series_cache_full", "source" => "request", "cap" => Cap::Token.as_str(), "token" => token)
                 .increment(token_full);
         }
     }
@@ -242,15 +235,13 @@ impl SeriesLabelGate {
             .is_some_and(|entry| now - entry.last_seen < self.window_for(key))
     }
 
-    /// The window this series is labelled on. Never longer than the configured
-    /// window, so every series still gets a labelled row at least that often.
     fn window_for(&self, key: u64) -> i64 {
         self.window_secs - expiry_jitter(key, self.window_secs)
     }
 
     /// Record that `key` was labelled at `seen_at`. An entry past its window
     /// is refreshed in place and keeps its slot. A new entry needs a free slot
-    /// under both caps; returns the cap that had none.
+    /// under both caps.
     fn remember(&self, key: u64, seen_at: i64, token_hash: Option<u64>) -> Result<(), Cap> {
         match self.cache.entry(key) {
             dashmap::Entry::Occupied(mut slot) => {
@@ -502,9 +493,7 @@ impl SeriesLabelGate {
 /// Batch newly labelled series into `ZADD` pipelines. One flush per
 /// [`WRITER_BATCH_SIZE`] series or per [`WRITER_FLUSH_INTERVAL`], whichever
 /// comes first. Failures are counted and dropped; the next pull from another
-/// pod, or this pod's own cache, covers the gap. A flush past `timeout` is
-/// dropped here but still runs in Redis, so `timeout` is the backpressure on
-/// the channel rather than a bound on lost writes.
+/// pod, or this pod's own cache, covers the gap.
 pub fn spawn_redis_writer(
     client: Arc<dyn Client>,
     mut rx: mpsc::Receiver<SeenSeries>,
@@ -586,10 +575,6 @@ fn record_pull(kind: PullKind, outcome: &'static str, stats: &PullStats, elapsed
     }
 }
 
-/// How much shorter than the configured window this series' window is, up to
-/// a quarter window. Series seen together then expire at different times, and
-/// each round spreads them further apart. Derived from the key so all pods
-/// pick the same offset.
 fn expiry_jitter(key: u64, window_secs: i64) -> i64 {
     let spread = (window_secs / 4).max(1);
     (key % spread as u64) as i64
@@ -787,8 +772,6 @@ mod tests {
     fn series_first_seen_together_expire_at_different_times() {
         let (gate, now, _) = gate(true, false);
 
-        // Two fingerprints whose keys carry different offsets, so the second
-        // relabel of each lands in a different second.
         let (early, late) = (1..)
             .flat_map(|a| (a + 1..a + 200).map(move |b| (a, b)))
             .find(|(a, b)| {
@@ -1040,7 +1023,6 @@ mod tests {
         gate.apply("token-a", &mut rows);
         assert_stripped(&rows[0]);
 
-        // The local series is a full window old, the seeded one is not.
         now.fetch_add(600, Ordering::SeqCst);
         let mut rows = vec![row(7), row(8)];
         gate.apply("token-a", &mut rows);
