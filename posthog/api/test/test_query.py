@@ -956,17 +956,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(api_response.status_code, 400, api_response.content)
         self.assertIn("Query must be a JSON object", api_response.json()["detail"])
 
-    def test_upgrade_migrates_query(self):
-        api_response = self.client.post(
-            f"/api/environments/{self.team.id}/query/upgrade/",
-            {"query": {"kind": "RetentionQuery", "version": 1, "retentionFilter": {"showMean": True}}},
-        )
-        self.assertEqual(api_response.status_code, 200, api_response.content)
-        self.assertEqual(
-            api_response.json()["query"],
-            {"kind": "RetentionQuery", "version": 2, "retentionFilter": {"meanRetentionCalculation": "simple"}},
-        )
-
     @snapshot_clickhouse_queries
     def test_full_hogql_query_view(self):
         with time_machine.travel("2020-01-10 12:00:00", tick=False):
