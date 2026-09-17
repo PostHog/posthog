@@ -195,7 +195,37 @@ const AssistantDataVisualizationNode = z.object({
     ).optional(),
 })
 
-const InsightQuery = z.union([AssistantInsightVizNode, AssistantDataVisualizationNode])
+const InsightNodeKind = z.enum([
+    'TrendsQuery',
+    'FunnelsQuery',
+    'RetentionQuery',
+    'PathsQuery',
+    'PathsV2Query',
+    'StickinessQuery',
+    'LifecycleQuery',
+    'WebStatsTableQuery',
+    'WebOverviewQuery',
+])
+
+const AssistantBareInsightQuery = z
+    .object({
+        kind: InsightNodeKind,
+    })
+    .catchall(z.unknown())
+
+const AssistantBareHogQLQuery = z
+    .object({
+        kind: z.literal('HogQLQuery').default('HogQLQuery'),
+        query: z.string().describe('The HogQL query to run.'),
+    })
+    .catchall(z.unknown())
+
+const InsightQuery = z.union([
+    AssistantInsightVizNode,
+    AssistantDataVisualizationNode,
+    AssistantBareInsightQuery,
+    AssistantBareHogQLQuery,
+])
 
 const ElementsStatsRetrieveSchema = () => {
     const ElementsStatsRetrieveQueryParams = orvalSchemas.ElementsStatsRetrieveQueryParams()
