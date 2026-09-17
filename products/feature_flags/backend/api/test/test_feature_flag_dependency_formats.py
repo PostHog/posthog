@@ -53,7 +53,12 @@ class TestFeatureFlagDependencyFormats(APIBaseTest):
     def test_non_v1_target_is_rejected_without_writes(
         self, _name: str, method: str, version: int | float | str | bool | None, rules: set[str]
     ) -> None:
-        target_filters = {"version": version, "groups": "invalid", "rules": [], "seed": "invented-seed"}
+        target_filters: dict[str, JsonValue] = {
+            "version": version,
+            "groups": "invalid",
+            "rules": [],
+            "seed": "invented-seed",
+        }
         target = self.make_flag("target", filters=target_filters, version=42)
         source = self.make_flag("source", filters=dependency_filters(), version=7)
         before = deepcopy(source.filters)

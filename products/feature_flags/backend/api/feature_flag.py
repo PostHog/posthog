@@ -9,7 +9,7 @@ import functools
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict
 from datetime import datetime, timedelta
-from typing import Any, Literal, NoReturn, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, NoReturn, Optional, cast
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
@@ -23,7 +23,6 @@ from cryptography.fernet import InvalidToken
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema_field
 from prometheus_client import Counter
-from pydantic import JsonValue
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.exceptions import ErrorDetail
 from rest_framework.permissions import BasePermission
@@ -141,6 +140,9 @@ from products.feature_flags.backend.version_history import (
 )
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
+
+if TYPE_CHECKING:
+    from pydantic import JsonValue
 
 logger = logging.getLogger(__name__)
 # Dedicated logger name (not `__name__`) so the underlying stdlib logger is created
