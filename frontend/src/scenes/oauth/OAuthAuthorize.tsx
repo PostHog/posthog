@@ -423,13 +423,6 @@ export const OAuthAuthorize = (): JSX.Element => {
                                     )}
                                 </div>
                                 <div className="flex flex-col gap-3 px-4 sm:px-6 py-4">
-                                    {accessControlsApply && (
-                                        <LemonBanner type="info" icon={<IconLock className="LemonBanner__icon" />}>
-                                            <strong>Access controls still apply.</strong> These permissions let{' '}
-                                            {appName} call PostHog on your behalf. Anything you can't view or edit in
-                                            PostHog stays off limits to {appName}, whatever it is granted here.
-                                        </LemonBanner>
-                                    )}
                                     {(identityScopeDescriptions.length > 0 || requiredScopeRows.length > 0) && (
                                         <ul className="space-y-2">
                                             {identityScopeDescriptions.map((description, idx) => (
@@ -477,6 +470,13 @@ export const OAuthAuthorize = (): JSX.Element => {
                                                 />
                                             ))}
                                         </div>
+                                    )}
+                                    {accessControlsApply && (
+                                        <LemonBanner type="info" icon={<IconLock className="LemonBanner__icon" />}>
+                                            <strong>Access controls still apply.</strong> These permissions let{' '}
+                                            {appName} call PostHog on your behalf. Anything you can't view or edit in
+                                            PostHog stays off limits to {appName}, whatever it is granted here.
+                                        </LemonBanner>
                                     )}
                                 </div>
                             </div>
