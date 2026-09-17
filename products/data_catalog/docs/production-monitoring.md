@@ -58,8 +58,6 @@ Evaluation definitions are per-team database rows, not repo code; this document 
 
 - **Aug 2026, this PR removes the `product-data-catalog` flag, so the cohort split it fed goes away once it deploys.** The catalog is in beta for every org, so the flag is deleted along with the `mcp_data_catalog_enabled` event property it stamped. Two live assets read that property and must be edited once the removal deploys: the three judge conditions above, and the catalog-enabled series on tile group 7 (at least `7 · Catalog-first rate for KPI sessions` and `7 · Bypass fails by cohort`, insight `W8ZSWfxc` / 11010495 - sweep the dashboard for others). The judged population widens from catalog-enabled traffic to all hosted-MCP `execute-sql` traffic, so rates either side of the deploy are not directly comparable; the fleet-wide series is the continuous one.
 
-- **Sep 2026, the scout harness stops injecting the listing and the consultation statement.** With the flag gone, every scout run on every project carried catalog steering, and almost all of those projects have no approved metrics. The scout run prompt now mentions the catalog only on a project that has at least one approved, non-drifted metric, with one short fixed paragraph and no metric names. It no longer asks a run to open a derived query with `governed catalog consulted: …`, because prompt text must not exist only so a judge can read it. Expect the bypass judge to fail more scheduled scout runs that derive a measure a governed metric covers: the run is nudged, not required, to use the catalog, and leaves no statement in the trace. A scout that should run a governed metric names it in its own skill body. If scout compliance still needs judging, give the judge a trace-visible fact that costs the prompt nothing, such as a property on the run's lifecycle events.
-
 ### Retired: the deterministic Hog evaluation
 
 `MCP: catalog checked before KPI derivation` (Hog) ran Aug 4-5, 2026 and is retired, disabled pending deletion. Two reasons. Its applicability gate was a keyword list, which required predicting every phrasing of a metric question and measurably covered ~6.5% of sessions - the judges classify semantically instead. And it duplicated the catalog-first tile's measurement with worse failure semantics: any single Hog failure disables the whole evaluation (`disables_evaluation=True` on `hog_error`), which took it offline twice in two days, once from a 10s timeout on a pathological trace and once when tool-span capture changed the traffic shape under it.
@@ -167,7 +165,7 @@ There is deliberately no alert on `concurrency_limited`. That condition already 
 
 - A p95 duration alert on `posthog_data_catalog_metric_run_duration_seconds`. Deferred because the product is still low-volume, so the alert would flap. The expression is `histogram_quantile(0.95, sum by (le, kind) (rate(posthog_data_catalog_metric_run_duration_seconds_bucket[30m])))`, validatable today against the pre-created series.
 - OTLP twins through `OtelInstrumentFactory`, so the same series also land in the PostHog Metrics product.
-- A counter on the scout harness's fail-silent catalog check (`products/signals/backend/scout_harness/runner.py`), exported through the data catalog facade.
+- A counter on the scout harness's fail-silent catalog context injection (`products/signals/backend/scout_harness/runner.py`), exported through the data catalog facade.
 - The backlog gauges described above.
 
 ## Known limits
