@@ -46,6 +46,35 @@ function subagentItem(
   } as SessionUpdateItem;
 }
 
+function toolItem(
+  id: string,
+  options: {
+    title: string;
+    rawInput?: unknown;
+    toolMeta?: ReturnType<typeof posthogToolMeta>;
+  },
+): SessionUpdateItem {
+  return {
+    type: "session_update",
+    id,
+    update: {
+      sessionUpdate: "tool_call",
+      toolCallId: id,
+      title: options.title,
+      kind: "other",
+      status: "in_progress",
+      rawInput: options.rawInput,
+      _meta: options.toolMeta,
+    },
+    turnContext: {
+      toolCalls: new Map(),
+      childItems: new Map(),
+      turnCancelled: false,
+      turnComplete: false,
+    },
+  } as SessionUpdateItem;
+}
+
 function thoughtItem(
   id: string,
   options: { thoughtComplete: boolean; turnComplete?: boolean },
@@ -95,6 +124,47 @@ describe("ToolGroup", () => {
         subagentItem("spawn-2", running),
       ],
       expected: "Subagents",
+    },
+    {
+      name: "names an MCP proxy call while it is active",
+      items: [
+        toolItem("mcp-call", {
+          title: "mcp",
+          rawInput: {
+            tool: "mcp_posthog_query_trends",
+            args: "{}",
+          },
+        }),
+      ],
+      expected: "MCP: posthog query trends",
+    },
+    {
+      name: "names an MCP search while it is active",
+      items: [
+        toolItem("mcp-search", {
+          title: "mcp",
+          rawInput: { search: "dashboard metrics" },
+        }),
+      ],
+      expected: 'Searching MCP tools for "dashboard metrics"',
+    },
+    {
+      name: "names a direct MCP tool while it is active",
+      items: [toolItem("mcp-direct", { title: "mcp_posthog_query_trends" })],
+      expected: "MCP: posthog query trends",
+    },
+    {
+      name: "uses the server and tool after MCP metadata arrives",
+      items: [
+        toolItem("mcp-metadata", {
+          title: "mcp",
+          toolMeta: posthogToolMeta({
+            toolName: "mcp__posthog__query-trends",
+            mcp: { server: "posthog", tool: "query-trends" },
+          }),
+        }),
+      ],
+      expected: "MCP: posthog / query-trends",
     },
     {
       name: "reads as thinking while a trailing thought streams",

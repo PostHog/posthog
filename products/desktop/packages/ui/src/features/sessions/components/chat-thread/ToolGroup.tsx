@@ -4,7 +4,7 @@ import {
   ChatMarkerIcon,
   cn,
 } from "@posthog/quill";
-import { readAgentToolName } from "@posthog/shared";
+import { readAgentToolName, readMcpToolDescriptor } from "@posthog/shared";
 import type { ToolCall } from "@posthog/ui/features/sessions/types";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
@@ -66,6 +66,39 @@ function friendlyName(key: string): string {
     .replace(/[_-]+/g, " ")
     .replace(/([a-z\d])([A-Z])/g, "$1 $2");
   return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
+}
+
+function formatMcpToolName(name: string): string {
+  const withoutPrefix = name.startsWith("mcp_") ? name.slice(4) : name;
+  return withoutPrefix
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z\d])([A-Z])/g, "$1 $2");
+}
+
+function mcpDisplayName(toolCall: ToolCall): string | undefined {
+  const descriptor = readMcpToolDescriptor(toolCall._meta);
+  if (descriptor) {
+    return `MCP: ${descriptor.server} / ${descriptor.tool}`;
+  }
+
+  if (toolCall.title.startsWith("mcp_")) {
+    return `MCP: ${formatMcpToolName(toolCall.title)}`;
+  }
+
+  if (toolCall.title !== "mcp") return undefined;
+
+  if (!toolCall.rawInput || typeof toolCall.rawInput !== "object") {
+    return "MCP";
+  }
+
+  const input = toolCall.rawInput as Record<string, unknown>;
+  if (typeof input.search === "string" && input.search.trim()) {
+    return `Searching MCP tools for "${input.search}"`;
+  }
+  if (typeof input.tool === "string" && input.tool.trim()) {
+    return `MCP: ${formatMcpToolName(input.tool)}`;
+  }
+  return "MCP";
 }
 
 function isToolActive(item: SessionUpdateItem): boolean {
@@ -140,12 +173,16 @@ export const ToolGroup = memo(function ToolGroup({
   // thought-only run has to resolve to no current tool rather than throw on `undefined`.
   const currentItem = lastActiveTool(tools) ?? tools.at(-1);
   const current = currentItem ? resolveTool(currentItem) : null;
-  const currentName = currentItem ? friendlyName(toolKey(currentItem)) : null;
-  const currentContext =
-    current?.toolCall.title &&
-    currentName &&
-    current.toolCall.title.toLocaleLowerCase() !==
-      currentName.toLocaleLowerCase()
+  const mcpName = current ? mcpDisplayName(current.toolCall) : undefined;
+  const currentName = currentItem
+    ? (mcpName ?? friendlyName(toolKey(currentItem)))
+    : null;
+  const currentContext = mcpName
+    ? null
+    : current?.toolCall.title &&
+        currentName &&
+        current.toolCall.title.toLocaleLowerCase() !==
+          currentName.toLocaleLowerCase()
       ? current.toolCall.title
       : null;
   const LeadIcon = current
