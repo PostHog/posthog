@@ -1377,7 +1377,7 @@ Diffed against: <https://api.charthop.com/swagger.json>
 - [ ] `/v1/user` — lookup mapping ChartHop user accounts to person ids for adoption analysis (medium)
 - [ ] `/v1/org/{orgId}/scenario` — headcount planning scenarios, needed to compare planned vs actual hiring (medium)
 
-Note: Full OpenAPI 3 spec (2 MB, 541 paths) is served unauthenticated at api.charthop.com/swagger.json. PostHog covers the core org-chart entities but none of the compensation, performance, or time-off ledger surface.
+Note: Full OpenAPI 3 spec (2 MB, 541 paths) is served unauthenticated at api.charthop.com/swagger.json. PostHog covers the core org-chart entities, comp bands, comp change history, and time-off policies. Still uncovered: equity grants, comp review cycles, the performance surface, and the time-off ledger.
 
 ## ChartMogul — gaps
 
