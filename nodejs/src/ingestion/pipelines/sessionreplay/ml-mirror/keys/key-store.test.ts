@@ -1,5 +1,6 @@
 import {
     BatchGetItemCommand,
+    BatchWriteItemCommand,
     ConditionalCheckFailedException,
     DynamoDBClient,
     PutItemCommand,
@@ -48,9 +49,21 @@ class DynamoBoundary {
     public readonly items = new Map<string, DynamoItem>()
     public readSizes: number[] = []
     public writes = 0
+    public writeRequests = 0
     public conditionalFailures = 0
 
-    public async send(command: BatchGetItemCommand | PutItemCommand): Promise<object> {
+    public async send(command: BatchGetItemCommand | BatchWriteItemCommand | PutItemCommand): Promise<object> {
+        if (command instanceof BatchWriteItemCommand) {
+            const requests = command.input.RequestItems![table]
+            this.writeRequests += 1
+            await Promise.resolve()
+            for (const request of requests) {
+                const row = request.PutRequest!.Item!
+                this.writes += 1
+                this.items.set(JSON.stringify([row.pk.S, row.sk.S]), row)
+            }
+            return {}
+        }
         if (command instanceof BatchGetItemCommand) {
             const keys = command.input.RequestItems![table].Keys!
             if (keys.some((key) => Buffer.byteLength(key.sk.S!) > 1024)) {
@@ -69,6 +82,7 @@ class DynamoBoundary {
         const item = command.input.Item!
         const id = JSON.stringify([item.pk.S, item.sk.S])
         this.writes += 1
+        this.writeRequests += 1
         await Promise.resolve()
         if (command.input.ConditionExpression === 'attribute_not_exists(pk)' && this.items.has(id)) {
             this.conditionalFailures += 1
@@ -139,6 +153,22 @@ describe('ML session key batches', () => {
         expect(Math.max(...boundary.readSizes)).toBeLessThanOrEqual(100)
         expect(boundary.writes).toBe(4)
         expect((await reader.read([sessionKeyId(session.teamId, session.sessionId)])).size).toBe(1)
+    })
+
+    it('writes one request per key instead of two by batching the month index entries', async () => {
+        const identities = Array.from({ length: 60 }, (_, index) => ({
+            ...session,
+            sessionId: `01994569-4380-7000-8000-${(index + 200).toString(16).padStart(12, '0')}`,
+        }))
+        const batch = await store.prepare(identities)
+        jest.useFakeTimers()
+        const committing = batch.commit()
+        await jest.runAllTimersAsync()
+        await committing
+        // 60 session keys and one team image key. Each is one conditional put, and their 61 index entries pack into
+        // three batches of at most 25, so 122 requests become 64.
+        expect(boundary.writes).toBe(122)
+        expect(boundary.writeRequests).toBe(64)
     })
 
     it('commits concurrent new sessions without conditional failures', async () => {
@@ -264,7 +294,7 @@ describe('ML session key batches', () => {
         const send = boundary.send.bind(boundary)
         let remaining = 1
         jest.spyOn(boundary, 'send').mockImplementation((command) => {
-            if (command instanceof PutItemCommand && command.input.Item!.pk.S!.startsWith('month:') && remaining > 0) {
+            if (command instanceof BatchWriteItemCommand && remaining > 0) {
                 remaining -= 1
                 return Promise.reject(transientError('ProvisionedThroughputExceededException'))
             }

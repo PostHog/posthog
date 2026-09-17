@@ -1,6 +1,7 @@
 import {
     AttributeValue,
     BatchGetItemCommand,
+    BatchWriteItemCommand,
     ConditionalCheckFailedException,
     DynamoDBClient,
     PutItemCommand,
@@ -228,6 +229,53 @@ export class MlKeyDynamoDB {
         // An endpoint that refuses the put without returning the row leaves the winner unknown. Reading it costs one
         // request on a conflict and keeps the caller from reading an absent key as an unusable one.
         return (await this.read([key], deadline)).get(tableKeyString(key)) ?? {}
+    }
+
+    /** Writes rows that need no condition, 25 to a request, so a key costs one write request rather than two. */
+    public async putMany(rows: Array<{ key: TableKey; attributes: DynamoItem }>, deadline: AbortSignal): Promise<void> {
+        const chunks: (typeof rows)[] = []
+        for (let offset = 0; offset < rows.length; offset += 25) {
+            chunks.push(rows.slice(offset, offset + 25))
+        }
+        await Promise.all(
+            chunks.map((chunk) =>
+                this.writeConcurrency(async () => {
+                    let pending = chunk.map(({ key, attributes }) => ({
+                        PutRequest: { Item: { ...encodeKey(key), ...attributes } },
+                    }))
+                    for (let attempt = 0; pending.length && attempt < this.attempts; attempt++) {
+                        let response
+                        try {
+                            response = await this.timed('dynamodb_put_batch', () =>
+                                this.client.send(
+                                    new BatchWriteItemCommand({ RequestItems: { [this.tableName]: pending } }),
+                                    { abortSignal: this.requestSignal(deadline) }
+                                )
+                            )
+                        } catch (error) {
+                            if (!isTransientError(error) || deadline.aborted || attempt === this.attempts - 1) {
+                                throw error
+                            }
+                            await this.backoff(attempt, deadline)
+                            if (deadline.aborted) {
+                                throw error
+                            }
+                            continue
+                        }
+                        pending = (response.UnprocessedItems?.[this.tableName] ?? []) as typeof pending
+                        if (pending.length) {
+                            await this.backoff(attempt, deadline)
+                            if (deadline.aborted) {
+                                throw new DOMException('ML key manager index write deadline expired', 'AbortError')
+                            }
+                        }
+                    }
+                    if (pending.length) {
+                        throw new Error('ML key manager index write exhausted retries')
+                    }
+                })
+            )
+        )
     }
 
     public async put(key: TableKey, attributes: DynamoItem, deadline?: AbortSignal): Promise<void> {
