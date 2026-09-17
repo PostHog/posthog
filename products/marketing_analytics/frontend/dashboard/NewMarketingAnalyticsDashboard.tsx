@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconCursor, IconPeople, IconRetention, IconTarget, IconTrends } from '@posthog/icons'
@@ -103,7 +102,8 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
     } = useValues(marketingAcquisitionLogic)
     const { setCustomerGoalId, toggleTrafficSort, setTrafficChartMetric } = useActions(marketingAcquisitionLogic)
     const { dateFilter, compareFilter, shouldFilterTestAccounts } = useValues(marketingAnalyticsLogic)
-    const { setDates, setCompareFilter, openSetup } = useActions(marketingAnalyticsLogic)
+    const { setDates, setCompareFilter, openSetup, reportDashboardSectionViewed, reportDashboardControlUsed } =
+        useActions(marketingAnalyticsLogic)
     const { setupPlan, setupPlanLoading, visibleSuggestions } = useValues(setupPlanLogic)
     const { loadSetupPlan, reviewSuggestion } = useActions(setupPlanLogic)
     const [sourcesExpanded, setSourcesExpanded] = useLocalStorage('marketing-source-suggestions-expanded', false)
@@ -128,15 +128,13 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
             return
         }
         reportedSection.current = activeSection
-        posthog.capture('marketing analytics dashboard section viewed', {
-            section: activeSection,
-            customer_goal_configured: !!customerConversionGoal,
-            revenue_goal_configured: !!revenueQuery,
+        reportDashboardSectionViewed(activeSection, {
+            customerGoal: !!customerConversionGoal,
+            revenueGoal: !!revenueQuery,
         })
-    }, [activeSection, currentTeamLoading, customerConversionGoal, revenueQuery])
-    const reportControl = (control: string, value?: string | boolean): void => {
-        posthog.capture('marketing analytics dashboard control used', { section: activeSection, control, value })
-    }
+    }, [activeSection, currentTeamLoading, customerConversionGoal, revenueQuery, reportDashboardSectionViewed])
+    const reportControl = (control: string, value?: string | boolean): void =>
+        reportDashboardControlUsed(activeSection, control, value)
 
     const dateRange = { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo }
     const query: WebOverviewQuery = {

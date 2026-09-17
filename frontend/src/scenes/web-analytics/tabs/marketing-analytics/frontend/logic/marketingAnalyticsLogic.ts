@@ -96,6 +96,11 @@ export enum SetupSection {
 
 export const DEFAULT_SETUP_SECTION = SetupSection.SUGGESTIONS
 
+export interface DashboardGoalsConfigured {
+    customerGoal: boolean
+    revenueGoal: boolean
+}
+
 /** Where a tab key lands once Setup absorbs it. Applied by the scene, which is what
  * knows whether Setup is rendering — with its flag off `integration-health` is still a
  * real tab and resolves on its own. */
@@ -414,6 +419,22 @@ export interface marketingAnalyticsLogicActions {
         section: SetupSection
         entryPoint: SetupEntryPoint
     }
+    reportDashboardSectionViewed: (
+        section: string,
+        configured: DashboardGoalsConfigured
+    ) => {
+        section: string
+        configured: DashboardGoalsConfigured
+    }
+    reportDashboardControlUsed: (
+        section: string,
+        control: string,
+        value?: string | boolean
+    ) => {
+        section: string
+        control: string
+        value: string | boolean | undefined
+    }
     setSetupEntryPoint: (entryPoint: SetupEntryPoint | null) => {
         entryPoint: SetupEntryPoint | null
     } // marketingAnalyticsSettingsLogic
@@ -658,6 +679,15 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         setActiveTab: (tab: MarketingAnalyticsTab) => ({ tab }),
         setSetupSection: (section: SetupSection) => ({ section }),
         openSetup: (section: SetupSection, entryPoint: SetupEntryPoint) => ({ section, entryPoint }),
+        reportDashboardSectionViewed: (section: string, configured: DashboardGoalsConfigured) => ({
+            section,
+            configured,
+        }),
+        reportDashboardControlUsed: (section: string, control: string, value?: string | boolean) => ({
+            section,
+            control,
+            value,
+        }),
 
         // Low-level state setters (used by listeners)
         setDraftConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
@@ -1435,6 +1465,16 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 if (tab !== MarketingAnalyticsTab.SETUP && values.setupEntryPoint) {
                     actions.setSetupEntryPoint(null)
                 }
+            },
+            reportDashboardSectionViewed: ({ section, configured }) => {
+                posthog.capture('marketing analytics dashboard section viewed', {
+                    section,
+                    customer_goal_configured: configured.customerGoal,
+                    revenue_goal_configured: configured.revenueGoal,
+                })
+            },
+            reportDashboardControlUsed: ({ section, control, value }) => {
+                posthog.capture('marketing analytics dashboard control used', { section, control, value })
             },
             // Track dashboard interactions for filters and chart controls
             setDates: trackDashboardInteraction,
