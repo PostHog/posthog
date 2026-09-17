@@ -1390,7 +1390,13 @@ async def repartition_table_in_place(
                 claim_token=claim_token,
                 checkpoint={
                     "temp_uri": temp_uri,
-                    "rows_written": rows_so_far,
+                    # The field records what temp holds, but `rows_so_far` counts only the rows this
+                    # call appended, so a resumed attempt has to add back the prefix it inherited.
+                    # Recording the appended count alone makes the checkpoint go backwards mid-resume,
+                    # and `_retrying_a_killed_attempt` then reads an advancing rewrite as a stalled one
+                    # and stands its retry down until the next sync, whose merge invalidates the
+                    # checkpoint and restarts the rewrite from row 0.
+                    "rows_written": skip_rows + rows_so_far,
                     "target": resolved_target.to_dict(),
                     "live_version": checkpoint_version,
                     "held_at": datetime.now(UTC).isoformat(),
