@@ -9,7 +9,7 @@ import { DrawerScene } from "@/components/DrawerScene";
 import { FadeScrim } from "@/components/FadeScrim";
 import { Hedgehog } from "@/components/Hedgehog";
 import { StatusLine, Transcript } from "@/components/Transcript";
-import { DEFAULT_MODEL } from "@/config";
+import { useComposer } from "@/lib/composer";
 import { usePrefs } from "@/lib/prefs";
 import { useTask } from "@/lib/queries";
 import { useSessions } from "@/lib/session";
@@ -25,9 +25,7 @@ export default function TaskScreen() {
   const hedgehogMode = usePrefs((s) => s.hedgehogMode);
   const { connect, disconnect, sendPrompt, cancelTurn, respondToPermission } =
     useSessions();
-  const [model, setModel] = useState(
-    task.data?.latest_run?.model ?? DEFAULT_MODEL,
-  );
+  const setModel = useComposer((s) => s.setModel);
   const scrollRef = useRef<ScrollView>(null);
   // Follow the bottom only until the first transcript paints; after that the
   // reader owns the scroll position, except when they send a message.
@@ -47,7 +45,7 @@ export default function TaskScreen() {
   useEffect(() => {
     const runModel = task.data?.latest_run?.model;
     if (runModel) setModel(runModel);
-  }, [task.data?.latest_run?.model]);
+  }, [task.data?.latest_run?.model, setModel]);
 
   const blocks = session?.blocks;
   // Walks while thinking or using tools; stands still once text is streaming.
@@ -71,7 +69,7 @@ export default function TaskScreen() {
     // The bubble lays out before the request resolves, so pick the id first.
     const blockId = `local-${Date.now()}`;
     pendingScrollTo.current = blockId;
-    await sendPrompt(id, text, model, blockId);
+    await sendPrompt(id, text, blockId);
   };
 
   // Keep a sliver of the previous reply above the new message. Anything
@@ -146,8 +144,6 @@ export default function TaskScreen() {
             <FadeScrim style={styles.scrim} />
             <Composer
               placeholder="Reply"
-              model={model}
-              onModelChange={setModel}
               onSend={send}
               onStop={isPending ? undefined : () => cancelTurn(id)}
               busy={session?.turnActive}

@@ -250,10 +250,7 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
         <FadeScrim style={styles.footerScrim} color={colors.bgDeep} />
         <GlassCircleButton
           size={FOOTER_HEIGHT}
-          onPress={() => {
-            closeDrawer();
-            router.push("/settings");
-          }}
+          onPress={() => router.push("/settings")}
         >
           <Text style={styles.avatarText}>
             {userName.slice(0, 2).toUpperCase()}

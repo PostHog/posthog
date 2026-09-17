@@ -76,7 +76,7 @@ export default function SettingsSheet() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: 18, gap: 14, paddingBottom: 40 },
+  content: { padding: 18, paddingTop: 22, gap: 14, paddingBottom: 40 },
   header: {
     flexDirection: "row",
     alignItems: "center",

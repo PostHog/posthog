@@ -1,12 +1,5 @@
 import { useRouter } from "expo-router";
-import { useState } from "react";
-import {
-  ActionSheetIOS,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import {
   KeyboardStickyView,
   useReanimatedKeyboardAnimation,
@@ -17,15 +10,12 @@ import { ChatHeader } from "@/components/ChatHeader";
 import { Composer } from "@/components/Composer";
 import { DrawerScene } from "@/components/DrawerScene";
 import { Logomark } from "@/components/Icons";
-import { DEFAULT_MODEL } from "@/config";
 import { useAuth } from "@/lib/auth";
 import {
   createAndRunTask,
   useDefaultRepository,
   useInvalidateTasks,
-  useRepositories,
 } from "@/lib/queries";
-import { useRepo } from "@/lib/repo";
 import { useSessions } from "@/lib/session";
 import { colors, fonts } from "@/lib/theme";
 
@@ -34,25 +24,7 @@ export default function NewChatScreen() {
   const insets = useSafeAreaInsets();
   const userName = useAuth((s) => s.session?.userName ?? "");
   const repository = useDefaultRepository();
-  const repositories = useRepositories();
-  const setRepository = useRepo((s) => s.setRepository);
-
-  const pickRepository = (): void => {
-    const options = repositories.data ?? [];
-    ActionSheetIOS.showActionSheetWithOptions(
-      {
-        title: "Repository",
-        options: [...options, "No repository", "Cancel"],
-        cancelButtonIndex: options.length + 1,
-      },
-      (index) => {
-        if (index < options.length) setRepository(options[index]);
-        else if (index === options.length) setRepository(null);
-      },
-    );
-  };
   const invalidateTasks = useInvalidateTasks();
-  const [model, setModel] = useState(DEFAULT_MODEL);
   // Keep the greeting centred in the space the keyboard leaves. The reported
   // height covers the bottom inset too, which the composer already occupied.
   const keyboard = useReanimatedKeyboardAnimation();
@@ -76,7 +48,6 @@ export default function NewChatScreen() {
       const task = await createAndRunTask({
         prompt: text,
         repository: repository.data ?? null,
-        model,
       });
       adopt(tempId, task);
       invalidateTasks();
@@ -97,24 +68,12 @@ export default function NewChatScreen() {
         <Text style={styles.greeting}>
           {userName ? `${userName} returns!` : "G'day"}
         </Text>
-        {repository.isLoading ? null : (
-          <Pressable
-            onPress={pickRepository}
-            hitSlop={10}
-            style={({ pressed }) => pressed && { opacity: 0.5 }}
-          >
-            <Text style={styles.repo}>
-              {repository.data ?? "Choose a repository"}
-            </Text>
-          </Pressable>
-        )}
       </Animated.View>
       <KeyboardStickyView offset={{ closed: 0, opened: insets.bottom }}>
         <View style={[styles.composer, { paddingBottom: insets.bottom + 8 }]}>
           <Composer
             placeholder="Chat with PostHog"
-            model={model}
-            onModelChange={setModel}
+            repository={repository.data ?? null}
             onSend={send}
             autoFocus
           />
@@ -138,6 +97,5 @@ const styles = StyleSheet.create({
     color: colors.ink,
     textAlign: "center",
   },
-  repo: { fontFamily: fonts.mono, fontSize: 12, color: colors.inkMute },
   composer: { paddingHorizontal: 12 },
 });

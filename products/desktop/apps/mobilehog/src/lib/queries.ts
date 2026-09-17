@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DEFAULT_MODEL, DEFAULT_REPOSITORY } from "@/config";
 import { useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
+import { currentRunConfig } from "@/lib/composer";
 import { useRepo } from "@/lib/repo";
 
 const TERMINAL: ReadonlySet<string> = new Set([
@@ -147,7 +148,6 @@ export function useInvalidateTasks() {
 export async function createAndRunTask(input: {
   prompt: string;
   repository: string | null;
-  model: string;
 }): Promise<Task> {
   const client = getClient();
   const task = await client.createTask({
@@ -157,6 +157,6 @@ export async function createAndRunTask(input: {
   });
   return client.runTaskInCloud(task.id, undefined, {
     pendingUserMessage: input.prompt,
-    model: input.model,
+    ...currentRunConfig(),
   });
 }
