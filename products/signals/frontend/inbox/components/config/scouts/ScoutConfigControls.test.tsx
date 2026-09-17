@@ -202,6 +202,7 @@ describe('ScoutConfigForm', () => {
     it.each([
         ['Claude Sonnet 5', 'claude-sonnet-5'],
         ['GPT-5.6 Luna', 'gpt-5.6-luna'],
+        ['GPT-6 Astra', 'gpt-6-astra'],
     ])('pins %s from the dropdown and clears the pin via Default', (label, modelId) => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SCOUTS_MODEL_CONFIG], {
