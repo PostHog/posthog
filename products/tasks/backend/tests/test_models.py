@@ -199,6 +199,48 @@ class TestTask(TestCase):
         self.assertNotIn("github_read_access", state)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_threads_allowed_domains_into_state(self, mock_execute_workflow):
+        user = User.objects.create(email="test@test.com")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Task.create_and_run(
+                team=self.team,
+                title="Run with extra hosts",
+                description="reads one vendor status page",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                user_id=user.id,
+                allowed_domains=["Status.Example.com", "status.example.com", "*.example.org"],
+            )
+        state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
+        # Normalized on the way in, so provisioning and the environments API agree on one shape.
+        self.assertEqual(state["allowed_domains"], ["status.example.com", "*.example.org"])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Task.create_and_run(
+                team=self.team,
+                title="Plain run",
+                description="no extra hosts",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                user_id=user.id,
+                allowed_domains=[],
+            )
+        state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
+        self.assertNotIn("allowed_domains", state)
+
+        # A bad domain fails before any row exists, where the caller can act on it.
+        task_count = Task.objects.count()
+        with self.assertRaises(ValueError):
+            Task.create_and_run(
+                team=self.team,
+                title="Bad host",
+                description="scheme is not a domain",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                user_id=user.id,
+                allowed_domains=["https://example.com"],
+            )
+        self.assertEqual(Task.objects.count(), task_count)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_threads_initial_permission_mode_into_state(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})

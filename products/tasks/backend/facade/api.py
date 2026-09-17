@@ -92,7 +92,7 @@ from products.tasks.backend.logic.services.image_builder import (
 )
 from products.tasks.backend.logic.services.network_policy import (
     MAX_SANDBOX_ALLOWED_DOMAINS,
-    normalize_requested_domains,
+    normalize_sandbox_allowed_domains,
 )
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id, is_public_sandbox_repo
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
@@ -192,6 +192,7 @@ __all__ = [
     "ensure_task_run_session",
     "beacon_task_presence",
     "bootstrap_task_run",
+    "MAX_SANDBOX_ALLOWED_DOMAINS",
     "SANDBOX_REPOSITORIES_ROOT",
     "can_mint_readonly_github_token",
     "is_public_sandbox_repo",
@@ -261,6 +262,7 @@ __all__ = [
     "is_internal_debug_team",
     "is_task_controllable_by_user",
     "is_valid_sandbox_env_var_key",
+    "normalize_sandbox_allowed_domains",
     "latest_task_run_pr_merged_subquery",
     "latest_task_run_pr_url_subquery",
     "leave_task_presence",
@@ -1933,12 +1935,6 @@ def _validate_user_sandbox_env_vars(environment_variables: dict | None) -> None:
             raise ValueError(f"Invalid environment variable key: {key!r}")
         if is_blocked_sandbox_env_key(key) or key in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS:
             raise ValueError(f"Environment variable key {key!r} is not allowed")
-
-
-def normalize_sandbox_allowed_domains(allowed_domains: list[str]) -> list[str]:
-    if len(allowed_domains) > MAX_SANDBOX_ALLOWED_DOMAINS:
-        raise ValueError(f"You can allow up to {MAX_SANDBOX_ALLOWED_DOMAINS} domains")
-    return list(normalize_requested_domains(allowed_domains))
 
 
 def _accessible_sandbox_envs(team_id: int, user_id: int):

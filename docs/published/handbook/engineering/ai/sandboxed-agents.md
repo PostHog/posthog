@@ -483,6 +483,26 @@ task = Task.create_and_run(
 )
 ```
 
+A caller whose extra hosts vary per run, rather than per team, can pass them on the run instead of
+minting an environment for each list.
+`allowed_domains` on `Task.create_and_run` (and on `CustomPromptSandboxContext` for the custom-prompt
+path) is validated by the same rules as an environment's list, stored on `TaskRun.state`, and unioned onto
+the environment's effective domains at execution time.
+A `full` environment ignores it.
+Without an environment, a run that passes a list is restricted to that list plus the infrastructure domains.
+
+```python
+task = Task.create_and_run(
+    team=team,
+    title="Check the vendor status page",
+    description="...",
+    origin_product=Task.OriginProduct.YOUR_PRODUCT,
+    user_id=user.id,
+    sandbox_environment_id=str(trusted_env.id),
+    allowed_domains=["status.example.com"],
+)
+```
+
 The temporal workflow resolves and compiles allowed domains at execution time, so environment updates
 take effect on the next run. The compiled policy and its fingerprint stay fixed across activity retries.
 Modal enforces the network boundary on every restricted run when

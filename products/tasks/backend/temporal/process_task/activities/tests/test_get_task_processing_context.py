@@ -475,6 +475,44 @@ class TestGetTaskProcessingContextActivity:
         assert result.sandbox_environment_id == str(sandbox_environment.id)
         assert result.allowed_domains is None
 
+    # The run list rides in state next to the environment id. Each row guards one way the union
+    # could go wrong: the run's hosts dropped, a full environment wrongly restricted, or a run
+    # without an environment left unrestricted after it asked for a list.
+    @pytest.mark.parametrize(
+        "env_level, env_domains, run_domains, expected",
+        [
+            (
+                SandboxEnvironment.NetworkAccessLevel.CUSTOM,
+                ["example.com"],
+                ["status.example.com", "example.com"],
+                ["example.com", "status.example.com"],
+            ),
+            (SandboxEnvironment.NetworkAccessLevel.FULL, [], ["status.example.com"], None),
+            (None, [], ["status.example.com"], ["status.example.com"]),
+        ],
+    )
+    @pytest.mark.django_db(transaction=True)
+    def test_get_task_processing_context_unions_run_allowed_domains(
+        self, activity_environment, test_task, env_level, env_domains, run_domains, expected
+    ):
+        extra_state: dict[str, Any] = {"allowed_domains": run_domains}
+        if env_level is not None:
+            sandbox_environment = SandboxEnvironment.objects.create(
+                team=test_task.team,
+                created_by=test_task.created_by,
+                name="Env with run additions",
+                network_access_level=env_level,
+                allowed_domains=env_domains,
+            )
+            extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
+        task_run = test_task.create_run(extra_state=extra_state)
+
+        result = async_to_sync(activity_environment.run)(
+            get_task_processing_context, GetTaskProcessingContextInput(run_id=str(task_run.id))
+        )
+
+        assert result.allowed_domains == expected
+
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_rejects_other_users_private_sandbox_environment(
         self, activity_environment, test_task
