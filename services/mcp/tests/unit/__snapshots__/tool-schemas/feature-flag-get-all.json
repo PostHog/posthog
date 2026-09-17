@@ -2,6 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "active": {
+            "description": "Filter by serving state - 'true' for enabled flags, 'false' for disabled flags. Both match on the `active` field of each row, not on `status`. 'STALE' instead selects flags the staleness check calls stale, which is a different question.",
             "enum": ["STALE", "false", "true"],
             "type": "string"
         },

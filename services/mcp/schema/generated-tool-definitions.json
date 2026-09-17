@@ -5273,7 +5273,7 @@
         }
     },
     "feature-flag-get-all": {
-        "description": "Get feature flags in the current project. Supports list filters including search by feature flag key or name (case-insensitive), then use the returned ID for get/update/delete tools.",
+        "description": "Get feature flags in the current project. Supports list filters including search by feature flag key or name (case-insensitive), then use the returned ID for get/update/delete tools.\n\nEach row carries two separate states, and they answer different questions. `active` is the serving state: true means the flag evaluates, false means it is turned off and every caller falls back to its own default. `status` is the staleness classification — `ACTIVE`, `STALE`, `ARCHIVED`, `DELETED` or `UNKNOWN`. A disabled flag reports `status: ACTIVE`, because disabled flags are not evaluated for staleness. So `status: ACTIVE` with `active: false` is expected, not a contradiction. Report serving state from `active` only, and never from `status`.\n\n`feature-flag-get-definition` returns the same `active` field for one flag. `feature-flags-status-retrieve` returns the same staleness classification in lower case, with a reason.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Get all feature flags",
@@ -5287,7 +5287,7 @@
         }
     },
     "feature-flag-get-definition": {
-        "description": "Get a single feature flag's full definition — rollout conditions, variants, payloads, active state — by its numeric ID. Use `feature-flag-get-definition-by-key` when you only have the string key used in code; use `feature-flag-get-all` to search by key or name and find the ID.",
+        "description": "Get a single feature flag's full definition — rollout conditions, variants, payloads, active state — by its numeric ID. Use `feature-flag-get-definition-by-key` when you only have the string key used in code; use `feature-flag-get-all` to search by key or name and find the ID.\n\n`active` is the serving state: true means the flag evaluates, false means it is turned off. The `status` field in the same response is the staleness classification, not the serving state, and a disabled flag reports `status: ACTIVE`. Report serving state from `active` only.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Get feature flag definition",
@@ -5441,7 +5441,7 @@
         }
     },
     "feature-flags-status-retrieve": {
-        "description": "Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or unknown) and a human-readable reason explaining the status. The status reflects recent evaluation (whether the flag was called), NOT rollout completeness. To determine whether a flag is fully rolled out / GA, use the returned `rollout` object: `effectively_full_rollout` (true when targeted to everyone with no conditions), `has_targeting_conditions`, `max_rollout_percentage`, and `is_multivariate`.",
+        "description": "Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or unknown) and a human-readable reason explaining the status. The status reflects recent evaluation (whether the flag was called), NOT rollout completeness. To determine whether a flag is fully rolled out / GA, use the returned `rollout` object: `effectively_full_rollout` (true when targeted to everyone with no conditions), `has_targeting_conditions`, `max_rollout_percentage`, and `is_multivariate`.\n\nThis status is also not the serving state. A disabled flag returns `active` here, with a reason that says it is disabled. Read the serving state from the `active` field of `feature-flag-get-definition` or `feature-flag-get-all`. This tool lower-cases the same classification that those tools return in upper case as `status`.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Get feature flag status",

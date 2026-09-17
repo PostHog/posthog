@@ -42469,6 +42469,7 @@ export namespace Schemas {
       is_remote_configuration?: boolean | null;
       /** @nullable */
       has_encrypted_payloads?: boolean | null;
+      /** Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the serving state — read `active` for that. A disabled flag reports ACTIVE, because disabled flags are not evaluated for staleness. */
       readonly status: string;
       /** Specifies where this feature flag should be evaluated
        *
@@ -103243,6 +103244,9 @@ export namespace Schemas {
     } as const;
 
     export type FeatureFlagsListParams = {
+    /**
+     * Filter by serving state: 'true' for enabled flags, 'false' for disabled flags. Both match on the `active` field of each row, not on `status`. 'STALE' instead selects flags the staleness check calls stale, which is a different question.
+     */
     active?: FeatureFlagsListActive;
     /**
      * Filter by archived state. When omitted, archived flags are excluded.

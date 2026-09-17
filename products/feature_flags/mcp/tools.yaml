@@ -264,11 +264,28 @@ tools:
         description: >
             Get feature flags in the current project. Supports list filters including search by feature flag key or name
             (case-insensitive), then use the returned ID for get/update/delete tools.
+
+
+            Each row carries two separate states, and they answer different questions. `active` is the serving state:
+            true means the flag evaluates, false means it is turned off and every caller falls back to its own default.
+            `status` is the staleness classification — `ACTIVE`, `STALE`, `ARCHIVED`, `DELETED` or `UNKNOWN`. A disabled
+            flag reports `status: ACTIVE`, because disabled flags are not evaluated for staleness. So `status: ACTIVE`
+            with `active: false` is expected, not a contradiction. Report serving state from `active` only, and never
+            from `status`.
+
+
+            `feature-flag-get-definition` returns the same `active` field for one flag.
+            `feature-flags-status-retrieve` returns the same staleness classification in lower case, with a reason.
         param_overrides:
             search:
                 description:
                     Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete
                     tools.
+            active:
+                description:
+                    Filter by serving state - 'true' for enabled flags, 'false' for disabled flags. Both match on the `active`
+                    field of each row, not on `status`. 'STALE' instead selects flags the staleness check calls stale,
+                    which is a different question.
             limit:
                 cast: string-int
             offset:
@@ -279,6 +296,8 @@ tools:
                 - key
                 - name
                 - updated_at
+                - active
+                - archived
                 - status
                 - tags
     feature-flag-get-definition:
@@ -296,6 +315,11 @@ tools:
             Get a single feature flag's full definition — rollout conditions, variants, payloads, active state — by its
             numeric ID. Use `feature-flag-get-definition-by-key` when you only have the string key used in code; use
             `feature-flag-get-all` to search by key or name and find the ID.
+
+
+            `active` is the serving state: true means the flag evaluates, false means it is turned off. The `status`
+            field in the same response is the staleness classification, not the serving state, and a disabled flag
+            reports `status: ACTIVE`. Report serving state from `active` only.
         param_overrides:
             id:
                 cast: string-int
@@ -565,6 +589,12 @@ tools:
             the flag was called), NOT rollout completeness. To determine whether a flag is fully rolled out / GA, use
             the returned `rollout` object: `effectively_full_rollout` (true when targeted to everyone with no
             conditions), `has_targeting_conditions`, `max_rollout_percentage`, and `is_multivariate`.
+
+
+            This status is also not the serving state. A disabled flag returns `active` here, with a reason that says
+            it is disabled. Read the serving state from the `active` field of `feature-flag-get-definition` or
+            `feature-flag-get-all`. This tool lower-cases the same classification that those tools return in upper
+            case as `status`.
         param_overrides:
             id:
                 cast: string-int

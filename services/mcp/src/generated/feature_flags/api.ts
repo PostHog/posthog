@@ -80,7 +80,12 @@ export const FeatureFlagsListParams = () => zod.object({
 })
 
 export const FeatureFlagsListQueryParams = () => zod.object({
-    active: zod.enum(['STALE', 'false', 'true']).optional(),
+    active: zod
+        .enum(['STALE', 'false', 'true'])
+        .optional()
+        .describe(
+            "Filter by serving state: 'true' for enabled flags, 'false' for disabled flags. Both match on the `active` field of each row, not on `status`. 'STALE' instead selects flags the staleness check calls stale, which is a different question."
+        ),
     archived: zod
         .enum(['false', 'true'])
         .optional()

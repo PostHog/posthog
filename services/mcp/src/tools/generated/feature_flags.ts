@@ -207,6 +207,9 @@ const FeatureFlagGetAllSchema = () => {
         search: FeatureFlagsListQueryParams.shape['search'].describe(
             'Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete tools.'
         ),
+        active: FeatureFlagsListQueryParams.shape['active'].describe(
+            "Filter by serving state - 'true' for enabled flags, 'false' for disabled flags. Both match on the `active` field of each row, not on `status`. 'STALE' instead selects flags the staleness check calls stale, which is a different question."
+        ),
         limit: z.preprocess(castStringToInt, FeatureFlagsListQueryParams.shape['limit']).optional(),
         offset: z.preprocess(castStringToInt, FeatureFlagsListQueryParams.shape['offset']).optional(),
     })
@@ -243,7 +246,7 @@ const featureFlagGetAll = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, ['id', 'key', 'name', 'updated_at', 'status', 'tags'])
+                pickResponseFields(item, ['id', 'key', 'name', 'updated_at', 'active', 'archived', 'status', 'tags'])
             ),
         } as typeof result
         return await withPostHogUrl(
