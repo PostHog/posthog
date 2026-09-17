@@ -456,9 +456,6 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             // Settles here too: with no summary row loaded, `pollUntil` is the only poll condition
             // left, so a run of failed reloads would otherwise stop polling with the button still
             // pending and nothing to clear it before the dock remounts.
-            // Settles here too: with no summary row loaded, `pollUntil` is the only poll condition
-            // left, so a run of failed reloads would otherwise stop polling with the button still
-            // pending and nothing to clear it before the dock remounts.
             loadObservationsFailure: () => {
                 settleSummarizeIfDone()
                 reschedulePoll()
