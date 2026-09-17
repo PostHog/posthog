@@ -585,6 +585,11 @@ class TestAgentWriteSerializers(SimpleTestCase):
             ("boolean_holdout", {"holdout_score": True}, "holdout_score"),
             ("string_model_params", {"model_spec": {**VALID_SPEC, "model_params": "bad"}}, "non_field_errors"),
             ("oversized_spec", {"model_spec": {**VALID_SPEC, "pad": "x" * MODEL_SPEC_MAX_BYTES}}, "model_spec"),
+            (
+                "string_transforms",
+                {"recipe_snapshot": {**VALID_RECIPE, "feature_transforms": "bad"}},
+                "non_field_errors",
+            ),
             ("nul_in_recipe", {"recipe_snapshot": {**VALID_RECIPE, "note": "a\x00b"}}, "recipe_snapshot"),
             (
                 "oversized_recipe",

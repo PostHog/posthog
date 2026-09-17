@@ -294,4 +294,9 @@ def validate_recipe(model_spec: object, recipe_snapshot: object) -> None:
     feature_sql = recipe_snapshot.get("feature_sql")
     if not isinstance(feature_sql, str) or not feature_sql.strip():
         raise RecipeValidationError("recipe_snapshot.feature_sql is required and must be a non-empty SELECT.")
+    feature_transforms = recipe_snapshot.get("feature_transforms")
+    if feature_transforms is not None and (
+        not isinstance(feature_transforms, list) or not all(isinstance(item, Mapping) for item in feature_transforms)
+    ):
+        raise RecipeValidationError("recipe_snapshot.feature_transforms must be a list of JSON objects when present.")
     validate_feature_sql(feature_sql)
