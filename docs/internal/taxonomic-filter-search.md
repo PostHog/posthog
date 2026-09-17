@@ -1,6 +1,10 @@
 # Taxonomic filter search loading
 
-The legacy picker and the rebuilt menu hold aggregated search results until the contributing categories settle. This prevents late category results from moving a choice under the pointer. Only categories offered by the picker contribute to that wait; a category-specific list waits for its own results. Recent and Pinned scopes use pre-resolved entries and never enter this search loading barrier.
+The classic picker and the rebuilt menu hold aggregated search results until the contributing categories settle. This prevents late category results from moving a choice under the pointer. Only categories offered by the picker contribute to that wait; a category-specific list waits for its own results. Recent and Pinned scopes use pre-resolved entries and never enter this search loading barrier.
+
+The classic picker shows its active category in the search input. A person can dock the category rail from that menu. This preference persists for that person and project. A narrow picker hides the rail and shows the category control in the search input.
+
+The rail starts undocked. `taxonomic filter category rail toggled` records whether it is docked. `taxonomic filter closed` records the final `categoryRailDocked` state so reports can show which people keep the rail docked.
 
 A category shows results for the current query only. It clears its earlier rows when the current query cannot fetch, such as a query below the category minimum length or a request that failed.
 

@@ -10,23 +10,15 @@ import { SessionConsoleLogStore } from './session-console-log-store'
 export interface SessionBatchManagerConfig {
     /** Maximum raw size (before compression) of a batch in bytes before it should be flushed */
     maxBatchSizeBytes: number
-    /** Maximum age of a batch in milliseconds before it should be flushed */
     maxBatchAgeMs: number
-    /** Maximum number of events per session per batch before rate limiting */
     maxEventsPerSessionPerBatch: number
     /** Rollout percentage (0-100) for the per-session ML feature recorder */
     featuresRolloutPercentage?: number
-    /** Manages Kafka offset tracking and commits */
     offsetManager: KafkaOffsetManager
-    /** Handles writing session batch files to storage */
     fileStorage: SessionBatchFileStorage
-    /** Manages storing session metadata */
     metadataStore: SessionMetadataSink
-    /** Manages storing console logs */
     consoleLogStore: SessionConsoleLogStore
-    /** Manages storing session features for ML scoring */
     featureStore: SessionFeatureStore
-    /** Encryptor for session recording data */
     encryptor: RecordingEncryptor
 }
 
@@ -87,10 +79,6 @@ export class SessionBatchManager {
         this.encryptor = config.encryptor
     }
 
-    /**
-     * Mints a fresh, empty batch. The caller owns the returned recorder for one accumulation cycle and
-     * flushes it when due.
-     */
     public createBatch(): SessionBatchRecorder {
         return new SessionBatchRecorder(
             this.offsetManager,
@@ -119,10 +107,6 @@ export class SessionBatchManager {
     }
 
     /**
-     * Whether the given batch is due to flush, by size (bytes accumulated) or age (since it was minted):
-     * - Size of the batch exceeding maxBatchSizeBytes
-     * - Age of the batch exceeding maxBatchAgeMs
-     *
      * @param lastFlushTime - When the current accumulation cycle started (the last flush, or startup).
      */
     public shouldFlush(batch: SessionBatchRecorder, lastFlushTime: number): boolean {

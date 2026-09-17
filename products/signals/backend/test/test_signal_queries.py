@@ -5,15 +5,13 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, FuzzyInt
-from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 
 from products.signals.backend.facade.api import SignalSourceSliceOutcomes, get_outcomes_for_signal_source_slice
-from products.signals.backend.implementation_pr import ImplementationPr
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     ReportSignalMeta,
@@ -478,14 +476,26 @@ class TestGetOutcomesForSignalSourceSlice(_SignalEmbeddingsTestBase):
                 extra={"scanner_id": "sA"},
             )
 
-        shared_pr = ImplementationPr(url="https://github.com/o/r/pull/1", merged=True)
-        with patch(
-            "products.signals.backend.implementation_pr.fetch_implementation_pr_state_for_reports",
-            return_value={str(existing.id): shared_pr, str(sibling.id): shared_pr},
-        ) as mock_prs:
-            outcomes = get_outcomes_for_signal_source_slice(
-                team=self.team, source_product="errors", source_type="some_type", extra_equals={"scanner_id": "sA"}
+        shared_pr = SignalReportPullRequest.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            repository="example/app",
+            number=1,
+            url="https://github.com/example/app/pull/1",
+            state="merged",
+        )
+        second_pr = SignalReportPullRequest.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            repository="example/app",
+            number=2,
+            url="https://github.com/example/app/pull/2",
+            state="open",
+        )
+        for report, pr in [(existing, shared_pr), (sibling, shared_pr), (existing, second_pr)]:
+            SignalReportArtefact.objects.create(
+                team=self.team, report=report, type="pull_request", content=json.dumps({"url": pr.url}), pull_request=pr
             )
+        outcomes = get_outcomes_for_signal_source_slice(
+            team=self.team, source_product="errors", source_type="some_type", extra_equals={"scanner_id": "sA"}
+        )
 
-        assert outcomes == SignalSourceSliceOutcomes(signal_count=5, report_count=2, pr_count=1, merged_pr_count=1)
-        assert sorted(mock_prs.call_args.args[0]) == sorted([str(existing.id), str(sibling.id)])
+        assert outcomes == SignalSourceSliceOutcomes(signal_count=5, report_count=2, pr_count=2, merged_pr_count=1)

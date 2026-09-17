@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from time import monotonic
 from typing import Any
 from uuid import UUID
 
@@ -18,10 +19,15 @@ from products.conversations.backend.temporal.ai_reply.constants import (
     DRAFT_MODEL,
     DRAFT_POLL_SECONDS,
     DRAFT_RUNTIME_ADAPTER,
+    DRAFT_VERDICTS,
     MAX_CHUNK_CONTENT_CHARS,
+    MAX_CLARIFYING_QUESTIONS,
     MAX_EXCERPT_CHARS,
+    MAX_INVESTIGATION_SUMMARY_CHARS,
     MAX_SAFETY_REVIEWED_CHARS,
     MAX_SOURCES,
+    MAX_UNKNOWN_CHARS,
+    MAX_UNKNOWNS,
     PUBLISHABLE_DRAFT_SCOPES,
     TICKET_TYPE_HINTS,
 )
@@ -52,6 +58,17 @@ def _hydrate_chunks(team_id: int, chunk_ids: list[str]) -> list[dict[str, Any]]:
         }
         for r in results
     ]
+
+
+def _bounded_unknowns(unknowns: list[str]) -> list[str]:
+    trimmed: list[str] = []
+    for item in unknowns:
+        text = item.strip()[:MAX_UNKNOWN_CHARS]
+        if text:
+            trimmed.append(text)
+        if len(trimmed) >= MAX_UNKNOWNS:
+            break
+    return trimmed
 
 
 @activity.defn
@@ -171,6 +188,15 @@ DIAGNOSTIC INVESTIGATION (this ticket reports something broken — investigate t
   - dashboard tools: list dashboards and the widget catalog, and get a dashboard's structure — to reference what the team already tracks.
   - action / annotation / event-definition / property-definition tools: the team's tracked actions, annotations, and event/property taxonomy — for "what do we track / what does this event mean" questions."""
 
+    followup = input.clarification_round >= 1
+    followup_block = ""
+    customer_blocker_instruction = "- If a fact you need can only come from the customer, do not guess. Set verdict=blocked_on_customer. Put one short question that asks for the missing fact and says why you need it in the same sentence into clarifying_questions. Put what you already checked in investigation_summary, which is private."
+    if followup:
+        followup_block = """
+FOLLOW-UP: You already asked a clarifying question. The customer's answer is in the ticket. You must answer, suggest, or produce findings. Do not set verdict=blocked_on_customer. Do not ask another question.
+"""
+        customer_blocker_instruction = "- You already asked a clarifying question and the customer answered. Do not set verdict=blocked_on_customer. Do not ask another question. Answer, or put what remains unknown in investigation_summary."
+
     prompt = f"""You are a support agent drafting a reply to a customer ticket.
 
 SECURITY:
@@ -192,19 +218,24 @@ KNOWLEDGE BASE RESULTS:
 {chunks_text[:12000]}{refinement}
 
 TICKET TYPE: {input.ticket_type} — {TICKET_TYPE_HINTS.get(input.ticket_type, "")}
-{data_safety_block}{diagnostic_block}
+{data_safety_block}{diagnostic_block}{followup_block}
 INSTRUCTIONS:
-- Draft a helpful, accurate reply to the customer's question. Lead with the answer, be concise and friendly.
+- PLAN first: list what you need to know, which tools answer each of those questions, then execute that plan before you draft.
+{customer_blocker_instruction}
+- If the knowledge base and docs do not cover the question, set verdict=blocked_on_knowledge.
+- If the ticket is not a support question this team can answer, set verdict=out_of_scope.
+- If verdict is answerable, draft a helpful, accurate reply. Lead with the answer, be concise and friendly.
+- If verdict is not answerable, do not write an answer to send. Keep reply to one short sentence and put what you checked in investigation_summary.
 - The KNOWLEDGE BASE RESULTS above are a starting point, not a ceiling. Use your tools to search for additional information:
   - docs-search: searches the official PostHog documentation (https://posthog.com/docs) via Inkeep. Best for product features, billing, setup, SDKs, APIs, etc.
   - business-knowledge-documents-search: searches this team's own business knowledge for team-specific answers.{config_tools_block}
 - Ground your reply in sources. Include citations (chunk_id UUIDs or doc URLs) and populate `sources` with the supporting excerpts so the reply can be validated.
-- If you cannot find sufficient information after searching, set confidence to 0 and reply with a brief note saying you cannot answer.
 - Do NOT make up information -- only use what your tools return.
 
-Return your response as a JSON object with keys: reply, citations, confidence, sources (a list of {{ref, excerpt}})."""
+Return your response as a JSON object with keys: reply, citations, confidence, sources (a list of {{ref, excerpt}}), verdict, clarifying_questions, investigation_summary, unknowns."""
 
     session: MultiTurnSession | None = None
+    started = monotonic()
     try:
         session, result = await MultiTurnSession.start(
             prompt,
@@ -222,6 +253,11 @@ Return your response as a JSON object with keys: reply, citations, confidence, s
             confidence=result.confidence,
             sources=[{"ref": s.ref, "excerpt": s.excerpt[:MAX_EXCERPT_CHARS]} for s in result.sources[:MAX_SOURCES]],
             task_run_id=str(session.task_run.id),
+            sandbox_seconds=monotonic() - started,
+            verdict=result.verdict if result.verdict in DRAFT_VERDICTS else "blocked_on_knowledge",
+            clarifying_questions=[q for q in result.clarifying_questions if q][:MAX_CLARIFYING_QUESTIONS],
+            investigation_summary=result.investigation_summary[:MAX_INVESTIGATION_SUMMARY_CHARS],
+            unknowns=_bounded_unknowns(result.unknowns),
         )
     finally:
         if session is not None:

@@ -5,6 +5,7 @@ import {
   textToContent,
 } from "@posthog/core/message-editor/content";
 import type { Task } from "@posthog/shared/domain-types";
+import { useTaskInputHistoryStore } from "@posthog/ui/features/message-editor/taskInputHistoryStore";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import {
   pendingTaskPromptStoreApi,
@@ -19,6 +20,9 @@ const createTaskMock = vi.hoisted(() => vi.fn());
 const invalidateTasksMock = vi.hoisted(() => vi.fn());
 const openTaskMock = vi.hoisted(() => vi.fn());
 const trackMock = vi.hoisted(() => vi.fn());
+const assertCloudUsageAvailableMock = vi.hoisted(() =>
+  vi.fn<() => Promise<boolean>>(async () => true),
+);
 const cloudSubscription = vi.hoisted(() => ({
   cloudSubscriptionOn: false,
   cloudFlagEnabled: true,
@@ -73,7 +77,7 @@ vi.mock("../../../hooks/useConnectivity", () => ({
   useConnectivity: () => ({ isOnline: true }),
 }));
 vi.mock("../../billing/preflightCloudUsage", () => ({
-  assertCloudUsageAvailable: async () => true,
+  assertCloudUsageAvailable: assertCloudUsageAvailableMock,
 }));
 vi.mock("../../../primitives/toast", () => ({
   toast: { error: vi.fn() },
@@ -99,8 +103,20 @@ vi.mock("@posthog/ui/router/useOpenTask", async (importOriginal) => {
 import type { EditorHandle } from "../../message-editor/types";
 import { useTaskCreation } from "./useTaskCreation";
 
+type HandleSubmit = ReturnType<typeof useTaskCreation>["handleSubmit"];
+
 const KICKOFF_PREAMBLE =
   "AUTORESEARCH KICKOFF — protocol instructions generated for the run";
+
+function autoresearchOverride(brief: EditorContent): EditorContent {
+  return {
+    segments: [
+      { type: "text", text: `${KICKOFF_PREAMBLE}\n\n` },
+      ...brief.segments,
+    ],
+    attachments: brief.attachments,
+  };
+}
 
 function fakeTask(): Task {
   return {
@@ -146,7 +162,7 @@ function wrapper({ children }: { children: ReactNode }) {
 
 function renderTaskCreation(
   content: EditorContent,
-  workspaceMode: "local" | "cloud" = "local",
+  workspaceMode: "local" | "worktree" | "cloud" = "local",
   runtime: "acp" | "pi" = "acp",
 ) {
   return renderHook(
@@ -172,6 +188,90 @@ describe("useTaskCreation prompt records", () => {
     cloudSubscription.cloudSubscriptionOn = false;
     usePendingTaskPromptStore.setState({ byKey: {}, _hasHydrated: true });
     useTaskInputPrefillStore.setState({ prefill: {} });
+    useTaskInputHistoryStore.setState({ entries: [] });
+  });
+
+  it.each<{
+    name: string;
+    workspaceMode: "local" | "cloud";
+    preflight: () => void;
+    submit: (
+      handleSubmit: HandleSubmit,
+      brief: EditorContent,
+    ) => Promise<boolean>;
+    createTaskCalls: number;
+  }>([
+    {
+      name: "a plain submit blocked by the cloud usage preflight",
+      workspaceMode: "cloud",
+      preflight: () =>
+        void assertCloudUsageAvailableMock.mockResolvedValueOnce(false),
+      submit: (handleSubmit) => handleSubmit(),
+      createTaskCalls: 0,
+    },
+    {
+      name: "content handed over as an override",
+      workspaceMode: "local",
+      preflight: () => {},
+      submit: (handleSubmit, brief) => handleSubmit(brief),
+      createTaskCalls: 1,
+    },
+    {
+      name: "an autoresearch override, keeping the brief and not the preamble",
+      workspaceMode: "local",
+      preflight: () => {},
+      submit: (handleSubmit, brief) =>
+        handleSubmit(autoresearchOverride(brief), brief),
+      createTaskCalls: 1,
+    },
+  ])(
+    "saves the typed prompt to history before creation can fail: $name",
+    async ({ workspaceMode, preflight, submit, createTaskCalls }) => {
+      const brief = textToContent("Check the build");
+      preflight();
+      createTaskMock.mockResolvedValueOnce({
+        success: false,
+        error: "boom",
+        failedStep: "create",
+      });
+
+      const { result } = renderTaskCreation(brief, workspaceMode);
+      await act(async () => {
+        expect(await submit(result.current.handleSubmit, brief)).toBe(false);
+      });
+
+      expect(createTaskMock).toHaveBeenCalledTimes(createTaskCalls);
+      expect(
+        trackMock.mock.calls.filter(([event]) => event === "Task created"),
+      ).toEqual([]);
+      expect(
+        useTaskInputHistoryStore.getState().entries.map((e) => e.text),
+      ).toEqual(["Check the build"]);
+    },
+  );
+
+  it("still creates the task when the history write throws", async () => {
+    const addPrompt = vi
+      .spyOn(useTaskInputHistoryStore.getState(), "addPrompt")
+      .mockImplementation(() => {
+        throw new Error("quota exceeded");
+      });
+    createTaskMock.mockResolvedValueOnce({
+      success: true,
+      data: { task: fakeTask(), workspace: null },
+    });
+
+    try {
+      const { result } = renderTaskCreation(textToContent("Check the build"));
+      await act(async () => {
+        expect(await result.current.handleSubmit()).toBe(true);
+      });
+
+      expect(addPrompt).toHaveBeenCalledOnce();
+      expect(createTaskMock).toHaveBeenCalledOnce();
+    } finally {
+      addPrompt.mockRestore();
+    }
   });
 
   it("omits subscription billing when Pi is selected", async () => {
@@ -199,7 +299,7 @@ describe("useTaskCreation prompt records", () => {
     });
   });
 
-  it.each(["local", "cloud"] as const)(
+  it.each(["local", "worktree", "cloud"] as const)(
     "keeps the submitted prompt visible after successful %s creation until the chat takes over",
     async (workspaceMode) => {
       const brief = textToContent("Check the build");
@@ -214,6 +314,17 @@ describe("useTaskCreation prompt records", () => {
         expect(await result.current.handleSubmit()).toBe(true);
       });
 
+      expect(
+        trackMock.mock.calls.filter(([event]) => event === "Task created"),
+      ).toEqual([
+        [
+          "Task created",
+          expect.objectContaining({
+            task_id: "task-1",
+            workspace_mode: workspaceMode,
+          }),
+        ],
+      ]);
       expect(pendingTaskPromptStoreApi.get("task-1")?.contentXml).toBe(
         contentToXml(brief).trim(),
       );
@@ -224,13 +335,7 @@ describe("useTaskCreation prompt records", () => {
   it("keeps the typed brief, not the kickoff preamble, in the recovery record after a late autoresearch failure", async () => {
     const brief = textToContent("Optimize the login flow");
     // Mirrors handleAutoresearchSubmit: the request content wraps the brief.
-    const override: EditorContent = {
-      segments: [
-        { type: "text", text: `${KICKOFF_PREAMBLE}\n\n` },
-        ...brief.segments,
-      ],
-      attachments: brief.attachments,
-    };
+    const override = autoresearchOverride(brief);
 
     createTaskMock.mockImplementationOnce(async (_input, onTaskReady) => {
       // The late failure: onTaskReady already ran, so the record moved to the

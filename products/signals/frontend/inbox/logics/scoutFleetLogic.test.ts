@@ -59,6 +59,7 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     skill_name: 'signals-scout-errors',
     description: 'Finds error trends.',
     scout_origin: 'canonical',
+    scout_role: 'specialist',
     owners: [],
     enabled: true,
     status: 'active',
@@ -232,6 +233,59 @@ describe('scoutFleetLogic', () => {
         expect(logic.values.selectedScoutOwner).toEqual(OWNER.uuid)
         expect(logic.values.activeScoutOwner).toBeNull()
         expect(rosterConfigIds()).toHaveLength(2)
+    })
+
+    // The card shows `display_name`, falling back to the prettified `skill_name`. Matching anything
+    // else returns cards whose names miss the query, which reads as a broken search.
+    const CHECKOUT_WATCH = {
+        ...BASE_CONFIG,
+        id: 'checkout-watch',
+        skill_name: 'signals-scout-logs',
+        display_name: 'Checkout watch',
+        description: 'error spikes and new failure patterns in application logs',
+    }
+    const FALLBACK_NAME = { ...BASE_CONFIG, id: 'fallback-name', skill_name: 'signals-scout-error-tracking' }
+
+    it.each([
+        ['a partial name', 'check', ['checkout-watch']],
+        ['a mixed-case name', 'ChEcKoUt', ['checkout-watch']],
+        ['a padded query', '  check  ', ['checkout-watch']],
+        // "Error tracking" is the fallback name; the raw slug it comes from has no space in it.
+        ['the fallback name', 'error track', ['fallback-name']],
+        ['a hidden skill_name', 'logs', []],
+        ['a description', 'failure patterns', []],
+        ['a whitespace-only query', '   ', ['checkout-watch', 'fallback-name']],
+        ['an empty query', '', ['checkout-watch', 'fallback-name']],
+    ])('resolves %s to the cards whose name matches', (_label, search, expected) => {
+        logic.actions.loadScoutConfigsSuccess([CHECKOUT_WATCH, FALLBACK_NAME])
+
+        logic.actions.setScoutSearch(search)
+
+        expect(rosterConfigIds()).toEqual(expected)
+    })
+
+    it('narrows the same sorted rows as it searches, and keeps the other filters when cleared', () => {
+        logic.actions.loadScoutConfigsSuccess([
+            CHECKOUT_WATCH,
+            FALLBACK_NAME,
+            { ...BASE_CONFIG, id: 'checkout-off', skill_name: 'signals-scout-checkout-health', enabled: false },
+        ])
+        logic.actions.setScoutEnabledFilter('enabled')
+        const unsearched = logic.values.rosterScouts
+        const matchingRow = unsearched.find((row) => row.config.id === 'checkout-watch')
+
+        logic.actions.setScoutSearch('check')
+
+        // The turned-off scout stays out, so search narrows the filtered roster rather than the fleet.
+        expect(rosterConfigIds()).toEqual(['checkout-watch'])
+        // Re-sorting or rebuilding the rows on a keystroke would hand the list new objects and
+        // re-render every card that did not change.
+        expect(logic.values.rosterScouts[0]).toBe(matchingRow)
+
+        logic.actions.setScoutSearch('')
+
+        expect(logic.values.rosterScouts).toBe(unsearched)
+        expect(logic.values.scoutEnabledFilter).toEqual('enabled')
     })
 
     it('lists the whole roster A→Z and tags each row with its lifecycle group', () => {

@@ -8,7 +8,10 @@ products must keep going through the facade.
 
 import re
 import uuid
-from uuid import UUID
+from typing import Any
+from uuid import UUID, uuid4
+
+from posthog.models.sharing_configuration import SharingConfiguration
 
 from products.user_interviews.backend.facade.contracts import IntervieweeIdentity
 from products.user_interviews.backend.models import (
@@ -84,6 +87,52 @@ SHARED_INTERVIEWEE_IDENTIFIER = "__posthog_shared_link__"
 def is_shared_interviewee_context(interviewee_identifier: str) -> bool:
     """Whether an IntervieweeContext identifier marks the topic's shared (anonymous) link."""
     return interviewee_identifier == SHARED_INTERVIEWEE_IDENTIFIER
+
+
+# Max lengths for the self-reported fields a shared-link respondent sends to start_call. These
+# are echoed into Vapi metadata and persisted on the UserInterview, so cap them defensively.
+RESPONDENT_NAME_MAX_CHARS = 200
+RESPONDENT_KEY_MAX_CHARS = 64
+
+# Every shared-link response is stored under an identifier carrying this prefix. It can NEVER equal a
+# personalised interviewee's identifier (an email or distinct_id), so an anonymous respondent can
+# neither be attributed to nor lock out a targeted invitee.
+SHARED_RESPONDENT_IDENTIFIER_PREFIX = "shared:"
+
+
+def clean_field(value: Any, max_chars: int) -> str:
+    return str(value).strip()[:max_chars] if value else ""
+
+
+def shared_interviewee_identifier(respondent_key: str) -> str:
+    """Namespaced, non-authoritative identity for a shared-link respondent.
+
+    Keyed on the stable per-browser ``respondent_key`` so a refreshed respondent keeps one identity;
+    falls back to a random id when no key was supplied so rows stay distinct. Deliberately independent
+    of any self-reported name or untrusted ``distinct_id`` — those never determine attribution."""
+    return f"{SHARED_RESPONDENT_IDENTIFIER_PREFIX}{respondent_key or uuid4().hex}"
+
+
+def resolve_share(access_token: str) -> SharingConfiguration | None:
+    """Resolve a share token to its `SharingConfiguration`.
+
+    Uses the same enabled/expiry predicate as `SharingViewerPageViewSet.get_object()`, so a
+    rotated token past its grace period is dead here exactly when it is dead on the public viewer.
+    """
+    try:
+        return (
+            SharingConfiguration.objects.select_related(
+                "team",
+                "team__organization",
+                "interviewee_context",
+                "interviewee_context__topic",
+                "interviewee_context__topic__created_by",
+            )
+            .filter(SharingConfiguration.tokens_active_q())
+            .get(access_token=access_token)
+        )
+    except SharingConfiguration.DoesNotExist:
+        return None
 
 
 def parse_interviewee_identifier(identifier: str) -> IntervieweeIdentity:

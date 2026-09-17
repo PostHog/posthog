@@ -47,7 +47,17 @@ impl Collector for AuroraPlans {
         } else {
             ""
         };
-        let cols = statements::pgss_columns(statements::pgss_version(cx));
+        let ext = statements::pgss_version(cx);
+        if ext < statements::MIN_PGSS_VERSION {
+            return Ok(statements::empty(
+                self.name(),
+                KEY,
+                cx,
+                &extra,
+                Default::default(),
+            ));
+        }
+        let cols = statements::pgss_columns(ext);
         let src = Source {
             name: "aurora_plans",
             aux_name: "query_plans",

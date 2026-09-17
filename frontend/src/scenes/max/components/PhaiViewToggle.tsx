@@ -5,7 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
-import { maxGlobalLogic } from '../maxGlobalLogic'
+import { PhaiViewMode, maxGlobalLogic } from '../maxGlobalLogic'
 
 /**
  * Switches the Max scene between the new posthog_ai/frontend surface and the legacy Max chat. Only
@@ -14,7 +14,14 @@ import { maxGlobalLogic } from '../maxGlobalLogic'
  * `lemon` matches the small secondary buttons in the main `/ai` header; `primitive` matches the
  * icon-only chrome around "Open as main focus" in the side-panel header.
  */
-export function PhaiViewToggle({ variant = 'lemon' }: { variant?: 'lemon' | 'primitive' }): JSX.Element | null {
+export function PhaiViewToggle({
+    variant = 'lemon',
+    onChange,
+}: {
+    variant?: 'lemon' | 'primitive'
+    /** Runs after the saved view changes, for a host that has to follow the switch (e.g. leave a pinned chat). */
+    onChange?: (mode: PhaiViewMode) => void
+}): JSX.Element | null {
     const { isPhaiSandboxFlagOn, effectivePhaiView } = useValues(maxGlobalLogic)
     const { setPhaiViewMode } = useActions(maxGlobalLogic)
 
@@ -25,7 +32,11 @@ export function PhaiViewToggle({ variant = 'lemon' }: { variant?: 'lemon' | 'pri
     const switchingToLegacy = effectivePhaiView === 'new'
     const tooltip = switchingToLegacy ? 'Switch to legacy PostHog AI' : 'Switch to new PostHog AI'
     const Icon = switchingToLegacy ? IconRevert : IconSparkles
-    const onClick = (): void => setPhaiViewMode(switchingToLegacy ? 'legacy' : 'new')
+    const onClick = (): void => {
+        const mode: PhaiViewMode = switchingToLegacy ? 'legacy' : 'new'
+        setPhaiViewMode(mode)
+        onChange?.(mode)
+    }
 
     if (variant === 'primitive') {
         return (
