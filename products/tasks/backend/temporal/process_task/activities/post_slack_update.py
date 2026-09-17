@@ -103,7 +103,9 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
-        footer = load_run_footer(task_run.id)
+        # Asked for on every call, including the progress updates: the footer prices a run
+        # only once it is terminal, so the one terminal check lives there.
+        footer = load_run_footer(task_run.id, include_spend=True)
         handler = SlackThreadHandler(context, footer)
         # The buttons lead where the footer's links do, so they answer to the same reader.
         task_url = handler.reader_task_url()

@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import cast
 from uuid import uuid4
@@ -39,6 +41,16 @@ class TestRunFooter(SimpleTestCase):
             ),
             ("model_without_effort", RunFooter(model="claude-opus-5"), None, "*Claude Opus 5*"),
             (
+                "model_and_cost",
+                RunFooter(model="claude-opus-5", spend_usd=Decimal("2.6696")),
+                None,
+                "*Claude Opus 5* · Cost: *$2.67*",
+            ),
+            # Rounding to the cent would render a real charge as `$0.00`, which reads as free.
+            # Zero itself must stay on the other side of that boundary.
+            ("sub_cent_cost", RunFooter(spend_usd=Decimal("0.004")), None, "Cost: *<$0.01*"),
+            ("free_cost", RunFooter(spend_usd=Decimal(0)), None, "Cost: *$0.00*"),
+            (
                 "configure_only",
                 RunFooter(),
                 "slack://app?team=T1&id=A1&tab=home",
@@ -79,6 +91,96 @@ class TestLoadRunFooter(SimpleTestCase):
     @patch("products.tasks.backend.facade.api.get_task_run", side_effect=RuntimeError("db down"))
     def test_a_failure_to_describe_the_run_costs_the_footer_not_the_answer(self, _mock_get_run) -> None:
         assert load_run_footer("run-1") == RunFooter()
+
+
+class TestLoadRunFooterSpend(SimpleTestCase):
+    def _run(self, *, is_terminal: bool = True) -> SimpleNamespace:
+        return SimpleNamespace(
+            id=uuid4(),
+            task_id=uuid4(),
+            team_id=1,
+            state={},
+            is_terminal=is_terminal,
+            created_at=datetime(2026, 9, 16, tzinfo=UTC),
+            task_origin_product="slack",
+        )
+
+    @patch("products.tasks.backend.facade.run_config.parse_run_state")
+    @patch("products.tasks.backend.facade.billing.get_local_task_run_token_costs")
+    @patch("products.tasks.backend.facade.api.get_task_run")
+    def test_a_terminal_run_reports_what_it_cost(self, mock_get_run, mock_costs, mock_parse) -> None:
+        run = self._run()
+        mock_get_run.return_value = run
+        mock_parse.return_value = SimpleNamespace(model="claude-opus-5", reasoning_effort="high")
+        mock_costs.return_value = {str(run.id): Decimal("2.6696")}
+
+        footer = load_run_footer(run.id, include_spend=True)
+
+        assert footer.spend_usd == Decimal("2.6696")
+        assert mock_costs.call_args.kwargs["task_run_ids"] == [run.id]
+        assert mock_costs.call_args.kwargs["origin_product"] == "slack"
+
+    @parameterized.expand(
+        [
+            # Every generation of an in-flight run is still to come, so a figure read now
+            # would quote the reader less than they end up paying.
+            ("in_flight_run", {"is_terminal": False}, {"include_spend": True}),
+            # The streaming and plan-block callers post many footers per run, and none of
+            # them can report a final cost.
+            ("not_asked_for", {"is_terminal": True}, {}),
+        ]
+    )
+    @patch("products.tasks.backend.facade.run_config.parse_run_state")
+    @patch("products.tasks.backend.facade.billing.get_local_task_run_token_costs")
+    @patch("products.tasks.backend.facade.api.get_task_run")
+    def test_no_cost_is_quoted_or_queried(
+        self,
+        _name: str,
+        run_kwargs: dict,
+        load_kwargs: dict,
+        mock_get_run,
+        mock_costs,
+        mock_parse,
+    ) -> None:
+        run = self._run(**run_kwargs)
+        mock_get_run.return_value = run
+        mock_parse.return_value = SimpleNamespace(model="claude-opus-5", reasoning_effort=None)
+
+        footer = load_run_footer(run.id, **load_kwargs)
+
+        assert footer.spend_usd is None
+        mock_costs.assert_not_called()
+
+    @patch("products.tasks.backend.facade.run_config.parse_run_state")
+    @patch(
+        "products.tasks.backend.facade.billing.get_local_task_run_token_costs",
+        side_effect=RuntimeError("clickhouse down"),
+    )
+    @patch("products.tasks.backend.facade.api.get_task_run")
+    def test_a_pricing_failure_costs_the_cost_not_the_links(self, mock_get_run, _mock_costs, mock_parse) -> None:
+        # Caught where it happens, not by the handler around the whole footer, which would
+        # drop the links and the model with it.
+        run = self._run()
+        mock_get_run.return_value = run
+        mock_parse.return_value = SimpleNamespace(model="claude-opus-5", reasoning_effort=None)
+
+        footer = load_run_footer(run.id, include_spend=True)
+
+        assert footer.spend_usd is None
+        assert footer.model == "claude-opus-5"
+        assert f"/tasks/{run.task_id}" in (footer.task_url or "")
+
+    @patch("products.tasks.backend.facade.run_config.parse_run_state")
+    @patch("products.tasks.backend.facade.billing.get_local_task_run_token_costs", return_value={})
+    @patch("products.tasks.backend.facade.api.get_task_run")
+    def test_a_run_with_nothing_attributed_quotes_nothing(self, mock_get_run, _mock_costs, mock_parse) -> None:
+        # The pricing service omits a run whose spend is unknown rather than pricing it at
+        # zero, and the footer has to keep that apart from a run that really was free.
+        run = self._run()
+        mock_get_run.return_value = run
+        mock_parse.return_value = SimpleNamespace(model="claude-opus-5", reasoning_effort=None)
+
+        assert load_run_footer(run.id, include_spend=True).spend_usd is None
 
 
 class TestViewerHasCodeAccess(SimpleTestCase):

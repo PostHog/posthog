@@ -23,7 +23,7 @@ import re
 import json
 from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.conf import settings
@@ -40,6 +40,9 @@ from posthog.utils import absolute_uri
 
 from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id, get_slack_user_info
+
+if TYPE_CHECKING:
+    from products.tasks.backend.facade.contracts import TaskRunDTO
 
 logger = structlog.get_logger(__name__)
 
@@ -739,6 +742,7 @@ class RunFooter:
     reasoning_effort: str | None = None
     run_id: str | None = None
     task_id: str | None = None
+    spend_usd: Decimal | None = None
 
     def has_content(self) -> bool:
         """Whether this would render as anything.
@@ -748,10 +752,40 @@ class RunFooter:
         keeps meaning "None-coalesce" and cannot silently discard a partial instance.
         The ids are not part of the answer — they say nothing on their own.
         """
-        return any((self.task_url, self.desktop_url, self.model))
+        return any((self.task_url, self.desktop_url, self.model, self.spend_usd is not None))
 
 
-def load_run_footer(run_id: str | UUID | None) -> RunFooter:
+def _load_run_spend(run: "TaskRunDTO") -> Decimal | None:
+    """What this run's model calls cost, or ``None`` when that is not known.
+
+    Priced only once the run is terminal. An in-flight run has generations still to
+    make, so a figure read mid-run would understate what the reader ends up paying,
+    and a reply that quotes a cost too low is worse than one that quotes none.
+
+    Swallows its own failures rather than letting the caller's handler catch them: a
+    pricing outage should cost the reader this one segment, not the links beside it.
+    """
+    from posthog.clickhouse.query_tagging import Product  # noqa: PLC0415
+
+    from products.tasks.backend.facade.billing import get_local_task_run_token_costs  # noqa: PLC0415
+
+    if not run.is_terminal or not run.created_at or not run.task_origin_product:
+        return None
+    try:
+        costs = get_local_task_run_token_costs(
+            team_id=run.team_id,
+            origin_product=run.task_origin_product,
+            generated_after=run.created_at,
+            product=Product.POSTHOG_CODE,
+            task_run_ids=[run.id],
+        )
+    except Exception:
+        logger.exception("slack_app_run_footer_spend_load_failed", run_id=str(run.id))
+        return None
+    return costs.get(str(run.id))
+
+
+def load_run_footer(run_id: str | UUID | None, *, include_spend: bool = False) -> RunFooter:
     """Describe a run for the footer.
 
     Never raises: the footer is the last thing added to an answer that is already
@@ -760,6 +794,10 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
     Describes the run in full, links included. Whether the reader gets the desktop link
     is ``viewer_has_code_access``'s question, asked where the reader is known; the web
     link is for everyone, since the task page enforces access itself.
+
+    ``include_spend`` prices the run. Opt-in because pricing is a ClickHouse read, and
+    most footers hang off a progress or streaming update that is posted many times per
+    run and could not report a final cost anyway.
     """
     # Deferred so the tasks product stays off this module's import path, matching
     # `model_catalogue`.
@@ -777,6 +815,7 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
             run_id=str(run.id),
             task_id=str(run.task_id),
             task_url=_task_url(run.team_id, run.task_id, run.id),
+            spend_usd=_load_run_spend(run) if include_spend else None,
             # The web bridge page, not the raw `posthog-code://` scheme: it redirects into the
             # desktop app when installed and offers a download when not, so a reader without
             # the app lands somewhere useful instead of a dead link. It also picks the right
@@ -788,6 +827,17 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
     except Exception:
         logger.exception("slack_app_run_footer_load_failed", run_id=str(run_id))
         return RunFooter()
+
+
+def _describe_spend(spend_usd: Decimal) -> str:
+    """A run's cost to the cent, keeping sub-cent spend apart from no spend.
+
+    Rounding a fraction of a cent to ``$0.00`` would read as free, which is the one
+    thing the segment must never say by accident.
+    """
+    if Decimal(0) < spend_usd < Decimal("0.01"):
+        return "<$0.01"
+    return f"${spend_usd:.2f}"
 
 
 def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> dict[str, Any] | None:
@@ -804,6 +854,8 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
         segments.append(f"<{footer.desktop_url}|View on desktop>")
     if footer.model:
         segments.append(describe_run_model(footer.model, footer.reasoning_effort))
+    if footer.spend_usd is not None:
+        segments.append(f"Cost: *{_describe_spend(footer.spend_usd)}*")
     if configure_url:
         segments.append(f"<{configure_url}|Configure>")
     if not segments:
