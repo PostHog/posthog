@@ -614,11 +614,14 @@ class TestDeliveryComparisonOnWarehouse(_WarehouseMixin):
                 _pr_row(28, "carol", "closed", 0, _ago(4), merged_at=_ago(2)),
                 _pr_row(29, "dave", "closed", 0, _ago(4), merged_at=_ago(2)),
                 _pr_row(30, "erin", "closed", 0, _ago(4), merged_at=_ago(2)),
+                # Opened before the issue events start, so their ready times are unknown.
+                _pr_row(31, "gina", "closed", 0, _ago(12), merged_at=_ago(2)),
+                _pr_row(32, "hank", "closed", 0, _ago(12), merged_at=_ago(2)),
             ],
         )
         self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [])
-        # Alice is in two teams that own code and in an approver group that owns none. Team-ingestion has
-        # one other author, too few to show its median.
+        # Alice is in two teams that own code and in an approver group that owns none. Team-ingestion has one
+        # other author with a ready time, too few to show its median.
         self._create_table(
             "github_team_members",
             TEAM_MEMBERS_COLUMNS,
@@ -630,6 +633,8 @@ class TestDeliveryComparisonOnWarehouse(_WarehouseMixin):
                 _member_row(5, "carol", "team-ingestion"),
                 _member_row(6, "dave", "team-replay"),
                 _member_row(7, "erin", "team-replay"),
+                _member_row(8, "gina", "team-ingestion"),
+                _member_row(9, "hank", "team-ingestion"),
             ],
         )
         if with_team_requests:
@@ -638,6 +643,7 @@ class TestDeliveryComparisonOnWarehouse(_WarehouseMixin):
                 "github_issue_events",
                 ISSUE_EVENTS_COLUMNS,
                 [
+                    _issue_event_row(9, "labeled", 21, _ago(10)),
                     _team_request_row(1, 21, "team-replay", _ago(2)),
                     _team_request_row(2, 27, "team-replay", _ago(3)),
                     _team_request_row(3, 23, "team-ingestion", _ago(1)),
@@ -649,7 +655,7 @@ class TestDeliveryComparisonOnWarehouse(_WarehouseMixin):
             self._create_table(
                 "github_issue_events",
                 _ISSUE_EVENTS_WITHOUT_TEAM_REQUESTS,
-                [_issue_event_row(1, "labeled", 21, _ago(2))],
+                [_issue_event_row(1, "labeled", 21, _ago(10)), _issue_event_row(2, "labeled", 21, _ago(0))],
             )
         for owner_team in ("team-replay", "team-ingestion"):
             _create_event(
@@ -663,15 +669,15 @@ class TestDeliveryComparisonOnWarehouse(_WarehouseMixin):
 
     @parameterized.expand(
         [
-            ("the_most_requested_team", True, None, Basis.REVIEW_REQUESTS, {"team-replay": 6}, (3, 7), None),
-            ("the_team_the_focus_pr_asked", True, 23, Basis.PULL_REQUEST, {"team-ingestion": None}, (2, 6), 86400),
+            ("the_most_requested_team", True, None, Basis.REVIEW_REQUESTS, {"team-replay": 6}, (3, 9), None),
+            ("the_team_the_focus_pr_asked", True, 23, Basis.PULL_REQUEST, {"team-ingestion": None}, (2, 8), 86400),
             (
                 "every_code_team_without_requests",
                 False,
                 None,
                 Basis.ALL_TEAMS,
                 {"team-ingestion": None, "team-replay": 6},
-                (3, 7),
+                (3, 9),
                 None,
             ),
         ]

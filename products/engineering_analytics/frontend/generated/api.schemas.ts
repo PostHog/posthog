@@ -232,7 +232,7 @@ export interface ReadyToMergeMediansApi {
 }
 
 export interface TeamReadyToMergeMediansApi {
-    /** Over the pull requests by the team's members, the same population as a github_team scope, without the pr_number pull request. Null when fewer than three other authors merged in the team in the window, because the author could read a teammate's value back from the median. */
+    /** Over the pull requests by the team's members, the same population as a github_team scope, without the pr_number pull request. Null when fewer than three other authors contribute a ready time, because the author could read a teammate's value back from the median. The approval medians are null on the same terms for approvals. */
     medians: ReadyToMergeMediansApi | null
     /** The GitHub team slug. */
     github_team: string

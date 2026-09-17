@@ -5,6 +5,7 @@ definition with the summary figures. The team population is the team's members' 
 what a github_team delivery scope reads too.
 """
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 from posthog.hogql import ast
@@ -34,8 +35,8 @@ from products.engineering_analytics.backend.logic.queries.delivery_summary impor
 
 # The census runs daily, so a few days always find its latest run.
 _CENSUS_LOOKBACK = timedelta(days=3)
-# Below this many other authors, the author could read a teammate's value back from the team median and
-# their own (SPEC §2).
+# Below this many other authors who contribute a value, the author could read a teammate's value back from
+# the team median and their own (SPEC §2).
 MIN_OTHER_TEAM_AUTHORS = 3
 
 # Every team the author is in, with all of its members.
@@ -59,12 +60,15 @@ _WINDOW_REQUESTS_SELECT = f"""
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
-# The teams the pull request in focus asked to review. A long-lived pull request asked them before the
-# window, so this read has no scan floor.
+# The teams the pull request in focus asked to review, when the author wrote it. A long-lived pull request
+# asked them before the window, so this read has no scan floor.
 _FOCUS_REQUESTS_SELECT = f"""
     SELECT DISTINCT team_slug
     FROM __REQUESTS_SOURCE__ AS rr
     WHERE team_slug IN {{teams}} AND pr_number = {{focus_pr}}
+        AND pr_number IN (
+            SELECT number FROM __PR_SOURCE__ AS pr WHERE pr.number = {{focus_pr}} AND pr.author_handle = {{author}}
+        )
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
@@ -126,9 +130,15 @@ def _choose_teams(
     focus_source = curated.team_review_requests_source()
     if focus_pr is not None and focus_source is not None:
         focus = curated.run(
-            _FOCUS_REQUESTS_SELECT.replace("__REQUESTS_SOURCE__", focus_source),
+            _FOCUS_REQUESTS_SELECT.replace("__REQUESTS_SOURCE__", focus_source).replace(
+                "__PR_SOURCE__", curated.pr_source()
+            ),
             query_type="engineering_analytics.delivery_comparison_focus_requests",
-            placeholders={"teams": teams, "focus_pr": ast.Constant(value=focus_pr)},
+            placeholders={
+                "teams": teams,
+                "focus_pr": ast.Constant(value=focus_pr),
+                "author": ast.Constant(value=author),
+            },
         )
         focus_requested = {team for (team,) in focus.results or []}
     return choose_comparison_teams(
@@ -141,9 +151,22 @@ def _choose_teams(
 
 def _team_medians(facts: list[MergedPRFacts], *, members: set[str], author: str) -> ReadyToMergeMedians | None:
     team_facts = [fact for fact in facts if fact.author in members]
-    if len({fact.author for fact in team_facts} - {author}) < MIN_OTHER_TEAM_AUTHORS:
+
+    def enough_others(contributing: list[MergedPRFacts]) -> bool:
+        return len({fact.author for fact in contributing} - {author}) >= MIN_OTHER_TEAM_AUTHORS
+
+    # A pull request without an observed ready time adds nothing to the median, so it does not count.
+    if not enough_others([fact for fact in team_facts if fact.ready_to_merge_seconds is not None]):
         return None
-    return ready_to_merge_medians(team_facts)
+    medians = ready_to_merge_medians(team_facts)
+    if enough_others([fact for fact in team_facts if fact.ready_at is not None and fact.first_approval_at is not None]):
+        return medians
+    return replace(
+        medians,
+        ready_to_first_approval_seconds=None,
+        first_approval_to_merge_seconds=None,
+        before_first_approval_share=None,
+    )
 
 
 def query_delivery_comparison(
