@@ -111,7 +111,11 @@ describe('ArtefactLogList', () => {
         expect(screen.getByText(heading)).toBeInTheDocument()
     })
 
-    it.each([true, false])('uses only the task attached to this PR for its title (available: %s)', (hasTask) => {
+    it.each([
+        [true, 'https://github.com/example/repo/pull/3'],
+        [false, 'https://github.com/example/repo/pull/3'],
+        [true, 'https://github.com/Example/Repo/pull/003/files?diff=split#discussion'],
+    ])('uses only the attached task title (available: %s, URL: %s)', (hasTask, metadataUrl) => {
         const url = 'https://github.com/example/repo/pull/3'
         render(
             <ArtefactLogList
@@ -136,8 +140,8 @@ describe('ArtefactLogList', () => {
                 pullRequests={[
                     {
                         id: 'pr-3',
-                        url,
-                        state: 'unknown',
+                        url: metadataUrl,
+                        state: 'open',
                         merged: false,
                         claim_id: null,
                         attached_at: null,
@@ -150,8 +154,8 @@ describe('ArtefactLogList', () => {
         expect(
             screen.getByText(hasTask ? 'Handle blocked browser storage' : 'Pull request #3').closest('a')
         ).toHaveAttribute('href', url)
-        expect(screen.getByText('Status unavailable')).toBeInTheDocument()
+        expect(screen.getByText('Open')).toBeInTheDocument()
         expect(screen.queryByText('Unrelated implementation')).not.toBeInTheDocument()
-        expect(screen.queryByText('Open')).not.toBeInTheDocument()
+        expect(screen.queryByText('Status unavailable')).not.toBeInTheDocument()
     })
 })

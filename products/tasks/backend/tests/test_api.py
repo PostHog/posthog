@@ -38,6 +38,17 @@ from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIEN
 from posthog.utils import absolute_uri
 
 from products.posthog_ai.backend.models.assistant import Conversation
+from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.artefact_schemas import (
+    ImplementationDecision,
+    ImplementationReplacement,
+    ImplementationTarget,
+)
+from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.report_assignments import release_claim
+from products.signals.backend.report_claims import get_active_claim
+from products.signals.backend.supersession import latest_handover
+from products.signals.backend.task_run_artefacts import record_implementation_task
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.access import DesktopAccessResolutionError
 from products.tasks.backend.constants import DEV_STACK_PREVIEW_PORT
@@ -2712,6 +2723,86 @@ class TestTaskAPI(BaseTaskAPITest):
             mock_workflow.assert_not_called()
         else:
             self.assertNotEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_latest_replacement_run_stops_automatic_handover(self, mock_workflow: MagicMock) -> None:
+        report = SignalReport.objects.create(team=self.team, status="ready")
+        original = self.create_task("Original implementation")
+        replacement = self.create_task("Replacement implementation")
+        for task in (original, replacement):
+            task.origin_product = Task.OriginProduct.SIGNAL_REPORT
+            task.signal_report = report
+            task.save(update_fields=["origin_product", "signal_report"])
+        original_run = TaskRun.objects.create(
+            team=self.team,
+            task=original,
+            status="completed",
+            environment="cloud",
+            state={"ai_stage": "implementation", "self_driving_head_branch": "original"},
+            output={"pr_url": "https://github.com/example/repo/pull/1"},
+        )
+        original_receipt = record_implementation_task(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            task_id=str(original.id),
+            run_id=str(original_run.id),
+            automation_branch="original",
+        )
+        original_claim = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert original_claim is not None
+        release_claim(original_claim, ArtefactAttribution.system(), takeover=True)
+        replacement_run = TaskRun.objects.create(
+            team=self.team,
+            task=replacement,
+            status="failed",
+            environment="cloud",
+            state={"ai_stage": "implementation", "self_driving_head_branch": "replacement"},
+        )
+        record_implementation_task(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            task_id=str(replacement.id),
+            run_id=str(replacement_run.id),
+            automation_branch="replacement",
+        )
+        claim = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert claim is not None
+        decision = ImplementationDecision(
+            supersede=True,
+            reason="The earlier fix targets the wrong layer.",
+            targets=[
+                ImplementationTarget(
+                    task_id=original.id,
+                    run_id=original_run.id,
+                    claim_id=original_claim.claim_id,
+                    pr_url="https://github.com/example/repo/pull/1",
+                    automation_artefact_id=original_receipt.id,
+                    head_sha="original-sha",
+                )
+            ],
+        )
+        decision_row = SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=decision,
+            attribution=ArtefactAttribution.system(),
+        )
+        replacement_row = SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=ImplementationReplacement(
+                decision_id=decision_row.id, decision=decision, run_id=replacement_run.id
+            ),
+            attribution=ArtefactAttribution.from_task(str(replacement.id)),
+            claim_id=str(claim.claim_id),
+        )
+        response = self.client.post(f"/api/projects/@current/tasks/{replacement.id}/run/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertNotEqual(response.json()["latest_run"]["id"], str(replacement_run.id))
+        handover = latest_handover(replacement_row)
+        assert handover is not None
+        self.assertEqual(handover.status, "needs_attention")
+        mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_rerun_refuses_when_the_slot_is_taken_after_the_preflight_check(self, mock_workflow):

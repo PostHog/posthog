@@ -86,6 +86,21 @@ def reconcile_implementation_replacement(self, team_id: int, replacement_id: str
         raise self.retry(countdown=min(60 * (2**self.request.retries), 900))
 
 
+@shared_task(
+    ignore_result=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=3,
+    soft_time_limit=210,
+    time_limit=240,
+)
+@skip_team_scope_audit
+def sweep_implementation_replacements(after_id: str | None = None, through_id: str | None = None) -> None:
+    from products.signals.backend.replacement_recovery import ReplacementRecovery
+
+    ReplacementRecovery().enqueue_page(after_id, through_id)
+
+
 # Bounded exponential backoff: 2m, 4m, 8m, ... capped at 1h, 8 retries ≈ 5h total. Deliberately
 # NOT unbounded — a hard failure should land with the sweeper (and its 7-day horizon) rather
 # than retry forever. Rollover itself is survivable: the payload reports the period bounds

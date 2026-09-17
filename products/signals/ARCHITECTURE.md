@@ -600,6 +600,12 @@ The second is replacement discovery: `automated_targets` reads the same rows to 
 `backfill_task_run_artefacts` converting every legacy row into a `task_run` artefact is a precondition for dropping this table, not the whole job: both readers must move to the artefact log first.
 A drop that leaves replacement discovery pointed at this table finds no candidates, so the feature reports "nothing to replace" instead of failing.
 
+### Replacement continuation and recovery
+
+The latest replacement task can be retried or continued without the earlier automatic implementations consuming its run slot. The ownership policy reads protected replacement history and exact-run automation receipts; unrelated tasks, human claims, and later manual runs retain their protections. A new research pass can replace a retained predecessor without replacing the current automatic owner's PR.
+
+A user continuation stops pending automatic handover before dispatch. A five-minute paginated sweep recovers lost dispatches from persisted artefacts, preserving terminal outcomes, worker leases, and the handover attempt limit. See [PR lifecycle](../../docs/internal/signals-pr-lifecycle.md#automatic-pr-replacements) for continuation and recovery behavior.
+
 ### `SignalSourceConfig`
 
 Per-team configuration for which signal sources are enabled.

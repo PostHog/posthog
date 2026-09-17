@@ -8,7 +8,6 @@ from django.db import transaction
 from django.utils import timezone
 
 import structlog
-from pydantic import ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.models.github_integration_base import GitHubIntegrationBase
@@ -22,17 +21,13 @@ from products.signals.backend.artefact_schemas import (
     ImplementationTarget,
     TaskRunArtefact,
 )
+from products.signals.backend.implementation_ownership import ImplementationOwnership
 from products.signals.backend.implementation_pr import (
     _close_implementation_pr,
     fetch_implementation_prs_for_reports,
     implementation_pr_needed_by_another_report,
 )
-from products.signals.backend.models import (
-    MAX_SCOUT_CONTENT_REVISIONS,
-    SignalReport,
-    SignalReportArtefact,
-    SignalReportTask,
-)
+from products.signals.backend.models import MAX_SCOUT_CONTENT_REVISIONS, SignalReport, SignalReportArtefact
 from products.signals.backend.report_claims import get_active_claim
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -136,37 +131,8 @@ def canonical_pr_url(url: str) -> str | None:
     return f"https://github.com/{parsed.repository.lower()}/pull/{parsed.number}" if parsed else None
 
 
-def _automation_receipts(team_id: int, report_id: str) -> dict[UUID, SignalReportArtefact]:
-    receipts: dict[UUID, SignalReportArtefact] = {}
-    for row in SignalReportArtefact.objects.filter(team_id=team_id, report_id=report_id, type="task_run"):
-        try:
-            content = TaskRunArtefact.model_validate_json(row.content)
-            if (
-                content.product == "signals"
-                and content.type == "implementation"
-                and content.automation_branch
-                and content.run_id
-                and row.actor_kind == "task"
-                and str(row.task_id) == content.task_id
-            ):
-                receipts[UUID(content.run_id)] = row
-        except (ValidationError, ValueError):
-            continue
-    return receipts
-
-
 def automated_targets(team_id: int, report_id: str) -> list[ImplementationTarget]:
-    task_ids = list(
-        SignalReportTask.objects.filter(
-            team_id=team_id, report_id=report_id, relationship="implementation"
-        ).values_list("task_id", flat=True)
-    )
-    runs = tasks_facade.get_signal_report_implementation_runs(team_id, report_id, task_ids)
-    active_tasks = {run.task_id for run in runs if not run.is_terminal}
-    latest_runs: dict[UUID, UUID] = {}
-    for run in runs:
-        latest_runs.setdefault(run.task_id, run.id)
-    receipts = _automation_receipts(team_id, report_id)
+    ownership = ImplementationOwnership(team_id, report_id)
     prs = fetch_implementation_prs_for_reports([report_id], team_id=team_id).get(report_id, [])
     eligible_urls = {
         canonical_pr_url(pr.url)
@@ -174,24 +140,8 @@ def automated_targets(team_id: int, report_id: str) -> list[ImplementationTarget
         if pr.actor_kind in {"task", "system"} and pr.state not in {"closed", "merged"}
     }
     targets: dict[str, ImplementationTarget] = {}
-    for run in runs:
-        receipt = receipts.get(run.id)
-        if (
-            receipt is None
-            or run.task_id in active_tasks
-            or latest_runs[run.task_id] != run.id
-            or run.status != "completed"
-            or run.environment != "cloud"
-            or run.mode != "background"
-        ):
-            continue
-        content = TaskRunArtefact.model_validate_json(receipt.content)
-        if (
-            str(run.task_id) != content.task_id
-            or run.state.get("ai_stage") != "implementation"
-            or run.state.get("self_driving_head_branch") != content.automation_branch
-        ):
-            continue
+    for run in ownership.completed_automated_runs():
+        receipt = ownership.receipts[run.id]
         for raw_url in tasks_facade.read_pr_urls(run.output):
             url = canonical_pr_url(raw_url)
             if not url or url not in eligible_urls or url in targets:
@@ -332,12 +282,7 @@ def targets_still_eligible(report: SignalReport, decision: ImplementationDecisio
     if any((target.pr_url, target.run_id, target.automation_artefact_id) not in current for target in decision.targets):
         return False
     claim = get_active_claim(team_id=report.team_id, report_id=report.id)
-    return claim is None or (
-        claim.actor_kind == "task"
-        and any(
-            claim.actor_task_id == target.task_id and claim.claim_id == target.claim_id for target in decision.targets
-        )
-    )
+    return claim is None or ImplementationOwnership(report.team_id, str(report.id)).owns_automated_claim(claim)
 
 
 def append_handover(replacement: SignalReportArtefact, progress: ImplementationHandover) -> None:
@@ -361,6 +306,23 @@ def _finish(replacement: SignalReportArtefact, progress: ImplementationHandover)
             release_claim(claim, ArtefactAttribution.system())
     report = SignalReport.objects.get(team_id=replacement.team_id, id=replacement.report_id)
     apply_report_completion(report)
+
+
+def stop_handover_for_manual_continuation(team_id: int, report_id: str, task_id: str) -> None:
+    replacement = pending_replacement(team_id, report_id)
+    if replacement is None or str(replacement.task_id) != task_id:
+        return
+    previous = latest_handover(replacement)
+    progress = (
+        previous.model_copy(deep=True)
+        if previous
+        else ImplementationHandover(replacement_id=replacement.id, status="processing")
+    )
+    progress.status = "needs_attention"
+    progress.worker_token = uuid4()
+    progress.lease_until = None
+    progress.explanation = "A person continued this task. Review the linked PRs before closing earlier work."
+    _finish(replacement, progress)
 
 
 def reconcile_replacement(team_id: int, replacement_id: str) -> bool:
