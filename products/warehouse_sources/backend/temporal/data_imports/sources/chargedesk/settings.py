@@ -9,7 +9,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 LOG_ID_COLUMN = "log_id"
 
 
-@dataclass
+@dataclass(frozen=True)
 class ChargedeskEndpointConfig:
     name: str
     path: str

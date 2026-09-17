@@ -30,9 +30,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 CHARGEDESK_BASE_URL = "https://api.chargedesk.com/v1"
+# A stalled read would hold the import worker for the whole activity, and the fan-out over charges
+# makes one request per charge, so every request gets a finite (connect, read) bound.
+REQUEST_TIMEOUT_SECONDS: tuple[float, float] = (10.0, 60.0)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ChargedeskResumeConfig:
     # ChargeDesk has no opaque page cursor — pagination is purely `offset` within a `[max]`-bounded window,
     # so resuming only needs the next offset and the current upper time bound.
@@ -166,6 +169,7 @@ def _client_config(api_key: str, paginator: Optional[BasePaginator] = None) -> C
         "base_url": CHARGEDESK_BASE_URL,
         # HTTP Basic with the secret key as the username and an empty password.
         "auth": {"type": "http_basic", "username": api_key, "password": ""},
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
     }
     if paginator is not None:
         config["paginator"] = paginator
