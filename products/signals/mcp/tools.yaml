@@ -433,8 +433,8 @@ tools:
             understand. The verdict lands on the report as a `check_result` entry in the inbox. Record what you
             established rather than what closes the loop: `failed` retires the check, `passed` re-arms a recurring one,
             and `errored` retries it. Nothing else closes a check, so a run that investigates and never calls this
-            leaves the report with an unanswered follow-up. The call is refused for a check dispatched to another
-            scout, one no run is waiting on, and one the coordinator measures itself.
+            leaves the report with an unanswered follow-up. The call is refused for a check dispatched to another scout,
+            one no run is waiting on, and one the coordinator measures itself.
     scout-config-create:
         operation: signals_scout_config_create
         enabled: true
