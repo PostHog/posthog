@@ -112,6 +112,39 @@ describe('Heatmap', () => {
         })
     })
 
+    // Both cases guard the label's contrast step against the cell's real fill. Reading the chart
+    // accent instead would print white text on a pale cell and dark text on an unfilled one.
+    describe('cellStyle', () => {
+        function labelColor(
+            cellStyle: (cell: HeatmapCellDatum) => { color?: string; outlined?: boolean } | null
+        ): string {
+            const { chart } = renderHogChart(
+                <Heatmap
+                    xLabels={X_LABELS}
+                    yLabels={Y_LABELS}
+                    cells={CELLS}
+                    theme={THEME}
+                    config={{ cellLabel: (cell) => String(cell.value), cellStyle }}
+                />
+            )
+            const labels = Array.from(
+                chart.element.querySelectorAll<HTMLElement>('[data-attr="hog-chart-heatmap-cell-label"]')
+            )
+            return labels.find((el) => el.textContent === '10')?.style.color ?? ''
+        }
+
+        // THEME sets no axisColor, so a dark label falls back to #111111.
+        const DARK_TEXT = 'rgb(17, 17, 17)'
+
+        it('contrasts the label against a per-cell accent', () => {
+            expect(labelColor(() => ({ color: '#ffffcc' }))).toBe(DARK_TEXT)
+        })
+
+        it('contrasts the label against the background on an outlined cell', () => {
+            expect(labelColor(() => ({ outlined: true }))).toBe(DARK_TEXT)
+        })
+    })
+
     describe('onBrush', () => {
         async function brush(from: { x: number; y: number }, to: { x: number; y: number }): Promise<HeatmapBrushData> {
             const onBrush = jest.fn()
