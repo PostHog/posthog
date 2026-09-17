@@ -524,15 +524,18 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
                 pinnedFilters: UniversalFiltersGroup | undefined
             ): UniversalFiltersGroup => combineWithPinnedFilters(filterGroup, pinnedFilters),
         ],
+        // `date_to` falls back to the resolved window end (windowAnchorMs for an open relative
+        // range) rather than staying null — a null `date_to` re-sent as a filter reads as "now",
+        // so a sparkline selection on the last bucket would keep growing past the queried window.
         utcDateRange: [
-            (s) => [s.dateRange],
-            (dateRange: DateRange) => ({
+            (s) => [s.dateRange, s.sparklineWindowMs],
+            (dateRange: DateRange, sparklineWindowMs: OverlayWindow) => ({
                 date_from: dayjs(dateRange.date_from).isValid()
                     ? dayjs(dateRange.date_from).toISOString()
                     : dateRange.date_from,
                 date_to: dayjs(dateRange.date_to).isValid()
                     ? dayjs(dateRange.date_to).toISOString()
-                    : dateRange.date_to,
+                    : new Date(sparklineWindowMs.endMs).toISOString(),
             }),
         ],
         sparklineWindowMs: [

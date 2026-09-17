@@ -88,7 +88,17 @@ describe('TracingSparkline', () => {
         })
 
         it('does nothing while comparing time windows', async () => {
-            const { element, onDateRangeChange } = renderChart({ compare: COMPARE })
+            const { element, onDateRangeChange } = renderChart({ compare: COMPARE, compareActive: true })
+
+            await clickAtIndex(element, 1, DATES.length)
+
+            expect(onDateRangeChange).not.toHaveBeenCalled()
+        })
+
+        it('does nothing while a comparison is active even without a custom window overlay', async () => {
+            // Named time presets (previous period, yesterday, ...) have no draggable overlay, so
+            // `compare` is undefined — the click must still be disabled via `compareActive`.
+            const { element, onDateRangeChange } = renderChart({ compareActive: true })
 
             await clickAtIndex(element, 1, DATES.length)
 

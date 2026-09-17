@@ -55,6 +55,10 @@ interface TracingSparklineProps {
      *  (which has no following bucket to end on). */
     currentDateTo?: string | null
     compare?: CompareConfig
+    /** True while any time comparison is active (named preset or custom). Disables drag/click
+     *  range selection — the draggable overlay only exists for the custom preset, so `compare`
+     *  alone can't gate interactions for named presets. */
+    compareActive?: boolean
     visibleRowDateRange?: VisibleSpanTimeRange | null
     /** When set, render a duration histogram instead of the time series (list sorted by duration). */
     durationHistogram?: TracingDurationHistogramData | null
@@ -80,6 +84,7 @@ export function TracingSparkline({
     displayTimezone,
     currentDateTo,
     compare,
+    compareActive = false,
     visibleRowDateRange,
     durationHistogram,
     visibleRowDurationRange,
@@ -275,8 +280,8 @@ export function TracingSparkline({
                                 labels={sparklineData.dates}
                                 theme={theme}
                                 config={timeConfig}
-                                onDateRangeZoom={compare ? undefined : onDateRangeZoom}
-                                onPointClick={compare ? undefined : onPointClick}
+                                onDateRangeZoom={compareActive ? undefined : onDateRangeZoom}
+                                onPointClick={compareActive ? undefined : onPointClick}
                                 tooltip={renderTooltip}
                             >
                                 {activityHighlight && (

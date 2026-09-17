@@ -210,6 +210,7 @@ function TracingSceneContents(): JSX.Element {
                     displayTimezone={TRACING_DISPLAY_TIMEZONE}
                     currentDateTo={utcDateRange.date_to}
                     compare={compareConfig}
+                    compareActive={compareActive}
                     visibleRowDateRange={visibleRowDateRange}
                     durationHistogram={isDurationMode && !showHeatmap ? durationHistogramData : null}
                     visibleRowDurationRange={visibleRowDurationRange}

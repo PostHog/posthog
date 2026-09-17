@@ -15,8 +15,13 @@ describe('bucketRangeToDateRange', () => {
         })
     })
 
-    it('leaves a relative window open-ended on the last bucket', () => {
-        expect(bucketRangeToDateRange(DATES, 2, 2, null)).toEqual({ date_from: DATES[2], date_to: null })
+    it('ends a relative window on the resolved window end rather than staying open', () => {
+        // utcDateRange.date_to is resolved (never null) precisely so this fallback stays concrete.
+        const resolvedEnd = '2024-01-01T02:30:00.000Z'
+        expect(bucketRangeToDateRange(DATES, 2, 2, resolvedEnd)).toEqual({
+            date_from: DATES[2],
+            date_to: resolvedEnd,
+        })
     })
 
     it('returns null when the selection starts past the rendered buckets', () => {
