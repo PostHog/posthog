@@ -38,7 +38,7 @@ export const DEFAULT_MCP_ACTIVITY_QUERY: DataTableNode = {
     showActions: true,
     showCount: true,
     showDateRange: true,
-    showReload: true,
+    showReload: false,
 }
 
 /** The feed's query: the user's own column edits when they have made any, always carrying the shared filters. */

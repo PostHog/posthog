@@ -17,6 +17,7 @@ import {
     Spinner,
 } from '@posthog/quill-primitives'
 
+import { FilterBar } from 'lib/components/FilterBar'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -53,17 +54,33 @@ function valueToSorting(value: MCPSessionOrderBy): MCPSessionSorting {
 
 export function MCPSessionsPlaylist(): JSX.Element {
     const { sidePanelWidth } = useValues(panelLayoutLogic)
+    const { dateFilter, sessionsLoading } = useValues(mcpSessionsLogic)
+    const { setDateFilter, loadSessions } = useActions(mcpSessionsLogic)
     const { isWindowLessThan } = useWindowSize({ widthOffset: sidePanelWidth })
     const isVerticalLayout = isWindowLessThan('xl')
 
     return (
-        <div
-            className={cn(
-                'w-full h-[calc(100vh-13rem)] min-h-[25rem] flex',
-                isVerticalLayout ? 'flex-col' : 'flex-row gap-2'
-            )}
-        >
-            {isVerticalLayout ? <VerticalLayout /> : <HorizontalLayout />}
+        <div className="flex w-full h-[calc(100vh-13rem)] min-h-[25rem] flex-col gap-2">
+            <FilterBar
+                left={
+                    <McpSharedFilters
+                        pageKey="mcp-sessions"
+                        dataAttrPrefix="mcp-sessions"
+                        onRefresh={() => loadSessions()}
+                        refreshing={sessionsLoading}
+                    >
+                        <McpDateFilter
+                            dateFrom={dateFilter.dateFrom}
+                            dateTo={dateFilter.dateTo}
+                            onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+                            dataAttr="mcp-sessions-date-filter"
+                        />
+                    </McpSharedFilters>
+                }
+            />
+            <div className={cn('flex min-h-0 flex-1', isVerticalLayout ? 'flex-col' : 'flex-row gap-2')}>
+                {isVerticalLayout ? <VerticalLayout /> : <HorizontalLayout />}
+            </div>
         </div>
     )
 }
@@ -135,27 +152,12 @@ function SessionDetailPanel({ className }: { className?: string }): JSX.Element 
 }
 
 function SessionsListPanel(): JSX.Element {
-    const { setFilters, setDateFilter, loadSessions, loadMoreSessions, setSorting, selectSession } =
-        useActions(mcpSessionsLogic)
-    const { sessions, sessionsLoading, filters, dateFilter, sorting, hasNext, selectedSessionId } =
-        useValues(mcpSessionsLogic)
+    const { setFilters, loadMoreSessions, setSorting, selectSession } = useActions(mcpSessionsLogic)
+    const { sessions, sessionsLoading, filters, sorting, hasNext, selectedSessionId } = useValues(mcpSessionsLogic)
 
     return (
         <div className="flex flex-col h-full min-h-0 overflow-hidden rounded border border-primary bg-surface-primary">
             <div className="shrink-0 flex flex-col gap-2 border-b border-primary p-2">
-                <McpSharedFilters
-                    pageKey="mcp-sessions"
-                    dataAttrPrefix="mcp-sessions"
-                    onRefresh={() => loadSessions()}
-                    refreshing={sessionsLoading}
-                >
-                    <McpDateFilter
-                        dateFrom={dateFilter.dateFrom}
-                        dateTo={dateFilter.dateTo}
-                        onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
-                        dataAttr="mcp-sessions-date-filter"
-                    />
-                </McpSharedFilters>
                 <div className="flex flex-col gap-2" data-quill>
                     <div className="flex flex-wrap items-center gap-2">
                         <InputGroup className="min-w-40 flex-1">

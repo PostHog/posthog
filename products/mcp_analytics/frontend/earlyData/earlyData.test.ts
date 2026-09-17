@@ -29,6 +29,7 @@ describe('early data derivations', () => {
             expandable: true,
             showCount: true,
             showDateRange: true,
+            showReload: false,
             source: {
                 events: ['$mcp_tool_call'],
                 limit: 100,

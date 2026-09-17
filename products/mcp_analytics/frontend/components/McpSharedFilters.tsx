@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
-import { IconRefresh } from '@posthog/icons'
+import { IconRefresh, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -56,6 +56,17 @@ export function McpSharedFilters({
                         <div className="flex flex-wrap items-center gap-2">
                             {children}
                             {addFilter}
+                            {activeFilters.length > 0 && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconX />}
+                                    aria-label="Clear filters"
+                                    tooltip="Clear filters"
+                                    onClick={clearFilters}
+                                    data-attr={`${dataAttrPrefix}-clear-filters`}
+                                />
+                            )}
                             <div className="ml-auto flex flex-wrap items-center gap-2">
                                 <McpInternalUsersFilter dataAttr={`${dataAttrPrefix}-test-account-filter`} />
                                 <LemonButton
@@ -71,17 +82,7 @@ export function McpSharedFilters({
                             </div>
                         </div>
                         {activeFilters.length > 0 && (
-                            <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                {activeFilters}
-                                <LemonButton
-                                    type="tertiary"
-                                    size="small"
-                                    onClick={clearFilters}
-                                    data-attr={`${dataAttrPrefix}-clear-filters`}
-                                >
-                                    Clear filters
-                                </LemonButton>
-                            </div>
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">{activeFilters}</div>
                         )}
                     </div>
                 )}
