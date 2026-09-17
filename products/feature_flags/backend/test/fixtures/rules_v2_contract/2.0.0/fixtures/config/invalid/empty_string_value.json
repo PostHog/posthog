@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "return_type": "string",
+  "default_value": "standard",
+  "rules": [
+    {
+      "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "rule_type": "targeted_release",
+      "targeting": {
+        "properties": []
+      },
+      "value": ""
+    }
+  ]
+}
