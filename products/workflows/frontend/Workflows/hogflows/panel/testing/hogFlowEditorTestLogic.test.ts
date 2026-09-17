@@ -270,6 +270,9 @@ describe('hogFlowEditorTestLogic', () => {
     beforeEach(() => {
         initKeaTests()
         useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': WORKFLOW_FIXTURE } })
+        // clearMocks keeps implementations, so a test that installs one would otherwise hand it
+        // to every test that runs after it.
+        ;(performWideEventsQueryInTwoPhases as jest.Mock).mockReset()
     })
 
     describe('sample event follows the trigger filters', () => {
