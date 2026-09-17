@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconFlag, IconLock } from '@posthog/icons'
 import {
@@ -62,8 +62,13 @@ export function DistributionModal(): JSX.Element {
         }
     }, [isDistributionModalOpen, flagVariants, experiment.feature_flag?.filters?.groups])
 
+    // Recorded once, because reopening the modal shows the user the same gate and must not count
+    // as another blocked save.
+    const saveBlockedCaptured = useRef(false)
+
     useEffect(() => {
-        if (isDistributionModalOpen && accessDisabledReason) {
+        if (isDistributionModalOpen && accessDisabledReason && !saveBlockedCaptured.current) {
+            saveBlockedCaptured.current = true
             captureVariantsSaveBlocked(experiment.id, 'distribution', 'form')
         }
     }, [isDistributionModalOpen, accessDisabledReason, experiment.id])

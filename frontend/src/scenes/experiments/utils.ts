@@ -95,10 +95,10 @@ export function getVariantColor(variantKey: string, featureFlagVariants: Multiva
 }
 
 /**
- * A save on the variants tab that access control refused. Access-denied responses are kept out of
+ * A save on the variants tab that access control refuses. Access-denied responses are kept out of
  * exception capture, so without this the blocked share of these saves has no signal at all.
- * `blockedAt` says whether the form refused the save, or the server did after the form let it
- * through.
+ * `blockedAt` is `form` when the form shows a disabled Save, recorded once for that gate rather
+ * than once per attempt, and `request` when the server refused a save the form let through.
  */
 export function captureVariantsSaveBlocked(
     experimentId: ExperimentIdType | undefined,

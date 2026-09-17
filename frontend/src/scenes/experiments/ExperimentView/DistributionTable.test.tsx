@@ -2,8 +2,9 @@ import { api } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic } from 'kea'
+import posthog from 'posthog-js'
 
 import { featureFlagLogic as enabledFlagsLogic } from 'lib/logic/featureFlagLogic'
 
@@ -57,9 +58,14 @@ function renderModal(userAccessLevel: AccessControlLevel): ReturnType<typeof exp
     return logic
 }
 
+function blockedSaveEvents(capture: jest.SpyInstance): unknown[][] {
+    return capture.mock.calls.filter(([event]) => event === 'experiment variants save blocked')
+}
+
 describe('DistributionModal', () => {
     afterEach(() => {
         cleanup()
+        jest.restoreAllMocks()
     })
 
     it.each([
@@ -93,5 +99,20 @@ describe('DistributionModal', () => {
         logic.actions.updateExperiment({ name: 'pending' })
 
         await waitFor(() => expect(screen.getByText('Save').closest('button')).toHaveAttribute('aria-disabled', 'true'))
+    })
+
+    it('records the blocked save once when the modal is reopened', async () => {
+        useMocks(mocksFor(AccessControlLevel.Viewer))
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        renderModal(AccessControlLevel.Viewer)
+
+        await waitFor(() => expect(blockedSaveEvents(capture)).toHaveLength(1))
+
+        await act(async () => modalsLogic.actions.closeDistributionModal())
+        await waitFor(() => expect(screen.queryByText('Save')).not.toBeInTheDocument())
+        await act(async () => modalsLogic.actions.openDistributionModal())
+
+        await waitFor(() => expect(screen.getByText('Save').closest('button')).toHaveAttribute('aria-disabled', 'true'))
+        expect(blockedSaveEvents(capture)).toHaveLength(1)
     })
 })

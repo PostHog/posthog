@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconFlag } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
@@ -37,8 +37,13 @@ export function ReleaseConditionsModal(): JSX.Element {
         : 'Loading the feature flag'
     const blockedByFlagAccess = flagLoaded && saveDisabledReason !== null
 
+    // Recorded once, because reopening the modal shows the user the same gate and must not count
+    // as another blocked save.
+    const saveBlockedCaptured = useRef(false)
+
     useEffect(() => {
-        if (isReleaseConditionsModalOpen && blockedByFlagAccess) {
+        if (isReleaseConditionsModalOpen && blockedByFlagAccess && !saveBlockedCaptured.current) {
+            saveBlockedCaptured.current = true
             captureVariantsSaveBlocked(experiment.id, 'release_conditions', 'form')
         }
     }, [isReleaseConditionsModalOpen, blockedByFlagAccess, experiment.id])
