@@ -34,7 +34,7 @@ import { VariantScreenshot } from './VariantScreenshot'
 import { VariantTag } from './VariantTag'
 
 export function DistributionModal(): JSX.Element {
-    const { experiment, experimentLoading } = useValues(experimentLogic)
+    const { experiment, experimentLoading, experimentUpdateLoading } = useValues(experimentLogic)
     const { updateDistribution } = useActions(experimentLogic)
     const { closeDistributionModal } = useActions(modalsLogic)
     const { isDistributionModalOpen } = useValues(modalsLogic)
@@ -91,7 +91,10 @@ export function DistributionModal(): JSX.Element {
                     <LemonButton
                         onClick={handleSave}
                         type="primary"
-                        loading={experimentLoading}
+                        // `unmodifiedExperiment` is the baseline the save compares against, and it
+                        // only catches up when the update lands. Submitting before then would
+                        // compare against a stale baseline and skip the write.
+                        loading={experimentLoading || experimentUpdateLoading}
                         disabledReason={
                             accessDisabledReason ??
                             (!areVariantRolloutsValid ? 'Percentage splits must sum to 100' : undefined)

@@ -1,3 +1,5 @@
+import { api } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
@@ -37,7 +39,7 @@ function mocksFor(userAccessLevel: AccessControlLevel): Record<string, any> {
     }
 }
 
-function renderModal(userAccessLevel: AccessControlLevel): void {
+function renderModal(userAccessLevel: AccessControlLevel): ReturnType<typeof experimentLogic.build> {
     initKeaTests()
     enabledFlagsLogic.mount()
     const logic = experimentLogic({ experimentId: EXPERIMENT_ID })
@@ -51,6 +53,8 @@ function renderModal(userAccessLevel: AccessControlLevel): void {
             <DistributionModal />
         </BindLogic>
     )
+
+    return logic
 }
 
 describe('DistributionModal', () => {
@@ -73,5 +77,21 @@ describe('DistributionModal', () => {
                 expect(save).not.toHaveAttribute('aria-disabled', 'true')
             }
         })
+    })
+
+    it('blocks the save while an experiment update is still in flight', async () => {
+        useMocks(mocksFor(AccessControlLevel.Editor))
+        const logic = renderModal(AccessControlLevel.Editor)
+        jest.spyOn(api, 'update').mockImplementation(() => new Promise(() => {}))
+
+        await waitFor(() =>
+            expect(screen.getByText('Save').closest('button')).not.toHaveAttribute('aria-disabled', 'true')
+        )
+
+        // A save submitted now would compare against a baseline the pending update has not
+        // refreshed yet, so a revert of the pending change would write nothing.
+        logic.actions.updateExperiment({ name: 'pending' })
+
+        await waitFor(() => expect(screen.getByText('Save').closest('button')).toHaveAttribute('aria-disabled', 'true'))
     })
 })
