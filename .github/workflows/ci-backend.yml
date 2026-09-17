@@ -3041,7 +3041,7 @@ jobs:
 
             - name: Restore hogql-parser-rs wheel
               id: hogql-parser-rs-wheel
-              uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .cache/hogql-parser-rs-wheel
                   key: hogql-parser-rs-wheel-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust/hogql/parser/**', 'rust/Cargo.toml', 'rust/Cargo.lock', 'rust/.cargo/config.toml') }}-${{ github.event.pull_request.number || github.ref_name }}
@@ -3053,6 +3053,13 @@ jobs:
               shell: bash
               run: |
                   compgen -G ".cache/hogql-parser-rs-wheel/*.whl" || uv build --wheel rust/hogql/parser --out-dir .cache/hogql-parser-rs-wheel
+
+            - name: Save hogql-parser-rs wheel
+              if: steps.hogql-parser-rs-wheel.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .cache/hogql-parser-rs-wheel
+                  key: hogql-parser-rs-wheel-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust/hogql/parser/**', 'rust/Cargo.toml', 'rust/Cargo.lock', 'rust/.cargo/config.toml') }}-${{ github.event.pull_request.number || github.ref_name }}
 
             - name: Install Python dependencies
               shell: bash
