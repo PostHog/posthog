@@ -58,8 +58,12 @@ class EventFilterOutcome:
     hidden_from_plan: bool = False
 
 
-def _verdict(outcome: EventFilterOutcome) -> tuple[EventFilterClass, EventFilterReason | None, bool]:
-    return outcome.classification, outcome.reason, outcome.hidden_from_plan
+def _same_verdict(one: EventFilterOutcome, other: EventFilterOutcome) -> bool:
+    return (
+        one.classification == other.classification
+        and one.reason == other.reason
+        and one.hidden_from_plan == other.hidden_from_plan
+    )
 
 
 def classify_event_filter(tree: ast.AST) -> EventFilterOutcome | None:
@@ -73,7 +77,7 @@ def classify_event_filter(tree: ast.AST) -> EventFilterOutcome | None:
 
     outcomes = [_classify_read(read, collect_conditions(tree, read)) for read in reads]
     first = outcomes[0]
-    if any(_verdict(other) != _verdict(first) for other in outcomes[1:]):
+    if any(not _same_verdict(other, first) for other in outcomes[1:]):
         return None
     return first
 
