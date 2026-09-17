@@ -1160,6 +1160,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 const calculationFields = {
                     is_calculating: cohort.is_calculating,
                     errors_calculating: cohort.errors_calculating,
+                    last_error_message: cohort.last_error_message,
                     last_calculation: cohort.last_calculation,
                     count: cohort.count,
                     last_import_total_count: cohort.last_import_total_count,

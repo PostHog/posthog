@@ -114,6 +114,9 @@ tools:
     account-track-rules-update:
         operation: account_track_rules_update
         enabled: false
+    accounts-by-external-id-retrieve:
+        operation: accounts_by_external_id_retrieve
+        enabled: false
     accounts-create:
         operation: accounts_create
         enabled: true

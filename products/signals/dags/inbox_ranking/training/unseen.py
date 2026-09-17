@@ -48,6 +48,8 @@ POOL_NAME = "newborn"
 # definition puts two populations in one AUC series unless the older one keeps its own name.
 LEGACY_POOL_NAME = "sampled"
 
+UNSEEN_SCORES_TABLE = "inbox_ranking_unseen_scores"
+
 CANDIDATE_ROLE = "candidate"
 CHAMPION_ROLE = "champion"
 

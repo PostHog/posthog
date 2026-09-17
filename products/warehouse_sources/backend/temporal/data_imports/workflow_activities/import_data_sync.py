@@ -83,6 +83,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     RowFilterValidationError,
     validate_and_coerce_row_filters,
@@ -531,6 +532,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 reset_pipeline=reset_pipeline,
                 enabled_columns=schema.enabled_columns,
                 row_filters=row_filters,
+                primary_keys=schema.primary_key_columns,
+                verified_primary_keys=schema.verified_primary_keys,
                 schema_metadata=schema.schema_metadata,
                 s3_folder_name=schema.resolved_s3_folder_name,
                 # A schema-level override (user-managed) wins over the source pin.
@@ -812,6 +815,16 @@ async def _handle_import_error(
         await logger.awarning(error_msg)
         await logger.adebug("REST client exhausted its retries - re-raising for Temporal retry")
         raise error
+
+    # The web pods and the data-import workers deploy separately, so a table that ships in one
+    # release is selectable in the schema picker about an hour before every worker can resolve it.
+    # The next attempt lands on a rolled-out worker and the sync recovers on its own, so this must
+    # not disable the schema or report as a bug. Classified by type here because the condition is
+    # the deploy skew rather than any one source.
+    if isinstance(error, UnknownResourceError):
+        await logger.awarning(error_msg)
+        await logger.adebug("Resource unknown to this worker - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
 
     # The host policy's own lookup answered "try again" rather than a verdict on the host, so the
     # source is fine and a fresh attempt recovers. Classify it by type: every SQL source reaches

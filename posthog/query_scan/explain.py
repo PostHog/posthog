@@ -13,7 +13,7 @@ from posthog.dataclasses import frozen
 # Spelled out rather than imported, so this parser does not pull in the model layer.
 _EVENTS_TABLE_NAMES = ("events", "events_json", "sharded_events", "sharded_events_json")
 
-_PERSON_TABLE_NAMES = ("person", "person_distinct_id2", "person_distinct_id_overrides")
+_PERSON_TABLE_NAMES = ("person",)
 
 _MIN_MAX_TYPE = "Min-Max"
 _PRIMARY_KEY_TYPE = "PrimaryKey"
