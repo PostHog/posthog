@@ -839,6 +839,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 shouldLoad:
                     !props.taxonomicGroupTypes || props.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Actions),
             }),
+            ...(!props.taxonomicGroupTypes || props.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Dashboards)
+                ? [dashboardsModel]
+                : []),
         ],
     })),
     actions(() => ({

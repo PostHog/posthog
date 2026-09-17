@@ -22,6 +22,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
@@ -128,6 +129,43 @@ describe('taxonomicFilterLogic', () => {
         expect(actionRequestCount).toBe(actionRequestsBeforeMount)
 
         noActionsLogic.unmount()
+    })
+
+    it.each([
+        {
+            name: 'mounts dashboardsModel so the Dashboards group can read its items',
+            groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Dashboards],
+            expectsDashboardsModel: true,
+        },
+        {
+            name: 'leaves dashboardsModel unmounted for a filter without the Dashboards group',
+            groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+            expectsDashboardsModel: false,
+        },
+    ])('$name', async ({ groupTypes, expectsDashboardsModel }) => {
+        const logicProps: TaxonomicFilterLogicProps = {
+            taxonomicFilterLogicKey: 'dashboardsGroupGate',
+            taxonomicGroupTypes: groupTypes,
+        }
+        const gatedLogic = taxonomicFilterLogic(logicProps)
+        gatedLogic.mount()
+
+        expect(dashboardsModel.isMounted()).toBe(expectsDashboardsModel)
+
+        if (expectsDashboardsModel) {
+            const dashboardsList = infiniteListLogic({
+                ...logicProps,
+                listGroupType: TaxonomicFilterGroupType.Dashboards,
+            })
+            dashboardsList.mount()
+
+            await expectLogic(dashboardsModel).toDispatchActions(['loadDashboardsSuccess'])
+            expect(dashboardsList.values.localItems.results).toEqual([])
+
+            dashboardsList.unmount()
+        }
+
+        gatedLogic.unmount()
     })
 
     it('keeps infiniteListCounts in sync', async () => {
