@@ -1536,11 +1536,10 @@ def _backfill_thread_replies(
     )
 
 
-# Path of a ticket in the app, as ticket_deep_link writes it.
+# Must stay in step with ticket_deep_link, which writes the URLs this matches.
 _TICKET_URL_PATH_RE = re.compile(r"^/project/(?P<project_id>\d+)/support/tickets/(?P<ticket_number>\d+)/?$")
 
-# An unfurl renders for everyone in the channel, so only internal channels get one. Slack
-# reports a channel shared with another organization, or invited to be, with these flags.
+# Shared with another organization, or invited to be.
 _EXTERNALLY_SHARED_FLAGS = ("is_ext_shared", "is_pending_ext_shared")
 
 MAX_UNFURLS_PER_MESSAGE = 5
