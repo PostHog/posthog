@@ -153,8 +153,6 @@ urlpatterns = [
         name="user_interviews_start_call",
     ),
     path("api/sdk_health/", sdk_health),
-    path("api/conversations/", include("products.conversations.backend.api.urls")),
-    path("api/customer_analytics/", include("products.customer_analytics.backend.presentation.views.urls")),
     path(
         "api/projects/<int:parent_lookup_team_id>/mcp_analytics/",
         include("products.mcp_analytics.backend.presentation.urls"),

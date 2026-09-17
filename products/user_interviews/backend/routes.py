@@ -10,9 +10,9 @@ from products.user_interviews.backend.presentation.views import (
 )
 from products.user_interviews.backend.presentation.webhooks import vapi_webhook
 
-urlpatterns: list[URLPattern] = [
+api_urlpatterns: list[URLPattern] = [
     path(
-        "api/user_interviews/vapi_webhook/",
+        "vapi_webhook/",
         csrf_exempt(vapi_webhook),
         name="user_interviews_vapi_webhook",
     ),
