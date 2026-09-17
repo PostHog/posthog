@@ -367,8 +367,18 @@ describe('API helper', () => {
             expect(error).toBeInstanceOf(ApiError)
             expect(error).toBeInstanceOf(ResponseBodyReadError)
             expect(error.status).toBeUndefined()
-            // The wire failed after a successful answer, so this is not a defect worth filing.
             expect(shouldReportApiFailure(error)).toBe(false)
+            // Error tracking drops this shape, so the aggregate event is what keeps a persistent
+            // truncation regression visible.
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'client_request_failure',
+                expect.objectContaining({
+                    pathname: '/api/environments/2/insights/',
+                    method: 'GET',
+                    status: 200,
+                    failure_reason: 'response_body_read',
+                })
+            )
         })
 
         it('keeps a fully-read but unparsable body reportable', async () => {
@@ -377,6 +387,7 @@ describe('API helper', () => {
             expect(error).toBeInstanceOf(ApiError)
             expect(error).not.toBeInstanceOf(ResponseBodyReadError)
             expect(shouldReportApiFailure(error)).toBe(true)
+            expect(posthog.capture).not.toHaveBeenCalledWith('client_request_failure', expect.anything())
         })
 
         it.each([

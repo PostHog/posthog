@@ -425,6 +425,17 @@ async function getJSONFromSuccessResponse(response: Response, method: string, ur
         }
         // The body stream failed mid-read (e.g. a network drop truncating a chunked response) —
         // the response is unusable, so surface it instead of handing callers a null.
+        // Error tracking excludes this shape, so this event is the only remaining signal that can
+        // tell a persistent truncation regression from one user's bad connection. The URL is
+        // normalized first, because `handleFetch` records the prepared one and an endpoint that
+        // splits across two pathnames is not aggregatable.
+        captureClientRequestFailure({
+            pathname: requestPathname(normalizeUrl(url)),
+            method,
+            status: response.status,
+            is_shared_view: isSharedView(),
+            failure_reason: 'response_body_read',
+        })
         throw new ResponseBodyReadError(`Failed to read response body ${requestContext()}`)
     }
     if (!text.trim()) {
@@ -7468,14 +7479,21 @@ function classifyNetworkFailure(): NetworkFailureReason {
     return 'network'
 }
 
+/**
+ * `response_body_read` is not a `NetworkError` reason: the request completed and the server
+ * answered, so only the read of the body failed.
+ */
+type ClientRequestFailureReason = NetworkFailureReason | 'response_body_read'
+
 function captureClientRequestFailure(properties: {
     pathname: string
     method: string
-    duration: number
+    /** Absent when the failure surfaced after the response, outside the timed request. */
+    duration?: number
     /** 0 for a request that never reached the server, so network failures are separable from HTTP ones. */
     status: number
     is_shared_view: boolean
-    failure_reason?: NetworkFailureReason
+    failure_reason?: ClientRequestFailureReason
 }): void {
     // when used inside the posthog toolbar, `posthog.capture` isn't loaded
     // check if the function is available before calling it.

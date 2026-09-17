@@ -142,7 +142,11 @@ describe('api-error', () => {
                 false,
             ],
             // A body that arrived whole but would not parse can be a real backend bug, so it stays.
-            ['a malformed JSON body on a 2xx', new ApiError('Malformed JSON response [GET /api/foo] (status 200)'), true],
+            [
+                'a malformed JSON body on a 2xx',
+                new ApiError('Malformed JSON response [GET /api/foo] (status 200)'),
+                true,
+            ],
             // No HTTP response to excuse the failure.
             ['an error with no status', { message: 'boom' }, true],
             ['a thrown string', 'went wrong', true],
