@@ -31,6 +31,7 @@ from posthog.temporal.ai_observability.metrics import (
     increment_user_errors,
 )
 from posthog.temporal.ai_observability.model_resolution import model_spec
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.utils import close_db_connections
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest
@@ -59,6 +60,22 @@ LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     maximum_interval=timedelta(seconds=60),
     backoff_coefficient=2.0,
 )
+
+
+class TransientJudgeError(NonReportableError):
+    """A transient transport failure that reached the judge, wrapped to keep it out of error tracking.
+
+    A connection reset interrupts the judge at whatever line it reached, so each occurrence
+    fingerprints differently and error tracking files a new issue for it. The Temporal retry policy
+    already covers it. This class is a plain exception, not an `ApplicationError`, so the activity
+    failure stays retryable.
+
+    The marker class is what keeps it quiet. The worker interceptor wraps the activity from
+    outside its decorators and reports every exception it does not recognise, so opting the
+    activity out of automatic capture is not enough on its own. `NonReportableError` is one of the
+    types the interceptor re-raises untouched. A worker drain needs no marker, because the
+    interceptor skips cancellations already.
+    """
 
 
 class BooleanEvalResult(BaseModel):
@@ -205,7 +222,9 @@ def _build_context_window_skip_result(
 
 @temporalio.activity.defn
 @close_db_connections
-@posthoganalytics.scoped()
+# capture_exceptions=False: the worker interceptor reports judge failures, and its capture carries
+# the team and evaluation ids. A capture inside the activity wins the SDK's dedupe and loses them.
+@posthoganalytics.scoped(capture_exceptions=False)
 def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
     """Execute LLM judge to evaluate the target event.
 
@@ -413,17 +432,17 @@ def call_llm_judge(
         increment_errors("context_window_exceeded", provider=provider)
         return _build_context_window_skip_result(allows_na, is_byok=is_byok, key_id=key_id)
 
-    except ProviderConnectionError:
+    except ProviderConnectionError as e:
         # Transient transport failure (connection reset, read timeout). Retrying usually succeeds,
-        # so track it as a metric and re-raise for the retry policy — without the logger.exception
-        # that would clutter error tracking with a non-actionable issue.
+        # so track it as a metric and re-raise for the retry policy. `TransientJudgeError` keeps it
+        # out of error tracking, where a per-occurrence fingerprint files a new issue every time.
         increment_errors("connection_error", provider=provider)
-        raise
+        raise TransientJudgeError(str(e)) from e
 
     except temporalio.exceptions.CancelledError:
-        # A worker drain or a workflow cancel interrupts the judge at whatever line it reached, so
-        # the fingerprint differs per cancellation. Logging it would file a new error tracking issue
-        # every time, so track it as a metric and re-raise for the retry policy instead.
+        # A worker drain or a workflow cancel is not a judge failure, so track it as a metric and
+        # re-raise for the retry policy. The worker interceptor skips cancellations, so it stays
+        # out of error tracking.
         increment_errors("cancelled", provider=provider)
         raise
 
