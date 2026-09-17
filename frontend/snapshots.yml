@@ -8704,6 +8704,10 @@ snapshots:
         hash: v1.k794b7964.b198639b11e758bab18165f81f9c4ea2ec330192a9294bbc5cedb9beb56f2b97.fGVGYbxR7jztc-SOpgqlsGa8M5KM4X80uwKSMGQbouw
     scenes-app-inbox-signalsourcespanel--arming-blocked--light:
         hash: v1.k794b7964.6d6d67eeca4a12800dd28be02715472cea370dd7b8e506c74f3722ae98020b31.PvhDuOrtKkLXP3VLift16E-kkVTKt7IEkpZokgyDK1A
+    scenes-app-inbox-signalsourcespanel--error-tracking-expanded--dark:
+        hash: v1.k794b7964.dc82368880ce9cfb9af10463c3eedc2d8f82c10f1b08cbf3a1aa0e5e81c8f451.Ub2OUFCM-lT41xG2Tw4Cean8K9t7Z5lkXn0zz5eUk5I
+    scenes-app-inbox-signalsourcespanel--error-tracking-expanded--light:
+        hash: v1.k794b7964.d0ddc20080343593ec1c5534e9dcc534b1997d666b8a57cb2b6153bd3f54af5e.pQ7BNYwTYZXS4dB4pp7samdK7BQudfkh7fEEW_EuM2I
     scenes-app-inbox-signalsourcespanel--event-definitions-unavailable--dark:
         hash: v1.k794b7964.28d04b89b0825769c9c2cb617fcdb0c5a1371d398da50a8ebd8cdfdf0e01164a.P3b-y2FIqJvXfMBwXfYLteMApq02-T0AKwFRbwfIQa0
     scenes-app-inbox-signalsourcespanel--event-definitions-unavailable--light:
@@ -8716,6 +8720,10 @@ snapshots:
         hash: v1.k794b7964.f897b9dd52eae8ad29d04c46ba689c27f47602692b2144b0e75a97ef34fae702.AfAhw2Op6ddRNOGiTznSP6Wn5nrrM4iwiHZ-AaR3IRo
     scenes-app-inbox-signalsourcespanel--playground--light:
         hash: v1.k794b7964.13df8c7b214cfd00e7eba5fea6da33f833ac202b7d3a2ebbadd331440bb9f97a.xHWi11Tx7CmT7o1dwJvUjX1q6A5oFMQMHGwPfEi2elg
+    scenes-app-inbox-signalsourcespanel--replay-vision-expanded--dark:
+        hash: v1.k794b7964.91d6f2333d152b21b0a3c3defe243ad56ec48d54a06bfc5ec3e0538cde1c6325.LOyzhXttfKQhsSDIsee-zqgPzOZyCXi4lOFLef6FOT8
+    scenes-app-inbox-signalsourcespanel--replay-vision-expanded--light:
+        hash: v1.k794b7964.edaa8d90dcf46911f47d5c40ce2a6f2c8542000c2de472acde6959e2afbb0410.mBMhEdPIwxMd-Ktio7LCd0wegNurdVCgcRsT41hZ1kE
     scenes-app-inbox-signalsourcespanel--server-side-exceptions-only--dark:
         hash: v1.k794b7964.f897b9dd52eae8ad29d04c46ba689c27f47602692b2144b0e75a97ef34fae702.qixI7HhZb5rWIcR5HzZB9i8SidHDxo9eBF_dsAFvSew
     scenes-app-inbox-signalsourcespanel--server-side-exceptions-only--light:
