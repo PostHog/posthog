@@ -627,6 +627,56 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
                 ),
             }
         }
+        // The experiment exposure freeze rewrites the flag's filters to pin enrollment to a
+        // snapshot cohort; without the trigger check the rewrite reads as a manual targeting
+        // edit. job_type must stay in sync with the Trigger in
+        // products/experiments/backend/experiment_service.py.
+        if (logItem.detail.trigger?.job_type === 'experiment_exposure_frozen') {
+            return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Restricted the release conditions to the exposure freeze snapshot cohort',
+                    nameOrLinkToFlag(logItem.item_id, logItem.detail.name),
+                    undefined,
+                    getActorName(logItem)
+                ),
+                description: (
+                    <SentenceList
+                        listParts={['restricted the release conditions to the exposure freeze snapshot cohort']}
+                        prefix={getActorName(logItem)}
+                        suffix={
+                            <>
+                                on {asNotification && ' the flag '}
+                                {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}
+                            </>
+                        }
+                    />
+                ),
+            }
+        }
+        if (logItem.detail.trigger?.job_type === 'experiment_exposure_unfrozen') {
+            return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Removed the exposure freeze restriction',
+                    nameOrLinkToFlag(logItem.item_id, logItem.detail.name),
+                    undefined,
+                    getActorName(logItem)
+                ),
+                description: (
+                    <SentenceList
+                        listParts={['removed the exposure freeze restriction']}
+                        prefix={getActorName(logItem)}
+                        suffix={
+                            <>
+                                from {asNotification && ' the flag '}
+                                {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}
+                            </>
+                        }
+                    />
+                ),
+            }
+        }
         let changes: Description[] = []
         let summaryChanges: Description[] = []
         let preview: string | undefined

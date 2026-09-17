@@ -5,13 +5,14 @@ import { router } from 'kea-router'
 import { useEffect, useId, useRef, useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
-import { LemonButton, LemonTabs, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
+import { ActivityClientTag } from './ActivityClientTag'
 import { ActivityLogDiff } from './ActivityLogDiff'
 import { ACTIVITY_SEARCH_PARAM } from './activityLogLogic'
 import { AgentAttribution } from './AgentAttribution'
@@ -165,13 +166,7 @@ function RowHeading({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Ele
     return (
         <div className={clsx('flex flex-wrap items-center gap-x-2 gap-y-0.5', logItem.summary ? 'mb-1.5' : 'mt-1.5')}>
             {logItem.summary?.actor}
-            {logItem.client && (
-                <Tooltip title="Self-reported by the API client in the x-posthog-client request header">
-                    <LemonTag size="small" type="muted">
-                        via {logItem.client === 'mcp' ? 'MCP' : logItem.client}
-                    </LemonTag>
-                </Tooltip>
-            )}
+            {logItem.client && <ActivityClientTag client={logItem.client} />}
             <span className={clsx('text-secondary text-xs', logItem.summary && '@min-[35rem]:ml-auto')}>
                 <TZLabel time={logItem.created_at} />
             </span>

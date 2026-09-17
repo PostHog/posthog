@@ -1,4 +1,5 @@
 import os
+import typing as t
 import tempfile
 from collections.abc import AsyncGenerator
 from uuid import uuid4
@@ -8,6 +9,7 @@ import pytest
 import pytest_asyncio
 import snowflake.connector
 
+from posthog.models.integration import Integration, SnowflakeIntegration
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
 
 from products.batch_exports.backend.models.batch_export import BatchExport
@@ -66,14 +68,64 @@ def snowflake_config(database, schema) -> dict[str, str | None]:
     return config
 
 
+@pytest.fixture
+def snowflake_export_config(snowflake_config) -> dict[str, str | None]:
+    return {key: snowflake_config[key] for key in ("warehouse", "database", "schema", "role")}
+
+
+@pytest.fixture
+def snowflake_integration_credentials(snowflake_config) -> SnowflakeIntegration:
+    """The credentials a Snowflake export authenticates with, on an unsaved Integration.
+
+    Enough for tests that only open a connection; use `snowflake_integration` where the code under
+    test looks the row up by id.
+    """
+    return SnowflakeIntegration(
+        Integration(
+            kind=Integration.IntegrationKind.SNOWFLAKE,
+            integration_id="test-snowflake",
+            config={
+                "name": "test-snowflake",
+                "account": snowflake_config["account"],
+                "user": snowflake_config["user"],
+                "authentication_type": snowflake_config["authentication_type"],
+            },
+            sensitive_config={
+                key: snowflake_config[key]
+                for key in ("password", "private_key", "private_key_passphrase")
+                if snowflake_config.get(key) is not None
+            },
+        )
+    )
+
+
+@pytest_asyncio.fixture
+async def snowflake_integration(ateam, snowflake_integration_credentials) -> AsyncGenerator[Integration]:
+    """The same credentials, saved, for tests that resolve the integration by id."""
+    integration = snowflake_integration_credentials.integration
+    integration.team = ateam
+    await integration.asave()
+
+    yield integration
+
+    await integration.adelete()
+
+
+@pytest_asyncio.fixture
+async def snowflake_activity_inputs(snowflake_export_config, snowflake_integration) -> dict[str, t.Any]:
+    """The destination fields of `SnowflakeInsertInputs`, pointing at the credentials integration."""
+    return {**snowflake_export_config, "integration_id": snowflake_integration.id}
+
+
 @pytest_asyncio.fixture
 async def snowflake_batch_export(
-    ateam, table_name, snowflake_config, interval, exclude_events, temporal_client
+    ateam, table_name, snowflake_export_config, snowflake_integration, interval, exclude_events, temporal_client
 ) -> AsyncGenerator[BatchExport]:
     """Manage BatchExport model (and associated Temporal Schedule) for tests"""
     destination_data = {
         "type": "Snowflake",
-        "config": {**snowflake_config, "table_name": table_name, "exclude_events": exclude_events},
+        "config": {**snowflake_export_config, "table_name": table_name, "exclude_events": exclude_events},
+        "integration_id": snowflake_integration.id,
     }
     batch_export_data = {
         "name": "my-production-snowflake-export",

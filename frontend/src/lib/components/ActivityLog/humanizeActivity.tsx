@@ -54,7 +54,7 @@ export type ActivityLogItem = {
     is_system?: boolean
     /** Whether a PostHog team member was impersonating the user when this activity was logged. */
     was_impersonated?: boolean
-    /** SDK or integration that triggered this action (from x-posthog-client header). */
+    /** SDK, integration, or scout that triggered this action. Self-reported through the x-posthog-client header, except for a scout, which the server names. */
     client?: string | null
     /** Client IP address captured at request time. Null for non-HTTP activity (system, background jobs). */
     ip_address?: string | null
@@ -93,7 +93,7 @@ export type HumanizedActivityLogItem = {
     name?: string
     isSystem?: boolean
     wasImpersonated?: boolean
-    /** SDK or integration that triggered this action (from x-posthog-client header). */
+    /** SDK, integration, or scout that triggered this action. Self-reported through the x-posthog-client header, except for a scout, which the server names. */
     client?: string | null
     description: Description
     summary?: ActivityLogSummary

@@ -100,4 +100,25 @@ describe('ActivityLogRow', () => {
         ).toBeTruthy()
         expect(screen.queryByText('A user')).not.toBeInTheDocument()
     })
+
+    test.each([
+        ['mcp', 'via MCP'],
+        ['scout:self-driving-dwh', 'via scout self-driving-dwh'],
+        ['posthog-js/1.234.0', 'via posthog-js/1.234.0'],
+    ])('names %s as the client behind the change', (client, expected) => {
+        const logItem: HumanizedActivityLogItem = {
+            name: 'peter',
+            description: <>changed the rollout</>,
+            created_at: dayjs('2022-02-05T16:28:39.594Z'),
+            client,
+        }
+
+        render(
+            <Provider>
+                <ActivityLogRow logItem={logItem} />
+            </Provider>
+        )
+
+        expect(screen.getByText(expected)).toBeInTheDocument()
+    })
 })

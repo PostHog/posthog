@@ -3,7 +3,7 @@
 from typing import Any, Optional
 from uuid import UUID
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import QuerySet
 
 import structlog
@@ -67,6 +67,17 @@ def get_alert(team_id: int, alert_id: UUID | str) -> Optional[ErrorTrackingAlert
     return ErrorTrackingAlert.objects.for_team(team_id).prefetch_related("destinations").filter(id=parsed_id).first()
 
 
+# Delivery plans every enabled alert and destination of the team on each lifecycle
+# transition, so the graph it loads must stay small.
+MAX_ALERTS_PER_TEAM = 50
+MAX_DESTINATIONS_PER_ALERT = 10
+
+
+def _validate_destination_count(destinations: list[dict[str, Any]]) -> None:
+    if len(destinations) > MAX_DESTINATIONS_PER_ALERT:
+        raise AlertValidationError(f"An alert can have at most {MAX_DESTINATIONS_PER_ALERT} destinations.")
+
+
 def create_alert(
     team_id: int,
     *,
@@ -81,11 +92,17 @@ def create_alert(
     # paths (for_team) all agree on the same team id for child environments.
     team_id = resolve_effective_team_id(team_id)
     compiled_filters = _compile_filters(team_id, filters)
+    _validate_destination_count(destinations)
     _reject_duplicate_destinations(destinations)
     for destination in destinations:
         _validate_destination(team_id, destination)
 
     with transaction.atomic():
+        # Serializes concurrent creates for the team so the cap holds; the lock ends with the transaction.
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"error_tracking_alerts:{team_id}"])
+        if ErrorTrackingAlert.objects.for_team(team_id, canonical=True).count() >= MAX_ALERTS_PER_TEAM:
+            raise AlertValidationError(f"A project can have at most {MAX_ALERTS_PER_TEAM} alerts.")
         alert = ErrorTrackingAlert.objects.for_team(team_id, canonical=True).create(
             team_id=team_id,
             name=name,
@@ -127,6 +144,7 @@ def update_alert(
         return get_alert(team_id, parsed_id)
 
     if destinations is not None:
+        _validate_destination_count(destinations)
         _reject_duplicate_destinations(destinations)
 
     with transaction.atomic():
