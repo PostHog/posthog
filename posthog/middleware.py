@@ -1,12 +1,15 @@
 import os
 import re
+import hmac
 import json
 import time
 import uuid
+import hashlib
 import posixpath
 from collections.abc import Callable
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from ipaddress import ip_address, ip_network
 from typing import Optional, cast
 from urllib.parse import urlencode
@@ -121,6 +124,98 @@ default_cookie_options = {
 }
 
 cookie_api_paths_to_ignore = {"api", "flags", "scim"}
+
+MANAGED_PROXY_CLIENT_IP_META_KEYS = (
+    "HTTP_X_POSTHOG_CLIENT_IP",
+    "HTTP_X_POSTHOG_CLIENT_IP_TIMESTAMP",
+    "HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE",
+)
+MANAGED_PROXY_SIGNATURE_MAX_AGE_SECONDS = 60
+MANAGED_PROXY_SIGNATURE_MAX_CLOCK_SKEW_SECONDS = 5
+
+
+class ManagedProxyClientIPOutcome(StrEnum):
+    VALID = "valid"
+    # The instance holds no signing key, which is the normal state outside PostHog Cloud.
+    NOT_CONFIGURED = "not_configured"
+    TIMESTAMP_OUT_OF_WINDOW = "timestamp_out_of_window"
+    INVALID_INPUT = "invalid_input"
+    BAD_SIGNATURE = "bad_signature"
+
+
+# Only a request that carries a signed header counts here, so the series stays small.
+# Every outcome other than `valid` leaves the edge IP in place, and the request still succeeds.
+# Alert on `valid` falling to zero while managed proxy traffic continues. Do not alert on the
+# failure outcomes, because anyone can raise those by sending forged headers to the origin.
+MANAGED_PROXY_CLIENT_IP_VERIFICATIONS = Counter(
+    "posthog_managed_proxy_client_ip_verifications",
+    "Verifications of the client IP that the managed reverse proxy signs, by outcome.",
+    ["outcome"],
+)
+
+
+def verify_managed_proxy_client_ip(
+    ip: str | None, timestamp: str | None, signature: str | None
+) -> ManagedProxyClientIPOutcome:
+    """Report whether the managed reverse proxy signed this client IP.
+
+    The proxy Worker sends hex(HMAC-SHA256(key, f"{ip}:{timestamp}")) with the timestamp in unix seconds.
+    A change to this format must also go to the Worker, or Django ignores the signed IP on every request.
+    """
+    keys = [key for key in settings.MANAGED_PROXY_SIGNING_KEYS if key]
+    if not keys:
+        return ManagedProxyClientIPOutcome.NOT_CONFIGURED
+    if not ip or not timestamp or not signature:
+        return ManagedProxyClientIPOutcome.INVALID_INPUT
+    # int() raises ValueError on very long digit strings, so check the length first.
+    if len(timestamp) > 12 or not (timestamp.isascii() and timestamp.isdigit()):
+        return ManagedProxyClientIPOutcome.INVALID_INPUT
+    try:
+        ip_address(ip)
+    except ValueError:
+        return ManagedProxyClientIPOutcome.INVALID_INPUT
+    age_seconds = time.time() - int(timestamp)
+    if not -MANAGED_PROXY_SIGNATURE_MAX_CLOCK_SKEW_SECONDS <= age_seconds <= MANAGED_PROXY_SIGNATURE_MAX_AGE_SECONDS:
+        return ManagedProxyClientIPOutcome.TIMESTAMP_OUT_OF_WINDOW
+
+    message = f"{ip}:{timestamp}".encode()
+    # compare_digest raises TypeError on a str with non-ASCII characters, so compare bytes.
+    provided = signature.lower().encode()
+    for key in keys:
+        expected = hmac.new(key.encode(), message, hashlib.sha256).hexdigest().encode()
+        if hmac.compare_digest(expected, provided):
+            return ManagedProxyClientIPOutcome.VALID
+    return ManagedProxyClientIPOutcome.BAD_SIGNATURE
+
+
+class ManagedProxyClientIPMiddleware:
+    """Use the client IP that the managed reverse proxy signed as the request's client IP.
+
+    Envoy sets X-Forwarded-For to its peer, which is a Cloudflare edge for managed proxy traffic.
+    After a valid signature, X-Forwarded-For holds only the signed IP, so get_ip_address,
+    get_trusted_client_ip, axes, DRF throttles and the request log all see the real client.
+    REMOTE_ADDR stays the transport peer, because get_trusted_client_ip checks it against TRUSTED_PROXIES.
+
+    Any other outcome keeps the edge IP and lets the request through. The edge IP comes from Envoy
+    rather than from the client, so the fallback costs precision and not safety. A rejection would
+    instead turn a key or Worker mistake into failed requests on a path that carries event capture.
+    """
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        # Remove the headers on every request, so that no later code can read an unverified value.
+        ip, timestamp, signature = (request.META.pop(key, None) for key in MANAGED_PROXY_CLIENT_IP_META_KEYS)
+        if ip or timestamp or signature:
+            outcome = verify_managed_proxy_client_ip(ip, timestamp, signature)
+            MANAGED_PROXY_CLIENT_IP_VERIFICATIONS.labels(outcome=outcome.value).inc()
+            if outcome is ManagedProxyClientIPOutcome.VALID and ip:
+                request.META["HTTP_X_FORWARDED_FOR"] = ip
+        # request.headers caches a copy of META on first access. Drop the cache in case an
+        # earlier middleware read it, so that later readers see the changes above.
+        request.__dict__.pop("headers", None)
+        return self.get_response(request)
 
 
 class AllowIPMiddleware:

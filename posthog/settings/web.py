@@ -161,6 +161,8 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
+    # Must precede every middleware that reads the client IP: the request log, AllowIPMiddleware and axes.
+    "posthog.middleware.ManagedProxyClientIPMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
     "posthog.middleware.Fix204Middleware",
