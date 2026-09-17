@@ -169,6 +169,10 @@ export const SyncTypeLabelMap: Record<NonNullable<ExternalDataSourceSyncSchema['
     xmin: 'xmin',
 }
 
+// A custom REST source reads incremental support per table from the cursor in its manifest, so a
+// table without one needs a manifest edit rather than a different sync method.
+export const isManifestDrivenSource = (sourceType?: string | null): boolean => sourceType === 'Custom'
+
 export const IncrementalSyncBlockedMessageMap: Record<IncrementalSyncBlockedReason, string> = {
     missing_primary_key:
         "This table has no primary key, so it can't sync incrementally. Pick primary key columns, or change the sync method. If you added a primary key in the source, enable syncing to try again.",

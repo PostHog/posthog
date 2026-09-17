@@ -366,7 +366,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
     // syncMethodModalLogic, which connects sourceManagementLogic and would mount + poll the full
     // sources list (the heavy `external_data_sources` fetch this page is meant to avoid).
     const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
-    const { schemaIncrementalFields, schemaIncrementalFieldsLoading } = useValues(logic)
+    const { schemaIncrementalFields, schemaIncrementalFieldsLoading, source } = useValues(logic)
     const { loadSchemaIncrementalFields, loadSchema } = useActions(logic)
 
     const formRef = useRef<SyncMethodFormHandle>(null)
@@ -485,6 +485,8 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                                 available_columns: [],
                                 detected_primary_keys: null,
                             }}
+                            sourceType={source?.source_type}
+                            sourceConfigurationUrl={urls.dataWarehouseSource(`managed-${sourceId}`, 'configuration')}
                             availableColumns={schemaIncrementalFields.available_columns ?? []}
                             detectedPrimaryKeys={schemaIncrementalFields.detected_primary_keys ?? null}
                             primaryKeyDetectionSupported={
