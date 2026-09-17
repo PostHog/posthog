@@ -3,7 +3,7 @@ import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.m
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { HogQLQueryModifiers, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AppContext, TeamType } from '~/types'
 
@@ -55,6 +55,39 @@ describe('teamLogic', () => {
             expect(logic.values.currentTeam?.id).toBe(MOCK_TEAM_ID)
             expect(logic.values.currentTeam?.test_account_filters).toEqual(expectedFilters)
         })
+    })
+
+    describe('testAccountFilterFrequentMistakes', () => {
+        const mountWithModifiers = async (
+            personsOnEventsMode?: HogQLQueryModifiers['personsOnEventsMode']
+        ): Promise<ReturnType<typeof teamLogic.build>> => {
+            initKeaTests(false, { ...MOCK_DEFAULT_TEAM, modifiers: { personsOnEventsMode } })
+            const teamLogicInstance = teamLogic()
+            teamLogicInstance.mount()
+            await expectLogic(teamLogicInstance).toDispatchActions(['loadCurrentTeamSuccess'])
+            return teamLogicInstance
+        }
+
+        const eventTimeModes: HogQLQueryModifiers['personsOnEventsMode'][] = [
+            'person_id_override_properties_on_events',
+            'person_id_no_override_properties_on_events',
+        ]
+
+        // MOCK_DEFAULT_TEAM filters internal users by the `email` person property
+        it.each(eventTimeModes)('warns about a person property filter on the %s mode', async (personsOnEventsMode) => {
+            logic = await mountWithModifiers(personsOnEventsMode)
+            expect(logic.values.testAccountFilterFrequentMistakes).toEqual([
+                expect.objectContaining({ key: 'email', type: 'person' }),
+            ])
+        })
+
+        it.each([['person_id_override_properties_joined'], [undefined]] as const)(
+            'stays quiet on the %s mode',
+            async (personsOnEventsMode) => {
+                logic = await mountWithModifiers(personsOnEventsMode)
+                expect(logic.values.testAccountFilterFrequentMistakes).toEqual([])
+            }
+        )
     })
 
     describe('updateCurrentTeam with a name-only payload', () => {

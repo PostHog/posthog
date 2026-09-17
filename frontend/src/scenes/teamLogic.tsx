@@ -627,12 +627,27 @@ export const teamLogic = kea<teamLogicType>([
                 }
                 const frequentMistakes: FrequentMistakeAdvice[] = []
 
+                const personPropertiesMode =
+                    currentTeam.modifiers?.personsOnEventsMode ?? currentTeam.default_modifiers?.personsOnEventsMode
+                const readsPersonPropertiesFromEvents =
+                    personPropertiesMode === 'person_id_override_properties_on_events' ||
+                    personPropertiesMode === 'person_id_no_override_properties_on_events'
+
                 for (const filter of currentTeam.test_account_filters || []) {
                     if (filter.key === 'email' && filter.type === 'event') {
                         frequentMistakes.push({
                             key: 'email',
                             type: 'event',
                             fix: 'it is more common to filter email by person properties, not event properties',
+                        })
+                    }
+                    if (filter.type === 'person' && filter.key && readsPersonPropertiesFromEvents) {
+                        frequentMistakes.push({
+                            key: filter.key,
+                            type: 'person',
+                            fix:
+                                'this project reads person properties from the time of the event, so the filter only applies to events received after you set the property. ' +
+                                'Change the person properties mode to query time to also filter past events',
                         })
                     }
                 }
