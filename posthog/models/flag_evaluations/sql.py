@@ -255,8 +255,11 @@ ENGINE = {
             named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
         )
     }
--- Smaller block/poll sizes than the precalculated Kafka tables on this role: each
--- row carries the full event-properties JSON, so large blocks cost far more memory.
+-- The block and batch sizes are an order of magnitude below the precalculated
+-- Kafka tables on this role: each row carries the full event-properties JSON, so
+-- large blocks cost far more memory. The 10s poll timeout is deliberate: it is
+-- in the range the other WarpStream consumers use, not the 1s the precalculated
+-- tables set.
 SETTINGS
     kafka_max_block_size = 10000,
     kafka_poll_max_batch_size = 10000,

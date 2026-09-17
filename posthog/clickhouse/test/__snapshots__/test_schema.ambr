@@ -327,8 +327,11 @@
       inserted_at DateTime64(6, 'UTC')
   )
   ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_flag_evaluations_test', kafka_group_name = 'clickhouse_flag_evaluations', kafka_format = 'JSONEachRow')
-  -- Smaller block/poll sizes than the precalculated Kafka tables on this role: each
-  -- row carries the full event-properties JSON, so large blocks cost far more memory.
+  -- The block and batch sizes are an order of magnitude below the precalculated
+  -- Kafka tables on this role: each row carries the full event-properties JSON, so
+  -- large blocks cost far more memory. The 10s poll timeout is deliberate: it is
+  -- in the range the other WarpStream consumers use, not the 1s the precalculated
+  -- tables set.
   SETTINGS
       kafka_max_block_size = 10000,
       kafka_poll_max_batch_size = 10000,
@@ -2636,8 +2639,11 @@
       inserted_at DateTime64(6, 'UTC')
   )
   ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_flag_evaluations_test', kafka_group_name = 'clickhouse_flag_evaluations', kafka_format = 'JSONEachRow')
-  -- Smaller block/poll sizes than the precalculated Kafka tables on this role: each
-  -- row carries the full event-properties JSON, so large blocks cost far more memory.
+  -- The block and batch sizes are an order of magnitude below the precalculated
+  -- Kafka tables on this role: each row carries the full event-properties JSON, so
+  -- large blocks cost far more memory. The 10s poll timeout is deliberate: it is
+  -- in the range the other WarpStream consumers use, not the 1s the precalculated
+  -- tables set.
   SETTINGS
       kafka_max_block_size = 10000,
       kafka_poll_max_batch_size = 10000,
