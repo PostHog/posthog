@@ -1166,6 +1166,15 @@ def _refresh_routing_enabled(team_id: int) -> bool:
     """Return True if this team's hourly refresh should be raised as a Kafka
     invalidation instead of being built in the Celery worker.
 
+    FLAGS_CACHE_REFRESH_KAFKA_ENABLED is read before the flag, because the flag cannot
+    be scoped to one deployment: local evaluation resolves it against the single
+    project key set in posthog/apps.py, so raising it raises it in every region at
+    once. A region whose flags-cache-builder image predates the `source` field rejects
+    the message through deny_unknown_fields, counts it as a parse error and drops it,
+    and the dead letter queue holds build failures rather than parse failures, so
+    nothing can be replayed. The setting is read per deployment, so a lagging region
+    holds routing off on its own until its builder is rolled.
+
     Every failure mode returns False, which keeps the sweep building in Python. That
     is the safe direction: a build that happens is never worse than a message nobody
     consumes.
@@ -1177,6 +1186,9 @@ def _refresh_routing_enabled(team_id: int) -> bool:
     constant high rate on a panel that means "rare anomaly". A client that is actually
     broken raises instead, and the warning below records that.
     """
+    if not settings.FLAGS_CACHE_REFRESH_KAFKA_ENABLED:
+        return False
+
     try:
         return feature_enabled_or_false(
             REFRESH_ROUTING_FLAG,

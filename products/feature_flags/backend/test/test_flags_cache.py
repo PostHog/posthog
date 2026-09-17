@@ -996,8 +996,20 @@ class TestServiceFlagsKafkaRouting(BaseTest):
         mock_produce.assert_not_called()
 
 
+@override_settings(FLAGS_CACHE_REFRESH_KAFKA_ENABLED=True)
 class TestRefreshRoutingHook(SimpleTestCase):
     TEAM_ID = 11
+
+    @override_settings(FLAGS_CACHE_REFRESH_KAFKA_ENABLED=False)
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache.feature_enabled_or_false", return_value=True)
+    def test_the_deployment_switch_off_declines_the_team_without_reading_the_flag(self, mock_gate, mock_produce):
+        assert route_refresh_to_kafka(self.TEAM_ID) is False
+
+        # Checked before the flag, which resolves against one project key for every
+        # region and so cannot hold routing off in the lagging one.
+        mock_gate.assert_not_called()
+        mock_produce.assert_not_called()
 
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
     @patch("products.feature_flags.backend.flags_cache.feature_enabled_or_false", return_value=False)
@@ -1189,25 +1201,29 @@ class TestShadowInvalidationPublishing(SimpleTestCase):
         # the gate reports its own failure as "shadow off".
         assert mock_logger.warning.call_args.args[0] == "flags_cache_shadow_compare_flag_evaluation_failed"
 
+    @override_settings(FLAGS_CACHE_REFRESH_KAFKA_ENABLED=True)
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
     # `_shadow_compare_enabled` reaches the SDK through ph_client rather than this
     # module's import. Patching here still covers it, because both names resolve to
     # the same posthoganalytics module object.
     @patch("products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled", return_value=False)
-    def test_both_gates_evaluate_locally_and_capture_nothing(self, mock_feature_enabled, mock_produce):
+    def test_every_gate_evaluates_locally_and_captures_nothing(self, mock_feature_enabled, mock_produce):
         publish_shadow_invalidation(self.TEAM_ID)
+        route_refresh_to_kafka(self.TEAM_ID)
 
         # A remote evaluation would put a blocking flags-API call inside every cache
-        # build, and an event capture would bill each rebuild as product usage.
+        # build, and an event capture would bill each rebuild as product usage. The
+        # refresh gate runs once per team of every hourly run, so it costs the most.
         assert {call.args[0] for call in mock_feature_enabled.call_args_list} == {
             KAFKA_ROUTING_FLAG,
             SHADOW_COMPARE_FLAG,
+            REFRESH_ROUTING_FLAG,
         }
         for call in mock_feature_enabled.call_args_list:
             assert call.kwargs["only_evaluate_locally"] is True
             assert call.kwargs["send_feature_flag_events"] is False
-        # Inert at 0%. This is the only test that runs the real gate, so nothing
-        # else catches it publishing while SHADOW_COMPARE_FLAG is off.
+        # Inert at 0%. This is the only test that runs the real gates, so nothing
+        # else catches one publishing while its flag is off.
         mock_produce.assert_not_called()
 
 
@@ -1254,6 +1270,7 @@ class TestGetTeamPrimaryFlagsWriter(unittest.TestCase):
             assert FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.get_primary_writer_fn(42) == "rust"
         assert mock_feature_enabled.call_args.args[1] == "team-42"
 
+    @override_settings(FLAGS_CACHE_REFRESH_KAFKA_ENABLED=True)
     def test_flags_config_binds_the_refresh_routing_hook(self):
         # The lambda on the config is the only wire between the sweep and the hook.
         # Unbound, the sweep silently keeps building in Python and the enqueued gauge

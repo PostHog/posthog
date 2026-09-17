@@ -4,7 +4,7 @@ from contextlib import suppress
 
 from posthog.settings.access import SECRET_KEY
 from posthog.settings.base_variables import TEST
-from posthog.settings.utils import get_from_env, get_list, get_set
+from posthog.settings.utils import get_from_env, get_list, get_set, str_to_bool
 
 # Used mostly by the hobby install to have some feature flags enabled by default
 # NOTE: This only affects the frontend, the same FFs will still be considered disabled on the backend
@@ -93,6 +93,15 @@ FLAGS_CACHE_REFRESH_LIMIT: int = get_from_env("FLAGS_CACHE_REFRESH_LIMIT", 5000,
 # a fully routed run at the volumes the sweep sees today, which peak around 2,300 teams
 # and need about 9 pauses. A larger run spends the window and routes the rest unpaced,
 # which logs a warning.
+# Per-deployment kill switch for routing the refresh sweep to the Kafka builder, read
+# before the per-team flag. The flag cannot do this job: local evaluation resolves it
+# against the single project key in posthog/apps.py, so raising it raises it in every
+# region at once, including one whose flags-cache-builder still rejects the `source`
+# field.
+FLAGS_CACHE_REFRESH_KAFKA_ENABLED: bool = get_from_env(
+    "FLAGS_CACHE_REFRESH_KAFKA_ENABLED", False, type_cast=str_to_bool
+)
+
 FLAGS_CACHE_REFRESH_KAFKA_CHUNK_SIZE: int = max(
     1, get_from_env("FLAGS_CACHE_REFRESH_KAFKA_CHUNK_SIZE", 250, type_cast=int)
 )
