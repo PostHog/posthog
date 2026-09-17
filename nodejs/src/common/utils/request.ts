@@ -38,6 +38,14 @@ const unsafeRequestCounter = new Counter({
     labelNames: ['reason'],
 })
 
+// The only signal on this side that says which way a request left the pod. Smokescreen records the destination of a
+// tunnel it carries, but nothing here otherwise separates a proxied request from a direct one.
+const externalRequestRouteCounter = new Counter({
+    name: 'node_external_request_route_total',
+    help: 'Third-party requests by egress route, proxy or direct',
+    labelNames: ['route'],
+})
+
 // Gauge tracking the number of external HTTP requests currently in flight.
 // This is the primary scaling signal for the cdp-cyclotron-worker: it directly
 // measures I/O saturation rather than CPU (which stays low while waiting on responses)
@@ -419,12 +427,17 @@ function getSecureH2Agent(
 
 function getSecureDispatcher(options: { allowH2?: boolean; http2IdleTimeoutMs?: number }): SecureDispatcher {
     const useProxy = useProxyForTeam()
-    if (options.allowH2) {
-        return getSecureH2Agent(useProxy, options.http2IdleTimeoutMs)
-    }
     // useProxyForTeam only returns true when a proxy URL was configured, so the agent exists whenever it is needed.
-    const dispatcher = useProxy && sharedSecureProxyAgent ? sharedSecureProxyAgent : sharedSecureAgent
-    return { dispatcher, gate: null }
+    const secure = options.allowH2
+        ? getSecureH2Agent(useProxy, options.http2IdleTimeoutMs)
+        : {
+              dispatcher: useProxy && sharedSecureProxyAgent ? sharedSecureProxyAgent : sharedSecureAgent,
+              gate: null,
+          }
+    // Counted here because every route decision passes through this function. A throw from getSecureH2Agent leaves
+    // the request uncounted, which is right: it never picked a route.
+    externalRequestRouteCounter.inc({ route: routeOf(useProxy) })
+    return secure
 }
 
 // The timer only bounds the wait in closeSharedAgents. When close finishes first, an unref'd timer does not keep the
