@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   openTask: vi.fn(),
   success: vi.fn(),
   error: vi.fn(),
+  track: vi.fn(),
 }));
 vi.mock("@posthog/di/react", () => ({
   useService: () => ({ createTask: mocks.createTask }),
@@ -51,7 +52,7 @@ vi.mock("@posthog/ui/primitives/toast", () => ({
   },
 }));
 vi.mock("@posthog/ui/router/useOpenTask", () => ({ openTask: mocks.openTask }));
-vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
+vi.mock("@posthog/ui/shell/analytics", () => ({ track: mocks.track }));
 vi.mock("@posthog/ui/shell/logger", () => ({
   logger: { scope: () => ({ error: mocks.error }) },
 }));
@@ -135,6 +136,13 @@ describe("useInboxCloudTaskRunner", () => {
       expect(onTaskStarted).toHaveBeenCalledTimes(success ? 1 : 0);
       expect(result.current.isRunning).toBe(false);
       expect(mocks.openTask).not.toHaveBeenCalled();
+      expect(
+        mocks.track.mock.calls.filter(([event]) => event === "Task created"),
+      ).toEqual(
+        success
+          ? [["Task created", expect.objectContaining({ task_id: task.id })]]
+          : [],
+      );
       if (success) {
         const options = mocks.success.mock.calls[0][1];
         expect(options.action.label).toBe("View task");
@@ -180,10 +188,19 @@ describe("useInboxCloudTaskRunner", () => {
     expect(result.current.isRunning).toBe(false);
     expect(onTaskStarted).not.toHaveBeenCalled();
     expect(mocks.createTask).not.toHaveBeenCalled();
+    expect(mocks.track).not.toHaveBeenCalledWith(
+      "Task created",
+      expect.anything(),
+    );
     await act(async () => {
       expect(await result.current.run()).toBe(true);
     });
     expect(mocks.createTask).toHaveBeenCalledOnce();
     expect(onTaskStarted).toHaveBeenCalledOnce();
+    expect(
+      mocks.track.mock.calls.filter(([event]) => event === "Task created"),
+    ).toEqual([
+      ["Task created", expect.objectContaining({ task_id: task.id })],
+    ]);
   });
 });
