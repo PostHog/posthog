@@ -9393,9 +9393,13 @@ snapshots:
     scenes-app-people-cohorts--cohort-edit-dynamic--light:
         hash: v1.k794b7964.16bae00697363fb140788023823ca272a1f57bf2b9cc4984f62f6b39e098b87a.sga7qTbJWVb7MG-E8DSdsDVlcJm9nBZzZAY6TxrBIUw
     scenes-app-people-cohorts--cohort-edit-static--dark:
-        hash: v1.k794b7964.9a7ecdb86d86a13d5ea9c1723b11d6ee9e712851ce610a1f22087f17e4a13c2e.PFmgqeNOFUte6e2WGILBNqWzV9SGyXqGATqt9qX8UcQ
+        hash: v1.k794b7964.267b40e33b380519b46d4b7b8068b869a6250b5fd446c6335a9e95f683ee2302.jnRu9rG_ZQxTsYzmKQqEbN-aIU3psCpbQN8hV8OsX6Y
     scenes-app-people-cohorts--cohort-edit-static--light:
-        hash: v1.k794b7964.26110785e678568b3be042baeba86b30387e473843b8a65aa48b11edfdd24af7.5Z104Qke5HLoSoHtuKjQoVVoTGvswRtlNGWgu5Y6lL8
+        hash: v1.k794b7964.ccca565eab13d0a15b96b664f72fe2a86cd7f94f71144041020507f80e4f0123.7Aj84hi9A22Kzcp0q7Whjal9N_XI9QOHNqHjB2DFRgs
+    scenes-app-people-cohorts--cohort-edit-static-population-failed--dark:
+        hash: v1.k794b7964.56f875299f9005db364cc362050e4d425528d2205c202def0d2a6e98c9745b25.tXvxMJzkKQb5UhOTQMrfwndgLUz8aBUxAaSvpdQtl2I
+    scenes-app-people-cohorts--cohort-edit-static-population-failed--light:
+        hash: v1.k794b7964.3c2fb12b8b97a3126412bd6667a2873d37f97288b86d90afed2ff6ff12f320f3.RLtxz6gSL0p-CpgRQE5RdOzgVgAkyPBRz4yMz8IgbDM
     scenes-app-people-cohorts--cohort-new--dark:
         hash: v1.k794b7964.0c0b9da85f85dac4c299d0527725f192c0c07d204e28462a64736552aaba735b.aX2s9DQu-pQIZHJDYBeZXL9lyni7w6PSMh3u3b_cvhA
     scenes-app-people-cohorts--cohort-new--light:
