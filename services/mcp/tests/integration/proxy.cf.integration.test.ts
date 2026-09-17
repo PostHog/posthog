@@ -12,7 +12,7 @@ import { defineAuthTests, defineResilienceTests, type ProtocolTestHarness } from
 //   - Real Redis (TEST_REDIS_URL / db TEST_REDIS_DB, default localhost:6379 db 15)
 //   - Real local PostHog stack at TEST_POSTHOG_API_BASE_URL (default localhost:8010)
 //
-// Nothing is mocked. The Worker is configured with `MCP_HONO_URL` pointing at
+// Only the product-skill archive is served locally. The Worker is configured with `MCP_HONO_URL` pointing at
 // the in-process Hono, so authenticated `/mcp` traffic travels the full
 // client → proxy → Hono → PostHog chain.
 //
