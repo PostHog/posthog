@@ -42715,6 +42715,46 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * * `open` - open
+     * * `closed` - closed
+     */
+    export type IssueStateEnum = typeof IssueStateEnum[keyof typeof IssueStateEnum];
+
+
+    export const IssueStateEnum = {
+      Open: 'open',
+      Closed: 'closed',
+    } as const;
+
+    export interface FeatureRequestGitHubLink {
+      /** Stable GitHub link ID. */
+      readonly id: string;
+      /** Canonical GitHub issue URL. */
+      readonly issue_url: string;
+      /** Canonical owner and repository name. */
+      readonly repository: string;
+      /**
+         * GitHub issue number.
+         * @minimum 1
+         */
+      readonly issue_number: number;
+      /** Latest GitHub issue title. */
+      readonly issue_title: string;
+      /** Latest GitHub issue state.
+       *
+       * * `open` - open
+       * * `closed` - closed */
+      readonly issue_state: IssueStateEnum;
+      /** Whether GitHub issue changes update this request. */
+      readonly sync_enabled: boolean;
+      /**
+         * When GitHub last updated this link.
+         * @nullable
+         */
+      readonly last_synced_at: string | null;
+    }
+
     export interface FeatureRequest {
       /** Stable feature request ID. */
       readonly id: string;
@@ -42766,6 +42806,8 @@ export namespace Schemas {
       readonly evidence_count: number;
       /** Product areas affected by this request. */
       readonly product_areas: readonly FeatureRequestProductArea[];
+      /** Linked GitHub issue, or null when no issue is linked. */
+      readonly github_link: FeatureRequestGitHubLink | null;
       /**
          * ID of the user who created the request.
          * @nullable
@@ -42899,6 +42941,21 @@ export namespace Schemas {
       evidence_id: string;
     }
 
+    export interface FeatureRequestGitHubLinkSerializerInput {
+      /**
+         * GitHub integration ID connected to this project.
+         * @minimum 1
+         */
+      integration_id: number;
+      /** GitHub issue URL. Pull request URLs are not supported. */
+      issue_url: string;
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
+    }
+
     /**
      * * `status` - Status
      * * `priority` - Priority
@@ -42906,6 +42963,8 @@ export namespace Schemas {
      * * `accounts` - Accounts
      * * `evidence` - Evidence
      * * `product_areas` - Product areas
+     * * `github_link` - GitHub link
+     * * `github_sync` - GitHub sync
      */
     export type FeatureRequestHistoryChangeFieldEnum = typeof FeatureRequestHistoryChangeFieldEnum[keyof typeof FeatureRequestHistoryChangeFieldEnum];
 
@@ -42917,12 +42976,22 @@ export namespace Schemas {
       Accounts: 'accounts',
       Evidence: 'evidence',
       ProductAreas: 'product_areas',
+      GithubLink: 'github_link',
+      GithubSync: 'github_sync',
     } as const;
 
     /**
      * Value before the update, including relation snapshots.
      */
-    export type FeatureRequestHistoryChangeBefore = string | {
+    export type FeatureRequestHistoryChangeBefore = string | boolean | {
+      id: string;
+      issue_url: string;
+      repository: string;
+      issue_number: number;
+      issue_title: string;
+      issue_state: 'open' | 'closed';
+      sync_enabled: boolean;
+    } | {
       /** @nullable */
       id: string | null;
       name: string;
@@ -42947,7 +43016,15 @@ export namespace Schemas {
     /**
      * Value after the update, including relation snapshots.
      */
-    export type FeatureRequestHistoryChangeAfter = string | {
+    export type FeatureRequestHistoryChangeAfter = string | boolean | {
+      id: string;
+      issue_url: string;
+      repository: string;
+      issue_number: number;
+      issue_title: string;
+      issue_state: 'open' | 'closed';
+      sync_enabled: boolean;
+    } | {
       /** @nullable */
       id: string | null;
       name: string;
@@ -42977,7 +43054,9 @@ export namespace Schemas {
        * * `account` - Account
        * * `accounts` - Accounts
        * * `evidence` - Evidence
-       * * `product_areas` - Product areas */
+       * * `product_areas` - Product areas
+       * * `github_link` - GitHub link
+       * * `github_sync` - GitHub sync */
       readonly field: FeatureRequestHistoryChangeFieldEnum;
       /** Value before the update, including relation snapshots. */
       readonly before: FeatureRequestHistoryChangeBefore;
@@ -42987,12 +43066,14 @@ export namespace Schemas {
 
     /**
      * * `manual` - Manual
+     * * `github` - GitHub
      */
     export type FeatureRequestHistorySourceEnum = typeof FeatureRequestHistorySourceEnum[keyof typeof FeatureRequestHistorySourceEnum];
 
 
     export const FeatureRequestHistorySourceEnum = {
       Manual: 'manual',
+      Github: 'github',
     } as const;
 
     export interface FeatureRequestHistory {
@@ -43004,7 +43085,8 @@ export namespace Schemas {
       readonly is_initial: boolean;
       /** System that recorded the request change.
        *
-       * * `manual` - Manual */
+       * * `manual` - Manual
+       * * `github` - GitHub */
       readonly change_source: FeatureRequestHistorySourceEnum;
       /**
          * ID of the user who changed the request, if known.
@@ -43041,7 +43123,8 @@ export namespace Schemas {
       readonly request_status: FeatureRequestStatusEnum;
       /** System that recorded the status change.
        *
-       * * `manual` - Manual */
+       * * `manual` - Manual
+       * * `github` - GitHub */
       readonly change_source: FeatureRequestHistorySourceEnum;
       /**
          * ID of the user who changed the status, if known.

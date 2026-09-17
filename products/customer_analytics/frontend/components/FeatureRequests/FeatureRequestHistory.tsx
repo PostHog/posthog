@@ -15,6 +15,7 @@ import { featureRequestPriorityLabel, featureRequestStatusLabel } from './featur
 
 type RelationSnapshot = { id: string; name: string }
 type EvidenceSnapshot = { id: string; account: RelationSnapshot }
+type GitHubIssueSnapshot = { repository: string; issueNumber: number; issueTitle: string }
 type ShowHistoryTarget = (accountId: string, evidenceId?: string) => void
 
 const FEATURE_REQUEST_STATUSES = new Set<string>(['requested', 'planned', 'completed', 'wont_fix', 'duplicate'])
@@ -53,6 +54,30 @@ function relationSnapshots(value: unknown): RelationSnapshot[] {
     return Array.isArray(value)
         ? value.map(relationSnapshot).filter((snapshot): snapshot is RelationSnapshot => snapshot !== null)
         : []
+}
+
+function githubIssueSnapshot(value: unknown): GitHubIssueSnapshot | null {
+    if (
+        typeof value !== 'object' ||
+        value === null ||
+        !('repository' in value) ||
+        typeof value.repository !== 'string' ||
+        !('issue_number' in value) ||
+        typeof value.issue_number !== 'number'
+    ) {
+        return null
+    }
+    return {
+        repository: value.repository,
+        issueNumber: value.issue_number,
+        issueTitle: 'issue_title' in value && typeof value.issue_title === 'string' ? value.issue_title : '',
+    }
+}
+
+function githubIssueName(issue: GitHubIssueSnapshot): string {
+    return issue.issueTitle
+        ? `${issue.repository}#${issue.issueNumber} (${issue.issueTitle})`
+        : `${issue.repository}#${issue.issueNumber}`
 }
 
 function statusName(value: unknown): string {
@@ -207,6 +232,32 @@ function describeEvidenceChange(change: FeatureRequestHistoryChangeApi, onShowTa
     )
 }
 
+function describeGithubLinkChange(change: FeatureRequestHistoryChangeApi): JSX.Element {
+    const before = githubIssueSnapshot(change.before)
+    const after = githubIssueSnapshot(change.after)
+    const description =
+        after && !before
+            ? `linked ${githubIssueName(after)}`
+            : before && !after
+              ? `unlinked ${githubIssueName(before)}`
+              : after
+                ? `updated ${githubIssueName(after)}`
+                : 'updated'
+    return (
+        <div>
+            <span className="font-medium">GitHub issue:</span> {description}
+        </div>
+    )
+}
+
+function describeGithubSyncChange(change: FeatureRequestHistoryChangeApi): JSX.Element {
+    return (
+        <div>
+            <span className="font-medium">GitHub sync:</span> {change.after === true ? 'resumed' : 'paused'}
+        </div>
+    )
+}
+
 function describeProductAreasChange(
     change: FeatureRequestHistoryChangeApi,
     isInitial: boolean,
@@ -264,6 +315,10 @@ function describeChange(
             return describeEvidenceChange(change, onShowTarget)
         case 'product_areas':
             return describeProductAreasChange(change, isInitial, onShowTarget)
+        case 'github_link':
+            return describeGithubLinkChange(change)
+        case 'github_sync':
+            return describeGithubSyncChange(change)
         default:
             return null
     }
@@ -332,7 +387,9 @@ export function FeatureRequestHistory({
                             <div className="min-w-0 flex-1">
                                 <div className="mb-1 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
                                     <span className="font-medium text-sm text-default">
-                                        {entry.actor_name ?? 'Unknown user'}{' '}
+                                        {entry.change_source === 'github'
+                                            ? 'GitHub'
+                                            : (entry.actor_name ?? 'Unknown user')}{' '}
                                         {entry.is_initial ? 'created this request' : 'updated this request'}
                                     </span>
                                     <span className="text-xs text-tertiary">

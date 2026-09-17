@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from celery import shared_task
 
 from posthog.exceptions_capture import capture_exception
@@ -9,6 +11,35 @@ from products.customer_analytics.backend.facade.email_matching import (
 )
 from products.customer_analytics.backend.logic.announcements import send_pending_deliveries
 from products.customer_analytics.backend.logic.custom_property_sync import sync_custom_property_values
+from products.customer_analytics.backend.logic.feature_request_github import process_github_issue_update
+
+
+@shared_task(
+    name="customer_analytics.process_feature_request_github_issue",
+    ignore_result=True,
+    autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=True,
+    retry_jitter=True,
+)
+def process_feature_request_github_issue(
+    installation_id: str,
+    repository: str,
+    issue_number: int,
+    issue_title: str,
+    issue_state: str,
+    issue_state_reason: str,
+    github_updated_at: str,
+) -> None:
+    process_github_issue_update(
+        installation_id=installation_id,
+        repository=repository,
+        issue_number=issue_number,
+        issue_title=issue_title,
+        issue_state=issue_state,
+        issue_state_reason=issue_state_reason,
+        github_updated_at=datetime.fromisoformat(github_updated_at),
+    )
 
 
 @shared_task(name="customer_analytics.process_custom_property_sync", ignore_result=True)

@@ -3639,6 +3639,45 @@ export interface FeatureRequestAccountLinkApi {
     readonly updated_at: string | null
 }
 
+/**
+ * * `open` - open
+ * * `closed` - closed
+ */
+export type IssueStateEnumApi = (typeof IssueStateEnumApi)[keyof typeof IssueStateEnumApi]
+
+export const IssueStateEnumApi = {
+    Open: 'open',
+    Closed: 'closed',
+} as const
+
+export interface FeatureRequestGitHubLinkApi {
+    /** Stable GitHub link ID. */
+    readonly id: string
+    /** Canonical GitHub issue URL. */
+    readonly issue_url: string
+    /** Canonical owner and repository name. */
+    readonly repository: string
+    /**
+     * GitHub issue number.
+     * @minimum 1
+     */
+    readonly issue_number: number
+    /** Latest GitHub issue title. */
+    readonly issue_title: string
+    /** Latest GitHub issue state.
+     *
+     * * `open` - open
+     * * `closed` - closed */
+    readonly issue_state: IssueStateEnumApi
+    /** Whether GitHub issue changes update this request. */
+    readonly sync_enabled: boolean
+    /**
+     * When GitHub last updated this link.
+     * @nullable
+     */
+    readonly last_synced_at: string | null
+}
+
 export interface FeatureRequestApi {
     /** Stable feature request ID. */
     readonly id: string
@@ -3690,6 +3729,8 @@ export interface FeatureRequestApi {
     readonly evidence_count: number
     /** Product areas affected by this request. */
     readonly product_areas: readonly FeatureRequestProductAreaApi[]
+    /** Linked GitHub issue, or null when no issue is linked. */
+    readonly github_link: FeatureRequestGitHubLinkApi | null
     /**
      * ID of the user who created the request.
      * @nullable
@@ -3879,6 +3920,8 @@ export interface FeatureRequestVersionApi {
  * * `accounts` - Accounts
  * * `evidence` - Evidence
  * * `product_areas` - Product areas
+ * * `github_link` - GitHub link
+ * * `github_sync` - GitHub sync
  */
 export type FeatureRequestHistoryChangeFieldEnumApi =
     (typeof FeatureRequestHistoryChangeFieldEnumApi)[keyof typeof FeatureRequestHistoryChangeFieldEnumApi]
@@ -3890,6 +3933,8 @@ export const FeatureRequestHistoryChangeFieldEnumApi = {
     Accounts: 'accounts',
     Evidence: 'evidence',
     ProductAreas: 'product_areas',
+    GithubLink: 'github_link',
+    GithubSync: 'github_sync',
 } as const
 
 /**
@@ -3897,6 +3942,16 @@ export const FeatureRequestHistoryChangeFieldEnumApi = {
  */
 export type FeatureRequestHistoryChangeApiBefore =
     | string
+    | boolean
+    | {
+          id: string
+          issue_url: string
+          repository: string
+          issue_number: number
+          issue_title: string
+          issue_state: 'open' | 'closed'
+          sync_enabled: boolean
+      }
     | {
           /** @nullable */
           id: string | null
@@ -3927,6 +3982,16 @@ export type FeatureRequestHistoryChangeApiBefore =
  */
 export type FeatureRequestHistoryChangeApiAfter =
     | string
+    | boolean
+    | {
+          id: string
+          issue_url: string
+          repository: string
+          issue_number: number
+          issue_title: string
+          issue_state: 'open' | 'closed'
+          sync_enabled: boolean
+      }
     | {
           /** @nullable */
           id: string | null
@@ -3960,7 +4025,9 @@ export interface FeatureRequestHistoryChangeApi {
      * * `account` - Account
      * * `accounts` - Accounts
      * * `evidence` - Evidence
-     * * `product_areas` - Product areas */
+     * * `product_areas` - Product areas
+     * * `github_link` - GitHub link
+     * * `github_sync` - GitHub sync */
     readonly field: FeatureRequestHistoryChangeFieldEnumApi
     /** Value before the update, including relation snapshots. */
     readonly before: FeatureRequestHistoryChangeApiBefore
@@ -3970,12 +4037,14 @@ export interface FeatureRequestHistoryChangeApi {
 
 /**
  * * `manual` - Manual
+ * * `github` - GitHub
  */
 export type FeatureRequestHistorySourceEnumApi =
     (typeof FeatureRequestHistorySourceEnumApi)[keyof typeof FeatureRequestHistorySourceEnumApi]
 
 export const FeatureRequestHistorySourceEnumApi = {
     Manual: 'manual',
+    Github: 'github',
 } as const
 
 export interface FeatureRequestHistoryApi {
@@ -3987,7 +4056,8 @@ export interface FeatureRequestHistoryApi {
     readonly is_initial: boolean
     /** System that recorded the request change.
      *
-     * * `manual` - Manual */
+     * * `manual` - Manual
+     * * `github` - GitHub */
     readonly change_source: FeatureRequestHistorySourceEnumApi
     /**
      * ID of the user who changed the request, if known.
@@ -4001,6 +4071,21 @@ export interface FeatureRequestHistoryApi {
     readonly actor_name: string | null
     /** When the request changed. */
     readonly changed_at: string
+}
+
+export interface FeatureRequestGitHubLinkSerializerInputApi {
+    /**
+     * GitHub integration ID connected to this project.
+     * @minimum 1
+     */
+    integration_id: number
+    /** GitHub issue URL. Pull request URLs are not supported. */
+    issue_url: string
+    /**
+     * Request version loaded by the editor. Stale versions return 409 Conflict.
+     * @minimum 1
+     */
+    expected_version: number
 }
 
 export interface FeatureRequestEvidenceDeleteApi {
@@ -4034,7 +4119,8 @@ export interface FeatureRequestStatusHistoryApi {
     readonly request_status: FeatureRequestStatusEnumApi
     /** System that recorded the status change.
      *
-     * * `manual` - Manual */
+     * * `manual` - Manual
+     * * `github` - GitHub */
     readonly change_source: FeatureRequestHistorySourceEnumApi
     /**
      * ID of the user who changed the status, if known.

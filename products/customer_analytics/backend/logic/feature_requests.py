@@ -31,6 +31,7 @@ from products.customer_analytics.backend.models import (
     FeatureRequest,
     FeatureRequestAccountLink,
     FeatureRequestEvidence,
+    FeatureRequestGitHubLink,
     FeatureRequestHistory,
     FeatureRequestHistorySource,
     FeatureRequestPriority,
@@ -124,6 +125,21 @@ def _get_feature_request_can_update(feature_request: FeatureRequest, user_access
     )
 
 
+def _to_github_link_view(link: FeatureRequestGitHubLink | None) -> contracts.FeatureRequestGitHubLinkView | None:
+    if link is None:
+        return None
+    return contracts.FeatureRequestGitHubLinkView(
+        id=link.id,
+        issue_url=f"https://github.com/{link.repository}/issues/{link.issue_number}",
+        repository=link.repository,
+        issue_number=link.issue_number,
+        issue_title=link.issue_title,
+        issue_state="closed" if link.issue_state == "closed" else "open",
+        sync_enabled=link.sync_enabled,
+        last_synced_at=link.last_synced_at,
+    )
+
+
 def _to_feature_request_view(
     feature_request: FeatureRequest,
     *,
@@ -156,6 +172,7 @@ def _to_feature_request_view(
         account_links=account_links,
         evidence_count=sum(link.evidence_count for link in account_links),
         product_areas=[_to_product_area_view(area) for area in feature_request.product_areas.all()],
+        github_link=_to_github_link_view(getattr(feature_request, "github_link", None)),
         created_by=feature_request.created_by_id,
         updated_by=feature_request.updated_by_id,
         created_at=feature_request.created_at,
@@ -192,6 +209,7 @@ def _feature_request_queryset(
     queryset = (
         FeatureRequest.objects.for_team(team_id)
         .filter(account_links__account_id__in=accessible_account_ids, account_links__unlinked_at__isnull=True)
+        .select_related("github_link")
         .prefetch_related("product_areas", Prefetch("account_links", queryset=visible_links))
     )
     return queryset.prefetch_related(
@@ -778,6 +796,18 @@ def update_feature_request(
                 feature_request.description = description
                 update_fields.add("description")
         if input.request_status is not None and input.request_status != feature_request.status:
+            github_link = (
+                FeatureRequestGitHubLink.objects.for_team(team_id)
+                .select_for_update()
+                .filter(feature_request=feature_request)
+                .first()
+            )
+            if github_link is not None:
+                if github_link.sync_enabled:
+                    history_changes.append({"field": "github_sync", "before": True, "after": False})
+                github_link.sync_enabled = False
+                github_link.status_before_github_close = None
+                github_link.save(update_fields=["sync_enabled", "status_before_github_close"])
             history_changes.append({"field": "status", "before": feature_request.status, "after": input.request_status})
             feature_request.status = input.request_status
             update_fields.add("status")
