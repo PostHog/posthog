@@ -10,7 +10,6 @@ from django.db.models import Count, F, Min, Q
 from django.utils import timezone as django_timezone
 
 from posthog.dataclasses import frozen
-from posthog.models.team.team import Team
 from posthog.temporal.oauth import MCP_SCOPE_PRESETS, SCOUT_SCOPE_PRESETS, PosthogMcpScopes
 
 from products.tasks.backend.metrics import (
@@ -172,13 +171,49 @@ def _scheduled_dispatch_options(task_run: TaskRun) -> WorkflowDispatchOptions | 
     )
 
 
+def _prepare_scheduled_dispatch(
+    task_run: TaskRun,
+    existing_dispatch: tuple[str, str] | None,
+    now: datetime,
+) -> TaskWorkflowDispatch | None:
+    options = _scheduled_dispatch_options(task_run)
+    if options is None:
+        raise ValueError("Invalid scheduled dispatch options")
+
+    default_workflow_id = TaskRun.get_workflow_id(task_run.task_id, task_run.id)
+    workflow_id = TaskRun.get_workflow_id(task_run.task_id, task_run.id, options.workflow_id_prefix)
+    max_length = TaskWorkflowDispatch._meta.get_field("workflow_id").max_length
+    if max_length is not None and len(workflow_id) > max_length:
+        raise ValueError("Scheduled workflow ID exceeds the dispatch field length")
+    if existing_dispatch is not None:
+        if existing_dispatch[1] == TaskWorkflowDispatch.Status.DEAD:
+            raise ValueError("Scheduled dispatch is already dead")
+        workflow_id = existing_dispatch[0]
+
+    if workflow_id != default_workflow_id:
+        task_run.state = {**task_run.state, "workflow_id": workflow_id}
+        task_run.updated_at = now
+    if existing_dispatch is not None:
+        return None
+    return TaskWorkflowDispatch(
+        team_id=task_run.team.parent_team_id or task_run.team_id,
+        task_run_id=task_run.id,
+        workflow_id=workflow_id,
+        dispatch_kind=TaskWorkflowDispatch.Kind.CREATE,
+        payload=build_create_payload(options),
+        status=TaskWorkflowDispatch.Status.PENDING,
+        enqueued_at=now,
+        next_attempt_at=now,
+        created_at=now,
+        updated_at=now,
+    )
+
+
 def materialize_due_scheduled_task_runs(batch_size: int) -> int:
     if batch_size <= 0:
         return 0
 
     now = django_timezone.now()
-    materialized_count = 0
-    invalid_count = 0
     with transaction.atomic():
         # Rows stop matching this partial-index scan as soon as they become QUEUED. Repeated
         # LIMIT queries therefore page through the due set without OFFSET, and SKIP LOCKED lets
@@ -190,110 +225,60 @@ def materialize_due_scheduled_task_runs(batch_size: int) -> int:
                 scheduled_at__lte=now,
                 task__deleted=False,
             )
-            .only("id", "task_id", "team_id", "state", "scheduled_at")
+            .select_related("team")
+            .only("id", "task_id", "team_id", "team__parent_team_id", "state", "scheduled_at")
             .order_by("scheduled_at", "id")
             .select_for_update(of=("self",), skip_locked=True)[:batch_size]
         )
         if not task_runs:
             return 0
 
-        team_ids = {task_run.team_id for task_run in task_runs}
-        canonical_team_ids = {
-            team_id: parent_team_id or team_id
-            for team_id, parent_team_id in Team.objects.filter(id__in=team_ids).values_list("id", "parent_team_id")
+        existing_dispatches = {
+            task_run_id: (workflow_id, status)
+            for task_run_id, workflow_id, status in TaskWorkflowDispatch.objects.unscoped()
+            .filter(
+                task_run_id__in=[task_run.id for task_run in task_runs],
+                dispatch_kind=TaskWorkflowDispatch.Kind.CREATE,
+            )
+            .values_list("task_run_id", "workflow_id", "status")
         }
-        workflow_id_max_length = TaskWorkflowDispatch._meta.get_field("workflow_id").max_length
         dispatches: list[TaskWorkflowDispatch] = []
-        candidates: dict[UUID, TaskRun] = {}
+        valid_run_ids: list[UUID] = []
         invalid_run_ids: list[UUID] = []
+        prefixed_runs: list[TaskRun] = []
         for task_run in task_runs:
-            options = _scheduled_dispatch_options(task_run)
-            canonical_team_id = canonical_team_ids.get(task_run.team_id)
-            if options is None or canonical_team_id is None:
+            try:
+                dispatch = _prepare_scheduled_dispatch(task_run, existing_dispatches.get(task_run.id), now)
+            except ValueError:
                 invalid_run_ids.append(task_run.id)
                 continue
+            if dispatch is not None:
+                dispatches.append(dispatch)
+            if task_run.workflow_id != TaskRun.get_workflow_id(task_run.task_id, task_run.id):
+                prefixed_runs.append(task_run)
+            valid_run_ids.append(task_run.id)
 
-            workflow_id = TaskRun.get_workflow_id(task_run.task_id, task_run.id, options.workflow_id_prefix)
-            if workflow_id_max_length is not None and len(workflow_id) > workflow_id_max_length:
-                invalid_run_ids.append(task_run.id)
-                continue
-            dispatches.append(
-                TaskWorkflowDispatch(
-                    team_id=canonical_team_id,
-                    task_run_id=task_run.id,
-                    workflow_id=workflow_id,
-                    dispatch_kind=TaskWorkflowDispatch.Kind.CREATE,
-                    payload=build_create_payload(options),
-                    status=TaskWorkflowDispatch.Status.PENDING,
-                    enqueued_at=now,
-                    next_attempt_at=now,
-                    created_at=now,
-                    updated_at=now,
-                )
-            )
-            candidates[task_run.id] = task_run
+        TaskRun.objects.bulk_update(prefixed_runs, ["state", "updated_at"], batch_size=batch_size)
+        TaskWorkflowDispatch.objects.unscoped().bulk_create(dispatches, batch_size=batch_size, ignore_conflicts=True)
+        TaskRun.objects.filter(id__in=valid_run_ids, status=TaskRun.Status.NOT_STARTED).update(
+            status=TaskRun.Status.QUEUED,
+            queued_at=now,
+            updated_at=now,
+        )
+        TaskRun.objects.filter(id__in=invalid_run_ids, status=TaskRun.Status.NOT_STARTED).update(
+            status=TaskRun.Status.FAILED,
+            completed_at=now,
+            error_message=(
+                "Couldn't start this scheduled task because its configuration is incomplete. "
+                "Create a new scheduled task, and contact support if this keeps happening."
+            ),
+            updated_at=now,
+        )
 
-        if dispatches:
-            candidate_run_ids = list(candidates)
-            existing_run_ids = set(
-                TaskWorkflowDispatch.objects.unscoped()
-                .filter(task_run_id__in=candidate_run_ids, dispatch_kind=TaskWorkflowDispatch.Kind.CREATE)
-                .values_list("task_run_id", flat=True)
-            )
-            TaskWorkflowDispatch.objects.unscoped().bulk_create(
-                dispatches, batch_size=batch_size, ignore_conflicts=True
-            )
-            persisted_dispatches = {
-                task_run_id: (workflow_id, status)
-                for task_run_id, workflow_id, status in TaskWorkflowDispatch.objects.unscoped()
-                .filter(task_run_id__in=candidate_run_ids, dispatch_kind=TaskWorkflowDispatch.Kind.CREATE)
-                .values_list("task_run_id", "workflow_id", "status")
-            }
-            valid_run_ids: list[UUID] = []
-            prefixed_runs: list[TaskRun] = []
-            for task_run_id, task_run in candidates.items():
-                persisted = persisted_dispatches.get(task_run_id)
-                if persisted is None or persisted[1] == TaskWorkflowDispatch.Status.DEAD:
-                    invalid_run_ids.append(task_run_id)
-                    continue
-                workflow_id = persisted[0]
-                default_workflow_id = TaskRun.get_workflow_id(task_run.task_id, task_run.id)
-                if workflow_id != default_workflow_id:
-                    task_run.state = {**task_run.state, "workflow_id": workflow_id}
-                    task_run.updated_at = now
-                    prefixed_runs.append(task_run)
-                valid_run_ids.append(task_run_id)
-
-            if prefixed_runs:
-                TaskRun.objects.bulk_update(prefixed_runs, ["state", "updated_at"], batch_size=batch_size)
-            TaskRun.objects.filter(id__in=valid_run_ids, status=TaskRun.Status.NOT_STARTED).update(
-                status=TaskRun.Status.QUEUED,
-                queued_at=now,
-                updated_at=now,
-            )
-            materialized_count = len(valid_run_ids)
-            created_dispatch_count = len(set(candidate_run_ids) - existing_run_ids)
-        else:
-            created_dispatch_count = 0
-        if invalid_run_ids:
-            TaskRun.objects.filter(id__in=invalid_run_ids, status=TaskRun.Status.NOT_STARTED).update(
-                status=TaskRun.Status.FAILED,
-                completed_at=now,
-                error_message=(
-                    "Couldn't start this scheduled task because its configuration is incomplete. "
-                    "Create a new scheduled task, and contact support if this keeps happening."
-                ),
-                updated_at=now,
-            )
-            invalid_count = len(invalid_run_ids)
-
-    if materialized_count:
-        SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL.labels(outcome="materialized").inc(materialized_count)
-    if created_dispatch_count:
-        WORKFLOW_DISPATCH_CREATED_TOTAL.labels(kind=TaskWorkflowDispatch.Kind.CREATE).inc(created_dispatch_count)
-    if invalid_count:
-        SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL.labels(outcome="invalid").inc(invalid_count)
-    return materialized_count
+    SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL.labels(outcome="materialized").inc(len(valid_run_ids))
+    WORKFLOW_DISPATCH_CREATED_TOTAL.labels(kind=TaskWorkflowDispatch.Kind.CREATE).inc(len(dispatches))
+    SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL.labels(outcome="invalid").inc(len(invalid_run_ids))
+    return len(valid_run_ids)
 
 
 def claim_dispatches(instance_id: str, batch_size: int, lease: timedelta) -> list[TaskWorkflowDispatch]:
