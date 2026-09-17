@@ -9303,10 +9303,16 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["stream_base_url"], "https://agent-proxy.example.com")
 
+    @parameterized.expand(
+        [
+            ("resync_capable_client", "?resync=true", "https://agent-proxy.example.com", "proxy", True),
+            ("legacy_client", "", None, "thin_tail_withheld", False),
+        ]
+    )
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    def test_stream_token_omits_proxy_url_for_thin_tail_run(self):
-        # Only the Django read leg serves the durable backlog, so a thin-tail run must
-        # never be routed to the agent-proxy even with the proxy flag enabled.
+    def test_stream_token_routes_thin_tail_run_by_client_resync_support(
+        self, _name, query, expected_base_url, expected_route, expected_resync_requested
+    ):
         reset_sandbox_jwt_key_cache()
 
         task = self.create_task()
@@ -9317,11 +9323,13 @@ class TestTaskRunAPI(BaseTaskAPITest):
         with (
             self.settings(TASKS_AGENT_PROXY_PUBLIC_URL="https://agent-proxy.example.com", DEBUG=False),
             patch("products.tasks.backend.facade.api.posthoganalytics.feature_enabled", return_value=True),
+            patch("products.tasks.backend.presentation.views.api.observe_stream_token_routed") as observe_routed,
         ):
-            response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream_token/")
+            response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream_token/{query}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNone(response.json()["stream_base_url"])
+        self.assertEqual(response.json()["stream_base_url"], expected_base_url)
+        observe_routed.assert_called_once_with(task.origin_product, expected_route, expected_resync_requested)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_stream_token_omits_proxy_url_when_flag_disabled(self):

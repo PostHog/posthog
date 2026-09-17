@@ -109066,6 +109066,13 @@ export namespace Schemas {
     start?: string;
     };
 
+    export type TasksRunsStreamTokenRetrieveParams = {
+    /**
+     * Set to true when the client can rebuild the run from its durable log after the agent-proxy reports a trimmed stream cursor. Without it, runs that keep only a short live tail in Redis are read from the Django endpoint, which replays the durable backlog itself.
+     */
+    resync?: boolean;
+    };
+
     export type TasksThreadMessagesListParams = {
     /**
      * Number of results to return per page.
