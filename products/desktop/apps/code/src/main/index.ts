@@ -393,6 +393,10 @@ async function boot(): Promise<void> {
   log.info(
     `Logs: main=${getLogFilePath()} chromium=${getChromiumLogFilePath() ?? "(disabled)"} network=${getNetworkLogFilePath()}`,
   );
+  // This runs before the container and the services start, so a crash loop
+  // inside the boot window still reports the previous dump. The analytics
+  // client is live from module scope, so the report needs no service.
+  reportCrashDumpsFromPreviousRun();
   ensureClaudeConfigDir();
   setupExternalLinkPermissionHandlers(session.fromPartition("persist:main"));
   registerMcpSandboxProtocol();
@@ -467,7 +471,6 @@ async function boot(): Promise<void> {
   if (shutdownStarted) return;
   await initializeServices();
   initializeDeepLinks();
-  reportCrashDumpsFromPreviousRun();
 
   if (process.env.POSTHOG_E2E_UPDATE_FEED) {
     const updates = container.get<UpdatesService>(UPDATES_SERVICE);
