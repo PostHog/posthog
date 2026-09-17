@@ -36,6 +36,7 @@ import inspect
 import textwrap
 import functools
 import importlib
+from collections.abc import Sequence
 from typing import Any, TypeGuard
 
 from django.core.exceptions import FieldDoesNotExist
@@ -163,7 +164,7 @@ def _function_scope(tree: ast.AST, scope: dict[str, Any], view_class: type) -> t
                     if _is_serializer(imported):
                         bound.add(imported)
     for node in ast.walk(tree):
-        targets: list[ast.expr]
+        targets: Sequence[ast.expr]
         if isinstance(node, ast.Assign):
             targets, value = node.targets, node.value
         elif isinstance(node, ast.AnnAssign) and node.value is not None:
