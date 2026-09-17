@@ -51,11 +51,6 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-    # The Depot CI check run that `Django Tests Pass` relays when the tests ran there.
-    # One place to update when the Depot workflow or its gate job is renamed.
-    DEPOT_APP_ID: '219785'
-    DEPOT_GATE_CHECK: Backend CI on Depot / Django Tests Pass on Depot
-    DEPOT_WAIT_CHECK: Backend CI on Depot / Wait for GitHub Actions to hand off backend tests
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so it can't drift
     # between the merge-base (PR) and HEAD (push) key computations below.
@@ -101,6 +96,7 @@ permissions:
     contents: read
     actions: read
     pull-requests: write
+    checks: read # the router reads this commit's earlier hand-off check
 
 jobs:
     # Learning mode: nothing reads these outputs, so a recommendation cannot change what runs.
@@ -131,11 +127,6 @@ jobs:
     changes:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
-        permissions:
-            contents: read
-            actions: read
-            pull-requests: write
-            checks: read # the router reads this commit's earlier hand-off check
         # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
         # every other job needs this one, and the gates treat skipped as success.
         # ready_for_review re-runs everything, so the merge gate is unaffected.
@@ -174,9 +165,6 @@ jobs:
             timing_scripts: ${{ steps.filter.outputs.timing_scripts }}
             # Which engine runs this event's backend tests. Depot CI never decides on its
             # own: it waits for the hand-off job below and runs only when that succeeded.
-            # A commit keeps its first engine across reruns and later events, so a changed
-            # percent or label cannot put the same tests on the other engine.
-            # Empty means the router did not answer, and GitHub Actions keeps the tests.
             engine: ${{ steps.route.outputs.engine || 'github' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
@@ -200,37 +188,9 @@ jobs:
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - name: Read the engine an earlier run of this commit chose
-              # The hand-off check is the durable record of the first decision. Reading it
-              # here keeps a rerun, or a ready-for-review event on the same commit, on the
-              # engine whose tests and side effects already ran. GitHub queues a new
-              # hand-off check for every attempt, so only concluded ones count. A read that
-              # keeps failing fails this job, and then neither engine runs anything.
-              id: prior-engine
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
-              env:
-                  GH_TOKEN: ${{ github.token }}
-                  REPO: ${{ github.repository }}
-                  SHA: ${{ github.event.pull_request.head.sha }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-                  HANDOFF_CHECK: Hand off backend tests to Depot CI
-                  GITHUB_ACTIONS_APP_ID: '15368'
-              run: |
-                  set -uo pipefail
-                  url="repos/$REPO/commits/$SHA/check-runs?check_name=$(jq -rn --arg n "$HANDOFF_CHECK" '$n | @uri')&app_id=$GITHUB_ACTIONS_APP_ID&filter=all&per_page=100"
-                  for attempt in 1 2 3; do
-                      if body=$(gh api "$url"); then
-                          engine=$(jq -r --argjson pr "$PR_NUMBER" '[.check_runs[] | select(.status == "completed" and any(.pull_requests[]?; .number == $pr))] | max_by(.id) | if . == null then "" elif .conclusion == "success" then "depot" elif .conclusion == "skipped" then "github" else "" end' <<<"$body")
-                          echo "engine=$engine" >> "$GITHUB_OUTPUT"
-                          echo "::notice::Earlier hand-off on this commit: ${engine:-none}"
-                          exit 0
-                      fi
-                      [ "$attempt" -lt 3 ] && sleep 10
-                  done
-                  echo "::error::Cannot read the earlier hand-off for $SHA, so this event is not routed"
-                  exit 1
             - name: Pick the engine that runs the backend tests
               id: route
+              if: github.event_name == 'pull_request'
               env:
                   PERCENT: ${{ vars.CI_BACKEND_DEPOT_PERCENT }}
                   EVENT: ${{ github.event_name }}
@@ -238,7 +198,11 @@ jobs:
                   LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
                   IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
                   IS_DRAFT: ${{ github.event.pull_request.draft }}
-                  PRIOR_ENGINE: ${{ steps.prior-engine.outputs.engine }}
+                  # The script reads this commit's earlier hand-off check, the durable record
+                  # of the engine that already ran its tests and side effects.
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  SHA: ${{ github.event.pull_request.head.sha }}
               run: python3 .github/scripts/ci_backend_route.py
             - uses: ./.github/actions/paths-filter
               # Skipped on master push and on the hourly schedule: every output then
@@ -4032,45 +3996,54 @@ jobs:
             || needs.repo-checks.outputs.deterministic_failure == 'true'
             || needs.check-openapi-types.outputs.deterministic_failure == 'true'
         steps:
-            # Relay mode: the tests ran on Depot CI, so this required check mirrors the
-            # conclusion of Depot's gate for the same commit. Only `success` passes; a
-            # skipped, failed, cancelled or missing Depot gate fails closed. Depot posts a
-            # job's check run when the job starts, so the gate stays absent while the matrix
-            # runs; the wait job starts first and tells a run Depot never picked up from one
-            # that declined the hand-off. A `no-ci` draft marked ready keeps its SHA and its
-            # earlier skipped checks, so only a check that started after this event counts.
-            # 304 responses are free, so the poll stays off the rate limit.
+            # Depot posts a job's check run when the job starts, so the gate stays absent
+            # while the matrix runs; the wait job starts first and tells a run Depot never
+            # picked up from one that declined the hand-off. A `no-ci` draft marked ready
+            # keeps its SHA and its earlier skipped checks, so only a check that started
+            # after this event counts. 304 responses are free, so the poll stays off the
+            # rate limit.
             - name: Relay the Depot verdict
               if: needs.changes.outputs.engine == 'depot'
               env:
                   GH_TOKEN: ${{ github.token }}
                   REPO: ${{ github.repository }}
-                  SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+                  SHA: ${{ github.event.pull_request.head.sha }}
                   EVENT_AT: ${{ github.event.pull_request.updated_at }}
                   # Two open PRs can share a head SHA, so only this PR's check runs count.
                   PR_NUMBER: ${{ github.event.pull_request.number }}
+                  # Must match the workflow and job names in .depot/workflows/ci-backend.yml.
+                  DEPOT_APP_ID: '219785'
+                  DEPOT_GATE_CHECK: Backend CI on Depot / Django Tests Pass on Depot
+                  DEPOT_WAIT_CHECK: Backend CI on Depot / Wait for GitHub Actions to hand off backend tests
               run: |
                   set -uo pipefail
-                  deadline=$((SECONDS + 5400))
-                  absent_deadline=$((SECONDS + 900))
+                  relay_minutes=90
+                  absent_minutes=15
+                  deadline=$((SECONDS + relay_minutes * 60))
+                  absent_deadline=$((SECONDS + absent_minutes * 60))
                   refusals=0
-                  code=""
                   gate=""
                   wait_job=""
                   api="https://api.github.com/repos/$REPO/commits/$SHA/check-runs?app_id=$DEPOT_APP_ID&check_name="
-                  # Reads one Depot check run into $state: absent, a status, or a conclusion.
-                  # A 304 leaves $state as it was. Refusals count across reads until the gate read answers.
+                  gate_url="$api$(jq -rn --arg n "$DEPOT_GATE_CHECK" '$n | @uri')"
+                  wait_url="$api$(jq -rn --arg n "$DEPOT_WAIT_CHECK" '$n | @uri')"
+                  # Reads one Depot check run into the named variable: absent, a status, or a
+                  # conclusion. A 304 leaves it as it was.
                   read_check() {
-                      local name=$1 tag=$2
+                      local url=$1
+                      # shellcheck disable=SC2034 # the nameref writes the caller's variable
+                      local -n slot=$2
+                      local code
                       # curl rewrites the saved ETag empty on a 304, so promote it only after a 200.
-                      code=$(curl -s -o "/tmp/relay-$tag" -w '%{http_code}' --max-time 30 --etag-compare "/tmp/relay-$tag.etag" --etag-save "/tmp/relay-$tag.etag.new" \
-                          -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$api$(jq -rn --arg n "$name" '$n | @uri')")
+                      code=$(curl -s -o "/tmp/relay-$2" -w '%{http_code}' --max-time 30 --etag-compare "/tmp/relay-$2.etag" --etag-save "/tmp/relay-$2.etag.new" \
+                          -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$url")
                       case "$code" in
                           200)
-                              mv "/tmp/relay-$tag.etag.new" "/tmp/relay-$tag.etag"
-                              state=$(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" '[.check_runs[] | select((.started_at // "") >= $since and any(.pull_requests[]?; .number == $pr))] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' "/tmp/relay-$tag")
+                              mv "/tmp/relay-$2.etag.new" "/tmp/relay-$2.etag"
+                              slot=$(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" '[.check_runs[] | select((.started_at // "") >= $since and any(.pull_requests[]?; .number == $pr))] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' "/tmp/relay-$2")
+                              refusals=0
                               ;;
-                          304) ;;
+                          304) refusals=0 ;;
                           # 403 also covers a secondary rate limit, which does clear, so spend a
                           # few retries before calling the credential broken.
                           401|403)
@@ -4085,22 +4058,18 @@ jobs:
                       esac
                   }
                   while [ "$SECONDS" -lt "$deadline" ]; do
-                      state=$gate
-                      read_check "$DEPOT_GATE_CHECK" gate
-                      gate=$state
-                      case "$code" in 200|304) refusals=0 ;; esac
+                      read_check "$gate_url" gate
                       echo "Depot gate: ${gate:-unread}"
                       case "$gate" in
                           success) exit 0 ;;
                           ""|absent)
-                              state=$wait_job
-                              read_check "$DEPOT_WAIT_CHECK" wait
-                              wait_job=$state
+                              # The wait job cannot change once it concluded, so stop reading it then.
+                              [ "$wait_job" = success ] || read_check "$wait_url" wait_job
                               case "$wait_job" in
                                   success|queued|in_progress|pending|waiting|requested) ;;
                                   ""|absent)
                                       if [ "$SECONDS" -ge "$absent_deadline" ]; then
-                                          echo "::error::Depot CI never started for $SHA: no wait job after 15 minutes"
+                                          echo "::error::Depot CI never started for $SHA: no wait job after $absent_minutes minutes"
                                           exit 1
                                       fi
                                       ;;
@@ -4110,9 +4079,11 @@ jobs:
                           queued|in_progress|pending|waiting|requested) ;;
                           *) echo "::error::Depot gate concluded $gate for $SHA"; exit 1 ;;
                       esac
-                      sleep 30
+                      # The gate check only appears when the matrix is done, so once Depot has
+                      # started, a slower poll costs at most a minute of latency.
+                      if [ "$wait_job" = success ]; then sleep 60; else sleep 30; fi
                   done
-                  echo "::error::No Depot verdict for $SHA within 90 minutes"
+                  echo "::error::No Depot verdict for $SHA within $relay_minutes minutes"
                   exit 1
             - name: Summarize dependency results
               if: needs.changes.outputs.engine != 'depot'
