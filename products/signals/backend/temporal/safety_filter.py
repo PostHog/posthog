@@ -1,5 +1,6 @@
 import re
 import json
+import uuid
 import datetime
 from dataclasses import dataclass, field
 from typing import Optional
@@ -97,6 +98,9 @@ Respond with valid JSON only. Never reproduce a credential, token, key, cookie, 
 # through the user-prompt source line, so there is no separate scout prompt.
 SCOUT_SOURCE_PRODUCT = "signals_scout"
 
+# The safety-filter judge scout selects blocked-signal spans by this name.
+BLOCKED_SIGNAL_SPAN_NAME = "safety_filter_block"
+
 _SIGNAL_TAG = re.compile(r"<(/?)signal\b", re.IGNORECASE)
 
 
@@ -172,6 +176,32 @@ async def _capture_signal_blocked_event(input: SafetyFilterInput, result: Safety
         return
     try:
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
+        team_groups = groups(team.organization, team)
+        trace_id = str(uuid.uuid4())
+        # The text goes to the LLM analytics store, which drops content after its retention period.
+        # The product analytics event keeps properties for good, and the Go gateway stores no input.
+        posthoganalytics.capture_ai(
+            event="$ai_span",
+            distinct_id=str(team.uuid),
+            properties={
+                "$ai_trace_id": trace_id,
+                "$ai_span_id": str(uuid.uuid4()),
+                "$ai_span_name": BLOCKED_SIGNAL_SPAN_NAME,
+                "$ai_product": "signals_safety",
+                "$ai_input_state": {
+                    "description": input.description,
+                    "source_product": input.source_product,
+                    "source_type": input.source_type,
+                    "source_id": input.source_id,
+                },
+                "$ai_output_state": {
+                    "safe": False,
+                    "threat_type": result.threat_type,
+                    "explanation": result.explanation,
+                },
+            },
+            groups=team_groups,
+        )
         posthoganalytics.capture(
             event="signal_blocked_by_safety_filter",
             distinct_id=str(team.uuid),
@@ -186,8 +216,9 @@ async def _capture_signal_blocked_event(input: SafetyFilterInput, result: Safety
                 "source_type": input.source_type,
                 "source_id": input.source_id,
                 "weight": input.weight,
+                "$ai_trace_id": trace_id,
             },
-            groups=groups(team.organization, team),
+            groups=team_groups,
         )
     except Exception as e:
         # Swallow the exception, to avoid breaking the flow over a failed analytics event
