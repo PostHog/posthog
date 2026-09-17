@@ -130,7 +130,7 @@ Key things to know:
 - `version` field provides optimistic concurrency control. Updates use `select_for_update()` and return HTTP 409 on version mismatch.
 - `filters` (JSONField) holds conditions, variants, payloads, and aggregation config
 - `ensure_experience_continuity` enables hash key overrides for consistent bucketing across identity changes
-- `evaluation_runtime` controls whether a flag is evaluated client-side, server-side, or both
+- `evaluation_runtime` filters which SDKs receive a flag from `/flags`. The runtime comes from the caller, so it is a delivery filter and never an authorization boundary. See [rust-service-overview.md](rust-service-overview.md#evaluation-runtime-is-caller-declared)
 - The `@approval_gate` decorator on updates can require approval before changes take effect
 
 **Cache invalidation**: The `feature_flag_changed_flags_cache` (`flags_cache.py`) and `feature_flag_changed` (`local_evaluation.py`) signal handlers fire on save/delete, scheduling cache rebuilds via `transaction.on_commit()`.

@@ -170,6 +170,25 @@ pub struct FlagRequest {
 }
 ```
 
+#### Evaluation runtime is caller-declared
+
+`/flags` authenticates with the public project API key only.
+Every identity input in the body is therefore an evaluation input, not a claim the service can verify.
+That includes `evaluation_runtime`.
+
+`handler::flags::detect_evaluation_runtime_from_request` takes the body's `evaluation_runtime` when present.
+Otherwise it infers a runtime from `User-Agent`, `Origin`, `Referer` and the `Sec-Fetch-*` headers, all of which the caller controls.
+A caller that sends `evaluation_runtime: "all"` empties the exclusion set, and an unrecognized value falls back to `all` behind a log warning.
+
+So a flag marked `server` is not withheld from a caller that asks for it.
+The setting filters what each SDK receives, which keeps client bundles small and keeps server-shaped flags out of browser payloads.
+Do not build an access decision on it, in this service or in a caller.
+
+`override_flags_definitions` in the same struct shows the shape a real restriction takes.
+`handler::mod` reads it only when `authentication::is_internal_request` passes, and drops it otherwise.
+A control on a public endpoint needs a credential the caller cannot mint.
+The two that exist for flag data are server-side local evaluation and remote config, both behind the project secret API key.
+
 #### GeoIP enrichment of `person_properties`
 
 Unless `geoip_disable: true` is set in the body, `handler::properties::get_person_property_overrides` looks up the request IP in MaxMind and merges the resulting `$geoip_*` properties into `person_properties` before evaluation.

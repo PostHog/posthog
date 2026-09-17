@@ -96,19 +96,19 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
                 return {
                     icon: <IconLaptop className="text-lg text-muted" />,
                     label: 'Client-side only',
-                    tag: 'Single-user apps',
+                    tag: 'Sent to client SDKs',
                 }
             case FeatureFlagEvaluationRuntime.SERVER:
                 return {
                     icon: <IconServer className="text-lg text-muted" />,
                     label: 'Server-side only',
-                    tag: 'Multi-user systems',
+                    tag: 'Sent to server SDKs',
                 }
             default:
                 return {
                     icon: <IconGlobe className="text-lg text-muted" />,
                     label: 'Both client and server',
-                    tag: 'Single + multi-user',
+                    tag: 'Sent to all SDKs',
                 }
         }
     }

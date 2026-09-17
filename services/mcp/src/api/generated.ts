@@ -31916,7 +31916,7 @@ export namespace Schemas {
          * @nullable
          */
       version?: number | null;
-      /** Specifies where this feature flag should be evaluated
+      /** Filters which SDKs receive this flag, based on the runtime the caller reports. This is a delivery filter and not an access control: any caller with the project's public API key can still request any flag.
        *
        * * `server` - Server
        * * `client` - Client
@@ -42184,7 +42184,7 @@ export namespace Schemas {
       /** @nullable */
       has_encrypted_payloads?: boolean | null;
       readonly status: string;
-      /** Specifies where this feature flag should be evaluated
+      /** Filters which SDKs receive this flag, based on the runtime the caller reports. This is a delivery filter and not an access control: any caller with the project's public API key can still request any flag.
        *
        * * `server` - Server
        * * `client` - Client
@@ -42470,7 +42470,7 @@ export namespace Schemas {
       is_remote_configuration?: boolean | null;
       /** @nullable */
       has_encrypted_payloads?: boolean | null;
-      /** Specifies where this feature flag should be evaluated
+      /** Filters which SDKs receive this flag, based on the runtime the caller reports. This is a delivery filter and not an access control: any caller with the project's public API key can still request any flag.
        *
        * * `server` - Server
        * * `client` - Client

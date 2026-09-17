@@ -586,7 +586,7 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Specifies where this feature flag should be evaluated\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All'
+                "Filters which SDKs receive this flag, based on the runtime the caller reports. This is a delivery filter and not an access control: any caller with the project's public API key can still request any flag.\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All"
             ),
         bucketing_identifier: zod
             .union([
@@ -1027,7 +1027,7 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
             ])
             .optional()
             .describe(
-                'Specifies where this feature flag should be evaluated\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All'
+                "Filters which SDKs receive this flag, based on the runtime the caller reports. This is a delivery filter and not an access control: any caller with the project's public API key can still request any flag.\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All"
             ),
         bucketing_identifier: zod
             .union([
