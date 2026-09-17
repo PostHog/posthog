@@ -532,8 +532,7 @@ def assistant_prompt(
     fixable_only: bool = False,
 ) -> str | None:
     """What the assistant reads about a slow run: the goal, the run, one line per finding, and the
-    standing rules. "Fix with AI" sends it as the person's message, and the in-app assistant and MCP
-    get it above a slow run's results, so all of them read the same text.
+    standing rules. "Fix with AI" sends it as the person's message.
 
     ``fixable_only`` is for "Fix with AI": None unless a finding is actionable, and without the
     findings fixed on the insight or the dashboard rather than in the query. A by-design finding
