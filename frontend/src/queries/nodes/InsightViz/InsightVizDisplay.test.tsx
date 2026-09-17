@@ -20,6 +20,11 @@ jest.mock('products/product_analytics/frontend/insights/retention/RetentionConta
     RetentionContainer: () => <div data-attr="retention-container" />,
 }))
 
+jest.mock('scenes/insights/EmptyStates', () => ({
+    ...jest.requireActual('scenes/insights/EmptyStates'),
+    InsightEmptyState: () => <div data-attr="insight-empty-state" />,
+}))
+
 jest.mock('./ResultCustomizationsModal', () => ({ ResultCustomizationsModal: () => null }))
 
 const ALL_INSIGHT_TYPES = Object.values(InsightType) as InsightType[]
@@ -122,8 +127,11 @@ describe('InsightVizDisplay', () => {
         expect(onCommitted).toHaveBeenCalledTimes(1)
     })
 
-    it('does not report an exact result while an invalid funnel configuration branch is rendered', () => {
-        const expectedResult = [{ count: 1 }]
+    it.each([
+        { name: 'showingResults is absent', showingResultsProps: {} },
+        { name: 'showingResults is false', showingResultsProps: { showingResults: false } },
+    ])('does not report an exact result when $name', ({ showingResultsProps }) => {
+        const expectedResult: unknown[] = []
         const onCommitted = jest.fn()
 
         ;(useActions as jest.Mock).mockReturnValue({ loadData: jest.fn(), updateQuerySource: jest.fn() })
@@ -139,19 +147,19 @@ describe('InsightVizDisplay', () => {
                 return { exportContext: null, queryId: null }
             }
             if (logic.pathString?.includes('insightNavLogic')) {
-                return { activeView: InsightType.FUNNELS }
+                return { activeView: InsightType.RETENTION }
             }
             if (logic.pathString?.includes('funnelDataLogic')) {
                 return {
                     funnelVizType: null,
-                    hasFunnelResults: true,
-                    isFunnelWithEnoughSteps: false,
+                    hasFunnelResults: false,
+                    isFunnelWithEnoughSteps: true,
                     isFunnelWithIncompleteDataWarehouseStep: false,
                 }
             }
             if (logic.pathString?.includes('insightVizDataLogic')) {
                 return {
-                    isFunnels: true,
+                    isFunnels: false,
                     isPaths: false,
                     hasDetailedResultsTable: false,
                     showLegend: false,
@@ -164,10 +172,10 @@ describe('InsightVizDisplay', () => {
                     erroredQueryId: null,
                     timedOutQueryId: null,
                     vizSpecificOptions: {},
-                    query: { kind: 'InsightVizNode', source: { kind: 'FunnelsQuery', series: [{}] } },
-                    querySource: { kind: 'FunnelsQuery', series: [{}] },
+                    query: { kind: 'InsightVizNode', source: { kind: 'RetentionQuery' } },
+                    querySource: { kind: 'RetentionQuery' },
                     display: null,
-                    series: [{}],
+                    series: [],
                     insightData: { result: expectedResult },
                     validationError: null,
                     validationErrorCode: null,
@@ -180,25 +188,118 @@ describe('InsightVizDisplay', () => {
         render(
             <InsightVizDisplay
                 embedded
-                showingResults
                 disableHeader
                 disableTable
                 disableCorrelationTable
                 context={{
                     dashboardJourneyRenderReadiness: {
-                        attemptId: 'attempt-invalid',
+                        attemptId: 'attempt-hidden',
                         tileId: 8,
-                        insightShortId: 'invalid-funnel',
-                        insightType: 'FUNNELS',
+                        insightShortId: 'hidden-retention',
+                        insightType: 'RETENTION',
                         expectedResult,
                     },
                     onDashboardJourneyRenderCommitted: onCommitted,
                 }}
+                {...showingResultsProps}
             />
         )
 
         expect(onCommitted).not.toHaveBeenCalled()
     })
+
+    it.each([
+        {
+            name: 'invalid funnel configuration',
+            expectedResult: [{ count: 1 }],
+            hasFunnelResults: true,
+            isFunnelWithEnoughSteps: false,
+        },
+        {
+            name: 'funnel with no results',
+            expectedResult: [],
+            hasFunnelResults: false,
+            isFunnelWithEnoughSteps: true,
+        },
+    ])(
+        'does not report an exact result while the $name blocking branch is rendered',
+        ({ expectedResult, hasFunnelResults, isFunnelWithEnoughSteps }) => {
+            const onCommitted = jest.fn()
+
+            ;(useActions as jest.Mock).mockReturnValue({ loadData: jest.fn(), updateQuerySource: jest.fn() })
+            ;(useValues as jest.Mock).mockImplementation((logic) => {
+                if (logic === insightLogic) {
+                    return {
+                        insightProps: { dashboardItemId: undefined },
+                        canEditInsight: false,
+                        isInDashboardContext: true,
+                    }
+                }
+                if (logic === insightDataLogic) {
+                    return { exportContext: null, queryId: null }
+                }
+                if (logic.pathString?.includes('insightNavLogic')) {
+                    return { activeView: InsightType.FUNNELS }
+                }
+                if (logic.pathString?.includes('funnelDataLogic')) {
+                    return {
+                        funnelVizType: null,
+                        hasFunnelResults,
+                        isFunnelWithEnoughSteps,
+                        isFunnelWithIncompleteDataWarehouseStep: false,
+                    }
+                }
+                if (logic.pathString?.includes('insightVizDataLogic')) {
+                    return {
+                        isFunnels: true,
+                        isPaths: false,
+                        hasDetailedResultsTable: false,
+                        showLegend: false,
+                        usesInChartLegend: false,
+                        hasFormula: false,
+                        supportsDisplay: true,
+                        samplingFactor: null,
+                        insightDataLoading: false,
+                        hasRenderableResults: true,
+                        erroredQueryId: null,
+                        timedOutQueryId: null,
+                        vizSpecificOptions: {},
+                        query: { kind: 'InsightVizNode', source: { kind: 'FunnelsQuery', series: [{}] } },
+                        querySource: { kind: 'FunnelsQuery', series: [{}] },
+                        display: null,
+                        series: [{}],
+                        insightData: { result: expectedResult },
+                        validationError: null,
+                        validationErrorCode: null,
+                        theme: {},
+                    }
+                }
+                return {}
+            })
+
+            render(
+                <InsightVizDisplay
+                    embedded
+                    showingResults
+                    disableHeader
+                    disableTable
+                    disableCorrelationTable
+                    context={{
+                        dashboardJourneyRenderReadiness: {
+                            attemptId: 'attempt-invalid',
+                            tileId: 8,
+                            insightShortId: 'invalid-funnel',
+                            insightType: 'FUNNELS',
+                            expectedResult,
+                        },
+                        onDashboardJourneyRenderCommitted: onCommitted,
+                    }}
+                />
+            )
+
+            expect(onCommitted).not.toHaveBeenCalled()
+        }
+    )
 
     it.each([
         ...DASHBOARD_HINT_INSIGHT_TYPES.flatMap((activeView) => [

@@ -329,15 +329,7 @@ export function InsightVizDisplay({
         return null
     })()
 
-    const hasInvalidDashboardJourneyRenderBranch =
-        validationError ||
-        erroredQueryId ||
-        timedOutQueryId ||
-        (display === ChartDisplayType.BoxPlot &&
-            isBoxPlotMissingProperty(series as TrendsQuery['series'] | null | undefined)) ||
-        (activeView === InsightType.FUNNELS &&
-            !isFlowViz &&
-            (isFunnelWithIncompleteDataWarehouseStep || !isFunnelWithEnoughSteps))
+    const hasBlockingEmptyState = Boolean(BlockingEmptyState)
 
     const lastReportedDashboardJourneyCommit = useRef<string | null>(null)
     useLayoutEffect(() => {
@@ -345,8 +337,8 @@ export function InsightVizDisplay({
         if (
             !readiness ||
             insightDataLoading ||
-            hasInvalidDashboardJourneyRenderBranch ||
-            showingResults === false ||
+            hasBlockingEmptyState ||
+            !showingResults ||
             !theme ||
             !isDashboardJourneyResultCommitted(insightData?.result, readiness.expectedResult)
         ) {
@@ -358,14 +350,7 @@ export function InsightVizDisplay({
         }
         lastReportedDashboardJourneyCommit.current = commitKey
         context?.onDashboardJourneyRenderCommitted?.(readiness.attemptId, readiness.tileId)
-    }, [
-        context,
-        hasInvalidDashboardJourneyRenderBranch,
-        insightData?.result,
-        insightDataLoading,
-        showingResults,
-        theme,
-    ])
+    }, [context, hasBlockingEmptyState, insightData?.result, insightDataLoading, showingResults, theme])
 
     // A chart that draws its own legend inside the plot opts out of the side-legend column, so we
     // don't render two legends. The slope graph always does; trends/stickiness/lifecycle charts
