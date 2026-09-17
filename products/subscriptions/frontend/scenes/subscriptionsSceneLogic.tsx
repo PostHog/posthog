@@ -336,7 +336,7 @@ export interface subscriptionsSceneLogicMeta {
             featureFlags: FeatureFlagsSet,
             receivedFeatureFlags: boolean,
             currentOrganization: OrganizationType | null,
-            preflight: any
+            preflight: PreflightStatus | null
         ) => boolean
         subscriptions: (subscriptionsResponse: PaginatedSubscriptionListApi | null) => SubscriptionApi[]
         subscriptionsLoading: (subscriptionsResponseLoading: boolean) => boolean
