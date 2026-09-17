@@ -90,6 +90,7 @@ from products.tasks.backend.models import (
     TaskSession,
     TaskThreadMessage,
     TaskThreadMessageMention,
+    TaskWorkflowDispatch,
 )
 from products.tasks.backend.presentation.serializers import (
     TASK_RUN_ARTIFACT_MAX_SIZE_BYTES,
@@ -99,6 +100,14 @@ from products.tasks.backend.presentation.serializers import (
 )
 from products.tasks.backend.presentation.views import api as views_api
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
+
+
+def _has_restart_dispatch(run: TaskRun) -> bool:
+    return (
+        TaskWorkflowDispatch.objects.for_team(run.team_id)
+        .filter(task_run_id=run.id, dispatch_kind=TaskWorkflowDispatch.Kind.RESTART)
+        .exists()
+    )
 
 
 def _grant_user_github_access(user: User, *, refresh_ttl_seconds: int = 15897600) -> UserIntegration:
@@ -6680,10 +6689,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         ]
     )
     @patch("products.tasks.backend.presentation.views.api.tasks_facade.pi_cloud_runtime_enabled", return_value=True)
-    @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
-    @patch("products.tasks.backend.facade.streams.reset_task_run_stream", return_value=True)
     def test_resume_in_cloud_checks_agent_run_access(
-        self, run_source, flag_enabled, internal_team, expected_status, mock_reset_stream, mock_resume, _mock_pi_enabled
+        self, run_source, flag_enabled, internal_team, expected_status, _mock_pi_enabled
     ):
         self.mock_feature_flag.side_effect = lambda flag, *_args, **_kwargs: (
             flag in {"tasks", "pi-harness"} or (flag == "tasks-mcp-agent-run-start" and flag_enabled)
@@ -6708,16 +6715,13 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
         if expected_status == status.HTTP_200_OK:
             self.assertEqual(run.status, TaskRun.Status.QUEUED)
-            mock_reset_stream.assert_called_once_with(str(run.id), use_dedicated=False)
-            mock_resume.assert_called_once_with(str(run.id), run.workflow_id)
+            self.assertTrue(_has_restart_dispatch(run))
         else:
             self.assertEqual(run.status, TaskRun.Status.COMPLETED)
             self.assertEqual(run.state, run_state)
-            mock_reset_stream.assert_not_called()
-            mock_resume.assert_not_called()
+            self.assertFalse(_has_restart_dispatch(run))
 
-    @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
-    def test_resume_in_cloud_rejects_local_run(self, mock_resume):
+    def test_resume_in_cloud_rejects_local_run(self):
         task = self.create_task(runtime=Task.Runtime.PI)
         run = TaskRun.objects.create(
             task=task,
@@ -6734,10 +6738,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.refresh_from_db()
         self.assertEqual(run.environment, TaskRun.Environment.LOCAL)
         self.assertEqual(run.status, TaskRun.Status.COMPLETED)
-        mock_resume.assert_not_called()
+        self.assertFalse(_has_restart_dispatch(run))
 
-    @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
-    def test_resume_in_cloud_rejects_user_authorship_without_github_identity_when_no_repo(self, mock_resume):
+    def test_resume_in_cloud_rejects_user_authorship_without_github_identity_when_no_repo(self):
         task = self.create_task(created_by=self.user)
         run = TaskRun.objects.create(
             task=task,
@@ -6754,10 +6757,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.refresh_from_db()
         self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
         self.assertEqual(run.status, TaskRun.Status.COMPLETED)
-        mock_resume.assert_not_called()
+        self.assertFalse(_has_restart_dispatch(run))
 
-    @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
-    def test_resume_in_cloud_persists_user_integration_when_no_repo(self, mock_resume):
+    def test_resume_in_cloud_persists_user_integration_when_no_repo(self):
         task = self.create_task(created_by=self.user)
         user_integration = _grant_user_github_access(self.user)
         run = TaskRun.objects.create(
@@ -6776,10 +6778,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(task.github_user_integration_id, user_integration.id)
         self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
         self.assertEqual(run.status, TaskRun.Status.QUEUED)
-        mock_resume.assert_called_once_with(str(run.id), run.workflow_id)
+        self.assertTrue(_has_restart_dispatch(run))
 
-    @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
-    def test_resume_in_cloud_falls_back_to_team_integration_when_no_user_integration(self, mock_resume):
+    def test_resume_in_cloud_falls_back_to_team_integration_when_no_user_integration(self):
         integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
         task = self.create_task(created_by=self.user)
         run = TaskRun.objects.create(
@@ -6800,7 +6801,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(run.state["pr_authorship_mode"], "bot")
         self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
         self.assertEqual(run.status, TaskRun.Status.QUEUED)
-        mock_resume.assert_called_once_with(str(run.id), run.workflow_id)
+        self.assertTrue(_has_restart_dispatch(run))
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_status_to_failed_signals_workflow_with_error(self, mock_signal):
@@ -14354,10 +14355,8 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_workflow.assert_called_once()
 
-    @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
-    @patch("products.tasks.backend.facade.streams.reset_task_run_stream", return_value=True)
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
-    def test_resume_in_cloud_on_inbox_task_needs_no_code_access(self, _mock_gate, _mock_reset, mock_resume):
+    def test_resume_in_cloud_on_inbox_task_needs_no_code_access(self, _mock_gate):
         self.set_tasks_feature_flag(False)
         task = self._inbox_task(Task.OriginProduct.SIGNALS_CHAT)
         run = TaskRun.objects.create(
@@ -14371,7 +14370,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
         response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_resume.assert_called_once()
+        self.assertTrue(_has_restart_dispatch(run))
 
     def test_exemption_ignores_cross_team_report_link(self):
         # The write serializer blocks cross-team report links, so forge one at the ORM level:

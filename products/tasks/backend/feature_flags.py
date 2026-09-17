@@ -12,7 +12,6 @@ from products.tasks.backend.constants import (
     DEV_STACK_IMAGE_BAKE_FEATURE_FLAG,
     MCP_EXEC_SKILLS_FEATURE_FLAG,
     WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
-    WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
     WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG,
     get_required_model_flag,
 )
@@ -61,10 +60,6 @@ def _is_workflow_dispatch_org_flag_enabled(flag: str, organization_id: str, dist
 
 def is_workflow_dispatch_async_enabled(organization_id: str, distinct_id: str) -> bool:
     return _is_workflow_dispatch_org_flag_enabled(WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG, organization_id, distinct_id)
-
-
-def is_workflow_dispatch_restart_enabled(organization_id: str, distinct_id: str) -> bool:
-    return _is_workflow_dispatch_org_flag_enabled(WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG, organization_id, distinct_id)
 
 
 def is_task_run_stream_presence_gated(origin_product: str) -> bool:

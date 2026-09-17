@@ -162,19 +162,28 @@ class TestWorkflowDispatchPersistence(TestCase):
         self.assertEqual(dispatch.status, TaskWorkflowDispatch.Status.DEAD)
         terminalize.assert_called_once_with(str(self.task_run.id), "invalid restart payload")
 
-    @patch("products.tasks.backend.feature_flags.is_workflow_dispatch_restart_enabled")
-    def test_restart_flag_is_evaluated_before_locking_run(self, restart_enabled: Mock) -> None:
-        baseline_atomic_depth = len(transaction.get_connection().atomic_blocks)
+    def test_resume_in_cloud_enqueues_restart_dispatch(self) -> None:
+        run = TaskRun.objects.create(
+            task=self.task_run.task,
+            team=self.team,
+            environment=TaskRun.Environment.CLOUD,
+            status=TaskRun.Status.COMPLETED,
+            completed_at=django_timezone.now(),
+            state={"pr_authorship_mode": "bot"},
+        )
 
-        def assert_outside_transaction(*_args: object) -> bool:
-            self.assertEqual(len(transaction.get_connection().atomic_blocks), baseline_atomic_depth)
-            return True
+        outcome, run_dto, _ = resume_task_run_in_cloud(run.id, run.task_id, self.team.id, run.task.created_by_id)
 
-        restart_enabled.side_effect = assert_outside_transaction
-
-        outcome, _, _ = resume_task_run_in_cloud(self.task_run.id, self.task_run.task_id, self.team.id, None)
-
-        self.assertEqual(outcome, "already_active")
+        self.assertEqual(outcome, "resumed")
+        self.assertIsNotNone(run_dto)
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)
+        dispatch = TaskWorkflowDispatch.objects.for_team(self.team.id).get(task_run_id=run.id)
+        self.assertEqual(dispatch.dispatch_kind, TaskWorkflowDispatch.Kind.RESTART)
+        self.assertEqual(dispatch.status, TaskWorkflowDispatch.Status.PENDING)
+        _, snapshot = parse_restart_payload(dispatch.payload)
+        self.assertEqual(snapshot.status, TaskRun.Status.COMPLETED)
+        self.assertEqual(snapshot.environment, TaskRun.Environment.CLOUD)
 
     def test_reenqueuing_restart_resets_dispatch_age(self) -> None:
         snapshot = RestartSnapshot(

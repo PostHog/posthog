@@ -3469,9 +3469,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @validated_request(
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run resumed in cloud"),
-            400: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer, description="Run already active or workflow failed"
-            ),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Run already active"),
             403: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
@@ -3551,12 +3549,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if outcome == "workflow_failed":
-            return Response(
-                TaskRunErrorResponseSerializer({"error": "Failed to start cloud workflow"}).data,
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
         return Response(TaskRunDetailSerializer(run).data)
 
     @staticmethod

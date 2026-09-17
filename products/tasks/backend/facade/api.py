@@ -5235,14 +5235,15 @@ def resume_task_run_in_cloud(
     Returns ``(outcome, run_dto, debug_use_modal)``. ``outcome`` is one of: ``"not_found"``,
     ``"already_active"`` (400), ``"not_cloud"`` (400), ``"ownership_changed"`` (400), ``"invalid_origin"`` (400),
     ``"auth_error:<detail>"``
-    (400, GitHub auth), ``"workflow_failed"`` (502), or ``"resumed"`` (run_dto set).
+    (400, GitHub auth), or ``"resumed"`` (run_dto set).
     Mirrors ``TaskRunViewSet.resume_in_cloud``.
     """
-    from products.tasks.backend.facade.streams import reset_task_run_stream  # noqa: PLC0415
-    from products.tasks.backend.redis import run_uses_dedicated_stream  # noqa: PLC0415
-    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
-        resume_task_in_cloud_workflow,
+    from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
+        RestartSnapshot,
+        build_restart_payload,
+        create_dispatch,
     )
+    from products.tasks.backend.models import TaskWorkflowDispatch  # noqa: PLC0415
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
         PrAuthorshipMode,
         get_pr_authorship_mode,
@@ -5252,18 +5253,6 @@ def resume_task_run_in_cloud(
     if run is None:
         return "not_found", None, None
 
-    from products.tasks.backend.feature_flags import is_workflow_dispatch_restart_enabled  # noqa: PLC0415
-    from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
-        RestartSnapshot,
-        build_restart_payload,
-        create_dispatch,
-    )
-    from products.tasks.backend.models import TaskWorkflowDispatch  # noqa: PLC0415
-
-    distinct_id = run.task.created_by.distinct_id if run.task.created_by else str(run.id)
-    restart_dispatch_enabled = is_workflow_dispatch_restart_enabled(
-        str(run.task.team.organization_id), distinct_id or str(run.id)
-    )
     logger.info(
         "resume_in_cloud_called",
         extra={
@@ -5317,65 +5306,22 @@ def resume_task_run_in_cloud(
                     ),
                 }
 
-        prior_status = run.status
-        prior_environment = run.environment
-        prior_completed_at = run.completed_at
-        prior_queued_at = run.queued_at
-        prior_state = dict(run.state or {})
+        snapshot = RestartSnapshot(
+            status=run.status,
+            environment=run.environment,
+            completed_at=run.completed_at.isoformat() if run.completed_at else None,
+            queued_at=run.queued_at.isoformat() if run.queued_at else None,
+            state=dict(run.state or {}),
+        )
         run.prepare_for_cloud_resume()
+        create_dispatch(
+            run,
+            TaskWorkflowDispatch.Kind.RESTART,
+            build_restart_payload(user_id, snapshot),
+            run.workflow_id,
+        )
 
-        if restart_dispatch_enabled:
-            snapshot = RestartSnapshot(
-                status=prior_status,
-                environment=prior_environment,
-                completed_at=prior_completed_at.isoformat() if prior_completed_at else None,
-                queued_at=prior_queued_at.isoformat() if prior_queued_at else None,
-                state=prior_state,
-            )
-            create_dispatch(
-                run,
-                TaskWorkflowDispatch.Kind.RESTART,
-                build_restart_payload(user_id, snapshot),
-                run.workflow_id,
-            )
-
-    if restart_dispatch_enabled:
-        return "resumed", _task_run_detail_to_dto(_task_run_queryset().get(pk=run.pk)), None
-
-    logger.info("Resuming task run in cloud", extra={"task_run_id": str(run.id), "task_id": str(run.task_id)})
-
-    try:
-        if not reset_task_run_stream(
-            str(run.id),
-            use_dedicated=run_uses_dedicated_stream(run.state),
-        ):
-            raise RuntimeError("Failed to reset task run event stream")
-        resume_task_in_cloud_workflow(str(run.id), run.workflow_id)
-    except Exception as e:
-        logger.exception("Failed to trigger resume workflow", extra={"task_run_id": str(run.id), "error": str(e)})
-        with transaction.atomic():
-            run = TaskRun.objects.select_for_update().get(pk=run.pk)
-            run.status = prior_status
-            run.environment = prior_environment
-            run.completed_at = prior_completed_at
-            run.queued_at = prior_queued_at
-            run.state = prior_state
-            run.error_message = "Failed to start cloud workflow"
-            run.save(
-                update_fields=[
-                    "status",
-                    "environment",
-                    "completed_at",
-                    "queued_at",
-                    "state",
-                    "error_message",
-                    "updated_at",
-                ]
-            )
-        run.publish_stream_state_event()
-        return "workflow_failed", None, None
-
-    return "resumed", _task_run_detail_to_dto(run), None
+    return "resumed", _task_run_detail_to_dto(_task_run_queryset().get(pk=run.pk)), None
 
 
 # --- Task presentation CRUD + actions ---
