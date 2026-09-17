@@ -32,7 +32,7 @@ Nothing under `posthog/ingress/` reads it.
 Slack's `url_verification` handshake wants the challenge echoed in the response body, which no consumer can do.
 The incarnation answers it in `pre_dispatch_response()`, before dispatch.
 
-Slack redelivers a delivery it got a non-2xx for, so `retry_status` is 502: a forward to the region that owns the workspace that did not land, and a receipt write that raised, must not be receipted, or the event is lost.
+Slack redelivers a delivery it got a non-2xx for, so `retry_status` is 502: a workspace ownership lookup that raised, a forward to the region that owns the workspace that did not land, and a receipt write that raised must not be receipted, or the event is lost.
 The other status codes are the defaults.
 
 ## Consumers

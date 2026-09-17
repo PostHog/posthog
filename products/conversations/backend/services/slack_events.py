@@ -59,8 +59,9 @@ def slack_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
     except OperationalError as error:
         if not is_statement_timeout(error):
             raise
-        # Elsewhere rather than an error: the two answers here are "this region owns it" and
-        # "somebody else does", and a lookup that never finished has not shown ownership here.
+        # Elsewhere rather than a failed lookup: a timeout has not shown ownership here, which
+        # leaves the delivery in the same state as a workspace this region does not know, and the
+        # other region can still answer it. A failed lookup asks Slack to redeliver instead.
         logger.warning("supporthog_event_workspace_lookup_timed_out", slack_team_id=slack_team_id)
         return DeliveryOwnership.ELSEWHERE
 
