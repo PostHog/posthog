@@ -114,6 +114,10 @@ const CORPUS: &[Case] = &[
     ),
 ];
 
+/// Stands in for the `person` table under `EXPLAIN`: every column the scan reads, none of them
+/// constant, so the planner cannot fold a predicate or an aggregate away before it is counted.
+const PERSON_SOURCE: &str = "(SELECT generateUUIDv4() AS id, toInt64(number % 3) AS team_id, toString(number) AS properties, toUInt64(number) AS version, toInt8(number % 2) AS is_deleted, toDateTime(number) AS _timestamp FROM numbers(8))";
+
 #[derive(Row, Deserialize)]
 struct Admitted {
     index: u32,
@@ -187,11 +191,20 @@ async fn the_repeated_aggregate_is_computed_once() {
         "the rendered text is meant to name the aggregate three times"
     );
 
+    // The compose stack's ClickHouse carries no PostHog schema, so the scan is re-pointed at an
+    // inline source with the columns it reads. Folding a repeated aggregate is the analyzer's
+    // doing and does not depend on where the rows come from.
+    let explained = sql.replace("FROM person AS ", &format!("FROM {PERSON_SOURCE} AS "));
+    assert_eq!(
+        explained.matches(PERSON_SOURCE).count(),
+        2,
+        "both references to the person table are meant to be re-pointed"
+    );
     let plan = client
-        .query(&format!("EXPLAIN actions = 1 {sql}"))
+        .query(&format!("EXPLAIN actions = 1 {explained}"))
         .fetch_all::<ExplainLine>()
         .await
-        .unwrap_or_else(|error| panic!("EXPLAIN failed: {error}\n{sql}"))
+        .unwrap_or_else(|error| panic!("EXPLAIN failed: {error}\n{explained}"))
         .into_iter()
         .map(|line| line.explain)
         .collect::<Vec<_>>();
