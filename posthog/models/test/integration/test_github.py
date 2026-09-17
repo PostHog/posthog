@@ -26,6 +26,7 @@ from posthog.egress.github.transport import (
 )
 from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import (
+    GITHUB_BRANCH_CACHE_REFRESH_CLAIM_TTL_SECONDS,
     GITHUB_BRANCH_CACHE_TTL_SECONDS,
     GITHUB_REPOSITORY_CACHE_TTL_SECONDS,
     GitHubIntegrationBase,
@@ -1988,6 +1989,40 @@ class TestGitHubIntegrationModel(BaseTest):
         assert default_branch == "main"
         assert has_more is False
         mock_list_branches.assert_called_once_with(repo, limit=100, offset=0)
+        mock_default_branch.assert_not_called()
+
+    @patch("posthog.models.github_integration_base.safe_cache_add", return_value=False)
+    @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
+    @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch")
+    def test_list_cached_branches_serves_stale_data_during_another_refresh(
+        self, mock_default_branch, mock_list_branches, mock_claim
+    ):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        repo = "posthog/posthog"
+        github = GitHubIntegration(integration)
+        cache.set(
+            github._get_branch_cache_key(repo),
+            {
+                "branches": ["main", "develop"],
+                "default_branch": "main",
+                "updated_at": time.time() - (GITHUB_BRANCH_CACHE_TTL_SECONDS + 1),
+            },
+        )
+
+        branches, default_branch, has_more = github.list_cached_branches(repo, limit=10)
+
+        assert branches == ["main", "develop"]
+        assert default_branch == "main"
+        assert has_more is False
+        mock_claim.assert_called_once_with(
+            github._get_branch_cache_refresh_claim_key(repo),
+            True,
+            GITHUB_BRANCH_CACHE_REFRESH_CLAIM_TTL_SECONDS,
+        )
+        mock_list_branches.assert_not_called()
         mock_default_branch.assert_not_called()
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_branches")

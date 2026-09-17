@@ -14,6 +14,8 @@ import time
 from typing import Any
 
 import requests
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
 from posthog.egress.github.limiter import classify_github_resource, consume_github_installation_sync
 from posthog.egress.github.observability import github_egress
@@ -23,6 +25,8 @@ from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClie
 # The GitHub REST API version we pin every request to. Lives here (not integration.py) so the egress
 # layer stays free of any posthog.models import; integration.py imports it back from here.
 GITHUB_API_VERSION = "2022-11-28"
+
+tracer = trace.get_tracer(__name__)
 
 
 class GitHubEgressBudgetExhausted(EgressBudgetExhausted):
@@ -130,15 +134,29 @@ def github_request(
     it when known so the call is gated (at ``priority``) and the rate-limit gauges are set; leave it
     ``None`` for identity-blind callers (raw PATs, PostHog's public token), which record volume only.
     ``source`` attributes the call to a subsystem. ``headers`` must carry the caller's ``Authorization``."""
-    return _github_client.request(
-        method,
-        url,
-        source=source,
-        headers=headers,
-        scope=installation_id,
-        priority=priority,
-        endpoint=endpoint,
-        timeout=timeout,
-        session=session,
-        **kwargs,
-    )
+    attributes: dict[str, str | bool] = {
+        "http.request.method": method.upper(),
+        "server.address": "api.github.com",
+        "github.endpoint": endpoint or "unknown",
+        "github.resource": classify_github_resource(url).value,
+        "github.source": source,
+        "github.priority": priority.value,
+        "github.installation_scoped": installation_id is not None,
+    }
+    with tracer.start_as_current_span("github.http.request", kind=trace.SpanKind.CLIENT, attributes=attributes) as span:
+        response = _github_client.request(
+            method,
+            url,
+            source=source,
+            headers=headers,
+            scope=installation_id,
+            priority=priority,
+            endpoint=endpoint,
+            timeout=timeout,
+            session=session,
+            **kwargs,
+        )
+        span.set_attribute("http.response.status_code", response.status_code)
+        if response.status_code >= 400:
+            span.set_status(Status(StatusCode.ERROR))
+        return response

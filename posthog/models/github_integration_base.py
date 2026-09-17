@@ -23,6 +23,7 @@ from django.utils import timezone
 import jwt
 import requests
 import structlog
+from opentelemetry import trace
 from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
@@ -33,6 +34,7 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.utils import safe_cache_add, safe_cache_delete
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 # This client always knows its installation, so it records under source="integration" with a real id.
 _OBSERVABILITY_SOURCE = "integration"
@@ -49,6 +51,9 @@ GITHUB_REPOSITORY_CACHE_TTL_SECONDS = 60 * 60
 # Branch cache: 10-minute staleness, 24-hour eviction timeout.
 GITHUB_BRANCH_CACHE_TTL_SECONDS = 60 * 10
 GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
+# A complete refresh can walk hundreds of GitHub pages. Keep one installation/repository refresh
+# in flight, and serve an existing stale snapshot to concurrent callers instead of repeating it.
+GITHUB_BRANCH_CACHE_REFRESH_CLAIM_TTL_SECONDS = GITHUB_BRANCH_CACHE_TTL_SECONDS
 
 INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY = "installation_unavailable_since"
 
@@ -2601,6 +2606,9 @@ class GitHubIntegrationBase:
     def _get_branch_cache_key(self, repo: str) -> str:
         return f"github_integration:branches:{self._installation_cache_scope()}:{repo.lower()}"
 
+    def _get_branch_cache_refresh_claim_key(self, repo: str) -> str:
+        return f"{self._get_branch_cache_key(repo)}:refresh"
+
     def _get_branch_cache(self, repo: str) -> dict[str, Any] | None:
         cached = cache.get(self._get_branch_cache_key(repo))
         if not isinstance(cached, dict):
@@ -2628,6 +2636,7 @@ class GitHubIntegrationBase:
             return True
         return time.time() - float(cached["updated_at"]) >= GITHUB_BRANCH_CACHE_TTL_SECONDS
 
+    @tracer.start_as_current_span("github.branches.refresh")
     def sync_branch_cache(self, repo: str) -> tuple[list[str], str | None]:
         branches = self.list_all_branches(repo)
         cached = self._get_branch_cache(repo)
@@ -2659,31 +2668,61 @@ class GitHubIntegrationBase:
             timeout=GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS,
         )
 
+        span = trace.get_current_span()
+        span.set_attribute("github.branches.count", len(branches))
+        span.set_attribute("github.default_branch.present", default_branch is not None)
+
         return branches, default_branch
 
+    @tracer.start_as_current_span("github.branches.cache")
     def list_cached_branches(
         self, repo: str, *, search: str = "", limit: int = 100, offset: int = 0
     ) -> tuple[list[str], str | None, bool]:
+        span = trace.get_current_span()
+        span.set_attribute("github.branches.search", bool(search.strip()))
+        span.set_attribute("github.branches.limit", limit)
+        span.set_attribute("github.branches.offset", offset)
+
         cached = self._get_branch_cache(repo)
         should_refresh = cached is None or self.branch_cache_is_stale(repo)
         self._record_github_cache_access("branches", "miss" if should_refresh else "hit", repo)
+        span.set_attribute("github.branch_cache.result", "miss" if should_refresh else "hit")
+        span.set_attribute("github.branch_cache.snapshot_present", cached is not None)
 
         if should_refresh:
-            try:
-                branches, default_branch = self.sync_branch_cache(repo)
-                cached = {
-                    "branches": branches,
-                    "default_branch": default_branch,
-                }
-            except Exception:
-                logger.warning(
-                    "GitHubIntegration: failed to refresh branch cache",
-                    integration_id=self.integration.id,
-                    repo=repo,
-                    exc_info=True,
-                )
-                if cached is None:
-                    raise
+            claim_key = self._get_branch_cache_refresh_claim_key(repo)
+            refresh_claimed = safe_cache_add(claim_key, True, GITHUB_BRANCH_CACHE_REFRESH_CLAIM_TTL_SECONDS)
+            if not refresh_claimed and cached is None:
+                # The claim owner may have completed between our first cache read and the claim.
+                cached = self._get_branch_cache(repo)
+            span.set_attribute(
+                "github.branch_cache.refresh",
+                "owner" if refresh_claimed else "cold_duplicate" if cached is None else "in_progress",
+            )
+            # A cold caller still refreshes if another worker holds the claim. Returning an empty list
+            # would make a repository look branchless. Once a snapshot exists, stale data is the safer
+            # and much faster response while the claim owner updates it.
+            if refresh_claimed or cached is None:
+                try:
+                    branches, default_branch = self.sync_branch_cache(repo)
+                    cached = {
+                        "branches": branches,
+                        "default_branch": default_branch,
+                    }
+                except Exception:
+                    logger.warning(
+                        "GitHubIntegration: failed to refresh branch cache",
+                        integration_id=self.integration.id,
+                        repo=repo,
+                        exc_info=True,
+                    )
+                    if cached is None:
+                        raise
+                finally:
+                    if refresh_claimed:
+                        safe_cache_delete(claim_key)
+        else:
+            span.set_attribute("github.branch_cache.refresh", "not_needed")
 
         assert cached is not None
         branches = cast(list[str], cached["branches"])
@@ -2696,6 +2735,8 @@ class GitHubIntegrationBase:
 
         result = filtered_branches[offset : offset + limit]
         has_more = offset + limit < len(filtered_branches)
+        span.set_attribute("github.branches.returned", len(result))
+        span.set_attribute("github.branches.has_more", has_more)
         return result, default_branch, has_more
 
     def get_access_token(self) -> str:
