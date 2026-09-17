@@ -635,6 +635,16 @@ describe('ML session key batches', () => {
         expect(mismatch.mock.calls).toEqual([['month_key_unavailable', 1]])
     })
 
+    it('counts no month key failure for a blocked team, so the metric stays a corruption signal', async () => {
+        await (await store.prepare([session])).commit()
+        const block = teamBlockId(session.teamId)
+        boundary.items.set(tableKeyString(block), { ...encodeKey(block), deleted: { BOOL: true } })
+        coldCache()
+        const mismatch = jest.spyOn(MlMirrorMetrics, 'incrementMlKeyIdentityMismatch')
+        expect((await reader.read([sessionKeyId(session.teamId, session.sessionId)])).size).toBe(0)
+        expect(mismatch).not.toHaveBeenCalled()
+    })
+
     it('fails the read when KMS throttles a month key, so the caller retries instead of dropping', async () => {
         await (await store.prepare([session])).commit()
         coldCache()

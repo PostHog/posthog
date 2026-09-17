@@ -73,10 +73,16 @@ export class MlKeyReader {
         const blocked = (teamId: number): boolean => state.has(tableKeyString(teamBlockId(teamId)))
         const months = new Map<string, MlDataKey>()
         const refused: { id: string; error: string }[] = []
+        // A deleted month key and a blocked team are answers, not failures, so neither counts against the month key.
+        let unavailable = 0
         await Promise.all(
             [...monthKeys.keys()].map(async (id) => {
                 const item = state.get(id)
-                if (!item?.wrapped_key?.B || item.deleted?.BOOL === true) {
+                if (item?.deleted?.BOOL === true) {
+                    return
+                }
+                if (!item?.wrapped_key?.B) {
+                    unavailable += 1
                     return
                 }
                 try {
@@ -90,13 +96,13 @@ export class MlKeyReader {
                     if (isTransientError(error)) {
                         throw error
                     }
+                    unavailable += 1
                     refused.push({ id, error: error instanceof Error ? error.name : String(error) })
                 }
             })
         )
-        const missing = [...monthKeys.keys()].filter((id) => !months.has(id))
-        if (missing.length) {
-            MlMirrorMetrics.incrementMlKeyIdentityMismatch('month_key_unavailable', missing.length)
+        if (unavailable) {
+            MlMirrorMetrics.incrementMlKeyIdentityMismatch('month_key_unavailable', unavailable)
         }
         if (refused.length) {
             logger.error('🔑', 'ml_key_month_key_refused', { count: refused.length, rows: refused })
