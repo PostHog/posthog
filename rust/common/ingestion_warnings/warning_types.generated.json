@@ -236,12 +236,6 @@
       "captureProduced": false
     },
     {
-      "type": "misrouted_event",
-      "category": "event",
-      "severity": "error",
-      "captureProduced": true
-    },
-    {
       "type": "missing_distinct_id",
       "category": "event",
       "severity": "error",
