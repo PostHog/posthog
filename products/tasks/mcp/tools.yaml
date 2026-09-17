@@ -304,8 +304,8 @@ tools:
             - workflows-test-run
         redirect_hint:
             'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
-            origin_product "loops". A test run steps one node at a time and mocks outbound calls, so it checks the
-            graph and creates no task run. To fire a loop for real, use Run now on an enabled schedule loop in PostHog
+            origin_product "loops". A test run steps one node at a time and mocks outbound calls, so it checks the graph
+            and creates no task run. To fire a loop for real, use Run now on an enabled schedule loop in PostHog
             Desktop, or wait for its trigger.'
     loops-runs-retrieve:
         operation: loops_runs_retrieve
