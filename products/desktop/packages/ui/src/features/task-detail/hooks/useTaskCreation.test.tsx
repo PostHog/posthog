@@ -162,7 +162,7 @@ function wrapper({ children }: { children: ReactNode }) {
 
 function renderTaskCreation(
   content: EditorContent,
-  workspaceMode: "local" | "cloud" = "local",
+  workspaceMode: "local" | "worktree" | "cloud" = "local",
   runtime: "acp" | "pi" = "acp",
 ) {
   return renderHook(
@@ -242,6 +242,9 @@ describe("useTaskCreation prompt records", () => {
 
       expect(createTaskMock).toHaveBeenCalledTimes(createTaskCalls);
       expect(
+        trackMock.mock.calls.filter(([event]) => event === "Task created"),
+      ).toEqual([]);
+      expect(
         useTaskInputHistoryStore.getState().entries.map((e) => e.text),
       ).toEqual(["Check the build"]);
     },
@@ -296,7 +299,7 @@ describe("useTaskCreation prompt records", () => {
     });
   });
 
-  it.each(["local", "cloud"] as const)(
+  it.each(["local", "worktree", "cloud"] as const)(
     "keeps the submitted prompt visible after successful %s creation until the chat takes over",
     async (workspaceMode) => {
       const brief = textToContent("Check the build");
@@ -311,6 +314,17 @@ describe("useTaskCreation prompt records", () => {
         expect(await result.current.handleSubmit()).toBe(true);
       });
 
+      expect(
+        trackMock.mock.calls.filter(([event]) => event === "Task created"),
+      ).toEqual([
+        [
+          "Task created",
+          expect.objectContaining({
+            task_id: "task-1",
+            workspace_mode: workspaceMode,
+          }),
+        ],
+      ]);
       expect(pendingTaskPromptStoreApi.get("task-1")?.contentXml).toBe(
         contentToXml(brief).trim(),
       );
