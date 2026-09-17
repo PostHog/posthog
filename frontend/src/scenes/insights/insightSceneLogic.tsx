@@ -553,6 +553,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 s.dashboardName,
                 s.sceneSource,
                 s.dashboardBackPath,
+                (state, props) => s.insightLogicRef(state, props)?.logic.selectors.insightName(state, props),
             ],
             (
                 insightLogicRef: {
@@ -564,7 +565,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 dashboardId: DashboardType['id'] | null,
                 dashboardName: DashboardType['name'] | null,
                 sceneSource: InsightSceneSource | null,
-                dashboardBackPath: string | null
+                dashboardBackPath: string | null,
+                insightName: string | undefined
             ): Breadcrumb[] => {
                 const dashboardLabel = dashboardName ?? 'Dashboard'
                 return [
@@ -615,7 +617,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                           ]),
                     {
                         key: [Scene.Insight, insight?.short_id || 'new'],
-                        name: insightLogicRef?.logic.values.insightName,
+                        name: insightName,
                         forceEditMode: insightLogicRef?.logic.values.canEditInsight,
                         iconType: getInsightIconTypeFromQuery(insightQuery),
                     },
