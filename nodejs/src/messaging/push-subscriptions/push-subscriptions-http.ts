@@ -119,7 +119,7 @@ function applyCors(req: IncomingMessage, res: ServerResponse): void {
     }
     res.setHeader('Access-Control-Allow-Origin', allowed)
     res.setHeader('Access-Control-Allow-Credentials', 'true')
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,Content-Type')
     res.setHeader('Vary', 'Origin')
 }
