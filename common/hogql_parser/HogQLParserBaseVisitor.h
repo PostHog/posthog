@@ -415,10 +415,6 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitColumnExprAliasCompare(HogQLParser::ColumnExprAliasCompareContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
   virtual std::any visitColumnExprValuePassthrough(HogQLParser::ColumnExprValuePassthroughContext *ctx) override {
     return visitChildren(ctx);
   }

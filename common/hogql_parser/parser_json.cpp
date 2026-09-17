@@ -1860,57 +1860,41 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       throw ParsingError("Unsupported value of rule ColumnExprPrecedence3");
     }
 
-    Json json = Json::object();
-    json["node"] = "CompareOperation";
-    if (!is_internal) addPositionInfo(json, ctx);
-    json["left"] = visitAsJSON(ctx->left);
-    json["right"] = visitAsJSON(ctx->right);
-    json["op"] = op;
-    return json;
-  }
-
-  // Same emission as ColumnExprPrecedence3; the grammar alternative differs only in
-  // admitting an aliased left operand (`x AS er > 0`).
-  VISIT(ColumnExprAliasCompare) {
-    string op;
-    if (ctx->EQ_SINGLE() || ctx->EQ_DOUBLE()) {
-      op = "==";
-    } else if (ctx->NOT_EQ()) {
-      op = "!=";
-    } else if (ctx->LT()) {
-      op = "<";
-    } else if (ctx->LT_EQ()) {
-      op = "<=";
-    } else if (ctx->GT()) {
-      op = ">";
-    } else if (ctx->GT_EQ()) {
-      op = ">=";
-    } else if (ctx->LIKE()) {
-      op = ctx->NOT() ? "not like" : "like";
-    } else if (ctx->ILIKE()) {
-      op = ctx->NOT() ? "not ilike" : "ilike";
-    } else if (ctx->REGEX_SINGLE() or ctx->REGEX_DOUBLE()) {
-      op = "=~";
-    } else if (ctx->NOT_REGEX()) {
-      op = "!~";
-    } else if (ctx->IREGEX_SINGLE() or ctx->IREGEX_DOUBLE()) {
-      op = "=~*";
-    } else if (ctx->NOT_IREGEX()) {
-      op = "!~*";
-    } else if (ctx->IN()) {
-      if (ctx->COHORT()) {
-        op = ctx->NOT() ? "not in cohort" : "in cohort";
+    Json left = visitAsJSON(ctx->left);
+    // The grammar's optional `AS` on this alternative: `x AS er > 0` is `(x AS er) > 0`, so
+    // wrap the left operand the way `ColumnExprAlias` would have.
+    if (ctx->AS()) {
+      string alias;
+      string raw_alias_text;
+      antlr4::Token* alias_stop_token;
+      if (ctx->identifier()) {
+        alias = visitAsString(ctx->identifier());
+        raw_alias_text = ctx->identifier()->getText();
+        alias_stop_token = ctx->identifier()->getStop();
+      } else if (ctx->STRING_LITERAL()) {
+        alias = parse_string_literal_ctx(ctx->STRING_LITERAL());
+        raw_alias_text = ctx->STRING_LITERAL()->getText();
+        alias_stop_token = ctx->STRING_LITERAL()->getSymbol();
       } else {
-        op = ctx->NOT() ? "not in" : "in";
+        throw ParsingError("An aliased ColumnExprPrecedence3 must have the alias in some form");
       }
-    } else {
-      throw ParsingError("Unsupported value of rule ColumnExprAliasCompare");
+      assertValidAlias(RESERVED_KEYWORDS, alias, raw_alias_text);
+
+      Json aliased = Json::object();
+      aliased["node"] = "Alias";
+      if (!is_internal) {
+        addPositionInfo(aliased, "start", ctx->left->getStart());
+        addEndPositionInfo(aliased, alias_stop_token);
+      }
+      aliased["expr"] = std::move(left);
+      aliased["alias"] = alias;
+      left = std::move(aliased);
     }
 
     Json json = Json::object();
     json["node"] = "CompareOperation";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["left"] = visitAsJSON(ctx->left);
+    json["left"] = std::move(left);
     json["right"] = visitAsJSON(ctx->right);
     json["op"] = op;
     return json;
