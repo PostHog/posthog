@@ -88,6 +88,23 @@ export class MlKeyDynamoDB {
         return holdsStoredKey(key)
     }
 
+    private hold(key: TableKey, item: DynamoItem): void {
+        if (!this.cacheable(key)) {
+            return
+        }
+        const id = tableKeyString(key)
+        if (item.deleted?.BOOL === true) {
+            this.rows.set(id, detachedRow(item), { ttl: TOMBSTONE_ROW_LIFETIME_MS })
+        } else if (item.wrapped_key?.B) {
+            this.rows.set(id, detachedRow(item), {
+                ttl: storedSessionId(key.sk) ? this.sessionRowLifetimeMs : IMAGE_ROW_MAX_LIFETIME_MS,
+            })
+        } else {
+            // No wrapped key and no tombstone is a row that repair can still fill in.
+            this.rows.delete(id)
+        }
+    }
+
     public async read(keys: TableKey[], callerDeadline?: AbortSignal): Promise<Map<string, DynamoItem>> {
         const deadline = callerDeadline ?? AbortSignal.timeout(READ_BUDGET_MS)
         const unique = [...new Map(keys.map((key) => [tableKeyString(key), key])).values()]
@@ -144,21 +161,7 @@ export class MlKeyDynamoDB {
                             const key = decodeKey(item)
                             const id = tableKeyString(key)
                             result.set(id, item)
-                            if (!this.cacheable(key)) {
-                                continue
-                            }
-                            if (item.deleted?.BOOL === true) {
-                                this.rows.set(id, detachedRow(item), { ttl: TOMBSTONE_ROW_LIFETIME_MS })
-                            } else if (item.wrapped_key?.B) {
-                                this.rows.set(id, detachedRow(item), {
-                                    ttl: storedSessionId(key.sk)
-                                        ? this.sessionRowLifetimeMs
-                                        : IMAGE_ROW_MAX_LIFETIME_MS,
-                                })
-                            } else {
-                                // No wrapped key and no tombstone is a row that repair can still fill in.
-                                this.rows.delete(id)
-                            }
+                            this.hold(key, item)
                         }
                         pending = response.UnprocessedKeys?.[this.tableName]?.Keys ?? []
                         if (pending.length) {
@@ -185,7 +188,12 @@ export class MlKeyDynamoDB {
         MlMirrorMetrics.setMlKeyRowCacheEntries(0)
     }
 
-    public async putIfAbsent(key: TableKey, attributes: DynamoItem, deadline?: AbortSignal): Promise<boolean> {
+    /** Resolves to the row that won when this put lost, or to undefined when this put stored the key. */
+    public async putIfAbsent(
+        key: TableKey,
+        attributes: DynamoItem,
+        deadline?: AbortSignal
+    ): Promise<DynamoItem | undefined> {
         return this.writeConcurrency(() =>
             this.timed('dynamodb_put_if_absent', async () => {
                 try {
@@ -194,13 +202,21 @@ export class MlKeyDynamoDB {
                             TableName: this.tableName,
                             Item: { ...encodeKey(key), ...attributes },
                             ConditionExpression: 'attribute_not_exists(pk)',
+                            // The refusal carries the row that won, so the loser needs no read to adopt it.
+                            ReturnValuesOnConditionCheckFailure: 'ALL_OLD',
                         }),
                         { abortSignal: this.requestSignal(deadline) }
                     )
-                    return true
+                    // This row now exists with exactly these attributes, so the next batch needs no read for it.
+                    this.hold(key, { ...encodeKey(key), ...attributes })
+                    return undefined
                 } catch (error) {
                     if (error instanceof ConditionalCheckFailedException) {
-                        return false
+                        const winner = error.Item
+                        if (winner) {
+                            this.hold(key, winner)
+                        }
+                        return winner ?? {}
                     }
                     throw error
                 }

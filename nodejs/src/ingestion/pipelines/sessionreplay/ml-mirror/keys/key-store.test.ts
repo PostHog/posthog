@@ -72,7 +72,10 @@ class DynamoBoundary {
         await Promise.resolve()
         if (command.input.ConditionExpression === 'attribute_not_exists(pk)' && this.items.has(id)) {
             this.conditionalFailures += 1
-            throw new ConditionalCheckFailedException({ $metadata: {}, message: 'The conditional request failed' })
+            throw Object.assign(
+                new ConditionalCheckFailedException({ $metadata: {}, message: 'The conditional request failed' }),
+                command.input.ReturnValuesOnConditionCheckFailure === 'ALL_OLD' ? { Item: this.items.get(id) } : {}
+            )
         }
         this.items.set(id, item)
         return {}
@@ -333,7 +336,7 @@ describe('ML session key batches', () => {
         expect(remaining).toBeGreaterThan(0)
     })
 
-    it('indexes monthly keys, ignores a month marker, and blocks on a team marker set during a batch', async () => {
+    it('indexes monthly keys, ignores a month marker, and refuses a team marker from the next read', async () => {
         const october = { ...session, sessionId: '0199a13b-c000-7000-8000-000000000007' }
         const first = await store.prepare([session, october])
         await first.commit()
@@ -372,8 +375,10 @@ describe('ML session key batches', () => {
         const committing = inFlight.commit()
         await jest.runAllTimersAsync()
         await committing
-        expect(inFlight.get(session.teamId, session.sessionId)).toBeUndefined()
+        // A commit no longer re-reads, so the in-flight batch misses the block that every reader and the next batch see.
+        expect(inFlight.get(session.teamId, session.sessionId)).not.toBeUndefined()
         expect((await reader.read(locations)).size).toBe(0)
+        expect((await store.prepare([session])).get(session.teamId, session.sessionId)).toBeUndefined()
     })
 
     it('wraps new keys without an organization and stores none on the row', async () => {
@@ -534,9 +539,8 @@ describe('ML session key batches', () => {
         const next = await cold.prepare([session])
         await next.commit()
         expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
-        // Only the team block row, twice: prepare reads it and the commit re-read reads it again. The tombstone spares
-        // the session key row and the image key row behind it.
-        expect(boundary.readSizes.slice(readsBefore).reduce((total, size) => total + size, 0)).toBe(2)
+        // Only the team block row, which is never cached. The tombstone spares the session key row and the image key row.
+        expect(boundary.readSizes.slice(readsBefore).reduce((total, size) => total + size, 0)).toBe(1)
         expect(boundary.writes).toBe(writesBefore)
     })
 
