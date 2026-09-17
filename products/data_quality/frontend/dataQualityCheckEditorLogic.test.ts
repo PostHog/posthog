@@ -968,6 +968,35 @@ describe('dataQualityCheckEditorLogic', () => {
         expect(logic.values.checkSubjectsError).toBeNull()
     })
 
+    it.each<[string, DataQualitySubjectRef, CheckTypeEnumApi, string[], string | null]>([
+        [
+            'a PostHog table not_null check',
+            { subjectType: 'posthog_table', subjectId: 'events-1' },
+            CheckTypeEnumApi.NotNull,
+            ['distinct_id', 'timestamp'],
+            'timestamp',
+        ],
+        [
+            'a PostHog table row_count check',
+            { subjectType: 'posthog_table', subjectId: 'events-1' },
+            CheckTypeEnumApi.RowCount,
+            ['distinct_id', 'timestamp'],
+            'timestamp',
+        ],
+        ['a view check', { subjectType: 'view', subjectId: 'view-7' }, CheckTypeEnumApi.NotNull, ['order_id'], null],
+    ])(
+        'resolves the columns and time column of %s opened for edit',
+        async (_case, subject, checkType, expectedColumns, expectedTimeColumn) => {
+            await mountLogic({ surface: 'overview' })
+
+            logic.actions.openEditor(buildCheck({ check_type: checkType, config: { lookback_hours: 24 } }), subject)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.availableColumns).toEqual(expectedColumns)
+            expect(logic.values.subjectTimeColumn).toEqual(expectedTimeColumn)
+        }
+    )
+
     it.each<[string, Record<string, unknown>, string[], number]>([
         ['a plain edit with known columns', { checkType: 'not_null', columnName: 'customer_id' }, COLUMNS, 0],
         ['a relationships check', { checkType: 'relationships' }, COLUMNS, 1],

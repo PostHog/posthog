@@ -962,10 +962,13 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                 subjectColumns: string[],
                 subject: DataQualitySubjectRef | null
             ) =>
-                // Relationships needs every subject to point at; anything else only needs the
-                // catalog when the surface that opened the editor could not supply the columns.
+                // Relationships needs every subject to point at. A PostHog table needs the
+                // catalog for its time column, which no surface supplies and which the lookback
+                // window reads. Anything else only needs the catalog when the surface that
+                // opened the editor could not supply the columns.
                 subject === null ||
                 checkForm.checkType === CheckTypeEnumApi.Relationships ||
+                subject.subjectType === SubjectTypeEnumApi.PosthogTable ||
                 (requiresColumn && !subjectColumns.length),
         ],
     }),
@@ -1012,6 +1015,12 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                 }
                 actions.setServerError(null)
                 actions.setCheckFormManualErrors({})
+            },
+            // Opening the editor clears the check-type catalog, so the column requirement is
+            // unknown while the first request runs. Ask again once it arrives, or a check that
+            // needs a column has no column to pick until the person edits the form.
+            loadCheckTypesSuccess: () => {
+                ensureSubjectCatalog()
             },
             setCheckFormValues: () => {
                 if (values.isOpen) {
