@@ -595,20 +595,13 @@ export interface AccessControlFilterWarning {
  */
 export type QueryScanFindingKind = 'no_event_filter' | 'no_start_date' | 'persons_join'
 
-/**
- * Where the change that fixes a finding goes. `query`: the query or insight the finding is on.
- * `subquery`: a subquery of it. `view`: a saved view it reads. `insight_date_range`: the date range a SQL
- * insight takes through `{filters}`. `dashboard_date_filter`: the dashboard's date filter.
- */
+/** Where the change that fixes a finding goes. `insight_date_range` is the range a SQL insight takes through `{filters}`. */
 export type QueryScanFixLocation = 'query' | 'subquery' | 'view' | 'insight_date_range' | 'dashboard_date_filter'
 
 /** One finding of a query's analysis. */
 export interface QueryScanWarning {
     kind: QueryScanFindingKind
-    /**
-     * A short label for what in the query text kept the read wide, such as `in_or`. Analytics and the
-     * assistant read it, and the set of labels can change. Surfaces branch on `actionable`.
-     */
+    /** A label for what in the query text kept the read wide, such as `in_or`. Only analytics and the assistant read it, and the labels can change. */
     cause?: string
     /** True when the query reads this much on purpose, so reading less would change the answer. Absent means no. */
     by_design?: boolean

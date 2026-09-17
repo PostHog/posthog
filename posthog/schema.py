@@ -2677,9 +2677,8 @@ class QueryScanWarning(BaseModel):
     cause: str | None = Field(
         default=None,
         description=(
-            "A short label for what in the query text kept the read wide, such as"
-            " `in_or`. Analytics and the assistant read it, and the set of labels can"
-            " change. Surfaces branch on `actionable`."
+            "A label for what in the query text kept the read wide, such as `in_or`."
+            " Only analytics and the assistant read it, and the labels can change."
         ),
     )
     evidence: str | None = Field(default=None, description="The one fact the finding rests on.")

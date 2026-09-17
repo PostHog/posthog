@@ -33,49 +33,49 @@ class TestFindings(SimpleTestCase):
             ),
             (
                 QueryScanFindingKind.NO_EVENT_FILTER,
-                {"cause": FindingCause.IN_OR},
+                {"cause": FindingCause.EVENT_FILTER_INSIDE_OR},
                 "HogQLQuery",
                 "names events only inside an OR",
                 "for what the other branch matches",
             ),
             (
                 QueryScanFindingKind.NO_EVENT_FILTER,
-                {"cause": FindingCause.WRAPPED},
+                {"cause": FindingCause.EVENT_WRAPPED_IN_FUNCTION},
                 "HogQLQuery",
                 "wraps `event` in a",
                 "SELECT DISTINCT event",
             ),
             (
                 QueryScanFindingKind.NO_EVENT_FILTER,
-                {"cause": FindingCause.NEGATED},
+                {"cause": FindingCause.EVENT_FILTER_ONLY_EXCLUDES},
                 "HogQLQuery",
                 "only excludes",
                 "Do not run exploratory queries",
             ),
             (
                 QueryScanFindingKind.NO_EVENT_FILTER,
-                {"cause": FindingCause.DYNAMIC},
+                {"cause": FindingCause.EVENT_COMPARED_TO_COLUMN},
                 "HogQLQuery",
                 "compares `event` to another",
                 "no fixed name to prune on",
             ),
             (
                 QueryScanFindingKind.NO_EVENT_FILTER,
-                {"cause": FindingCause.NOT_PRUNED},
+                {"cause": FindingCause.EVENT_FILTER_NOT_USED_BY_CLICKHOUSE},
                 "HogQLQuery",
                 "has an event filter",
                 "into the WHERE of the events read",
             ),
             (
                 QueryScanFindingKind.NO_EVENT_FILTER,
-                {"cause": FindingCause.PROPERTY_FILTER},
+                {"cause": FindingCause.PROPERTY_FILTER_WITHOUT_EVENT},
                 "HogQLQuery",
                 "narrows events by a property but names no events",
                 "which events carry the property",
             ),
             (
                 QueryScanFindingKind.NO_EVENT_FILTER,
-                {"cause": FindingCause.HELPER_READ},
+                {"cause": FindingCause.UNFILTERED_HELPER_READ},
                 "HogQLQuery",
                 "reads all events in another, a subquery or CTE",
                 "Add an event filter to the unfiltered read",
@@ -96,7 +96,7 @@ class TestFindings(SimpleTestCase):
             ),
             (
                 QueryScanFindingKind.NO_EVENT_FILTER,
-                {"cause": FindingCause.PROPERTY_FILTER},
+                {"cause": FindingCause.PROPERTY_FILTER_WITHOUT_EVENT},
                 "TrendsQuery",
                 "looks at all events and filters them by a property",
                 "pick them in the series",
@@ -131,7 +131,7 @@ class TestFindings(SimpleTestCase):
             ),
             (
                 QueryScanFindingKind.NO_START_DATE,
-                {"cause": FindingCause.BOUND_NOT_USED},
+                {"cause": FindingCause.START_DATE_NOT_USED_BY_CLICKHOUSE},
                 "HogQLQuery",
                 "has a start date, but it could not be used",
                 "add a fixed relative bound beside it",
@@ -191,9 +191,9 @@ class TestFindings(SimpleTestCase):
         [
             (QueryScanFindingKind.NO_EVENT_FILTER, {}, True),
             (QueryScanFindingKind.NO_EVENT_FILTER, {"query_kind": "TrendsQuery"}, False),
-            (QueryScanFindingKind.NO_EVENT_FILTER, {"cause": FindingCause.IN_OR}, True),
-            (QueryScanFindingKind.NO_EVENT_FILTER, {"cause": FindingCause.NEGATED}, False),
-            (QueryScanFindingKind.NO_EVENT_FILTER, {"cause": FindingCause.DYNAMIC}, False),
+            (QueryScanFindingKind.NO_EVENT_FILTER, {"cause": FindingCause.EVENT_FILTER_INSIDE_OR}, True),
+            (QueryScanFindingKind.NO_EVENT_FILTER, {"cause": FindingCause.EVENT_FILTER_ONLY_EXCLUDES}, False),
+            (QueryScanFindingKind.NO_EVENT_FILTER, {"cause": FindingCause.EVENT_COMPARED_TO_COLUMN}, False),
             (QueryScanFindingKind.NO_EVENT_FILTER, {"by_design": True}, False),
             (QueryScanFindingKind.NO_START_DATE, {}, True),
             (QueryScanFindingKind.NO_START_DATE, {"by_design": True}, False),
@@ -262,7 +262,7 @@ class TestAssistantPrompt(SimpleTestCase):
     def test_goal_first_then_the_run_each_finding_and_the_rules(self) -> None:
         finding = build_warning(
             kind=QueryScanFindingKind.NO_EVENT_FILTER,
-            cause=FindingCause.IN_OR,
+            cause=FindingCause.EVENT_FILTER_INSIDE_OR,
             query_kind="HogQLQuery",
             evidence="ClickHouse's index used team_id and kept 5 of 100 granules.",
         )
@@ -307,7 +307,9 @@ class TestAssistantPrompt(SimpleTestCase):
             query_kind="HogQLQuery",
         )
         in_query = build_warning(
-            kind=QueryScanFindingKind.NO_EVENT_FILTER, cause=FindingCause.IN_OR, query_kind="HogQLQuery"
+            kind=QueryScanFindingKind.NO_EVENT_FILTER,
+            cause=FindingCause.EVENT_FILTER_INSIDE_OR,
+            query_kind="HogQLQuery",
         )
 
         self.assertIsNone(assistant_prompt([on_insight], fixable_only=True))
@@ -323,7 +325,9 @@ class TestAssistantPrompt(SimpleTestCase):
     def test_fixable_only_needs_an_actionable_finding_and_keeps_the_by_design_guidance(self) -> None:
         by_design = build_warning(kind=QueryScanFindingKind.NO_START_DATE, by_design=True, query_kind="HogQLQuery")
         actionable = build_warning(
-            kind=QueryScanFindingKind.NO_EVENT_FILTER, cause=FindingCause.WRAPPED, query_kind="HogQLQuery"
+            kind=QueryScanFindingKind.NO_EVENT_FILTER,
+            cause=FindingCause.EVENT_WRAPPED_IN_FUNCTION,
+            query_kind="HogQLQuery",
         )
 
         self.assertIsNone(assistant_prompt([by_design], fixable_only=True))

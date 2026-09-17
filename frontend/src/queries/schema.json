@@ -48026,7 +48026,7 @@
             "type": "string"
         },
         "QueryScanFixLocation": {
-            "description": "Where the change that fixes a finding goes. `query`: the query or insight the finding is on. `subquery`: a subquery of it. `view`: a saved view it reads. `insight_date_range`: the date range a SQL insight takes through `{filters}`. `dashboard_date_filter`: the dashboard's date filter.",
+            "description": "Where the change that fixes a finding goes. `insight_date_range` is the range a SQL insight takes through `{filters}`.",
             "enum": ["query", "subquery", "view", "insight_date_range", "dashboard_date_filter"],
             "type": "string"
         },
@@ -48081,7 +48081,7 @@
                     "type": "boolean"
                 },
                 "cause": {
-                    "description": "A short label for what in the query text kept the read wide, such as `in_or`. Analytics and the assistant read it, and the set of labels can change. Surfaces branch on `actionable`.",
+                    "description": "A label for what in the query text kept the read wide, such as `in_or`. Only analytics and the assistant read it, and the labels can change.",
                     "type": "string"
                 },
                 "evidence": {

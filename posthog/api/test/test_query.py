@@ -1362,7 +1362,11 @@ A_STORED_SCAN = stored_slot(
         range_share=0.8,
         project_share=0.25,
         findings=[
-            build_warning(kind=QueryScanFindingKind.NO_EVENT_FILTER, cause=FindingCause.IN_OR, query_kind="HogQLQuery")
+            build_warning(
+                kind=QueryScanFindingKind.NO_EVENT_FILTER,
+                cause=FindingCause.EVENT_FILTER_INSIDE_OR,
+                query_kind="HogQLQuery",
+            )
         ],
     )
 )

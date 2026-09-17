@@ -191,14 +191,12 @@ def _findings_for_plan(
     elif unbounded is not None and reads_all_history:
         by_design = _all_history_by_design(run, believe_shape=believe_shape)
         open_filters_location = _open_filters_location(run, is_sql=is_sql)
-        # A by-design read has nothing wrong in its text, and an open `{filters}` range is fixed
-        # outside the text, so only a read that is neither can have a bound ClickHouse could not use.
-        names_cause = not by_design and open_filters_location is None
+        fixed_in_the_read = not by_design and open_filters_location is None
         findings.append(
             build_warning(
                 kind=QueryScanFindingKind.NO_START_DATE,
                 query_kind=query_kind,
-                cause=_unbounded_cause(run) if names_cause else None,
+                cause=_unbounded_cause(run) if fixed_in_the_read else None,
                 by_design=by_design,
                 fix_location=open_filters_location,
                 evidence=_evidence(unbounded.min_max(), subquery_index),
@@ -267,7 +265,7 @@ def _unbounded_cause(run: RunFacts) -> FindingCause | None:
     """Why a read the plan could not bound has no start date. None is no bound at all, the plain
     case. A bound the tree has but the plan does not is one ClickHouse could not use."""
     tree = run.tree
-    return FindingCause.BOUND_NOT_USED if tree is not None and tree.timestamp_bound else None
+    return FindingCause.START_DATE_NOT_USED_BY_CLICKHOUSE if tree is not None and tree.timestamp_bound else None
 
 
 def _unfiltered_cause(run: RunFacts, *, is_sql: bool, sibling_uses_event_key: bool) -> FindingCause | None:
@@ -279,9 +277,9 @@ def _unfiltered_cause(run: RunFacts, *, is_sql: bool, sibling_uses_event_key: bo
     tree = run.tree
     # An insight's reads are PostHog's own code, so only a SQL author can add a filter to a helper read.
     if is_sql and sibling_uses_event_key:
-        return FindingCause.HELPER_READ
+        return FindingCause.UNFILTERED_HELPER_READ
     if tree is not None and tree.property_filter and not tree.groups_by_event:
-        return FindingCause.PROPERTY_FILTER
+        return FindingCause.PROPERTY_FILTER_WITHOUT_EVENT
     return None
 
 

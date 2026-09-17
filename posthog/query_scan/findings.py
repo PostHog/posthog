@@ -40,39 +40,29 @@ class FindingCause(StrEnum):
     assistant's prompt carry. Nothing a person sees branches on it: surfaces read `actionable`.
     """
 
-    # The event filter is one branch of an OR, so the index cannot use it.
-    IN_OR = "in_or"
-    # `event` sits inside a function call, which the index cannot see through.
-    WRAPPED = "wrapped"
-    # The filter only excludes events, which narrows almost nothing.
-    NEGATED = "negated"
-    # `event` is compared to a column or a subquery, so there is no fixed name to seek on.
-    DYNAMIC = "dynamic"
-    # The query names events, but ClickHouse reported the filter unused.
-    NOT_PRUNED = "not_pruned"
-    # A property condition narrows the events where an event name would.
-    PROPERTY_FILTER = "property_filter"
-    # One read names events, and a larger read beside it, a subquery or CTE, names none.
-    HELPER_READ = "helper_read"
-    # The query has a start date that ClickHouse could not skip data with.
-    BOUND_NOT_USED = "bound_not_used"
+    EVENT_FILTER_INSIDE_OR = "in_or"
+    EVENT_WRAPPED_IN_FUNCTION = "wrapped"
+    EVENT_FILTER_ONLY_EXCLUDES = "negated"
+    EVENT_COMPARED_TO_COLUMN = "dynamic"
+    EVENT_FILTER_NOT_USED_BY_CLICKHOUSE = "not_pruned"
+    PROPERTY_FILTER_WITHOUT_EVENT = "property_filter"
+    UNFILTERED_HELPER_READ = "helper_read"
+    START_DATE_NOT_USED_BY_CLICKHOUSE = "bound_not_used"
 
 
-# The causes that leave the person a change to make. Every other cause, every by-design finding and
-# every finding inside a saved view gets the wording but no "Fix with AI". None is the plain case: a
-# missing start date and a persons join each have a fix, and a query with no event condition at
-# all depends on the query kind, which `is_actionable` decides.
+# The causes that leave the person something to change. Every other cause, and every finding that is
+# by design or inside a saved view, gets the wording but no "Fix with AI".
 _FIXABLE_CAUSES: dict[QueryScanFindingKind, frozenset[FindingCause | None]] = {
     QueryScanFindingKind.NO_EVENT_FILTER: frozenset(
         {
-            FindingCause.IN_OR,
-            FindingCause.WRAPPED,
-            FindingCause.NOT_PRUNED,
-            FindingCause.PROPERTY_FILTER,
-            FindingCause.HELPER_READ,
+            FindingCause.EVENT_FILTER_INSIDE_OR,
+            FindingCause.EVENT_WRAPPED_IN_FUNCTION,
+            FindingCause.EVENT_FILTER_NOT_USED_BY_CLICKHOUSE,
+            FindingCause.PROPERTY_FILTER_WITHOUT_EVENT,
+            FindingCause.UNFILTERED_HELPER_READ,
         }
     ),
-    QueryScanFindingKind.NO_START_DATE: frozenset({None, FindingCause.BOUND_NOT_USED}),
+    QueryScanFindingKind.NO_START_DATE: frozenset({None, FindingCause.START_DATE_NOT_USED_BY_CLICKHOUSE}),
     QueryScanFindingKind.PERSONS_JOIN: frozenset({None}),
 }
 
@@ -116,7 +106,7 @@ _NO_EVENT_FILTER_INSIGHT = _Copy(
 # A raw SQL query can name events yet leave ClickHouse unable to prune on them. The cause from the
 # tree says which shape blocked it, so the copy names that shape and the specific fix.
 _NO_EVENT_FILTER_SQL_BY_CAUSE: dict[FindingCause, _Copy] = {
-    FindingCause.IN_OR: _Copy(
+    FindingCause.EVENT_FILTER_INSIDE_OR: _Copy(
         lead=(
             "Queries are fastest when they name a fixed set of events. {subject} names events only inside an OR "
             "with another condition, so that filter cannot be used and it still reads a large share of the events "
@@ -132,7 +122,7 @@ _NO_EVENT_FILTER_SQL_BY_CAUSE: dict[FindingCause, _Copy] = {
             "help; propose the time bound only."
         ),
     ),
-    FindingCause.WRAPPED: _Copy(
+    FindingCause.EVENT_WRAPPED_IN_FUNCTION: _Copy(
         lead=(
             "Queries are fastest when they compare `event` directly to fixed names. {subject} wraps `event` in a "
             "function, so that filter cannot be used and it still reads a large share of the events in its date "
@@ -146,7 +136,7 @@ _NO_EVENT_FILTER_SQL_BY_CAUSE: dict[FindingCause, _Copy] = {
             "names could vary over time, say the rewrite may miss older spellings and ask."
         ),
     ),
-    FindingCause.NEGATED: _Copy(
+    FindingCause.EVENT_FILTER_ONLY_EXCLUDES: _Copy(
         lead=(
             "Queries are fastest when they explicitly enumerate the events they want. {subject} only excludes "
             "events, so that filter cannot be used and it still reads most of the events in its date range, "
@@ -161,7 +151,7 @@ _NO_EVENT_FILTER_SQL_BY_CAUSE: dict[FindingCause, _Copy] = {
             "finding."
         ),
     ),
-    FindingCause.DYNAMIC: _Copy(
+    FindingCause.EVENT_COMPARED_TO_COLUMN: _Copy(
         lead=(
             "Queries are fastest when they compare `event` to fixed names. {subject} compares `event` to another "
             "column or a subquery, so that filter cannot be used and it still reads a large share of the events "
@@ -174,7 +164,7 @@ _NO_EVENT_FILTER_SQL_BY_CAUSE: dict[FindingCause, _Copy] = {
             "interval 7 day LIMIT 20` and enumerate; otherwise keep the condition and add the time bound."
         ),
     ),
-    FindingCause.NOT_PRUNED: _Copy(
+    FindingCause.EVENT_FILTER_NOT_USED_BY_CLICKHOUSE: _Copy(
         lead=(
             "Queries are fastest when they compare `event` directly to fixed names. {subject} has an event "
             "filter, but it could not be used, so it still read a large share of the events in its date range, "
@@ -187,7 +177,7 @@ _NO_EVENT_FILTER_SQL_BY_CAUSE: dict[FindingCause, _Copy] = {
             "read."
         ),
     ),
-    FindingCause.PROPERTY_FILTER: _Copy(
+    FindingCause.PROPERTY_FILTER_WITHOUT_EVENT: _Copy(
         lead=(
             "Queries are fastest when they name a fixed set of events. {subject} narrows events by a property "
             "but names no events, so it still reads a large share of the events in its date range, which is slow."
@@ -204,7 +194,7 @@ _NO_EVENT_FILTER_SQL_BY_CAUSE: dict[FindingCause, _Copy] = {
             "most events, say an event filter would change the answer and ask which events matter."
         ),
     ),
-    FindingCause.HELPER_READ: _Copy(
+    FindingCause.UNFILTERED_HELPER_READ: _Copy(
         lead=(
             "Queries are fastest when every read of the events table names a fixed set of events. {subject} "
             "names events in one place but reads all events in another, a subquery or CTE with no event filter, "
@@ -222,7 +212,7 @@ _NO_EVENT_FILTER_SQL_BY_CAUSE: dict[FindingCause, _Copy] = {
 }
 
 _NO_EVENT_FILTER_INSIGHT_BY_CAUSE: dict[FindingCause, _Copy] = {
-    FindingCause.PROPERTY_FILTER: _Copy(
+    FindingCause.PROPERTY_FILTER_WITHOUT_EVENT: _Copy(
         lead=(
             "Insights are fastest when they look at a fixed set of events. {subject} looks at all events and "
             "filters them by a property, so it still reads a large share of the events in its date range, which "
@@ -285,9 +275,7 @@ _NO_START_DATE_SQL = _Copy(
     ),
 )
 
-# The range a SQL insight takes through `{filters}` has no start date when nobody set one and when
-# it is All time, so one wording covers both.
-_OPEN_DATE_RANGE_SQL = _Copy(
+_DATE_RANGE_WITHOUT_START_SQL = _Copy(
     lead=(
         "Queries are fastest when they start from a recent date. The date range on this insight or dashboard "
         "has no start date, so {subject_lower} reads all your data back to the beginning, which is slow."
@@ -422,8 +410,8 @@ def _copy_for(
         if not is_sql:
             return _NO_START_DATE_INSIGHT
         if fix_location == QueryScanFixLocation.INSIGHT_DATE_RANGE:
-            return _OPEN_DATE_RANGE_SQL
-        return _BOUND_NOT_USED_SQL if cause == FindingCause.BOUND_NOT_USED else _NO_START_DATE_SQL
+            return _DATE_RANGE_WITHOUT_START_SQL
+        return _BOUND_NOT_USED_SQL if cause == FindingCause.START_DATE_NOT_USED_BY_CLICKHOUSE else _NO_START_DATE_SQL
     if kind == QueryScanFindingKind.PERSONS_JOIN:
         return _PERSONS_JOIN
     raise ValueError(f"No copy for finding kind {kind}")
