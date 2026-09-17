@@ -22,6 +22,7 @@ class FeatureRequestPriority(models.TextChoices):
 
 class FeatureRequestHistorySource(models.TextChoices):
     MANUAL = "manual", "Manual"
+    GITHUB = "github", "GitHub"
 
 
 class FeatureRequestProductArea(TeamScopedRootMixin, UUIDModel):
@@ -78,6 +79,30 @@ class FeatureRequest(TeamScopedRootMixin, UUIDModel):
             ),
         ]
         ordering = ["-updated_at", "-created_at", "-id"]
+
+
+class FeatureRequestGitHubLink(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    feature_request = models.OneToOneField(FeatureRequest, on_delete=models.CASCADE, related_name="github_link")
+    integration = models.ForeignKey(
+        "posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
+    installation_id = models.CharField(max_length=255)
+    repository = models.CharField(max_length=255)
+    issue_number = models.PositiveIntegerField()
+    issue_title = models.TextField(blank=True, default="")
+    issue_state = models.CharField(max_length=16, default="open")
+    issue_state_reason = models.CharField(max_length=32, blank=True, default="")
+    github_updated_at = models.DateTimeField(null=True, blank=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    sync_enabled = models.BooleanField(default=True)
+    sync_enabled_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
+    status_before_github_close = models.CharField(max_length=32, null=True, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["installation_id", "repository", "issue_number"])]
 
 
 class FeatureRequestHistory(TeamScopedRootMixin, UUIDModel):

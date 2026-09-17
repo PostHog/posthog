@@ -15293,3 +15293,24 @@ class TestFeatureFlagReplayLinkFollowsRename(APIBaseTest):
         sibling_team.refresh_from_db()
         assert sibling_team.session_recording_linked_flag == {"id": flag.id, "key": "replay-gate-v2"}
         assert sibling_team.session_recording_trigger_groups["groups"][0]["conditions"]["flag"] == "replay-gate-v2"
+
+
+class TestFeatureFlagServerOwnedTimestamps(APIBaseTest):
+    """`created_at` and `last_called_at` back staleness detection, so only the server writes them.
+    The flag editor echoes the whole loaded flag back on save, which would otherwise let a client
+    overwrite its own usage telemetry."""
+
+    @parameterized.expand(["created_at", "last_called_at"])
+    def test_timestamp_is_ignored_on_update(self, field: str):
+        original = now() - timedelta(days=30)
+        flag = FeatureFlag.objects.create(team=self.team, key="server-owned", created_by=self.user, **{field: original})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"name": "renamed", field: (now() - timedelta(days=1)).isoformat()},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        flag.refresh_from_db()
+        assert getattr(flag, field) == original

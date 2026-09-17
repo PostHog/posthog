@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1367_widen_activitylog_client"),
+        ("posthog", "1368_sessionrecording_untrack_lts_fields"),
     ]
 
     operations = [
