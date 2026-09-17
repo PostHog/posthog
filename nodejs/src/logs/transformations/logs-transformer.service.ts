@@ -289,17 +289,16 @@ export class LogsTransformerService {
             addVmMs: (ms: number) => void
         }
     ): boolean {
-        // Built once per record, not per function: decoding every attribute map costs
-        // ~10-35µs and the maps change only when a function transforms the record, so
-        // the globals are refreshed from the record between functions instead of rebuilt.
+        // Built once per record, not per function: the decoded maps change only when a
+        // function transforms the record, so globals are refreshed from the record
+        // between functions instead of rebuilt.
         const globals: LogTransformationGlobals = {
             project,
             record: buildLogRecordGlobalsRecord(record),
             inputs: {},
         }
-        // The globals are refreshed only after a function actually wrote to the record
-        // (a mutation or a failure annotation): at 100k+ records/s the decode maps are
-        // the hottest per-record cost and most functions leave most records untouched.
+        // Refreshed only after a function actually wrote to the record (a mutation or a
+        // failure annotation): most functions leave most records untouched.
         let recordDirty = false
         for (const fn of functions) {
             const agg = this.getAggregates(ctx.aggregates, fn.id)
@@ -385,7 +384,6 @@ export class LogsTransformerService {
 
             agg.succeeded++
             transformationRecordsCounter.inc({ result: 'succeeded' })
-            // 'mutated' means applyTransformResult wrote into the record.
             recordDirty = true
         }
 

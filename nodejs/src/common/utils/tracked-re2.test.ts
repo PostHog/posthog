@@ -1,5 +1,3 @@
-import RE2 from 're2'
-
 import { createTrackedRE2 } from './tracked-re2'
 
 describe('createTrackedRE2', () => {

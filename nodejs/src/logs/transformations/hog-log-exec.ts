@@ -85,10 +85,7 @@ export function buildLogRecordGlobalsRecord(record: LogRecord): LogTransformatio
  * (possibly transformed) record. Lets the per-function loop reuse one globals build
  * per record instead of re-decoding every attribute map per function.
  */
-export function refreshLogRecordGlobalsRecord(
-    target: LogTransformationGlobals['record'],
-    record: LogRecord
-): void {
+export function refreshLogRecordGlobalsRecord(target: LogTransformationGlobals['record'], record: LogRecord): void {
     target.body = record.body ?? null
     target.attributes = decodeAttributeMap(record.attributes)
     target.resource_attributes = decodeAttributeMap(record.resource_attributes)
@@ -120,7 +117,7 @@ function decodeAttributeMap(map: Record<string, string> | null | undefined): Rec
 function encodeAttributeMap(
     map: Record<string, string>,
     original: Record<string, string> | null | undefined,
-    // The same map already decoded by the globals build: comparing against it decides
+    // The map already decoded by the globals build: comparing against it decides
     // "untouched" without decoding every original wire value a second time.
     originalDecoded?: Record<string, string>
 ): Record<string, string> {
@@ -324,15 +321,17 @@ export function applyTransformResult(
     }
     if (attributes !== undefined) {
         record.attributes =
-            attributes === null
-                ? null
-                : encodeAttributeMap(attributes, record.attributes, decodedOriginals?.attributes)
+            attributes === null ? null : encodeAttributeMap(attributes, record.attributes, decodedOriginals?.attributes)
     }
     if (resourceAttributes !== undefined) {
         record.resource_attributes =
             resourceAttributes === null
                 ? null
-                : encodeAttributeMap(resourceAttributes, record.resource_attributes, decodedOriginals?.resource_attributes)
+                : encodeAttributeMap(
+                      resourceAttributes,
+                      record.resource_attributes,
+                      decodedOriginals?.resource_attributes
+                  )
     }
 
     return 'mutated'
@@ -434,9 +433,6 @@ export function executeLogTransformation(
     // can copy a decrypted input into a writable field, and Logs readers must not be
     // able to recover encrypted input values that way.
     const converted = redactSensitiveStrings(convertHogToJS(execResult.result), options.sensitiveValues)
-    // The globals' decoded maps double as the "untouched" reference for re-encoding:
-    // values the transformation left alone keep their exact original wire encoding
-    // without a second JSON decode per attribute.
     const applied = applyTransformResult(record, converted, {
         attributes: globals.record.attributes,
         resource_attributes: globals.record.resource_attributes,

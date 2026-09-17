@@ -1,25 +1,33 @@
 import { performance } from 'perf_hooks'
 
 import { compileHog } from '~/cdp/templates/compiler'
+import { parseJSON } from '~/common/utils/json-parse'
 
 import { encodeLogAttributeValue } from '../../attribute-value'
 import type { LogRecord } from '../../log-record-avro'
 import { buildLogRecordGlobals, executeLogTransformation } from '../hog-log-exec'
+import { computeBenchStats, printBenchStatsTable } from './bench-stats'
 import { BENCH_LOG_RECORDS, BENCH_PROGRAMS } from './fixtures'
 
 // Micro-benchmark of the PRODUCTION per-record transformation path, unlike
-// hogvm-log-bench.ts which times raw HogVM execution only. For each record this
-// times what LogsTransformerService.transformSingleRecord does per function:
-//   buildLogRecordGlobals (decode attribute maps, hex-encode ids) + executeLogTransformation
-//   (VM run + convertHogToJS + applyTransformResult re-encode).
+// hogvm-log-bench.ts which times raw HogVM execution only. The measured interval
+// covers everything transformSingleRecord does per record per function:
+// buildLogRecordGlobals (decode attribute maps, hex-encode ids) +
+// executeLogTransformation (VM run + convertHogToJS + applyTransformResult re-encode).
 // The gap between this number and hogvm-log-bench's is TS-side per-record overhead.
 //
 // Run with:
 //   cd nodejs && pnpm exec tsx src/logs/transformations/benchmarks/transformer-log-bench.ts
+//
+// Pass/fail gate: exits 1 when the overall mean exceeds
+// REGRESSION_CEILING_US_PER_RECORD — ~10x the expected mean, generous enough to
+// never flake on a loaded machine, tight enough to catch an order-of-magnitude
+// regression in the per-record path.
 
 const WARMUP_ITERATIONS = 500
 const ITERATIONS = 5_000
 const TIMEOUT_MS = 10
+const REGRESSION_CEILING_US_PER_RECORD = 500
 
 // Wire-form encoding like the consumer's Avro decode produces: attribute values are
 // JSON-encoded strings.
@@ -37,21 +45,6 @@ function toWireRecord(record: LogRecord): LogRecord {
     }
 }
 
-interface BenchStats {
-    programId: string
-    recordId: string
-    meanUs: number
-    p50Us: number
-    p95Us: number
-    p99Us: number
-    maxUs: number
-}
-
-function percentile(sorted: number[], p: number): number {
-    const idx = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))
-    return sorted[idx]
-}
-
 async function main(): Promise<void> {
     console.info(`Compiling ${BENCH_PROGRAMS.length} Hog programs via bin/hog...`)
     const compiled = await Promise.all(
@@ -59,21 +52,19 @@ async function main(): Promise<void> {
     )
 
     const project = { id: 1, name: 'bench', url: 'http://localhost:8010/project/1' }
-    const allStats: BenchStats[] = []
-    let overallMeanUs = 0
-    let statCount = 0
+    const allStats = []
 
     for (const { program, bytecode } of compiled) {
         for (const { id: recordId, record } of BENCH_LOG_RECORDS) {
             const wireRecord = toWireRecord(record)
 
-            // One full production-path run per iteration: fresh wire record each time
-            // because execution mutates it in place (scrubbed bodies would skip regex
-            // work on later iterations).
+            // Fresh wire-record clone per iteration, kept outside the timer: execution
+            // mutates the record in place, and reusing a scrubbed record would let later
+            // iterations skip the regex-replace work.
             const runOnce = (): { durationUs: number; status: string } => {
-                const rec: LogRecord = JSON.parse(JSON.stringify(wireRecord))
-                const globals = buildLogRecordGlobals(rec, project, { ...program.inputs })
+                const rec: LogRecord = parseJSON(JSON.stringify(wireRecord))
                 const start = performance.now()
+                const globals = buildLogRecordGlobals(rec, project, { ...program.inputs })
                 const outcome = executeLogTransformation(bytecode, rec, globals, { timeoutMs: TIMEOUT_MS })
                 const durationUs = (performance.now() - start) * 1000
                 return { durationUs, status: outcome.status }
@@ -95,41 +86,20 @@ async function main(): Promise<void> {
                 durationsUs.push(durationUs)
             }
 
-            durationsUs.sort((a, b) => a - b)
-            const meanUs = durationsUs.reduce((a, b) => a + b, 0) / durationsUs.length
-            allStats.push({
-                programId: program.id,
-                recordId,
-                meanUs,
-                p50Us: percentile(durationsUs, 50),
-                p95Us: percentile(durationsUs, 95),
-                p99Us: percentile(durationsUs, 99),
-                maxUs: durationsUs[durationsUs.length - 1],
-            })
-            overallMeanUs += meanUs
-            statCount++
+            allStats.push(computeBenchStats(program.id, recordId, durationsUs))
         }
     }
-    overallMeanUs /= statCount
 
-    console.info(`\nProduction-path per-record cost (${ITERATIONS} iterations each, µs):\n`)
-    const header = ['program', 'record', 'mean', 'p50', 'p95', 'p99', 'max']
-    const rows = allStats.map((s) => [
-        s.programId,
-        s.recordId,
-        s.meanUs.toFixed(1),
-        s.p50Us.toFixed(1),
-        s.p95Us.toFixed(1),
-        s.p99Us.toFixed(1),
-        s.maxUs.toFixed(1),
-    ])
-    const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i].length)))
-    console.info(header.map((h, i) => h.padEnd(widths[i])).join('  '))
-    for (const row of rows) {
-        console.info(row.map((c, i) => c.padEnd(widths[i])).join('  '))
-    }
+    printBenchStatsTable('Production-path per-record cost', ITERATIONS, allStats)
 
+    const overallMeanUs = allStats.reduce((a, s) => a + s.meanUs, 0) / allStats.length
     console.info(`\nMETRIC overall_mean_us_per_record: ${overallMeanUs.toFixed(1)}`)
+    if (overallMeanUs > REGRESSION_CEILING_US_PER_RECORD) {
+        console.error(
+            `FAIL: overall mean ${overallMeanUs.toFixed(1)}µs/record exceeds regression ceiling of ${REGRESSION_CEILING_US_PER_RECORD}µs/record`
+        )
+        process.exit(1)
+    }
 }
 
 main().catch((error) => {
