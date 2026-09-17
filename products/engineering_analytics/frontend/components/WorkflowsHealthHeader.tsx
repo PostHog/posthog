@@ -10,7 +10,7 @@ import { formatCost } from './runTables'
 
 interface WorkflowsHealthHeaderProps {
     summary: FleetSummary
-    /** Workflow list was capped server-side — totals cover the top N by run count, not the whole fleet. */
+    /** Workflow list was capped server-side, so totals cover the top N by run count, not the whole fleet. */
     truncated?: boolean
     /** Reloading on a window/branch change: show a skeleton so the old numbers don't read as current. */
     loading?: boolean
@@ -104,7 +104,20 @@ export function WorkflowsHealthHeader({
                         </Tooltip>
                     }
                 />
-                <HealthKpi label="Total runs" value={summary.totalRuns.toLocaleString()} />
+                <HealthKpi
+                    label="Total runs"
+                    value={
+                        <Tooltip
+                            title={
+                                truncated
+                                    ? `Covers the top ${summary.workflowCount} workflows by run count. Workflows with fewer runs are left out.`
+                                    : undefined
+                            }
+                        >
+                            <span>{summary.totalRuns.toLocaleString()}</span>
+                        </Tooltip>
+                    }
+                />
                 {hasCost && <HealthKpi label="CI cost" value={`≈ ${formatCost(summary.estimatedCostUsd)}`} />}
             </div>
         </LemonCard>

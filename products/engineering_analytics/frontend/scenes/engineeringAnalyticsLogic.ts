@@ -130,8 +130,6 @@ export interface WorkflowHealthRow {
     estimatedCostUsd?: number | null
     /** Runs in the window that were a 2nd+ attempt. */
     rerunCycles?: number
-    /** Success rate over the previous equal-length window. */
-    successRatePrev?: number | null
     /** Runs on merge-queue gate branches, counted regardless of the active scope. Above zero marks a
      *  workflow the queue runs before a merge lands, so the list can rank it first. */
     mergeQueueRunCount: number
@@ -774,7 +772,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                 billableMinutes: it.billable_minutes ?? null,
                                 estimatedCostUsd: it.estimated_cost_usd ?? null,
                                 rerunCycles: it.rerun_cycles ?? 0,
-                                successRatePrev: it.success_rate_prev ?? null,
                                 mergeQueueRunCount: it.merge_queue_run_count ?? 0,
                             })
                         )
