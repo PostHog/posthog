@@ -622,6 +622,19 @@ def delete_all_temp_destination_tables(
             # non-actionable condition that would otherwise fire on every sync for an affected source.
             if logger:
                 logger.warning(f"Skipping temp table cleanup for dataset {dataset_id}: {e}")
+        except BadRequest as e:
+            if "Invalid resource name" in str(e):
+                # A dataset/project ID containing characters BigQuery's resource-name validation
+                # rejects (e.g. a Dataset ID field mistakenly set to "project.dataset") makes
+                # `bq.dataset(...)` build an invalid path for this REST call, distinct from the
+                # "Invalid project ID"/"Invalid dataset ID" wording query jobs raise for the same
+                # misconfiguration (see `BigQuerySource.get_non_retryable_errors`). It's
+                # deterministic and already surfaces non-retryably elsewhere in the sync, so log
+                # quietly here too rather than capturing noise on every run for an affected source.
+                if logger:
+                    logger.warning(f"Skipping temp table cleanup for dataset {dataset_id}: {e}")
+            else:
+                capture_exception(e)
         except Exception as e:
             capture_exception(e)
 
@@ -709,6 +722,7 @@ def validate_bigquery_credentials(
             "Invalid project ID" in message
             or "Invalid dataset ID" in message
             or "ProjectId must be non-empty" in message
+            or "Invalid resource name" in message
         ):
             return False, BIGQUERY_INVALID_IDENTIFIER_ERROR
         if "was not found in location" in message or "Not found: Dataset" in message:
