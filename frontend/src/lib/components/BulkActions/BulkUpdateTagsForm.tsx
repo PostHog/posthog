@@ -72,7 +72,7 @@ export function BulkUpdateTagsForm({
                 action: tagAction,
                 tags_count: selectedTags.length,
                 requested_count: selectedIds.length,
-                updated_count: updated.length,
+                processed_count: updated.length,
                 skipped_count: skipped.length,
             })
             if (skipped.length === 0) {
