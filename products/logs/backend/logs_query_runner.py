@@ -917,3 +917,9 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
             # reports as a complete one.
             timeout_overflow_mode="throw",
         )
+
+    def single_flight_variant(self) -> str:
+        # The per-slice cap does not reach the cache key, so two runs of one slice that differ only
+        # by their cap must not pair: the leader's timeout would travel to a follower that still had
+        # time to finish, and a long leader would hold a short follower past its own budget.
+        return f"{super().single_flight_variant()}:max_execution_time={self.max_execution_time}"

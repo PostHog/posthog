@@ -608,6 +608,14 @@ class TestLogsQueryExecutionBudget(APIBaseTest):
     def test_a_slice_that_runs_out_of_budget_throws_instead_of_returning_a_partial_result(self):
         self.assertEqual(self._runner().settings.timeout_overflow_mode, "throw")
 
+    def test_slices_that_differ_only_by_their_budget_do_not_pair(self):
+        full_budget = self._runner()
+        short_budget = self._runner()
+        short_budget.set_execution_time_budget(4)
+
+        self.assertEqual(full_budget.get_cache_key(), short_budget.get_cache_key())
+        self.assertNotEqual(full_budget.single_flight_variant(), short_budget.single_flight_variant())
+
 
 class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
