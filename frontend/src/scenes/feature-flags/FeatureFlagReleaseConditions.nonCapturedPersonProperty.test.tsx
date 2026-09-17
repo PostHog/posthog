@@ -27,6 +27,13 @@ function buildFilters(): FeatureFlagType['filters'] {
     return { groups: [group], multivariate: null, payloads: {} }
 }
 
+// jsdom applies none of the Tailwind classes, so a plain text query also matches the copy of the
+// row that sits in an inactive, `hidden` tab. The picker opens on the aggregated "All" tab, which
+// is the only tab the person can see, so every assertion here has to skip the hidden copies.
+function visibleOfferRow(): HTMLElement | undefined {
+    return screen.queryAllByText('Select property:').find((row) => row.closest('.hidden') === null)
+}
+
 // Survey audience filters run on these conditions, and a survey targeting rule names a person
 // property nobody has been given yet, so the picker has to offer the typed name.
 describe('feature flag release conditions and unseen person properties', () => {
@@ -55,16 +62,13 @@ describe('feature flag release conditions and unseen person properties', () => {
         cleanup()
     })
 
-    it.each([
-        ['offers the typed name when allowNonCapturedPersonProperties is set', true, true],
-        ['leaves the picker unchanged without it', false, false],
-    ])('%s', async (_name, allowed, expected) => {
+    async function openPickerAndSearch(allowed: boolean, onChange = jest.fn()): Promise<jest.Mock> {
         render(
             <Provider>
                 <FeatureFlagReleaseConditions
                     id="1234"
                     filters={buildFilters()}
-                    onChange={jest.fn()}
+                    onChange={onChange}
                     allowNonCapturedPersonProperties={allowed}
                 />
             </Provider>
@@ -76,9 +80,39 @@ describe('feature flag release conditions and unseen person properties', () => {
         fireEvent.change(screen.getByTestId('taxonomic-filter-searchfield'), {
             target: { value: UNSEEN_PROPERTY },
         })
+        return onChange
+    }
+
+    it.each([
+        ['offers the typed name when allowNonCapturedPersonProperties is set', true, true],
+        ['leaves the picker unchanged without it', false, false],
+    ])('%s', async (_name, allowed, expected) => {
+        await openPickerAndSearch(allowed)
 
         await waitFor(() => {
-            expect(screen.queryByText('Select property:') !== null).toBe(expected)
+            expect(visibleOfferRow() !== undefined).toBe(expected)
+        })
+    })
+
+    it('commits a person property filter from the tab the picker opens on', async () => {
+        const onChange = await openPickerAndSearch(true)
+
+        await waitFor(() => {
+            expect(visibleOfferRow()).not.toBeUndefined()
+        })
+        fireEvent.click(visibleOfferRow()!.closest('[data-attr="prop-filter-event-option-custom"]')!)
+
+        await waitFor(() => {
+            expect(onChange).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    groups: [
+                        expect.objectContaining({
+                            properties: [expect.objectContaining({ key: UNSEEN_PROPERTY, type: 'person' })],
+                        }),
+                    ],
+                }),
+                expect.anything()
+            )
         })
     })
 })

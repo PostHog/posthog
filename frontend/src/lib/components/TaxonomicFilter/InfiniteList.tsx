@@ -383,6 +383,7 @@ interface InfiniteListRowProps {
     isExpandable: boolean
     isLoading: boolean
     showNonCapturedEventOption: boolean
+    nonCapturedOptionGroupType: TaxonomicFilterGroupType | null
     trimmedSearchQuery: string
     dataWarehousePopoverFields: DataWarehousePopoverField[] | undefined
     popupAnchorElement: HTMLDivElement | null
@@ -450,6 +451,7 @@ export const InfiniteListRow = ({
     isExpandable,
     isLoading,
     showNonCapturedEventOption,
+    nonCapturedOptionGroupType,
     trimmedSearchQuery,
     dataWarehousePopoverFields,
     popupAnchorElement,
@@ -473,6 +475,53 @@ export const InfiniteListRow = ({
                 <span className="text-secondary text-center text-xs">Start searching and we'll suggest filters...</span>
                 <SuggestedFiltersSearchHint taxonomicGroupTypes={taxonomicGroupTypes} />
             </div>
+        )
+    }
+
+    if (showNonCapturedEventOption && rowIndex === 0) {
+        // Not `itemGroup`: on the aggregated tab the row is borrowed from a sibling group, and
+        // that group is what the name has to be committed against.
+        const offerGroup = taxonomicGroups.find((g) => g.type === nonCapturedOptionGroupType)
+        const isPersonProperty = nonCapturedOptionGroupType === TaxonomicFilterGroupType.PersonProperties
+        const selectNonCapturedEvent = (): void => {
+            if (!offerGroup) {
+                return
+            }
+            selectItem(
+                offerGroup,
+                trimmedSearchQuery,
+                { name: trimmedSearchQuery, isNonCaptured: true },
+                { position: rowIndex }
+            )
+        }
+
+        return (
+            <LemonRow
+                fullWidth
+                style={style}
+                className={clsx(
+                    'taxonomic-list-row',
+                    'border border-dashed border-secondary rounded min-h-9 justify-center'
+                )}
+                outlined={false}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                        selectNonCapturedEvent()
+                    }
+                }}
+                onClick={selectNonCapturedEvent}
+                onMouseEnter={() => mouseInteractionsEnabled && setIndex(rowIndex)}
+                icon={<IconPlus className="text-muted size-4" />}
+                data-attr="prop-filter-event-option-custom"
+            >
+                <div className="flex items-center gap-2">
+                    <span className="text-muted">{isPersonProperty ? 'Select property:' : 'Select event:'}</span>
+                    <span className="font-medium">{trimmedSearchQuery}</span>
+                    <LemonTag type="caution" size="small">
+                        Not seen yet
+                    </LemonTag>
+                </div>
+            </LemonRow>
         )
     }
 
@@ -509,50 +558,6 @@ export const InfiniteListRow = ({
     const isHighlighted = rowIndex === highlightedIndex && isActiveTab
 
     const isActive = itemValue ? !!selectedProperties[listGroupType]?.includes(itemValue) : false
-
-    if (showNonCapturedEventOption && rowIndex === 0) {
-        const isPersonProperty = listGroupType === TaxonomicFilterGroupType.PersonProperties
-        const selectNonCapturedEvent = (): void => {
-            if (!itemGroup) {
-                return
-            }
-            selectItem(
-                itemGroup,
-                trimmedSearchQuery,
-                { name: trimmedSearchQuery, isNonCaptured: true },
-                { position: rowIndex }
-            )
-        }
-
-        return (
-            <LemonRow
-                fullWidth
-                style={style}
-                className={clsx(
-                    'taxonomic-list-row',
-                    'border border-dashed border-secondary rounded min-h-9 justify-center'
-                )}
-                outlined={false}
-                onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                        selectNonCapturedEvent()
-                    }
-                }}
-                onClick={selectNonCapturedEvent}
-                onMouseEnter={() => mouseInteractionsEnabled && setIndex(rowIndex)}
-                icon={<IconPlus className="text-muted size-4" />}
-                data-attr="prop-filter-event-option-custom"
-            >
-                <div className="flex items-center gap-2">
-                    <span className="text-muted">{isPersonProperty ? 'Select property:' : 'Select event:'}</span>
-                    <span className="font-medium">{trimmedSearchQuery}</span>
-                    <LemonTag type="caution" size="small">
-                        Not seen yet
-                    </LemonTag>
-                </div>
-            </LemonRow>
-        )
-    }
 
     const isPinnedToAnotherRow = pinnedRowIndex !== null && pinnedRowIndex !== rowIndex
     const isCurrentRowPinned = pinnedRowIndex === rowIndex
@@ -897,6 +902,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         expandedCount,
         showPopover,
         showNonCapturedEventOption,
+        nonCapturedOptionGroupType,
         showEmptyState,
         showErrorState,
         showLoadingState,
@@ -969,6 +975,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                                     isExpandable,
                                     isLoading,
                                     showNonCapturedEventOption,
+                                    nonCapturedOptionGroupType,
                                     trimmedSearchQuery,
                                     dataWarehousePopoverFields,
                                     popupAnchorElement,

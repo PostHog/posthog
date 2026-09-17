@@ -317,6 +317,7 @@ export interface infiniteListLogicValues {
     localItems: ListStorage
     minSearchQueryLength: any
     needsMoreSearchCharacters: boolean
+    nonCapturedOptionGroupType: TaxonomicFilterGroupType | null
     pinnedRowIndex: number | null
     propertyAllowList: string[] | undefined
     rawLocalItems: (CohortType | EventDefinition)[]
@@ -615,20 +616,26 @@ export interface infiniteListLogicMeta {
             searchQuery: string,
             remoteFetchFailed: string | null
         ) => boolean
-        showNonCapturedEventOption: (
-            allowNonCapturedEvents: boolean,
-            allowNonCapturedPersonProperties: boolean,
-            listGroupType: TaxonomicFilterGroupType,
-            searchQuery: string,
-            isLoading: boolean,
-            results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
-            excludedProperties: string[] | undefined
-        ) => boolean
         suggestedFiltersSettling: (
             isSuggestedFilters: boolean,
             anyGroupLoading: boolean,
             anyGroupStale: boolean,
             searchQuery: string
+        ) => boolean
+        nonCapturedOptionGroupType: (
+            allowNonCapturedEvents: boolean,
+            allowNonCapturedPersonProperties: boolean,
+            listGroupType: TaxonomicFilterGroupType,
+            isSuggestedFilters: boolean,
+            taxonomicGroupTypes: TaxonomicFilterGroupType[]
+        ) => TaxonomicFilterGroupType | null
+        showNonCapturedEventOption: (
+            nonCapturedOptionGroupType: TaxonomicFilterGroupType | null,
+            taxonomicGroups: TaxonomicFilterGroup[],
+            searchQuery: string,
+            isLoading: boolean,
+            suggestedFiltersSettling: boolean,
+            results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[]
         ) => boolean
         showErrorState: (
             remoteFetchFailed: string | null,
@@ -1322,54 +1329,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return isLocalOnly || currentQueryFailed || currentQuerySettled
             },
         ],
-        showNonCapturedEventOption: [
-            (s) => [
-                s.allowNonCapturedEvents,
-                s.allowNonCapturedPersonProperties,
-                s.listGroupType,
-                s.searchQuery,
-                s.isLoading,
-                s.results,
-                s.excludedProperties,
-            ],
-            (
-                allowNonCapturedEvents: boolean,
-                allowNonCapturedPersonProperties: boolean,
-                listGroupType: TaxonomicFilterGroupType,
-                searchQuery: string,
-                isLoading: boolean,
-                results: TaxonomicDefinitionTypes[],
-                excludedProperties: string[] | undefined
-            ): boolean => {
-                if (
-                    !groupAllowsNonCapturedOption(listGroupType, {
-                        allowNonCapturedEvents,
-                        allowNonCapturedPersonProperties,
-                    })
-                ) {
-                    return false
-                }
-                const trimmedSearch = searchQuery.trim()
-                if (trimmedSearch.length === 0 || isLoading) {
-                    return false
-                }
-                // Offering an excluded name would let it be selected as a non-captured event,
-                // committing the value the exclusion forbids. A hidden event is excluded by its
-                // label and case variants too, so match it the same way the empty state does —
-                // otherwise a label search offers a "not seen yet" row for a name no event carries
-                // and suppresses the explanation of the event's absence.
-                if (
-                    excludedProperties?.includes(trimmedSearch) ||
-                    hiddenEventMatchingSearch(searchQuery, excludedProperties)
-                ) {
-                    return false
-                }
-                // Keyword-shortcut QuickFilterItems don't represent captured events — ignore them
-                // when deciding whether to show the "not seen yet" escape hatch.
-                const realResults = results.filter((item) => !isQuickFilterItem(item))
-                return realResults.length === 0
-            },
-        ],
         // True while the aggregated SuggestedFilters ("All") tab is still catching up to the current
         // query. That tab runs no fetch of its own, so it can only tell it has settled by watching its
         // sibling groups: they're either still loading (`anyGroupLoading`) or haven't caught up to the
@@ -1384,6 +1343,87 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 anyGroupStale: boolean,
                 searchQuery: string
             ): boolean => isSuggestedFilters && (anyGroupLoading || anyGroupStale) && searchQuery.trim().length > 0,
+        ],
+        // The group a "not seen yet" row commits against, or null when this list offers none.
+        // Usually the list's own group. The aggregated SuggestedFilters list owns no group, so it
+        // borrows the first opted-in one: every property filter opens on that tab, and the sibling
+        // list that owns the row is hidden there.
+        nonCapturedOptionGroupType: [
+            (s) => [
+                s.allowNonCapturedEvents,
+                s.allowNonCapturedPersonProperties,
+                s.listGroupType,
+                s.isSuggestedFilters,
+                s.taxonomicGroupTypes,
+            ],
+            (
+                allowNonCapturedEvents: boolean,
+                allowNonCapturedPersonProperties: boolean,
+                listGroupType: TaxonomicFilterGroupType,
+                isSuggestedFilters: boolean,
+                taxonomicGroupTypes: TaxonomicFilterGroupType[]
+            ): TaxonomicFilterGroupType | null => {
+                const options = { allowNonCapturedEvents, allowNonCapturedPersonProperties }
+                if (groupAllowsNonCapturedOption(listGroupType, options)) {
+                    return listGroupType
+                }
+                if (isSuggestedFilters) {
+                    return (
+                        taxonomicGroupTypes.find((groupType) => groupAllowsNonCapturedOption(groupType, options)) ??
+                        null
+                    )
+                }
+                return null
+            },
+        ],
+        showNonCapturedEventOption: [
+            (s) => [
+                s.nonCapturedOptionGroupType,
+                s.taxonomicGroups,
+                s.searchQuery,
+                s.isLoading,
+                s.suggestedFiltersSettling,
+                s.results,
+            ],
+            (
+                nonCapturedOptionGroupType: TaxonomicFilterGroupType | null,
+                taxonomicGroups: TaxonomicFilterGroup[],
+                searchQuery: string,
+                isLoading: boolean,
+                suggestedFiltersSettling: boolean,
+                results: TaxonomicDefinitionTypes[]
+            ): boolean => {
+                if (!nonCapturedOptionGroupType) {
+                    return false
+                }
+                const trimmedSearch = searchQuery.trim()
+                // The aggregated tab runs no fetch, so its own `isLoading` never covers the
+                // siblings it reads — `suggestedFiltersSettling` is what tells it they landed.
+                if (trimmedSearch.length === 0 || isLoading || suggestedFiltersSettling) {
+                    return false
+                }
+                // Read the exclusions off the group the row commits against: on the aggregated tab
+                // this list carries none of its own.
+                const excludedProperties = taxonomicGroups.find(
+                    (group) => group.type === nonCapturedOptionGroupType
+                )?.excludedProperties
+                // Offering an excluded name would let it be selected as a non-captured event,
+                // committing the value the exclusion forbids. A hidden event is excluded by its
+                // label and case variants too, so match it the same way the empty state does —
+                // otherwise a label search offers a "not seen yet" row for a name no event carries
+                // and suppresses the explanation of the event's absence.
+                if (
+                    excludedProperties?.includes(trimmedSearch) ||
+                    hiddenEventMatchingSearch(searchQuery, excludedProperties)
+                ) {
+                    return false
+                }
+                // Keyword-shortcut QuickFilterItems don't represent captured events, and the
+                // aggregated tab keeps a skeleton per group it reads — ignore both when deciding
+                // whether to show the "not seen yet" escape hatch.
+                const realResults = results.filter((item) => !isQuickFilterItem(item) && !isSkeletonItem(item))
+                return realResults.length === 0
+            },
         ],
         // A fetch that failed for the *current* query with nothing usable to fall back on. Kept
         // separate from `showEmptyState` so a timeout or a 5xx doesn't read as "this project has
@@ -2257,7 +2297,19 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             actions.setIndex((index + 1) % totalListCount)
         },
         selectSelected: () => {
-            if (values.isExpandableButtonSelected) {
+            if (values.showNonCapturedEventOption && values.index === 0) {
+                // The "not seen yet" row is synthetic, so it has no entry in `results` for the
+                // shared path below to resolve a group and a value from.
+                const offerGroup = values.taxonomicGroups.find((g) => g.type === values.nonCapturedOptionGroupType)
+                if (offerGroup) {
+                    actions.selectItem(
+                        offerGroup,
+                        values.trimmedSearchQuery,
+                        { name: values.trimmedSearchQuery, isNonCaptured: true },
+                        { position: 0 }
+                    )
+                }
+            } else if (values.isExpandableButtonSelected) {
                 actions.expand()
             } else {
                 const selectedItem = values.selectedItem
