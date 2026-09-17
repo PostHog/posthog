@@ -78,6 +78,7 @@ import type { QuerySchema } from '../../queries/schema/schema-general'
 import type { TeamPublicType, TeamType } from '../../types'
 import { insightDataLogic } from './insightDataLogic'
 import type { insightDataLogicType } from './insightDataLogic'
+import { normalizeUrlQuery } from './normalizeUrlQuery'
 import { getInsightIconTypeFromQuery, parseDraftQueryFromURL } from './utils'
 
 const NEW_INSIGHT = 'new' as const
@@ -908,7 +909,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             let queryFromUrl: Node | null = null
             let validatingQuery = false
             if (q) {
-                const validQuery = typeof q === 'string' ? parseDraftQueryFromURL(q) : q
+                const parsedQuery = typeof q === 'string' ? parseDraftQueryFromURL(q) : q
+                const { query: validQuery, repairs } = normalizeUrlQuery(parsedQuery)
+                if (repairs.length) {
+                    posthog.capture('insight url query repaired', { repairs })
+                }
                 if (validQuery) {
                     if (initial) {
                         validatingQuery = true
@@ -917,7 +922,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         queryFromUrl = validQuery
                     }
                 } else {
-                    console.error('Invalid query', q)
+                    // The scene keeps the default query below, so the editor stays usable.
+                    posthog.capture('insight url query invalid')
                 }
             } else if (insightType && Object.values(InsightType).includes(insightType)) {
                 queryFromUrl = getDefaultQuery(insightType, values.filterTestAccountsDefault)

@@ -685,12 +685,21 @@ export function InsightValidationError({
     )
 }
 
+/**
+ * A query the API cannot parse comes back as the pydantic error dump, which names every field it
+ * rejected and is unreadable. Links built outside the insight editor are the usual source.
+ */
+const SCHEMA_VALIDATION_ERROR_PATTERN = /\d+ validation errors? for \w+/
+
 const RAW_SERVER_ERROR_PATTERN =
     /Stack trace:|DB::Exception|Traceback \(most recent call last\)|object at 0x[0-9a-f]+|^[A-Za-z_.]+(Error|Exception)[:(]/
 
 function getInsightValidationDetail(detail: string): string {
     if (isRawServerErrorTitle(detail)) {
         return 'The query could not run.'
+    }
+    if (SCHEMA_VALIDATION_ERROR_PATTERN.test(detail)) {
+        return 'PostHog could not read this query. Check the query for errors, then run it again.'
     }
     if (/^the query is invalid\.?$/i.test(detail.trim())) {
         return 'Check the query for errors, then run it again.'

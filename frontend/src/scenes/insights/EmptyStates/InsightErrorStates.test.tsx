@@ -79,6 +79,26 @@ describe('insight error states', () => {
         expect(screen.getByText('Open in query debugger')).toBeTruthy()
     })
 
+    it('replaces the schema validation dump with a next step', () => {
+        const pydanticDump =
+            'JSON parse error - 1 validation error for QueryRequest\nquery.TrendsQuery.trendsFilter.display\n  ' +
+            "Input should be 'Auto', 'ActionsLineGraph' or 'ActionsBar' [type=enum, input_value='Line', " +
+            'input_type=str]\n    For further information visit https://errors.pydantic.dev/2.12/v/enum'
+
+        render(
+            <InsightValidationError
+                detail={pydanticDump}
+                validationErrorCode="invalid_input"
+                query={{ kind: 'InsightVizNode', source: { kind: 'TrendsQuery' } }}
+            />
+        )
+
+        expect(
+            screen.getByText('PostHog could not read this query. Check the query for errors, then run it again.')
+        ).toBeTruthy()
+        expect(screen.queryByText(pydanticDump)).toBeNull()
+    })
+
     // The retry button only offers a side action (query debugger link) when it has a query. Without
     // one, `sideAction` must stay undefined so LemonButton doesn't render a stray empty side action.
     it.each([
