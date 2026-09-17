@@ -78,7 +78,7 @@ def record_saved_query_demand_day(
     resource_defs={"cluster": OpsClickhouseClusterResource(max_execution_time=30 * 60, max_memory_usage=8 * ONE_GB)},
     tags={"owner": JobOwners.TEAM_DATA_MODELING.value},
 )
-def record_saved_query_demand_job():
+def record_saved_query_demand_job() -> None:
     record_saved_query_demand_day()
 
 
