@@ -18,6 +18,7 @@ import type {
     DataQualitySubjectHealthApi,
     DataQualitySuiteRunApi,
 } from 'products/data_quality/frontend/generated/api.schemas'
+import { SubjectTypeEnumApi } from 'products/data_quality/frontend/generated/api.schemas'
 import { openFailingRowsInSqlEditor } from 'products/data_quality/frontend/openFailingRows'
 import {
     isTerminalSuiteRun,
@@ -50,7 +51,7 @@ export type OverviewRunTarget = { kind: 'all' } | { kind: 'subject'; subjectKey:
 export interface SubjectGroup {
     /** Composite: a table and a view can hold the same uuid, and do collide in practice. */
     subjectKey: string
-    subjectType: string
+    subjectType: SubjectTypeEnumApi
     subjectUuid: string
     subjectName: string
     detailUrl: string | null
@@ -73,6 +74,9 @@ export function subjectKeyOf(subjectType: string, subjectUuid: string | null | u
 
 /** Where the subject's own page lives, or null when it has none and the name renders as text. */
 export function subjectDetailUrl(check: DataQualityOverviewCheckApi): string | null {
+    if (check.subject_type === 'posthog_table') {
+        return null
+    }
     if (check.subject_type === 'metric') {
         // The catalog addresses a metric by name, so a row that came without one has no route.
         return check.subject_metric_name ? urls.dataCatalogMetric(check.subject_metric_name, 'tests') : null

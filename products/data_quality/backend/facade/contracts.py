@@ -85,6 +85,7 @@ class SelectableSubject:
     id: str
     name: str
     display_name: str = ""
+    time_column: str = ""
     columns: dict[str, str] = field(default_factory=dict)
     editable: bool = True
 

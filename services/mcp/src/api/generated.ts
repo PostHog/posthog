@@ -24425,6 +24425,8 @@ export namespace Schemas {
       name: string;
       /** Label shown in the data catalog. Blank for tables and views. */
       display_name: string;
+      /** Column a lookback window bounds, or blank for a subject that has none. */
+      time_column: string;
       /** Column name to ClickHouse type. Empty for a metric, and for a view that has not run yet. */
       columns: DataQualitySubjectColumns;
       /** Whether the caller may author a check on this subject. A subject that is only readable can still be the target of a relationships check. */

@@ -102,6 +102,7 @@ def selectable_subjects(team_id: int, kinds: Collection[SubjectType]) -> list[Se
                 subject_type=SubjectType.POSTHOG_TABLE,
                 id=str(entry.id),
                 name=entry.name,
+                time_column=entry.time_column,
                 columns=entry.columns,
             )
             for entry in posthog_tables.TABLES
