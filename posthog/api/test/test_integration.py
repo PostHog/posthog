@@ -5399,6 +5399,20 @@ class TestGitHubBranches:
         assert has_more is True
         assert mock_request.call_count == 2
 
+    @pytest.mark.parametrize("successful_pages", [0, 1])
+    def test_list_branches_raises_instead_of_returning_partial_results(self, successful_pages):
+        successful = _make_github_branches_response([f"branch-{i}" for i in range(100)], has_next=True)
+        failed = MagicMock(status_code=500, headers={})
+
+        with patch(
+            "posthog.egress.transport.transport.requests.request",
+            side_effect=([successful] if successful_pages else []) + [failed],
+        ) as mock_request:
+            with pytest.raises(GitHubIntegrationError, match="failed to list branches|pagination failed"):
+                self.github.list_branches("org/repo", limit=150)
+
+        assert mock_request.call_count == successful_pages + 1
+
     @patch("posthog.egress.transport.transport.requests.request")
     def test_list_branches_empty_repo(self, mock_request):
         mock_request.return_value = _make_github_branches_response([], has_next=False)
