@@ -2309,6 +2309,45 @@ describe('experimentLogic', () => {
             )
         })
 
+        it('sends no request when neither the split, the rollout nor the holdout changed', async () => {
+            api.update.mockResolvedValue(experiment)
+
+            logic.actions.setUnmodifiedExperiment(experiment)
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.updateDistribution(
+                    [
+                        { key: 'control', rollout_percentage: 50 },
+                        { key: 'test', rollout_percentage: 50 },
+                    ],
+                    100
+                )
+            }).toFinishAllListeners()
+
+            expect(api.update).not.toHaveBeenCalled()
+        })
+
+        it('sends the request when only the overall rollout percentage changed', async () => {
+            api.update.mockResolvedValue(experiment)
+
+            logic.actions.setUnmodifiedExperiment(experiment)
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.updateDistribution(
+                    [
+                        { key: 'control', rollout_percentage: 50 },
+                        { key: 'test', rollout_percentage: 50 },
+                    ],
+                    60
+                )
+            }).toFinishAllListeners()
+
+            const sentFlagFilters = (api.update.mock.calls[0][1] as Record<string, any>).feature_flag.filters
+            expect(sentFlagFilters.groups).toEqual([{ properties: [], rollout_percentage: 60 }])
+        })
+
         it('does not call feature flag API directly', async () => {
             api.update.mockResolvedValue(experiment)
 

@@ -312,6 +312,30 @@ describe('featureFlagLogic', () => {
             }
         })
 
+        it('names the feature flag when the release-conditions save is denied', async () => {
+            useMocks({
+                patch: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                        403,
+                        { type: 'authentication_error', code: 'permission_denied', detail: 'Nope' },
+                    ],
+                },
+            })
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.saveSidebarExperimentFeatureFlag(logic.values.featureFlag)
+                }).toDispatchActions(['saveSidebarExperimentFeatureFlagFailure'])
+
+                // The server detail names no resource, and the experiment the save was reached
+                // from carries its own access level, so the toast has to name the flag.
+                expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining(logic.values.featureFlag.key))
+                expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('editor access to the feature flag'))
+            } finally {
+                toastSpy.mockRestore()
+            }
+        })
+
         it('does not show the permission toast for other save errors', async () => {
             useMocks({
                 patch: {

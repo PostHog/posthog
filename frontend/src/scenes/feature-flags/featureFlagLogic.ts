@@ -42,6 +42,7 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { capitalizeFirstLetter, humanList, slugify } from 'lib/utils/strings'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { captureVariantsSaveBlocked } from 'scenes/experiments/utils'
 import { FeatureFlagsTab, featureFlagsLogic, isFeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -3176,6 +3177,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 } catch (error: any) {
                     if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
                         eventUsageLogic.actions.reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
+                    } else if (isAccessDeniedError(error)) {
+                        // The server's detail names no resource, and this save is reached from the
+                        // experiment, where nothing else needs flag access. Name the flag.
+                        lemonToast.error(
+                            `Couldn't change the release conditions. You need editor access to the feature flag "${flag.key}". Ask a project admin for access.`
+                        )
+                        // This save only ever comes from an experiment, and the logic knows the
+                        // flag rather than the experiment, so the link is read off the flag.
+                        captureVariantsSaveBlocked(
+                            values.featureFlag.experiment_set?.[0],
+                            'release_conditions',
+                            'request'
+                        )
                     }
                     throw error
                 }

@@ -3,6 +3,7 @@ import { match } from 'ts-pattern'
 import { getSeriesColor } from 'lib/colors'
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout, MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { captureAccessControlEvent } from 'lib/utils/accessControlUtils'
 import { uuid } from 'lib/utils/dom'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 
@@ -32,6 +33,7 @@ import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperim
 import {
     ChartDisplayType,
     Experiment,
+    ExperimentIdType,
     ExperimentMetricGoal,
     ExperimentMetricMathType,
     FeatureFlagBasicType,
@@ -90,6 +92,24 @@ export function getExposureConfigDisplayName(config: ExperimentExposureConfig): 
 export function getVariantColor(variantKey: string, featureFlagVariants: MultivariateFlagVariant[]): string {
     const variantIndex = featureFlagVariants.findIndex((v) => v.key === variantKey)
     return variantIndex !== -1 ? getSeriesColor(variantIndex) : 'var(--muted)'
+}
+
+/**
+ * A save on the variants tab that access control refused. Access-denied responses are kept out of
+ * exception capture, so without this the blocked share of these saves has no signal at all.
+ * `blockedAt` says whether the form refused the save, or the server did after the form let it
+ * through.
+ */
+export function captureVariantsSaveBlocked(
+    experimentId: ExperimentIdType | undefined,
+    surface: 'distribution' | 'release_conditions',
+    blockedAt: 'form' | 'request'
+): void {
+    captureAccessControlEvent('experiment variants save blocked', {
+        experiment_id: experimentId,
+        surface,
+        blocked_at: blockedAt,
+    })
 }
 
 /**

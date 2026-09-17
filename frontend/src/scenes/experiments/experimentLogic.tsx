@@ -24,6 +24,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { objectsEqual } from 'lib/utils/objects'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -2939,10 +2940,21 @@ export const experimentLogic = kea<experimentLogicType>([
             // holdout edit server-side; include it only when the selector actually changed it.
             const holdoutChanged =
                 (values.experiment.holdout_id ?? null) !== (values.unmodifiedExperiment?.holdout_id ?? null)
+            // `update_feature_flag_params` rewrites the linked flag, which needs editor access to
+            // it, so an unchanged save must not send the request at all.
+            const variantsInput = toFlagVariantsInput(variants)
+            const savedRolloutPercentage =
+                values.unmodifiedExperiment?.feature_flag?.filters?.groups?.[0]?.rollout_percentage
+            const distributionChanged =
+                !objectsEqual(variantsInput, toFlagVariantsInput(getExperimentVariants(values.unmodifiedExperiment))) ||
+                (rolloutPercentage !== undefined && rolloutPercentage !== savedRolloutPercentage)
+            if (!distributionChanged && !holdoutChanged) {
+                return
+            }
             actions.updateExperiment({
                 feature_flag: {
                     filters: {
-                        multivariate: { variants: toFlagVariantsInput(variants) },
+                        multivariate: { variants: variantsInput },
                         ...(rolloutPercentage !== undefined
                             ? { groups: [{ properties: [], rollout_percentage: rolloutPercentage }] }
                             : {}),

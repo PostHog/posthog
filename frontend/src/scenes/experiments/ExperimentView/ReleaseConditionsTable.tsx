@@ -1,16 +1,19 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconFlag } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
 import { groupsModel } from '~/models/groupsModel'
-import { FeatureFlagGroupType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, FeatureFlagGroupType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
+import { captureVariantsSaveBlocked } from '../utils'
 
 export function ReleaseConditionsModal(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
@@ -19,8 +22,26 @@ export function ReleaseConditionsModal(): JSX.Element {
     const { isReleaseConditionsModalOpen } = useValues(modalsLogic)
 
     const _featureFlagLogic = featureFlagLogic({ id: experiment.feature_flag?.id ?? null } as FeatureFlagLogicProps)
-    const { featureFlag, nonEmptyVariants } = useValues(_featureFlagLogic)
+    const { featureFlag, featureFlagLoading, nonEmptyVariants } = useValues(_featureFlagLogic)
     const { setFeatureFlagFilters, saveSidebarExperimentFeatureFlag } = useActions(_featureFlagLogic)
+
+    // This save writes the feature flag directly, so it needs editor access to the flag. Editor
+    // access to the experiment never implies it, and the flag carries its own access level.
+    const flagLoaded = !!featureFlag.id && featureFlag.id === experiment.feature_flag?.id
+    const saveDisabledReason = flagLoaded
+        ? getAccessControlDisabledReason(
+              AccessControlResourceType.FeatureFlag,
+              AccessControlLevel.Editor,
+              featureFlag.user_access_level
+          )
+        : 'Loading the feature flag'
+    const blockedByFlagAccess = flagLoaded && saveDisabledReason !== null
+
+    useEffect(() => {
+        if (isReleaseConditionsModalOpen && blockedByFlagAccess) {
+            captureVariantsSaveBlocked(experiment.id, 'release_conditions', 'form')
+        }
+    }, [isReleaseConditionsModalOpen, blockedByFlagAccess, experiment.id])
 
     return (
         <LemonModal
@@ -34,6 +55,8 @@ export function ReleaseConditionsModal(): JSX.Element {
                         Cancel
                     </LemonButton>
                     <LemonButton
+                        loading={featureFlagLoading}
+                        disabledReason={saveDisabledReason ?? undefined}
                         onClick={async () => {
                             await saveSidebarExperimentFeatureFlag(featureFlag)
 

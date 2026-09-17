@@ -76,7 +76,7 @@ Write actions that show their own friendly message for access-denied 403s
 Unlike ERROR_FILTER_ALLOW_LIST, this only suppresses access-denied errors;
 other failures on these actions still toast.
 */
-const ACCESS_DENIED_SELF_HANDLED = new Set(['saveFeatureFlag'])
+const ACCESS_DENIED_SELF_HANDLED = new Set(['saveFeatureFlag', 'saveSidebarExperimentFeatureFlag'])
 
 /*
 Load actions whose own UI renders the missing resource, so a 404 from them is a state the app
