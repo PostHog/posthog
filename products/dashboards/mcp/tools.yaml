@@ -57,6 +57,7 @@ tools:
             - persisted_filters
             - persisted_variables
             - _create_in_folder
+            - source_context
         response:
             exclude:
                 - effective_restriction_level

@@ -23,6 +23,14 @@ class DashboardAccessMethod(StrEnum):
     API = "api"
 
 
+class DashboardSourceContext(models.TextChoices):
+    TEMPLATES = "templates", "templates"
+    EXPERIMENTS = "experiments", "experiments"
+    METRICS = "metrics", "metrics"
+    ONBOARDING = "onboarding", "onboarding"
+    POSTHOG_AI = "posthog_ai", "posthog_ai"
+
+
 class RestrictionLevel(models.IntegerChoices):
     """Collaboration restriction level (which is a dashboard setting). Sync with PrivilegeLevel."""
 

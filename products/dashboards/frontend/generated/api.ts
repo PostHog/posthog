@@ -18,6 +18,7 @@ import type {
     CreateTextTileRequestApi,
     DashboardApi,
     DashboardCollaboratorApi,
+    DashboardCreateApi,
     DashboardSavedViewApi,
     DashboardSavedViewWriteApi,
     DashboardSavedViewsListParams,
@@ -372,15 +373,15 @@ export const getDashboardsCreateUrl = (projectId: string, params?: DashboardsCre
 
 export const dashboardsCreate = async (
     projectId: string,
-    dashboardApi?: NonReadonly<DashboardApi>,
+    dashboardCreateApi?: NonReadonly<DashboardCreateApi>,
     params?: DashboardsCreateParams,
     options?: RequestInit
-): Promise<DashboardApi> => {
-    return apiMutator<DashboardApi>(getDashboardsCreateUrl(projectId, params), {
+): Promise<DashboardCreateApi> => {
+    return apiMutator<DashboardCreateApi>(getDashboardsCreateUrl(projectId, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardApi),
+        body: JSON.stringify(dashboardCreateApi),
     })
 }
 

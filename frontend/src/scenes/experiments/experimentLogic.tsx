@@ -3068,6 +3068,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     {
                         name: 'Experiment: ' + values.experiment.name,
                         description: `Dashboard for [${experimentUrl}](${experimentUrl})`,
+                        source_context: 'experiments',
                         filters: {
                             date_from: values.experiment.start_date,
                             date_to: values.experiment.end_date,
