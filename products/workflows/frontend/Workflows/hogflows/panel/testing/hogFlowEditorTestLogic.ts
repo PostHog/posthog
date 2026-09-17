@@ -812,11 +812,14 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                             groups
                         )
                     } catch (e: any) {
-                        // A superseded load must not resolve at all. Returning here would set the
-                        // sample event to null over the result of the load that replaced it.
+                        // A superseded load must not resolve at all, whether it was cancelled or it
+                        // failed. Either way, returning here would set the sample event to null over
+                        // the result of the load that replaced it, and raise an error about a load
+                        // nobody is waiting for.
                         if (isBreakpoint(e)) {
                             throw e
                         }
+                        breakpoint()
                         actions.setSampleGlobalsError('Failed to load matching events. Please try again.')
                         return null
                     }

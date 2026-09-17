@@ -342,6 +342,58 @@ describe('hogFlowEditorTestLogic', () => {
 
             expect(logic.values.sampleGlobals?.event?.uuid).toEqual('fresh-event')
         })
+
+        it('keeps the newest sample event when an older query fails last', async () => {
+            // The same overlap, but the older query fails for a real reason. Its failure belongs to
+            // a load nobody is waiting for, so it must neither clear the event nor raise an error.
+            const eventRow = (uuid: string): any[] => [
+                { uuid, event: '$pageview', distinct_id: 'd1', properties: {}, timestamp: '2026-05-01T00:00:00Z' },
+                { id: 'p1', properties: {} },
+            ]
+            let failStale: (() => void) | undefined
+            const queryMock = performWideEventsQueryInTwoPhases as jest.Mock
+            queryMock.mockReset()
+            queryMock
+                .mockImplementationOnce(
+                    async () =>
+                        await new Promise((_resolve, reject) => {
+                            failStale = () => reject(new Error('query failed'))
+                        })
+                )
+                .mockImplementation(async () => ({ results: [eventRow('fresh-event')] }))
+
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadSampleGlobals'])
+            while (!failStale) {
+                await new Promise((resolve) => setTimeout(resolve, 20))
+            }
+
+            logic.actions.loadSampleGlobals({})
+            await expectLogic(logic).toDispatchActions(['loadSampleGlobalsSuccess'])
+            expect(logic.values.sampleGlobals?.event?.uuid).toEqual('fresh-event')
+
+            failStale!()
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            expect(logic.values.sampleGlobals?.event?.uuid).toEqual('fresh-event')
+            expect(logic.values.sampleGlobalsError).toBeNull()
+        })
+
+        it('still reports a failure that no later load supersedes', async () => {
+            const queryMock = performWideEventsQueryInTwoPhases as jest.Mock
+            queryMock.mockReset()
+            queryMock.mockImplementation(async () => {
+                throw new Error('query failed')
+            })
+
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadSampleGlobals', 'setSampleGlobalsError'])
+            expect(logic.values.sampleGlobalsError).toEqual('Failed to load matching events. Please try again.')
+        })
     })
 
     describe('groupTypesForTest gating on group_analytics', () => {
