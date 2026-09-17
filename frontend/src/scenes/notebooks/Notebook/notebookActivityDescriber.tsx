@@ -1,4 +1,5 @@
 import { describeMappedChanges } from 'lib/components/ActivityLog/activityDescriptions/describeMappedChanges'
+import { shortIdActivityLink } from 'lib/components/ActivityLog/activityDescriptions/shortIdActivityLink'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -6,7 +7,6 @@ import {
     HumanizedChange,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { ActivityScope } from '~/types'
@@ -23,16 +23,6 @@ const notebookActionsMapping: Record<
     },
 }
 
-function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
-    return logItem?.detail?.short_id ? (
-        <Link to={urls.notebook(logItem.detail.short_id)}>{logItem?.detail.name || 'unknown'}</Link>
-    ) : logItem?.detail.name ? (
-        <>{logItem?.detail.name}</>
-    ) : (
-        <i>Untitled</i>
-    )
-}
-
 export function notebookActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== ActivityScope.NOTEBOOK) {
         console.error('notebook describer received a non-Notebook activity')
@@ -43,13 +33,13 @@ export function notebookActivityDescriber(logItem: ActivityLogItem, asNotificati
         const changes = describeMappedChanges(
             logItem,
             notebookActionsMapping,
-            nameAndLink(logItem),
-            <>on {nameAndLink(logItem)}</>
+            shortIdActivityLink(logItem, urls.notebook),
+            <>on {shortIdActivityLink(logItem, urls.notebook)}</>
         )
         if (changes) {
             return changes
         }
     }
 
-    return defaultDescriber(logItem, asNotification, nameAndLink(logItem))
+    return defaultDescriber(logItem, asNotification, shortIdActivityLink(logItem, urls.notebook))
 }

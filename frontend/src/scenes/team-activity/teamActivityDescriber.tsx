@@ -1,4 +1,5 @@
 import { describeMappedChanges } from 'lib/components/ActivityLog/activityDescriptions/describeMappedChanges'
+import { shortIdActivityLink } from 'lib/components/ActivityLog/activityDescriptions/shortIdActivityLink'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -763,16 +764,6 @@ const TEAM_PROPERTIES_MAPPING: Record<
     feature_flag_policy_config: () => null,
 }
 
-function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
-    return logItem?.detail?.short_id ? (
-        <Link to={urls.notebook(logItem.detail.short_id)}>{logItem?.detail.name || 'unknown'}</Link>
-    ) : logItem?.detail.name ? (
-        <>{logItem?.detail.name}</>
-    ) : (
-        <i>Untitled</i>
-    )
-}
-
 function describeWorkflowEmailSuspension(logItem: ActivityLogItem): HumanizedChange {
     const wasSuspended = logItem.activity === 'email_sending_suspended'
     const reason = logItem.detail?.context?.reason as string | undefined
@@ -780,13 +771,13 @@ function describeWorkflowEmailSuspension(logItem: ActivityLogItem): HumanizedCha
         summary: activityLogSummary(
             logItem,
             wasSuspended ? 'Suspended workflow email sending' : 'Re-enabled workflow email sending',
-            nameAndLink(logItem),
+            shortIdActivityLink(logItem, urls.notebook),
             wasSuspended ? reason : undefined
         ),
         description: (
             <>
                 <ActivityLogUserName logItem={logItem} /> {wasSuspended ? 'suspended' : 're-enabled'} workflow email
-                sending on {nameAndLink(logItem)}
+                sending on {shortIdActivityLink(logItem, urls.notebook)}
                 {wasSuspended && reason ? <> (reason: {reason})</> : null}
             </>
         ),
@@ -807,13 +798,13 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
         const changes = describeMappedChanges(
             logItem,
             TEAM_PROPERTIES_MAPPING,
-            nameAndLink(logItem),
-            <>on {nameAndLink(logItem)}</>
+            shortIdActivityLink(logItem, urls.notebook),
+            <>on {shortIdActivityLink(logItem, urls.notebook)}</>
         )
         if (changes) {
             return changes
         }
     }
 
-    return defaultDescriber(logItem, asNotification, nameAndLink(logItem))
+    return defaultDescriber(logItem, asNotification, shortIdActivityLink(logItem, urls.notebook))
 }
