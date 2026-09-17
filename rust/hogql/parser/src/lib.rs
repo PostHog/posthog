@@ -22,7 +22,7 @@
     clippy::doc_lazy_continuation
 )]
 
-compile_error!("temporary source-build proof");
+const _SOURCE_BUILD_PROOF: () = ();
 
 use pyo3::prelude::*;
 use std::panic::AssertUnwindSafe;
