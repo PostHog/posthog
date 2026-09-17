@@ -38,6 +38,7 @@ T_FOREIGN = "posthog/api/test/test_foreign/TestForeign::test_other_service"
 T_OTHER_REPO = "posthog/api/test/test_other_repo/TestOtherRepo::test_flaky"
 T_JEST_RECOVERY = "products/surveys/frontend/surveyLogic.test.ts::surveyLogic saves"
 T_JEST_CROSS_LEG = "frontend/src/scenes/legacy.test.ts::legacy scene renders"
+T_SETUP_BREAK = "posthog/api/test/test_setup/TestSetup::test_errors_when_setup_breaks"
 
 
 class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
@@ -145,6 +146,20 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             ),
             # A job-root span carries no test.outcome and must never become a row.
             cls._span(23, "Backend CI / core (1)", None, ts=recent, run="1300", branch="master"),
+            # CI setup broke: one run attempt errored tests in three jobs. The errors describe the attempt, not
+            # the tests, so none of them reaches the queue as a master failure.
+            *[
+                cls._span(
+                    40 + shard,
+                    f"{T_SETUP_BREAK}_{shard}",
+                    "error",
+                    ts=recent,
+                    run="1700",
+                    branch="master",
+                    job=f"backend:core:{shard}",
+                )
+                for shard in (1, 2, 3)
+            ],
             # Main Jest spans share the same evidence model. Recovery only counts within the
             # stable FOSS/EE + shard job that failed.
             cls._span(
@@ -301,8 +316,8 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
     def test_default_window_qualifies_only_actionable_tests(self) -> None:
         data = self._get()
 
-        # The 2-PR test is below the bar; the out-of-window, foreign-service, other-repo, and
-        # outcome-less job-root spans must never qualify.
+        # The 2-PR test is below the bar; the out-of-window, foreign-service, other-repo, CI setup break,
+        # and outcome-less job-root spans must never qualify.
         assert {row["nodeid"] for row in data["items"]} == {
             T_RERUN_RECOVERY,
             T_STALE_REREPORT,

@@ -44336,7 +44336,7 @@ export namespace Schemas {
     }
 
     export interface FlakyTestList {
-      /** Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs. */
+      /** Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs. Failures from a CI setup break are left out: a run attempt whose tests errored in 3 or more jobs or for 3 or more owning teams. */
       items: FlakyTestItem[];
       /** True when more tests qualified than the cap; `items` is the highest-ranked `limit` rows. */
       truncated: boolean;
@@ -93457,7 +93457,7 @@ export namespace Schemas {
     }
 
     export interface TeamCIHealthList {
-      /** Owning teams ranked by current flaky + failure signal, heaviest first, capped at `limit`. Teams are organizational owners of code surfaces; this never aggregates by author. */
+      /** Owning teams ranked by current flaky + failure signal, heaviest first, capped at `limit`. Teams are organizational owners of code surfaces; this never aggregates by author. Failures from a CI setup break are left out: a run attempt whose tests errored in 3 or more jobs or for 3 or more owning teams. */
       items: TeamCIHealthItem[];
       /** True when more teams had signal than the cap. */
       truncated: boolean;

@@ -131,6 +131,8 @@ tools:
             suspected_regression means only failures were recorded, which is absence of proof, not proof of a real
             break: treat it as real until a recovery proves otherwise. A test qualifies on any same-commit recovery, any
             master/main failure, a quarantined failure, or failures on at least min_failed_prs distinct PRs (default 3).
+            Failures from a CI setup break are not per-test evidence and are left out: a run attempt whose tests
+            errored in three or more jobs or for three or more owning teams.
             Counts are absolute, never rates, because fast passing runs are not emitted. Use selector to run or
             quarantine the test with its runner; nodeid is only the stable grouping key.
         feature_flag: engineering-analytics
@@ -247,16 +249,18 @@ tools:
             (a re-run attempt went green, or an in-job retry recovered it), regression_test_count is owned tests that
             failed with no such proof and still hit min_failed_prs distinct PRs or master, and failed_run_count,
             same_commit_recovery_run_count and quarantined_failed_run_count count distinct CI runs across the team's
-            owned tests, so one run with many failing tests counts once. Each has an equal-length previous-window twin
-            (*_prior) for honest deltas. Use this for "which team owns the flakiest surfaces right now" and to route a
-            flaky-test or CI Signal to its owning team. Ownership is stamped on the spans at CI emission time from the
-            repo's ownership map (the distributed owners.yaml files); spans without a stamp aggregate under the literal
-            team 'unowned' (a nonempty 'unowned' row means ownership gaps, not a real team), and a re-stamped test lands
-            under its latest owner only. Each row also carries test_file_count (the daily owners.yaml census
-            denominator, with a window-start twin) and merged_pr_count (merged PRs by the team's members, bots
-            excluded); teams with census counts but no CI signal appear with zero signal counts and a null last_seen_at.
-            Teams are organizational owners of code surfaces, never authors. Read all counts as absolute signal, never
-            rates: fast passing runs are not emitted, so there is no honest denominator.
+            owned tests, so one run with many failing tests counts once. Failures from a CI setup break are not per-test
+            evidence and are left out: a run attempt whose tests errored in three or more jobs or for three or more
+            owning teams. Each has an equal-length previous-window twin (*_prior) for honest deltas. Use this for "which
+            team owns the flakiest surfaces right now" and to route a flaky-test or CI Signal to its owning team.
+            Ownership is stamped on the spans at CI emission time from the repo's ownership map (the distributed
+            owners.yaml files); spans without a stamp aggregate under the literal team 'unowned' (a nonempty 'unowned'
+            row means ownership gaps, not a real team), and a re-stamped test lands under its latest owner only. Each row
+            also carries test_file_count (the daily owners.yaml census denominator, with a window-start twin) and
+            merged_pr_count (merged PRs by the team's members, bots excluded); teams with census counts but no CI signal
+            appear with zero signal counts and a null last_seen_at. Teams are organizational owners of code surfaces,
+            never authors. Read all counts as absolute signal, never rates: fast passing runs are not emitted, so there
+            is no honest denominator.
         feature_flag: engineering-analytics
     engineering-analytics-team-merge-trend:
         operation: engineering_analytics_team_merge_trend

@@ -104,6 +104,7 @@ _RUN_EVIDENCE = """
                 max(outcome = 'passed') AND NOT trial_failed AS trial_passed,
                 max(span_timestamp) AS trial_at
             FROM (__SPAN_SCAN__)
+            WHERE (run_id, attempt) NOT IN (__SETUP_BREAK_RUN_ATTEMPTS__)
             GROUP BY runner, nodeid, run_id, job_key, attempt
         )
         GROUP BY runner, nodeid, run_id, job_key
@@ -115,6 +116,23 @@ _RUN_EVIDENCE = """
     HAVING failed_in_run OR recovered_in_run OR quarantined_in_run
 """
 
+# A CI setup break errors tests in many jobs, or tests of many owning teams, in one run attempt. Those
+# errors describe the attempt, not any one test, so run_evidence() drops every trial of that attempt:
+# its failures are not failures of a test, and its passes are not recovery proof. The attempts come from
+# an IN set rather than a window function, so an incident-sized scan never sorts every span in memory.
+# The thresholds are placeholders, not literals, because callers render the evidence SQL at import time.
+SETUP_BREAK_MIN_JOBS = 3
+SETUP_BREAK_MIN_TEAMS = 3
+
+_SETUP_BREAK_RUN_ATTEMPTS = """
+    SELECT run_id, attempt
+    FROM (__SPAN_SCAN__)
+    WHERE outcome = 'error'
+    GROUP BY run_id, attempt
+    HAVING uniq(job_key) >= {setup_break_min_jobs}
+        OR uniqIf(owner_team, owner_team != {unowned_team}) >= {setup_break_min_teams}
+"""
+
 
 def run_evidence(*, bounded: bool) -> str:
     """One row per (test, CI run): what that run proves about that test.
@@ -124,7 +142,9 @@ def run_evidence(*, bounded: bool) -> str:
 
     ``bounded`` adds the upper time bound; some callers scan to now.
     """
-    return _RUN_EVIDENCE.replace("__SPAN_SCAN__", _scan(bounded=bounded))
+    return _RUN_EVIDENCE.replace("__SETUP_BREAK_RUN_ATTEMPTS__", _SETUP_BREAK_RUN_ATTEMPTS).replace(
+        "__SPAN_SCAN__", _scan(bounded=bounded)
+    )
 
 
 def _scan(*, bounded: bool) -> str:
@@ -195,6 +215,8 @@ def scan_placeholders(
         "repository": ast.Constant(value=repository),
         "date_from": ast.Constant(value=date_from),
         "scan_from": ast.Constant(value=scan_from if scan_from is not None else date_from),
+        "setup_break_min_jobs": ast.Constant(value=SETUP_BREAK_MIN_JOBS),
+        "setup_break_min_teams": ast.Constant(value=SETUP_BREAK_MIN_TEAMS),
     }
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)

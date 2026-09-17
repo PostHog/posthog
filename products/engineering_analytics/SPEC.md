@@ -92,6 +92,7 @@ The endpoint catalog is `presentation/views.py`; the agent-facing descriptions l
 - Capped list contracts that include a sibling aggregate return `{items, truncated, limit}` so they never silently undercount against it.
 - Span-derived reads (flaky tests, team CI health) report absolute counts, never rates: sub-threshold runs aren't emitted, so denominators are biased.
 - Test evidence is counted per CI run, never per span or run attempt (one run fans a test across matrix legs, and every attempt re-tests the same commit), and both span-derived reads group the same `run_evidence()` so the grain and the meaning of flaky cannot drift. A test is `confirmed_flake` only on same-commit recovery proof: a re-run attempt going green, or an in-job retry. Unproven failures rank as `suspected_regression` by blast radius.
+- A CI setup break is not per-test evidence. `run_evidence()` drops every trial of a run attempt whose errored tests span 3 or more jobs or 3 or more owning teams, so its errors are no test's failure and its passes are no test's recovery.
 - Reads over optional data (e.g. `team_members`) degrade honestly (`has_membership_data: false`), never 500.
 
 ### Exposed warehouse views
