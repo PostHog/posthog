@@ -914,8 +914,8 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             if session_ids
             else {}
         )
-        return Response(
-            {
+        response = _TracingErrorCountsResponseSerializer(
+            instance={
                 "traceResults": [
                     {"trace_id": trace_id, "exceptions": count} for trace_id, count in trace_counts.items()
                 ],
@@ -923,9 +923,9 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 "sessionResults": [
                     {"session_id": session_id, "exceptions": count} for session_id, count in session_counts.items()
                 ],
-            },
-            status=status.HTTP_200_OK,
+            }
         )
+        return Response(response.data, status=status.HTTP_200_OK)
 
     @extend_schema(parameters=[_TracingServiceNamesQuerySerializer])
     @action(detail=False, methods=["GET"], url_path="service-names", required_scopes=["tracing:read"])
