@@ -13,7 +13,7 @@ const PICKED: MessageTemplate = {
 
 describe('buildNewTemplateComposerContext', () => {
     // The template name is user-entered, so it must ride the untrusted ref and never the trusted instructions.
-    it('attaches a picked template as an untrusted ref with its html for the chip only', () => {
+    it('attaches a picked template as an untrusted ref with its html for the thumbnail only', () => {
         const items = buildNewTemplateComposerContext(PICKED)
         const picked = items.find((item) => item.type === 'email_template')
 

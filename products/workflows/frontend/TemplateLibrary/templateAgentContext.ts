@@ -5,7 +5,7 @@ import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 import { MessageTemplate } from './types'
 
 // Own dismiss groups: a dismissal is global and never resets, so a chip closed on a workflow must not strip this page.
-// The picked template has its own group so closing its chip clears the pick and nothing else.
+// The picked template has its own group so removing its attachment clears the pick and nothing else.
 const NEW_TEMPLATE_DISMISS_GROUP = 'new-email-template-composer'
 export const PICKED_TEMPLATE_DISMISS_GROUP = 'new-email-template-picked'
 
@@ -88,7 +88,7 @@ const SKILL_CHIP_CONTEXT_ITEM: AttachedContextItem = {
     dismissible: false,
 }
 
-/** The picked template as untrusted context: a ref the agent fetches, plus the html the chip shows as a thumbnail. */
+/** The picked template as untrusted context: a ref the agent fetches, plus the html the composer shows as a thumbnail. */
 export function pickedTemplateContextItem(template: MessageTemplate): AttachedContextItem {
     return {
         type: 'email_template',

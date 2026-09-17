@@ -126,8 +126,8 @@ describe('newTemplateAgentLogic', () => {
             attachedContextLogic.unmount()
         })
 
-        // A dismissal sticks for the group, so a second pick would otherwise never show its chip.
-        it('attaches the pick as context and lifts an earlier dismissal of the chip', async () => {
+        // A dismissal sticks for the group, so a second pick would otherwise never show its attachment.
+        it('attaches the pick as context and lifts an earlier dismissal of the attachment', async () => {
             const key = attachedContextItemKey({ type: 'email_template', key: TEMPLATE.id })
             attachedContextLogic.actions.dismissContext(key, PICKED_TEMPLATE_DISMISS_GROUP)
 
@@ -139,10 +139,10 @@ describe('newTemplateAgentLogic', () => {
             expect(attachedContextLogic.values.dismissedGroups[PICKED_TEMPLATE_DISMISS_GROUP]).toBeUndefined()
         })
 
-        // Closing the chip is the only way to un-pick, and leaving the page must not carry the pick to the next visit.
+        // Removing the attachment is the only way to un-pick, and leaving the page must not carry the pick to the next visit.
         it.each([
             {
-                name: 'the chip is dismissed',
+                name: 'the attachment is removed',
                 act: () =>
                     attachedContextLogic.actions.dismissContext('email_template:tpl-1', PICKED_TEMPLATE_DISMISS_GROUP),
             },

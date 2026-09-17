@@ -3,7 +3,7 @@ import { cn } from 'lib/utils/css-classes'
 // Email designs are laid out for a 600px canvas. Each size renders that canvas and scales it to its width,
 // so the thumbnail shows the whole design and not its top-left corner. Scale is width / 600.
 const SIZE_CLASSES = {
-    chip: 'w-10 h-7 [--email-preview-scale:0.0667]',
+    attachment: 'w-24 h-16 [--email-preview-scale:0.16]',
     card: 'w-40 h-28 [--email-preview-scale:0.2667]',
 } as const
 
@@ -15,7 +15,7 @@ export interface EmailPreviewThumbnailProps {
     className?: string
 }
 
-/** A scaled-down, non-interactive render of an email, for chips and picker cards. */
+/** A scaled-down, non-interactive render of an email, for composer attachments and picker cards. */
 export function EmailPreviewThumbnail({ html, title, size, className }: EmailPreviewThumbnailProps): JSX.Element {
     return (
         <span className={cn('block shrink-0 overflow-hidden bg-white', SIZE_CLASSES[size], className)}>

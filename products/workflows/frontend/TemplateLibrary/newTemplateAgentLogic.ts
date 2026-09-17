@@ -195,14 +195,14 @@ export const newTemplateAgentLogic = kea<newTemplateAgentLogicType>([
             if (!template) {
                 return
             }
-            // A chip closed earlier in this session keeps its group dismissed, so a new pick lifts that first.
+            // An attachment removed earlier in this session keeps its group dismissed, so a new pick lifts that first.
             actions.undismissContext(
                 attachedContextItemKey(pickedTemplateContextItem(template)),
                 PICKED_TEMPLATE_DISMISS_GROUP
             )
             posthog.capture('email template ai composer template picked', { template_id: template.id })
         },
-        // Closing the chip is how the person un-picks; the context item is gone, so the state follows.
+        // Removing the attachment is how the person un-picks; the context item is gone, so the state follows.
         dismissContext: ({ dismissGroup }) => {
             if (dismissGroup === PICKED_TEMPLATE_DISMISS_GROUP && values.pickedTemplate) {
                 actions.setPickedTemplate(null)
