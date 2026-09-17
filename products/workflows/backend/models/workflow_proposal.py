@@ -119,9 +119,7 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDTModel):
     )
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        # A proposal's tenant scope always mirrors its workflow's, as HogFlowRevision's does: a
-        # mismatched (team, hog_flow) pair would leak the proposal into the wrong team's queue,
-        # since fail-closed reads filter on this row's team_id, not the workflow's.
+        # Mirrors the workflow's team, as HogFlowRevision does: fail-closed reads filter on this row's team_id.
         self.team_id = self.hog_flow.team_id
         super().save(*args, **kwargs)
 
