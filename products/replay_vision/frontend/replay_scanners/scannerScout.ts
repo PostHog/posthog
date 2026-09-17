@@ -58,12 +58,12 @@ export function scoutSkillName(
     const room =
         SKILL_NAME_MAX_LENGTH - SIGNALS_SCOUT_SKILL_PREFIX.length - COLLISION_SUFFIX_LENGTH - templateKey.length - 1
     const scannerSlug = slugify(scannerName).slice(0, Math.max(0, room)).replace(/-$/, '')
-    // The cap must hold whatever the key's length does, so the assembled base is clamped too rather
-    // than trusted to the `room` arithmetic above.
+    // Clamp the scanner+key part to what the prefix and collision suffix leave of the cap, so the
+    // 64-char limit holds even if the `room` arithmetic above is wrong for some future template key.
     const base = `${SIGNALS_SCOUT_SKILL_PREFIX}${[scannerSlug, templateKey]
         .filter(Boolean)
         .join('-')
-        .slice(0, SKILL_NAME_MAX_LENGTH - COLLISION_SUFFIX_LENGTH)
+        .slice(0, SKILL_NAME_MAX_LENGTH - SIGNALS_SCOUT_SKILL_PREFIX.length - COLLISION_SUFFIX_LENGTH)
         .replace(/-$/, '')}`
     const taken = new Set(takenNames)
     if (!taken.has(base)) {

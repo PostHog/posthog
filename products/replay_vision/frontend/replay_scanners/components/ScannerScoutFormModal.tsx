@@ -184,10 +184,19 @@ export function ScannerScoutFormModal({
         JSON.stringify(form.outputDestinations ?? {}) === JSON.stringify(config.output_destinations ?? {}) &&
         form.webhookUrl.trim() === (scoutDelivery?.webhook?.url ?? '')
 
+    // The skill name is derived from the scanner name when the scout is created and never changes
+    // afterwards (it is the load key, shown nowhere). Creating before the scanner loads would bake in
+    // the team-named placeholder, so the create action waits for the real scanner. Settings mode edits
+    // an existing scout and derives no skill name, so it is unaffected.
+    const scannerLoaded = scanner?.id?.toLowerCase() === scannerId.toLowerCase()
+
     const submitDisabledReason = (): string | undefined => {
         const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
         if (editDisabledReason) {
             return editDisabledReason
+        }
+        if (template && !scannerLoaded) {
+            return 'Loading the scanner'
         }
         if (loadFailed) {
             return "Couldn't load this scout's current settings"

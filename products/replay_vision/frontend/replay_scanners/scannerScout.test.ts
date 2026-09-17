@@ -47,6 +47,13 @@ describe('scannerScout', () => {
         }
     })
 
+    it('fits the cap when a template key alone leaves no room for the scanner', () => {
+        // No key is this long today, but the clamp must subtract the 14-char prefix, not just the
+        // collision suffix: a 60-char key plus the prefix would otherwise reach 75 against a 64 cap.
+        const longKey = 'x'.repeat(60) as ScannerScoutTemplate['key']
+        expect(scoutSkillName('Rage clicks on checkout', longKey, []).length).toBeLessThanOrEqual(64)
+    })
+
     it('leads the default name with the scanner, since the id no longer carries it', () => {
         // The scout lands in the Signals fleet beside every other product's, where four scanners'
         // "Daily digest" is four rows of the same name.

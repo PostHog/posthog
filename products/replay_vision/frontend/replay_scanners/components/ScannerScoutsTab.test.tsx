@@ -82,14 +82,19 @@ describe('ScannerScoutsTab', () => {
         await waitFor(() => expect(nameInput()).toBeTruthy())
     }
 
-    it('follows the scanner name into the form when it arrives after the form is open', async () => {
+    it('blocks create and shows a placeholder name until the scanner loads, then follows it', async () => {
         await openDailyDigestForm()
-        // Before the scanner answers, the scanner logic holds a team-named placeholder, so the
-        // seeded name is derived from that rather than the scanner the person is looking at.
+        const submit = (): HTMLElement =>
+            document.querySelector('[data-attr="vision-scout-form-submit"]') as HTMLElement
+        // Until the scanner answers, the logic holds a team-named placeholder. The display name seeds
+        // from it, but create has to wait: the skill name is derived from the scanner name at creation
+        // and never changes, so creating now would bake the placeholder into it.
         expect(nameInput().value).toBe('MockHog App + Marketing monitor daily digest')
+        expect(submit().getAttribute('aria-disabled')).toBe('true')
 
         resolveScanner(scanner)
         await waitFor(() => expect(nameInput().value).toBe('Rage clicks on checkout daily digest'))
+        expect(submit().getAttribute('aria-disabled')).not.toBe('true')
     })
 
     it('keeps a name the person typed once the scanner answers', async () => {
