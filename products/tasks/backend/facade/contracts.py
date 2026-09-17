@@ -23,6 +23,10 @@ from uuid import UUID
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
+# Re-exported: the exception is defined in an import-light module so ``storage.py`` can raise it
+# without dragging this module onto the ``django.setup()`` path.
+from products.tasks.backend.storage_errors import TaskRunLogAppendUnserialized as TaskRunLogAppendUnserialized
+
 
 class DesktopAccessReason(StrEnum):
     STARTUP_PLAN = "startup_plan"
@@ -203,6 +207,11 @@ class TaskDetailDTO:
 
 
 @dataclass(frozen=True)
+class TaskCreateResponseDTO(TaskDetailDTO):
+    run_error: str | None = None
+
+
+@dataclass(frozen=True)
 class ChannelDTO:
     """The HTTP representation of a task channel."""
 
@@ -378,6 +387,9 @@ class TaskLatestRunSummaryDTO:
     status: str | None
     environment: str | None
     mode: Literal["interactive", "background"]
+    pr_url: str | None = None
+    pr_state: str | None = None
+    task_summary: str | None = None
 
 
 @dataclass(frozen=True)
@@ -385,7 +397,7 @@ class TaskSummaryDTO:
     """The HTTP summary representation of a task.
 
     Mirrors exactly the fields ``TaskSummarySerializer`` emits. ``latest_run`` carries the
-    most-recent run's status, environment, and mode (or ``None`` when the task has no runs).
+    most-recent run's status, environment, mode and pull request (or ``None`` when the task has no runs).
     """
 
     id: UUID
@@ -400,10 +412,6 @@ class TaskSummaryDTO:
 
 class TaskAnalysisError(Exception):
     """A task analysis could not be created or recorded; ``message`` is safe to surface."""
-
-
-class TaskRunLogAppendUnserialized(Exception):
-    """The per-log append lock could not be taken; the caller should retry the append."""
 
 
 @dataclass(frozen=True)
@@ -434,6 +442,7 @@ class TaskRunResult:
 
     task: "TaskDetailDTO | None" = None
     error: TaskValidationError | None = None
+    run_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -582,6 +591,7 @@ class TaskRunDetailDTO:
     log_url: str | None
     error_message: str | None
     output: dict | None
+    task_summary: str | None
     state: dict
     artifacts: list = Field(default_factory=list)
     created_at: datetime | None = None

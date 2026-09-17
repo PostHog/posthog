@@ -1,5 +1,6 @@
 import json
 import random
+import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -9,6 +10,8 @@ from django.db import OperationalError
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
+from pydantic import ValidationError
 
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
@@ -17,7 +20,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.sync import database_sync_to_async
 from posthog.temporal.oauth import grants_scratchpad_write
 
-from products.signals.backend.artefact_schemas import DISMISSAL_REASON_WRONG_REPO, Dismissal
+from products.signals.backend.artefact_schemas import DISMISSAL_REASON_WRONG_REPO, Dismissal, NoteArtefact
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutNote
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.report_charts import ReportChart
@@ -25,9 +28,11 @@ from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
     ActionabilityUpdate,
+    FixVerificationOutput,
     Priority,
     PriorityAssessment,
     PriorityUpdate,
+    ReportPresentationOutput,
     ReportResearchOutput,
     SignalFinding,
     _resolve_actionability_response,
@@ -88,6 +93,15 @@ def _build_research_output() -> ReportResearchOutput:
     return ReportResearchOutput(
         title="Onboarding funnel completion tracking may be regressing",
         summary="Signals point to a likely regression around onboarding completion event tracking.",
+        verification_note=NoteArtefact(
+            note=(
+                "## Verification plan\n\n"
+                "### Confirm the current state\n\n"
+                "Run query-trends for onboarding_completed over the same 14-day window.\n\n"
+                "### Confirm the outcome\n\n"
+                "Confirm completion volume returns to its pre-regression baseline."
+            )
+        ),
         new_artefacts=[
             SignalFinding(
                 signal_id="sig-1",
@@ -180,18 +194,14 @@ _EXISTING_METRIC = _metric("existing-affected-users").model_dump(mode="json")
 
 
 async def _run_activity_with_output(
-    monkeypatch, ateam, report, output, *, charts_enabled=True, metrics_enabled=True, repo_selection_as_of=None
+    monkeypatch, ateam, report, output, *, metrics_enabled=True, repo_selection_as_of=None
 ):
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
         lambda team_id: 1,
     )
     monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.report._team_report_charts_enabled",
-        lambda team_id: charts_enabled,
-    )
-    monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.report._team_report_metrics_enabled",
+        "products.signals.backend.temporal.agentic.report.team_report_metrics_enabled",
         lambda team_id: metrics_enabled,
     )
 
@@ -522,6 +532,7 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
         )()
         assert [artefact.type for artefact in artefacts] == [
             SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            SignalReportArtefact.ArtefactType.NOTE,
             SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
             SignalReportArtefact.ArtefactType.REPO_SELECTION,
             SignalReportArtefact.ArtefactType.SIGNAL_FINDING,
@@ -535,14 +546,26 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
             "already_addressed": False,
         }
 
-        priority_content = json.loads(artefacts[1].content)
+        note_content = json.loads(artefacts[1].content)
+        assert note_content == {
+            "note": (
+                "## Verification plan\n\n"
+                "### Confirm the current state\n\n"
+                "Run query-trends for onboarding_completed over the same 14-day window.\n\n"
+                "### Confirm the outcome\n\n"
+                "Confirm completion volume returns to its pre-regression baseline."
+            ),
+            "author": None,
+        }
+
+        priority_content = json.loads(artefacts[2].content)
         assert priority_content == {
             "priority": "P1",
             "explanation": "The regression affects a core onboarding flow and should be addressed quickly.",
             "dollar_value": 5000.0,
         }
 
-        repo_selection_content = json.loads(artefacts[2].content)
+        repo_selection_content = json.loads(artefacts[3].content)
         assert repo_selection_content == {
             "repository": "posthog/posthog",
             "reason": "Single repository connected: posthog/posthog",
@@ -550,7 +573,7 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
             "autostart_eligible": True,
         }
 
-        finding_contents = [json.loads(artefact.content) for artefact in artefacts[3:]]
+        finding_contents = [json.loads(artefact.content) for artefact in artefacts[4:]]
         assert [finding["signal_id"] for finding in finding_contents] == ["sig-1", "sig-2"]
 
 
@@ -781,23 +804,19 @@ async def test_run_agentic_report_activity_keeps_quiet_when_reviewers_are_retain
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "name,charts_enabled,output_factory,expected",
+    "name,output_factory,expected",
     [
-        # Opted-in + a valid chart → the JSON set to store.
-        ("enabled_non_empty", True, _build_research_output_with_chart, [{"chart_id": "signups-drop"}]),
-        # Not opted in → None (leave the column alone), even though the mocked run returned a chart.
-        ("disabled", False, _build_research_output_with_chart, None),
-        # Opted-in but the run authored no charts (optional field omitted / dropped) → None, never a
-        # wipe of whatever the report already showed.
-        ("enabled_empty", True, _build_research_output, None),
-        # Opted-in but the set busts the whole-set caps (duplicate id) → [] to clear, so a stale set
-        # can't sit under the new summary.
-        ("enabled_cap_bust", True, _build_research_output_with_duplicate_chart_ids, []),
+        # A valid chart → the JSON set to store.
+        ("non_empty", _build_research_output_with_chart, [{"chart_id": "signups-drop"}]),
+        # The run authored no charts (optional field omitted / dropped) → None, never a wipe of
+        # whatever the report already showed.
+        ("empty", _build_research_output, None),
+        # The set busts the whole-set caps (duplicate id) → [] to clear, so a stale set can't sit
+        # under the new summary.
+        ("cap_bust", _build_research_output_with_duplicate_chart_ids, []),
     ],
 )
-async def test_run_agentic_report_activity_resolves_charts_payload(
-    monkeypatch, ateam, name, charts_enabled, output_factory, expected
-):
+async def test_run_agentic_report_activity_resolves_charts_payload(monkeypatch, ateam, name, output_factory, expected):
     # The activity resolves the charts payload but does not write it — the transition activity does,
     # atomically with the title/summary (see test_mark_report_ready_activity_applies_charts). So we
     # assert the resolved payload on the returned output rather than the report row.
@@ -805,9 +824,7 @@ async def test_run_agentic_report_activity_resolves_charts_payload(
         team=ateam, status=SignalReport.Status.IN_PROGRESS, signal_count=2, total_weight=1.3
     )
 
-    result = await _run_activity_with_output(
-        monkeypatch, ateam, report, output_factory(), charts_enabled=charts_enabled
-    )
+    result = await _run_activity_with_output(monkeypatch, ateam, report, output_factory())
 
     if expected is None:
         assert result.charts is None
@@ -840,7 +857,6 @@ async def test_run_agentic_report_activity_resolves_metrics_payload(
         ateam,
         report,
         output_factory(),
-        charts_enabled=True,
         metrics_enabled=metrics_enabled,
     )
 
@@ -1001,6 +1017,110 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
             lambda: SignalReportArtefact.objects.filter(report=report).count()
         )()
         assert artefact_count == 0
+
+
+@parameterized.expand(
+    [
+        ("immediately_actionable", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, None),
+        ("requires_human_input", ActionabilityChoice.REQUIRES_HUMAN_INPUT, None),
+        ("not_actionable", ActionabilityChoice.NOT_ACTIONABLE, None),
+        ("timeout", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, TimeoutError),
+        ("validation_failure", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, ValidationError),
+        ("cancellation", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, asyncio.CancelledError),
+    ]
+)
+async def test_run_multi_turn_research_requests_verification_note_as_the_final_actionable_step(
+    _name: str, actionability: ActionabilityChoice, failure: type[BaseException] | None
+) -> None:
+    session = Mock()
+    session.task = Mock(id="research-task-id")
+    session.end = AsyncMock()
+
+    actionability_result = ActionabilityAssessment(
+        explanation="The research found a concrete code path and measured impact.",
+        actionability=actionability,
+        already_addressed=False,
+    )
+    responses: list[
+        ActionabilityAssessment | PriorityAssessment | ReportPresentationOutput | FixVerificationOutput | BaseException
+    ] = [actionability_result]
+    expected_labels = ["actionability"]
+    priority_result: PriorityAssessment | None = None
+    if actionability != ActionabilityChoice.NOT_ACTIONABLE:
+        priority_result = PriorityAssessment(
+            explanation="The measured impact supports this priority.",
+            priority=Priority.P2,
+            dollar_value=1000.0,
+        )
+        responses.append(priority_result)
+        expected_labels.append("priority")
+    presentation_result = ReportPresentationOutput(
+        title="fix(onboarding): restore completion tracking",
+        summary="Users cannot complete the tracked onboarding flow.",
+    )
+    responses.append(presentation_result)
+    expected_labels.append("presentation")
+    verification_error: BaseException | None = None
+    if actionability != ActionabilityChoice.NOT_ACTIONABLE:
+        expected_labels.append("fix_verification")
+        if failure is ValidationError:
+            with pytest.raises(ValidationError) as exc_info:
+                FixVerificationOutput(current_state=" ", outcome="Confirm the outcome.")
+            verification_error = exc_info.value
+        elif failure is not None:
+            verification_error = failure("Verification interrupted")
+        responses.append(
+            verification_error
+            if verification_error is not None
+            else FixVerificationOutput(
+                current_state="Run query-trends for onboarding_completed over the same 14-day window.",
+                outcome="Confirm event volume returns to the pre-regression baseline.",
+            )
+        )
+    session.send_followup = AsyncMock(side_effect=responses)
+    first_finding = SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)
+
+    with (
+        patch(
+            "products.tasks.backend.facade.agents.MultiTurnSession.start",
+            AsyncMock(return_value=(session, first_finding)),
+        ),
+        patch("products.signals.backend.task_run_artefacts.aappend_task_run_artefact", new_callable=AsyncMock),
+        patch("products.signals.backend.report_generation.research.logger.exception") as log_exception,
+    ):
+        if failure is asyncio.CancelledError:
+            with pytest.raises(asyncio.CancelledError) as canceled:
+                await run_multi_turn_research(_build_signals()[:1], Mock(team_id=1), signal_report_id="report-id")
+            assert canceled.value is verification_error
+        else:
+            result = await run_multi_turn_research(_build_signals()[:1], Mock(team_id=1), signal_report_id="report-id")
+            assert result.effective_findings() == [first_finding]
+            assert result.effective_actionability() == actionability_result
+            assert result.effective_priority() == priority_result
+            assert result.title == presentation_result.title
+            assert result.summary == presentation_result.summary
+            assert result.research_task_id == "research-task-id"
+            if actionability != ActionabilityChoice.NOT_ACTIONABLE and failure is None:
+                assert result.verification_note is not None
+                assert result.verification_note.note.startswith(
+                    "## Verification plan\n\n### Confirm the current state\n\n"
+                )
+            else:
+                assert result.verification_note is None
+
+    labels = [call.kwargs["label"] for call in session.send_followup.await_args_list]
+    assert labels == expected_labels
+    if failure is asyncio.CancelledError:
+        session.end.assert_awaited_once_with(status="failed", error=str(verification_error))
+    else:
+        session.end.assert_awaited_once_with()
+    if failure is not None and failure is not asyncio.CancelledError:
+        log_exception.assert_called_once_with(
+            "multi_turn_research: failed to generate fix verification note",
+            extra={"research_task_id": "research-task-id", "team_id": 1, "report_id": "report-id"},
+        )
+    else:
+        log_exception.assert_not_called()
 
 
 @pytest.mark.asyncio

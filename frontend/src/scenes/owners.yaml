@@ -10,7 +10,7 @@ rules:
     - match: '/agentic/'
       owners: team-growth
     - match: '/alerts/'
-      owners: team-analytics-platform
+      owners: team-product-analytics
     - match: '/annotations/'
       owners: team-product-analytics
     - match: ['/approvals/', '/audit-logs/', '/authentication/']
@@ -24,11 +24,11 @@ rules:
     - match: '/coupons/'
       owners: team-billing
     - match: '/dashboard/'
-      owners: team-analytics-platform
+      owners: team-product-analytics
     - match: '/data-management/'
       owners: team-warehouse-sources
     - match: '/data-management/schema/'
-      owners: team-analytics-platform
+      owners: team-product-analytics
     - match: '/data-pipelines/'
       owners: team-workflows
     # Narrower than the rule above, which would otherwise route the batch exports
@@ -40,13 +40,13 @@ rules:
     - match: '/experiments/'
       owners: team-experiments
     - match: '/exports/'
-      owners: team-analytics-platform
+      owners: team-product-analytics
     - match: '/feature-flags/'
       owners: team-feature-flags
     - match: ['/funnels/', '/groups/']
       owners: team-product-analytics
     - match: '/health-alerts/'
-      owners: team-analytics-platform
+      owners: team-product-analytics
     - match: '/health/'
       owners: team-growth
     - match: '/hog-functions/'
@@ -68,7 +68,7 @@ rules:
     - match: '/onboarding/legacy/sdks/ai-observability/'
       owners: team-ai-observability
     - match: '/onboarding/legacy/sdks/surveys/'
-      owners: team-surveys
+      owners: conversations
     - match: ['/paths-v2/', '/paths/', '/persons-management/', '/persons/']
       owners: team-product-analytics
     - match: '/resource-transfer/'
@@ -79,10 +79,15 @@ rules:
       owners: team-replay
     - match: '/sessions/'
       owners: team-analytics-platform
+    # Org SSO settings: verified domains, and the SAML/SCIM/OIDC config behind them.
+    - match:
+          - '/settings/organization/IdentityProviderConfig/'
+          - '/settings/organization/VerifiedDomains/'
+      owners: team-platform-features
     - match: '/startups/'
       owners: team-growth
     - match: '/surveys/'
-      owners: team-surveys
+      owners: conversations
     - match: ['/themes/', '/trends/']
       owners: team-product-analytics
     - match: '/web-analytics/'

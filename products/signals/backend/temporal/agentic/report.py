@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, TypeVar
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 
@@ -14,7 +13,6 @@ from pydantic import BaseModel, ValidationError
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models.team.team import Team
-from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
@@ -28,6 +26,7 @@ from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_CONTENT_NEEDLE, WRONG_REPO_CONTENT_NEEDLE
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
+from products.signals.backend.report_content_gates import team_report_metrics_enabled
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -90,6 +89,10 @@ class RunAgenticReportOutput:
     # Resolved impact-metric payload, with the same replay-safe replace/clear/preserve semantics as
     # charts. The transition activity writes it with the matching title and summary.
     metrics: list[dict[str, Any]] | None = None
+    # Whether the rollout let this run author charts at all. Carried so telemetry can tell a run
+    # that chose not to chart apart from one that was never allowed to, which would otherwise read
+    # as the agent's charting rate moving on every rollout step. `None` predates the field.
+    charts_enabled: bool | None = None
 
 
 _ArtefactContentT = TypeVar("_ArtefactContentT", bound=BaseModel)
@@ -399,21 +402,20 @@ def _append_agentic_report_artefacts(*, team_id: int, report_id: str, artefacts:
 
 
 def _resolve_report_charts_payload(
-    charts: list[ReportChart], charts_enabled: bool, *, report_id: str, team_id: int
+    charts: list[ReportChart], *, report_id: str, team_id: int
 ) -> list[dict[str, Any]] | None:
     """Resolve an authored chart set to what a report's `charts` column should become, or `None` to
     leave it untouched. The transition activity that writes the title/summary applies this atomically.
 
     Three cases, because the model's output is untrusted and the presentation `charts` field is optional:
     - a valid non-empty set → its JSON payload (replace the column).
-    - not opted in, or an *empty* set → `None` (leave the column alone). An omitted key and a
-      deliberate "drop everything" both arrive empty and are indistinguishable, so wiping
-      user-visible charts on that ambiguity is refused — the pipeline never auto-clears to zero (a
-      human can clear from the inbox).
+    - an *empty* set → `None` (leave the column alone). An omitted key and a deliberate "drop
+      everything" both arrive empty and are indistinguishable, so wiping user-visible charts on that
+      ambiguity is refused — the pipeline never auto-clears to zero (a human can clear from the inbox).
     - a cap-busting set (too many, too large, or a duplicate id the agent produced) → `[]` (clear),
       so a stale set can't sit under the run's new summary; any `chart:` link then degrades to a label.
     """
-    if not charts_enabled or not charts:
+    if not charts:
         return None
     batch_error = chart_batch_error(charts)
     if batch_error:
@@ -482,7 +484,9 @@ async def _persist_agentic_report_artefacts(
         else ArtefactAttribution.system()
     )
     # Everything the run flagged as new gets persisted; the artefact type derives from each content
-    # model. Reviewers are derived from findings, so they're only re-persisted when a finding changed.
+    # model. The verification note is fresh output from the final turn of every actionable research
+    # run, so it is appended as a log entry rather than folded into the latest-wins research state.
+    # Reviewers are derived from findings, so they're only re-persisted when a finding changed.
     has_new_finding = any(isinstance(content, SignalFinding) for content in result.new_artefacts)
 
     # A reviewer or a scout can rewrite the selection while this run is in flight (a wrong-repo
@@ -509,6 +513,8 @@ async def _persist_agentic_report_artefacts(
         ),
         *(ArtefactDraft(content=content, attribution=research_attribution) for content in result.new_artefacts),
     ]
+    if result.verification_note is not None:
+        artefacts.append(ArtefactDraft(content=result.verification_note, attribution=research_attribution))
     if reviewers_content and has_new_finding:
         artefacts.append(
             ArtefactDraft(
@@ -580,52 +586,6 @@ def _team_has_business_knowledge(team_id: int) -> bool:
         return is_available_for_team(team)
     except Exception:
         logger.warning("business knowledge availability check failed", team_id=team_id, exc_info=True)
-        return False
-
-
-def _team_report_charts_enabled(team_id: int) -> bool:
-    """Whether the research agent may attach charts to this team's reports.
-
-    Gated by the `signals-report-charts` flag, org-keyed, evaluated fresh per run so a flip takes
-    effect immediately. Off by default everywhere so this ships dark on the fleet-wide research path;
-    on locally so `analyze_report` exercises it. Fails closed to False — a flag-service hiccup must
-    not add charts to reports for a team that isn't opted in."""
-    if settings.DEBUG:
-        return True
-    try:
-        team = Team.objects.get(id=team_id)
-        return feature_enabled_or_false(
-            "signals-report-charts",
-            str(team.organization_id),
-            groups={"organization": str(team.organization_id)},
-            group_properties={"organization": {"id": str(team.organization_id)}},
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        logger.warning("report-charts availability check failed", team_id=team_id, exc_info=True)
-        return False
-
-
-def _team_report_metrics_enabled(team_id: int) -> bool:
-    """Whether the research agent may author impact metrics for this team's reports.
-
-    Metrics have their own organization-level rollout so a team's chart rollout cannot accidentally
-    decide whether the main report pipeline measures user impact. The flag is evaluated for every
-    run, is on in DEBUG for local coverage, and fails closed on flag-service errors.
-    """
-    if settings.DEBUG:
-        return True
-    try:
-        team = Team.objects.get(id=team_id)
-        return feature_enabled_or_false(
-            "signals-report-metrics",
-            str(team.organization_id),
-            groups={"organization": str(team.organization_id)},
-            group_properties={"organization": {"id": str(team.organization_id)}},
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        logger.warning("report-metrics availability check failed", team_id=team_id, exc_info=True)
         return False
 
 
@@ -705,10 +665,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 service_tier=agent_runtime.service_tier,
             )
             has_bk = await database_sync_to_async(_team_has_business_knowledge, thread_sensitive=False)(input.team_id)
-            charts_enabled = await database_sync_to_async(_team_report_charts_enabled, thread_sensitive=False)(
-                input.team_id
-            )
-            metrics_enabled = await database_sync_to_async(_team_report_metrics_enabled, thread_sensitive=False)(
+            metrics_enabled = await database_sync_to_async(team_report_metrics_enabled, thread_sensitive=False)(
                 input.team_id
             )
             # 2. Load previous research if this is a re-promoted report
@@ -735,7 +692,6 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 has_business_knowledge=has_bk,
                 resolved_report_title=resolved_report_title,
                 resolved_report_summary=resolved_report_summary,
-                charts_enabled=charts_enabled,
                 metrics_enabled=metrics_enabled,
                 steering_section=steering.section,
             )
@@ -752,9 +708,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
         # Resolve the charts payload here, but let the transition activity write it alongside the
         # title/summary so charts and their prose land in one transaction (and never on the
         # not-actionable reset or a failed run, which don't write the new prose).
-        charts_payload = _resolve_report_charts_payload(
-            result.charts, charts_enabled, report_id=input.report_id, team_id=input.team_id
-        )
+        charts_payload = _resolve_report_charts_payload(result.charts, report_id=input.report_id, team_id=input.team_id)
         metrics_payload = _resolve_report_metrics_payload(
             result.metrics, metrics_enabled, report_id=input.report_id, team_id=input.team_id
         )
@@ -775,6 +729,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             repository=repository,
             charts=charts_payload,
             metrics=metrics_payload,
+            charts_enabled=True,
         )
     except Exception as error:
         logger.exception(

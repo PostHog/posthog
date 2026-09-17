@@ -187,30 +187,17 @@ from products.workflows.backend.services.workflow_email_health import (
 )
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
+from products.workflows.backend.utils.durations import (
+    DURATION_PATTERN,
+    duration_error,
+    duration_minutes,
+    is_duration,
+    is_signed_duration,
+)
 from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 logger = structlog.get_logger(__name__)
-
-# Delay durations are strings like "30s", "30m", "2h", "1.5d". Must match the regex in the Node.js
-# executor (nodejs/src/cdp/services/hogflows/actions/delay.ts) that throws at runtime on mismatch.
-# wait_until_condition's max_wait_duration reaches the same parser via conditional_branch.ts, so it
-# is held to the same format.
-DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhms]$")
-
-# A delay_until offset is the same shape, signed, so it can point before the date it is offsetting.
-DELAY_OFFSET_REGEX = re.compile(r"^-?\d*\.?\d+[dhms]$")
-
-
-def _is_valid_duration(value: Any) -> bool:
-    return isinstance(value, str) and bool(DELAY_DURATION_REGEX.match(value))
-
-
-def _duration_error(field: str) -> str:
-    return (
-        f"{field} must be a string matching ^\\d*\\.?\\d+[dhms]$ "
-        "(e.g. '30s', '30m', '2h', '1.5d'). ISO-8601 formats are not supported."
-    )
 
 
 # The content of a workflow: everything the draft cycle stages and publish promotes, and nothing
@@ -1787,10 +1774,22 @@ class HogFlowActionSerializer(serializers.Serializer):
             if strict and not _wait_condition_already_stored(data, self.context):
                 _reject_clock_based_wait(data["config"], self.context["get_team"]())
             max_wait_duration = data.get("config", {}).get("max_wait_duration")
-            # A falsy timeout means "wait indefinitely": conditional_branch.ts skips the parse
-            # entirely for it, so only a value that actually reaches the parser needs the format.
-            if strict and max_wait_duration and not _is_valid_duration(max_wait_duration):
-                raise serializers.ValidationError({"config": _duration_error("max_wait_duration")})
+            # Absent or empty never reaches the parser: conditional_branch.ts skips the re-park and
+            # continues to the next action, so only a value the parser sees needs the format. It does
+            # not wait indefinitely, whatever the field name suggests. Test emptiness rather than
+            # truthiness, because {} and [] are falsy here and truthy in the worker, which would hand
+            # the parser a container and throw on every run.
+            if strict and max_wait_duration not in (None, "") and not is_duration(max_wait_duration):
+                raise serializers.ValidationError({"config": duration_error("max_wait_duration")})
+
+        if is_conditional_branch:
+            # A branch that matches no condition re-parks on this optional delay, which
+            # conditional_branch.ts hands to the same parser as max_wait_duration above. Absent or
+            # empty means "do not re-park", so only a value that actually reaches the parser needs the
+            # format, and emptiness is the test for the same reason as above.
+            delay_duration = data.get("config", {}).get("delay_duration")
+            if strict and delay_duration not in (None, "") and not is_duration(delay_duration):
+                raise serializers.ValidationError({"config": duration_error("delay_duration")})
 
         if data.get("type") == "delay":
             self._validate_delay(data, strict)
@@ -1803,8 +1802,8 @@ class HogFlowActionSerializer(serializers.Serializer):
         delay_until = config.get("delay_until")
 
         if delay_until is None:
-            if strict and not _is_valid_duration(config.get("delay_duration")):
-                raise serializers.ValidationError({"config": _duration_error("delay_duration")})
+            if strict and not is_duration(config.get("delay_duration")):
+                raise serializers.ValidationError({"config": duration_error("delay_duration")})
             return
 
         if config.get("delay_duration"):
@@ -1827,19 +1826,19 @@ class HogFlowActionSerializer(serializers.Serializer):
             return
 
         offset = delay_until.get("offset")
-        if strict and offset is not None and not (isinstance(offset, str) and DELAY_OFFSET_REGEX.match(offset)):
+        if strict and offset is not None and not is_signed_duration(offset):
             raise serializers.ValidationError(
                 {
                     "config": (
-                        "delay_until.offset must be a string matching ^-?\\d*\\.?\\d+[dhms]$ "
+                        "delay_until.offset must be a duration string, optionally signed "
                         "(e.g. '-1d' for a day before the date, '2h' for two hours after)."
                     )
                 }
             )
 
         max_delay_duration = config.get("max_delay_duration")
-        if strict and max_delay_duration is not None and not _is_valid_duration(max_delay_duration):
-            raise serializers.ValidationError({"config": _duration_error("max_delay_duration")})
+        if strict and max_delay_duration is not None and not is_duration(max_delay_duration):
+            raise serializers.ValidationError({"config": duration_error("max_delay_duration")})
 
         use_person_timezone = delay_until.get("use_person_timezone")
         if strict and use_person_timezone is not None and not isinstance(use_person_timezone, bool):
@@ -1941,6 +1940,10 @@ class HogFlowConversionEventSerializer(serializers.Serializer):
     )
 
 
+MAX_CONVERSION_WINDOW_MINUTES = 365 * 24 * 60
+MAX_LEGACY_WINDOW_MINUTES = 90 * 24 * 60
+
+
 class HogFlowConversionSerializer(serializers.Serializer):
     filters = serializers.ListField(
         child=serializers.DictField(),
@@ -1956,10 +1959,27 @@ class HogFlowConversionSerializer(serializers.Serializer):
         required=False,
         help_text="Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}].",
     )
+    window = serializers.RegexField(
+        regex=DURATION_PATTERN,
+        # A real window is a handful of characters ('365d', '31536000s'); the cap keeps the regex and the
+        # float parse off arbitrarily long input and flows a bound into the generated client schemas.
+        max_length=32,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "How long after entering the workflow a conversion still counts, as a duration string: "
+            "'7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. "
+            "Omit it to use the default window. Set this or 'window_minutes', not both."
+        ),
+    )
     window_minutes = serializers.IntegerField(
         required=False,
         allow_null=True,
-        help_text="Conversion window in minutes after a person enters the workflow. null = no explicit window.",
+        help_text=(
+            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a "
+            "person enters the workflow. Maximum 129600 (90 days). null = use the default window. "
+            "Set this or 'window', not both."
+        ),
     )
     # Not DRF read_only: drf-spectacular puts readOnly fields in the component's `required` list
     # (shared by request and response schemas), which would make generated write schemas demand a
@@ -1968,6 +1988,48 @@ class HogFlowConversionSerializer(serializers.Serializer):
     bytecode = serializers.JSONField(
         required=False, allow_null=True, help_text="Compiled server-side from 'filters'. Do not set; ignored if sent."
     )
+
+    def validate_window(self, value: str | None) -> str | None:
+        if value is None:
+            return value
+        minutes = duration_minutes(value)
+        # A zero window measures nothing. The worker cannot honor it either, so it would fall back to
+        # the default and give the workflow a 90-day window nobody asked for.
+        if minutes is None or minutes <= 0:
+            raise serializers.ValidationError("The conversion window must be longer than zero.")
+        if minutes > MAX_CONVERSION_WINDOW_MINUTES:
+            raise serializers.ValidationError("The conversion window cannot be longer than 365d.")
+        return value
+
+    def _stored_window_minutes(self) -> int | None:
+        # The value this workflow already holds, or None on create. `conversion` is nested only under
+        # HogFlowSerializer, so self.root.instance is the HogFlow being updated.
+        stored = getattr(self.root.instance, "conversion", None)
+        if isinstance(stored, dict):
+            return stored.get("window_minutes")
+        return None
+
+    def validate_window_minutes(self, value: int | None) -> int | None:
+        if value is None:
+            return value
+        # Grandfather an over-ceiling value the row already holds. The builder resends the whole
+        # conversion on every save, so a plain value ceiling would 400 an unrelated edit (a rename or a
+        # step change) on a workflow that predates the ceiling, naming a field the builder cannot show.
+        # Reject the value only when this write introduces or changes it.
+        if value > MAX_LEGACY_WINDOW_MINUTES and value != self._stored_window_minutes():
+            # Almost every value this large is a second count in a field that takes minutes, so name the
+            # unit and show what the number means rather than silently shortening it.
+            raise serializers.ValidationError(
+                f"window_minutes is in minutes, so {value} means {value // 1440} days. "
+                f"The maximum is {MAX_LEGACY_WINDOW_MINUTES}. Use 'window' with a duration string "
+                f"such as '7d' instead."
+            )
+        return value
+
+    def validate(self, data: dict) -> dict:
+        if data.get("window") is not None and data.get("window_minutes") is not None:
+            raise serializers.ValidationError("Set either 'window' or the deprecated 'window_minutes', not both.")
+        return data
 
     def to_internal_value(self, data):
         # bytecode is server-computed; never trust a client-supplied value (the matcher executes it).
@@ -2373,17 +2435,10 @@ def _fetch_isp_metrics(team_id: int, window_days: int, domains: list[str]) -> li
             "emails_sent": row.emails_sent,
             "delivery_rate": row.delivery_rate,
             "bounce_rate": row.bounce_rate,
+            "transient_bounce_rate": row.transient_bounce_rate,
             "complaint_rate": row.complaint_rate,
+            "complaint_base": row.complaint_base,
             "unavailable": list(row.unavailable),
-            "daily": [
-                {
-                    "date": point.date,
-                    "emails_sent": point.emails_sent,
-                    "delivery_rate": point.delivery_rate,
-                    "bounce_rate": point.bounce_rate,
-                }
-                for point in row.daily
-            ],
         }
         for row in rows
     ]
@@ -2492,19 +2547,6 @@ class AwsTenantReputationSerializer(serializers.Serializer):
     )
 
 
-class IspDailyPointSerializer(serializers.Serializer):
-    """One bucket of a provider's sending history."""
-
-    date = serializers.CharField(read_only=True, help_text="Bucket date, as an ISO 8601 calendar date.")
-    emails_sent = serializers.IntegerField(read_only=True, help_text="Emails sent to this provider on this date.")
-    delivery_rate = serializers.FloatField(
-        read_only=True, help_text="Emails this provider accepted on this date, divided by emails sent to it (0-1)."
-    )
-    bounce_rate = serializers.FloatField(
-        read_only=True, help_text="Hard bounces at this provider on this date, divided by emails sent to it (0-1)."
-    )
-
-
 class IspSendingHealthSerializer(serializers.Serializer):
     """How one mailbox provider treated this project's email, from AWS SES's own delivery data."""
 
@@ -2530,6 +2572,16 @@ class IspSendingHealthSerializer(serializers.Serializer):
             "when the underlying metric could not be loaded from AWS."
         ),
     )
+    transient_bounce_rate = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Soft (transient) bounces at this provider, divided by emails sent to it (0-1). These "
+            "are deferrals the provider may accept on a retry, such as a full mailbox, greylisting "
+            "or rate limiting, so they are counted apart from permanent bounces. Null when the "
+            "underlying metric could not be loaded from AWS."
+        ),
+    )
     complaint_rate = serializers.FloatField(
         read_only=True,
         allow_null=True,
@@ -2539,20 +2591,21 @@ class IspSendingHealthSerializer(serializers.Serializer):
             "or nothing was delivered — and also when the metric could not be loaded from AWS."
         ),
     )
+    complaint_base = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Deliveries the provider reports complaints for, which is what `complaint_rate` "
+            "divides by. Far smaller than `emails_sent`, so a caller deciding whether the rate "
+            "rests on enough volume has to weigh it against this. Zero when there is no base."
+        ),
+    )
     unavailable = serializers.ListField(
         child=serializers.CharField(),
         read_only=True,
         help_text=(
-            "Rates AWS did not return for this provider, from `delivery`, `bounce` and `complaint`. "
+            "Rates AWS did not return for this provider, from `delivery`, `bounce`, "
+            "`transient_bounce` and `complaint`. "
             "A rate named here is missing, not zero, and the UI says so rather than showing a number."
-        ),
-    )
-    daily = IspDailyPointSerializer(
-        many=True,
-        read_only=True,
-        help_text=(
-            "Sending history for this provider, oldest first, so a drop can be dated rather than "
-            "averaged into the window. Dates this provider received nothing are omitted."
         ),
     )
 
@@ -2819,7 +2872,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         allow_null=True,
         help_text=(
             "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; "
-            "events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. "
+            "events: event-based goals [{filters: {events: [...]}}]; "
+            "window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', "
+            "maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. "
             "Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. "
             "bytecode compiled server-side."
         ),
@@ -3758,6 +3813,9 @@ def mint_audience_confirm_token(
     )
 
 
+WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogFlowSerializer.Meta.read_only_fields)
+
+
 @extend_schema(extensions={"x-product": "workflows"})
 @extend_schema_view(
     list=extend_schema(
@@ -3775,8 +3833,8 @@ def mint_audience_confirm_token(
             OpenApiParameter(
                 "type",
                 OpenApiTypes.STR,
-                enum=["messaging", "automation"],
-                description="Filter by workflow type. `messaging` returns workflows with an email, SMS, or push action; `automation` returns the rest.",
+                enum=["messaging", "automation", "loop"],
+                description="Filter by workflow type. `loop` returns workflows owned by a Desktop loop; `messaging` returns the remaining workflows with an email, SMS, or push action; `automation` returns the rest.",
             ),
             OpenApiParameter(
                 "origin_product",
@@ -3932,14 +3990,21 @@ class HogFlowViewSet(
 
             workflow_type = self.request.GET.get("type")
             if workflow_type:
-                if workflow_type not in ("messaging", "automation"):
-                    raise exceptions.ValidationError({"type": "Must be one of: messaging, automation"})
-                messaging_q = Q()
-                for action_type in MESSAGING_ACTION_TYPES:
-                    messaging_q |= Q(actions__contains=[{"type": action_type}])
-                queryset = (
-                    queryset.filter(messaging_q) if workflow_type == "messaging" else queryset.exclude(messaging_q)
-                )
+                if workflow_type not in ("messaging", "automation", "loop"):
+                    raise exceptions.ValidationError({"type": "Must be one of: messaging, automation, loop"})
+                if workflow_type == "loop":
+                    queryset = queryset.filter(origin_product=HogFlow.OriginProduct.LOOPS)
+                else:
+                    # A loop-origin workflow renders a "Loop" tag regardless of its actions (see
+                    # WorkflowTypeTag), so it must not also match messaging/automation - otherwise
+                    # picking one of those filters could return rows the UI still labels "Loop".
+                    messaging_q = Q()
+                    for action_type in MESSAGING_ACTION_TYPES:
+                        messaging_q |= Q(actions__contains=[{"type": action_type}])
+                    queryset = queryset.exclude(origin_product=HogFlow.OriginProduct.LOOPS)
+                    queryset = (
+                        queryset.filter(messaging_q) if workflow_type == "messaging" else queryset.exclude(messaging_q)
+                    )
 
             origin_product = self.request.GET.get("origin_product")
             if origin_product:
@@ -4203,6 +4268,24 @@ class HogFlowViewSet(
             guard_timestamp = before_update.updated_at if before_update else None
             if route_to_draft and before_update and before_update.draft_updated_at:
                 guard_timestamp = before_update.draft_updated_at
+            # The web builder sends "includes_staged_draft" (raw body, like "stage_draft") when a save on
+            # a non-active workflow carries the staged draft merged into it. The draft is only cleared on
+            # that explicit signal, so an API caller that resends live content never loses a draft.
+            clears_staged_draft = (
+                not route_to_draft
+                and before_update is not None
+                and before_update.status != HogFlow.State.ACTIVE
+                and before_update.draft is not None
+                and bool(self.request.data.get("includes_staged_draft"))
+                and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys()
+            )
+            if clears_staged_draft:
+                assert before_update is not None
+                # A revision restore writes the draft without moving the live stamp, so fence on the newer one.
+                if before_update.draft_updated_at and (
+                    guard_timestamp is None or before_update.draft_updated_at > guard_timestamp
+                ):
+                    guard_timestamp = before_update.draft_updated_at
             if base_updated_at and guard_timestamp and guard_timestamp > base_updated_at:
                 raise StaleWorkflowUpdateError()
 
@@ -4238,7 +4321,10 @@ class HogFlowViewSet(
                         serializer.instance, before_update, serializer.validated_data.get("actions")
                     )
                     bump = self._stage_revision_bump(serializer.instance, before_update, serializer.validated_data)
-                serializer.save()
+                if clears_staged_draft:
+                    serializer.save(draft=None, draft_updated_at=None, draft_encrypted_inputs=None)
+                else:
+                    serializer.save()
                 if bump:
                     assert before_update is not None
                     self._append_revisions(serializer.instance, before_update)

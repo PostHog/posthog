@@ -76,6 +76,11 @@ tools:
             priority, repo_selection, suggested_reviewers — the newest row of each status type is the canonical status),
             and work-log entries (code references, commits, task runs, notes). Read this before re-judging a status or
             adding to the log.
+        agent_note: >
+            Find the newest applicable `## Verification plan`. Treat it as guidance, not evidence. Confirm the current
+            state before work and the outcome after the chosen resolution. Missing or inconclusive evidence does not
+            show resolution. If the issue no longer occurs, record the result and reassess the report. If no plan
+            applies, verify the issue from the report's evidence.
     inbox-report-artefacts-retrieve:
         operation: signals_report_artefacts_retrieve
         enabled: true
@@ -258,6 +263,9 @@ tools:
             identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership
             from another actor requires `takeover=true`.
 
+            Before work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current
+            state before work and the outcome after the chosen resolution.
+
             If you create a pull request implementing the remediation, call inbox-reports-claim with the returned
             `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and
             cross-repository changes. Release the claim if you stop work without completing the report. If the report
@@ -407,6 +415,26 @@ tools:
             Replace an existing signal source config by ID (full update — `source_product` and `source_type` are
             required; `enabled` and `config` are optional and keep their current values if omitted). Prefer
             `inbox-source-configs-partial-update` when you only need to flip `enabled` or tweak `config`.
+    scout-check-record-result:
+        operation: signals_scout_record_check_result
+        enabled: true
+        scopes:
+            - signal_scout_internal:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Record the verdict on a report check
+        description: >
+            Close the follow-up check your run was dispatched to answer, and only that check. A report check says what
+            had to stay true after the report was acted on; your run note carries its `check_id` and what to establish.
+            Pass the `run_id`, the `check_id`, an `outcome` of `passed` (it still holds), `failed` (it does not), or
+            `errored` (you could not settle it either way), and an `explanation` a person reading the report will
+            understand. The verdict lands on the report as a `check_result` entry in the inbox. Record what you
+            established rather than what closes the loop: `failed` retires the check, `passed` re-arms a recurring one,
+            and `errored` retries it. Nothing else closes a check, so a run that investigates and never calls this
+            leaves the report with an unanswered follow-up. The call is refused for a check dispatched to another scout,
+            one no run is waiting on, and one the coordinator measures itself.
     scout-config-create:
         operation: signals_scout_config_create
         enabled: true
@@ -449,7 +477,8 @@ tools:
             the coordinator's next tick. A scout under any other name does not come back on its own: its config stays
             deleted until you re-register it with `scout-config-create`, and its skill still reads as a scout meanwhile.
             To retire a live scout, archive its skill (or set `enabled=false` via `scout-config-update` to make it
-            inert) rather than deleting the config.
+            inert) rather than deleting the config. A scout whose `scout_role` is `operational` cannot be deleted at
+            all: it is part of the self-driving system rather than the project's own fleet.
     scout-config-list:
         operation: signals_scout_config_list
         enabled: true
@@ -462,12 +491,14 @@ tools:
         list: true
         title: List scout configs
         description: >
-            List the per-scout configs for this project. Each scout has one row with its schedule (rolling
-            `run_interval_minutes`, or a project-local cron `run_cron_schedule` when set), `enabled` flag, and `emit`
-            (dry-run) posture, and output destinations. A freshly authored scout appears once its config is registered:
-            immediately via `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or on the
-            coordinator's next tick. Use this to see which scouts run, how often, whether they emit findings to the
-            inbox, and where those findings are delivered. Pair with `scout-config-update` to tune them.
+            List the per-scout configs for this project. Each scout has one row with the `display_name` people read, the
+            `skill_name` that is its permanent identity, its schedule (rolling `run_interval_minutes`, or a
+            project-local cron `run_cron_schedule` when set), `enabled` flag, and `emit` (dry-run) posture, and output
+            destinations. A freshly authored scout appears once its config is registered: immediately via
+            `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or on the coordinator's next
+            tick. Use this to see which scouts run, how often, whether they emit findings to the inbox, and where those
+            findings are delivered. Pass `search` to narrow the list to the scouts matching a substring of either name.
+            Pair with `scout-config-update` to tune them.
     scout-config-sync:
         operation: signals_scout_config_sync
         enabled: true
@@ -517,13 +548,16 @@ tools:
             idempotent: true
         title: Create a scout
         description: >
-            Create a custom scout skill and its runnable config in one atomic call. Any valid skill name works and the
+            Create a custom scout skill and its runnable config in one atomic call. Give it a `display_name`, the label
+            people read, kept exactly as written, and the server generates the scout's permanent skill name from it,
+            adding a numeric suffix when that name is taken, so two scouts may share a label without sharing an
+            identity. Pass `name` instead to choose that identifier yourself; any valid skill name works and the
             `signals-scout-` prefix is optional. Pass the complete markdown prompt in `body`; include project-specific
             event or signal names, thresholds, investigation steps, and report criteria there. The server always grants
             the report-channel tools. Optional `files` bundle reference material, while `config` controls the rolling or
             cron schedule, enabled and dry-run posture, and typed output destinations such as Slack (a channel to post
             into, or users to DM directly). Repeating the same definition is safe and applies any supplied config
-            fields. Reusing the name for a different definition returns a conflict.
+            fields. Reusing an explicit `name` for a different definition returns a conflict.
         exclude_params:
             - suggestion_id
     scout-edit-report:
@@ -610,6 +644,29 @@ tools:
             `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with
             the same `finding_id` emits a second signal, so emit each finding exactly once and never retry an emit.
             Findings should carry `tags` — see the `tags` param for the slug and taxonomy convention.
+    scout-lighthouse-audit:
+        operation: signals_scout_lighthouse_audit
+        enabled: true
+        scopes:
+            - signal_scout_internal:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Run a Lighthouse audit for a run
+        description: >
+            Load one page in a real browser and get back what makes it slow: the lab metrics (LCP, FCP, CLS, TBT), the
+            element the browser chose as the Largest Contentful Paint, where the LCP time went phase by phase, and the
+            ranked savings estimates. Use it to name the cause behind a field finding — `$web_vitals` events say a route
+            is slow and for how many people, but never which element was late or why. Pass the `run_id`, a `url`, and
+            optionally `form_factor` (`desktop` or `mobile`, matching whichever field data you are explaining).
+            Restricted to an allowlist of public PostHog pages: the browser signs in to nothing, so a page behind a
+            login would measure the login screen and report its numbers as the page's, and a url that redirects off the
+            allowlist is rejected for the same reason. One throttled cold load is not a p75 over real users — cite it as
+            the explanation for a field finding, never as the evidence that a problem exists. Capped at 5 audits per
+            run. A rejected call (bad host, not https, audits not enabled here) costs nothing, but once the page loads
+            the slot is spent whatever the result — so pick the page before calling. Every error message ends with how
+            many audits the run has left, which tells a rejection apart from an exhausted budget.
     scout-members-list:
         operation: signals_scout_members_list
         enabled: true
@@ -733,9 +790,13 @@ tools:
             enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the
             newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after
             `skill-get`) to orient on the team in one tool call instead of paginating through
-            `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `advanced-activity-logs-list`.
-            Distinct from `scout-scratchpad-search`: profile is ground truth from authoritative tables; scratchpad is
-            the scout's inferred learnings.
+            `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `advanced-activity-logs-list`. The
+            response opens with a compact `summary` envelope holding `emit_eligibility` (the gate deciding whether
+            anything you emit reaches the inbox, with a one-line `remediation`) and the inbox report counts, then the
+            full `payload.inventory`. Read the gate from `summary`, not from deep inside `payload`, because the
+            inventory runs to tens of kilobytes and can be cut off before you reach it. Pass `summary_only=true` when
+            you want the gate and the counts without the inventory. Distinct from `scout-scratchpad-search`: profile is
+            ground truth from authoritative tables; scratchpad is the scout's inferred learnings.
     scout-record-output:
         operation: signals_scout_record_output
         enabled: true
@@ -945,6 +1006,18 @@ tools:
             returning every entry's full prose. Results capped at 1000.
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff
+        enabled: false
+    signals-report-checks-create:
+        operation: signals_report_checks_create
+        enabled: false
+    signals-report-checks-destroy:
+        operation: signals_report_checks_destroy
+        enabled: false
+    signals-report-checks-list:
+        operation: signals_report_checks_list
+        enabled: false
+    signals-report-checks-retrieve:
+        operation: signals_report_checks_retrieve
         enabled: false
     signals-report-pr-checks:
         operation: signals_report_pr_checks

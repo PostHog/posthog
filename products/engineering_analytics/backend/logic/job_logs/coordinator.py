@@ -1,4 +1,4 @@
-"""Find recently-failed CI jobs and fan out one idempotent log-fetch workflow per job.
+"""Find failed CI jobs and jobs recovered by pytest retries, then fetch their diagnostic logs.
 
 Per-job workflow id (``gh-logs-{team}-{job}``, reuse ``ALLOW_DUPLICATE_FAILED_ONLY``) means each
 job's log is fetched and emitted at most once, re-running only after a failed attempt.
@@ -52,7 +52,7 @@ _PREFIX = re.compile(r"^[A-Za-z0-9_]*$")  # warehouse source prefixes; guards th
 MAX_DISCOVERED_JOBS = 2000
 
 
-def _query_failed_jobs(team: Team, prefix: str, cutoff_iso: str) -> list[dict[str, Any]]:
+def _query_failed_jobs(team: Team, prefix: str, cutoff_iso: str, repo: str) -> list[dict[str, Any]]:
     # Window on completed_at (when the job finished), not created_at: a queued or long-running job
     # can be created well before it fails, and a created_at window would miss it. completed_at is an
     # ISO-8601 string and is always set for a failed (completed) job, so a lexical comparison against
@@ -64,17 +64,39 @@ def _query_failed_jobs(team: Team, prefix: str, cutoff_iso: str) -> list[dict[st
     # ranks every tick (dedup happens later, at child-workflow start), so a job pushed below the
     # limit can never rise back into view and would be silently dropped. Matches
     # MAX_DISCOVERED_JOBS; the high-water-mark cursor (deferred) removes the cap concern entirely.
+    # Run, attempt, and runner restrict successful-job downloads to runners with retry evidence.
     sql = f"""
         SELECT id AS job_id, run_id, head_branch AS branch, conclusion,
                name AS job_name, workflow_name, run_attempt, head_sha
         FROM {table}
-        WHERE conclusion = 'failure' AND completed_at > {{cutoff}}
+        WHERE completed_at > {{cutoff}} AND (
+            conclusion = 'failure'
+            OR (
+                conclusion = 'success'
+                AND (toString(run_id), toString(run_attempt), runner_name) IN (
+                    SELECT resource_attributes['ci.run_id'], resource_attributes['ci.run_attempt'],
+                           attributes['test.runner_name']
+                    FROM posthog.trace_spans
+                    WHERE service_name = 'ci-backend'
+                      AND lower(resource_attributes['ci.repository']) = lower({{repo}})
+                      AND timestamp >= (
+                          SELECT min(parseDateTimeBestEffort(started_at))
+                          FROM {table}
+                          WHERE completed_at > {{cutoff}} AND conclusion = 'success'
+                      )
+                      AND attributes['test.outcome'] = 'rerun_passed'
+                      AND notEmpty(coalesce(attributes['test.runner_name'], ''))
+                )
+            )
+        )
         ORDER BY completed_at DESC
         LIMIT {MAX_DISCOVERED_JOBS}
     """
     with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=team.pk):
         response = execute_hogql_query(
-            query=parse_select(sql, placeholders={"cutoff": ast.Constant(value=cutoff_iso)}),
+            query=parse_select(
+                sql, placeholders={"cutoff": ast.Constant(value=cutoff_iso), "repo": ast.Constant(value=repo)}
+            ),
             team=team,
             query_type="GithubJobLogsDiscovery",
             # Trusted internal sweep with no request user: without this, HogQL's access-control build
@@ -137,7 +159,7 @@ def _discover_failed_jobs(cutoff_iso: str) -> list[dict[str, Any]]:
         try:
             # Row handling stays inside the try so a single bad row (e.g. a null job_id) skips this
             # source rather than failing discovery for every team.
-            for row in _query_failed_jobs(source.team, prefix, cutoff_iso):
+            for row in _query_failed_jobs(source.team, prefix, cutoff_iso, repo):
                 job_id = row.get("job_id")
                 if job_id is None:
                     continue
@@ -187,7 +209,7 @@ def _discover_failed_jobs(cutoff_iso: str) -> list[dict[str, Any]]:
 
 @activity.defn
 async def discover_failed_jobs_activity(cutoff_iso: str) -> list[dict[str, Any]]:
-    """Failed CI jobs across teams with a connected GitHub source, as FetchJobLogInputs dicts."""
+    """Failed or retry-recovered CI jobs with a connected GitHub source, as FetchJobLogInputs dicts."""
     return await database_sync_to_async(_discover_failed_jobs, thread_sensitive=False)(cutoff_iso)
 
 

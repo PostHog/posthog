@@ -721,7 +721,6 @@
     'get_next_by_updated_at',
     'get_previous_by_created_at',
     'get_previous_by_updated_at',
-    'get_stats_config',
     'get_status_display',
     'get_type_display',
     'holdout_id',
@@ -737,6 +736,7 @@
     'start_date',
     'status',
     'status_label',
+    'tagged_items',
     'team_id',
     'updated_at',
   ])
@@ -820,6 +820,7 @@
     '__module__',
     '__static_attributes__',
     '__str__',
+    '_activity_trigger',
     '_evaluation_tag_names',
     '_has_experiment',
     '_meta',

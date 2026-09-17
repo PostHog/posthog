@@ -459,20 +459,21 @@ An **append-only, attributed, schema-validated log of the work done on a report*
 
 **Artefact types** (`SignalReportArtefact.ArtefactType` enum):
 
-| Type                     | Content                                                                                                                                                                                                    |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `video_segment`          | Video segment data from session clustering                                                                                                                                                                 |
-| `safety_judgment`        | `{"choice": bool, "explanation": "..."}` — true = safe                                                                                                                                                     |
-| `actionability_judgment` | `{"actionability": "immediately_actionable" \| "requires_human_input" \| "not_actionable", "explanation": "...", "already_addressed": bool}`                                                               |
-| `priority_judgment`      | `{"priority": "P0"\|"P1"\|"P2"\|"P3"\|"P4", "explanation": "..."}`                                                                                                                                         |
-| `signal_finding`         | `{"signal_id": "...", "relevant_code_paths": [...], "relevant_commit_hashes": {"abc1234": "reason"}, "data_queried": "...", "verified": bool}`                                                             |
-| `repo_selection`         | `{"repository": "owner/repo" \| null, "reason": "...", "task_id"?: "..."}`                                                                                                                                 |
-| `suggested_reviewers`    | `[{"github_login": "...", "github_name": "...", "relevant_commits": [...]}]` — enriched with current PostHog user data at serializer read time                                                             |
-| `dismissal`              | `{"reason"?, "note"?, "selected_repository"?, "corrected_repository"?, "user_id"?, "user_uuid"?, "slack_user_id"?}` — stacking dismissal entries; the repository fields are set on `wrong_repo` dismissals |
-| `code_reference`         | `{"file_path": "...", "start_line": int, "end_line": int, "contents": "...", "relevance_note": "..."}` — a span of source lines (single line = equal start/end)                                            |
-| `commit`                 | `{"repository": "owner/repo", "branch": "...", "commit_sha": "...", "message": "...", "note"?: "..."}` — one pushed commit                                                                                 |
-| `task_run`               | `{"task_id": "...", "run_id"?: "...", "product": "...", "type": "..."}` — a task run associated with the report (see below)                                                                                |
-| `note`                   | `{"note": "...", "author"?: "..."}` — free-form note (markdown allowed)                                                                                                                                    |
+| Type                     | Content                                                                                                                                                                                                         |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `video_segment`          | Video segment data from session clustering                                                                                                                                                                      |
+| `safety_judgment`        | `{"choice": bool, "explanation": "..."}` — true = safe                                                                                                                                                          |
+| `actionability_judgment` | `{"actionability": "immediately_actionable" \| "requires_human_input" \| "not_actionable", "explanation": "...", "already_addressed": bool}`                                                                    |
+| `priority_judgment`      | `{"priority": "P0"\|"P1"\|"P2"\|"P3"\|"P4", "explanation": "..."}`                                                                                                                                              |
+| `signal_finding`         | `{"signal_id": "...", "relevant_code_paths": [...], "relevant_commit_hashes": {"abc1234": "reason"}, "data_queried": "...", "verified": bool}`                                                                  |
+| `repo_selection`         | `{"repository": "owner/repo" \| null, "reason": "...", "task_id"?: "..."}`                                                                                                                                      |
+| `suggested_reviewers`    | `[{"github_login": "...", "github_name": "...", "relevant_commits": [...]}]` — enriched with current PostHog user data at serializer read time                                                                  |
+| `dismissal`              | `{"reason"?, "note"?, "selected_repository"?, "corrected_repository"?, "user_id"?, "user_uuid"?, "slack_user_id"?}` — stacking dismissal entries; the repository fields are set on `wrong_repo` dismissals      |
+| `code_reference`         | `{"file_path": "...", "start_line": int, "end_line": int, "contents": "...", "relevance_note": "..."}` — a span of source lines (single line = equal start/end)                                                 |
+| `commit`                 | `{"repository": "owner/repo", "branch": "...", "commit_sha": "...", "message": "...", "note"?: "..."}` — one pushed commit                                                                                      |
+| `task_run`               | `{"task_id": "...", "run_id"?: "...", "product": "...", "type": "..."}` — a task run associated with the report (see below)                                                                                     |
+| `note`                   | `{"note": "...", "author"?: "..."}` — free-form note (markdown allowed)                                                                                                                                         |
+| `check_result`           | `{"check_id": "...", "kind": "...", "title": "...", "outcome": "passed"\|"failed"\|"errored", "explanation": "...", "observed_value"?, "baseline_value"?, "threshold"?, "run_id"?}` — one run of a report check |
 
 **Content schemas.** `artefact_schemas.py` is the canonical, pydantic-only home of every content shape, collected in `ARTEFACT_CONTENT_SCHEMAS` (one model per type; a test asserts exact coverage). Raw payloads become typed models once, at the boundaries (`parse_artefact_content`); the model helpers derive a row's type from the content model's class (`artefact_type_for`), so a type can never mismatch its content. `repo_selection` reuses the tasks product's `RepoSelectionResult` DTO directly (kept in the dependency-light leaf module `repo_selection/types.py` so importing the schema registry doesn't pull in the sandbox runtime). Reads of legacy rows stay tolerant — parse failures are skipped or degraded, never raised.
 
@@ -484,7 +485,23 @@ An **append-only, attributed, schema-validated log of the work done on a report*
 
 Scouts write them via `charts` on `emit_report` / `edit_report`. On an edit `charts` is the report's whole set — it replaces what was there, the way `summary` replaces the summary. Omitting the field (or sending null) leaves the existing charts alone; an explicit empty list clears them, so a scout can retract a chart its finding has outgrown rather than only ever swap one for another. On the emit path the safety judge sees a report's chart titles, captions, and queries alongside its prose, so an injected chart is suppressed with the report. The edit path judges nothing today — not title, summary, notes, reviewers, or charts — so a chart set by a later edit reaches the reader unscreened, exactly as an edited summary does.
 
-The main **agentic research pipeline** authors charts too, so every signal source that funnels through it (not just scouts) can produce a visual report. The research agent's presentation step (`report_generation/research.py`) returns `charts` alongside the title and summary; the caller activity (`temporal/agentic/report.py`) replaces `SignalReport.charts` with them, and a re-research is shown the report's current charts to keep, refresh, or drop. It is gated per team by the `signals-report-charts` flag (`_team_report_charts_enabled`, on in DEBUG) so it ships dark on the fleet-wide path. Unlike the scout emit path, these charts are **not** safety-judged: the pipeline judge screens the input signals before research runs, so it never sees research-authored charts — the same as it never sees the research-authored title/summary, which are agent output from already-screened signals.
+The main **agentic research pipeline** authors charts too, so every signal source that funnels through it (not just scouts) can produce a visual report. The research agent's presentation step (`report_generation/research.py`) returns `charts` alongside the title and summary; the caller activity (`temporal/agentic/report.py`) replaces `SignalReport.charts` with them, and a re-research is shown the report's current charts to keep, refresh, or drop. Unlike the scout emit path, these charts are **not** safety-judged: the pipeline judge screens the input signals before research runs, so it never sees research-authored charts — the same as it never sees the research-authored title/summary, which are agent output from already-screened signals.
+
+**Report checks.** `SignalReportCheck` is the report's only forward-looking row: a title, a rationale, a kind-specific config, and the time to evaluate it. Everything else on a report describes what was already observed, so a claim that stopped holding was only ever found by a person going back to look. A check turns that into a scheduled measurement whose verdict lands in the artefact log as a `check_result`.
+
+The schedule is the check's own clock (`next_run_at`, optional `run_interval_minutes`, `runs_remaining`, `expires_at`), not something derived from a merged pull request: many fixes land in the skills store with no pull request to date a soak window from. Bounds live in `report_checks.py` — at most 5 active checks per report, a 90-day horizon, a 6-hour interval floor, at most 10 runs, and a 30-day default expiry after the last scheduled run. Terminal statuses (`passed`, `failed`, `errored`, `expired`, `cancelled`) are final, so a stored result always refers to a row whose state explains it; a new expectation is a new check.
+
+`metric_threshold` needs no agent: it measures one bounded live Trends query — either its own or the query behind a `metric_id` the report already shows — and compares the result. The query rides `report_metrics.validate_live_metric_query`, so a check inherits the metric contract's node allowlist, relative window, and single-output-series rule. The comparison is the alerts product's `evaluate_threshold`, which is why the operators are `lte`, `gte`, and `between`: those map exactly onto the alerts bounds, and strict operators would mean a second comparison engine for a distinction a soak does not make.
+
+`agent` is the kind for a claim no single number settles, which is most of the inbox: "did the exception stop?" needs the issue looked up and its recent events read rather than a threshold compared. Its config is `{instructions, skill_name?, probe_hints}`, all of it untrusted prompt material. `report_check_agent.py` owns the lane. A due check is dispatched as a scout run with `triggered_by="check"` — a fourth dispatch source next to `schedule` / `manual` / `workflow`, so it shares the fleet, spend, and single-flight gates in `run_gates.py` but stamps no `last_run_at` and never feeds the failure-streak breaker, whose threshold is sized on the scout's own cadence. The run note carries the check id, title, rationale, instructions, probe hints, the report, and the note whoever resolved or dismissed it typed; the prompt renders it as the run's assignment (`prompt._CHECK_NOTE_TEMPLATE`) rather than as the nudge a manual run's note is.
+
+Most reports are pipeline-authored and have no scout behind them, so `skill_name` is optional: a check that names none runs on `signals-scout-inbox-validation`, the fleet's follow-up scout, which is an operational scout and so is seeded enabled on every enrolled team. When the lane genuinely cannot run — the project is not enrolled, a person paused the scout, the skill is withheld or gone — the check records an `errored` result naming the reason, so a reader finds out on the report rather than waiting out a silent horizon. A refusal that clears on its own (a run of the same scout in flight, a daily run budget, a spend gate) defers the check by an hour instead, spending no error.
+
+A dispatch is not a verdict. The row stays `active` with `dispatched_at` stamped, and only `scout-check-record-result` (`scout_harness/tools/checks.py`) closes it. A run may close only a check its own lane was dispatched for and that is still waiting on a dispatch, so the tool can answer the question the run was asked and nothing else. A run that ends without calling it leaves `dispatched_at` set, and the first tick past `AGENT_CHECK_RESULT_WINDOW` records an errored result saying so.
+
+Execution rides the scout coordinator tick (`run_due_signal_report_checks_activity`, gated behind a `workflow.patched` marker). Each tick expires what timed out, then advances the due rows by one step, capped per tick and per team. A pass on a recurring check re-arms it anchored on `now` so an outage cannot owe a burst of catch-up runs; a breach retires the check as `failed`; a run that cannot be measured retries and only retires after three consecutive errors. A check stops running while its report is suppressed or soft-deleted and runs again when the report comes back, but its horizon keeps advancing, so one that outlives `expires_at` while paused expires. A check that names a report metric stores a copy of that metric's query at creation, so a later edit to the metric does not change what the check measures. Both kinds are written through one funnel (`record_check_verdict`) that re-reads the row under a lock, so a check cancelled while its run was working records nothing.
+
+Checks are created and cancelled through `SignalReportCheckViewSet` (`/signals/reports/:id/checks/`, `task:write`, same attribution as artefact writes). There is no update: editing a threshold after a result would make the recorded verdict unreadable.
 
 **Report metrics.** `SignalReport.metrics` is typed report content, not an artefact log or a materialized time series. Its dependency-light schema lives in `report_metrics.py` (`ReportMetric`). Each entry has a stable id, title, semantic kind, role, display format, a required bounded live query, and an optional cached snapshot. Legacy comparison data stays compatible in storage but is not exposed as a live comparison. A report accepts at most six metrics, at most one primary metric, and at most one `affected_users` metric.
 
@@ -496,7 +513,7 @@ Snapshots are materialized without a requesting user under the team's default pr
 
 Opening a report detail mounts every metric through the normal frontend Query path, so execution and caching follow the same query service used by insights. Consumers derive separate `BoldNumber` aggregate and `ActionsBar` longitudinal requests from each stored definition. If a query fails, the detail can show the latest cached snapshot instead. Longitudinal points remain in the analytics engine rather than being copied into a second time-series table.
 
-Agentic research writes metrics atomically with the matching title, summary, and charts. Its independent organization-level rollout uses `signals-report-metrics` (`_team_report_metrics_enabled`, on in DEBUG), rather than inheriting chart eligibility. While report metrics are enabled, the research output is the report's whole metric set: a nonempty list replaces the old set and an empty list clears it. Re-research receives the current set so it can repeat the metrics that remain valid. `None` is reserved for the feature-disabled or older-workflow replay path and preserves the stored set. Scouts set the initial whole set through `emit_report`. On `edit_report`, omitting `metrics` or sending null preserves the set, an empty list clears it, and a supplied list replaces it. A metrics-only edit changes Inbox content but does not redeliver the report to Slack.
+Agentic research writes metrics atomically with the matching title, summary, and charts. Its independent organization-level rollout uses `signals-report-metrics` (`team_report_metrics_enabled` in `report_content_gates.py`, on in DEBUG), rather than inheriting chart eligibility. While report metrics are enabled, the research output is the report's whole metric set: a nonempty list replaces the old set and an empty list clears it. Re-research receives the current set so it can repeat the metrics that remain valid. `None` is reserved for the feature-disabled or older-workflow replay path and preserves the stored set. Scouts set the initial whole set through `emit_report`. On `edit_report`, omitting `metrics` or sending null preserves the set, an empty list clears it, and a supplied list replaces it. Both scout write paths read the same rollout flag. While it is off, a supplied set is dropped before the safety judge, so nothing is stored and an edit preserves what the report holds. An empty list still clears. A metrics-only edit changes Inbox content but does not redeliver the report to Slack.
 
 **Attribution.** Every write helper (`append_status` / `add_log` / `append_finding` / `append_dismissal`) requires an `ArtefactAttribution` — exactly one of `from_user(user_id)` / `from_task(task_id)` / `system()` — so no write site can silently skip it. Agent writes are attributed deterministically: sandbox provisioning bakes the agent's task id into an `X-PostHog-Task-Id` header on its MCP config, forwarded by the MCP server on every API call; the LLM never handles its own task id. The header is attribution metadata, not an authorization boundary (the token is team-scoped and the named task must belong to the same team).
 
@@ -532,19 +549,26 @@ Notes:
 
 Per-team singleton config for Signals settings, including the default autonomy priority threshold.
 
-| Field                        | Type            | Description                                                                  |
-| ---------------------------- | --------------- | ---------------------------------------------------------------------------- |
-| `id`                         | UUID (PK)       | Primary key (UUIDModel)                                                      |
-| `team`                       | OneToOne → Team | Owning team (`related_name="signal_team_config"`)                            |
-| `default_autostart_priority` | CharField       | Default severity threshold for auto-start (`P0`–`P4`, where `P0` is highest) |
-| `created_at`                 | DateTime        | Auto-set on creation                                                         |
-| `updated_at`                 | DateTime        | Auto-set on save                                                             |
+| Field                            | Type            | Description                                                                  |
+| -------------------------------- | --------------- | ---------------------------------------------------------------------------- |
+| `id`                             | UUID (PK)       | Primary key (UUIDModel)                                                      |
+| `team`                           | OneToOne → Team | Owning team (`related_name="signal_team_config"`)                            |
+| `default_autostart_priority`     | CharField       | Default severity threshold for auto-start (`P0`–`P4`, where `P0` is highest) |
+| `github_issue_writeback_enabled` | Boolean         | Opt-in public comments on source GitHub issues. Defaults to `false`.         |
+| `created_at`                     | DateTime        | Auto-set on creation                                                         |
+| `updated_at`                     | DateTime        | Auto-set on save                                                             |
 
 Notes:
 
 - Auto-created as a team extension via `register_team_extension_signal`
 - `default_autostart_priority` defaults to `P4` (every report priority auto-starts). The inbox UI exposes it as the "Project threshold" control on the PR generation card.
 - `SignalUserAutonomyConfig.autostart_priority` holds a per-user override (`null` = use the team default). The inbox UI exposes it as the "My threshold" control on the same card, where a "Default" segment maps to `null` and inherits the project threshold.
+- `github_issue_writeback_enabled` adds a report link to each source GitHub issue after the report notification completes. The comment contains no report title or research. The report requires project access.
+- GitHub comments run in a separate Temporal activity on every settle, including settles after the first notification. GitHub failures cannot prevent the report notification.
+- `SignalReportGithubComment` holds one claim per report and issue, with a lowercase repository name. Completed claims prevent repeat comments. Pending claims expire after ten minutes.
+- A later settle checks existing comments for a stable marker before it retries an expired claim. An incomplete comment read leaves the claim pending. GitHub provides no atomic comment idempotency key, so this is best-effort recovery.
+- The worker checks the current issue state immediately before posting. Closed issues, locked issues, and pull requests receive no comment.
+- See [GitHub issue comments](../../docs/internal/signals-github-writeback.md) for recovery limits and diagnostic logs.
 
 ### `SignalUserAutonomyConfig`
 
@@ -710,7 +734,7 @@ Defined in `products/error_tracking/backend/embedding.py`:
 | `product`       | LowCardinality(String) | Product bucket — signals uses `'signals'`                                                                                        |
 | `document_type` | LowCardinality(String) | Document type — `'signal'` for signals, `'report'` for report documents (see below)                                              |
 | `model_name`    | LowCardinality(String) | Embedding model name (e.g., `text-embedding-3-small-1536`)                                                                       |
-| `rendering`     | LowCardinality(String) | How content was rendered — signals use `'plain'`, report documents use `'title_summary_v1'`                                      |
+| `rendering`     | LowCardinality(String) | How content was rendered — signals use `'plain'`, report documents use `'title_summary_v1'` or `'title_v1'`                      |
 | `document_id`   | String                 | Unique signal ID (UUID)                                                                                                          |
 | `timestamp`     | DateTime64(3, 'UTC')   | Document creation time                                                                                                           |
 | `inserted_at`   | DateTime64(3, 'UTC')   | When the embedding was inserted (used for dedup)                                                                                 |
@@ -731,22 +755,37 @@ emit_embedding_request() → Kafka (document_embeddings_input topic)
 
 ### Report Documents
 
-Alongside the per-signal rows, each `SignalReport` gets one embedding of its own: `document_type = 'report'`, `document_id` = the report UUID, content rendered from the report's `title` and `summary`.
-This gives a report a single vector instead of only the cloud of constituent-signal vectors,
-and is the feature-side building block for the inbox ranking model,
+Alongside the per-signal rows, each `SignalReport` is embedded under `document_type = 'report'` with `document_id` = the report UUID.
+A report holds one row per _rendering_ of its text, all on that same `document_id`:
+
+| Rendering          | Content                                   | Emitted when         | Snapshotted by the dataset dag |
+| ------------------ | ----------------------------------------- | -------------------- | ------------------------------ |
+| `title_summary_v1` | Title and summary, joined by a blank line | Either field changes | Yes                            |
+| `title_v1`         | Title alone                               | The title changes    | No                             |
+
+`EMBEDDING_RENDERINGS` in `backend/report_embeddings.py` is the full list. Whoever adds a rendering adds it there, because the retraction path walks it.
+The title-only rendering exists because the title is the only text the inbox shows before someone opens a report,
+so the ranking model can measure what the summary adds to a prediction of an open instead of reading one vector that mixes the two.
+A report with a summary and no title yet holds only the composed document, since there is no title to embed.
+
+These vectors are the feature-side building block for the inbox ranking model,
 whose label stream is the `signal_report_status_changed` event emitted by `backend/receivers.py`.
+The dataset dag selects `title_summary_v1` alone (`dags/inbox_ranking/dataset/dag.py`); `title_v1` gets its own snapshot when the model is ready to compare the two.
 
 Emission lives in `backend/report_embeddings.py`,
 driven by a `post_save` receiver that fires whenever a report's `title` or `summary` actually changes.
 That covers the matcher writing text at creation, the summary workflow on `IN_PROGRESS -> READY`, re-research runs, and the scout channel's `update_authored_content`.
+The unchanged-text shortcut is applied per rendering, so a summary-only edit re-embeds the composed document and skips the title vector it would rewrite identically.
+Coverage of a newly added rendering is forward-only: there is no backfill, so an existing report gains its `title_v1` row when its title next changes.
 Two properties are load-bearing:
 
 - The row's `timestamp` is pinned to the report's `created_at`, never the emission time.
   The table partitions by `toMonday(timestamp)` and orders by `toDate(timestamp)`,
   so a re-emission stamped "now" would land in a different partition and sit alongside the earlier row rather than superseding it.
   The trade-off is that the 3-month TTL runs from report creation, so a report open longer than that loses its vector while still live.
-- `rendering` is versioned (`title_summary_v1`) rather than `'plain'`, because a report document is a composition of fields we expect to extend.
-  Bumping to a v2 lets both compositions coexist and be compared instead of silently replacing each other.
+- `rendering` is versioned rather than `'plain'`, because a report document is a composition of fields we expect to extend.
+  It is part of the table's `ORDER BY`, so several compositions sit in the table at once and can be compared instead of one silently replacing another.
+  `title_v1` and `title_summary_v1` already rely on that, and a later v2 of either works the same way.
 
 Metadata is deliberately limited to `report_id` plus the `deleted` tombstone flag.
 It only refreshes when the report's text changes or the report is deleted, so mutable state (status, priority, `signal_count`) would go stale there.
@@ -759,11 +798,18 @@ Emission is therefore gated on the durable `safety_judgment` artefact: when the 
 That read is pinned to the writer (`using("default")`), because it runs immediately after the transaction that wrote the verdict and `ReplicaRouter` documents replication lag on exactly that pattern.
 
 Withholding new emissions is not sufficient on its own, because a report can be embedded while safe and only later be judged unsafe.
-Three paths therefore **retract** an existing vector by re-emitting the row with `metadata.deleted = true`, preserving `created_at` so it replaces the live row in the same partition:
+Three paths therefore **retract** a report's vectors by re-emitting the rows with `metadata.deleted = true`, preserving `created_at` so each one replaces the live row in the same partition:
 
 - **Deletion**: the report-level counterpart to `soft_delete_report_signals`. Both the soft path, where `delete_report_activity` flips status to `DELETED`, and a hard `delete()` of the row, which is what `delete_team_reports_activity` and the `cleanup_signals` command issue. The hard path matters most: once the row is gone, no later write can retract the vector.
 - **A later unsafe verdict**: the summary workflow re-judges safety on every run, and a READY report re-researches whenever new signals join it.
 - **An unreviewed edit**: the `PATCH` endpoint and the scout `edit_report` channel supply text the judge has never seen, so the report is retracted and left unindexed until the pipeline writes judged text again.
+
+`emit_report_tombstone` writes one tombstone per rendering in `EMBEDDING_RENDERINGS`, not one per report.
+`rendering` is part of the `ReplacingMergeTree` key, so a tombstone retracts only its own rendering and leaves every other rendering's content live until the 3-month TTL expires it.
+A rendering that is emitted but missing from `EMBEDDING_RENDERINGS` therefore keeps unsafe text indexed.
+These retraction paths use the full list by default, so callers do not need to select each rendering.
+When a text edit removes a rendering, the receiver passes only the removed rendering to `emit_report_tombstone`.
+Clearing both fields retracts both renderings.
 
 Tombstones carry fixed placeholder content (`TOMBSTONE_CONTENT`) rather than the report's own text.
 Content is not part of the `ReplacingMergeTree` key, so a placeholder supersedes a live row just as well, and it means a tombstone can be emitted without first knowing whether a live row exists, which is the question none of these paths can answer cheaply.
@@ -1151,7 +1197,7 @@ The research flow produces:
   - `verified`
 - **`ActionabilityAssessment`**
   - `explanation`
-  - `actionability`
+  - `actionability` — judged against `backend/report_actionability.py`, the criteria the scout harness prompt renders too, so an authored report and a researched one are held to one standard
   - `already_addressed`
 - **`PriorityAssessment`**
   - `explanation`
@@ -1224,6 +1270,19 @@ The create never raises. A provider failure is stored on the row as `status=fail
 Once the pull request exists, `link_report_tracker_issues` (scheduled from the task-run PR sync receiver) appends the reference to the pull request body, behind an HTML-comment marker so the append happens once. GitHub gets `Closes #n`; the other providers get the issue link. A Linear issue also gets the pull request as an attachment, best effort, because the scope for it may not be granted.
 
 An irreversible end closes the tracker issue: a resolve asked for through the state API, a merged pull request (closed as done), or a deleted report. A suppressed or snoozed report keeps its issue open, because both come back, and so does a failed run, because its report stays in the inbox and the work item is still real.
+
+**One assignee per pull request** (`backend/reviewer_pr_assignment.py`).
+
+Every self-driving pull request opens with no assignee, so it never reaches a GitHub "Assigned to me" view. `schedule_reviewer_pr_assignment` runs when a pull request first reaches a report and applies two rules on a worker:
+
+- A suggested reviewer who turned on `SignalUserAutonomyConfig.github_assign_on_pull_request` is always added.
+- A pull request that still has no assignee gets exactly one directly responsible individual (DRI). The claimant of the report comes first (for a task claim, the user who started the task). The next candidates come from one of two sources:
+  - When the repository declares its ownership in `owners.yaml` files, the candidates are the members of the GitHub team that owns most of the changed files, in random order (`backend/pr_owning_team.py`). The engineering analytics facade (`resolve_path_owners`) resolves the team. GitHub teams are the canonical team identity, so the team members come from GitHub's team members API. That call needs the organization members read permission on the GitHub app.
+  - Otherwise, or when that team has no candidate, the candidates are the suggested reviewers in rank order.
+
+  A candidate must be an organization member with a connected GitHub account. Each candidate is checked with GitHub's read-only assignee check first, because the add-assignees call drops a login without push access instead of failing. A candidate GitHub cannot assign moves the walk to the next one, for up to four checks, and a failed check stops it.
+
+The DRI rule is involuntary on purpose. A pull request that several people could pick up diffuses responsibility, and a wrong owner costs one reassignment. It rolls out per organization behind the `signals-pr-dri-assignee` flag. Assignment is additive: nobody is unassigned, and a pull request somebody already assigned gets no DRI.
 
 **Fleet steering in the task description** (`load_report_steering` in `backend/report_steering.py`).
 

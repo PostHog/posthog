@@ -244,9 +244,6 @@ class Command(BaseCommand):
                 previous_report_research=previous_report_research,
                 verbose=verbose,
                 output_fn=self._flushing_write,
-                # Local debug tool: always exercise both visual-authoring paths, mirroring the
-                # DEBUG-on defaults of their production rollout gates.
-                charts_enabled=True,
                 metrics_enabled=True,
             )
         )
@@ -271,6 +268,11 @@ class Command(BaseCommand):
             self.stdout.write(f"Priority explanation: {priority.explanation}")
         else:
             self.stdout.write("Priority: N/A (not actionable)")
+        if result.verification_note:
+            self.stdout.write("Verification note:")
+            self.stdout.write(result.verification_note.note)
+        else:
+            self.stdout.write("Verification note: not generated")
         self.stdout.write("")
         for finding in result.effective_findings():
             self.stdout.write(self.style.WARNING(f"--- Signal: {finding.signal_id} ---"))

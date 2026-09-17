@@ -314,6 +314,144 @@ export const SignalsReportArtefactsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Schedule a re-measurement of the report's claim. A `metric_threshold` check runs one bounded Trends query and compares the result, so it needs no agent run. An `agent` check runs a scout instead, for a claim no single number settles; it runs on the scout its config names, or on the fleet's follow-up scout when it names none.
+ * @summary Create a check on a report
+ */
+export const signalsReportChecksCreateBodyTitleMax = 200
+
+export const signalsReportChecksCreateBodyRationaleMax = 2000
+
+export const signalsReportChecksCreateBodyConfigOneTwoInstructionsMax = 2000
+
+export const signalsReportChecksCreateBodyConfigOneTwoSkillNameOneMax = 200
+
+export const signalsReportChecksCreateBodyConfigOneTwoProbeHintsMax = 5
+
+export const signalsReportChecksCreateBodyRunIntervalMinutesMin = 360
+export const signalsReportChecksCreateBodyRunIntervalMinutesMax = 129600
+
+export const signalsReportChecksCreateBodyRunsRemainingMax = 10
+
+export const SignalsReportChecksCreateBody = /* @__PURE__ */ zod
+    .object({
+        title: zod
+            .string()
+            .max(signalsReportChecksCreateBodyTitleMax)
+            .describe('Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.'),
+        rationale: zod
+            .string()
+            .max(signalsReportChecksCreateBodyRationaleMax)
+            .optional()
+            .describe('Why the check is worth running.'),
+        kind: zod
+            .enum(['metric_threshold', 'agent'])
+            .describe('\* `metric_threshold` - Metric Threshold\n\* `agent` - Agent')
+            .describe('How the check is evaluated.\n\n\* `metric_threshold` - Metric Threshold\n\* `agent` - Agent'),
+        config: zod
+            .union([
+                zod
+                    .object({
+                        metric_id: zod
+                            .union([zod.string(), zod.null()])
+                            .optional()
+                            .describe(
+                                "Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created."
+                            ),
+                        query: zod
+                            .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                            .optional()
+                            .describe(
+                                'Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created.'
+                            ),
+                        comparison: zod
+                            .object({
+                                operator: zod.enum(['lte', 'gte', 'between']).describe('`lte`, `gte`, or `between`.'),
+                                value: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe('The bound for `lte` and `gte`; unused by `between`.'),
+                                bounds: zod
+                                    .union([
+                                        zod.object({
+                                            lower: zod.number(),
+                                            upper: zod.number(),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('The inclusive range for `between`; unused by `lte` and `gte`.'),
+                            })
+                            .describe('What the measured value must satisfy to pass.'),
+                        baseline_value: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'The value observed when the check was written, recorded on each result for context.'
+                            ),
+                    })
+                    .describe(
+                        "A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.\n\nA caller names one source. When it names a metric, the create path copies that metric's query\ninto ``query`` before the row is stored, so the check keeps measuring what its author saw even if\nthe report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.\n\nUnknown keys are refused rather than ignored, so a misspelled field name is reported instead of\nbeing dropped in silence and stored as it arrived."
+                    ),
+                zod
+                    .object({
+                        instructions: zod
+                            .string()
+                            .max(signalsReportChecksCreateBodyConfigOneTwoInstructionsMax)
+                            .describe("What the run must establish, in the author's own words."),
+                        skill_name: zod
+                            .union([
+                                zod.string().max(signalsReportChecksCreateBodyConfigOneTwoSkillNameOneMax),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                "Scout skill that runs the check. Omit it to run on the fleet's follow-up scout, which is the right lane for a report no scout authored."
+                            ),
+                        probe_hints: zod
+                            .array(zod.string())
+                            .max(signalsReportChecksCreateBodyConfigOneTwoProbeHintsMax)
+                            .optional()
+                            .describe(
+                                'Concrete places to look, such as an issue id, a service name, or a query to repeat.'
+                            ),
+                    })
+                    .describe(
+                        'A check a scout run answers: re-probe the report\'s claim and record one verdict.\n\nThe kind for a claim no single number settles. A resolved error-tracking report is the usual\ncase: \"did the exception stop?\" needs the issue looked up, its recent events read, and the\nstack compared against what the fix changed, which is a run rather than a comparison.\n\nEverything here is prompt material a scout reads, so it is untrusted by construction: it renders\nin the run block the agent is told to weigh, never in the instructions it is told to follow. The\nverdict still comes back through `scout-check-record-result`, so instructions cannot widen what\na check run may write.\n\n``skill_name`` names the lane. Most reports are pipeline-authored and have no scout behind them,\nso it is optional: a check that names none runs on the fleet\'s follow-up scout\n(see ``report_check_agent.FALLBACK_CHECK_SKILL_NAME``).'
+                    ),
+            ])
+            .describe('What the check measures and what the result must satisfy; the shape depends on `kind`.'),
+        next_run_at: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                'When to first evaluate the check. Must be in the future and within 90 days. Defaults to 7 days from now.'
+            ),
+        run_interval_minutes: zod
+            .number()
+            .min(signalsReportChecksCreateBodyRunIntervalMinutesMin)
+            .max(signalsReportChecksCreateBodyRunIntervalMinutesMax)
+            .nullish()
+            .describe(
+                'Gap between runs for a recurring check, between 360 and 129600 minutes. Omit for a one-shot check.'
+            ),
+        runs_remaining: zod
+            .number()
+            .min(1)
+            .max(signalsReportChecksCreateBodyRunsRemainingMax)
+            .optional()
+            .describe('How many times to evaluate the check, at most 10. Defaults to 1.'),
+        expires_at: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                'Horizon after which the check retires unrun. Defaults to 30 days after the last scheduled run, or the 90-day horizon if that comes first.'
+            ),
+    })
+    .describe(
+        "Request body for creating a check on a report.\n\nThe schedule is the check's own: `next_run_at` says when to look, rather than the system\nderiving a soak window from a merged pull request that many fixes never have."
+    )
+
+/**
  * Transition many reports to a new state in one call.
  *
  * Each id is processed independently: a report whose transition isn't allowed from its
@@ -402,9 +540,11 @@ export const SignalsReportsRefreshMetricsCreateBody = /* @__PURE__ */ zod.object
 })
 
 /**
- * Create a scout skill and its runnable config atomically. Any valid skill name works — the config row is what makes the skill a scout. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, network access, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
+ * Create a scout skill and its runnable config atomically. Give it a `display_name` — the label people read, kept exactly as written — and the scout's permanent skill name is generated from it, with a numeric suffix when that name is taken, so two scouts may share a label without sharing an identity. Pass `name` instead to pick that identifier yourself; any valid skill name works, since the config row is what makes a skill a scout. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, network access, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing an explicit `name` for a different definition returns 409.
  * @summary Create a scout
  */
+export const signalsScoutCreateBodyDisplayNameMax = 200
+
 export const signalsScoutCreateBodyNameMax = 64
 
 export const signalsScoutCreateBodyDescriptionMax = 1024
@@ -413,6 +553,18 @@ export const signalsScoutCreateBodyFilesItemPathMax = 500
 
 export const signalsScoutCreateBodyFilesItemContentTypeDefault = `text/plain`
 export const signalsScoutCreateBodyFilesItemContentTypeMax = 100
+
+export const signalsScoutCreateBodyConfigOneModelMax = 200
+
+export const signalsScoutCreateBodyConfigOneTagsMax = 10
+
+export const signalsScoutCreateBodyConfigOneMcpGatewayServerIdsMax = 100
+
+export const signalsScoutCreateBodyConfigOneRepositoriesItemMax = 255
+
+export const signalsScoutCreateBodyConfigOneRepositoriesMax = 10
+
+export const signalsScoutCreateBodyConfigOneWriteScopesMax = 8
 
 export const signalsScoutCreateBodyConfigOneRunIntervalMinutesMin = 30
 export const signalsScoutCreateBodyConfigOneRunIntervalMinutesMax = 43200
@@ -429,23 +581,23 @@ export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersMa
 export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = true
 export const signalsScoutCreateBodyConfigOneRunCronScheduleMax = 100
 
-export const signalsScoutCreateBodyConfigOneModelMax = 200
-
-export const signalsScoutCreateBodyConfigOneTagsMax = 10
-
-export const signalsScoutCreateBodyConfigOneMcpGatewayServerIdsMax = 100
-
-export const signalsScoutCreateBodyConfigOneWriteScopesMax = 7
-
 export const signalsScoutCreateBodySuggestionIdMax = 64
 
 export const SignalsScoutCreateBody = /* @__PURE__ */ zod
     .object({
+        display_name: zod
+            .string()
+            .max(signalsScoutCreateBodyDisplayNameMax)
+            .optional()
+            .describe(
+                "Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead."
+            ),
         name: zod
             .string()
             .max(signalsScoutCreateBodyNameMax)
+            .optional()
             .describe(
-                'Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.'
+                'Optional skill name for the scout — its permanent identifier, containing only lowercase letters, numbers, and hyphens. Omit it and one is generated from `display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when that name is taken. Pass it to pick the identifier yourself, or to keep a client written before display names working unchanged. The `signals-scout-` prefix is optional.'
             ),
         description: zod
             .string()
@@ -477,6 +629,47 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
             .describe('Optional reference files bundled with the scout prompt.'),
         config: zod
             .object({
+                model: zod
+                    .string()
+                    .max(signalsScoutCreateBodyConfigOneModelMax)
+                    .nullish()
+                    .describe(
+                        "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
+                    ),
+                tags: zod
+                    .array(zod.string())
+                    .max(signalsScoutCreateBodyConfigOneTagsMax)
+                    .optional()
+                    .describe(
+                        'Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.'
+                    ),
+                structured_output_schema: zod
+                    .record(zod.string(), zod.unknown())
+                    .nullish()
+                    .describe(
+                        'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
+                    ),
+                mcp_gateway_server_ids: zod
+                    .array(zod.uuid())
+                    .max(signalsScoutCreateBodyConfigOneMcpGatewayServerIdsMax)
+                    .optional()
+                    .describe(
+                        "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run."
+                    ),
+                repositories: zod
+                    .array(zod.string().max(signalsScoutCreateBodyConfigOneRepositoriesItemMax))
+                    .max(signalsScoutCreateBodyConfigOneRepositoriesMax)
+                    .optional()
+                    .describe(
+                        "GitHub repositories this scout clones into its sandbox, each in `organization\/repo` format. Set them for a scout that reads code, so it can search the tree and run the project's own tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox without a checkout. The scout's GitHub access stays read-only either way, so a repository listed here is never writable from a run. At most 10, each reachable through the project's GitHub connection. Applies from the scout's next run."
+                    ),
+                write_scopes: zod
+                    .array(zod.string())
+                    .max(signalsScoutCreateBodyConfigOneWriteScopesMax)
+                    .optional()
+                    .describe(
+                        "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                    ),
                 enabled: zod
                     .boolean()
                     .optional()
@@ -581,40 +774,6 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     .describe(
                         "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
                     ),
-                model: zod
-                    .string()
-                    .max(signalsScoutCreateBodyConfigOneModelMax)
-                    .nullish()
-                    .describe(
-                        "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
-                    ),
-                tags: zod
-                    .array(zod.string())
-                    .max(signalsScoutCreateBodyConfigOneTagsMax)
-                    .optional()
-                    .describe(
-                        'Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.'
-                    ),
-                structured_output_schema: zod
-                    .record(zod.string(), zod.unknown())
-                    .nullish()
-                    .describe(
-                        'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
-                    ),
-                mcp_gateway_server_ids: zod
-                    .array(zod.uuid())
-                    .max(signalsScoutCreateBodyConfigOneMcpGatewayServerIdsMax)
-                    .optional()
-                    .describe(
-                        "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run."
-                    ),
-                write_scopes: zod
-                    .array(zod.string())
-                    .max(signalsScoutCreateBodyConfigOneWriteScopesMax)
-                    .optional()
-                    .describe(
-                        "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
-                    ),
             })
             .describe('Schedule, enablement, and delivery options accepted while creating a scout.')
             .optional()
@@ -659,6 +818,18 @@ export const SignalsScoutChatTasksCreateBody = /* @__PURE__ */ zod.object({
  * Register the config for a skill immediately, without waiting for the coordinator to auto-register it — and the way to make a skill without the `signals-scout-` prefix a scout at all. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, `network_access`, and output destinations. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it. Registering puts the skill's body on the schedule as the scout's prompt, so this call needs `llm_skill:write` and editor access to skills on top of `signal_scout:write`, like creating a scout.
  * @summary Create a scout config
  */
+export const signalsScoutConfigCreateBodyModelMax = 200
+
+export const signalsScoutConfigCreateBodyTagsMax = 10
+
+export const signalsScoutConfigCreateBodyMcpGatewayServerIdsMax = 100
+
+export const signalsScoutConfigCreateBodyRepositoriesItemMax = 255
+
+export const signalsScoutConfigCreateBodyRepositoriesMax = 10
+
+export const signalsScoutConfigCreateBodyWriteScopesMax = 8
+
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
 
@@ -674,18 +845,53 @@ export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersMax =
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault = true
 export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
 
-export const signalsScoutConfigCreateBodyModelMax = 200
-
-export const signalsScoutConfigCreateBodyTagsMax = 10
-
-export const signalsScoutConfigCreateBodyMcpGatewayServerIdsMax = 100
-
-export const signalsScoutConfigCreateBodyWriteScopesMax = 7
+export const signalsScoutConfigCreateBodyDisplayNameMax = 200
 
 export const signalsScoutConfigCreateBodySkillNameMax = 200
 
 export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
     .object({
+        model: zod
+            .string()
+            .max(signalsScoutConfigCreateBodyModelMax)
+            .nullish()
+            .describe(
+                "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
+            ),
+        tags: zod
+            .array(zod.string())
+            .max(signalsScoutConfigCreateBodyTagsMax)
+            .optional()
+            .describe(
+                'Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.'
+            ),
+        structured_output_schema: zod
+            .record(zod.string(), zod.unknown())
+            .nullish()
+            .describe(
+                'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
+            ),
+        mcp_gateway_server_ids: zod
+            .array(zod.uuid())
+            .max(signalsScoutConfigCreateBodyMcpGatewayServerIdsMax)
+            .optional()
+            .describe(
+                "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run."
+            ),
+        repositories: zod
+            .array(zod.string().max(signalsScoutConfigCreateBodyRepositoriesItemMax))
+            .max(signalsScoutConfigCreateBodyRepositoriesMax)
+            .optional()
+            .describe(
+                "GitHub repositories this scout clones into its sandbox, each in `organization\/repo` format. Set them for a scout that reads code, so it can search the tree and run the project's own tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox without a checkout. The scout's GitHub access stays read-only either way, so a repository listed here is never writable from a run. At most 10, each reachable through the project's GitHub connection. Applies from the scout's next run."
+            ),
+        write_scopes: zod
+            .array(zod.string())
+            .max(signalsScoutConfigCreateBodyWriteScopesMax)
+            .optional()
+            .describe(
+                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+            ),
         enabled: zod.boolean().optional().describe('Whether this scout runs on its schedule. Defaults to true.'),
         emit: zod
             .boolean()
@@ -781,39 +987,12 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
             ),
-        model: zod
+        display_name: zod
             .string()
-            .max(signalsScoutConfigCreateBodyModelMax)
-            .nullish()
-            .describe(
-                "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
-            ),
-        tags: zod
-            .array(zod.string())
-            .max(signalsScoutConfigCreateBodyTagsMax)
+            .max(signalsScoutConfigCreateBodyDisplayNameMax)
             .optional()
             .describe(
-                'Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.'
-            ),
-        structured_output_schema: zod
-            .record(zod.string(), zod.unknown())
-            .nullish()
-            .describe(
-                'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
-            ),
-        mcp_gateway_server_ids: zod
-            .array(zod.uuid())
-            .max(signalsScoutConfigCreateBodyMcpGatewayServerIdsMax)
-            .optional()
-            .describe(
-                "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run."
-            ),
-        write_scopes: zod
-            .array(zod.string())
-            .max(signalsScoutConfigCreateBodyWriteScopesMax)
-            .optional()
-            .describe(
-                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                "Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead."
             ),
         skill_name: zod
             .string()
@@ -852,7 +1031,11 @@ export const signalsScoutConfigUpdateBodyTagsMax = 10
 
 export const signalsScoutConfigUpdateBodyMcpGatewayServerIdsMax = 100
 
-export const signalsScoutConfigUpdateBodyWriteScopesMax = 7
+export const signalsScoutConfigUpdateBodyRepositoriesItemMax = 255
+
+export const signalsScoutConfigUpdateBodyRepositoriesMax = 10
+
+export const signalsScoutConfigUpdateBodyWriteScopesMax = 8
 
 export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -860,7 +1043,9 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .string()
             .max(signalsScoutConfigUpdateBodyDisplayNameMax)
             .optional()
-            .describe('Name shown in the UI. Does not change the skill name. Leave blank to use the default name.'),
+            .describe(
+                "Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead."
+            ),
         enabled: zod
             .boolean()
             .optional()
@@ -990,12 +1175,19 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run."
             ),
+        repositories: zod
+            .array(zod.string().max(signalsScoutConfigUpdateBodyRepositoriesItemMax))
+            .max(signalsScoutConfigUpdateBodyRepositoriesMax)
+            .optional()
+            .describe(
+                "GitHub repositories this scout clones into its sandbox, each in `organization\/repo` format. Set them for a scout that reads code, so it can search the tree and run the project's own tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox without a checkout. The scout's GitHub access stays read-only either way, so a repository listed here is never writable from a run. At most 10, each reachable through the project's GitHub connection. Applies from the scout's next run."
+            ),
         write_scopes: zod
             .array(zod.string())
             .max(signalsScoutConfigUpdateBodyWriteScopesMax)
             .optional()
             .describe(
-                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
             ),
     })
     .describe('Editable display name, schedule, enablement, and emit posture for one scout config.')
@@ -1051,6 +1243,34 @@ export const SignalsScoutNotesCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Request body for `notes-create`.')
+
+/**
+ * Close the follow-up check this run was dispatched to answer. The run note carries the check id and what to establish; this call is the only thing that records the answer, so a run that investigates and says nothing leaves the check unanswered. The verdict lands on the report as a `check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it, so send the outcome you actually reached rather than the one that closes the loop. A run may only close a check dispatched to its own scout.
+ * @summary Record the verdict on a report check
+ */
+export const signalsScoutRecordCheckResultBodyExplanationMax = 1000
+
+export const SignalsScoutRecordCheckResultBody = /* @__PURE__ */ zod
+    .object({
+        check_id: zod.uuid().describe('The check this run was dispatched to answer, as given in the run note.'),
+        outcome: zod
+            .enum(['passed', 'failed', 'errored'])
+            .describe('\* `passed` - Passed\n\* `failed` - Failed\n\* `errored` - Errored')
+            .describe(
+                '`passed` when the expectation still holds, `failed` when it does not, and `errored` when you could not establish either. `failed` retires the check, so use it for a conclusion, not a suspicion.\n\n\* `passed` - Passed\n\* `failed` - Failed\n\* `errored` - Errored'
+            ),
+        explanation: zod
+            .string()
+            .max(signalsScoutRecordCheckResultBodyExplanationMax)
+            .describe(
+                'One or two sentences on what you looked at and what it showed. This is what a person reads on the report, so write it for them, with the numbers or entities you checked.'
+            ),
+        observed_value: zod
+            .number()
+            .nullish()
+            .describe('The number you measured, when the check came down to one. Leave it out otherwise.'),
+    })
+    .describe('Request body for `scout-check-record-result`: the verdict on one dispatched report check.')
 
 /**
  * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Title/summary edits are best-effort: the pipeline may later re-research them.
@@ -1433,7 +1653,7 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
                 '\* `immediately_actionable` - immediately_actionable\n\* `requires_human_input` - requires_human_input\n\* `not_actionable` - not_actionable'
             )
             .describe(
-                "The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless.\n\n\* `immediately_actionable` - immediately_actionable\n\* `requires_human_input` - requires_human_input\n\* `not_actionable` - not_actionable"
+                "The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless. A root cause you have not found is not human input: a report that names the evidence, the code surface, or a reproducible failure path is `immediately_actionable`, because investigating it is the action. Reserve `requires_human_input` for a report blocked on a decision only a person can make.\n\n\* `immediately_actionable` - immediately_actionable\n\* `requires_human_input` - requires_human_input\n\* `not_actionable` - not_actionable"
             ),
         already_addressed: zod
             .boolean()
@@ -1754,6 +1974,32 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Request body for `emit-finding`. Run attribution is taken from the URL path.')
+
+/**
+ * Load one page in a real browser and return what makes it slow — most usefully the element the browser chose as the Largest Contentful Paint, and where the LCP time went. Field data says a route is slow; this says which element and why, so a finding can name it instead of guessing from source. Restricted to public PostHog pages: the browser signs in to nothing, so a page behind a login would report the login screen's numbers. One throttled cold load is not a p75 over real users — corroborate a field finding with it, never replace one. Capped at 5 audits per run.
+ * @summary Run a Lighthouse audit for a run
+ */
+export const signalsScoutLighthouseAuditBodyUrlMax = 2000
+
+export const signalsScoutLighthouseAuditBodyFormFactorDefault = `desktop`
+
+export const SignalsScoutLighthouseAuditBody = /* @__PURE__ */ zod
+    .object({
+        url: zod
+            .url()
+            .max(signalsScoutLighthouseAuditBodyUrlMax)
+            .describe(
+                "The page to audit. Must be an https url on an allowed host — public PostHog pages only. Pages behind a login cannot be audited: the browser signs in to nothing, so it would measure the login screen and report its numbers as the page's."
+            ),
+        form_factor: zod
+            .enum(['desktop', 'mobile'])
+            .describe('\* `desktop` - desktop\n\* `mobile` - mobile')
+            .default(signalsScoutLighthouseAuditBodyFormFactorDefault)
+            .describe(
+                'Which device profile to emulate. Desktop and mobile produce different numbers, so audit the one whose field data you are explaining.\n\n\* `desktop` - desktop\n\* `mobile` - mobile'
+            ),
+    })
+    .describe('Request body for `scout-lighthouse-audit`: one page, one device profile.')
 
 /**
  * The structured-output channel: record schema-validated records this run produced. Opt-in via the scout config's `structured_output_schema` (a JSON Schema describing one record) — without it the call fails closed, as it does for a dry-run scout (emit off). All-or-nothing: any invalid record fails the whole call with nothing written, so fix and resubmit the batch. Each accepted record lands in the project's event stream as a `$scout_structured_output` event — query them like any event (insights, SQL over `events`). Recording is idempotent: event ids are deterministic, so resubmitting an identical batch (e.g. retrying after a 503) cannot double-count.

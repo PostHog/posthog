@@ -51,7 +51,12 @@ from products.signals.backend.scout_harness import (
 )
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
-from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, failure_streak_pause_threshold
+from products.signals.backend.scout_harness.limits import (
+    STALE_RUN_CUTOFF_S,
+    TRIGGERED_BY_CHECK,
+    TRIGGERED_BY_SCHEDULE,
+    failure_streak_pause_threshold,
+)
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import (
     _EXTERNAL_MCP_LISTING_CAP,
@@ -59,6 +64,7 @@ from products.signals.backend.scout_harness.prompt import (
     _METRICS_CATALOG_SUPERSEDES_CACHE as _SUPERSEDES_CACHED_ENTRIES,
     _REPORT_CHARTS,
     HARNESS_PROMPT_VERSION,
+    _checkout_section,
     build_run_prompt,
 )
 from products.signals.backend.scout_harness.runner import (
@@ -436,6 +442,7 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             write_scopes=["dashboard:write"],
             structured_output_schema={"type": "object", "properties": {"verdict": {"type": "string"}}},
             mcp_server_names=["Datadog (EU)"],
+            repositories=["acme-co/service"],
         )
 
         offsets = [
@@ -444,6 +451,7 @@ class TestPromptCacheablePrefix(SimpleTestCase):
                 "# Governed metrics",
                 "# External MCP servers",
                 "# Write access",
+                "# Your checkout",
                 "# Structured output",
                 "# Your run identity",
             )
@@ -460,9 +468,21 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             "signals-scout-prefix-probe",
             "mrr_probe_metric",
             "Datadog",
+            "acme-co/service",
             '"verdict"',
         ):
             assert value not in head, f"{value} interpolated above the per-run block"
+
+
+class TestCheckoutSection(SimpleTestCase):
+    def test_it_states_that_the_tree_carries_full_history(self) -> None:
+        # Provisioning clones a pinned repository with its history, but a skill body that cannot
+        # read that from the prompt probes the tree and pays an unshallow fetch of minutes and
+        # gigabytes on every scheduled run.
+        section = _checkout_section(["acme-co/service"])
+
+        assert "full commit history" in section
+        assert "git blame" in section
 
 
 class TestPromptCrossReferences(SimpleTestCase):
@@ -584,7 +604,7 @@ class TestStructuredOutputPromptSection(SimpleTestCase):
 
 
 class TestRunNotePromptSection(SimpleTestCase):
-    def _prompt(self, run_note: str | None) -> str:
+    def _prompt(self, run_note: str | None, triggered_by: str = TRIGGERED_BY_SCHEDULE) -> str:
         return build_run_prompt(
             LoadedSkill(
                 name="signals-scout-errors",
@@ -601,6 +621,7 @@ class TestRunNotePromptSection(SimpleTestCase):
             team_id=1,
             started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
             run_note=run_note,
+            triggered_by=triggered_by,
         )
 
     @parameterized.expand([("absent", None), ("blank", "   \n  ")])
@@ -625,6 +646,16 @@ class TestRunNotePromptSection(SimpleTestCase):
         assert "# A note for this run" in prompt
         assert "do not record it in the scratchpad as a durable memory" in prompt
         assert "# Notes left for you" in prompt
+
+    def test_a_check_dispatch_frames_its_note_as_the_run_assignment(self) -> None:
+        # Framed as a person's nudge, a check run reads its assignment as optional steering and is
+        # never told about the one tool that closes the check.
+        prompt = self._prompt("Check id: abc. Did the exception stop?", triggered_by=TRIGGERED_BY_CHECK)
+
+        assert "# The check this run must answer" in prompt
+        assert "<check>\nCheck id: abc. Did the exception stop?\n</check>" in prompt
+        assert "scout-check-record-result" in prompt
+        assert "# A note for this run" not in prompt
 
 
 class TestExternalMcpServersPromptSection(SimpleTestCase):
@@ -775,6 +806,10 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         # scout bodies it was never granted.
         assert "Skills include the scouts themselves" not in granted
         assert "Skills include the scouts themselves" in _prompt(write_scopes=["llm_skill:write"])
+        # A scout holding the scanner grant has to learn the credit cost and the delete refusal
+        # from the prompt, not from a refused call.
+        assert "Scanners spend credits" not in granted
+        assert "Scanners spend credits" in _prompt(write_scopes=["replay_scanner:write"])
 
         ungranted = _prompt(write_scopes=[])
         assert "# Write access" not in ungranted
@@ -1516,6 +1551,78 @@ async def test_run_passes_the_per_scout_server_selection_and_no_credential_owner
     assert captured["mcp_builtin_agent_key"] == "scout"
     assert captured.get("mcp_credential_owner_id") is None
     assert captured["mcp_gateway_server_ids"] == ["11111111-1111-1111-1111-111111111111"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "can_mint_token,repository_override,expected",
+    [
+        pytest.param(True, None, ("posthog/posthog", "posthog/posthog-js"), id="mintable_pins_clone"),
+        pytest.param(False, None, (), id="unmintable_pins_drop"),
+        # The public allowlist clones without a token, so the management command's
+        # `--repository posthog/.github` still works on a team that never connected GitHub.
+        pytest.param(False, "posthog/.github", ("posthog/.github",), id="public_override_without_mint"),
+    ],
+)
+async def test_run_clones_the_scouts_pinned_repositories_when_a_token_can_be_minted(
+    ateam, aerrors_skill, can_mint_token, repository_override, expected
+):
+    # The pin only buys a checkout if the sandbox has a credential to clone with, and a scout
+    # clones with the read-only mint. Without a mintable installation the pin must be dropped and
+    # the run go ahead repo-less, so a disconnected GitHub can't wedge the lane on clone failures.
+    # The prompt reads the same list, so the agent is never sent to a tree that was not cloned.
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    def _seed_config() -> None:
+        SignalScoutConfig.objects.unscoped().create(
+            team_id=ateam.id,
+            skill_name="signals-scout-errors",
+            repositories=["posthog/posthog", "posthog/posthog-js"],
+        )
+
+    await database_sync_to_async(_seed_config, thread_sensitive=False)()
+
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.tasks_facade.can_mint_readonly_github_token",
+            return_value=can_mint_token,
+        ),
+    ):
+        run = await arun_signals_scout(
+            team_id=ateam.id, skill_name="signals-scout-errors", repository=repository_override
+        )
+
+    assert captured["context"].repositories == expected
+    # The token stays read-only either way: a pin buys a checkout, never the ability to push.
+    assert captured["context"].github_read_access is True
+    assert ("# Your checkout" in captured["prompt"]) is bool(expected)
+    assert all(repository in captured["prompt"] for repository in expected)
+
+    assert run.run_id is not None
+    run_id = run.run_id
+
+    def _stamped() -> dict:
+        return SignalScoutRun.objects.unscoped().get(id=run_id).metadata or {}
+
+    stamped = await database_sync_to_async(_stamped, thread_sensitive=False)()
+    assert stamped.get("repositories") == (list(expected) or None)
 
 
 @pytest.mark.asyncio

@@ -208,3 +208,11 @@ export function WebAnalyticsPagePerformance(): JSX.Element {
 
     return <App />
 }
+
+MarketingPageVisibility.parameters = {
+    pageUrl: `${urls.marketingAnalyticsApp()}?tab=page-visibility`,
+    featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING, FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD],
+}
+export function MarketingPageVisibility(): JSX.Element {
+    return <App />
+}

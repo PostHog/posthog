@@ -38,16 +38,54 @@ const ROW_OVERHEAD_BYTES: u64 = 256;
 /// below this; only expansion-bomb payloads exceed it.
 const MAX_EXPANSION_FACTOR: u64 = 16;
 
-/// Decode a snappy-compressed Prometheus remote-write v1 payload, returning the
+/// Body compression of a remote-write request. Both protocols carry the same
+/// `WriteRequest` protobuf; only the compression differs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RemoteWriteEncoding {
+    /// Prometheus remote-write v1: snappy block format.
+    Snappy,
+    /// VictoriaMetrics remote-write protocol, which vmagent tries first by
+    /// default: zstd frame, sent with `Content-Encoding: zstd` and
+    /// `X-VictoriaMetrics-Remote-Write-Version: 1`.
+    Zstd,
+}
+
+impl RemoteWriteEncoding {
+    /// `Content-Encoding: zstd` selects the VictoriaMetrics protocol. Every other
+    /// value, and a missing header, keeps the snappy default, because Prometheus
+    /// always sends snappy and some senders omit the header.
+    pub fn from_headers(headers: &HeaderMap) -> Self {
+        let is_zstd = headers
+            .get("content-encoding")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.trim().eq_ignore_ascii_case("zstd"));
+        if is_zstd {
+            Self::Zstd
+        } else {
+            Self::Snappy
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Snappy => "snappy",
+            Self::Zstd => "zstd",
+        }
+    }
+}
+
+/// Decode a compressed Prometheus remote-write v1 payload, returning the
 /// request and its decompressed size in bytes.
 ///
 /// Prometheus sends `Content-Encoding: snappy` using the snappy *block* format
-/// (not the framed format), so we decode the raw body ourselves — the global
-/// `RequestDecompressionLayer` does not understand snappy.
+/// (not the framed format), and vmagent sends `Content-Encoding: zstd`. The
+/// global `RequestDecompressionLayer` understands neither, so we decode the
+/// raw body ourselves.
 ///
-/// The block format's length header is sender-controlled, so the claimed
-/// decompressed size is checked against `max_decompressed_bytes` before any
-/// allocation happens.
+/// Both formats let the sender claim the decompressed size (the snappy length
+/// header, the optional zstd frame content size), so the claim is checked
+/// against `max_decompressed_bytes` before any allocation happens. The zstd
+/// decoder is also capped while it streams, for frames without a claim.
 ///
 /// The size is returned because this route bypasses `RequestDecompressionLayer`,
 /// so the request body is still compressed when the handler sees it. The OTLP and
@@ -55,18 +93,27 @@ const MAX_EXPANSION_FACTOR: u64 = 16;
 /// the same quota and rate-limiting counters, so the measure has to match.
 pub fn decode_write_request(
     body: &[u8],
+    encoding: RemoteWriteEncoding,
     max_decompressed_bytes: usize,
 ) -> Result<(WriteRequest, u64)> {
-    let claimed =
-        snap::raw::decompress_len(body).map_err(|e| anyhow!("snappy decode failed: {e}"))?;
-    if claimed > max_decompressed_bytes {
-        return Err(anyhow!(
-            "decompressed request body exceeds limit ({claimed} > {max_decompressed_bytes} bytes)"
-        ));
-    }
-    let decompressed = snap::raw::Decoder::new()
-        .decompress_vec(body)
-        .map_err(|e| anyhow!("snappy decode failed: {e}"))?;
+    let decompressed = match encoding {
+        RemoteWriteEncoding::Snappy => {
+            let claimed = snap::raw::decompress_len(body)
+                .map_err(|e| anyhow!("snappy decode failed: {e}"))?;
+            if claimed > max_decompressed_bytes {
+                return Err(anyhow!(
+                    "decompressed request body exceeds limit ({claimed} > {max_decompressed_bytes} bytes)"
+                ));
+            }
+            snap::raw::Decoder::new()
+                .decompress_vec(body)
+                .map_err(|e| anyhow!("snappy decode failed: {e}"))?
+        }
+        RemoteWriteEncoding::Zstd => {
+            common_compression::decompress_zstd_capped(body, max_decompressed_bytes)
+                .map_err(|e| anyhow!("zstd decode failed: {e}"))?
+        }
+    };
     let uncompressed_bytes = decompressed.len() as u64;
     let request = WriteRequest::decode(decompressed.as_slice())
         .map_err(|e| anyhow!("remote-write protobuf decode failed: {e}"))?;
@@ -347,16 +394,21 @@ fn extract_token(
     query_token.filter(|t| !t.is_empty()).map(str::to_string)
 }
 
-/// Prometheus remote-write v1 ingestion endpoint.
+/// Prometheus remote-write v1 ingestion endpoint. Also accepts the
+/// VictoriaMetrics remote-write protocol (same protobuf, zstd body).
 ///
-/// Snappy-decodes the protobuf body, maps it to `KafkaMetricRow` records, and
+/// Decompresses the protobuf body, maps it to `KafkaMetricRow` records, and
 /// produces them through the shared `KafkaSink` so the rest of the pipeline is
 /// identical to OTLP ingestion. Response codes follow remote-write semantics:
-/// 204 on success, 400 on a permanent decode failure (sender drops the batch),
-/// 5xx on a transient produce failure (sender retries).
+/// 204 on success, 400 on a permanent decode failure (sender drops the batch;
+/// vmagent also falls back to snappy on 400), 5xx on a transient produce
+/// failure (sender retries).
 #[instrument(skip_all, fields(
     token = tracing::field::Empty,
     user_agent = %headers.get("user-agent")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or(""),
+    content_encoding = %headers.get("content-encoding")
         .and_then(|v| v.to_str().ok())
         .unwrap_or(""),
     content_length = %headers.get("content-length")
@@ -391,8 +443,15 @@ pub async fn export_prometheus_remote_write_http(
 
     tracing::Span::current().record("token", &token);
 
+    let encoding = RemoteWriteEncoding::from_headers(&headers);
+    counter!(
+        "capture_metrics_remote_write_requests",
+        "encoding" => encoding.as_str()
+    )
+    .increment(1);
+
     let (write_request, uncompressed_bytes) =
-        match decode_write_request(&body, service.max_request_body_size_bytes) {
+        match decode_write_request(&body, encoding, service.max_request_body_size_bytes) {
             Ok(decoded) => decoded,
             Err(e) => {
                 error!("Failed to decode remote-write request: {e}");

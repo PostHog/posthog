@@ -188,7 +188,11 @@ export {
   MAX_IMAGE_BASE64_LENGTH,
   parseImageDataUrl,
 } from "./image";
-export { buildDiscussReportPrompt } from "./inbox-prompts";
+export {
+  buildDiscussReportPrompt,
+  buildLocalCodeSnapshotPrompt,
+  CODE_CONTEXT_DISCLOSURE,
+} from "./inbox-prompts";
 export type {
   AvailableSuggestedReviewer,
   SignalRecordKind,
@@ -308,7 +312,9 @@ export { rewriteSavedLocation } from "./route-migrations";
 export { Saga, type SagaLogger, type SagaResult } from "./saga";
 export {
   type AcpMessage,
+  IDLE_RESUME_STOP_REASON,
   IMPORTED_USER_PROMPT_META_KEY,
+  isIdleResumeTurnComplete,
   isJsonRpcNotification,
   isJsonRpcRequest,
   isJsonRpcResponse,

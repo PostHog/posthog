@@ -2,13 +2,19 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { expectLogic } from 'kea-test-utils'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { initKeaTests } from '~/test/init'
 
+import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
+import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+
+import { mockTask } from '../../__mocks__/inboxMocks'
 import { captureInboxReportAction } from '../../inboxAnalytics'
-import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
+import { inboxTaskKickoffLogic, REPORT_AI_PANEL_ID } from '../../inboxTaskKickoffLogic'
+import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { ImplementButton } from './ImplementButton'
 
@@ -29,7 +35,6 @@ function makeReport(): SignalReport {
         status: SignalReportStatus.READY,
         total_weight: 0,
         signal_count: 1,
-        relevant_user_count: null,
         artefact_count: 0,
         is_suggested_reviewer: false,
         created_at: '2026-06-11T10:00:00Z',
@@ -42,6 +47,7 @@ describe('ImplementButton', () => {
 
     beforeEach(() => {
         initKeaTests()
+        window.localStorage.removeItem('inbox-report-implementation-prompt:combo')
         inboxTaskKickoffLogic.mount()
         createPrFromReport = jest.fn()
         jest.spyOn(inboxTaskKickoffLogic.actions, 'createPrFromReport').mockImplementation(createPrFromReport)
@@ -71,6 +77,32 @@ describe('ImplementButton', () => {
         expect(createPrFromReport).toHaveBeenCalledWith(expect.objectContaining({ id: 'report-1' }), undefined)
         expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({ has_feedback: false })
     })
+
+    it.each([TaskRunStatus.QUEUED, TaskRunStatus.IN_PROGRESS])(
+        'opens the existing %s task instead of starting another',
+        async (status) => {
+            const user = userEvent.setup()
+            const report = makeReport()
+            const detail = inboxReportDetailLogic({ reportId: report.id, report })
+            detail.mount()
+            await expectLogic(detail).toFinishAllListeners()
+            const task = mockTask('implementation-task', status)
+            detail.actions.loadReportTasksSuccess([
+                { task, purpose: 'implementation', purposeLabel: 'Implementation', startedAt: task.created_at },
+            ])
+            render(<ImplementButton report={report} />)
+
+            expect(screen.queryByTestId('inbox-report-create-pr')).not.toBeInTheDocument()
+            await user.click(screen.getByTestId('inbox-report-open-task'))
+
+            expect(createPrFromReport).not.toHaveBeenCalled()
+            expect(runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation).toMatchObject({
+                taskId: task.id,
+                runId: task.latest_run.id,
+            })
+            detail.unmount()
+        }
+    )
 
     it('opens both implementation options without starting work', async () => {
         await openMenu()
@@ -115,9 +147,37 @@ describe('ImplementButton', () => {
         expect(prompt).toContain('claim the report with inbox-reports-claim')
         expect(prompt).toContain('pr_url to attach it')
         expect(prompt).toContain('release=true')
-        expect(copyToClipboard).toHaveBeenCalledWith(prompt, 'implementation prompt')
+        expect(copyToClipboard).toHaveBeenCalledWith(prompt, 'prompt for your agent')
         expect(captureInboxReportAction).toHaveBeenCalledWith(
-            expect.objectContaining({ actionType: 'copy_implementation_prompt' })
+            expect.objectContaining({
+                actionType: 'copy_implementation_prompt',
+                extra: { agent: 'clipboard' },
+            })
+        )
+    })
+
+    it('opens the implementation prompt from the agent list without changing the copy action', async () => {
+        const user = await openMenu()
+        const open = jest.spyOn(window, 'open').mockImplementation()
+
+        await user.click(screen.getByLabelText('Open prompt in an agent'))
+
+        expect(screen.queryByText('PostHog AI')).not.toBeInTheDocument()
+        await user.click(screen.getByText('Claude Code'))
+
+        expect(open).toHaveBeenCalledWith(expect.stringMatching(/^claude-cli:\/\/open\?q=/), '_blank')
+        expect(captureInboxReportAction).toHaveBeenCalledWith(
+            expect.objectContaining({
+                actionType: 'copy_implementation_prompt',
+                extra: { agent: 'claude-code' },
+            })
+        )
+
+        await user.click(screen.getByTestId('inbox-report-copy-implementation-prompt'))
+
+        expect(copyToClipboard).toHaveBeenCalledWith(
+            expect.stringContaining('report ID: report-1'),
+            'prompt for your agent'
         )
     })
 })

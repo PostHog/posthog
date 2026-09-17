@@ -28,6 +28,7 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.middleware import CSPMiddleware, app_csp_header_name, per_request_logging_context_middleware
 from posthog.models.organization import Organization
+from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
@@ -224,6 +225,9 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.user.current_team = self.team
         self.user.current_organization = self.organization
 
+    def app_context(self, response) -> dict:
+        return json.loads(response.context["posthog_app_context"])
+
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_switched_when_accessing_dashboard_of_another_accessible_team(self):
         dashboard = Dashboard.objects.create(team=self.second_team)
@@ -400,11 +404,13 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         assert project_1_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
+        assert self.app_context(project_1_request)["project_access_denied"] is None
 
         project_2_request = self.client.get(f"/project/{self.no_access_team.pk}/home")
         response_users_api = self.client.get(f"/api/users/@me/")
         assert project_2_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
+        assert self.app_context(project_2_request)["project_access_denied"] == str(self.no_access_team.pk)
 
     def test_project_unchanged_when_accessing_missing_project_by_id(self):
         project_1_request = self.client.get(f"/project/{self.team.pk}/home")
@@ -416,6 +422,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         assert project_2_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
+        assert self.app_context(project_2_request)["project_access_denied"] == "999999"
 
     def test_project_redirects_to_new_team_when_accessing_project_by_token(self):
         res = self.client.get(f"/project/{self.second_team.api_token}/home")
@@ -432,28 +439,24 @@ class TestAutoProjectMiddleware(APIBaseTest):
             == f"/project/{self.third_team.pk}/replay/018f5c3e-1a17-7f2b-ac83-32d06be3269b?t=2601"
         )
 
-    def test_project_redirects_to_current_team_when_accessing_missing_project_by_token(
-        self,
-    ):
-        res = self.client.get(f"/project/phc_123/home")
-        assert res.status_code == 302
-        assert res.headers["Location"] == f"/project/{self.team.pk}/home"
+    @parameterized.expand([("missing", None), ("inaccessible", "no_access_team")])
+    def test_project_access_denied_when_accessing_unreachable_project_by_token(self, _name, team_attribute):
+        token = getattr(self, team_attribute).api_token if team_attribute else "phc_123"
 
-    def test_project_redirects_to_current_team_when_accessing_inaccessible_project_by_token(
-        self,
-    ):
-        res = self.client.get(f"/project/{self.no_access_team.api_token}/home")
-        assert res.status_code == 302
-        assert res.headers["Location"] == f"/project/{self.team.pk}/home"
+        res = self.client.get(f"/project/{token}/home")
+        assert res.status_code == 200
+        response_users_api = self.client.get(f"/api/users/@me/")
+        assert response_users_api.json().get("team", {}).get("id") == self.team.id
+        assert self.app_context(res)["project_access_denied"] == token
 
     def test_project_redirects_including_query_params(self):
-        res = self.client.get(f"/project/phc_123?t=1")
+        res = self.client.get(f"/project/{self.second_team.api_token}?t=1")
         assert res.status_code == 302
-        assert res.headers["Location"] == f"/project/{self.team.pk}?t=1"
+        assert res.headers["Location"] == f"/project/{self.second_team.pk}?t=1"
 
-        res = self.client.get(f"/project/phc_123/home?t=1")
+        res = self.client.get(f"/project/{self.second_team.api_token}/home?t=1")
         assert res.status_code == 302
-        assert res.headers["Location"] == f"/project/{self.team.pk}/home?t=1"
+        assert res.headers["Location"] == f"/project/{self.second_team.pk}/home?t=1"
 
 
 @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
@@ -1818,6 +1821,53 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         if expected_location:
             self.assertEqual(response.headers["Location"], expected_location)
 
+    @parameterized.expand(
+        [
+            ("deactivated_keeps_invites", "is_active", "/signup/{invite_id}", status.HTTP_200_OK),
+            ("deactivated_keeps_billing", "is_active", "/organization/billing", status.HTTP_200_OK),
+            ("deactivated_keeps_stripe_return", "is_active", "/billing/authorization_status", status.HTTP_200_OK),
+            ("pending_deletion_keeps_invites", "is_pending_deletion", "/signup/{invite_id}", status.HTTP_200_OK),
+            ("pending_deletion_drops_billing", "is_pending_deletion", "/organization/billing", status.HTTP_302_FOUND),
+            (
+                "pending_deletion_drops_stripe_return",
+                "is_pending_deletion",
+                "/billing/authorization_status",
+                status.HTTP_302_FOUND,
+            ),
+        ]
+    )
+    def test_blocked_organization_page_access(
+        self, _name: str, blocking_field: str, path_template: str, expected_status: int
+    ) -> None:
+        inviting_org = Organization.objects.create(name="Inviting Org")
+        invite = OrganizationInvite.objects.create(organization=inviting_org, target_email=self.user.email)
+
+        setattr(self.organization, blocking_field, blocking_field == "is_pending_deletion")
+        self.organization.save()
+
+        response = self.client.get(path_template.format(invite_id=invite.id))
+        self.assertEqual(response.status_code, expected_status)
+
+    def test_link_into_another_active_organization_loads(self):
+        active_org = Organization.objects.create(name="Active Org")
+        active_team = Team.objects.create(organization=active_org, name="Active Team")
+        self.user.organizations.add(active_org)
+
+        self.organization.is_active = False
+        self.organization.save()
+
+        response = self.client.get(f"/project/{active_team.pk}/dashboard")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_runs_after_the_middleware_that_switches_project(self):
+        # The block check reads `current_organization`, so it only sees the organization a
+        # `/project/<id>` URL names once AutoProjectMiddleware has switched the user into it.
+        middleware = list(settings.MIDDLEWARE)
+        self.assertLess(
+            middleware.index("posthog.middleware.AutoProjectMiddleware"),
+            middleware.index("posthog.middleware.ActiveOrganizationMiddleware"),
+        )
+
 
 class TestActivityLoggingMiddleware(APIBaseTest):
     def setUp(self):
@@ -1856,13 +1906,26 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         self.assertIsNone(self.captured["client"])
 
     def test_long_header_value_is_truncated(self):
-        from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_MAX_LENGTH
+        from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_HEADER_MAX_LENGTH
 
-        long_value = "x" * (ACTIVITY_LOG_CLIENT_MAX_LENGTH * 4)
+        long_value = "x" * (ACTIVITY_LOG_CLIENT_HEADER_MAX_LENGTH * 4)
         request = self.factory.get("/", HTTP_X_POSTHOG_CLIENT=long_value)
         request.user = self.user
         self.middleware(request)
-        self.assertEqual(self.captured["client"], "x" * ACTIVITY_LOG_CLIENT_MAX_LENGTH)
+        self.assertEqual(self.captured["client"], "x" * ACTIVITY_LOG_CLIENT_HEADER_MAX_LENGTH)
+
+    @parameterized.expand(
+        [
+            ("lowercase prefix", "scout:signals-scout-errors"),
+            ("upper case prefix", "SCOUT:signals-scout-errors"),
+            ("padded prefix", "  scout:signals-scout-errors  "),
+        ]
+    )
+    def test_header_claiming_a_server_derived_prefix_is_dropped(self, _name: str, header_value: str):
+        request = self.factory.get("/", HTTP_X_POSTHOG_CLIENT=header_value)
+        request.user = self.user
+        self.middleware(request)
+        self.assertIsNone(self.captured["client"])
 
     def test_captures_ip_address_from_remote_addr(self):
         request = self.factory.get("/", REMOTE_ADDR="203.0.113.42")
@@ -1927,24 +1990,37 @@ class TestCSPMiddleware(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("app_root", "/"),
+            ("app_root", "/", True),
             # No route serves this path, so the app catch-all answers it. It must keep the app
             # policy, because the frame policy is enforced and its script-src 'none' stops the app
             # from starting.
-            ("path_under_the_replay_frame_prefix", "/replay_player_frame"),
+            ("path_under_the_replay_frame_prefix", "/replay_player_frame", True),
+            # A customer's page frames this document, and the enforced list names only PostHog
+            # origins.
+            ("embeddable_document", "/shared/notarealtoken", False),
         ]
     )
-    def test_html_response_gets_report_only_csp(self, _name, path):
+    def test_html_response_without_the_flag_enforces_only_frame_ancestors(self, _name, path, enforces_frame_ancestors):
         response = self.client.get(path)
-        assert response.status_code == 200
-        assert "Content-Security-Policy-Report-Only" in response
-        assert "Content-Security-Policy" not in response
+        reported = response["Content-Security-Policy-Report-Only"]
+        assert "default-src 'self'" in reported
+        if not enforces_frame_ancestors:
+            assert "Content-Security-Policy" not in response
+            return
+        # Framing is enforced ahead of the flag because it is what lets posthog.com frame the app.
+        # The enforced list has to be the one the reported policy names, or the two drift apart.
+        enforced = response["Content-Security-Policy"]
+        assert enforced.startswith("frame-ancestors https://posthog.com")
+        assert "default-src" not in enforced
+        assert enforced in reported
 
     @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
     def test_enforcement_reaches_an_app_page_but_not_an_embeddable_one(self, _mock_flag):
         # The wiring guard for app_csp_header_name. The matrix of paths lives in
         # TestAppCspHeaderName, which needs no database.
-        assert "Content-Security-Policy" in self.client.get("/")
+        enforced = self.client.get("/")
+        assert "default-src 'self'" in enforced["Content-Security-Policy"]
+        assert "Content-Security-Policy-Report-Only" not in enforced
 
         embedded = self.client.get("/shared/notarealtoken")
         assert "Content-Security-Policy" not in embedded
@@ -1998,6 +2074,33 @@ class TestCSPMiddleware(APIBaseTest):
         header = response["Reporting-Endpoints"]
         assert "us.i.posthog.com" not in header
         assert f"distinct_id={self.user.distinct_id}" in header
+
+    @parameterized.expand(
+        [
+            ("staff", True, "1", "0.1"),
+            ("not_staff", False, "0.1", "1"),
+        ]
+    )
+    @override_settings(CSP_REPORT_ENDPOINT="https://posthog.example.com/report/")
+    def test_staff_report_every_violation_while_everyone_else_is_sampled(
+        self, _name, is_staff, expected_rate, other_rate
+    ):
+        # Staff get the policy enforced ahead of everyone else, so a violation of theirs is
+        # something already broken for a colleague rather than one sample of a trend. At 0.1 nine
+        # in ten of those never arrive, which defeats the point of rolling out to staff first.
+        self.user.is_staff = is_staff
+        self.user.save()
+
+        response = self.client.get("/")
+
+        policy = response["Content-Security-Policy-Report-Only"]
+        assert f"report-uri https://posthog.example.com/report/?sample_rate={expected_rate}" in policy
+        assert f"sample_rate={other_rate}" not in policy
+        # The crash-reporting endpoint is built by a second call that takes the rate separately, so
+        # it can drift from the directive above.
+        header = response["Reporting-Endpoints"]
+        assert f"sample_rate={expected_rate}&distinct_id={self.user.distinct_id}" in header
+        assert f"sample_rate={other_rate}" not in header
 
     @parameterized.expand(
         [
@@ -2593,6 +2696,6 @@ class TestViewManagedCsp(SimpleTestCase):
         elif policy is not None:
             assert response["Content-Security-Policy"] == policy
         else:
-            assert "Content-Security-Policy" not in response
+            assert response["Content-Security-Policy"].startswith("frame-ancestors ")
         assert ("Content-Security-Policy-Report-Only" in response) == (expects_reporting and path != "/admin/")
         assert ("Reporting-Endpoints" in response) == expects_reporting

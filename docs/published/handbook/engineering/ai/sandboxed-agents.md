@@ -36,6 +36,10 @@ Follow-up messages collect in "Up next" and send after the first response finish
 Once the agent starts, Steer can send them before the current turn ends.
 The thread hides empty and whitespace-only assistant messages during streaming and history replay.
 
+The chat history filters for PostHog AI, Slack, and Desktop show tasks created by the current user.
+These requests wait until the current user's ID is available, including filter changes, searches, and refreshes.
+When the user loads, the pending request uses the active filter and search term.
+
 ```text
 Your product code
     │
@@ -57,6 +61,13 @@ The agent inside the sandbox gets:
 - A **GitHub installation token** for repo operations
 - Access to the **PostHog MCP server** for querying data
 - **Code execution** capabilities within the sandbox
+
+### Run system prompts
+
+The run's `state.systemPrompt` is server-owned. Set it through trusted server-side run creation
+or state updates. The run PATCH endpoint silently ignores attempts to replace, remove, or append
+to this key, including requests from the sandbox itself. The run detail endpoint serves the prompt
+only to the task-bound sandbox, so it can initialize the agent session.
 
 ## Creating a sandboxed agent
 
@@ -113,6 +124,14 @@ The handoff removes `ask` from the current browser history entry while preservin
 Changing the panel state or remounting the view therefore does not submit the prompt again.
 Without organization-level AI data-processing consent, the prompt only prefills the composer.
 
+## Task navigation
+
+Task links in shared AI history open `/ai?task=<task-id>` and render the task runner, regardless of the saved chat view preference.
+The task stays selected on reload and when navigating back or forward.
+Existing `/tasks/<task-id>` links still open the standalone runner.
+Task headers keep horizontal padding around the title and run metadata.
+In the AI chat view, the staff options menu sits beside the task actions, including **Open in PostHog Desktop**.
+
 ## Fine-grained access tokens
 
 Every sandboxed agent gets a scoped OAuth access token that controls what PostHog resources it can access.
@@ -151,6 +170,16 @@ See `posthog/temporal/oauth.py` for the full list.
 
 > **Principle of least privilege**: default to `"read_only"` unless your agent genuinely needs to create or modify resources.
 > This limits blast radius if the agent misbehaves.
+
+### Activity attribution
+
+A sandboxed agent authenticates as a person, so the activity log names that person as the actor.
+The client tag on the row is what says an agent made the change.
+
+A Signals scout run writes the tag `scout:<skill_name>`, which the activity log and the audit log render as `via scout <skill_name>`.
+The tag is derived from the task binding on the run's own token, not from the `x-posthog-client` request header.
+The `scout:` prefix is reserved for that path, and a header value claiming it is dropped, so an agent cannot claim to be a scout it is not.
+Every other client keeps the self-reported header value.
 
 ## PostHog MCP server
 

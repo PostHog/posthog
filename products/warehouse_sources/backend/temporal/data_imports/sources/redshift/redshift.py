@@ -10,6 +10,7 @@ credentials.
 
 from __future__ import annotations
 
+import re
 import time
 import collections
 from collections.abc import Callable, Iterator
@@ -44,6 +45,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     open_ssh_tunnel,
     pinned_host_kwargs,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.primary_keys import (
+    needs_full_probe,
+    resolve_merge_keys,
+    should_probe_for_duplicates,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     Column,
@@ -129,6 +135,73 @@ SYSTEM_REDSHIFT_SCHEMAS = ["pg_catalog", "information_schema", "pg_internal", "p
 # discovered schema makes the Arrow schema disagree with the streamed rows and
 # `pa.Table.from_pydict` raises a `KeyError`. The `padb_internal` prefix is Redshift-reserved.
 REDSHIFT_INTERNAL_COLUMN_LIKE = "padb_internal%"
+
+# `information_schema.columns` filters on the connecting role's privileges, and on some clusters it
+# returns no rows for a materialized view the role can nonetheless `SELECT` from. Discovery then
+# reports the relation as missing or unreadable, and a schema refresh disables its sync.
+# `pg_catalog` applies no privilege filter, so it is the fallback for relations discovery already
+# knows by name; a role that truly cannot read one still gets the real `permission denied` at sync
+# time, which names the actual problem.
+_CATALOG_COLUMNS_SQL = """
+    SELECT
+        n.nspname,
+        c.relname,
+        a.attname,
+        format_type(a.atttypid, a.atttypmod),
+        CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END
+    FROM pg_catalog.pg_attribute a
+    JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    WHERE a.attnum > 0
+      AND NOT a.attisdropped
+      AND a.attname NOT LIKE %(internal_column)s
+      AND {where}
+    ORDER BY n.nspname ASC, c.relname ASC, a.attnum ASC
+"""
+
+_TYPE_MODIFIER_PATTERN = re.compile(r"\((\d+)(?:,\s*(\d+))?\)")
+
+
+@frozen
+class _CatalogColumn:
+    """One `pg_catalog` column, normalized to what `information_schema.columns` would report."""
+
+    schema: str
+    table: str
+    name: str
+    data_type: str
+    nullable: bool
+    numeric_precision: int | None
+    numeric_scale: int | None
+
+    @classmethod
+    def from_row(cls, schema: str, table: str, name: str, formatted_type: str, is_nullable: str) -> _CatalogColumn:
+        """Build from a `_CATALOG_COLUMNS_SQL` row.
+
+        `format_type` renders the modifier inline (`character varying(256)`, `numeric(18,2)`), while
+        `information_schema.columns` reports the bare type and carries precision and scale in their
+        own columns. Only `numeric`/`decimal` keep the modifier values; a missing scale is 0, as in
+        the catalog.
+        """
+        data_type = formatted_type
+        precision: int | None = None
+        scale: int | None = None
+        match = _TYPE_MODIFIER_PATTERN.search(formatted_type)
+        if match is not None:
+            data_type = " ".join((formatted_type[: match.start()] + formatted_type[match.end() :]).split())
+            if data_type in ("numeric", "decimal"):
+                precision = int(match.group(1))
+                scale = int(match.group(2) or 0)
+        return cls(
+            schema=schema,
+            table=table,
+            name=name,
+            data_type=data_type,
+            nullable=is_nullable == "YES",
+            numeric_precision=precision,
+            numeric_scale=scale,
+        )
+
 
 # A single-node Redshift cluster rejects any `FETCH FORWARD` above 1000 rows with
 # "Fetch size N exceeds the limit of 1000 for a single node configuration". The limit is fixed by
@@ -748,7 +821,7 @@ class RedshiftColumn(Column):
             case "smallint" | "int2":
                 arrow_type = pa.int16()
             case "numeric" | "decimal":
-                if not self.numeric_precision or not self.numeric_scale:
+                if self.numeric_precision is None or self.numeric_scale is None:
                     raise TypeError("expected `numeric_precision` and `numeric_scale` to be `int`, got `NoneType`")
                 arrow_type = build_pyarrow_decimal_type(self.numeric_precision, self.numeric_scale)
             case "real" | "float4":
@@ -796,6 +869,10 @@ class QualifiedRelation:
     name: str
 
 
+# (incremental field, comparison operator, last synced value) — the rows a run is about to read.
+type IncrementalProbeWindow = tuple[str, str, str | int | float | None]
+
+
 @frozen
 class RedshiftTableSetup:
     """Everything `build_pipeline` learns about a table before it can stream rows."""
@@ -807,6 +884,7 @@ class RedshiftTableSetup:
     rows_to_sync: int
     partition_settings: PartitionSettings | None
     duplicate_primary_keys: bool
+    verified_primary_keys: list[str] | None
 
 
 class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psycopg.Connection, Any]):
@@ -873,16 +951,9 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         qualify = selected_schema is None
 
         with conn.cursor() as cursor:
-            params: dict = {"internal_column": REDSHIFT_INTERNAL_COLUMN_LIKE}
-            where: list[str] = ["column_name NOT LIKE %(internal_column)s"]
-            if selected_schema is not None:
-                params["schema"] = selected_schema
-                where.append("table_schema = %(schema)s")
-            else:
-                placeholders, system_params = _named_placeholders("system_schema", SYSTEM_REDSHIFT_SCHEMAS)
-                params.update(system_params)
-                where.append(f"table_schema NOT IN ({placeholders})")
-                where.append("table_schema NOT LIKE 'pg_temp_%%'")
+            where, params = self._scope_predicates(selected_schema, "table_schema")
+            params["internal_column"] = REDSHIFT_INTERNAL_COLUMN_LIKE
+            where.append("column_name NOT LIKE %(internal_column)s")
             if names:
                 name_clause, name_params = self._column_name_predicate(names, selected_schema)
                 params.update(name_params)
@@ -899,15 +970,41 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             )
             result = cursor.fetchall()
 
+            undiscovered = self._undiscovered_relations(conn, cursor, selected_schema, names, result)
+            catalog_columns = (
+                self._columns_from_catalog(conn, cursor, undiscovered, selected_schema) if undiscovered else []
+            )
+
         schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
         for table_schema, table_name, column_name, data_type, is_nullable in result:
             display = _display_name(table_schema, table_name, qualify=qualify)
             schema_list[display].append((column_name, data_type, is_nullable == "YES"))
+        for column in catalog_columns:
+            display = _display_name(column.schema, column.table, qualify=qualify)
+            schema_list[display].append((column.name, column.data_type, column.nullable))
         return dict(schema_list)
 
     @staticmethod
-    def _column_name_predicate(names: list[str], selected_schema: Optional[str]) -> tuple[str, dict[str, str]]:
-        """Build a WHERE fragment restricting `information_schema.columns` to the requested tables.
+    def _scope_predicates(selected_schema: Optional[str], schema_column: str) -> tuple[list[str], dict[str, str]]:
+        """WHERE fragments that pin a catalog query to the configured namespace(s).
+
+        Pinned schema → that schema only. Blank schema → every namespace except the Redshift
+        system schemas and per-session temp schemas.
+        """
+        if selected_schema is not None:
+            return [f"{schema_column} = %(schema)s"], {"schema": selected_schema}
+        placeholders, params = _named_placeholders("system_schema", SYSTEM_REDSHIFT_SCHEMAS)
+        return [f"{schema_column} NOT IN ({placeholders})", f"{schema_column} NOT LIKE 'pg_temp_%%'"], params
+
+    @staticmethod
+    def _column_name_predicate(
+        names: list[str],
+        selected_schema: Optional[str],
+        *,
+        schema_column: str = "table_schema",
+        table_column: str = "table_name",
+    ) -> tuple[str, dict[str, str]]:
+        """Build a WHERE fragment restricting a column listing to the requested tables.
 
         Pinned schema → match by bare `table_name`. Blank schema → match each qualified
         `schema.table` on both parts (bare names fall back to any-schema for legacy self-heal).
@@ -917,17 +1014,83 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         for index, name in enumerate(names):
             if selected_schema is not None:
                 params[f"name_{index}"] = name
-                clauses.append(f"table_name = %(name_{index})s")
+                clauses.append(f"{table_column} = %(name_{index})s")
                 continue
             schema, _, table = name.partition(".")
             if table:
                 params[f"sch_{index}"] = schema
                 params[f"tbl_{index}"] = table
-                clauses.append(f"(table_schema = %(sch_{index})s AND table_name = %(tbl_{index})s)")
+                clauses.append(f"({schema_column} = %(sch_{index})s AND {table_column} = %(tbl_{index})s)")
             else:
                 params[f"name_{index}"] = name
-                clauses.append(f"table_name = %(name_{index})s")
+                clauses.append(f"{table_column} = %(name_{index})s")
         return "(" + " OR ".join(clauses) + ")", params
+
+    def _undiscovered_relations(
+        self,
+        conn: psycopg.Connection,
+        cursor: Any,
+        selected_schema: Optional[str],
+        names: list[str] | None,
+        listed: list[tuple[Any, ...]],
+    ) -> list[str]:
+        """Display names that `information_schema.columns` returned no rows for, but that should exist.
+
+        With explicit `names` those are the requested relations themselves — the caller knows they
+        exist. Without, the candidates are the materialized views `svv_mv_info` lists in scope, the
+        relation type `information_schema` hides from non-owner roles. That probe is best-effort: a
+        role without access to `svv_mv_info` keeps the plain listing.
+        """
+        found_pairs = {(table_schema, table_name) for table_schema, table_name, *_ in listed}
+        found_tables = {table_name for _, table_name in found_pairs}
+
+        def is_found(display: str) -> bool:
+            schema, table = _split_display_name(display, selected_schema)
+            return table in found_tables if schema is None else (schema, table) in found_pairs
+
+        if names:
+            return [name for name in names if not is_found(name)]
+
+        where, params = self._scope_predicates(selected_schema, "schema_name")
+        try:
+            cursor.execute(f"SELECT schema_name, name FROM svv_mv_info WHERE {' AND '.join(where)}", params)
+            rows = cursor.fetchall()
+        except Exception:
+            _recover_after_failed_probe(conn)
+            return []
+        return [
+            display
+            for schema_name, view_name in rows
+            if not is_found(display := _display_name(schema_name, view_name, qualify=selected_schema is None))
+        ]
+
+    def _columns_from_catalog(
+        self,
+        conn: psycopg.Connection,
+        cursor: Any,
+        names: list[str],
+        selected_schema: Optional[str],
+    ) -> list[_CatalogColumn]:
+        """Columns of `names`, read from `pg_catalog` instead of `information_schema.columns`.
+
+        Best-effort: a failure here leaves discovery with what `information_schema` returned, the
+        same result as before the fallback existed.
+        """
+        where, params = self._scope_predicates(selected_schema, "n.nspname")
+        name_clause, name_params = self._column_name_predicate(
+            names, selected_schema, schema_column="n.nspname", table_column="c.relname"
+        )
+        where.append(name_clause)
+        params.update(name_params)
+        params["internal_column"] = REDSHIFT_INTERNAL_COLUMN_LIKE
+        try:
+            cursor.execute(_CATALOG_COLUMNS_SQL.format(where=" AND ".join(where)), params)
+            rows = cursor.fetchall()
+        except Exception as e:
+            _recover_after_failed_probe(conn)
+            structlog.get_logger().warning("Failed to read Redshift columns from pg_catalog", exc_info=e)
+            return []
+        return [_CatalogColumn.from_row(*row) for row in rows]
 
     def get_primary_keys(
         self,
@@ -1262,6 +1425,49 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             logger.warning(_no_primary_key_warning(cursor, schema, table_name, table_type))
         return None
 
+    @staticmethod
+    def _duplicate_primary_keys_query(
+        schema: str,
+        table_name: str,
+        primary_keys: list[str],
+        incremental_window: Optional[IncrementalProbeWindow],
+        row_filters: Optional[list[ValidatedRowFilter]],
+    ) -> sql.Composed:
+        table = sql.Identifier(schema, table_name)
+        filter_conditions = render_psycopg_row_filter_conditions(row_filters or [])
+        key_columns = [sql.Identifier(key) for key in primary_keys]
+
+        conditions = list(filter_conditions)
+        if incremental_window is not None:
+            field, operator, last_value = incremental_window
+            # The candidate set is this run's rows; the count below spans the whole table.
+            candidates = sql.SQL("SELECT DISTINCT {cols} FROM {table} WHERE {field} {op} {value}").format(
+                cols=sql.SQL(", ").join(key_columns),
+                table=table,
+                field=sql.Identifier(field),
+                op=sql.SQL(operator),
+                value=sql.Literal(last_value),
+            )
+            if filter_conditions:
+                candidates = candidates + sql.SQL(" AND ") + and_join(filter_conditions)
+            # `IN` never matches a key holding NULL, so a nullable key would go unprobed.
+            # GROUP BY treats NULLs as equal, and the merge sees them the same way.
+            key_matches: list[sql.Composable] = [
+                sql.SQL("(t.{key} = c.{key} OR (t.{key} IS NULL AND c.{key} IS NULL))").format(key=key)
+                for key in key_columns
+            ]
+            conditions.append(
+                sql.SQL("EXISTS (SELECT 1 FROM ({candidates}) AS c WHERE {matches})").format(
+                    candidates=candidates, matches=and_join(key_matches)
+                )
+            )
+
+        query = sql.SQL("SELECT {cols} FROM {table} AS t").format(cols=sql.SQL(", ").join(key_columns), table=table)
+        if conditions:
+            query = query + sql.SQL(" WHERE ") + and_join(conditions)
+        group_by = sql.SQL(", ").join(sql.SQL(str(i + 1)) for i, _ in enumerate(primary_keys))
+        return query + sql.SQL(" GROUP BY {group} HAVING COUNT(*) > 1 LIMIT 1").format(group=group_by)
+
     def has_duplicate_primary_keys(
         self,
         cursor: psycopg.Cursor,
@@ -1269,25 +1475,23 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         table_name: str,
         primary_keys: list[str] | None,
         logger: FilteringBoundLogger,
-    ) -> bool:
+        incremental_window: Optional[IncrementalProbeWindow] = None,
+        row_filters: Optional[list[ValidatedRowFilter]] = None,
+    ) -> bool | None:
+        """Whether the key repeats. None when the check could not run, which is not the same as
+        proving the key unique.
+
+        `incremental_window` narrows which keys are examined to the ones this run reads, but each
+        of those keys is still counted across the whole table: a row that repeats a key synced by
+        an earlier run is exactly the case a merge cannot resolve. Row filters are applied on both
+        sides, because a key only has to be unique among the rows extraction actually reads.
+        """
         if not primary_keys or len(primary_keys) == 0:
             return False
 
         try:
-            sql_query = cast(
-                LiteralString,
-                f"""
-                SELECT {", ".join(["{}" for _ in primary_keys])}
-                FROM {{}}.{{}}
-                GROUP BY {", ".join([str(i + 1) for i, _ in enumerate(primary_keys)])}
-                HAVING COUNT(*) > 1
-                LIMIT 1
-            """,
-            )
-            query = sql.SQL(sql_query).format(
-                *[sql.Identifier(key) for key in primary_keys],
-                sql.Identifier(schema),
-                sql.Identifier(table_name),
+            query = self._duplicate_primary_keys_query(
+                schema, table_name, primary_keys, incremental_window, row_filters
             )
             _explain_query(cursor, query, logger)
             logger.debug(f"Running query: {query.as_string()}")
@@ -1311,9 +1515,9 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             # to error tracking. Mirrors the graceful-skip probes elsewhere in this driver.
             if "system requested abort" in str(e):
                 logger.debug(f"has_duplicate_primary_keys: query aborted by Redshift, skipping check: {e}")
-                return False
+                return None
             capture_exception(e)
-            return False
+            return None
 
     def get_table_metadata(
         self,
@@ -1354,22 +1558,38 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             _explain_query(cursor, query, logger)
             logger.debug(f"Running query: {query.as_string()}")
         cursor.execute(query)
+        rows = [
+            _CatalogColumn(
+                schema=schema,
+                table=table_name,
+                name=name,
+                data_type=data_type,
+                nullable=nullable == "YES",
+                numeric_precision=numeric_precision,
+                numeric_scale=numeric_scale,
+            )
+            for name, data_type, nullable, numeric_precision, numeric_scale in cursor
+        ]
+        if not rows:
+            rows = self._column_metadata_from_catalog(cursor, schema, table_name)
 
         numeric_data_types = {"numeric", "decimal"}
         columns = []
-        for name, data_type, nullable, numeric_precision_candidate, numeric_scale_candidate in cursor:
-            if data_type in numeric_data_types:
-                numeric_precision = numeric_precision_candidate or DEFAULT_NUMERIC_PRECISION
-                numeric_scale = numeric_scale_candidate or DEFAULT_NUMERIC_SCALE
+        for row in rows:
+            if row.data_type in numeric_data_types:
+                numeric_precision = (
+                    row.numeric_precision if row.numeric_precision is not None else DEFAULT_NUMERIC_PRECISION
+                )
+                numeric_scale = row.numeric_scale if row.numeric_scale is not None else DEFAULT_NUMERIC_SCALE
             else:
                 numeric_precision = None
                 numeric_scale = None
 
             columns.append(
                 RedshiftColumn(
-                    name=name,
-                    data_type=data_type,
-                    nullable=nullable == "YES",
+                    name=row.name,
+                    data_type=row.data_type,
+                    nullable=row.nullable,
                     numeric_precision=numeric_precision,
                     numeric_scale=numeric_scale,
                 )
@@ -1381,6 +1601,14 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         elif is_view:
             table_type = "view"
         return Table(name=table_name, parents=(schema,), columns=columns, type=table_type)
+
+    @staticmethod
+    def _column_metadata_from_catalog(cursor: psycopg.Cursor, schema: str, table_name: str) -> list[_CatalogColumn]:
+        cursor.execute(
+            _CATALOG_COLUMNS_SQL.format(where="n.nspname = %(schema)s AND c.relname = %(table)s"),
+            {"schema": schema, "table": table_name, "internal_column": REDSHIFT_INTERNAL_COLUMN_LIKE},
+        )
+        return [_CatalogColumn.from_row(*row) for row in cursor.fetchall()]
 
     def get_rows_to_sync(
         self,
@@ -1415,6 +1643,14 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             # reporting the expected, non-actionable error to error tracking. Mirrors
             # `fetch_table_stats`.
             logger.debug(f"get_rows_to_sync: no privilege to run count query, using 0 as rows to sync: {e}")
+            return 0
+        except psycopg.errors.UndefinedTable as e:
+            # The table existed when schema discovery ran but was dropped or renamed before this
+            # count query executed — the same already-known, non-actionable condition
+            # `get_non_retryable_errors` stops the sync for entirely. Row-count estimation is
+            # best-effort (the caller defaults to 0), so skip gracefully instead of reporting the
+            # non-actionable error to error tracking.
+            logger.debug(f"get_rows_to_sync: table no longer exists, using 0 as rows to sync: {e}")
             return 0
         except Exception as e:
             logger.debug(f"get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
@@ -1580,10 +1816,13 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                         if primary_keys:
                             logger.debug(f"Found primary keys: {primary_keys}")
 
-                        # Resolve PKs before projection so SELECT and Arrow schema agree.
-                        if primary_keys is None and "id" in full_table:
-                            logger.debug("Falling back to ['id'] for primary keys...")
-                            primary_keys = ["id"]
+                        # Resolve PKs before projection so SELECT and Arrow schema agree. The
+                        # stored key wins here for the same reason it wins in the pipeline: it is
+                        # what the merge runs on, so it is what the probe below has to check.
+                        declared_keys = primary_keys
+                        primary_keys = resolve_merge_keys(
+                            inputs.primary_keys, declared_keys, [column.name for column in full_table.columns]
+                        )
 
                         projection = _resolve_projection(full_table, primary_keys)
                         table = projection.table
@@ -1639,12 +1878,54 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                             else None
                         )
                         duplicate_primary_keys = False
-                        if primary_keys == ["id"] and "id" in full_table:
-                            # Only check dupes when we fell back to the `id` PK above.
-                            logger.debug("Checking duplicate primary keys...")
-                            duplicate_primary_keys = self.has_duplicate_primary_keys(
-                                cursor, schema, table_name, primary_keys, logger
+                        verified_primary_keys: list[str] | None = None
+                        # Redshift records primary key constraints without enforcing them, so no
+                        # key here is unique until this proves it.
+                        if should_probe_for_duplicates(primary_keys, declared_keys, constraints_enforced=False):
+                            assert primary_keys is not None
+                            # A run with no stored cursor re-reads the whole table (a reset, or the
+                            # first sync), so a window would describe rows the run is not limited to.
+                            full_probe = (
+                                needs_full_probe(primary_keys, inputs.verified_primary_keys)
+                                or not should_use_incremental_field
+                                or incremental_field is None
+                                or db_incremental_field_last_value is None
                             )
+                            window: IncrementalProbeWindow | None = (
+                                None
+                                if full_probe or incremental_field is None
+                                else (
+                                    incremental_field,
+                                    incremental_type_to_operator(incremental_field_type)
+                                    if incremental_field_type
+                                    else ">",
+                                    db_incremental_field_last_value,
+                                )
+                            )
+                            logger.debug(f"Checking duplicate primary keys (full_probe={full_probe})...")
+                            try:
+                                probed = self.has_duplicate_primary_keys(
+                                    cursor,
+                                    schema,
+                                    table_name,
+                                    primary_keys,
+                                    logger,
+                                    incremental_window=window,
+                                    row_filters=row_filters,
+                                )
+                            except psycopg.errors.QueryCanceled:
+                                # A full scan of a large table can outlive the statement timeout.
+                                # Failing the sync here would stop a table that syncs today, so the
+                                # key stays unverified and the next run scans for it again.
+                                logger.warning(
+                                    f"Duplicate primary key check timed out for {schema}.{table_name}; "
+                                    "the key stays unverified"
+                                )
+                            else:
+                                duplicate_primary_keys = probed is True
+                                # Only a check that ran proves anything.
+                                if full_probe and probed is False:
+                                    verified_primary_keys = primary_keys
                     except psycopg.errors.QueryCanceled:
                         if should_use_incremental_field:
                             raise QueryTimeoutException(
@@ -1659,6 +1940,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                 rows_to_sync=rows_to_sync,
                 partition_settings=partition_settings,
                 duplicate_primary_keys=duplicate_primary_keys,
+                verified_primary_keys=verified_primary_keys,
             )
 
         # A fresh connection can still drop before setup finishes (network blip, cluster
@@ -1671,6 +1953,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         rows_to_sync = setup.rows_to_sync
         partition_settings = setup.partition_settings
         duplicate_primary_keys = setup.duplicate_primary_keys
+        verified_primary_keys = setup.verified_primary_keys
 
         def _refreshed_projection(connection: psycopg.Connection) -> TableProjection[RedshiftColumn]:
             """Re-read the catalog on the streaming connection, right before the read query.
@@ -1729,4 +2012,5 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             partition_size=partition_settings.partition_size if partition_settings else None,
             rows_to_sync=rows_to_sync,
             has_duplicate_primary_keys=duplicate_primary_keys,
+            verified_primary_keys=verified_primary_keys,
         )

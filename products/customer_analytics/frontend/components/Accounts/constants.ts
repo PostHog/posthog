@@ -59,6 +59,7 @@ export const AccountsEvents = {
     RelatedUsersSearched: 'customer analytics account related users searched',
     RelatedUsersFiltered: 'customer analytics account related users filtered',
     RelatedUsersSorted: 'customer analytics account related users sorted',
+    RelatedUserEmailsCopied: 'customer analytics account related user emails copied',
     RelatedUserAdminOpened: 'customer analytics account related user admin opened',
     OpportunityClicked: 'customer analytics account opportunity clicked',
     SummaryCadenceChanged: 'customer analytics account summary cadence changed',

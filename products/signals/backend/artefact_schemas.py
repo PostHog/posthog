@@ -631,6 +631,41 @@ class PullRequestLink(BaseModel):
     url: str = Field(description="Canonical GitHub pull request URL.")
 
 
+class CheckResult(BaseModel):
+    """Content schema for a `check_result` artefact: one run of a `SignalReportCheck`.
+
+    The forward-looking half of a report's log. A report says what was true when it was written; a
+    check result says whether that still holds, measured on the check's own schedule. System-generated
+    — the check executor is the only writer, so the type is read-only through the generic artefact API.
+    """
+
+    check_id: str = Field(description="UUID of the SignalReportCheck this run belongs to.")
+    kind: str = Field(description="The check's kind, e.g. `metric_threshold`.")
+    title: str = Field(description="The check's title, copied so the log entry reads on its own.")
+    outcome: Literal["passed", "failed", "errored"] = Field(
+        description=(
+            "`passed` (the expectation held), `failed` (it did not), or `errored` (the check could not be measured)."
+        )
+    )
+    explanation: str = Field(description="One line saying what was measured and how it compared.")
+    observed_value: float | None = Field(default=None, description="The measured value; absent when the run errored.")
+    baseline_value: float | None = Field(
+        default=None, description="The value recorded when the check was written, when the author gave one."
+    )
+    threshold: str | None = Field(default=None, description="The expectation the value was compared against.")
+    run_id: str | None = Field(
+        default=None,
+        description="Scout run that answered an `agent` check. Absent on a deterministic run, which has none.",
+    )
+
+    @field_validator("explanation")
+    @classmethod
+    def explanation_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+
 # ── Type mapping ─────────────────────────────────────────────────────────────────
 
 # Content models that describe the report's current state (latest row of each type wins) vs
@@ -656,6 +691,7 @@ LogArtefactContent = (
     | WorkClaim
     | WorkRelease
     | PullRequestLink
+    | CheckResult
 )
 ArtefactContent = StatusArtefactContent | LogArtefactContent | SignalFinding | Dismissal | VideoSegment
 
@@ -682,6 +718,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "work_claim": WorkClaim,
     "work_release": WorkRelease,
     "pull_request": PullRequestLink,
+    "check_result": CheckResult,
 }
 
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
@@ -694,6 +731,8 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # is their only writer, so accepting them through the generic API would let a caller fabricate edits
 # that never happened. They stay readable (and so show up in the report's artefact log) but cannot
 # be created or edited directly.
+# `check_result` is likewise system-generated — the check executor is its only writer; accepting it
+# through the API would let a caller fabricate a verdict for a soak that never ran.
 # `code_review` is likewise system-generated — the ReviewHog workflow is its only writer; accepting
 # it through the API would let a caller fabricate review receipts for reviews that never ran.
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
@@ -706,6 +745,7 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "work_claim",
         "work_release",
         "pull_request",
+        "check_result",
     }
 )
 

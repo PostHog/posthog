@@ -8,6 +8,7 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.render import RenderSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.render import source as source_module
+from products.warehouse_sources.backend.temporal.data_imports.sources.render.render import KEY_REJECTED_MESSAGE
 from products.warehouse_sources.backend.temporal.data_imports.sources.render.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.render.source import RenderSource
 
@@ -65,13 +66,10 @@ class TestRenderSource:
         schemas = self.source.get_schemas(self.config, team_id=1, names=["services", "deploys"])
         assert {schema.name for schema in schemas} == {"services", "deploys"}
 
-    @parameterized.expand([("valid", True, True), ("invalid", False, False)])
-    def test_validate_credentials(self, _name: str, probe_result: bool, expected_valid: bool) -> None:
+    @parameterized.expand([("valid", (True, None)), ("invalid", (False, KEY_REJECTED_MESSAGE))])
+    def test_validate_credentials(self, _name: str, probe_result: tuple[bool, str | None]) -> None:
         with patch.object(source_module, "validate_render_credentials", return_value=probe_result):
-            valid, error = self.source.validate_credentials(self.config, team_id=1)
-
-        assert valid == expected_valid
-        assert (error is None) == expected_valid
+            assert self.source.validate_credentials(self.config, team_id=1) == probe_result
 
     def test_source_for_pipeline_drops_watermark_on_full_refresh(self) -> None:
         # A stale watermark leaking into a full refresh would silently skip older rows.

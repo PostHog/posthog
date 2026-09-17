@@ -1412,6 +1412,9 @@ class ExternalDataSourceType(models.TextChoices):
     SKIO = "Skio", "Skio"
     SMARTLEAD = "Smartlead", "Smartlead"
     SUBSTACK = "Substack", "Substack"
+    ELECTRICITYMAPS = "ElectricityMaps", "ElectricityMaps"
+    AMPLEMARKET = "Amplemarket", "Amplemarket"
+    QUO = "Quo", "Quo"
 
 
 def external_data_source_type_choices() -> list[tuple[str, str | Promise]]:
@@ -1520,6 +1523,18 @@ class ExternalDataSchemaSyncType(models.TextChoices):
     WEBHOOK = "webhook", "webhook"
     CDC = "cdc", "cdc"
     XMIN = "xmin", "xmin"
+
+
+class IncrementalSyncBlockedReason(models.TextChoices):
+    """Why the last sync run could not merge rows on a schema's primary key.
+
+    A missing key is a configuration state and stays until someone picks one. A duplicate key is a
+    data state: it can appear on a table that merged cleanly for months, and it clears when the
+    source stops repeating the key. Neither resolves by retrying the same run.
+    """
+
+    MISSING_PRIMARY_KEY = "missing_primary_key", "Missing primary key"
+    DUPLICATE_PRIMARY_KEY = "duplicate_primary_key", "Duplicate primary key"
 
 
 class ExternalDataSchemaSyncFrequency(models.TextChoices):

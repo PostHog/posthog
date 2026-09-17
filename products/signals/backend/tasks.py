@@ -95,11 +95,15 @@ _SCOUT_SLACK_RETRY_MAX_SECONDS = 3600
     max_retries=0,
 )
 @with_team_scope()
-def close_dismissed_report_pr(report_id: str, team_id: int, reason: PrCloseReason = "suppressed") -> None:
-    close_implementation_pr_for_report(team_id, report_id, reason=reason)
+def close_dismissed_report_pr(
+    report_id: str, team_id: int, reason: PrCloseReason = "suppressed", actor_user_id: int | None = None
+) -> None:
+    close_implementation_pr_for_report(team_id, report_id, reason=reason, actor_user_id=actor_user_id)
     # Suppression and snoozing are reversible. Keep their tracker issue open for a restored report.
     if reason == "resolved":
-        close_report_tracker_issue.delay(report_id=report_id, team_id=team_id, completed=False)
+        close_report_tracker_issue.delay(
+            report_id=report_id, team_id=team_id, completed=False, actor_user_id=actor_user_id
+        )
 
 
 @shared_task(
@@ -109,8 +113,12 @@ def close_dismissed_report_pr(report_id: str, team_id: int, reason: PrCloseReaso
     max_retries=5,
 )
 @with_team_scope()
-def close_report_tracker_issue(self, report_id: str, team_id: int, completed: bool = False) -> None:
-    if close_tracker_issue_for_report(team_id=team_id, report_id=report_id, completed=completed):
+def close_report_tracker_issue(
+    self, report_id: str, team_id: int, completed: bool = False, actor_user_id: int | None = None
+) -> None:
+    if close_tracker_issue_for_report(
+        team_id=team_id, report_id=report_id, completed=completed, actor_user_id=actor_user_id
+    ):
         return
     retry_needed = (
         SignalReportTrackerIssue.objects.for_team(team_id)
@@ -547,7 +555,7 @@ def send_reviewer_added_slack_notifications(
 )
 @with_team_scope()
 def assign_reviewers_on_implementation_pr(team_id: int, report_id: str, pr_url: str) -> None:
-    """Add a report's opted-in suggested reviewers as GitHub assignees on its implementation PR.
+    """Put a report's opted-in reviewers, or else one DRI, on its implementation PR as GitHub assignees.
 
     Runs on a worker because the GitHub calls (integration probe, PR read, assign) must not hold up
     the claim, sync, or reviewer edit that queued it. Best-effort end to end, so the assigner

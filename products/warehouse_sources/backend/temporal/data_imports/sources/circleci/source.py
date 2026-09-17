@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.circleci import (
     CircleCIResumeConfig,
     circleci_source,
@@ -54,7 +52,7 @@ class CircleCISource(ResumableSource[CircleCISourceConfig, CircleCIResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CIRCLE_CI,
+            name=ExternalDataSourceType.CIRCLECI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="CircleCI",
             caption="""Enter your CircleCI personal API token to pull your CircleCI pipelines, workflows, jobs, and projects into the PostHog Data warehouse.
@@ -62,7 +60,7 @@ class CircleCISource(ResumableSource[CircleCISourceConfig, CircleCIResumeConfig]
 You can create a personal API token in your [CircleCI user settings](https://app.circleci.com/settings/user/tokens). The token has the same access to organizations and projects as your user.""",
             iconPath="/static/services/circleci.png",
             docsUrl="https://posthog.com/docs/cdp/sources/circleci",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

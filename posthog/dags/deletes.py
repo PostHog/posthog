@@ -35,7 +35,13 @@ from posthog.dags.common.staged_dictionary import (
 from posthog.dags.person_overrides import squash_person_overrides
 from posthog.dataclasses import frozen
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.deletion_targets import COVERAGE_DOC, resolve_placements, surviving_rows_sql, sweep_clusters
+from posthog.models.deletion_targets import (
+    COVERAGE_DOC,
+    _any_node_has,
+    resolve_placements,
+    surviving_rows_sql,
+    sweep_clusters,
+)
 from posthog.models.event.deletion import events_data_tables
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.group.sql import GROUPS_TABLE
@@ -45,6 +51,8 @@ from posthog.models.person.sql import (
     PERSON_STATIC_COHORT_TABLE,
     PERSONS_TABLE,
 )
+
+from products.error_tracking.backend.facade.api import DocumentEmbeddingTable, document_embedding_tables
 
 
 class DeleteConfig(dagster.Config):
@@ -80,10 +88,10 @@ class DeleteConfig(dagster.Config):
         "raising any failure alert.",
     )
     verification_max_execution_time: int = pydantic.Field(
-        default=300,
-        description="Seconds to spend counting rows the sweep should have removed but did not. Proving none "
-        "survive is a full scan, so the count is bounded and a count that runs out of time is reported as "
-        "unknown rather than as zero.",
+        default=1800,
+        description="Seconds each attempt may spend counting rows the sweep should have removed but did not. "
+        "Proving none survive is a full scan, so each count is bounded; a count that completes no attempt "
+        "blocks the marking instead of passing as clean.",
     )
 
     @property
@@ -124,15 +132,38 @@ class MonthlyCleanupConfig(dagster.Config):
     )
 
 
-# Reads only team_id, person_id, timestamp and uuid, which every registered target declares, so it
-# applies unchanged to all of them. Shared with the post-sweep count so what gets verified is
-# exactly what got deleted.
+# Reads only team_id, person_id, timestamp, uuid and inserted_at, which every registered target
+# declares. Shared with the post-sweep count so what gets verified is exactly what got deleted.
+#
+# The person and adhoc arms bound both timestamp and inserted_at by the request's own created_at:
+# a request can only name rows that were already ingested when it was made, and a row cannot be
+# ingested before its event happened. A row ingested after the request is outside its scope and
+# takes a new request to remove; counting such rows would let a tenant that keeps ingesting
+# backdated events for a pending deletion fail verification for every tenant, and inserted_at is
+# stamped server-side (writable_events does not even expose the column), so the bound cannot be
+# forged the way the event timestamp can. NULL inserted_at predates the column and always counts.
+# The event arm stays unbounded too: it names one uuid, so nothing can keep arriving under it, and a
+# bound would skip a row that was still in the ingestion pipeline when the request was made and then
+# mark the request verified with that row left behind.
+# The team arm stays unbounded: ingestion for a deleted team stops with its token, so late rows
+# there are pipeline stragglers the next run converges on, not a sustained obligation.
 _DELETE_PREDICATE = """or(
-    (dictHas(%(pending_deletes_dictionary)s, (team_id, %(person_deletion_type)s, person_id)) AND timestamp <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))),
+    (dictHas(%(pending_deletes_dictionary)s, (team_id, %(person_deletion_type)s, person_id))
+        AND timestamp <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))
+        AND (inserted_at IS NULL OR inserted_at <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id)))),
     (dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id))),
-    (dictHas(%(adhoc_event_deletes_dictionary)s, (team_id, uuid)))
+    (dictHas(%(pending_deletes_dictionary)s, (team_id, %(event_deletion_type)s, uuid))),
+    (dictHas(%(adhoc_event_deletes_dictionary)s, (team_id, uuid))
+        AND (inserted_at IS NULL OR inserted_at <= dictGet(%(adhoc_event_deletes_dictionary)s, 'created_at', (team_id, uuid))))
 )"""
 
+
+# Embedding documents are keyed by the id of the thing they describe, and an Event deletion's key is
+# that same id, so the pending dictionary answers for both. Team deletions clear the team's documents.
+_DOCUMENT_DELETE_PREDICATE = """or(
+    dictHas(%(pending_deletes_dictionary)s, (team_id, %(event_deletion_type)s, document_id)),
+    dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id))
+)"""
 
 ShardMutations = dict[int, MutationWaiters]
 # Shard numbers are per cluster, so a sweep spanning two of them cannot key its waiters by shard
@@ -325,7 +356,52 @@ class AdhocEventDeletesDictionary(Dictionary):
         )
 
 
-@dagster.op
+# Statuses under which a run's mutations may still land on the cluster: STARTING and STARTED are
+# executing, and a CANCELING run's last mutation keeps applying server-side. QUEUED and
+# NOT_STARTED are left out on purpose. A queued run has done nothing yet, and its own guard will
+# see this run once it starts.
+_EXECUTING_RUN_STATUSES = [
+    dagster.DagsterRunStatus.STARTING,
+    dagster.DagsterRunStatus.STARTED,
+    dagster.DagsterRunStatus.CANCELING,
+]
+
+
+@dagster.op(out=dagster.Out(dagster.Nothing))
+def ensure_no_concurrent_deletes_run(context: dagster.OpExecutionContext) -> None:
+    """Fail this run when another run of the same job, or any squash run, is executing.
+
+    Concurrent deletes runs share their dictionary names, so each run's delete mutations read
+    whichever contents the other run loaded last, and mark_deletions_verified then claims
+    deletions the sweep may not have performed. Any other executing run blocks, deliberately
+    without an election: ranking by creation time lets a run that was queued early and started
+    late outrank a run already past this guard, and two runs then proceed together. Two racing
+    starts can both fail here, which is safe and visible; the run-queue limit named on the job's
+    concurrency tag is what removes that annoyance, not a smarter guard.
+
+    A squash run blocks too. The weekly chain serializes squash before deletes because both
+    issue heavy mutations on the same tables, and manual_deletes_job's preflight can go stale
+    between its check and the sensor launching this run, so the launched run checks again here.
+    This covers direct launchpad starts as well.
+    """
+    blockers: list[str] = []
+    for job_name in (context.job_name, squash_person_overrides.name):
+        records = context.instance.get_run_records(
+            dagster.RunsFilter(job_name=job_name, statuses=_EXECUTING_RUN_STATUSES)
+        )
+        blockers.extend(
+            f"{job_name} run {record.dagster_run.run_id}"
+            for record in records
+            if record.dagster_run.run_id != context.run_id
+        )
+    if blockers:
+        raise dagster.Failure(
+            description="This run yields to: " + "; ".join(blockers) + ". "
+            "Wait for them to finish or cancel them, then start a new run through manual_deletes_job."
+        )
+
+
+@dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
 def get_oldest_person_override_timestamp(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> datetime:
@@ -368,7 +444,8 @@ def load_pending_deletions(
 
     pending_deletions = AsyncDeletion.objects.filter(
         Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
-        | Q(deletion_type=DeletionType.Team),
+        | Q(deletion_type=DeletionType.Team)
+        | Q(deletion_type=DeletionType.Event),
         delete_verified_at__isnull=True,
     )
     if create_pending_deletions_table.team_id:
@@ -520,7 +597,7 @@ def delete_events(
             f"""
             SELECT count()
             FROM {load_and_verify_deletes_dictionary.qualified_name}
-            WHERE deletion_type IN ({DeletionType.Person}, {DeletionType.Team})
+            WHERE deletion_type IN ({DeletionType.Person}, {DeletionType.Team}, {DeletionType.Event})
             """
         )
         return result[0][0] if result else 0
@@ -586,6 +663,57 @@ def delete_events(
         for key, by_shard in waiters.items()
     }
 
+    return (load_and_verify_deletes_dictionary, cluster_mutations)
+
+
+@dagster.op
+def delete_event_documents(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    load_and_verify_deletes_dictionary: PendingDeletesDictionary,
+) -> tuple[PendingDeletesDictionary, ClusterShardMutations]:
+    """Delete the embedding documents of the events and teams queued for deletion.
+
+    An event queued by an `AsyncDeletion` of type `Event` may have had its text embedded into the
+    per-model `document_embeddings` tables under `document_id` equal to the event uuid, and those
+    rows carry the text itself, so they go with the event. A deleted team's documents go with the team.
+    """
+
+    def count_pending_deletes(client: Client) -> int:
+        result = client.execute(
+            f"""
+            SELECT count()
+            FROM {load_and_verify_deletes_dictionary.qualified_name}
+            WHERE deletion_type IN ({DeletionType.Event}, {DeletionType.Team})
+            """
+        )
+        return result[0][0] if result else 0
+
+    pending = cluster.any_host_by_role(count_pending_deletes, NodeRole.DATA).result()
+    if pending == 0:
+        context.add_output_metadata({"pending_deletes": dagster.MetadataValue.int(0)})
+        return (load_and_verify_deletes_dictionary, {})
+
+    context.add_output_metadata({"pending_deletes": dagster.MetadataValue.int(pending)})
+
+    reuse_floor = _mutation_reuse_floor(cluster)
+    by_shard: dict[int, list[MutationWaiter]] = {}
+    for table in _present_document_embedding_tables(cluster):
+        runner = LightweightDeleteMutationRunner(
+            table=table.sharded_table,
+            predicate=_DOCUMENT_DELETE_PREDICATE,
+            parameters=_document_delete_predicate_params(load_and_verify_deletes_dictionary),
+            reuse_since=reuse_floor,
+        )
+        for host, mutation in cluster.map_one_host_per_shard(runner).result().items():
+            if host.shard_num is not None:
+                by_shard.setdefault(host.shard_num, []).append(mutation)
+
+    cluster_mutations: ClusterShardMutations = {
+        (cluster.data_cluster_name, cluster.shard_role): {
+            shard_num: MutationWaiters(waiters=shard_waiters) for shard_num, shard_waiters in by_shard.items()
+        }
+    }
     return (load_and_verify_deletes_dictionary, cluster_mutations)
 
 
@@ -698,6 +826,23 @@ class VerifiedDeletionResources:
     adhoc_event_deletes_dictionary: AdhocEventDeletesDictionary
 
 
+def _present_document_embedding_tables(cluster: ClickhouseCluster) -> list[DocumentEmbeddingTable]:
+    """The embeddings tables that exist here: the Python registry can name a model whose migration has not landed.
+
+    Present on any shard host counts, as for the registered targets: a table missing from some hosts
+    makes the mutation fail loudly there, which beats skipping the deletion.
+    """
+    return [table for table in document_embedding_tables() if _any_node_has(cluster, table.sharded_table)]
+
+
+def _document_delete_predicate_params(pending_deletes_dictionary: "PendingDeletesDictionary") -> dict[str, str | int]:
+    return {
+        "pending_deletes_dictionary": pending_deletes_dictionary.qualified_name,
+        "event_deletion_type": DeletionType.Event,
+        "team_deletion_type": DeletionType.Team,
+    }
+
+
 def _delete_predicate_params(
     pending_deletes_dictionary: "PendingDeletesDictionary",
     adhoc_event_deletes_dictionary: "AdhocEventDeletesDictionary",
@@ -706,6 +851,7 @@ def _delete_predicate_params(
         "pending_deletes_dictionary": pending_deletes_dictionary.qualified_name,
         "person_deletion_type": DeletionType.Person,
         "team_deletion_type": DeletionType.Team,
+        "event_deletion_type": DeletionType.Event,
         "adhoc_event_deletes_dictionary": adhoc_event_deletes_dictionary.qualified_name,
     }
 
@@ -730,28 +876,38 @@ def _rows_per_shard(cluster: ClickhouseCluster, query: Query) -> list:
     return list(cluster.map_one_host_per_shard(query).result().values())
 
 
+_SURVIVOR_COUNT_ATTEMPTS = 3
+
+
 def _count_through(
     context: dagster.OpExecutionContext,
     runner: Callable[[Query], list],
     table: str,
     params: dict[str, str | int],
     max_execution_time: int,
+    predicate: str = _DELETE_PREDICATE,
 ) -> int | None:
-    """Survivors on ``table``, or None when the count could not be taken.
+    """Survivors on ``table``, or None when no attempt could complete.
 
     None is deliberately not zero: a count that errored or ran out of time says nothing about
-    whether rows remain, and reporting it as clean is the mistake worth avoiding here.
+    whether rows remain, and mark_deletions_verified refuses to mark on it. Each attempt gets the
+    full time budget, and the runner picks a host per call, so a retry also routes around a single
+    slow or sick host.
     """
     query = Query(
-        surviving_rows_sql(table, _DELETE_PREDICATE),
+        surviving_rows_sql(table, predicate),
         params,
         settings={"max_execution_time": str(max_execution_time)},
     )
-    try:
-        return sum(int(rows[0][0]) if rows else 0 for rows in runner(query))
-    except Exception as e:
-        context.log.warning(f"Could not count what survived the sweep in {table}: {e}")
-        return None
+    for attempt in range(1, _SURVIVOR_COUNT_ATTEMPTS + 1):
+        try:
+            return sum(int(rows[0][0]) if rows else 0 for rows in runner(query))
+        except Exception as e:
+            context.log.warning(
+                f"Could not count what survived the sweep in {table} "
+                f"(attempt {attempt}/{_SURVIVOR_COUNT_ATTEMPTS}): {e}"
+            )
+    return None
 
 
 def _count_unswept_rows(
@@ -796,6 +952,16 @@ def _count_unswept_rows(
                 params,
                 max_execution_time,
             )
+    document_params = _document_delete_predicate_params(pending_deletes_dictionary)
+    for table in _present_document_embedding_tables(cluster):
+        counts[table.distributed_table] = _count_through(
+            context,
+            partial(_rows_from_any_host, cluster),
+            table.distributed_table,
+            document_params,
+            max_execution_time,
+            predicate=_DOCUMENT_DELETE_PREDICATE,
+        )
     return counts
 
 
@@ -818,13 +984,23 @@ def mark_deletions_verified(
 
     # A request marked verified is a claim the rows are gone, and nothing revisits it: the adhoc
     # tombstone this op writes also keeps those uuids out of every later run. So a count that came
-    # back non-zero has to stop the marking rather than annotate it. Leaving the requests pending
-    # costs a repeated sweep next run, which is the recoverable direction.
-    remaining = {table: count for table, count in unswept.items() if count}
-    if remaining:
+    # back non-zero has to stop the marking rather than annotate it, and a count that could not be
+    # taken has to stop it too, because unknown is not zero. Leaving the requests pending costs a
+    # repeated sweep next run, which is the recoverable direction.
+    survivors = {table: count for table, count in unswept.items() if count}
+    uncounted = sorted(table for table, count in unswept.items() if count is None)
+    if survivors or uncounted:
+        problems = []
+        if survivors:
+            problems.append(
+                "rows the sweep should have removed are still readable: "
+                + ", ".join(f"{table}={count}" for table, count in survivors.items())
+            )
+        if uncounted:
+            problems.append("no survivor count attempt completed on: " + ", ".join(uncounted))
         raise dagster.Failure(
-            description="The sweep finished and rows it should have removed are still readable: "
-            + ", ".join(f"{table}={count}" for table, count in remaining.items())
+            description="The sweep finished but "
+            + "; ".join(problems)
             + f". Leaving these requests pending for the next run. See {COVERAGE_DOC}."
         )
 
@@ -877,11 +1053,19 @@ def cleanup_delete_assets(
     return True
 
 
-@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
+@dagster.job(
+    tags={
+        "owner": JobOwners.TEAM_CLICKHOUSE.value,
+        # For a run-queue limit of 1 in Dagster deployment settings, so a second run queues
+        # instead of racing the guard; clickhouse_deletion_sweep_concurrency is the matched
+        # example. ensure_no_concurrent_deletes_run enforces mutual exclusion regardless.
+        "deletes_job_concurrency": "v1",
+    }
+)
 def deletes_job():
     """Job that handles deletion of events."""
     # Prepare requested deletions data
-    oldest_override_timestamp = get_oldest_person_override_timestamp()
+    oldest_override_timestamp = get_oldest_person_override_timestamp(start_after=ensure_no_concurrent_deletes_run())
     deletions_table = load_pending_deletions(create_pending_deletions_table(oldest_override_timestamp))
     pending_deletes_dictionary = load_and_verify_deletes_dictionary(create_deletes_dict(deletions_table))
     adhoc_event_deletes_dictionary = load_and_verify_adhoc_event_deletes_dictionary(create_adhoc_event_deletes_dict())
@@ -889,6 +1073,10 @@ def deletes_job():
     # Delete all data requested
     delete_mutations = delete_events(pending_deletes_dictionary, adhoc_event_deletes_dictionary)
     pending_deletes_dictionary = wait_for_delete_mutations_in_shards(delete_mutations)
+    document_mutations = delete_event_documents(pending_deletes_dictionary)
+    pending_deletes_dictionary = wait_for_delete_mutations_in_shards.alias("wait_for_document_delete_mutations")(
+        document_mutations
+    )
 
     for table in [
         PERSON_DISTINCT_ID2_TABLE,
@@ -910,18 +1098,84 @@ def deletes_job():
     cleanup_delete_assets(verified_deletion_resources)
 
 
+# What every sensor-launched deletes_job run carries. retry_max_attempts is raised because
+# mutation waits can span hours, so a run sees more transient per-host failures than the default
+# allows. manual_deletes_job exists so hand-started runs go through this config too.
+DELETES_RUN_CONFIG = {"resources": {"cluster": {"config": {"retry_max_attempts": 20}}}}
+
+
 @dagster.run_status_sensor(
     run_status=dagster.DagsterRunStatus.SUCCESS,
     monitored_jobs=[squash_person_overrides],
     request_job=deletes_job,
 )
 def run_deletes_after_squash(context):
-    # mutation waits can span hours, so allow more transient failures per host before failing the
-    # weekly deletes run
     return dagster.RunRequest(
         run_key=None,
-        run_config={"resources": {"cluster": {"config": {"retry_max_attempts": 20}}}},
+        run_config=DELETES_RUN_CONFIG,
     )
+
+
+# Everything that means a deletes_job or squash run is active or imminent. Unlike the in-job
+# guard, QUEUED and NOT_STARTED count too: the question here is whether launching another run
+# would collide, not which of two started runs came first.
+_ACTIVE_RUN_STATUSES = [
+    dagster.DagsterRunStatus.QUEUED,
+    dagster.DagsterRunStatus.NOT_STARTED,
+    *_EXECUTING_RUN_STATUSES,
+]
+
+
+@dagster.op
+def ensure_deletes_job_can_start(context: dagster.OpExecutionContext) -> None:
+    """Fail when launching deletes_job now would collide with an active or imminent run.
+
+    A concurrent deletes_job run is the collision the in-job guard exists for; failing here
+    reports it before a run is even launched. A squash run means the weekly chain is already in
+    motion and will launch deletes_job itself on success, so starting one by hand now would race
+    it. Another manual trigger means someone else already asked for a run.
+    """
+    blockers: list[str] = []
+    for job_name in (deletes_job.name, squash_person_overrides.name, context.job_name):
+        records = context.instance.get_run_records(dagster.RunsFilter(job_name=job_name, statuses=_ACTIVE_RUN_STATUSES))
+        blockers.extend(
+            f"{job_name} run {record.dagster_run.run_id}"
+            for record in records
+            if record.dagster_run.run_id != context.run_id
+        )
+    if blockers:
+        raise dagster.Failure(
+            description="deletes_job cannot start while these runs are active: "
+            + "; ".join(blockers)
+            + ". Wait for them to finish, then run manual_deletes_job again."
+        )
+
+
+@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
+def manual_deletes_job():
+    """Start a deletes_job run the way the weekly chain does.
+
+    Launch this instead of deletes_job itself. It checks that no deletes_job or squash run is in
+    flight, and its success makes run_deletes_after_manual_trigger request a real deletes_job run
+    with DELETES_RUN_CONFIG. Launching deletes_job directly skips both: the launchpad defaults
+    carry none of that config, and nothing checks the weekly chain before the in-job guard fails
+    the run mid-flight.
+    """
+    ensure_deletes_job_can_start()
+
+
+@dagster.run_status_sensor(
+    run_status=dagster.DagsterRunStatus.SUCCESS,
+    monitored_jobs=[manual_deletes_job],
+    request_job=deletes_job,
+    # Enabled on registration: a stopped sensor would let manual_deletes_job succeed while
+    # launching nothing, which reads as a started run that never appears.
+    default_status=dagster.DefaultSensorStatus.RUNNING,
+    minimum_interval_seconds=60,
+)
+def run_deletes_after_manual_trigger(context: dagster.RunStatusSensorContext) -> dagster.RunRequest:
+    # The run_key makes each manual_deletes_job success launch at most one deletes_job run.
+    return dagster.RunRequest(run_key=context.dagster_run.run_id, run_config=DELETES_RUN_CONFIG)
 
 
 @dagster.op

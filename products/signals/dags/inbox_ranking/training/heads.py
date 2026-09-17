@@ -4,7 +4,9 @@ Each head is a cohort (which reports are scoreable examples), a binary label, an
 label is "the outcome happened within `horizon_days` of the scoring moment", evaluated from the
 cumulative label columns the dataset dag snapshots. Cohort and label are vectorized over a frame
 of `inbox_report_labels` columns, so the same definitions read the snapshot at scoring time (label
-must still be 0) and the snapshot `horizon_days` later (the label).
+must still be 0) and the snapshot `horizon_days` later (the label). The report's birth day is the
+exception: it has no earlier scoring moment, so an outcome already visible there is a future
+positive for that moment rather than an outcome of an earlier one, and the label may already be 1.
 
 Mirrors the workspace `heads.py` (random-dev-internal, `inbox-ranking/`) for the seven heads with
 enough positives to ship; the other seven stay workspace-only until they are readable.
@@ -93,17 +95,17 @@ HEADS: tuple[Head, ...] = (
         name="dismiss_wrong",
         cohort=impressed,
         label=dismissed_as_wrong,
-        horizon_days=7,
+        horizon_days=14,
         min_holdout_positives=30,
         status_labels=True,
     ),
     # Which reports get a PR at all? Cohort is every report the sweep would score.
     Head(name="pr_created", cohort=everyone, label=pr_created, horizon_days=7, min_holdout_positives=30),
-    # Of the reports that got a PR, which got it merged? Completes the open -> pr_created -> pr_merged
-    # funnel; the negative is "pr_created, no merge within the horizon".
+    # Which reports end up with a merged PR? The cohort is everyone, so the label carries the whole
+    # report-to-merge path rather than conditioning on a PR that does not exist yet at birth.
     Head(
         name="pr_merged",
-        cohort=pr_created,
+        cohort=everyone,
         label=pr_merged,
         horizon_days=14,
         min_holdout_positives=30,

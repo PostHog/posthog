@@ -39,6 +39,8 @@ from posthog.schema import (
     NodeKind,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
+    QueryScanAnalysis,
+    QueryScanFindingKind,
     StickinessQuery,
     TrendsQuery,
 )
@@ -49,9 +51,13 @@ from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
 from posthog.models.project import Project
+from posthog.query_scan.findings import build_warning
+from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
+from posthog.query_scan.test.slots import stored_slot
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.insight_queries import default_pageview_query, insight_query
 
@@ -448,6 +454,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_hide_feature_flag_insights_filter(self) -> None:
         from posthog.helpers.dashboard_templates import (
+            FEATURE_FLAG_ENRICHED_INSIGHT_DESCRIPTION,
+            FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME,
+            FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME,
             FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
             FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
         )
@@ -456,43 +465,50 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
         }
+        generated = [
+            (
+                FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
+                "Shows the number of total calls made on feature flag with key: my-flag",
+            ),
+            (
+                FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
+                "Shows the number of unique user calls made on feature flag per variant with key: my-flag",
+            ),
+            # A group-aggregated flag names its entity instead of "users"
+            (
+                "Feature Flag calls made by unique organizations per variant",
+                "Shows the number of unique organization calls made on feature flag per variant with key: my-flag",
+            ),
+            (FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME, FEATURE_FLAG_ENRICHED_INSIGHT_DESCRIPTION),
+            (FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME, FEATURE_FLAG_ENRICHED_INSIGHT_DESCRIPTION),
+        ]
+        # A generated name a person can reuse, which the description tells apart
+        kept = [
+            ("Regular Insight", ""),
+            (FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME, "My own copy of this chart"),
+            (FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME, "My own copy of this chart"),
+        ]
 
-        # Create feature flag insights
-        Insight.objects.create(
-            name=FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
-            filters=Filter(data=filter_dict).to_dict(),
-            saved=True,
-            team=self.team,
-            created_by=self.user,
-        )
+        for name, description in generated + kept:
+            Insight.objects.create(
+                name=name,
+                description=description,
+                filters=Filter(data=filter_dict).to_dict(),
+                saved=True,
+                team=self.team,
+                created_by=self.user,
+            )
 
-        Insight.objects.create(
-            name=FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
-            filters=Filter(data=filter_dict).to_dict(),
-            saved=True,
-            team=self.team,
-            created_by=self.user,
-        )
-
-        # Create a regular insight
-        Insight.objects.create(
-            name="Regular Insight",
-            filters=Filter(data=filter_dict).to_dict(),
-            saved=True,
-            team=self.team,
-            created_by=self.user,
-        )
-
-        # Without filter, should return all 3 insights
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 3)
+        self.assertEqual(len(response.json()["results"]), len(generated) + len(kept))
 
-        # With filter, should exclude feature flag insights
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true&hide_feature_flag_insights=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["name"], "Regular Insight")
+        self.assertEqual(
+            sorted((result["name"], result["description"]) for result in response.json()["results"]),
+            sorted(kept),
+        )
 
     def test_get_insight_in_dashboard_context(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard(
@@ -4160,6 +4176,105 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(query_status["error"])
         self.assertIn(error_message, query_status["error_message"])
         self.assertEqual(query_status["error_code"], expected_error_code)
+
+
+class TestInsightQueryScan(APIBaseTest):
+    FLAG = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+
+    def _insight(self) -> Insight:
+        return Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+        )
+
+    def _stored_slot(self) -> str:
+        return stored_slot(
+            QueryScanAnalysis(
+                range_share=0.8,
+                project_share=0.25,
+                findings=[build_warning(kind=QueryScanFindingKind.NO_START_DATE, query_kind="HogQLQuery")],
+            )
+        )
+
+    @parameterized.expand([("a completed run", False), ("a run clickhouse stopped", True)])
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_an_insight_carries_the_query_scan_with_its_findings(
+        self, _name: str, killed: bool, mock_calculate: mock.MagicMock
+    ) -> None:
+        insight = self._insight()
+        summary = {"rows_read": 41_200, "duration_ms": 19_000, "analysis_requested": True}
+        if killed:
+            # A stopped run has no results to carry the advice, so it rides on the exception.
+            error = ClickHouseQueryTimeOut("query timed out")
+            error.cache_key = "cache-key"  # type: ignore[attr-defined]
+            error.query_scan = {**summary, "killed": True}  # type: ignore[attr-defined]
+            mock_calculate.side_effect = error
+        else:
+            mock_calculate.return_value = InsightResult(
+                result=[],
+                last_refresh=timezone.now(),
+                cache_key="cache-key",
+                is_cached=True,
+                timezone=self.team.timezone,
+                query_scan=summary,
+            )
+        redis_client = mock.Mock()
+        redis_client.get.return_value = self._stored_slot()
+
+        with (
+            patch("posthog.query_scan.serve.get_query_scan_flag", return_value=self.FLAG),
+            patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis_client),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        body = response.json()
+        query_scan = body["query_scan"]
+        self.assertEqual(query_scan["analysis"]["range_share"], 0.8)
+        self.assertEqual(query_scan["analysis"]["project_share"], 0.25)
+        self.assertEqual(query_scan.get("killed", False), killed)
+        self.assertEqual([finding["kind"] for finding in query_scan["analysis"]["findings"]], ["no_start_date"])
+        # The cache key addresses the stored analysis, so the client can poll for it.
+        self.assertEqual(body["filters_hash"], "cache-key")
+
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_a_shared_insight_gets_no_scan_and_no_cache_key_on_its_query_status(
+        self, mock_calculate: mock.MagicMock
+    ) -> None:
+        insight = self._insight()
+        sharing_configuration = SharingConfiguration.objects.create(
+            team=self.team, insight=insight, enabled=True, access_token="xyz"
+        )
+        mock_calculate.return_value = InsightResult(
+            result=None,
+            last_refresh=timezone.now(),
+            cache_key="cache-key",
+            is_cached=False,
+            timezone=self.team.timezone,
+            # The shape an async run that ClickHouse stopped leaves on the stored status.
+            query_status={
+                "id": "query-1",
+                "team_id": self.team.pk,
+                "error": True,
+                "cache_key": "cache-key",
+                "query_scan": {"rows_read": 41_200, "duration_ms": 19_000, "killed": True, "analysis_requested": True},
+            },
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/"
+            f"?sharing_access_token={sharing_configuration.access_token}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        # A shared insight is read from outside the project, and both fields describe the
+        # project's own data volume.
+        body = response.json()
+        self.assertIsNone(body["query_scan"])
+        self.assertNotIn("cache_key", body["query_status"])
+        self.assertNotIn("query_scan", body["query_status"])
 
 
 class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

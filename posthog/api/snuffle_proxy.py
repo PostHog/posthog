@@ -24,10 +24,15 @@ from rest_framework.parsers import FormParser
 from rest_framework.request import Request
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.security.outbound_proxy import internal_requests
 
 logger = structlog.get_logger(__name__)
+
+# This private-alpha flag gates all Snuffle proxy endpoints.
+# New subclasses use the flag by default.
+SNUFFLE_API_FEATURE_FLAG = "logs-metrics-snuffle-api"
 
 TEAM_ID_HEADER = "X-Team-ID"
 # Snuffle also accepts the tenant as a `team_id` parameter, with lower precedence than the header;
@@ -63,6 +68,8 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     allowed_paths: ClassVar[tuple[re.Pattern[str], ...]]
 
     scope_object_read_actions = ["proxy"]
+    posthog_feature_flag = SNUFFLE_API_FEATURE_FLAG
+    permission_classes = [PostHogFeatureFlagPermission]
     # The Prometheus and Loki APIs take POST bodies as form fields, the same shape as the query string.
     parser_classes = [FormParser]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
@@ -76,7 +83,7 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not any(pattern.fullmatch(path) for pattern in self.allowed_paths):
             return _error_response(status.HTTP_404_NOT_FOUND, "not_found", f"unsupported endpoint: {path}")
 
-        base_url = settings.SNUFFLE_URL
+        base_url = settings.SNUFFLE_APM_URL
         if not base_url:
             return _error_response(
                 status.HTTP_501_NOT_IMPLEMENTED, "unavailable", "PromQL/LogQL query API is not configured"
@@ -88,7 +95,7 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         params = _forwardable(request.query_params)
         headers = {TEAM_ID_HEADER: str(team_id), "Accept": request.headers.get("Accept", "application/json")}
         body = _forwardable(request.data) if method == "POST" and isinstance(request.data, QueryDict) else None
-        auth = (settings.SNUFFLE_USER, settings.SNUFFLE_PASSWORD) if settings.SNUFFLE_USER else None
+        auth = (settings.SNUFFLE_APM_USER, settings.SNUFFLE_APM_PASSWORD) if settings.SNUFFLE_APM_USER else None
 
         try:
             upstream = internal_requests.request(
@@ -98,7 +105,7 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 data=body,
                 headers=headers,
                 auth=auth,
-                timeout=settings.SNUFFLE_TIMEOUT_SECONDS,
+                timeout=settings.SNUFFLE_APM_TIMEOUT_SECONDS,
             )
         except requests.Timeout:
             logger.warning("snuffle_proxy_timeout", team_id=team_id, path=path)

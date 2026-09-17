@@ -10,11 +10,11 @@ from rest_framework import status
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-SNUFFLE_SETTINGS = {
-    "SNUFFLE_URL": "http://snuffle.test:9091/",
-    "SNUFFLE_USER": "reader",
-    "SNUFFLE_PASSWORD": "secret",
-    "SNUFFLE_TIMEOUT_SECONDS": 12,
+SNUFFLE_APM_SETTINGS = {
+    "SNUFFLE_APM_URL": "http://snuffle.test:9091/",
+    "SNUFFLE_APM_USER": "reader",
+    "SNUFFLE_APM_PASSWORD": "secret",
+    "SNUFFLE_APM_TIMEOUT_SECONDS": 12,
 }
 
 
@@ -26,7 +26,7 @@ def _upstream(status_code: int = 200, body: bytes = b'{"status":"success","data"
     return response
 
 
-@override_settings(**SNUFFLE_SETTINGS)
+@override_settings(**SNUFFLE_APM_SETTINGS)
 class TestLokiQueryApi(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -34,6 +34,11 @@ class TestLokiQueryApi(APIBaseTest):
         patcher = patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=_upstream())
         self.request_mock = patcher.start()
         self.addCleanup(patcher.stop)
+        # Enable the Snuffle flag for the Loki proxy tests.
+        # The gate test sets the flag to False.
+        ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        ff_patcher.start()
+        self.addCleanup(ff_patcher.stop)
 
     @parameterized.expand([("bare", "query_range"), ("trailing_slash", "query_range/")])
     def test_get_is_forwarded_with_team_header_and_credentials(self, _name: str, path: str):
@@ -106,7 +111,7 @@ class TestLokiQueryApi(APIBaseTest):
         assert response.json()["status"] == "error"
         self.request_mock.assert_not_called()
 
-    @override_settings(SNUFFLE_URL="")
+    @override_settings(SNUFFLE_APM_URL="")
     def test_unconfigured_returns_501(self):
         response = self.client.get(f"{self.base}/query", {"query": '{a="b"}'})
 
@@ -144,6 +149,13 @@ class TestLokiQueryApi(APIBaseTest):
 
         assert response.status_code == expected_status
         assert response.json()["status"] == "error"
+
+    def test_snuffle_flag_gates_the_api(self):
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.get(f"{self.base}/labels")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.request_mock.assert_not_called()
 
     @parameterized.expand(
         [

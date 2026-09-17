@@ -129,6 +129,12 @@ export enum GraphSeriesAddedSource {
  * empty opens nothing, and empty lists are the outcome the in-session scope most affects.
  */
 export interface ExperimentRecordingsTabContext {
+    /**
+     * What put the tab in the state it opened in, when it was not the viewer: 'results_button' or
+     * 'results_menu' for a results-table link. Null when the viewer opened the tab themselves,
+     * which is the ordinary case, so this is what separates the two populations in a report.
+     */
+    entry_point: string | null
     variant_count: number
     metric_count: number
     linkable_metric_count: number
@@ -138,6 +144,10 @@ export interface ExperimentRecordingsTabContext {
     in_session_available: boolean | null
     in_session_unavailable_reason: string | null
     in_session_uses_stamped_fallback: boolean | null
+    /** Whether the "What to watch" toggle was on the tab at all: the denominator for opening it. */
+    behavior_comparison_available: boolean
+    /** Why the toggle was shown disabled, null when it was usable. */
+    behavior_comparison_unavailable_reason: string | null
 }
 
 /** The facets the recordings list was narrowed by when a recording was opened from it. */
@@ -154,6 +164,12 @@ export interface ExperimentRecordingsFilterContext {
      * This is the success metric for the behavior comparison: opens it drove versus opens the
      * plain list drove. */
     watch_card_kind: string | null
+    /**
+     * What set these facets, when it was not the viewer: 'results_button' or 'results_menu' for a
+     * results-table link. Null once the viewer moves a facet themselves, so an empty list that a
+     * results row produced can be told from one somebody narrowed into by hand.
+     */
+    entry_point: string | null
 }
 
 /**
@@ -168,6 +184,16 @@ export interface ExperimentRecordingsListRenderedContext extends ExperimentRecor
     result_count: number
     /** Null when the list has rows. One of the tab's `ExperimentReplayListEmptyReason` values. */
     empty_reason: string | null
+    /**
+     * The way out the empty state offered, null when its banner offered none. This follows
+     * `empty_reason` rather than the state of the tab: four reasons carry a way out of a narrowing,
+     * and the rest carry a link or nothing, so a variant that still narrows the list is not
+     * reported here when replay is off or the window expired. Null on a list with rows too, for the
+     * same reason `empty_reason` is. The values match `action` on `experiment recordings empty
+     * state action clicked`, so the two together size how often a viewer takes the way out against
+     * how often it is offered.
+     */
+    narrowing_action: string | null
     /** Null when the experiment has not launched. */
     days_since_start: number | null
     /** Null while the experiment runs. */
@@ -202,6 +228,18 @@ export interface ExperimentRecordingsListRenderedContext extends ExperimentRecor
      * filter as a difference. The three properties above are null when the viewer removed it.
      */
     duration_filter_customized: boolean
+    /**
+     * Whether the viewer narrowed the list past the tab's own scoping through the filter bar. This
+     * is the input that decides `filters_narrowed`, and the only filter-bar signal the rest of this
+     * event lacks.
+     */
+    filters_customized: boolean
+    /**
+     * Whose already-watched recordings the viewer hides, and `off` when the viewer hides none. The
+     * server removes the recordings this setting hides before it answers, so the setting can empty
+     * a list on its own, and no `empty_reason` names it.
+     */
+    hide_viewed_recordings: 'off' | 'current-user' | 'any-user'
     /** Whether the exposure event is ever seen with a session id. Null while the check is out. */
     exposure_linkable: boolean | null
 }
@@ -209,7 +247,10 @@ export interface ExperimentRecordingsListRenderedContext extends ExperimentRecor
 /**
  * What the behavior comparison found, captured each time the shelf loads. The card counts are what
  * say whether the feature finds anything in the wild: all zeros on most experiments would mean the
- * evidence floors are set too high to ever show a card.
+ * evidence floors are set too high to ever show a card. The compared-population fields are what
+ * `empty_reason` has to be read against, because the same reason asks for a different answer over a
+ * few dozen people than over thousands. They count session-linked people, not enrollment, which the
+ * response does not carry.
  */
 export interface ExperimentWatchShelfContext {
     too_early: boolean
@@ -224,6 +265,30 @@ export interface ExperimentWatchShelfContext {
     used_exposure_fallback: boolean
     /** Wall-clock time of the request, which is the heaviest read on the tab. */
     duration_ms: number
+    /** Exposed people the comparison found a session for, over every variant. The denominator the
+     * card counts are missing on their own. Zero on every 'no_session_linked_exposures' shelf,
+     * because that reason means no session was found for anyone, so it cannot size the enrollment
+     * behind that reason. */
+    compared_persons: number
+    /** Variants with enough of those people to be compared at all. One means the comparison had
+     * nothing to compare that variant against, and zero means no variant had a session-linked
+     * person. */
+    compared_variants: number
+    /** Hours of enrollment the comparison covered, from its oldest compared exposure to its newest.
+     * A span rather than the time the scan read, because a gap between enrolling minutes costs the
+     * day budget nothing, so sparse enrollment reports more hours than the budget allows. Read
+     * sessions_truncated for whether a cap bound. Fractional, so an experiment that enrolled a
+     * whole comparison inside one hour does not read the same as one that enrolled nobody. */
+    compared_enrollment_hours: number
+    /** More people were exposed than one comparison covers, so the oldest enrollees were left out.
+     * How often a cap binds at all, and on a 'too_early' shelf, that more time alone will not fill it. */
+    sessions_truncated: boolean
+    /** The project has more event names than one comparison ranks, so some were never considered. */
+    events_truncated: boolean
+    /** Whether the experiment has stopped enrolling, so waiting cannot fill an empty shelf. */
+    experiment_ended: boolean
+    /** Whole days from the launch to this load, null when the experiment has not launched. */
+    days_since_start: number | null
 }
 
 /** The comparison could not be loaded, and how: a request failure or a backend refusal. */
@@ -251,6 +316,12 @@ export interface ExperimentRecordingsEmptyActionContext {
     empty_reason: string | null
     /** One of the tab's `ExperimentRecordingsEmptyAction` values. */
     action: string
+    /**
+     * Whole days from the launch to the click, null when the experiment has not launched. The same
+     * count `experiment recordings list rendered` carries, so an action on a young experiment reads
+     * apart from one on a run that has had time to collect recordings.
+     */
+    days_since_start: number | null
 }
 
 /**

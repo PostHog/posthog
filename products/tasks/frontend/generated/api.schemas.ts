@@ -1698,6 +1698,11 @@ export interface TaskRunDetailDTOApi {
     error_message: string | null
     /** @nullable */
     output: TaskRunDetailDTOApiOutput
+    /**
+     * Latest summary for this task, including a summary inherited from an earlier run.
+     * @nullable
+     */
+    task_summary: string | null
     state: TaskRunDetailDTOApiState
     readonly artifacts: readonly TaskRunArtifactResponseApi[]
     /** @nullable */
@@ -2003,22 +2008,22 @@ export interface TaskCreateApi {
      */
     ci_prompt?: string | null
     /**
-     * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
+     * Base branch for the first run when start_run is true, or for matching a pre-warmed run. Omit to use the repository's default branch. Write-only and not persisted on the task.
      * @maxLength 255
      * @nullable
      */
     branch?: string | null
-    /** Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.
+    /** Runtime adapter ('claude' or 'codex') for the first run when start_run is true, or for matching a pre-warmed run. A different adapter prevents warm reuse. Write-only and not persisted on the task.
      *
      * * `claude` - claude
      * * `codex` - codex */
     runtime_adapter?: RuntimeAdapterEnumApi | null
     /**
-     * Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.
+     * LLM model for the first run when start_run is true, or for matching a pre-warmed run. Write-only.
      * @nullable
      */
     model?: string | null
-    /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
+    /** Reasoning effort for the first run when start_run is true, or for matching a pre-warmed run. Write-only.
      *
      * * `low` - low
      * * `medium` - medium
@@ -2027,7 +2032,7 @@ export interface TaskCreateApi {
      * * `max` - max
      * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
-    /** Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.
+    /** Agent permission mode for the first run when start_run is true, or for matching a pre-warmed run. Omit to match any warm permission mode. Write-only.
      *
      * * `default` - default
      * * `acceptEdits` - acceptEdits
@@ -2038,17 +2043,17 @@ export interface TaskCreateApi {
      * * `full-access` - full-access */
     initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi | null
     /**
-     * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
+     * First user message when start_run is true or creation reuses a pre-warmed run. This message can differ from description. Ignored if creation does not start a run. Write-only and not persisted on the task.
      * @nullable
      */
     pending_user_message?: string | null
     /**
-     * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched.
+     * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched. Not supported when start_run is true.
      * @items.maxLength 128
      */
     pending_user_artifact_ids?: string[]
     /**
-     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead.
+     * When true, the agent pushes its work and opens a draft pull request on completion without an explicit request. Applies when start_run is true or creation reuses a pre-warmed run. Resumed runs keep this setting. Ignored if creation does not start a run. Write-only and not persisted on the task.
      * @nullable
      */
     auto_publish?: boolean | null
@@ -2057,6 +2062,8 @@ export interface TaskCreateApi {
      * @nullable
      */
     channel?: string | null
+    /** Start the task's first cloud run immediately after creation. */
+    start_run?: boolean
     /**
      * Question to forward to the signal report's scout when creating a discussion task. Send an empty string when there is no question. Omit only for older clients that embed the question in the task description. Not persisted on the task.
      * @maxLength 4000
@@ -2065,12 +2072,12 @@ export interface TaskCreateApi {
     /** Text the server generates the title from instead of `description`. Lets a client whose `description` is only an attachment summary (e.g. pasted text stored as a file) supply the real content for naming, so `description` (the prompt passed to the agent) stays unchanged. Not persisted. */
     naming_source?: string
     /**
-     * Sandbox environment selected for matching a pre-warmed cloud run. Not persisted on the task.
+     * Sandbox environment for the first run when start_run is true, or for matching a pre-warmed run. Not persisted on the task.
      * @nullable
      */
     sandbox_environment_id?: string | null
     /**
-     * Custom image selected for matching a pre-warmed cloud run. Not persisted on the task.
+     * Custom image for the first run when start_run is true, or for matching a pre-warmed run. Not persisted on the task.
      * @nullable
      */
     custom_image_id?: string | null
@@ -2079,6 +2086,70 @@ export interface TaskCreateApi {
      * * `acp` - ACP
      * * `pi` - Pi */
     runtime?: TaskRuntimeEnumApi
+}
+
+/**
+ * @nullable
+ */
+export type TaskCreateResponseDTOApiJsonSchema = { [key: string]: unknown } | null
+
+/**
+ * Detail response for a task.
+ *
+ * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+ * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+ * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+ */
+export interface TaskCreateResponseDTOApi {
+    id: string
+    /** @nullable */
+    task_number: number | null
+    slug: string
+    title: string
+    title_manually_set: boolean
+    description: string
+    origin_product: string
+    /** Agent protocol and harness used for this task's runs.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    runtime: TaskRuntimeEnumApi
+    /** @nullable */
+    repository: string | null
+    repositories: string[]
+    /** @nullable */
+    github_integration: number | null
+    /** @nullable */
+    github_user_integration: string | null
+    /** @nullable */
+    signal_report: string | null
+    /** @nullable */
+    json_schema: TaskCreateResponseDTOApiJsonSchema
+    internal: boolean
+    archived: boolean
+    /** @nullable */
+    archived_at: string | null
+    /** Latest run details for this task */
+    latest_run?: TaskRunDetailDTOApi | null
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    updated_at?: string | null
+    /** @nullable */
+    last_activity_at?: string | null
+    created_by?: TaskUserBasicInfoApi | null
+    /** @nullable */
+    ci_prompt: string | null
+    /** @nullable */
+    channel?: string | null
+    readonly slack_thread_references: readonly SlackThreadReferenceDTOApi[]
+    /**
+     * Stable key of the server-side flow that created this task, e.g. `desktop_onboarding_session:<user_id>`. Null for tasks people create themselves.
+     * @nullable
+     */
+    origin_key?: string | null
+    /** Error returned when the task was created but its first run could not start. */
+    run_error?: string
 }
 
 export interface TaskWriteApi {
@@ -2157,22 +2228,22 @@ export interface TaskWriteApi {
      */
     ci_prompt?: string | null
     /**
-     * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
+     * Base branch for the first run when start_run is true, or for matching a pre-warmed run. Omit to use the repository's default branch. Write-only and not persisted on the task.
      * @maxLength 255
      * @nullable
      */
     branch?: string | null
-    /** Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.
+    /** Runtime adapter ('claude' or 'codex') for the first run when start_run is true, or for matching a pre-warmed run. A different adapter prevents warm reuse. Write-only and not persisted on the task.
      *
      * * `claude` - claude
      * * `codex` - codex */
     runtime_adapter?: RuntimeAdapterEnumApi | null
     /**
-     * Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.
+     * LLM model for the first run when start_run is true, or for matching a pre-warmed run. Write-only.
      * @nullable
      */
     model?: string | null
-    /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
+    /** Reasoning effort for the first run when start_run is true, or for matching a pre-warmed run. Write-only.
      *
      * * `low` - low
      * * `medium` - medium
@@ -2181,7 +2252,7 @@ export interface TaskWriteApi {
      * * `max` - max
      * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
-    /** Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.
+    /** Agent permission mode for the first run when start_run is true, or for matching a pre-warmed run. Omit to match any warm permission mode. Write-only.
      *
      * * `default` - default
      * * `acceptEdits` - acceptEdits
@@ -2192,17 +2263,17 @@ export interface TaskWriteApi {
      * * `full-access` - full-access */
     initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi | null
     /**
-     * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
+     * First user message when start_run is true or creation reuses a pre-warmed run. This message can differ from description. Ignored if creation does not start a run. Write-only and not persisted on the task.
      * @nullable
      */
     pending_user_message?: string | null
     /**
-     * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched.
+     * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched. Not supported when start_run is true.
      * @items.maxLength 128
      */
     pending_user_artifact_ids?: string[]
     /**
-     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead.
+     * When true, the agent pushes its work and opens a draft pull request on completion without an explicit request. Applies when start_run is true or creation reuses a pre-warmed run. Resumed runs keep this setting. Ignored if creation does not start a run. Write-only and not persisted on the task.
      * @nullable
      */
     auto_publish?: boolean | null
@@ -2289,22 +2360,22 @@ export interface PatchedTaskWriteApi {
      */
     ci_prompt?: string | null
     /**
-     * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
+     * Base branch for the first run when start_run is true, or for matching a pre-warmed run. Omit to use the repository's default branch. Write-only and not persisted on the task.
      * @maxLength 255
      * @nullable
      */
     branch?: string | null
-    /** Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.
+    /** Runtime adapter ('claude' or 'codex') for the first run when start_run is true, or for matching a pre-warmed run. A different adapter prevents warm reuse. Write-only and not persisted on the task.
      *
      * * `claude` - claude
      * * `codex` - codex */
     runtime_adapter?: RuntimeAdapterEnumApi | null
     /**
-     * Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.
+     * LLM model for the first run when start_run is true, or for matching a pre-warmed run. Write-only.
      * @nullable
      */
     model?: string | null
-    /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
+    /** Reasoning effort for the first run when start_run is true, or for matching a pre-warmed run. Write-only.
      *
      * * `low` - low
      * * `medium` - medium
@@ -2313,7 +2384,7 @@ export interface PatchedTaskWriteApi {
      * * `max` - max
      * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
-    /** Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.
+    /** Agent permission mode for the first run when start_run is true, or for matching a pre-warmed run. Omit to match any warm permission mode. Write-only.
      *
      * * `default` - default
      * * `acceptEdits` - acceptEdits
@@ -2324,17 +2395,17 @@ export interface PatchedTaskWriteApi {
      * * `full-access` - full-access */
     initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi | null
     /**
-     * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
+     * First user message when start_run is true or creation reuses a pre-warmed run. This message can differ from description. Ignored if creation does not start a run. Write-only and not persisted on the task.
      * @nullable
      */
     pending_user_message?: string | null
     /**
-     * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched.
+     * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched. Not supported when start_run is true.
      * @items.maxLength 128
      */
     pending_user_artifact_ids?: string[]
     /**
-     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead.
+     * When true, the agent pushes its work and opens a draft pull request on completion without an explicit request. Applies when start_run is true or creation reuses a pre-warmed run. Resumed runs keep this setting. Ignored if creation does not start a run. Write-only and not persisted on the task.
      * @nullable
      */
     auto_publish?: boolean | null
@@ -2567,6 +2638,17 @@ export interface RelayedMcpServerApi {
 }
 
 /**
+ * * `posthog-gateway` - posthog-gateway
+ * * `own-subscription` - own-subscription
+ */
+export type ClaudeModelAccessEnumApi = (typeof ClaudeModelAccessEnumApi)[keyof typeof ClaudeModelAccessEnumApi]
+
+export const ClaudeModelAccessEnumApi = {
+    PosthogGateway: 'posthog-gateway',
+    OwnSubscription: 'own-subscription',
+} as const
+
+/**
  * * `interactive` - interactive
  * * `background` - background
  */
@@ -2591,12 +2673,14 @@ export const PrAuthorshipModeEnumApi = {
 /**
  * * `manual` - manual
  * * `signal_report` - signal_report
+ * * `agent` - agent
  */
 export type RunSourceEnumApi = (typeof RunSourceEnumApi)[keyof typeof RunSourceEnumApi]
 
 export const RunSourceEnumApi = {
     Manual: 'manual',
     SignalReport: 'signal_report',
+    Agent: 'agent',
 } as const
 
 /**
@@ -2638,17 +2722,6 @@ export const InitialPermissionModeEnumApi = {
 } as const
 
 /**
- * * `posthog-gateway` - posthog-gateway
- * * `own-subscription` - own-subscription
- */
-export type ClaudeModelAccessEnumApi = (typeof ClaudeModelAccessEnumApi)[keyof typeof ClaudeModelAccessEnumApi]
-
-export const ClaudeModelAccessEnumApi = {
-    PosthogGateway: 'posthog-gateway',
-    OwnSubscription: 'own-subscription',
-} as const
-
-/**
  * Request body for creating a new task run
  */
 export interface ClaudeTaskRunCreateSchemaApi {
@@ -2662,6 +2735,21 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * @nullable
      */
     relayed_mcp_servers?: RelayedMcpServerApi[] | null
+    /**
+     * Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.
+     * @nullable
+     */
+    rtk_enabled?: boolean | null
+    /**
+     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
+     * @nullable
+     */
+    benjamin_enabled?: boolean | null
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    claude_model_access?: ClaudeModelAccessEnumApi | null
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
      *
      * * `interactive` - interactive
@@ -2699,7 +2787,8 @@ export interface ClaudeTaskRunCreateSchemaApi {
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual
-     * * `signal_report` - signal_report */
+     * * `signal_report` - signal_report
+     * * `agent` - agent */
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
@@ -2738,21 +2827,6 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * * `bypassPermissions` - bypassPermissions
      * * `auto` - auto */
     initial_permission_mode?: InitialPermissionModeEnumApi
-    /**
-     * Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.
-     * @nullable
-     */
-    rtk_enabled?: boolean | null
-    /**
-     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
-     * @nullable
-     */
-    benjamin_enabled?: boolean | null
-    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
-     *
-     * * `posthog-gateway` - posthog-gateway
-     * * `own-subscription` - own-subscription */
-    claude_model_access?: ClaudeModelAccessEnumApi | null
 }
 
 /**
@@ -2794,6 +2868,21 @@ export interface CodexTaskRunCreateSchemaApi {
      * @nullable
      */
     relayed_mcp_servers?: RelayedMcpServerApi[] | null
+    /**
+     * Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.
+     * @nullable
+     */
+    rtk_enabled?: boolean | null
+    /**
+     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
+     * @nullable
+     */
+    benjamin_enabled?: boolean | null
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    claude_model_access?: ClaudeModelAccessEnumApi | null
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
      *
      * * `interactive` - interactive
@@ -2831,7 +2920,8 @@ export interface CodexTaskRunCreateSchemaApi {
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual
-     * * `signal_report` - signal_report */
+     * * `signal_report` - signal_report
+     * * `agent` - agent */
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
@@ -2869,21 +2959,6 @@ export interface CodexTaskRunCreateSchemaApi {
      * * `read-only` - read-only
      * * `full-access` - full-access */
     initial_permission_mode?: CodexTaskRunCreateSchemaInitialPermissionModeEnumApi
-    /**
-     * Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.
-     * @nullable
-     */
-    rtk_enabled?: boolean | null
-    /**
-     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
-     * @nullable
-     */
-    benjamin_enabled?: boolean | null
-    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
-     *
-     * * `posthog-gateway` - posthog-gateway
-     * * `own-subscription` - own-subscription */
-    claude_model_access?: ClaudeModelAccessEnumApi | null
 }
 
 export interface TaskRunResumeRequestSchemaApi {
@@ -2914,7 +2989,8 @@ export interface TaskRunResumeRequestSchemaApi {
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual
-     * * `signal_report` - signal_report */
+     * * `signal_report` - signal_report
+     * * `agent` - agent */
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
@@ -2926,6 +3002,70 @@ export type TaskRunCreateRequestSchemaApi =
     | ClaudeTaskRunCreateSchemaApi
     | CodexTaskRunCreateSchemaApi
     | TaskRunResumeRequestSchemaApi
+
+/**
+ * @nullable
+ */
+export type TaskRunResponseApiJsonSchema = { [key: string]: unknown } | null
+
+/**
+ * Detail response for a task.
+ *
+ * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+ * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+ * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+ */
+export interface TaskRunResponseApi {
+    id: string
+    /** @nullable */
+    task_number: number | null
+    slug: string
+    title: string
+    title_manually_set: boolean
+    description: string
+    origin_product: string
+    /** Agent protocol and harness used for this task's runs.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    runtime: TaskRuntimeEnumApi
+    /** @nullable */
+    repository: string | null
+    repositories: string[]
+    /** @nullable */
+    github_integration: number | null
+    /** @nullable */
+    github_user_integration: string | null
+    /** @nullable */
+    signal_report: string | null
+    /** @nullable */
+    json_schema: TaskRunResponseApiJsonSchema
+    internal: boolean
+    archived: boolean
+    /** @nullable */
+    archived_at: string | null
+    /** Latest run details for this task */
+    latest_run?: TaskRunDetailDTOApi | null
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    updated_at?: string | null
+    /** @nullable */
+    last_activity_at?: string | null
+    created_by?: TaskUserBasicInfoApi | null
+    /** @nullable */
+    ci_prompt: string | null
+    /** @nullable */
+    channel?: string | null
+    readonly slack_thread_references: readonly SlackThreadReferenceDTOApi[]
+    /**
+     * Stable key of the server-side flow that created this task, e.g. `desktop_onboarding_session:<user_id>`. Null for tasks people create themselves.
+     * @nullable
+     */
+    origin_key?: string | null
+    /** Error returned when the run could not start. */
+    run_error?: string
+}
 
 /**
  * * `plan` - plan
@@ -3154,6 +3294,18 @@ export const RunEnvironmentEnumApi = {
 } as const
 
 /**
+ * * `manual` - manual
+ * * `signal_report` - signal_report
+ */
+export type TaskBootstrapRunSourceEnumApi =
+    (typeof TaskBootstrapRunSourceEnumApi)[keyof typeof TaskBootstrapRunSourceEnumApi]
+
+export const TaskBootstrapRunSourceEnumApi = {
+    Manual: 'manual',
+    SignalReport: 'signal_report',
+} as const
+
+/**
  * Request body for creating a task run without starting execution yet.
  */
 export interface TaskRunBootstrapCreateRequestApi {
@@ -3167,6 +3319,21 @@ export interface TaskRunBootstrapCreateRequestApi {
      * @nullable
      */
     relayed_mcp_servers?: RelayedMcpServerApi[] | null
+    /**
+     * Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.
+     * @nullable
+     */
+    rtk_enabled?: boolean | null
+    /**
+     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
+     * @nullable
+     */
+    benjamin_enabled?: boolean | null
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    claude_model_access?: ClaudeModelAccessEnumApi | null
     /** Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.
      *
      * * `local` - local
@@ -3201,7 +3368,7 @@ export interface TaskRunBootstrapCreateRequestApi {
      *
      * * `manual` - manual
      * * `signal_report` - signal_report */
-    run_source?: RunSourceEnumApi
+    run_source?: TaskBootstrapRunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
     /** Agent runtime adapter to launch for this run. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime.
@@ -3244,22 +3411,12 @@ export interface TaskRunBootstrapCreateRequestApi {
      * * `read-only` - read-only
      * * `full-access` - full-access */
     initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi
-    /**
-     * Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.
-     * @nullable
-     */
-    rtk_enabled?: boolean | null
-    /**
-     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
-     * @nullable
-     */
-    benjamin_enabled?: boolean | null
-    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
-     *
-     * * `posthog-gateway` - posthog-gateway
-     * * `own-subscription` - own-subscription */
-    claude_model_access?: ClaudeModelAccessEnumApi | null
 }
+
+/**
+ * State of the run
+ */
+export type PatchedTaskRunUpdateApiState = { [key: string]: unknown }
 
 /**
  * State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race.
@@ -3308,7 +3465,7 @@ export interface PatchedTaskRunUpdateApi {
     /** Output from the run */
     output?: unknown
     /** State of the run */
-    state?: unknown
+    state?: PatchedTaskRunUpdateApiState
     /** State keys to remove atomically before applying any state updates. */
     state_remove_keys?: string[]
     /** State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race. */
@@ -4020,6 +4177,14 @@ export interface TaskRunRelayMessageResponseApi {
 export interface PatchedTaskRunSetOutputRequestApi {
     /** Output data from the run. Validated against the task's json_schema if one is set. */
     output?: unknown
+}
+
+export interface PatchedTaskRunSetSummaryRequestApi {
+    /**
+     * Complete running summary that replaces the prior summary.
+     * @maxLength 1500
+     */
+    summary?: string
 }
 
 export interface TaskRunStartRequestApi {
@@ -4750,6 +4915,23 @@ export const TaskRunEnvironmentEnumApi = {
     Cloud: 'cloud',
 } as const
 
+/**
+ * * `open` - open
+ * * `draft` - draft
+ * * `merged` - merged
+ * * `closed` - closed
+ * * `unknown` - unknown
+ */
+export type PrStateEnumApi = (typeof PrStateEnumApi)[keyof typeof PrStateEnumApi]
+
+export const PrStateEnumApi = {
+    Open: 'open',
+    Draft: 'draft',
+    Merged: 'merged',
+    Closed: 'closed',
+    Unknown: 'unknown',
+} as const
+
 export interface TaskRunSummaryApi {
     /** ID of the latest run. */
     id: string
@@ -4760,6 +4942,24 @@ export interface TaskRunSummaryApi {
      * * `interactive` - interactive
      * * `background` - background */
     mode: TaskExecutionModeEnumApi
+    /**
+     * URL of the pull request the latest run opened, or null when it opened none.
+     * @nullable
+     */
+    pr_url: string | null
+    /** State of that pull request: open, draft, merged, closed, or unknown. Null when the latest run opened no pull request.
+     *
+     * * `open` - open
+     * * `draft` - draft
+     * * `merged` - merged
+     * * `closed` - closed
+     * * `unknown` - unknown */
+    pr_state: PrStateEnumApi | null
+    /**
+     * Latest summary for this task, including a summary inherited from an earlier run.
+     * @nullable
+     */
+    task_summary?: string | null
 }
 
 export interface TaskSearchResultApi {
@@ -5138,7 +5338,30 @@ export type LoopsRunsRetrieveParams = {
      * @maximum 100
      */
     limit?: number
+    /**
+     * Only return runs with this status. Use failed to read errors even when canvas state is unavailable.
+     *
+     * * `not_started` - Not Started
+     * * `queued` - Queued
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled
+     * @minLength 1
+     */
+    status?: LoopsRunsRetrieveStatus
 }
+
+export type LoopsRunsRetrieveStatus = (typeof LoopsRunsRetrieveStatus)[keyof typeof LoopsRunsRetrieveStatus]
+
+export const LoopsRunsRetrieveStatus = {
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
 
 export type LoopsTriggerCreateBodyOne = { [key: string]: unknown }
 
@@ -5256,6 +5479,13 @@ export type TasksListParams = {
      * @minLength 1
      */
     ci_status?: TasksListCiStatus
+    /**
+     * Filter by the client that created the task
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * @minLength 1
+     */
+    client_provenance?: TasksListClientProvenance
     /**
      * Filter to tasks carrying a thread comment written by this user ID.
      */
@@ -5394,6 +5624,12 @@ export const TasksListCiStatus = {
     Failing: 'failing',
     Pending: 'pending',
     None: 'none',
+} as const
+
+export type TasksListClientProvenance = (typeof TasksListClientProvenance)[keyof typeof TasksListClientProvenance]
+
+export const TasksListClientProvenance = {
+    PosthogDesktop: 'posthog_desktop',
 } as const
 
 export type TasksListExcludeOriginProduct =
