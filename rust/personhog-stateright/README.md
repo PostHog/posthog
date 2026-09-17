@@ -36,7 +36,7 @@ Its long pole is the two-partition epoch-fenced double zombie, which is more tha
 | `epoch_fenced_two_partitions_double_zombie_is_safe` | 13.1M | 19s |
 | `two_partitions_double_zombie_loses_acked_writes` | 3.7M | 4.0s |
 | `cancellation_with_live_owner_reaffirms_and_resumes` | 2.6M | 3.9s |
-| `current_two_partitions_single_zombie_is_safe` | 0.9M | 1.4s |
+| `two_partitions_single_zombie_is_safe` | 0.9M | 1.4s |
 | `probe_dual_role_pod_is_reachable_and_safe` | 0.7M | 1.2s |
 | *everything else (26 runs)* | 3.4M | 4s |
 
@@ -121,7 +121,7 @@ queue — mapped to named production behavior for review:
 | `Action::ClientWrite` | The raw proxy leader path: stash if stashing, else forward to the table entry; leader admission = warmed + unfenced (`try_begin`) |
 | `Action::CrashRestartWithinTtl` | Process death + same-name restart before lease expiry: registration and assignments survive, memory wiped |
 | `Action::LeaseExpire` / `SelfFence` | Lease loss with the bounded zombie window before the keepalive self-fences (fix 1); same pair for routers, where lease loss also drops them from the freeze quorum |
-| `Changelog.epoch_holder` under `Variant::EpochFenced` | Kafka transactional-producer fencing: warming = `init_transactions`, which takes the fence from whoever held it; a produce from a fenced-out producer is rejected before any client ack |
+| `Changelog.epoch_holder` | Kafka transactional-producer fencing: warming = `init_transactions`, which takes the fence from whoever held it; a produce from a fenced-out producer is rejected before any client ack |
 
 Full elimination of the second table would mean deterministic
 simulation — a trait seam over `PersonhogStore` with an in-memory
@@ -142,13 +142,12 @@ implementation so the model executes `converge` and
 
 | Scenario | `no_lost_acked_write` | `no_split_write_acceptance` | `strong_reads_complete` |
 |---|---|---|---|
-| Current protocol, no failures | holds | holds | holds |
-| Current, crash-restart within TTL / clean lease expiry | holds | holds | holds |
-| Current, pod death past TTL + rejoin (3 pods) | holds | holds | holds |
-| Current, single zombie pod | **holds** | **holds** | holds |
-| Current, double zombie (router + pod) | **violated** — counterexample found | **violated** | — |
-| Epoch-fenced, double zombie | holds | holds | holds |
-| Current, strong reads + one failure | holds | holds | holds |
+| No failures | holds | holds | holds |
+| Crash-restart within TTL / clean lease expiry | holds | holds | holds |
+| Pod death past TTL + rejoin (3 pods) | holds | holds | holds |
+| Single zombie pod | **holds** | **holds** | holds |
+| Double zombie (router + pod) | holds | holds | holds |
+| Strong reads + one failure | holds | holds | holds |
 
 Two results worth calling out:
 
@@ -162,10 +161,12 @@ below the warm HWM and is captured. The checker sharpened the
 documented residual from "a zombie pod" to "a zombie router feeding a
 zombie pod, simultaneously."
 
-**Epoch fencing closes the double zombie.** Under the `EpochFenced`
-variant, warming bumps the broker's producer epoch, and the zombie's
-produce is rejected before any client ack. This is the design
-validation gating the transactional-producer implementation.
+**Epoch fencing closes the double zombie.** Warming bumps the broker's
+producer epoch, and the zombie's produce is rejected before any client
+ack. The model carried an unfenced variant until the leader stopped
+being able to run one; the counterexample it produced is the reason the
+protocol is shaped this way, and it lives in this repository's history
+rather than in a checked property.
 
 **Read stashing was machine-validated before it shipped.** A
 direct-read variant of this model (strong reads forwarding to the table
@@ -208,13 +209,13 @@ cargo test -p personhog-stateright --release
 STATERIGHT_REPORT=1 cargo test -p personhog-stateright --release -- --nocapture --test-threads=1
 
 # Interactive state-space explorer (http://localhost:3000), for
-# stepping through the double-zombie counterexample trace:
-cargo run -p personhog-stateright --release -- current-zombie
+# stepping through a trace state by state:
+cargo run -p personhog-stateright --release -- fenced-zombie
 ```
 
-Explorer variants: `current` (failures without zombie windows),
-`current-zombie` (the residual, with counterexamples), `epoch-fenced`
-(the fix).
+Explorer scenarios: `fenced` (failures without zombie windows),
+`fenced-zombie` (a zombie window), `fenced-read-first` (the rejected
+warm ordering, with counterexamples).
 
 ## Coverage notes
 
