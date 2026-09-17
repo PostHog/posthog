@@ -88,7 +88,7 @@ import { NotebookDiscussionComment, getNotebookDiscussionCommentTitle } from './
 import { MarkdownNotebookNodeAttributeInput } from './MarkdownNotebookNodeAttributeInput'
 import { getSqlV2PropsFromQueryProp } from './markdownNotebookV2'
 import { notebookLogic } from './notebookLogic'
-import { useNotebookAnalyzeMenuItem } from './useNotebookAnalyzeMenuItem'
+import { useNotebookAnalyzeCta } from './useNotebookAnalyzeCta'
 
 const INTERNAL_MARKDOWN_NODE_ATTRIBUTE_KEYS = new Set([
     'height',
@@ -839,26 +839,20 @@ export function MountedRealNotebookNodeComponent({
         () => getNotebookWidgetViewMenuItem(options, attributes, updateAttributes),
         [attributes, options, updateAttributes]
     )
-    const analyzeMenuItem = useNotebookAnalyzeMenuItem(mountedNotebookLogic, notebookNodeType, attributes)
+    const analyzeCta = useNotebookAnalyzeCta(mountedNotebookLogic, notebookNodeType, attributes)
     const toolbarExtras = useMemo(
         () => ({
             actions: nodeActions,
-            // In `menuItems` rather than `editMenuItems`, so a reader in view mode can analyze a cell.
-            menuItems: analyzeMenuItem ? [...(nodeMenuItems ?? []), analyzeMenuItem] : nodeMenuItems,
+            // A header button rather than a menu item, so a reader in view mode finds it without opening
+            // the menu.
+            cta: analyzeCta,
+            menuItems: nodeMenuItems,
             editMenuItems: viewMenuItem ? [viewMenuItem] : null,
             filtersDisabledReason: nodeSettingsDisabledReason,
             title: nodeTitle,
             titleStatus: nodeTitleStatus,
         }),
-        [
-            analyzeMenuItem,
-            nodeActions,
-            nodeMenuItems,
-            nodeSettingsDisabledReason,
-            nodeTitle,
-            nodeTitleStatus,
-            viewMenuItem,
-        ]
+        [analyzeCta, nodeActions, nodeMenuItems, nodeSettingsDisabledReason, nodeTitle, nodeTitleStatus, viewMenuItem]
     )
 
     // The settings-panel instance (editOnly) shares the shell with the content instance;

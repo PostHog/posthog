@@ -520,25 +520,18 @@ describe('markdownNotebookRegistry', () => {
 
         afterEach(cleanup)
 
-        // The shell renders `menuItems` in view mode and `editMenuItems` only in edit mode, so the
-        // item landing in the wrong list would hide analysis from exactly the reader it is for.
+        // The shell renders the `cta` in both modes but `editMenuItems` only in edit mode, so analysis
+        // arriving as a menu item again would hide it from exactly the reader it is for.
         it('offers analysis on a query cell in view mode', () => {
             const extras = renderNodeExtras('Query', { query: { kind: 'TrendsQuery' } })
 
-            expect(extras?.menuItems).toEqual(
-                expect.arrayContaining([expect.objectContaining({ label: 'Analyze with PostHog AI' })])
-            )
-            expect(extras?.editMenuItems ?? []).not.toEqual(
-                expect.arrayContaining([expect.objectContaining({ label: 'Analyze with PostHog AI' })])
-            )
+            expect(extras?.cta).toEqual(expect.objectContaining({ label: 'Explore more' }))
         })
 
         it('offers no analysis on a cell that holds no query or code', () => {
             const extras = renderNodeExtras('Latex', { content: 'x^2' })
 
-            expect(extras?.menuItems ?? []).not.toEqual(
-                expect.arrayContaining([expect.objectContaining({ label: 'Analyze with PostHog AI' })])
-            )
+            expect(extras?.cta ?? null).toBeNull()
         })
     })
 

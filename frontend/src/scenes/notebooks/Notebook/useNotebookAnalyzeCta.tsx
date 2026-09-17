@@ -1,7 +1,9 @@
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import type { LemonMenuItem } from '@posthog/lemon-ui'
+import { IconSparkles } from '@posthog/icons'
+
+import type { NotebookComponentToolbarCta } from 'lib/components/MarkdownNotebook/componentToolbarExtras'
 
 import { NotebookNodeType } from '../types'
 import { NotebookAnalyzeCellAttributes, getNotebookAnalyzeCell } from './notebookAnalyzeContext'
@@ -9,15 +11,15 @@ import { notebookAnalyzeLogic } from './notebookAnalyzeLogic'
 import type { notebookLogicType } from './notebookLogic'
 
 /**
- * The cell menu's "Analyze with PostHog AI" entry, or null when the cell or the notebook is not
- * eligible. It goes in `menuItems` rather than the edit-mode actions, because analysis reads the
- * cell and a reader in view mode is exactly who wants it.
+ * The cell header's "Explore more" button, or null when the cell or the notebook is not eligible. It
+ * sits in the header rather than the menu, because analysis reads the cell and a reader in view mode
+ * is exactly who wants it.
  */
-export function useNotebookAnalyzeMenuItem(
+export function useNotebookAnalyzeCta(
     notebookLogic: BuiltLogic<notebookLogicType>,
     nodeType: NotebookNodeType,
     attributes: NotebookAnalyzeCellAttributes
-): LemonMenuItem | null {
+): NotebookComponentToolbarCta | null {
     const logicProps = useMemo(() => ({ notebookLogic }), [notebookLogic])
     const logic = notebookAnalyzeLogic(logicProps)
     const { analyzeEnabled } = useValues(logic)
@@ -32,8 +34,11 @@ export function useNotebookAnalyzeMenuItem(
         () =>
             analyzeEnabled && cell
                 ? {
-                      label: 'Analyze with PostHog AI',
-                      'data-attr': 'notebook-analyze-more',
+                      label: 'Explore more',
+                      icon: <IconSparkles />,
+                      tooltip: 'Analyze this cell with PostHog AI',
+                      // pinned: data-attr value, renaming it breaks autocapture dashboards
+                      dataAttr: 'notebook-analyze-more',
                       onClick: () => startAnalysis(cell),
                   }
                 : null,

@@ -15,8 +15,20 @@ export type NotebookComponentToolbarTitleStatus = {
     tooltip?: string
 }
 
+/**
+ * A labelled button the host puts at the right of the cell header, for the one action it wants a
+ * reader to find without opening the menu.
+ */
+export type NotebookComponentToolbarCta = Pick<LemonButtonProps, 'disabledReason' | 'icon'> & {
+    label: string
+    onClick: () => void
+    tooltip?: string
+    dataAttr?: string
+}
+
 export type NotebookComponentToolbarExtras = {
     actions: NotebookComponentToolbarAction[]
+    cta?: NotebookComponentToolbarCta | null
     menuItems: LemonMenuItems | null
     editMenuItems?: LemonMenuItems | null
     title?: string | null

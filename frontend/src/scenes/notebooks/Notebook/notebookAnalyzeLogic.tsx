@@ -176,7 +176,7 @@ function captureFocusClosed(cell: NotebookAnalyzeCell | undefined, via: 'card' |
 }
 
 /**
- * "Analyze with PostHog AI" on a notebook cell: attaches the cell to the PostHog AI side panel, and
+ * "Explore more" on a notebook cell: attaches the cell to the PostHog AI side panel, and
  * puts an "Add to notebook" button on every result the agent produces. A reader asks the next
  * question and keeps the answer without leaving the notebook.
  *

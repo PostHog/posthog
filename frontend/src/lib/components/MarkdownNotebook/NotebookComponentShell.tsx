@@ -588,8 +588,21 @@ export function NotebookComponentShell({
                         {titleStatusTag}
                     </div>
                 ) : null}
-                {hasToolbarMenu || mode === 'edit' || showCollapseToggle ? (
+                {hasToolbarMenu || mode === 'edit' || showCollapseToggle || toolbarExtras?.cta ? (
                     <div className="MarkdownNotebook__component-actions">
+                        {toolbarExtras?.cta ? (
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                icon={toolbarExtras.cta.icon}
+                                tooltip={toolbarExtras.cta.tooltip}
+                                disabledReason={toolbarExtras.cta.disabledReason}
+                                onClick={toolbarExtras.cta.onClick}
+                                data-attr={toolbarExtras.cta.dataAttr}
+                            >
+                                {toolbarExtras.cta.label}
+                            </LemonButton>
+                        ) : null}
                         {showCollapseToggle ? (
                             <LemonButton
                                 aria-label={hasOpenComponentPanel ? 'Collapse' : 'Expand'}
