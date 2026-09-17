@@ -861,8 +861,9 @@ def _estimator_for(recipe: dict[str, Any], *, seed: int) -> Any:
     model_class = getattr(importlib.import_module(module_path), class_name)
     params = dict(recipe.get("model_params") or {})
     accepted = inspect.signature(model_class.__init__).parameters
-    if "random_state" in accepted:
-        params.setdefault("random_state", seed)
+    if "random_state" in accepted and params.get("random_state") is None:
+        # An explicit null would otherwise suppress the seed and make a retry refit differently.
+        params["random_state"] = seed
     if "n_jobs" in accepted:
         # The fit runs in the worker process; an agent's n_jobs=-1 would take every core it has.
         params["n_jobs"] = 1

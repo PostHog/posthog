@@ -367,8 +367,12 @@ class ModelExplanationField(ObjectJSONField):
             },
             "feature_transforms": {
                 "type": "array",
+                "nullable": True,
                 "items": {"type": "object"},
-                "description": "Transforms the bundle applies to the feature columns; empty on the in-process path.",
+                "description": (
+                    "Transforms the bundle applies to the feature columns; null or absent means none, and the "
+                    "in-process path accepts none."
+                ),
             },
         },
         "required": ["feature_sql"],

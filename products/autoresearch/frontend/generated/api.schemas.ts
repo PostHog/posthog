@@ -718,8 +718,11 @@ export type RecordIterationApiRecipeSnapshotFeatureTransformsItem = { [key: stri
 export type RecordIterationApiRecipeSnapshot = {
     /** A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id. */
     feature_sql: string
-    /** Transforms the bundle applies to the feature columns; empty on the in-process path. */
-    feature_transforms?: RecordIterationApiRecipeSnapshotFeatureTransformsItem[]
+    /**
+     * Transforms the bundle applies to the feature columns; null or absent means none, and the in-process path accepts none.
+     * @nullable
+     */
+    feature_transforms?: RecordIterationApiRecipeSnapshotFeatureTransformsItem[] | null
 }
 
 /**
@@ -816,8 +819,11 @@ export type AutoresearchIterationApiRecipeSnapshotFeatureTransformsItem = { [key
 export type AutoresearchIterationApiRecipeSnapshot = {
     /** A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id. */
     feature_sql: string
-    /** Transforms the bundle applies to the feature columns; empty on the in-process path. */
-    feature_transforms?: AutoresearchIterationApiRecipeSnapshotFeatureTransformsItem[]
+    /**
+     * Transforms the bundle applies to the feature columns; null or absent means none, and the in-process path accepts none.
+     * @nullable
+     */
+    feature_transforms?: AutoresearchIterationApiRecipeSnapshotFeatureTransformsItem[] | null
 }
 
 /**
@@ -900,8 +906,11 @@ export type IterationTrailWithRecipeApiRecipeSnapshotFeatureTransformsItem = { [
 export type IterationTrailWithRecipeApiRecipeSnapshot = {
     /** A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id. */
     feature_sql: string
-    /** Transforms the bundle applies to the feature columns; empty on the in-process path. */
-    feature_transforms?: IterationTrailWithRecipeApiRecipeSnapshotFeatureTransformsItem[]
+    /**
+     * Transforms the bundle applies to the feature columns; null or absent means none, and the in-process path accepts none.
+     * @nullable
+     */
+    feature_transforms?: IterationTrailWithRecipeApiRecipeSnapshotFeatureTransformsItem[] | null
 }
 
 /**

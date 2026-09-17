@@ -765,6 +765,7 @@ class TestRecipeFit(SimpleTestCase):
         [
             ("seeded_from_the_pipeline", {}, 1234),
             ("recipe_seed_wins", {"random_state": 7}, 7),
+            ("null_seed_falls_back_to_the_pipeline", {"random_state": None}, 1234),
         ]
     )
     def test_stochastic_estimator_gets_a_stable_seed(self, _name, params, expected):

@@ -212,8 +212,10 @@ export const AutoresearchTrainingRunsIterationsCreateBody = /* @__PURE__ */ zod
                     .describe('A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id.'),
                 feature_transforms: zod
                     .array(zod.looseObject({}))
-                    .optional()
-                    .describe('Transforms the bundle applies to the feature columns; empty on the in-process path.'),
+                    .nullish()
+                    .describe(
+                        'Transforms the bundle applies to the feature columns; null or absent means none, and the in-process path accepts none.'
+                    ),
             })
             .describe(
                 'Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms.'

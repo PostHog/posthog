@@ -11241,8 +11241,11 @@ export namespace Schemas {
     export type AutoresearchIterationRecipeSnapshot = {
       /** A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id. */
       feature_sql: string;
-      /** Transforms the bundle applies to the feature columns; empty on the in-process path. */
-      feature_transforms?: AutoresearchIterationRecipeSnapshotFeatureTransformsItem[];
+      /**
+         * Transforms the bundle applies to the feature columns; null or absent means none, and the in-process path accepts none.
+         * @nullable
+         */
+      feature_transforms?: AutoresearchIterationRecipeSnapshotFeatureTransformsItem[] | null;
     };
 
     /**
@@ -50232,8 +50235,11 @@ export namespace Schemas {
     export type IterationTrailWithRecipeRecipeSnapshot = {
       /** A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id. */
       feature_sql: string;
-      /** Transforms the bundle applies to the feature columns; empty on the in-process path. */
-      feature_transforms?: IterationTrailWithRecipeRecipeSnapshotFeatureTransformsItem[];
+      /**
+         * Transforms the bundle applies to the feature columns; null or absent means none, and the in-process path accepts none.
+         * @nullable
+         */
+      feature_transforms?: IterationTrailWithRecipeRecipeSnapshotFeatureTransformsItem[] | null;
     };
 
     /**
@@ -79479,8 +79485,11 @@ export namespace Schemas {
     export type RecordIterationRecipeSnapshot = {
       /** A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id. */
       feature_sql: string;
-      /** Transforms the bundle applies to the feature columns; empty on the in-process path. */
-      feature_transforms?: RecordIterationRecipeSnapshotFeatureTransformsItem[];
+      /**
+         * Transforms the bundle applies to the feature columns; null or absent means none, and the in-process path accepts none.
+         * @nullable
+         */
+      feature_transforms?: RecordIterationRecipeSnapshotFeatureTransformsItem[] | null;
     };
 
     /**
