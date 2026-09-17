@@ -131,7 +131,7 @@ export interface tracingDataLogicValues {
     timeComparison: TimeComparison | null // tracingFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined
-        date_to: string | null | undefined
+        date_to: string
     } // tracingFiltersLogic
     aggregation: {
         current: AggregatedSpanRow[]

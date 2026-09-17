@@ -88,7 +88,7 @@ export interface tracingSceneLogicValues {
     sparklineWindowMs: OverlayWindow // tracingFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined
-        date_to: string | null | undefined
+        date_to: string
     } // tracingFiltersLogic
     canLoadMoreTraceSpans: boolean // tracingViewerLogic
     compareFlameServiceName: string | null // tracingViewerLogic

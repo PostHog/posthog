@@ -196,7 +196,7 @@ export interface tracingFiltersLogicValues {
     timezone: string
     utcDateRange: {
         date_from: string | null | undefined
-        date_to: string | null | undefined
+        date_to: string
     }
     viewMode: TracingViewMode
     windowAnchorMs: number
@@ -295,9 +295,12 @@ export interface tracingFiltersLogicMeta {
             filterGroup: UniversalFiltersGroup,
             pinnedFilters: UniversalFiltersGroup | undefined
         ) => UniversalFiltersGroup
-        utcDateRange: (dateRange: DateRange) => {
+        utcDateRange: (
+            dateRange: DateRange,
+            sparklineWindowMs: OverlayWindow
+        ) => {
             date_from: string | null | undefined
-            date_to: string | null | undefined
+            date_to: string
         }
         sparklineWindowMs: (dateRange: DateRange, windowAnchorMs: number) => OverlayWindow
         currentWindowMs: (sparklineWindowMs: OverlayWindow, timeComparison: TimeComparison | null) => OverlayWindow
