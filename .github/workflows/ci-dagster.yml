@@ -178,6 +178,7 @@ jobs:
                         - 'posthog/llm/**'
                         - 'posthog/person_db_router.py'
                         - 'posthog/persons_db.py'
+                        - 'posthog/personhog_client/**'
                         - 'posthog/redis.py'
                         - 'posthog/storage/**'
                         - 'posthog/event_usage.py'
@@ -197,6 +198,7 @@ jobs:
                         - 'ee/clickhouse/**'
                         - 'ee/hogai/**'
                         # --- Only the products that DAGs actually import from ---
+                        - 'products/access_control/backend/facade/**/*.py'
                         - 'products/analytics_platform/backend/**/*.py'
                         - 'products/cohorts/backend/**/*.py'
                         - 'products/data_modeling/backend/**/*.py'

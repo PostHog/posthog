@@ -921,9 +921,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # key leaves the same unmergeable table as never setting one.
             requested_keys = data["primary_key_columns"] if "primary_key_columns" in data else None
             merge_keys = requested_keys if "primary_key_columns" in data else instance.primary_key_columns
-            # Only when the schema's columns are known. Without them there is nothing to say the
-            # table has no key, and the sync-time guard still covers it.
-            if known_columns and not merge_keys and "id" not in column_names:
+            # Only for a source that reads keys off the table, and only when the schema's columns
+            # are known. A source that declares its key in code never needs one here, and without
+            # columns there is nothing to say the table has none; the sync-time guard covers both.
+            source_detects_keys = SourceRegistry.get_source(
+                ExternalDataSourceType(instance.source.source_type)
+            ).detects_primary_keys
+            if source_detects_keys and known_columns and not merge_keys and "id" not in column_names:
                 raise ValidationError(
                     f"'{instance.name}' has no primary key to sync incrementally on. "
                     "Set primary_key_columns for it, or choose full_refresh."
@@ -2061,13 +2065,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # job_inputs is an EncryptedJSONField: booleans round-trip as "True"/"False"
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.
         source_cdc_enabled = str_to_bool(source.job_inputs.get("cdc_enabled"))
+        source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
         cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
         # xmin is source-capability-gated, mirroring the database_schema endpoint.
-        xmin_available = (
-            schema.supports_xmin
-            if SourceRegistry.get_source(ExternalDataSourceType(source.source_type)).supports_xmin
-            else None
-        )
+        xmin_available = schema.supports_xmin if source_impl.supports_xmin else None
 
         data = {
             "incremental_fields": schema.incremental_fields,
@@ -2083,6 +2084,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for col_name, col_type, nullable in schema.columns
             ],
             "detected_primary_keys": schema.detected_primary_keys,
+            "primary_key_detection_supported": source_impl.detects_primary_keys,
         }
 
         return Response(status=status.HTTP_200_OK, data=data)

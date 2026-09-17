@@ -32,6 +32,7 @@ import {
 } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { HideViewedRecordingsOptions, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
 import {
     DEFAULT_RECORDING_FILTERS,
@@ -169,6 +170,13 @@ export type ExperimentRecordingsEmptyAction =
     | 'all_sessions'
 
 /**
+ * The actions that widen a list the viewer narrowed. Named apart from the rest so that the map of
+ * their labels in the empty state can be exhaustive, and so that a reason's action and the one the
+ * too-early banner borrows cannot be different sets.
+ */
+export type ExperimentRecordingsNarrowingAction = 'clear_filters' | 'show_all_variants' | 'all_sessions'
+
+/**
  * The dates and settings the empty-state copy names. The component reads them from here so that it
  * does not measure the run window a second time against a clock this logic has already read.
  */
@@ -183,6 +191,12 @@ export interface ExperimentRecordingsListEmptyContext {
     variantKey: string | null
     /** End of the window the applied metric filter scanned. Null when no filter is applied. */
     scannedWindowEnd: string | null
+    /**
+     * The way out of the tightest narrowing the viewer controls, null when nothing narrows the
+     * list. The too-early banner carries it, so a viewer on a young run is never left with a reason
+     * that only waiting fixes and no way to widen the list themselves.
+     */
+    narrowingAction: ExperimentRecordingsNarrowingAction | null
 }
 
 /**
@@ -253,6 +267,75 @@ function daysSince(date: string | null | undefined): number | null {
 }
 
 /**
+ * The way out of the tightest narrowing the viewer controls, null when nothing narrows the list.
+ * Tightest first, in the same order `listEmptyReason` names the narrowings, so the action offered
+ * is the one the reason would have named had the run been old enough to reach it.
+ *
+ * The tab's own metric event filters are left out. The reason they raise carries no action either,
+ * so there is nothing for this to offer.
+ */
+function narrowingAction(
+    filtersCustomized: boolean,
+    effectiveVariantKey: string | null,
+    effectiveExposureScope: ExperimentReplayExposureScope
+): ExperimentRecordingsNarrowingAction | null {
+    if (filtersCustomized) {
+        return 'clear_filters'
+    }
+    if (effectiveVariantKey !== null) {
+        return 'show_all_variants'
+    }
+    if (effectiveExposureScope === 'in_session') {
+        return 'all_sessions'
+    }
+    return null
+}
+
+/**
+ * The way out the empty state offers for a reason, null when that reason's banner offers none. The
+ * banner and the render report both read this, so a viewer who is handed a way out and a render
+ * counted as offering one cannot come apart.
+ *
+ * Too early borrows whatever narrows the list, because on a run that young the age of the run is
+ * the cause however the viewer narrowed it. The three narrowing reasons name their own way out,
+ * which is the one `narrowingAction` resolves, since the reasons and the narrowings are read in one
+ * order. Every other reason has nothing a narrowing can fix: replay is off, the window expired, the
+ * metric filter matched nothing or failed. A variant that still narrows the tab widens none of
+ * those, so none of them offers it.
+ */
+export function offeredNarrowingAction(
+    reason: ExperimentReplayListEmptyReason,
+    narrowing: ExperimentRecordingsNarrowingAction | null
+): ExperimentRecordingsNarrowingAction | null {
+    switch (reason) {
+        case ExperimentReplayListEmptyReason.TooEarly:
+            return narrowing
+        case ExperimentReplayListEmptyReason.FiltersNarrowed:
+            return 'clear_filters'
+        case ExperimentReplayListEmptyReason.VariantHasNone:
+            return 'show_all_variants'
+        case ExperimentReplayListEmptyReason.InSessionHasNone:
+            return 'all_sessions'
+        default:
+            return null
+    }
+}
+
+/**
+ * The hide-viewed setting as the report names it. The setting is persisted, and a value stored
+ * before it named whose recordings to hide is a plain `true`, which is why the option is read off
+ * truthiness rather than matched value for value. `playerSettingsLogic` upgrades that `true` to
+ * 'current-user', and this normalizes it the same way, so one setting cannot report under two
+ * names.
+ */
+function hideViewedOption(hideViewedRecordings: HideViewedRecordingsOptions): 'off' | 'current-user' | 'any-user' {
+    if (hideViewedRecordings === 'any-user') {
+        return 'any-user'
+    }
+    return hideViewedRecordings ? 'current-user' : 'off'
+}
+
+/**
  * Sort metrics the way the experiment's metrics page lists them. The ordering arrays are that
  * page's display order, and every metric uuid is meant to be in one of them — but only sorting
  * on them, never filtering, so a metric missing from the arrays still shows up (last) rather
@@ -275,6 +358,7 @@ function metricDisplayOrder(experiment: Experiment): (a: { uuid: string }, b: { 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface experimentReplayTabLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    hideViewedRecordings: HideViewedRecordingsOptions // playerSettingsLogic
     currentProjectId: number | string // teamLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     linkabilityLoaded: boolean // viewRecordingsLinkabilityLogic
@@ -625,7 +709,9 @@ export interface experimentReplayTabLogicMeta {
         ) => ExperimentReplayListEmptyReason
         listEmptyContext: (
             currentTeam: TeamPublicType | TeamType | null,
+            filtersCustomized: boolean,
             effectiveVariantKey: string | null,
+            effectiveExposureScope: ExperimentReplayExposureScope,
             scannedWindowEnd: string | null,
             arg: any
         ) => ExperimentRecordingsListEmptyContext
@@ -709,6 +795,10 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             teamLogic,
             // The replay settings that decide whether this experiment can have recordings at all.
             ['currentProjectId', 'currentTeam'],
+            playerSettingsLogic,
+            // Read for the report only. The playlist sends the setting to the endpoint itself, so
+            // the tab must not apply it a second time.
+            ['hideViewedRecordings'],
         ],
         // Mounts the sidebar singleton for this tab's lifetime, so the default below outlives the
         // player remounting as the viewer moves between recordings in the playlist.
@@ -1239,6 +1329,12 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
          * while the window and retention reasons only say that the recordings the window would have
          * shown no longer exist.
          *
+         * Too early comes before the narrowings the viewer controls. On a run this young an empty
+         * list is most often empty for every variant, every scope and every filter, so the age of
+         * the run is the honest cause and a narrowing would be named on a guess. The viewer still
+         * gets one click back out, because the banner carries the active narrowing's action from
+         * `listEmptyContext`.
+         *
          * Read only for an empty list. It names a plausible cause of emptiness, not the state of the
          * tab, so on a list with rows it is meaningless rather than wrong.
          */
@@ -1315,10 +1411,19 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             },
         ],
         listEmptyContext: [
-            (s) => [s.currentTeam, s.effectiveVariantKey, s.scannedWindowEnd, (_, props) => props.experiment],
+            (s) => [
+                s.currentTeam,
+                s.filtersCustomized,
+                s.effectiveVariantKey,
+                s.effectiveExposureScope,
+                s.scannedWindowEnd,
+                (_, props) => props.experiment,
+            ],
             (
                 currentTeam: TeamPublicType | TeamType | null,
+                filtersCustomized: boolean,
                 effectiveVariantKey: string | null,
+                effectiveExposureScope: ExperimentReplayExposureScope,
                 scannedWindowEnd: string | null,
                 experiment: Experiment
             ): ExperimentRecordingsListEmptyContext => ({
@@ -1327,6 +1432,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 retentionWindowDays: retentionDays(currentTeam?.session_recording_retention_period),
                 variantKey: effectiveVariantKey,
                 scannedWindowEnd,
+                narrowingAction: narrowingAction(filtersCustomized, effectiveVariantKey, effectiveExposureScope),
             }),
         ],
         // What the list was narrowed by, shared by the opened-recording and list-rendered reports so
@@ -1759,6 +1865,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 // would name one, so the report carries the action on its own.
                 empty_reason: action === 'show_hidden' ? null : values.listEmptyReason,
                 action,
+                days_since_start: daysSince(props.experiment.start_date),
             })
         },
         watchHighlightOpened: ({ card, position }) => {
@@ -1791,6 +1898,10 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 ...values.filterContext,
                 result_count: recordings.length,
                 empty_reason: recordings.length === 0 ? values.listEmptyReason : null,
+                narrowing_action:
+                    recordings.length === 0
+                        ? offeredNarrowingAction(values.listEmptyReason, values.listEmptyContext.narrowingAction)
+                        : null,
                 days_since_start: daysSince(props.experiment.start_date),
                 days_since_end: daysSince(props.experiment.end_date),
                 retention_period: values.currentTeam?.session_recording_retention_period ?? null,
@@ -1801,6 +1912,8 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 duration_filter_operator: values.appliedDurationFilter?.operator ?? null,
                 duration_filter_count: values.appliedDurationFilterCount,
                 duration_filter_customized: values.durationFilterCustomized,
+                filters_customized: values.filtersCustomized,
+                hide_viewed_recordings: hideViewedOption(values.hideViewedRecordings),
                 exposure_linkable: values.exposureLinkable,
             })
         },

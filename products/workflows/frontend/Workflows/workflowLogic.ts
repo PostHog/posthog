@@ -3213,12 +3213,23 @@ export const workflowLogic = kea<workflowLogicType>([
                         const liveBase = latest?.updated_at
                         // Draft writes race against other draft writes, not the live row, so the staleness
                         // baseline follows the routing: the draft's own stamp once one is staged.
-                        const loadedBase = stagingDraft ? (latest?.draft_updated_at ?? liveBase) : liveBase
+                        const includesStagedDraft =
+                            !stagingDraft && !isStatusTransition && latest?.status !== 'active' && !!latest?.draft
+                        const newestBase =
+                            latest?.draft_updated_at && liveBase && dayjs(latest.draft_updated_at).isAfter(liveBase)
+                                ? latest.draft_updated_at
+                                : liveBase
+                        const loadedBase = stagingDraft
+                            ? (latest?.draft_updated_at ?? liveBase)
+                            : includesStagedDraft
+                              ? newestBase
+                              : liveBase
 
                         try {
                             const result = await api.hogFlows.updateHogFlow(props.id, {
                                 ...payload,
                                 ...(stagingDraft ? { stage_draft: true } : {}),
+                                ...(includesStagedDraft ? { includes_staged_draft: true } : {}),
                                 // A staged save's metadata still writes live; fence that write with the
                                 // live stamp so it can't overwrite a concurrent metadata edit the
                                 // draft-stamp baseline wouldn't catch.

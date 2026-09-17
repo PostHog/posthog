@@ -26,7 +26,7 @@ Registered via `posthog/dags/locations/signals.py` (US only) and loaded locally 
 
 ## The dataset dag
 
-`inbox_ranking_dataset_job` runs daily at 02:30 UTC (schedule default: running on prod US, stopped everywhere else — including hosted DEV and E2E, which have no dogfood project to read labels from) and builds five assets on one daily partition, each a Parquet object in S3:
+`inbox_ranking_dataset_job` runs daily at 02:30 UTC (schedule default: running on prod US, stopped everywhere else — including hosted DEV and E2E, which have no dogfood project to read labels from) and builds six assets on one daily partition, each a Parquet object in S3:
 
 ```text
 s3://<bucket>/<prefix>/
@@ -36,10 +36,13 @@ s3://<bucket>/<prefix>/
 ├── inbox_report_model_data/v1/
 │   ├── dt=YYYY-MM-DD/                         # materialized join of the three (the training table)
 │   └── latest/                                # rewritten by the newest partition; warehouse tables point here
-└── inbox_signal_embeddings/v1/dt=YYYY-MM-DD/  # one row per signal emitted during the day (signal grain)
+├── inbox_signal_embeddings/v1/dt=YYYY-MM-DD/  # one row per signal emitted during the day (signal grain)
+└── inbox_report_title_embeddings/v1/dt=YYYY-MM-DD/  # the same shape, for the title-only rendering
 ```
 
 The first four are report grain and land in one table. `inbox_signal_embeddings` is signal grain, feeds the group-level model, and is read on its own — training joins it to `inbox_report_model_data` by `report_id`.
+
+`inbox_report_title_embeddings` is a report-grain leaf. It snapshots the `title_v1` rendering the same way `inbox_report_embeddings` snapshots `title_summary_v1`, and nothing joins it: the training side pairs the two by `report_id` when it measures one rendering against the other, and each carries its own `embedding_inserted_at`, because a summary-only edit re-emits only `title_summary_v1`. Its dependency on `inbox_report_model_data` is for ordering, not data — it holds a vector per live report, so it runs last and alone in the run pod. That edge has a cost: a failed join, or a run that hits the job's runtime cap, skips the title snapshot for the day, and the schedule never revisits a day. Repair such a gap with a single-asset backfill while the source rows are inside their 3-month TTL.
 
 ### Partition semantics
 
@@ -47,7 +50,8 @@ The first four are report grain and land in one table. `inbox_signal_embeddings`
 - Label columns are **cumulative**: later partitions strictly dominate earlier ones, so training reads features from `dt=D` and labels from any later partition, choosing the label-maturity window at read time. Late labels are never backfilled into old partitions.
 - `latest/` advances **monotonically**: each write stamps a `snapshot-date` in S3 object metadata, and a partition rewrites `latest/` only when it is at or ahead of what `latest/` holds. Delayed retries of the newest day repair it; backfills of older days never clobber it.
 - Rows for reports **outside this dag's region** are label-only: no Postgres state, no embedding, and `report_team_id` null (a US team id and an EU team id of the same number are different teams, so the label stream's id can't be merged in). `status_event_team_id` carries the team the transition itself reported, which is the tenant attribution those rows do have.
-- **Backfills are not fully point-in-time**: labels are exact for any past day, embeddings are exact within the source table's 3-month TTL, but report state is read from Postgres as of the run (`features_observed_at` flags this per row).
+- **Backfills are not fully point-in-time**: labels are exact for any past day, embeddings are exact within the source table's 3-month TTL, but report state is read from Postgres as of the run (`features_observed_at` flags this per row). The title snapshot has the same guarantee and the same limit as the report snapshot, through the same `inserted_at < snapshot_end` bound.
+- **The `inserted_at` bound does not cover a re-embedded rendering.** The source replaces on a key that includes the rendering and the document id, so a partition rebuilt _later_ for an earlier day finds only the newer row, whose `inserted_at` is past the cutoff, and the report reads as having no vector that day. That loses coverage and never leaks a future vector. A forward run carries the same loss over a shorter window: the schedule fires at 02:30 UTC for the previous day, so the query starts at least 2.5 hours after the cutoff, and the title snapshot runs after the join, which makes its window the wider of the two. A partition before `title_v1` emission shipped holds zero rows, which is written as an empty Parquet with the full schema rather than skipped.
 - Report-state mutability reaches **inclusion**, not just feature values: `promoted_at` is cleared on suppression and snooze, so a report promoted before the cutoff and suppressed after it leaves the spine unless a label event referenced it before the cutoff. Forward runs see this only for the 2.5 hours between the cutoff and the schedule; backfills see the full accumulated effect. Deriving the spine from immutable promotion history (`signal_report_status_changed` carries `promoted_at`) is the v2 fix.
 
 ### Signal-grain partitions
@@ -129,7 +133,7 @@ The training job is S3-only, so it can run on a laptop against copies of the pro
    INBOX_RANKING_READER_SECRET_ID=<secret id> products/signals/dags/inbox_ranking/bin/sync_snapshots_local.sh
    ```
 
-   This copies `inbox_report_state/v1/dt=*` and `inbox_report_labels/v1/dt=*` to `~/.cache/posthog/inbox_ranking/` and from there into `s3://posthog/inbox_ranking/` on SeaweedFS (`localhost:19000`). `INBOX_RANKING_SYNC_EMBEDDINGS=1` adds `inbox_report_embeddings`, which the `report_embeddings` family needs; it is off by default because that table carries a vector per live report per partition. Without it the job still runs, and that family builds no examples. It prints the partition days present in both tables; pick the **newest** of those as the partition to run. The examples asset reads the `INBOX_RANKING_TRAINING_LOOKBACK_DAYS` snapshots behind the partition it runs for, so an early day has little history behind it and trains on almost nothing. Re-runs only move new days.
+   This copies `inbox_report_state/v1/dt=*` and `inbox_report_labels/v1/dt=*` to `~/.cache/posthog/inbox_ranking/` and from there into `s3://posthog/inbox_ranking/` on SeaweedFS (`localhost:19000`). `INBOX_RANKING_SYNC_EMBEDDINGS=1` adds `inbox_report_embeddings`, which the `report_embeddings` family needs; it is off by default because that table carries a vector per live report per partition. Without it the job still runs, and that family builds no examples. `INBOX_RANKING_SYNC_TITLE_EMBEDDINGS=1` adds `inbox_report_title_embeddings` on its own switch, for the same reason. It prints the partition days present in both tables; pick the **newest** of those as the partition to run. The examples asset reads the `INBOX_RANKING_TRAINING_LOOKBACK_DAYS` snapshots behind the partition it runs for, so an early day has little history behind it and trains on almost nothing. Re-runs only move new days.
 
    Note that the dev stack's object storage accepts unsigned requests and publishes port 19000 on every host interface, so anything synced here (and the disk cache) is readable by whoever can reach your machine. The snapshots are internal dogfood telemetry, not customer data, but run the sync on a network you trust.
 

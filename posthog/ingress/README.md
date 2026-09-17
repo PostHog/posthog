@@ -4,7 +4,7 @@ General-purpose controls for the webhooks third parties send _in_ to PostHog.
 A new inbound webhook that needs signature verification or fan-out belongs here as a `<provider>/` incarnation (see [Adding a provider](#adding-a-provider)), never hand-rolled around `hmac` in a view.
 Four lanes:
 
-- **`verify/`** — signature schemes. HMAC-SHA256 in the shapes providers actually send (hex or base64, an optional prefix, an optional `v0:{timestamp}:{body}` input with a replay window), plus the SNS envelope check.
+- **`verify/`** — signature schemes. HMAC-SHA256 in the shapes providers actually send (hex or base64, an optional prefix, an optional `v0:{timestamp}:{body}` input with a replay window), the SNS envelope check, and a bearer JWT checked against the issuer's published signing keys.
 - **`dispatch/`** — the validated consumer registry, per-delivery dedup, the wall-clock budget, consumer isolation, and `bounded_statement_timeout()` for consumers that read the database.
 - **`observability/`** — Prometheus: delivery volume by transport outcome, and one metric set per consumer run.
 - **`views.py`** — the view that composes the other three: one request that is verified _and_ recorded by construction, so no incarnation can skip either.
@@ -41,6 +41,17 @@ A `Verification` carries the outcome and `facts`, a mapping of what the check pr
 A scheme that validates a signed token knows who sent the delivery before the body is read, and `facts` is how those claims reach `deliveries`, so an incarnation can cross-check the body against what was actually signed rather than trusting a field of the body that claims the same thing.
 An HMAC over raw bytes proves only the signature, so its `facts` are empty and `deliveries` ignores the argument.
 
+## Schemes
+
+`verify/schemes.py` holds `HmacSha256` and `SnsSignature`; `verify/jwt.py` holds `BearerJwt`, for a provider that authenticates with a signed token instead of a shared secret.
+Each class docstring carries its own reasoning.
+
+Three duties fall on the incarnation rather than on `BearerJwt`, and none is enforced:
+
+- **Key discovery.** The scheme takes a `jwks_uri_getter`, so a provider that publishes its `jwks_uri` inside an OpenID metadata document fetches that document in the getter.
+- **Caching that discovery.** `verify` calls the getter on every delivery. A getter that fetches and does not cache puts an HTTP round trip on every request, which is what the `PyJWKClient` cache inside the scheme exists to avoid.
+- **Validating a discovered URI.** A `jwks_uri` read out of a remote document is not a value an operator set, so the getter passes it through `is_url_allowed` before returning it, the way `posthog/api/id_jag.py` guards its own discovered JWKS URI. The check belongs next to the fetch, not in the scheme, because only the getter knows whether the URI came from configuration or from a third party.
+
 ## Endpoints
 
 | Provider     | Path                                                    | App          | Consumers                                                                                                                                   | Product code                                                            |
@@ -50,6 +61,8 @@ An HMAC over raw bytes proves only the signature, so its `facts` are empty and `
 | `slack`      | `/api/conversations/v1/slack/events`                    | `supporthog` | `conversations_slack`                                                                                                                       | `products/conversations/backend/webhook_consumers.py`                   |
 | `pandadoc`   | `/api/legal_documents/pandadoc`                         | `default`    | `legal_documents_signatures`                                                                                                                | `products/legal_documents/backend/webhook_consumers.py`                 |
 | `vapi`       | `/api/user_interviews/vapi_webhook/`                    | `default`    | `user_interviews_vapi`                                                                                                                      | `products/user_interviews/backend/webhook_consumers.py`                 |
+| `mailgun`    | `/api/conversations/v1/email/inbound`                   | `inbound`    | none yet, the endpoint still runs its own verifier                                                                                          | `products/conversations/backend/api/email_events.py`                    |
+| `mailgun`    | `/api/conversations/v1/email/outbound`                  | `outbound`   | none yet, the endpoint still runs its own verifier                                                                                          | `products/conversations/backend/api/email_events.py`                    |
 | `sns`        | `/webhooks/workflows/ses-events`                        | `default`    | `workflows_ses_events`                                                                                                                      | `products/workflows/backend/webhook_consumers.py`                       |
 | `customerio` | `/api/projects/<team_id>/messaging/customerio/webhook/` | none         | none, it is the DRF adapter path                                                                                                            | `products/messaging/backend/api/customerio_webhook.py`                  |
 
@@ -78,9 +91,18 @@ A consumer that wants asynchronous work enqueues its own task and answers immedi
 
 **Ingress does not let a consumer decide the response.**
 The HTTP response is a transport receipt: the verification result, the method, and the payload decide the status, and consumer return values are ignored.
-A consumer that fails must not turn a verified delivery into a 500 the provider will replay against every other consumer too.
 If a provider's protocol needs the response body to say something, the incarnation answers that handshake before dispatch.
-The one exception is a failed forward to the owning region, which is a transport failure rather than a consumer outcome — see [Regional forwarding](#regional-forwarding).
+A verification that could not run is its own answer rather than a verdict: a scheme with a network step returns `UNAVAILABLE` when that step fails on transport, and the view answers 503 with outcome `verify_unavailable`, so a sender that retries a server error sends the delivery again.
+
+What the transport does decide is whether it can vouch that the delivery was taken.
+It cannot when the forward to the owning region failed, when a consumer raised, or when the budget skipped a consumer — in each case some of the work never ran.
+A provider that redelivers on a non-2xx sets `retry_status` on its incarnation, and the view then answers that status with outcome `retry_requested` instead of the receipt, so the provider sends the delivery again.
+A provider that does not redeliver leaves it at `None` and keeps the receipt, because a non-2xx buys it nothing.
+That is still the transport deciding, on whether the work ran at all, rather than a consumer choosing an answer: a consumer cannot ask for a retry, and a delivery no consumer is registered for is accepted by construction.
+
+The cost is fan-out: a retry replays the delivery against every consumer on the endpoint, not only the one that failed.
+Dedup is what keeps that cheap — a consumer that already accepted the delivery is deduped on the redelivery, and only the one that raised or never started runs again.
+A consumer with `dedup=False` runs on every redelivery, so a sibling that keeps failing makes it repeat its work.
 
 **Ingress does not promise an order.**
 Consumers are independent by construction; anything that depends on another consumer's result belongs in one consumer.
@@ -124,6 +146,8 @@ A consumer that names a provider app nobody declares, reuses a name already take
 
 A handler takes one `WebhookDelivery` and returns nothing.
 It runs synchronously inside the request, isolated: raising is logged and captured, and it releases its own dedup mark so the provider's redelivery reaches it again.
+On a provider that sets `retry_status` a handler that raises also costs the request its receipt, so the provider redelivers rather than waiting for a sweeper to notice.
+That is what a consumer whose durable record is written inside the handler needs: nothing else is holding the delivery.
 
 `dedup=False` turns the mark off for one consumer.
 That is right when the consumer already keys its own recovery on the provider's delivery id, so a redelivery is how work that never finished gets picked up.
@@ -134,6 +158,7 @@ Leave it on everywhere else: without an idempotency key of its own, a consumer t
 Every request gets one wall-clock budget, `INGRESS_DELIVERY_BUDGET_SECONDS` (default 8).
 Consumers draw from it in turn, across every delivery the request carries, because a request that batches several events would otherwise hold the connection open for one budget per event.
 When it is spent, the consumers that have not started are skipped with outcome `budget_exceeded` and a warning that names them, and they are **not** marked in dedup — so the provider's redelivery reaches them.
+On a provider that sets `retry_status` a skipped consumer also costs the request its receipt, which is what makes that redelivery happen rather than waiting for the next event.
 
 The budget is a backstop, not a scheduler: it cannot interrupt a consumer that is already running.
 A consumer that touches the database on this path wraps its reads in `bounded_statement_timeout(ms, models=...)`, which installs `SET LOCAL statement_timeout` on each alias those models route to.
@@ -165,16 +190,21 @@ The ownership lookup runs inside the request, before dispatch, and inside the sa
 A lookup that reads the database must be bounded with `bounded_statement_timeout(ms, models=...)`.
 A lookup that raises is logged, captured, counted as `failed` and treated as `UNDECIDED`, so one consumer cannot cost the delivery the receipt it earned by signing.
 
+What crosses is the raw signed body, except for a provider that signs the form rather than the body.
+Reading that form consumes the request stream and leaves no raw bytes, so the forward rebuilds the fields and the files and drops the original `Content-Type`, which names the boundary of a body that is gone.
+
+The forward runs under the provider's `forward_timeout_seconds`, which defaults to 3 and which a provider whose deliveries carry uploaded files raises, because the forward rebuilds and re-sends every part.
+
 A failed forward keeps the receipt by default.
-A provider that redelivers on a non-2xx (Slack does, GitHub does not) sets `forward_failure_status` on its incarnation, and the view answers that status with outcome `forward_failed` instead — so the provider sends the delivery again rather than losing it.
-That is the transport deciding the response, not a consumer.
+A provider that redelivers on a non-2xx (Slack does, GitHub does not) sets `retry_status` on its incarnation, and the view answers that status with outcome `forward_failed` instead — so the provider sends the delivery again rather than losing it.
+The same attribute answers a delivery whose consumers did not accept it, under outcome `retry_requested`; see ["Ingress does not let a consumer decide the response"](#non-goals).
 
 ## Adding a provider
 
 Add a `<provider>/` subpackage with a `provider.py` holding three things (see `github/` for the full shape, `vapi/` for a small one):
 
 - `SPECS` — one `ProviderSpec` per app, naming the event types the app is subscribed to. The registry validates consumers against these.
-- A `WebhookProvider` subclass — its `scheme()` (from `verify/`), its `deliveries()` (how to read event type, delivery id and context off the request), and any status codes its protocol fixes. The defaults are 403 on a bad signature, 500 when unconfigured, and 202 on success, with a short body naming the reason on the two rejections. An incarnation that answers 404 to withhold the endpoint's existence sets `explains_rejections = False` so the body stays empty as well. Two more hooks are optional: `parse()`, which decodes the body, and `throttle_class`, which caps request volume. See [The lanes one request runs through](#the-lanes-one-request-runs-through).
+- A `WebhookProvider` subclass — its `scheme()` (from `verify/`), its `deliveries()` (how to read event type, delivery id and context off the request), and any status codes its protocol fixes. The defaults are 403 on a bad signature, 500 when unconfigured, and 202 on success, with a short body naming the reason on the two rejections. An incarnation that answers 404 to withhold the endpoint's existence sets `explains_rejections = False` so the body stays empty as well. Three more attributes are optional: `parse()`, which decodes the body, `throttle_class`, which caps request volume, and `retry_status`, which a provider that redelivers on a non-2xx sets so an unaccepted delivery is not receipted. See [The lanes one request runs through](#the-lanes-one-request-runs-through).
 - A `build_<provider>_provider(...)` function returning that provider, which the URLconf hands to `build_webhook_view()`.
 
 Add the module to `_INCARNATION_MODULES` in `posthog/ingress/providers.py`, so the registry finds its specs and any core consumers.
@@ -203,6 +233,7 @@ Last, write `<provider>/README.md` with the fixed sections every provider README
 Two shapes that already exist and are worth copying rather than re-deriving:
 
 - **Several apps on one provider.** One incarnation can serve several apps, each with its own secret getter, its own subscribed event types, and its own consumer set. Consumers register against the app name. `github/` is the case.
+- **A provider that signs the form rather than the body.** The incarnation overrides both `verify()` and `parse()` to read `request.POST`, assembles the signed input from the form fields, and hands it to `HmacSha256` as if it came from headers. `mailgun/` is the case.
 - **The DRF adapter path.** An endpoint that genuinely needs DRF's team scoping keeps its view, and the incarnation contributes a scheme only, declaring no spec, because nothing dispatches there. `customerio/` is the case. The view verifies through `posthog.auth.WebhookSignatureAuthentication`.
   That base class computes its digest with `hmac_sha256_signature()` and compares with `signatures_match()` from `verify/schemes.py`, so the adapter path and the dispatched path share one implementation of HMAC-SHA256.
   It backs three endpoints rather than Customer.io alone, because the tasks cross-region usage lookup and the AI observability cross-region spend lookup subclass it too, each with its own header names, signed-input format, and secret.
@@ -211,6 +242,8 @@ Two shapes that already exist and are worth copying rather than re-deriving:
 
 Dedup is per `(provider, consumer, delivery_id)` in the Django cache, for 24 hours.
 The mark is set before the consumer runs and released when it raises, so a failure does not burn the delivery for a day.
+Because it is set before the work finishes, it carries a state rather than a bare flag: a claim answers `CLAIMED`, `IN_PROGRESS` or `DONE`, and the consumer settles it to done when it returns.
+Only `DONE` counts as accepted, so a delivery that meets a run still in flight is skipped with outcome `in_flight` and is not receipted, and a provider with `retry_status` sends it again once the first run settled rather than trusting a run that can still fail.
 Keying per consumer rather than per delivery matters: one delivery legitimately fans out to several consumers, and a delivery-wide key would starve every consumer but the first.
 A cache error fails **open** — dropping deliveries during a cache outage is worse than running a consumer twice, and consumers carry their own idempotency underneath this.
 
@@ -218,8 +251,8 @@ A provider that sends no delivery id skips dedup entirely, and its own README sa
 
 ## Observability
 
-- **`posthog_ingress_deliveries_total{provider,app,outcome}`** — what the transport answered: `accepted`, `method_not_allowed`, `throttled`, `not_configured`, `invalid_signature`, `invalid_payload`, `forward_failed`. A consumer failure is not here, because a failing consumer still gets a 2xx receipt.
-- **`posthog_ingress_consumer_runs_total{provider,consumer,outcome}`** — `succeeded`, `failed`, `deduped`, `budget_exceeded`.
+- **`posthog_ingress_deliveries_total{provider,app,outcome}`** — what the transport answered: `accepted`, `method_not_allowed`, `throttled`, `not_configured`, `verify_unavailable`, `invalid_signature`, `invalid_payload`, `forward_failed`, `retry_requested`. A consumer failure lands here only on a provider that sets `retry_status`; everywhere else it is counted on the consumer metric alone, because the delivery still gets its receipt.
+- **`posthog_ingress_consumer_runs_total{provider,consumer,outcome}`** — `succeeded`, `failed`, `deduped`, `budget_exceeded`, `in_flight`.
 - **`posthog_ingress_consumer_duration_seconds{provider,consumer}`** — where a delivery's budget actually went.
 - **`posthog_ingress_ownership_total{provider,consumer,outcome}`** — what a consumer answered when asked which region owns the delivery: `local`, `elsewhere`, `undecided`, `failed`.
 - **`posthog_ingress_forwards_total{provider,app,outcome}`** — what the owning region answered a forwarded request: `forwarded`, `rejected`, `failed`.

@@ -279,6 +279,11 @@ pub struct FeatureFlag {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     pub key: String,
+    // Non-v1 documents stay opaque in `extra`; check the format before reading v1 fields.
+    #[serde(
+        deserialize_with = "crate::flags::config_format::deserialize_filters",
+        serialize_with = "crate::flags::config_format::serialize_filters"
+    )]
     pub filters: FlagFilters,
     #[serde(default)]
     pub deleted: bool,
@@ -569,8 +574,11 @@ mod mock_impls {
 
     impl MockFrom<FeatureFlag> for FeatureFlagRow {
         fn mock_from(flag: FeatureFlag) -> Self {
-            let filters = serde_json::to_value(&flag.filters)
-                .expect("Mock: failed to serialize FeatureFlag.filters to JSON");
+            let filters = crate::flags::config_format::serialize_filters(
+                &flag.filters,
+                serde_json::value::Serializer,
+            )
+            .expect("Mock: failed to serialize FeatureFlag.filters to JSON");
             FeatureFlagRow {
                 id: flag.id,
                 team_id: flag.team_id,

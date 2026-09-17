@@ -16,6 +16,7 @@ let rows = mirrored_query_as!(
 )?;
 ```
 
+- `op = "name",` before the SQL tags both expansions with `/* service='<crate name>', operation='name' */`, the SQLCommenter query-tag shape pganalyze and pgcollector read. See `rust/pgcollector/docs/query-tags.md` for the key vocabulary.
 - `{name}` expands to `name` for the real set and `name_tmp` for the mirror.
 - `{real|mirror}` names both sides explicitly, for tables outside the suffix convention.
 - `{{` and `}}` are literal braces.

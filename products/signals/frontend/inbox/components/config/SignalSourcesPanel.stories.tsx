@@ -1,8 +1,11 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
@@ -70,7 +73,7 @@ function sourceConfigsFor(state: PanelState): SignalSourceConfig[] {
     ]
 }
 
-/** Two scanners so the roster's per-scanner list has both an on and an off row to render. */
+/** Ten scanners, so the roster's per-scanner list renders on and off rows, the filter, and the cap. */
 function scannersFor(state: PanelState): Record<string, unknown>[] {
     return [
         {
@@ -85,6 +88,70 @@ function scannersFor(state: PanelState): Record<string, unknown>[] {
             id: 'scanner-onboarding',
             name: 'Onboarding drop-off',
             description: 'Sorts abandoned onboarding sessions into reasons.',
+            scanner_type: 'classifier',
+            enabled: true,
+            emits_signals: false,
+        },
+        {
+            id: 'scanner-pricing-rage',
+            name: 'Rage clicks on pricing',
+            description: 'Flags sessions with repeated rapid clicks on the pricing table.',
+            scanner_type: 'monitor',
+            enabled: true,
+            emits_signals: state.replayVisionArmed,
+        },
+        {
+            id: 'scanner-search-dead-ends',
+            name: 'Search dead ends',
+            description: 'Finds searches that return nothing and are abandoned.',
+            scanner_type: 'monitor',
+            enabled: true,
+            emits_signals: false,
+        },
+        {
+            id: 'scanner-frustration-score',
+            name: 'Frustration score',
+            description: 'Scores each session for signs of frustration from 0 to 10.',
+            scanner_type: 'scorer',
+            enabled: true,
+            emits_signals: state.replayVisionArmed,
+        },
+        {
+            id: 'scanner-session-summary',
+            name: 'Session summary',
+            description: 'Writes a short summary of what the user tried to do.',
+            scanner_type: 'summarizer',
+            enabled: true,
+            emits_signals: false,
+        },
+        {
+            id: 'scanner-settings-confusion',
+            name: 'Settings confusion',
+            description: 'Watches for back-and-forth between settings pages without saving.',
+            scanner_type: 'monitor',
+            enabled: true,
+            emits_signals: false,
+        },
+        {
+            id: 'scanner-billing-errors',
+            name: 'Billing page errors',
+            description: 'Catches error toasts and failed submissions on billing pages.',
+            scanner_type: 'monitor',
+            enabled: true,
+            emits_signals: state.replayVisionArmed,
+        },
+        {
+            id: 'scanner-signup-validation',
+            name: 'Signup form errors',
+            description: 'Watches for validation errors that block signup.',
+            scanner_type: 'monitor',
+            enabled: true,
+            emits_signals: false,
+        },
+        {
+            id: 'scanner-docs-search',
+            name: 'Docs search intent',
+            description: 'Groups in-product docs searches by what the user wanted.',
             scanner_type: 'classifier',
             enabled: true,
             emits_signals: false,
@@ -284,5 +351,21 @@ export const ServerSideExceptionsOnly: Story = {
 export const SourceConfigsUnavailable: Story = {
     args: {
         sourceConfigsUnavailable: true,
+    },
+}
+
+/** Replay vision opened: user-created scanners as sub-rows, capped at eight, with a filter. */
+export const ReplayVisionExpanded: Story = {
+    parameters: { featureFlags: [FEATURE_FLAGS.INBOX_REDESIGN] },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByText('Replay vision', { exact: true }))
+    },
+}
+
+/** Error tracking opened: a fixed list of signal types, so no filter, no cap, and no New button. */
+export const ErrorTrackingExpanded: Story = {
+    parameters: { featureFlags: [FEATURE_FLAGS.INBOX_REDESIGN] },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByText('Error tracking', { exact: true }))
     },
 }

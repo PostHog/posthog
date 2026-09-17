@@ -63,3 +63,15 @@ class ProviderSpec:
     provider: str
     app: str
     event_types: frozenset[str]
+
+
+@frozen
+class DeliveryDispatch:
+    """What the dispatcher can vouch for after one delivery's consumers ran.
+
+    A consumer that raised or that the budget skipped is named here; a deduped one is not,
+    because the earlier delivery accepted it. A delivery with nothing to run accepts by
+    construction, so the names are empty and the transport keeps its receipt.
+    """
+
+    unaccepted_consumers: tuple[str, ...] = ()
