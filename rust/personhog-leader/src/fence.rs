@@ -42,7 +42,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -415,6 +415,9 @@ const MARK_SNAPSHOT_TTL: Duration = Duration::from_secs(30);
 /// Keeps the snapshot map bounded without a sweeper task.
 const MARK_SNAPSHOT_PRUNE_THRESHOLD: usize = 1_000;
 
+/// Paces the prune scan under a burst of fresh snapshots.
+const MARK_SNAPSHOT_PRUNE_INTERVAL: Duration = Duration::from_secs(5);
+
 const MARK_SNAPSHOTS_TOTAL: &str = "personhog_leader_mark_snapshots_total";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -469,6 +472,7 @@ pub struct MarkVerifier {
     source: Arc<dyn MarkSource>,
     ttl: Duration,
     snapshots: DashMap<Uuid, Arc<OnceCell<MarkSnapshot>>>,
+    last_prune: Mutex<Instant>,
 }
 
 impl MarkVerifier {
@@ -485,6 +489,7 @@ impl MarkVerifier {
             source,
             ttl,
             snapshots: DashMap::new(),
+            last_prune: Mutex::new(Instant::now()),
         }
     }
 
@@ -542,11 +547,18 @@ impl MarkVerifier {
             return Arc::clone(&cell);
         }
         if self.snapshots.len() >= MARK_SNAPSHOT_PRUNE_THRESHOLD {
-            let ttl = self.ttl;
-            self.snapshots.retain(|_, cell| {
-                cell.get()
-                    .is_none_or(|snapshot| snapshot.fetched_at.elapsed() <= ttl)
-            });
+            let mut last_prune = self
+                .last_prune
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            if last_prune.elapsed() >= MARK_SNAPSHOT_PRUNE_INTERVAL {
+                let ttl = self.ttl;
+                self.snapshots.retain(|_, cell| {
+                    cell.get()
+                        .is_none_or(|snapshot| snapshot.fetched_at.elapsed() <= ttl)
+                });
+                *last_prune = Instant::now();
+            }
         }
         Arc::clone(&self.snapshots.entry(op_id).or_default())
     }
