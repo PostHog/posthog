@@ -13,15 +13,35 @@ jest.mock('products/metrics/frontend/components/TraceMetricSamples', () => ({
     },
 }))
 
+// Capture the props the service-metrics pivot receives — the tab must hand the service
+// metrics button the span's own service and the trace's time window.
+const capturedMetricsButtonProps: {
+    serviceName?: string | null
+    dateFrom?: string | null
+    dateTo?: string | null
+}[] = []
+jest.mock('products/metrics/frontend/components/ViewServiceMetricsButton', () => ({
+    ViewServiceMetricsButton: (props: {
+        serviceName?: string | null
+        dateFrom?: string | null
+        dateTo?: string | null
+    }) => {
+        capturedMetricsButtonProps.push(props)
+        return null
+    },
+}))
+
 const span = {
     trace_id: 'trace-abc',
     span_id: 'span-xyz',
+    service_name: 'billing-worker',
     timestamp: '2026-06-11T08:00:00.000Z',
 } as Span
 
 describe('SpanMetricsTab', () => {
     beforeEach(() => {
         capturedProps.length = 0
+        capturedMetricsButtonProps.length = 0
     })
 
     it('defaults to whole-trace scope with a window around the span timestamp', () => {
@@ -43,5 +63,15 @@ describe('SpanMetricsTab', () => {
 
         const props = capturedProps[capturedProps.length - 1]
         expect(props.spanId).toBe('span-xyz')
+    })
+
+    it('offers a pivot to the span service metrics over the trace window', () => {
+        render(<SpanMetricsTab span={span} />)
+
+        const button = capturedMetricsButtonProps[capturedMetricsButtonProps.length - 1]
+        expect(button.serviceName).toBe('billing-worker')
+        // Same ±1h window the samples query uses, so the chart and the samples agree.
+        expect(button.dateFrom).toBe('2026-06-11T07:00:00.000Z')
+        expect(button.dateTo).toBe('2026-06-11T09:00:00.000Z')
     })
 })

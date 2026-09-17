@@ -5,6 +5,7 @@ import { LemonSegmentedButton } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 
 import { TraceMetricSamples } from 'products/metrics/frontend/components/TraceMetricSamples'
+import { ViewServiceMetricsButton } from 'products/metrics/frontend/components/ViewServiceMetricsButton'
 
 import { traceLookupDateRange } from '../../traceLinks'
 import type { Span } from '../../types'
@@ -37,6 +38,17 @@ export function SpanMetricsTab({ span }: { span: Span }): JSX.Element {
                         { value: 'span', label: 'This span' },
                     ]}
                     data-attr="tracing-metrics-scope"
+                />
+                {/* Exemplar samples below answer "which emissions carried this trace"; the pivot
+                    answers "what was the host doing" by opening the service's own metric charts
+                    over the same window. */}
+                <ViewServiceMetricsButton
+                    serviceName={span.service_name}
+                    dateFrom={dateRange.date_from}
+                    dateTo={dateRange.date_to}
+                    size="xsmall"
+                    type="secondary"
+                    data-attr="tracing-metrics-open-service-metrics"
                 />
             </div>
             <TraceMetricSamples
