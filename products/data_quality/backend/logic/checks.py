@@ -446,6 +446,7 @@ def start_check_suite(
         saved_query_ids=subject_uuids if subject_type == SubjectType.VIEW else [],
         table_ids=subject_uuids if subject_type == SubjectType.TABLE else [],
         metric_ids=subject_uuids if subject_type == SubjectType.METRIC else [],
+        posthog_table_ids=subject_uuids if subject_type == SubjectType.POSTHOG_TABLE else [],
         check_ids=check_ids or [],
         suite_run_id=str(suite_run.id),
         created_by_id=user.id if user else None,
