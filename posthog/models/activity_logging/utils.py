@@ -1,4 +1,5 @@
 import traceback
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.db import models
@@ -19,9 +20,14 @@ ACTIVITY_LOG_CLIENT_HEADER = "x-posthog-client"
 # caller's own claim and does not establish a verified sandbox task binding.
 ACTIVITY_LOG_INTENT_HEADER = "x-posthog-intent"
 ACTIVITY_LOG_INTENT_MAX_LENGTH = 500
-# Wide enough for a server-derived tag as well as a header value: the `scout:<skill_name>` tag
-# written for a scout run needs room for a scout's whole name after the prefix.
-ACTIVITY_LOG_CLIENT_MAX_LENGTH = 100
+# Sized for a server-derived tag, which is the long case: `scout:` plus the longest name a scout
+# row can hold (`SignalScoutRun.skill_name`, 200 characters). A tag cut mid-name would both
+# misname the scout and split one scout across two values of the audit log client filter.
+ACTIVITY_LOG_CLIENT_MAX_LENGTH = 256
+# A self-reported header names an SDK or an integration, so it needs far less room than a derived
+# tag, and the activity log renders it as it arrived. Capping it separately keeps a caller from
+# filling the wider column.
+ACTIVITY_LOG_CLIENT_HEADER_MAX_LENGTH = 32
 # Set by `OAuthAccessTokenAuthentication` from the scout run bound to a sandbox token.
 SCOUT_CLIENT_PREFIX = "scout:"
 # Prefixes only the server may write. The activity log tells a reader that a tag carrying one of
@@ -36,7 +42,7 @@ def client_from_header(value: str) -> Optional[str]:
     A header that claims a server-derived prefix is dropped whole rather than trimmed down,
     because a trimmed value would still read as the client that made the change.
     """
-    client = value.strip()[:ACTIVITY_LOG_CLIENT_MAX_LENGTH]
+    client = value.strip()[:ACTIVITY_LOG_CLIENT_HEADER_MAX_LENGTH]
     if not client or client.lower().startswith(SERVER_DERIVED_CLIENT_PREFIXES):
         return None
     return client
@@ -94,12 +100,36 @@ class ActivityLoggingStorage:
     def set_client(self, client: Optional[str]) -> None:
         self._local.client = client
 
+    def set_client_resolver(self, resolver: Callable[[], Optional[str]]) -> None:
+        """Hand over a server-derived client to look up when one is first needed.
+
+        `log_activity` is the only reader, so a request that writes no activity row never pays
+        for the lookup. A resolved client replaces whatever the client header reported.
+        """
+        self._local.client_resolver = resolver
+
     def get_client(self) -> Optional[str]:
+        """The client for this request, running a pending resolver the first time it is needed."""
+        resolver = getattr(self._local, "client_resolver", None)
+        if resolver is not None:
+            # Drop the resolver before running it, so one lookup covers every later read and a
+            # failing lookup is not retried for each activity row in the request.
+            delattr(self._local, "client_resolver")
+            try:
+                resolved = resolver()
+            except Exception:
+                # Attribution is not worth failing a write for: the row keeps the reported client.
+                logger.warning("activity_log.client_resolver_failed", exc_info=True)
+                resolved = None
+            if resolved:
+                self._local.client = resolved[:ACTIVITY_LOG_CLIENT_MAX_LENGTH]
         return getattr(self._local, "client", None)
 
     def clear_client(self) -> None:
         if hasattr(self._local, "client"):
             delattr(self._local, "client")
+        if hasattr(self._local, "client_resolver"):
+            delattr(self._local, "client_resolver")
 
     def set_agent_intent(self, intent: Optional[str]) -> None:
         self._local.agent_intent = intent

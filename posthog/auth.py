@@ -37,7 +37,6 @@ from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_mat
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt, get_oidc_verification_keys
 from posthog.models.activity_logging.utils import (
-    ACTIVITY_LOG_CLIENT_MAX_LENGTH,
     ACTIVITY_LOG_INTENT_HEADER,
     ACTIVITY_LOG_INTENT_MAX_LENGTH,
     activity_storage,
@@ -996,6 +995,9 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
         scout's edit from that person's own MCP edit. The task binding on the token is written
         server-side at mint time, so it overrides the caller-settable `x-posthog-client` header
         that `ActivityLoggingMiddleware` read earlier in the request.
+
+        The scout is looked up when an activity row first needs it, not here, because most
+        requests a sandbox token makes are reads that write no row.
         """
         if access_token.sandbox_task_id is None:
             return
@@ -1004,19 +1006,11 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
         scoped_teams = access_token.scoped_teams or []
         if len(scoped_teams) != 1:
             return
-        try:
-            client = resolve_scout_client_tag(sandbox_task_id=access_token.sandbox_task_id, team_id=scoped_teams[0])
-        except Exception:
-            # Attribution is not an authorization decision, so a failed lookup leaves the
-            # header value in place rather than failing a request the caller is authorized for.
-            logger.warning(
-                "Failed to resolve the scout behind a sandbox OAuth token",
-                exc_info=True,
-                extra={"sandbox_task_id": str(access_token.sandbox_task_id)},
-            )
-            return
-        if client:
-            activity_storage.set_client(client[:ACTIVITY_LOG_CLIENT_MAX_LENGTH])
+        sandbox_task_id = access_token.sandbox_task_id
+        team_id = scoped_teams[0]
+        activity_storage.set_client_resolver(
+            lambda: resolve_scout_client_tag(sandbox_task_id=sandbox_task_id, team_id=team_id)
+        )
 
     def _extract_token(self, request: Union[HttpRequest, Request]) -> Optional[str]:
         if "authorization" in request.headers:

@@ -241,8 +241,9 @@ class ActivityLog(UUIDTModel):
     # If truthy, user can be unset and this indicates a 'system' user made activity asynchronously
     is_system = models.BooleanField(null=True)
     # Which API client the activity arrived through. Usually the self-reported x-posthog-client
-    # request header. A sandbox OAuth token bound to a scout run overrides it with the scout's
-    # own `scout:<skill_name>` tag, which the caller cannot set.
+    # request header, which is capped shorter than this column. A sandbox OAuth token bound to a
+    # scout run overrides it with the scout's own `scout:<skill_name>` tag, which the caller
+    # cannot set and which needs the full width.
     client = models.CharField(max_length=ACTIVITY_LOG_CLIENT_MAX_LENGTH, null=True, blank=True)
     # Client IP captured at request time. Null for non-HTTP activity (system, Celery).
     ip_address = models.GenericIPAddressField(null=True, blank=True)
