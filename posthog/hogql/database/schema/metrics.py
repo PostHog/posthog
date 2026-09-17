@@ -1,4 +1,5 @@
-from posthog.hogql.ast import SelectQuery
+from posthog.hogql import ast
+from posthog.hogql.ast import JoinExpr, SelectQuery
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.lazy_join_tags import METRICS_TO_METRIC_SERIES
 from posthog.hogql.database.models import (
@@ -103,12 +104,14 @@ class MetricsTable(Table):
             nullable=False,
             description="True when the ingested record carried the series labels; only such records write `metric_series` and `metric_attributes` rows.",
         ),
-        # Lazy join that adds the series labels (attributes, resource_attributes) by joining
-        # metric_series on series_fingerprint. Access labels via `series.attributes.*`.
         "series": LazyJoin(
             from_field=["series_fingerprint"],
             join_table="posthog.metric_series",
             resolver=METRICS_TO_METRIC_SERIES,
+            description=(
+                "The metric's series (label set), joined from `metric_series` on `series_fingerprint`. "
+                "Read labels as `series.attributes['key']` and `series.resource_attributes['key']`."
+            ),
         ),
     }
 
@@ -211,20 +214,22 @@ class MetricAttributesTable(Table):
         return "metric_attributes"
 
 
+# Fields that vary across a series' duplicate ReplacingMergeTree rows (keyed on the fingerprint, so
+# labels, type, unit, etc. are constant within a series and `any()` cannot return a stale value).
+# `last_seen` is the engine's version column, so `max` picks the row FINAL would keep.
+_VERSION_VARYING_FIELDS = frozenset({"last_seen", "original_expiry_timestamp"})
+
+
 def join_metrics_with_metric_series_table(
     join_to_add: LazyJoinToAdd,
     context: HogQLContext,
     node: SelectQuery,
-):
-    from posthog.hogql import ast
-
+) -> JoinExpr:
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from metric_series")
 
-    # metric_series is a ReplacingMergeTree keyed on (team_id, metric_name, series_fingerprint) with
-    # duplicate rows per series (replaced by last_seen). Deduplicate to one row per fingerprint so the
-    # join can't fan out the metrics rows, then join on the fingerprint. team_id is added by HogQL's
-    # automatic team scoping on the subquery.
+    # Deduplicate metric_series to one row per fingerprint so the join can't fan out the metrics rows.
+    # team_id is added by HogQL's automatic team scoping on the subquery.
     inner_select = ast.SelectQuery(
         select=[
             ast.Alias(alias="series_fingerprint", expr=ast.Field(chain=["series_fingerprint"])),
@@ -236,12 +241,12 @@ def join_metrics_with_metric_series_table(
         # series_fingerprint is already selected as the join key.
         if field_name == "series_fingerprint":
             continue
-        inner_select.select.append(
-            ast.Alias(
-                alias=field_name,
-                expr=ast.Call(name="any", args=[ast.Field(chain=list(field_chain))]),
-            )
+        aggregate = (
+            ast.Call(name="max", args=[ast.Field(chain=list(field_chain))])
+            if field_name in _VERSION_VARYING_FIELDS
+            else ast.Call(name="any", args=[ast.Field(chain=list(field_chain))])
         )
+        inner_select.select.append(ast.Alias(alias=field_name, expr=aggregate))
 
     join_expr = ast.JoinExpr(table=inner_select)
     join_expr.join_type = "LEFT JOIN"
