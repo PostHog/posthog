@@ -217,9 +217,16 @@ class TestExtractTextContent:
         assert "World" in result
         assert "function" not in result
 
-    def test_extract_from_tool_use_block(self):
+    @parameterized.expand(
+        [
+            ("without_partial_json", {}),
+            ("dict_partial_json", {"partial_json": {"city": "Paris"}}),
+            ("int_partial_json", {"partial_json": 5}),
+        ]
+    )
+    def test_extract_from_tool_use_block(self, _name, extra_fields):
         """Should format tool_use blocks as function calls."""
-        content = [{"type": "tool_use", "name": "get_weather"}]
+        content = [{"type": "tool_use", "name": "get_weather", **extra_fields}]
         result = extract_text_content(content)
         assert "get_weather()" in result
 
@@ -514,27 +521,13 @@ class TestEdgeCases:
         # Empty string should be treated as no input
         assert len(lines) == 0
 
-    @parameterized.expand(
-        [
-            ("dict", {"nested": "dict"}),
-            ("list", ["nested"]),
-        ]
-    )
-    def test_unhashable_block_type_does_not_stop_the_render(self, _name, block_type):
+    def test_malformed_message_does_not_stop_the_render(self):
         messages = [
-            {"role": "user", "content": [{"type": block_type, "text": "first"}]},
-            {"role": "assistant", "content": "second"},
+            {"role": "assistant", "content": "first", "tool_calls": 5},
+            {"role": "user", "content": "second"},
         ]
         result = "\n".join(format_input_messages(messages))
         assert "first" in result
-        assert "second" in result
-
-    def test_unhashable_item_type_does_not_stop_the_render(self):
-        messages = [
-            {"type": {"nested": "dict"}, "name": "search"},
-            {"role": "assistant", "content": "second"},
-        ]
-        result = "\n".join(format_input_messages(messages))
         assert "second" in result
 
     @parameterized.expand(
@@ -564,21 +557,6 @@ class TestEdgeCases:
         item = {"type": item_type, "name": "search", "arguments": '{"q":"x"}', "status": "completed"}
         assert 'search(q="x")' in "\n".join(format_input_messages([item]))
         assert 'search(q="x")' in "\n".join(format_output_messages(None, [item]))
-
-    @parameterized.expand(
-        [
-            ("dict", {"query": "x"}),
-            ("int", 5),
-        ]
-    )
-    def test_non_string_partial_json_does_not_stop_the_render(self, _name, partial_json):
-        messages = [
-            {"type": "tool_use", "name": "search", "partial_json": partial_json},
-            {"role": "assistant", "content": "second"},
-        ]
-        result = "\n".join(format_input_messages(messages))
-        assert "search" in result
-        assert "second" in result
 
 
 class TestResponsesApiItems:

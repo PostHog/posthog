@@ -432,7 +432,7 @@ def _format_special_block(block: dict) -> str | None:
         if not tool_input and "partial_json" in block:
             try:
                 tool_input = json.loads(block["partial_json"])
-            except (json.JSONDecodeError, ValueError):
+            except (TypeError, ValueError):
                 pass
 
         return format_single_tool_call(tool_name, tool_input)
@@ -465,25 +465,21 @@ def extract_text_content(content: Any) -> str:
     Handles special blocks like tool calls inline for better readability.
     """
     # Handle special cases that need inline formatting (tool calls, etc)
-    try:
-        if isinstance(content, list):
-            # Check if any blocks need special handling
-            if any(_is_special_block(block) for block in content):
-                text_parts: list[str] = []
-                for block in content:
-                    if isinstance(block, dict):
-                        formatted = _format_special_block(block)
-                        if formatted is not None and formatted:
-                            text_parts.append(formatted)
-                    # Handle non-dict items in list
-                    elif isinstance(block, str):
-                        text_parts.append(block)
+    if isinstance(content, list):
+        # Check if any blocks need special handling
+        if any(_is_special_block(block) for block in content):
+            text_parts: list[str] = []
+            for block in content:
+                if isinstance(block, dict):
+                    formatted = _format_special_block(block)
+                    if formatted is not None and formatted:
+                        text_parts.append(formatted)
+                # Handle non-dict items in list
+                elif isinstance(block, str):
+                    text_parts.append(block)
 
-                if text_parts:
-                    return "\n\n".join(text_parts)
-    except Exception:
-        # One malformed block must degrade its own message, not the trace that holds it.
-        pass
+            if text_parts:
+                return "\n\n".join(text_parts)
 
     # Use safe extraction for non-special content (handles type labels for text/reasoning/etc)
     return safe_extract_text(content)
@@ -633,6 +629,28 @@ def _extract_responses_output_items(value: Any) -> list[Any] | None:
     return output if isinstance(output, list) else None
 
 
+def _format_message_body(msg: dict[str, Any], options: FormatterOptions | None) -> list[str]:
+    """Format what sits under a message header: its Responses item or content, then its tool calls."""
+    lines: list[str] = []
+
+    responses_lines = _format_responses_item(msg, options)
+    content = msg.get("content", "")
+    if responses_lines is not None:
+        lines.extend(responses_lines)
+    elif content:
+        text_content = extract_text_content(content)
+        if text_content:
+            content_lines, _ = truncate_content(text_content, options)
+            lines.extend(content_lines)
+
+    tool_calls = msg.get("tool_calls", [])
+    if tool_calls:
+        lines.append("")
+        lines.extend(format_tool_calls(tool_calls))
+
+    return lines
+
+
 def format_messages_array(messages: list[Any], options: FormatterOptions | None = None) -> list[str]:
     """
     Format an array of message objects without header.
@@ -655,30 +673,20 @@ def format_messages_array(messages: list[Any], options: FormatterOptions | None 
 
         # SDKs record non-string roles, which crash `.upper()`.
         role = str(msg.get("role") or msg.get("type") or "unknown")
-        content = msg.get("content", "")
-        tool_calls = msg.get("tool_calls", [])
 
         lines.append("")
         lines.append(f"[{i + 1}] {role.upper()}")
         lines.append("")
 
         try:
-            responses_lines = _format_responses_item(msg, options)
+            body_lines = _format_message_body(msg, options)
+        except RenderBudgetExceeded:
+            raise
         except Exception:
-            # One malformed item must degrade to its own repr, not the trace that holds it.
-            responses_lines, _ = truncate_content(safe_extract_text(msg), options)
-
-        if responses_lines is not None:
-            lines.extend(responses_lines)
-        elif content:
-            text_content = extract_text_content(content)
-            if text_content:
-                content_lines, _ = truncate_content(text_content, options)
-                lines.extend(content_lines)
-
-        if tool_calls:
-            lines.append("")
-            lines.extend(format_tool_calls(tool_calls))
+            # Customer payloads can break any shape assumption in the body formatters, so one
+            # malformed message degrades to its own repr and the rest of the trace still renders.
+            body_lines, _ = truncate_content(safe_extract_text(msg), options)
+        lines.extend(body_lines)
 
         # Add separator between messages (but not after the last one)
         if i < len(messages) - 1:
