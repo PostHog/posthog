@@ -16,9 +16,9 @@
 | findings with NO verdict              | 0                                   |
 | review + blind-spot cost              | $4.78 (63 calls, gpt-5.6-sol @ low) |
 | validation cost                       | $1.70 (31 calls, gpt-5.6-sol)       |
-| cost per verdict                      | $0.189                              |
+| cost per verdict                      | $0.188                              |
 | one-shots (selection + dedup, Sonnet) | $0.11                               |
-| TOTAL gateway cost                    | $6.59                               |
+| TOTAL gateway cost                    | $6.58                               |
 
 ## Per-finding
 

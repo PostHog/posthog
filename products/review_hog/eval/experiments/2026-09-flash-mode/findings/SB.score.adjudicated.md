@@ -14,7 +14,7 @@
 | real findings kept (recall)           | 4/5 (80%)                           |
 | not-real findings dropped             | 2/5 (40%)                           |
 | findings with NO verdict              | 0                                   |
-| review + blind-spot cost              | $5.66 (82 calls, gpt-5.6-sol @ low) |
+| review + blind-spot cost              | $5.67 (82 calls, gpt-5.6-sol @ low) |
 | validation cost                       | $1.68 (33 calls, gpt-5.6-sol)       |
 | cost per verdict                      | $0.168                              |
 | one-shots (selection + dedup, Sonnet) | $0.09                               |

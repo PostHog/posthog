@@ -17,8 +17,8 @@
 | review + blind-spot cost              | $0.21 (60 calls, gpt-5.6-luna @ low) |
 | validation cost                       | $0.06 (23 calls, gpt-5.6-luna)       |
 | cost per verdict                      | $0.007                               |
-| one-shots (selection + dedup, Sonnet) | $0.04                                |
-| TOTAL gateway cost                    | $0.31                                |
+| one-shots (selection + dedup, Sonnet) | $0.03                                |
+| TOTAL gateway cost                    | $0.30                                |
 
 ## Per-finding
 

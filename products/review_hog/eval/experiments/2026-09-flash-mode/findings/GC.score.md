@@ -12,7 +12,7 @@
 | new real issues (not in registry)     | 3 ['GC3', 'GC32', 'GC34']                       |
 | kept that were real (precision)       | 5/13 (38%)                                      |
 | real findings kept (recall)           | 5/6 (83%)                                       |
-| not-real findings dropped             | 22/30 (73%)                                     |
+| not-real findings dropped             | 21/30 (70%)                                     |
 | findings with NO verdict              | 1                                               |
 | review + blind-spot cost              | $1.15 (353 calls, zai-org/glm-5.3-flash @ high) |
 | validation cost                       | $1.26 (433 calls, zai-org/glm-5.3-flash)        |

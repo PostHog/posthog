@@ -3,7 +3,8 @@
     python scripts/scorecard.py <SET> <run-name>      # writes findings/<SET>.score.md, prints it
 
 Reads findings/<SET>.json (parsed dump), findings/<SET>.truth.json, findings/<SET>.match.json,
-runs/<run>.usage.md and runs/<run>.md. Set TRUTH=truth.adjudicated to score against the adjudicated
+runs/<run>.ai_usage.json (or .usage.md when raw usage is unavailable) and runs/<run>.md.
+Set TRUTH=truth.adjudicated to score against the adjudicated
 verdicts; the output then goes to findings/<SET>.score.adjudicated.md.
 """
 
@@ -13,27 +14,14 @@ import sys
 import json
 from pathlib import Path
 
+from usage_costs import load_stage_costs
+
 EXP = Path(__file__).resolve().parent.parent
 TRUTH = os.environ.get("TRUTH", "truth")
 
 
 def pct(a: int, b: int) -> str:
     return f"{a}/{b} ({a / b:.0%})" if b else "–"
-
-
-def stage_costs(usage: str) -> dict[str, dict]:
-    """One row per stage family: | family | model | calls | ... | $ | effort |."""
-    costs = {}
-    for line in usage.splitlines():
-        m = re.match(
-            r"\|\s*(\S+)\s*\|\s*(\S+)\s*\|\s*([\d,]+)\s*\|(?:\s*[\d,]+\s*\|){4}\s*\$([\d.]+)\s*\|\s*(\S+)\s*\|",
-            line,
-        )
-        if not m or m.group(1) in ("stage", "---", "capture-probe"):
-            continue
-        family, model, calls, dollars, effort = m.groups()
-        costs[family] = {"model": model, "calls": int(calls.replace(",", "")), "usd": float(dollars), "effort": effort}
-    return costs
 
 
 def summary_rows(name: str, run: str, findings: list, truth: dict, match: dict, dump: str, cost: dict) -> list[tuple]:
@@ -56,8 +44,8 @@ def summary_rows(name: str, run: str, findings: list, truth: dict, match: dict, 
         real, kept = bool(t["is_real"]), bool(f["is_valid"])
         kept_real += kept and real
         kept_not += kept and not real
-        dropped_real += (not kept) and real
-        dropped_not += (not kept) and not real
+        dropped_real += bool(f.get("validator")) and (not kept) and real
+        dropped_not += bool(f.get("validator")) and (not kept) and not real
         if not real:
             continue
         real_ids.append(f["id"])
@@ -70,9 +58,9 @@ def summary_rows(name: str, run: str, findings: list, truth: dict, match: dict, 
     total_usd = sum(v["usd"] for v in cost.values())
     review = cost.get("review", {})
     blind = cost.get("blind-spot", {})
-    review_usd = review.get("usd", 0.0) + blind.get("usd", 0.0)
+    review_usd = review.get("usd", 0) + blind.get("usd", 0)
     review_calls = review.get("calls", 0) + blind.get("calls", 0)
-    validation = cost.get("validation", {"calls": 0, "usd": 0.0, "model": "?"})
+    validation = cost.get("validation", {"calls": 0, "usd": 0, "model": "?"})
     one_shots = sum(v["usd"] for k, v in cost.items() if k in ("perspective_selection", "dedup"))
     verdicts = sum(1 for f in findings if f.get("validator"))
     scored = len(findings) - len(unscored)
@@ -87,8 +75,8 @@ def summary_rows(name: str, run: str, findings: list, truth: dict, match: dict, 
         ("real clusters found", f"{len(real_clusters)} {sorted(real_clusters)}"),
         ("new real issues (not in registry)", f"{len(new_real)} {new_real}"),
         ("kept that were real (precision)", pct(kept_real, kept_real + kept_not)),
-        ("real findings kept (recall)", pct(kept_real, kept_real + dropped_real)),
-        ("not-real findings dropped", pct(dropped_not, kept_not + dropped_not)),
+        ("real findings kept (recall)", pct(kept_real, len(real_ids))),
+        ("not-real findings dropped", pct(dropped_not, scored - len(real_ids))),
         ("findings with NO verdict", f"{len(findings) - verdicts}"),
         (
             "review + blind-spot cost",
@@ -107,7 +95,7 @@ def main() -> None:
     truth = json.load(open(EXP / "findings" / f"{name}.{TRUTH}.json"))
     match = json.load(open(EXP / "findings" / f"{name}.match.json"))
     dump = (EXP / "runs" / f"{run}.md").read_text()
-    cost = stage_costs((EXP / "runs" / f"{run}.usage.md").read_text())
+    cost = load_stage_costs(EXP / "runs", run)
 
     md = [
         f"# {name} scorecard — {run} (frozen PR 75215, clean room, inline skills)",

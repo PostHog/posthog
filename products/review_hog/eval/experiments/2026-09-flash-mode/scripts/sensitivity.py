@@ -8,10 +8,11 @@ E adjudicated = A with the 14 contested clusters replaced by the 3-adjudicator p
 F adjudicated serious = E, counting only must_fix / should_fix as real
 """
 
-import re
 import json
 from collections import defaultdict
 from pathlib import Path
+
+from usage_costs import load_stage_costs
 
 EXP = Path(__file__).resolve().parent.parent
 SETS = [
@@ -21,13 +22,19 @@ SETS = [
     ("UB", "luna-low-2"),
     ("SA", "sol-low-1"),
     ("SB", "sol-low-2"),
+    ("MA", "luna-medium-1"),
+    ("MB", "luna-medium-2"),
+    ("XA", "luna-xhigh-1"),
+    ("XB", "luna-xhigh-2"),
 ]
-ARM = {"glm-high": "GLM 5.3 Flash @ high", "luna-low": "GPT 5.6 Luna @ low", "sol-low": "GPT 5.6 Sol @ low"}
+ARM = {
+    "glm-high": "GLM 5.3 Flash @ high",
+    "luna-low": "GPT 5.6 Luna @ low",
+    "sol-low": "GPT 5.6 Sol @ low",
+    "luna-medium": "GPT 5.6 Luna @ medium",
+    "luna-xhigh": "GPT 5.6 Luna @ xhigh",
+}
 SERIOUS = ("must_fix", "should_fix")
-COST_ROW = (
-    r"\|\s*(?:review|blind-spot|validation|dedup|perspective_selection)\s*\|\s*\S+\s*\|"
-    r"(?:\s*[\d,]+\s*\|){5}\s*\$([\d.]+)\s*\|\s*\S+\s*\|"
-)
 
 
 def pct(a: int, b: int) -> str:
@@ -42,8 +49,7 @@ def load() -> tuple[dict, dict, dict]:
         findings = json.load(open(EXP / "findings" / f"{name}.json"))
         truth = json.load(open(EXP / "findings" / f"{name}.truth.json"))
         match = json.load(open(EXP / "findings" / f"{name}.match.json"))
-        usage = (EXP / "runs" / f"{run}.usage.md").read_text()
-        cost = sum(float(x) for x in re.findall(COST_ROW, usage))
+        cost = sum(stage["usd"] for stage in load_stage_costs(EXP / "runs", run).values())
         data[name] = (run, findings, truth, match, cost)
         path = EXP / "findings" / f"{name}.truth.adjudicated.json"
         adjudicated[name] = json.load(open(path)) if path.exists() else None
@@ -98,7 +104,7 @@ def mode_table(mode: str) -> list[str]:
         by_arm[run.rsplit("-", 1)[0]].append(name)
     for arm, names in by_arm.items():
         real = kept_real = kept_not = dropped_real = 0
-        cost = 0.0
+        cost = 0
         for name in names:
             _, findings, _, _, set_cost = DATA[name]
             cost += set_cost
@@ -109,8 +115,8 @@ def mode_table(mode: str) -> list[str]:
                 kept_not += (not r) and kept
                 dropped_real += r and not kept
         runs = len(names)
-        per_real = ("$%.2f" % (cost / real)) if real else "–"
-        per_posted = ("$%.2f" % (cost / kept_real)) if kept_real else "–"
+        per_real = f"${cost / real:.2f}" if real else "–"
+        per_posted = f"${cost / kept_real:.2f}" if kept_real else "–"
         out.append(
             f"| {ARM[arm]} | {real / runs:.1f} | {kept_real / runs:.1f} | {kept_not / runs:.1f} "
             f"| {pct(kept_real, kept_real + kept_not)} | {pct(kept_real, kept_real + dropped_real)} "
