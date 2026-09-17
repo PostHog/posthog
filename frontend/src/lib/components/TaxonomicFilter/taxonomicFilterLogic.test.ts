@@ -52,7 +52,7 @@ describe('taxonomicFilterLogic', () => {
                         count: 1,
                         next: null,
                         previous: null,
-                        results: [{ id: 1, name: 'Weekly metrics', pinned: false }],
+                        results: [{ id: 1, name: 'Workflows', pinned: false }],
                     },
                 ],
                 '/api/projects/:team/actions/': () => {
@@ -155,6 +155,7 @@ describe('taxonomicFilterLogic', () => {
         const logicProps: TaxonomicFilterLogicProps = {
             taxonomicFilterLogicKey: 'dashboardsGroupGate',
             taxonomicGroupTypes: groupTypes,
+            initialSearchQuery: 'workflows',
         }
         const gatedLogic = taxonomicFilterLogic(logicProps)
         gatedLogic.mount()
@@ -169,9 +170,7 @@ describe('taxonomicFilterLogic', () => {
             dashboardsList.mount()
 
             await expectLogic(dashboardsModel).toDispatchActions(['loadDashboardsSuccess'])
-            expect(dashboardsList.values.localItems.results).toEqual([
-                expect.objectContaining({ name: 'Weekly metrics' }),
-            ])
+            expect(dashboardsList.values.localItems.results).toEqual([expect.objectContaining({ name: 'Workflows' })])
 
             dashboardsList.unmount()
         }

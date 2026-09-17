@@ -357,6 +357,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
         actions: [tagsModel, ['loadTags']],
     })),
     actions(() => ({
+        loadDashboardsIfNeeded: true,
         // we page through the dashboards and need to manually track when that is finished
         dashboardsFullyLoaded: true,
         delayedDeleteDashboard: (id: number) => ({ id }),
