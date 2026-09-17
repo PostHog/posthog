@@ -99,6 +99,8 @@ export interface UseTaxonomicFilterOptions {
     autoSelectItem?: boolean
     selectingKeyOnly?: SelectingKeyOnly
     excludedOperators?: ExcludedOperators
+    /** Leave the search box as it is after a pick. Mirrors `keepSearchOnSelect` on `TaxonomicFilterProps`. */
+    keepSearchOnSelect?: boolean
 }
 
 export interface TaxonomicFilterApi {
@@ -301,6 +303,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         autoSelectItem,
         selectingKeyOnly,
         excludedOperators,
+        keepSearchOnSelect,
     } = opts
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -519,9 +522,11 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
                 }, 0)
             }
             onChange?.(group, valueIn, item)
-            setSearchQuery('')
+            if (!keepSearchOnSelect) {
+                setSearchQuery('')
+            }
         },
-        [allGroups, onChange, setSearchQuery]
+        [allGroups, onChange, setSearchQuery, keepSearchOnSelect]
     )
 
     const selectSelected = useCallback(() => {

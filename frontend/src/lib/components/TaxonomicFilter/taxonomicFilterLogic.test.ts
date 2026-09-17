@@ -1519,6 +1519,32 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
+    describe('keepSearchOnSelect', () => {
+        it.each([
+            [true, 'browser'],
+            [false, ''],
+        ])('with keepSearchOnSelect=%s the search query is %p after a pick', async (keepSearchOnSelect, expected) => {
+            const keepLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: `keepSearchOnSelect-${keepSearchOnSelect}`,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+                onChange: jest.fn(),
+                keepSearchOnSelect,
+            })
+            keepLogic.mount()
+            const group = keepLogic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.EventProperties
+            )!
+            keepLogic.actions.setSearchQuery('browser')
+
+            await expectLogic(keepLogic, () => {
+                keepLogic.actions.selectItem(group, '$browser', { name: '$browser' } as any)
+            }).toDispatchActions(['selectItem'])
+
+            expect(keepLogic.values.searchQuery).toBe(expected)
+            keepLogic.unmount()
+        })
+    })
+
     describe('exception property selection', () => {
         it('provides the value and event filter type needed to commit an exception property', () => {
             const exceptionLogic = taxonomicFilterLogic({

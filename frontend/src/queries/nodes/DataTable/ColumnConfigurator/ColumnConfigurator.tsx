@@ -20,6 +20,7 @@ import { IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
@@ -39,6 +40,7 @@ import { GroupTypeIndex, PropertyFilterType } from '~/types'
 
 import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
 import { ColumnConfiguratorLogicProps, columnConfiguratorLogic } from './columnConfiguratorLogic'
+import { ColumnToHogQL, columnsToSelectedProperties } from './columnsToSelectedProperties'
 
 let uniqueNode = 0
 
@@ -136,6 +138,14 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
             setColumns(columns.map((c, i) => (i === index ? newColumn : c)))
         }
     }
+
+    const columnFromTaxonomicFilter: ColumnToHogQL = isGroupsQuery(query.source)
+        ? taxonomicGroupFilterToHogQL
+        : isActorsQuery(query.source)
+          ? taxonomicPersonFilterToHogQL
+          : isSessionsQuery(query.source)
+            ? taxonomicSessionFilterToHogQL
+            : taxonomicEventFilterToHogQL
 
     let taxonomicGroupTypes: TaxonomicFilterGroupType[] = []
     if (isGroupsQuery(query.source)) {
@@ -251,17 +261,22 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                                             width={width}
                                             taxonomicGroupTypes={taxonomicGroupTypes}
                                             value={undefined}
+                                            selectedProperties={columnsToSelectedProperties({
+                                                columns,
+                                                taxonomicGroupTypes,
+                                                toHogQL: columnFromTaxonomicFilter,
+                                                implicitPrefixGroupType: isSessionsQuery(query.source)
+                                                    ? TaxonomicFilterGroupType.SessionProperties
+                                                    : undefined,
+                                            })}
+                                            keepSearchOnSelect
                                             onChange={(group, value) => {
-                                                const column = isGroupsQuery(query.source)
-                                                    ? taxonomicGroupFilterToHogQL(group.type, value)
-                                                    : isActorsQuery(query.source)
-                                                      ? taxonomicPersonFilterToHogQL(group.type, value)
-                                                      : isSessionsQuery(query.source)
-                                                        ? taxonomicSessionFilterToHogQL(group.type, value)
-                                                        : taxonomicEventFilterToHogQL(group.type, value)
-                                                if (column !== null) {
-                                                    selectColumn(column)
+                                                const column = columnFromTaxonomicFilter(group.type, value)
+                                                if (column === null) {
+                                                    lemonToast.error("This property can't be a column on this table")
+                                                    return
                                                 }
+                                                selectColumn(column)
                                             }}
                                             popoverEnabled={false}
                                             selectFirstItem={false}

@@ -175,6 +175,9 @@ export interface TaxonomicFilterProps {
     hideSearchInput?: boolean
     /** Controlled search query — synced into the logic on each change. Use with hideSearchInput for external input control. */
     searchQuery?: string
+    /** Leave the search box as it is after a pick. Set it on a picker that stays open for several picks,
+     *  so the row the person is reading does not move out from under the cursor. */
+    keepSearchOnSelect?: boolean
     /** Surface inline `$event_type` shortcuts in Events/EventProperties groups when the search
      *  query matches a known autocapture interaction keyword. Consumers must handle
      *  `isQuickFilterItem(item)` in their onChange to avoid mis-selecting as an event name. */
