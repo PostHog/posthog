@@ -2661,6 +2661,83 @@ describe('maxThreadLogic', () => {
             ])
         })
 
+        // The agent streams its tool call args as partial JSON, so a `temp-` message carries a
+        // half-built payload. A static tool that applies its args to the open scene (the replay filter
+        // tool writes the user's recording filters) must only ever see the finished payload.
+        describe('static tool callbacks', () => {
+            const partialArgsSequence = [
+                {},
+                { recordings_filters: {} },
+                { recordings_filters: { date_from: '-7d', filter_group: { type: 'AND' } } },
+            ]
+            const completeArgs = {
+                recordings_filters: {
+                    date_from: '-7d',
+                    date_to: null,
+                    filter_group: {
+                        type: 'AND',
+                        values: [{ type: 'AND', values: [{ type: 'events', id: '$pageview', name: '$pageview' }] }],
+                    },
+                },
+            }
+
+            const streamToolCall = async (
+                cache: Record<string, any>,
+                id: string,
+                args: Record<string, any>
+            ): Promise<void> => {
+                const { onEventImplementation } = await import('./maxThreadLogic')
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id,
+                        type: AssistantMessageType.Assistant,
+                        content: '',
+                        tool_calls: [{ id: 'tool-call-1', name: 'filter_session_recordings', args }],
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null, cache }
+                )
+            }
+
+            let callback: jest.Mock
+
+            beforeEach(() => {
+                callback = jest.fn()
+                maxGlobalLogic().actions.registerTool({
+                    ...TOOL_DEFINITIONS.filter_session_recordings,
+                    identifier: 'filter_session_recordings',
+                    callback,
+                })
+            })
+
+            afterEach(() => {
+                maxGlobalLogic().actions.deregisterTool('filter_session_recordings')
+            })
+
+            it('applies only the finished payload, never a half-streamed one', async () => {
+                const cache: Record<string, any> = {}
+
+                for (const args of partialArgsSequence) {
+                    await streamToolCall(cache, 'temp-0', args)
+                }
+                expect(callback).not.toHaveBeenCalled()
+
+                await streamToolCall(cache, 'uuid-final', completeArgs)
+
+                expect(callback).toHaveBeenCalledTimes(1)
+                expect(callback).toHaveBeenCalledWith(completeArgs, MOCK_CONVERSATION_ID)
+            })
+
+            it('applies a call once when the stream replays it after a reconnect', async () => {
+                const cache: Record<string, any> = {}
+
+                await streamToolCall(cache, 'uuid-final', completeArgs)
+                await streamToolCall(cache, 'uuid-final', completeArgs)
+
+                expect(callback).toHaveBeenCalledTimes(1)
+            })
+        })
+
         it('handles conversation event by setting conversation', async () => {
             const { onEventImplementation } = await import('./maxThreadLogic')
 
