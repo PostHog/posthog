@@ -97,7 +97,7 @@ from products.customer_analytics.backend.facade.contracts import (
     InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
 )
 from products.customer_analytics.backend.facade.email_matching import schedule_email_thread_link_recalculation
-from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
+from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind, AccountRelationshipSource
 from products.customer_analytics.backend.logic import (
     account_presence as _account_presence_logic,
     account_track_rules as _account_track_rules_logic,
@@ -106,6 +106,7 @@ from products.customer_analytics.backend.logic import (
     custom_property_values as _custom_property_values_logic,
     customer_tasks as _customer_tasks_logic,
     feature_requests as _feature_requests_logic,
+    ownership as _ownership,
     relationships as _relationships_logic,
     user_customer_analytics_config as _user_customer_analytics_config_logic,
 )
@@ -139,6 +140,7 @@ from products.customer_analytics.backend.models import (
     Account,
     AccountChannelSummary,
     AccountRelationship,
+    AccountRelationshipControl,
     AccountRelationshipDefinition,
     Announcement,
     CustomerJourney,
@@ -441,11 +443,20 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
     ``custom_properties`` includes every team definition keyed by name, with the
     account's active value (scalar) or ``None`` when unset, so workflow result
     paths are deterministic regardless of whether the property has been set.
+
+    ``relationships`` lists active assignments to current members of the team's
+    organization, as the list route does, so a holder who left is not named here
+    while the ``ownership`` block withholds their email.
     """
     relationships: dict[str, list[dict]] = {}
     for relationship in (
         AccountRelationship.objects.for_team(account.team_id)
-        .filter(account=account, ended_at__isnull=True, user__isnull=False)
+        .filter(
+            account=account,
+            ended_at__isnull=True,
+            user__isnull=False,
+            user__organization_membership__organization_id=account.team.organization_id,
+        )
         .select_related("definition", "user")
         .order_by("definition__name", "user__email")
     ):
@@ -473,6 +484,7 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
         churned_at=account.churned_at,
         ignored_at=account.ignored_at,
         properties=account.properties.model_dump(mode="json"),
+        ownership=_ownership.ownership_for_account(account),
         tags=sorted(account.tagged_items.values_list("tag__name", flat=True)),
         relationships=relationships,
         custom_properties=custom_properties,
@@ -595,6 +607,7 @@ def list_external_accounts(
     limit: int = 100,
     assigned_only: bool = False,
     include_ignored: bool = False,
+    managed_only: bool = False,
 ) -> contracts.ExternalAccountListPage:
     """Page through the team's accounts for the external API, ordered by id.
 
@@ -603,9 +616,13 @@ def list_external_accounts(
     it. Only active relationship assignments to current members of the team's
     organization are exposed. With ``assigned_only``, only accounts holding at
     least one such assignment are returned; a consumer reconciling by absence
-    still sees the complete assigned set. Assignments mirror the single-account
-    endpoint's ``relationships`` shape (keyed by definition name), with the
-    user's current display name added.
+    still sees the complete assigned set. With ``managed_only``, only accounts
+    where customer analytics holds authority over at least one controlled
+    relationship are returned, cleared ones and ignored accounts included, so
+    an ownership poller reads its whole cohort without paging through unmanaged
+    accounts and never mistakes an ignored account for a missing one.
+    Assignments mirror the single-account endpoint's ``relationships`` shape
+    (keyed by definition name), with the user's current display name added.
     """
     active_relationships = AccountRelationship.objects.for_team(team_id).filter(
         ended_at__isnull=True,
@@ -613,16 +630,21 @@ def list_external_accounts(
         user__organization_membership__organization_id=organization_id,
     )
     queryset = Account.objects.for_team(team_id).filter(external_id__isnull=False).exclude(external_id="")
-    if not include_ignored:
+    if not include_ignored and not managed_only:
         queryset = queryset.filter(ignored_at__isnull=True)
     queryset = queryset.order_by("id")
     if assigned_only:
         queryset = queryset.filter(Exists(active_relationships.filter(account=OuterRef("pk"))))
+    if managed_only:
+        queryset = queryset.filter(
+            Exists(AccountRelationshipControl.objects.for_team(team_id).filter(account=OuterRef("pk")))
+        )
     if cursor:
         queryset = queryset.filter(id__gt=cursor)
 
     page_accounts = list(queryset[: limit + 1])
     accounts = page_accounts[:limit]
+    ownership_by_account = _ownership.ownership_for_accounts(team_id, organization_id, accounts)
 
     relationships_by_account: dict[UUID, dict[str, list[contracts.ExternalAccountAssignment]]] = {}
     for relationship in (
@@ -648,6 +670,7 @@ def list_external_accounts(
             name=account.name,
             churned_at=account.churned_at,
             ignored_at=account.ignored_at,
+            ownership=ownership_by_account[account.id],
             relationships=relationships_by_account.get(account.id, {}),
         )
         for account in accounts
@@ -684,7 +707,9 @@ def _apply_external_relationship_assignments(
     active assignment). Each non-None user id is resolved against an
     ``OrganizationMembership`` in the account's org so assignees are always trusted.
     Everything is validated before the first write — the caller's ``atomic()`` block
-    returns (commits) on an error result rather than rolling back.
+    returns (commits) on an error result rather than rolling back. A workflow is an
+    autonomous writer, so a controlled relationship the account manages raises
+    ``ManagedRolePolicyError`` from the relationship service and rolls the block back.
     """
     keys_to_ids: dict[str, UUID] = {}
     for key in assignments:
@@ -726,22 +751,15 @@ def _apply_external_relationship_assignments(
             )
         resolved.append((definition, membership.user))
 
+    actor = _relationships_logic.Actor(source=AccountRelationshipSource.WORKFLOW, workflow_id=workflow_id)
     for definition, assignee in resolved:
         if assignee is None:
             _relationships_logic.end_active(
-                team_id=account.team_id,
-                account=account,
-                definition=definition,
-                workflow_id=workflow_id,
+                team_id=account.team_id, account=account, definition=definition, actor=actor
             )
         else:
             _relationships_logic.assign(
-                team_id=account.team_id,
-                account=account,
-                definition=definition,
-                user=assignee,
-                created_by=None,
-                workflow_id=workflow_id,
+                team_id=account.team_id, account=account, definition=definition, user=assignee, actor=actor
             )
     return None
 
@@ -787,6 +805,8 @@ def update_external_account(
                 _apply_external_tags(account, tags, tags_mode, workflow_id=workflow_id)
             if churned_at_provided:
                 update_account(account, churned_at=churned_at)
+    except _relationships_logic.ManagedRolePolicyError:
+        return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.ROLE_MANAGED)
     except Exception as e:
         capture_exception(e, {"team_id": team_id, "external_id": external_id, "account_id": str(account.id)})
         return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.UPDATE_FAILED)
@@ -3606,17 +3626,29 @@ def delete_account_for_view(
 ) -> None:
     account = _get_account_for_detail(team_id, account_id)
     _enforce_object_access(account, user_access_control, required_level)
-    _log_activity_swallowing(
-        instance=account,
-        scope="Account",
-        activity="deleted",
-        name=account.name,
-        organization_id=organization_id,
-        team_id=team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-    )
     with transaction.atomic():
+        # Authority is checked under the same account lock enrollment and claims take, so an account
+        # that became managed a moment ago cannot be deleted on a stale read. The definitions its rows
+        # sit under are locked too, so none can become controlled before the cascade runs.
+        locked, definitions = _relationships_logic.lock_account_and_its_definitions(team_id, account.id)
+        if locked is None:
+            raise Account.DoesNotExist
+        is_managed = AccountRelationshipControl.objects.for_team(team_id).filter(account=locked).exists()
+        # The cascade would take relationship rows with it, so rows under a controlled definition
+        # refuse the account's deletion the way they refuse their own.
+        has_controlled_history = any(definition.is_controlled for definition in definitions)
+        if is_managed or has_controlled_history:
+            raise AccountOwnershipManagedError(account_id)
+        _log_activity_swallowing(
+            instance=account,
+            scope="Account",
+            activity="deleted",
+            name=account.name,
+            organization_id=organization_id,
+            team_id=team_id,
+            user=user,
+            was_impersonated=was_impersonated,
+        )
         # Streams referencing this account must be captured before the delete cascades
         # their membership rows away, then resynced so the account's group key doesn't
         # linger in a Slack destination filter.
@@ -4529,6 +4561,33 @@ class AccountRelationshipDefinitionConflictError(Exception):
     """Raised when a relationship definition violates the per-team unique name constraint."""
 
 
+class AccountRelationshipDefinitionControlledError(Exception):
+    """The definition is controlled, so it can be neither deleted nor made multi-holder until control
+    ends."""
+
+
+class AccountRelationshipProtectedError(Exception):
+    """The relationship row belongs to a controlled definition's history and cannot be hard-deleted."""
+
+
+class AccountOwnershipManagedError(Exception):
+    """The account manages a controlled relationship or carries relationship rows under a controlled
+    definition, so it cannot be deleted."""
+
+
+class AccountRelationshipRoleManagedError(Exception):
+    """An agent acting for a person reached a controlled relationship the account manages; only the
+    person may change it."""
+
+
+def _project_api_actor(user: "User | None", via_agent: bool) -> _relationships_logic.Actor:
+    """A person's own request, or an agent acting for them through the MCP server. An agent counts
+    as an autonomous writer, like the in-app AI tool, so it cannot transfer or clear a managed
+    relationship."""
+    source = AccountRelationshipSource.AI if via_agent else AccountRelationshipSource.HUMAN
+    return _relationships_logic.Actor(source=source, user=user)
+
+
 def _to_account_relationship_definition(
     definition: AccountRelationshipDefinition,
 ) -> contracts.AccountRelationshipDefinition:
@@ -4537,6 +4596,7 @@ def _to_account_relationship_definition(
         name=definition.name,
         description=definition.description,
         is_single_holder=definition.is_single_holder,
+        is_controlled=definition.is_controlled,
     )
 
 
@@ -4548,6 +4608,7 @@ def _to_account_relationship(relationship: AccountRelationship) -> contracts.Acc
         user=contracts.AccountAssignment(id=user.id, email=user.email) if user is not None else None,
         started_at=relationship.started_at,
         ended_at=relationship.ended_at,
+        source=cast(contracts.RelationshipSourceValue | None, relationship.source),
     )
 
 
@@ -4592,28 +4653,47 @@ def get_account_relationship_definition(
     return _to_account_relationship_definition(definition)
 
 
+_DEFINITION_EDITABLE_FIELDS = frozenset({"name", "description", "is_single_holder"})
+
+
 def update_account_relationship_definition(
     *, team_id: int, definition_id: str | UUID, fields: dict[str, Any]
 ) -> contracts.AccountRelationshipDefinition | None:
-    definition = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).first()
-    if definition is None:
-        return None
-    for attr, value in fields.items():
-        setattr(definition, attr, value)
-    try:
-        definition.save()
-    except IntegrityError:
-        raise AccountRelationshipDefinitionConflictError(
-            "A relationship definition with this name already exists for this team."
-        )
+    """Rename or describe a definition, or change its cardinality. Whether it is controlled is not an
+    edit: it changes only through ``ownership.set_controlled``, which holds the guards."""
+    unexpected = set(fields) - _DEFINITION_EDITABLE_FIELDS
+    if unexpected:
+        raise ValueError(f"Fields cannot be edited here: {', '.join(sorted(unexpected))}")
+    with transaction.atomic():
+        # The definition lock keeps control from starting between this check and the save.
+        definition = _ownership.lock_definition(team_id, definition_id)
+        if definition is None:
+            return None
+        if fields.get("is_single_holder") is False and definition.is_controlled:
+            raise AccountRelationshipDefinitionControlledError(str(definition_id))
+        for attr, value in fields.items():
+            setattr(definition, attr, value)
+        try:
+            definition.save(update_fields=[*fields, "updated_at"])
+        except IntegrityError:
+            raise AccountRelationshipDefinitionConflictError(
+                "A relationship definition with this name already exists for this team."
+            )
     return _to_account_relationship_definition(definition)
 
 
 def delete_account_relationship_definition(*, team_id: int, definition_id: str | UUID) -> bool:
     """Hard-deletes the definition and (by cascade) its assignment history. Returns False when
-    no definition matches the id for this team (→ 404)."""
-    deleted, _ = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).delete()
-    return deleted > 0
+    no definition matches the id for this team (→ 404). A controlled definition raises instead."""
+    with transaction.atomic():
+        # Locked, so control cannot start between the check and the delete.
+        definition = _ownership.lock_definition(team_id, definition_id)
+        if definition is None:
+            return False
+        if definition.is_controlled:
+            raise AccountRelationshipDefinitionControlledError(str(definition_id))
+        definition.delete()
+    return True
 
 
 def list_account_relationships(
@@ -4640,14 +4720,21 @@ class AccountRelationshipAssigneeNotInOrganization(Exception):
 
 
 def assign_account_relationship(
-    *, team_id: int, account_id: str | UUID, definition_id: str | UUID, user_id: int, created_by: "User"
+    *,
+    team_id: int,
+    account_id: str | UUID,
+    definition_id: str | UUID,
+    user_id: int,
+    created_by: "User",
+    via_agent: bool = False,
 ) -> contracts.AccountRelationship:
     """Assign a user to an account relationship. Single-holder definitions hand off — the
     previous active assignment is ended in the same transaction. Idempotent when the user
     already actively holds the relationship.
 
     Raises ``Account_DoesNotExist`` (→ 404), ``AccountRelationshipDefinitionNotFound`` and
-    ``AccountRelationshipAssigneeNotInOrganization`` (→ 400).
+    ``AccountRelationshipAssigneeNotInOrganization`` (→ 400), and ``AccountRelationshipRoleManagedError``
+    (→ 409) when an agent acting for the user reaches a controlled relationship the account manages.
     """
     account = Account.objects.for_team(team_id).select_related("team").get(id=account_id)
     definition = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).first()
@@ -4660,9 +4747,16 @@ def assign_account_relationship(
     )
     if membership is None:
         raise AccountRelationshipAssigneeNotInOrganization(str(user_id))
-    relationship = _relationships_logic.assign(
-        team_id=team_id, account=account, definition=definition, user=membership.user, created_by=created_by
-    )
+    try:
+        relationship = _relationships_logic.assign(
+            team_id=team_id,
+            account=account,
+            definition=definition,
+            user=membership.user,
+            actor=_project_api_actor(created_by, via_agent),
+        )
+    except _relationships_logic.ManagedRolePolicyError:
+        raise AccountRelationshipRoleManagedError(str(definition_id))
     return _to_account_relationship(relationship)
 
 
@@ -4672,6 +4766,7 @@ def end_account_relationship(
     account_id: str | UUID,
     relationship_id: str | UUID,
     actor: "User | None" = None,
+    via_agent: bool = False,
 ) -> contracts.AccountRelationship | None:
     """End an active assignment. Returns None when no active assignment matches this account
     (missing, another account's, or already ended) — mapped to 404."""
@@ -4680,10 +4775,12 @@ def end_account_relationship(
             team_id=team_id,
             account_id=account_id,
             relationship_id=str(relationship_id),
-            actor=actor,
+            actor=_project_api_actor(actor, via_agent),
         )
     except _relationships_logic.AccountRelationshipNotFound:
         return None
+    except _relationships_logic.ManagedRolePolicyError:
+        raise AccountRelationshipRoleManagedError(str(relationship_id))
     return _to_account_relationship(relationship)
 
 
@@ -4693,16 +4790,19 @@ def delete_account_relationship(
     account_id: str | UUID,
     relationship_id: str | UUID,
     actor: "User | None" = None,
+    via_agent: bool = False,
 ) -> bool:
     try:
         _relationships_logic.delete_relationship(
             team_id=team_id,
             account_id=account_id,
             relationship_id=str(relationship_id),
-            actor=actor,
+            actor=_project_api_actor(actor, via_agent),
         )
     except _relationships_logic.AccountRelationshipNotFound:
         return False
+    except _relationships_logic.ProtectedRelationshipHistoryError:
+        raise AccountRelationshipProtectedError(str(relationship_id))
     return True
 
 

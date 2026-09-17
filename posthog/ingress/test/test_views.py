@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 from unittest.mock import Mock, patch
 
 from django.core.cache import cache
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.http import HttpRequest
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
@@ -56,6 +57,11 @@ class _RedeliveringGitHubProvider(GitHubProvider):
     # Stands in for a provider that replays a delivery the endpoint did not accept, which GitHub
     # itself does not do.
     retry_status = 502
+
+
+class _SlowForwardGitHubProvider(GitHubProvider):
+    # Stands in for a provider whose deliveries carry uploaded files, which Mailgun's do.
+    forward_timeout_seconds = 10.0
 
 
 class _ClaimsGitHubProvider(GitHubProvider):
@@ -461,6 +467,25 @@ class TestRegionalForwarding(_DispatchingViewTestCase):
         self.assertEqual([call.kwargs["outcome"] for call in observe.call_args_list], [outcome])
         self.assertEqual(self.handler.call_count, dispatched)
 
+    @parameterized.expand(
+        [
+            ("the package default", GitHubProvider, 3.0),
+            ("a provider whose deliveries carry files", _SlowForwardGitHubProvider, 10.0),
+        ]
+    )
+    def test_the_forward_runs_under_the_providers_own_timeout(
+        self, _name: str, provider_class: type[GitHubProvider], expected_timeout: float
+    ) -> None:
+        view = self._view(
+            [_consumer(GITHUB_SPEC, name="probe", handler=self.handler, answer=DeliveryOwnership.ELSEWHERE)],
+            provider=provider_class("posthog"),
+        )
+
+        with patch("posthog.regions.PRIMARY_REGION_DOMAIN", "testserver"):
+            view(self._github_request())
+
+        self.assertEqual(self.requests.call_args.kwargs["timeout"], expected_timeout)
+
     def test_the_secondary_region_reports_an_unowned_delivery_rather_than_forwarding_it_back(self) -> None:
         view = self._view(
             [_consumer(GITHUB_SPEC, name="probe", handler=self.handler, answer=DeliveryOwnership.ELSEWHERE)]
@@ -655,3 +680,42 @@ class TestForwardToSecondaryRegion(SimpleTestCase):
         self.assertEqual(sent & HOST_IDENTIFYING_HEADERS, set())
         self.assertIn("x-forwarded-for", sent)
         self.assertIn(SECONDARY_REGION_DOMAIN, kwargs["url"])
+
+    def test_a_multipart_request_read_as_a_form_is_rebuilt_from_its_fields_and_files(self) -> None:
+        multipart = RequestFactory().post(
+            "/webhooks/mailgun/",
+            data={
+                "token": "delivery-token",
+                "recipient": "team-abc@example.com",
+                "attachment-1": SimpleUploadedFile("note.txt", b"attached", content_type="text/plain"),
+            },
+        )
+        # A form provider verifies through request.POST, which leaves no raw body to replay.
+        self.assertEqual(multipart.POST["token"], "delivery-token")
+
+        with patch("posthog.ingress.dispatch.forward.requests.request") as request:
+            request.return_value = Mock(ok=True, status_code=202)
+            forward_to_secondary_region(multipart, provider="mailgun", app="inbound")
+
+        kwargs = request.call_args.kwargs
+        self.assertIn(("token", "delivery-token"), kwargs["data"])
+        self.assertIn(("recipient", "team-abc@example.com"), kwargs["data"])
+        self.assertEqual(kwargs["files"], [("attachment-1", ("note.txt", b"attached", "text/plain"))])
+        forwarded_header_names = {key.lower() for key in kwargs["headers"]}
+        self.assertNotIn("content-type", forwarded_header_names)
+        self.assertNotIn("content-length", forwarded_header_names)
+
+    def test_a_urlencoded_form_read_still_replays_its_raw_bytes(self) -> None:
+        body = b"token=delivery-token&recipient=team-abc%40example.com"
+        urlencoded = RequestFactory().post(
+            "/webhooks/mailgun/", data=body, content_type="application/x-www-form-urlencoded"
+        )
+        self.assertEqual(urlencoded.POST["token"], "delivery-token")
+
+        with patch("posthog.ingress.dispatch.forward.requests.request") as request:
+            request.return_value = Mock(ok=True, status_code=202)
+            forward_to_secondary_region(urlencoded, provider="mailgun", app="inbound")
+
+        kwargs = request.call_args.kwargs
+        self.assertEqual(kwargs["data"], body)
+        self.assertNotIn("files", kwargs)
