@@ -2634,6 +2634,158 @@ export interface _LogsServicesResponseApi {
 }
 
 /**
+ * * `aws_cloudwatch` - Amazon CloudWatch
+ */
+export type LogsSourceProviderEnumApi = (typeof LogsSourceProviderEnumApi)[keyof typeof LogsSourceProviderEnumApi]
+
+export const LogsSourceProviderEnumApi = {
+    AwsCloudwatch: 'aws_cloudwatch',
+} as const
+
+/**
+ * Resource attributes added to every log row from this source, e.g. {"env": "prod"}.
+ */
+export type LogsSourceConfigApiDefaultLabels = { [key: string]: string }
+
+/**
+ * Map of CloudWatch log group name to the service.name it should carry, overriding the inferred value.
+ */
+export type LogsSourceConfigApiServiceNameOverrides = { [key: string]: string }
+
+export interface LogsSourceConfigApi {
+    /**
+     * AWS region of the CloudWatch log groups and the Firehose stream, e.g. us-east-1.
+     * @pattern ^[a-z]{2}(-gov|-iso[a-z]*)?-[a-z]+-\d$
+     */
+    region: string
+    /** Resource attributes added to every log row from this source, e.g. {"env": "prod"}. */
+    default_labels?: LogsSourceConfigApiDefaultLabels
+    /** Map of CloudWatch log group name to the service.name it should carry, overriding the inferred value. */
+    service_name_overrides?: LogsSourceConfigApiServiceNameOverrides
+}
+
+export interface LogsSourceApi {
+    /** Unique identifier for this log source. */
+    readonly id: string
+    /**
+     * User-visible label for this source.
+     * @maxLength 255
+     */
+    name: string
+    /** Cloud provider the logs come from.
+     *
+     * * `aws_cloudwatch` - Amazon CloudWatch */
+    provider: LogsSourceProviderEnumApi
+    /** How logs reach PostHog. Only push, where the provider delivers to a PostHog endpoint, exists. */
+    readonly mode: string
+    /** When false, ingestion drops deliveries that carry this source id. */
+    enabled?: boolean
+    /** Provider-specific settings. */
+    config: LogsSourceConfigApi
+    /** Id of the user who created this source. */
+    readonly created_by: number
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedLogsSourceListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LogsSourceApi[]
+}
+
+export interface PatchedLogsSourceApi {
+    /** Unique identifier for this log source. */
+    readonly id?: string
+    /**
+     * User-visible label for this source.
+     * @maxLength 255
+     */
+    name?: string
+    /** Cloud provider the logs come from.
+     *
+     * * `aws_cloudwatch` - Amazon CloudWatch */
+    provider?: LogsSourceProviderEnumApi
+    /** How logs reach PostHog. Only push, where the provider delivers to a PostHog endpoint, exists. */
+    readonly mode?: string
+    /** When false, ingestion drops deliveries that carry this source id. */
+    enabled?: boolean
+    /** Provider-specific settings. */
+    config?: LogsSourceConfigApi
+    /** Id of the user who created this source. */
+    readonly created_by?: number
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+export interface LogsSourceSetupApi {
+    /** Path of the Firehose HTTP endpoint for this source, relative to the ingestion host. */
+    endpoint_path: string
+    /** Full HTTPS URL to configure as the Firehose HTTP endpoint. */
+    endpoint_url: string
+    /** Value for the Firehose access key field. This is the project API key. */
+    access_key: string
+    /** Recommended Firehose buffer size in MB. */
+    buffering_size_mb: number
+    /** Recommended Firehose buffer interval. */
+    buffering_interval_seconds: number
+    /** Recommended Firehose retry duration. */
+    retry_duration_seconds: number
+    /** Recommended Firehose content encoding. */
+    content_encoding: string
+}
+
+/**
+ * * `receiving` - Receiving
+ * * `waiting` - Waiting for first delivery
+ * * `stale` - No recent data
+ * * `disabled` - Disabled
+ */
+export type LogsSourceHealthStatusEnumApi =
+    (typeof LogsSourceHealthStatusEnumApi)[keyof typeof LogsSourceHealthStatusEnumApi]
+
+export const LogsSourceHealthStatusEnumApi = {
+    Receiving: 'receiving',
+    Waiting: 'waiting',
+    Stale: 'stale',
+    Disabled: 'disabled',
+} as const
+
+export interface LogsSourceHealthApi {
+    /** receiving: data arrived in the last two hours. waiting: nothing received yet. stale: data stopped. disabled: the source is switched off.
+     *
+     * * `receiving` - Receiving
+     * * `waiting` - Waiting for first delivery
+     * * `stale` - No recent data
+     * * `disabled` - Disabled */
+    status: LogsSourceHealthStatusEnumApi
+    /**
+     * Hour bucket in which the most recent batch from this source was ingested, if any in the last 24 hours.
+     * @nullable
+     */
+    last_received_at: string | null
+    /** Log records this source delivered in the last 24 hours, counted before quota, sampling and exclusion rules apply. */
+    records_received_24h: number
+    /** Log records dropped from this source in the last 24 hours, for example while it was disabled. */
+    records_dropped_24h: number
+}
+
+/**
+ * Delivery status of every source in this environment, keyed by source id.
+ */
+export type LogsSourcesHealthApiSources = { [key: string]: LogsSourceHealthApi }
+
+export interface LogsSourcesHealthApi {
+    /** Delivery status of every source in this environment, keyed by source id. */
+    sources: LogsSourcesHealthApiSources
+}
+
+/**
  * * `severity` - severity
  * * `service` - service
  */
@@ -2958,6 +3110,17 @@ export type LogsSamplingRulesListParams = {
 }
 
 export type LogsSamplingRulesReorderCreateParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type LogsSourcesListParams = {
     /**
      * Number of results to return per page.
      */

@@ -9,7 +9,9 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Value
 
+from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
@@ -533,3 +535,53 @@ class LogsRetentionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields
 
     def __str__(self) -> str:
         return f"{self.name} (team={self.team_id})"
+
+
+class LogsSourceProvider(models.TextChoices):
+    AWS_CLOUDWATCH = "aws_cloudwatch", "Amazon CloudWatch"
+
+
+# nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
+def logs_source_provider_choices() -> list[tuple[str, str]]:
+    # Callable so adding a provider does not generate an AlterField migration.
+    return [(str(value), str(label)) for value, label in LogsSourceProvider.choices]
+
+
+class LogsSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """A connection that delivers logs from a cloud provider into this environment. In push mode the
+    provider (Amazon Data Firehose) POSTs straight to capture-logs, and this row exists so the delivery
+    can be attributed and switched off; pull mode, where PostHog polls the provider, keeps its
+    credentials in `secrets`."""
+
+    class Mode(models.TextChoices):
+        PUSH = "push", "Push"
+        PULL = "pull", "Pull"
+
+    # Ingestion is per environment, so a canonical (project-level) team id must never select a
+    # sibling environment's source: readers go through `objects.for_team(team.id)` and ambient
+    # scope is refused. db_constraint=False on the hot-table FKs keeps the CreateModel migration
+    # lock-free.
+    objects = EnvironmentScopedManager()
+    activity_logging_on_delete = True
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
+    name = models.CharField(max_length=255)
+    provider = models.CharField(max_length=32, choices=logs_source_provider_choices)
+    mode = models.CharField(max_length=8, choices=Mode.choices, default=Mode.PUSH)
+    enabled = models.BooleanField(default=True)
+    # {"region": "us-east-1", "default_labels": {"env": "prod"}, "service_name_overrides": {"/aws/lambda/x": "checkout"}}
+    config = models.JSONField(default=dict)
+    # Pull-mode credentials such as a role ARN. Null for push sources, which authenticate with the project API key.
+    secrets = EncryptedJSONStringField(null=True, blank=True)
+
+    class Meta:
+        db_table = "logs_logssource"
+        indexes = [
+            models.Index(fields=["team_id", "enabled"], name="logs_source_team_enabled_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.provider}, team={self.team_id})"
