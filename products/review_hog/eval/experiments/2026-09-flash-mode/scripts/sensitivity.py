@@ -10,6 +10,7 @@ F adjudicated serious = E, counting only must_fix / should_fix as real
 
 import json
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -45,7 +46,15 @@ def pct(a: int, b: int) -> str:
     return f"{a}/{b} ({a / b:.0%})" if b else "–"
 
 
-def load() -> tuple[dict, dict, dict]:
+# Keep the archived CLI runnable without application imports.
+@dataclass(frozen=True, kw_only=True, slots=True)
+class SensitivityInputs:
+    sets: dict
+    adjudicated: dict
+    pooled_votes: dict[int, list[int]]
+
+
+def load() -> SensitivityInputs:
     """Per set: (run, findings, fresh truth, matches, gateway cost), the adjudicated truth, and pooled cluster votes."""
     data, adjudicated = {}, {}
     pool: dict[int, list[int]] = defaultdict(lambda: [0, 0])
@@ -65,15 +74,15 @@ def load() -> tuple[dict, dict, dict]:
             real, total = map(int, source.split(":")[1].split("/"))
             pool[cluster][0] += real
             pool[cluster][1] += total
-    return data, adjudicated, pool
+    return SensitivityInputs(sets=data, adjudicated=adjudicated, pooled_votes=pool)
 
 
-DATA, ADJUDICATED, POOL = load()
+INPUTS = load()
 REGISTRY = {c["cluster"]: c for c in json.load(open(EXP / "known_clusters.json"))}
 
 
 def is_real(mode: str, name: str, finding: dict) -> bool:
-    _, _, truth, match, _ = DATA[name]
+    _, _, truth, match, _ = INPUTS.sets[name]
     t = truth[finding["id"]]
     cluster = match[finding["id"]]["cluster"]
     if mode == "A":
@@ -81,12 +90,12 @@ def is_real(mode: str, name: str, finding: dict) -> bool:
     if mode == "D":
         return t["is_real"] and t["severity"] in SERIOUS
     if mode in ("E", "F"):
-        a = ADJUDICATED[name][finding["id"]]
+        a = INPUTS.adjudicated[name][finding["id"]]
         return a["is_real"] and (mode == "E" or a["severity"] in SERIOUS)
     if mode == "B":
         if cluster is None:
             return t["is_real"]
-        real, total = POOL[cluster]
+        real, total = INPUTS.pooled_votes[cluster]
         return real * 2 > total
     # mode C: August's majority where it verified the cluster at least twice and did not tie.
     k = REGISTRY.get(cluster) if cluster is not None else None
@@ -110,7 +119,7 @@ def mode_table(mode: str) -> list[str]:
         real = kept_real = kept_not = dropped_real = 0
         cost = 0
         for name in names:
-            _, findings, _, _, set_cost = DATA[name]
+            _, findings, _, _, set_cost = INPUTS.sets[name]
             cost += set_cost
             for f in findings:
                 r, kept = is_real(mode, name, f), f["is_valid"]
@@ -133,7 +142,7 @@ def mode_table(mode: str) -> list[str]:
 def main() -> None:
     legend = "  \n".join(line for line in __doc__.strip().splitlines() if line.strip())
     out = ["# Truth sensitivity of the arm ranking", "", legend, ""]
-    for mode in "ABCDEF" if all(ADJUDICATED.values()) else "ABCD":
+    for mode in "ABCDEF" if all(INPUTS.adjudicated.values()) else "ABCD":
         out += mode_table(mode)
     text = "\n".join(out)
     (EXP / "findings" / "SENSITIVITY.md").write_text(text + "\n")

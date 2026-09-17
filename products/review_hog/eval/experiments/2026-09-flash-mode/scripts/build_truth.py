@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 
 EXP = Path(__file__).resolve().parent.parent
+PRECEDENTS = EXP.parent / "2026-08-validator-model-sol" / "findings"
 S = sys.argv[1]
 clusters = {c["cluster"]: c for c in json.load(open(EXP / "known_clusters.json"))}
 match = json.load(open(EXP / "findings" / f"{S}.match.json"))
@@ -19,9 +20,9 @@ SEV = {"must_fix": 0, "should_fix": 1, "consider": 2}
 # precedent per-finding verdicts from earlier sets (same PR, same protocol)
 prec: dict[int | None, list[tuple[str, bool, str | None, str | None, str]]] = {}
 for p in ["KA", "KB", "KC"]:
-    t = json.load(open(EXP / "findings" / f"{p}.truth.json"))
-    m = json.load(open(EXP / "findings" / f"{p}.match.json"))
-    fs = {f["id"]: f for f in json.load(open(EXP / "findings" / f"{p}.json"))}
+    t = json.load(open(PRECEDENTS / f"{p}.truth.json"))
+    m = json.load(open(PRECEDENTS / f"{p}.match.json"))
+    fs = {f["id"]: f for f in json.load(open(PRECEDENTS / f"{p}.json"))}
     for fid, v in t.items():
         prec.setdefault(m[fid]["cluster"], []).append(
             (fid, v["is_real"], v.get("severity"), v.get("source"), fs[fid]["title"][:60])

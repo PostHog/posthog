@@ -20,7 +20,9 @@ for letter in sys.argv[1:]:
     ctruth = json.load(open(ctruth_path)) if ctruth_path.exists() else {}
     real, not_real, clusters, new_real = [], [], set(), []
     for f in findings:
-        t = truth.get(f["id"]) or {}
+        t = truth.get(f["id"])
+        if not isinstance(t, dict) or not isinstance(t.get("is_real"), bool):
+            raise ValueError(f"Missing truth verdict for {f['id']}")
         cluster = t.get("cluster", (ctruth.get(f["id"]) or {}).get("cluster"))
         if t.get("is_real"):
             real.append((f["id"], t.get("severity") or "-", cluster, f["title"][:60]))

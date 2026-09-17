@@ -15,12 +15,18 @@ from typing import Any
 text = Path(sys.argv[1]).read_text()
 letter = sys.argv[2]
 section = text.split("## Findings (post-dedup) with validator verdict", 1)[1]
-blocks = re.split(r"\n### ", section)[1:]
+preamble, *blocks = re.split(r"\n### ", section)
+if preamble.strip() != ("_(no findings)_" if not blocks else ""):
+    raise ValueError("Missing finding headers or the no-findings marker")
 out: list[dict[str, Any]] = []
 for i, b in enumerate(blocks, 1):
     head, _, body = b.partition("\n")
     m = re.match(r"\[(.+?)\] (\w+)(?: \(validator→(\w+)\))?(?: · (\S+))? — (.+?):([\d,\-]+):?\s*$", head.strip())
-    verdict, priority, vprio, category, path, lines = m.groups() if m else ("?", "?", None, "?", head, "")
+    if m is None:
+        raise ValueError(f"Malformed finding header for {letter}{i}: {head!r}")
+    verdict, priority, vprio, category, path, lines = m.groups()
+    if verdict not in ("✅ VALID", "❌ dismissed", "— no-verdict"):
+        raise ValueError(f"Unknown validator verdict for {letter}{i}: {verdict!r}")
     category = category or "-"
     title = re.search(r"\*\*(.+?)\*\*", body)
     problem = re.search(r"\*\*Problem:\*\* (.+)", body)
@@ -39,7 +45,7 @@ for i, b in enumerate(blocks, 1):
     out.append(
         {
             "id": f"{letter}{i}",
-            "is_valid": "VALID" in verdict,
+            "is_valid": verdict == "✅ VALID",
             "priority": priority,
             "validator_priority": vprio,
             "category": category,
