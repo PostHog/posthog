@@ -63,8 +63,8 @@ function buildCliConfirmedActionRuntime(env: NodeJS.ProcessEnv): ConfirmedAction
     } catch (error) {
         const detail = error instanceof Error ? error.message : String(error)
         throw new Error(
-            `Two-step confirmation is unavailable on this CLI: it could not open its local confirmation store ` +
-                `in ${stateDir} (${detail}). Set ${STATE_DIR_ENV_VAR} to a writable directory and run the command again.`
+            `Two-step confirmation is unavailable on this CLI: ${detail}. ` +
+                `Its state directory is ${stateDir}, and ${STATE_DIR_ENV_VAR} moves it.`
         )
     }
 }
@@ -87,13 +87,14 @@ function loadOrCreateLocalKey(stateDir: string): Buffer {
         if (errorCode(error) !== 'EEXIST') {
             throw error
         }
+        // Whoever creates the file owns the key. Replacing one this command
+        // cannot read would race the same way the exclusive create prevents,
+        // so an unusable key is a refusal with one action in it.
         const other = readLocalKey(file)
-        if (other) {
-            return other
+        if (!other) {
+            throw new Error(`the key file ${file} is too short to sign with, so delete it and run the command again`)
         }
-        // The file is there but too short to sign with, so nothing usable
-        // was ever signed under it. Replace it.
-        fs.writeFileSync(file, generated, { mode: 0o600 })
+        return other
     }
     return Buffer.from(generated, 'utf8')
 }

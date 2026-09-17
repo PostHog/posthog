@@ -88,12 +88,13 @@ describe('CLI confirmed-action runtime', () => {
         expect(outcome.ok).toBe(false)
     })
 
-    it('replaces a stored key that is too short to sign with', async () => {
+    it('refuses a stored key that is too short to sign with', async () => {
         await fs.writeFile(path.join(stateDir, 'confirmed-action-key'), 'short')
+        nextCliInvocation(stateDir)
 
-        const hash = await prepare(stateDir)
-
-        expect((await execute(stateDir, hash)).ok).toBe(true)
+        expect(() => getConfirmedActionRuntime()).toThrowError(
+            expect.objectContaining({ message: expect.stringContaining('delete it and run the command again') })
+        )
     })
 
     it('touches no files until a confirmed action needs the runtime', async () => {
