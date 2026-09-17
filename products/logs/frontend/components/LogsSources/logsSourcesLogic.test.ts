@@ -54,6 +54,7 @@ describe('logsSourcesLogic', () => {
             buffering_interval_seconds: 60,
             retry_duration_seconds: 300,
             content_encoding: 'GZIP',
+            quick_create_url: null,
         })
         logic = logsSourcesLogic()
         logic.mount()

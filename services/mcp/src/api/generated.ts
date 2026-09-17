@@ -53301,6 +53301,11 @@ export namespace Schemas {
       retry_duration_seconds: number;
       /** Recommended Firehose content encoding. */
       content_encoding: string;
+      /**
+         * CloudFormation quick-create link with the endpoint, key and stack name filled in, or null when no template is published.
+         * @nullable
+         */
+      quick_create_url: string | null;
     }
 
     /**
