@@ -24,7 +24,7 @@ products/
       apps.py
       models.py
       logic.py              # business logic
-      routes.py             # API routes: register_routes(routers) + urlpatterns, auto-discovered from INSTALLED_APPS
+      routes.py             # API routes: register_routes(routers) + api_urlpatterns/webhook_urlpatterns, auto-discovered
       migrations/
       facade/               # cross-product Python interface
         __init__.py
@@ -199,7 +199,7 @@ bin/hogli product:lint --regenerate-baseline
   - Modify `posthog/settings/web.py` and add your new product under `PRODUCTS_APPS`.
   - Modify `tach.toml` and add a new block for your product. We use `tach` to track cross-dependencies between python apps.
   - Add your API routes in `backend/routes.py` with a `register_routes(routers)` function (e.g. `routers.projects.register(r"my_thing", MyThingViewSet, "project_my_thing", ["team_id"])`). It is auto-discovered — once the product is in `PRODUCTS_APPS`, `posthog/api/__init__.py` finds and calls `register_routes(routers)` with no edit to core. See `posthog/api/routing.py:RouterRegistry` for the available router handles (`projects`/`environments`/`organizations`/`root`).
-  - For a plain Django path no router can carry, such as an inbound webhook endpoint, add a `urlpatterns` list to the same `routes.py`. Core mounts every product's list in one slot in `posthog/urls.py`. Each pattern must start with `api/<product>/` or `webhooks/<product>/`, or the URL conf fails to load. See [docs/internal/url-routing.md](../docs/internal/url-routing.md).
+  - For a plain Django path no router can carry, such as an inbound webhook endpoint, add an `api_urlpatterns` or `webhook_urlpatterns` list to the same `routes.py`. Core mounts them at `api/<product>/` and `webhooks/<product>/` in one slot in `posthog/urls.py`, so the routes in each list are relative to that mount. See [docs/internal/url-routing.md](../docs/internal/url-routing.md).
   - NOTE: we will automate some of these steps in the future, but for now, please do them manually.
 
 ## Adding or moving backend models and migrations

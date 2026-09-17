@@ -198,13 +198,15 @@ Add a `<provider>/` subpackage with a `provider.py` holding three things (see `g
 Add the module to `_INCARNATION_MODULES` in `posthog/ingress/providers.py`, so the registry finds its specs and any core consumers.
 
 Then mount the URL where the App registration lives.
-A product that registered the App declares the path in its own `products/<product>/backend/routes.py`, under a `webhooks/<product>/` prefix:
+A product that registered the App declares the path in its own `products/<product>/backend/routes.py`, in a `webhook_urlpatterns` list that core mounts at `webhooks/<product>/`:
 
 ```python
-urlpatterns: list[URLPattern] = [
-    opt_slash_path("webhooks/stamphog/github", build_webhook_view(build_github_provider("stamphog"))),
+webhook_urlpatterns: list[URLPattern] = [
+    opt_slash_path("github", build_webhook_view(build_github_provider("stamphog"))),
 ]
 ```
+
+The route is relative to the mount, so this one serves `/webhooks/stamphog/github`.
 
 An App several products consume has no single owner, so it stays in `posthog/urls.py`.
 The customer-facing GitHub App is the only one today.
