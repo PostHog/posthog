@@ -727,7 +727,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                     {sourceConfigurationUrl ? (
                         <Link to={sourceConfigurationUrl}>Open the source configuration</Link>
                     ) : (
-                        'The manifest is on the previous step.'
+                        'You can edit the manifest in the source configuration after setup.'
                     )}
                 </LemonBanner>
             )}

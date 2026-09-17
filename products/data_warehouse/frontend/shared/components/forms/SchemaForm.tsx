@@ -317,7 +317,7 @@ export default function SchemaForm(): JSX.Element {
                     )
                 }
                 const fullRefreshOnlyReason = isManifestDrivenSource(selectedConnector?.name)
-                    ? "This table has no cursor in the source's manifest, so full table replication is the only sync method. Go back a step to add a cursor."
+                    ? "This table has no cursor in the source's manifest, so full table replication is the only sync method. Add a cursor in the source configuration after setup to sync it incrementally."
                     : 'Full refresh is the only supported sync method for this table'
                 return (
                     <div className="justify-end flex">
