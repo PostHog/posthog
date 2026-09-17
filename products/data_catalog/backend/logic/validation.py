@@ -56,10 +56,15 @@ class _TableReferenceCollector(TraversingVisitor):
     does not see its own name), silently defeating the catalog's denied-table filter. So CTE
     names are tracked per scope: each CTE body is visited under the scope of the CTEs defined
     before it, and only single-part FROM/JOIN targets naming an in-scope CTE are skipped.
+
+    ``skip_table_functions`` drops a table-function call such as ``numbers(10)``. Lineage wants the
+    data assets a metric reads, and a generator is not one; the denied-table filter keeps them,
+    because it must see every name the query reads.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, skip_table_functions: bool = False) -> None:
         self.tables: set[str] = set()
+        self._skip_table_functions = skip_table_functions
         self._cte_scopes: list[set[str]] = [set()]
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
@@ -80,7 +85,8 @@ class _TableReferenceCollector(TraversingVisitor):
             self._cte_scopes.pop()
 
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
-        if isinstance(node.table, ast.Field):
+        is_table_function = node.table_args is not None
+        if isinstance(node.table, ast.Field) and not (is_table_function and self._skip_table_functions):
             chain = [str(part) for part in node.table.chain]
             if len(chain) != 1 or chain[0] not in self._cte_scopes[-1]:
                 self.tables.add(".".join(chain))
@@ -193,10 +199,12 @@ def table_names_as_written(definition: dict) -> list[str]:
     """The tables and views a HogQL definition names in its own query text.
 
     Collected before resolution, which replaces a non-materialized view with its body: a metric that
-    reads a view depends on the view, not on the view's own sources. Not a substitute for
-    ``referenced_table_names``, which the catalog's denied-table filter needs resolved.
+    reads a view depends on the view, not on the view's own sources. Table functions are dropped:
+    they generate rows rather than read them, so they are not upstream of the metric. Not a
+    substitute for ``referenced_table_names``, which the catalog's denied-table filter needs
+    resolved.
     """
-    collector = _TableReferenceCollector()
+    collector = _TableReferenceCollector(skip_table_functions=True)
     collector.visit(_parse_hogql_definition(definition))
     return sorted(collector.tables)
 
