@@ -57,6 +57,22 @@ export interface OnboardingComponentsContext {
 
 const OnboardingContext = createContext<OnboardingComponentsContext | null>(null)
 
+const SelectedFileContext = createContext<{
+    selectedFile: string | null
+    setSelectedFile: (file: string) => void
+} | null>(null)
+
+/**
+ * Keeps the code block file choice (for example Python or Node) outside the content wrapper, so a
+ * surface that swaps the whole instruction tree keeps the reader's choice instead of resetting it.
+ */
+export function OnboardingSelectedFileProvider({ children }: { children: ReactNode }): JSX.Element {
+    const [selectedFile, setSelectedFile] = React.useState<string | null>(null)
+    const value = useMemo(() => ({ selectedFile, setSelectedFile }), [selectedFile])
+
+    return <SelectedFileContext.Provider value={value}>{children}</SelectedFileContext.Provider>
+}
+
 function Steps({ children }: StepsProps): JSX.Element {
     let stepNumber = 0
 
@@ -346,8 +362,17 @@ function MinimalSteps({ children }: StepsProps): JSX.Element {
     return <div className="space-y-4">{children}</div>
 }
 
-function MinimalStep({ children }: StepProps & { stepNumber?: number }): JSX.Element | null {
-    return <div className="space-y-4">{children}</div>
+function MinimalStep({ title, docsOnly, children }: StepProps): JSX.Element | null {
+    if (docsOnly) {
+        return null
+    }
+
+    return (
+        <div className="space-y-2">
+            {title && <h4 className="m-0">{title}</h4>}
+            <div className="space-y-4">{children}</div>
+        </div>
+    )
 }
 
 // This is a wrapper to share certain onboarding instructions with the main website repo.
@@ -365,7 +390,11 @@ export function OnboardingDocsContentWrapper({
     /** When true, code snippets show the reverse proxy domain (if one exists) instead of the default API host. */
     useReverseProxy?: boolean
 }): JSX.Element {
-    const [selectedFile, setSelectedFile] = React.useState<string | null>(null)
+    const [localSelectedFile, setLocalSelectedFile] = React.useState<string | null>(null)
+    const { selectedFile, setSelectedFile } = useContext(SelectedFileContext) ?? {
+        selectedFile: localSelectedFile,
+        setSelectedFile: setLocalSelectedFile,
+    }
     const { proxyRecords } = useValues(proxyLogic)
 
     const apiHost = useMemo(() => {

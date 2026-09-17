@@ -367,6 +367,12 @@ export interface ExperimentRecordingsBucketFailedContext {
     error: string
 }
 
+/** Where a reader picked an SDK in the setup snippets, so selection can be compared across surfaces. */
+export type SDKSetupInstructionsSurface =
+    | 'settings_sdk_setup'
+    | 'settings_reverse_proxy_setup'
+    | 'onboarding_ai_observability'
+
 // GROW-89: both onboarding flows fire the same funnel event names during the transition, told apart
 // by `version` (1 = legacy, 2 = context-first redesign) and `flow_variant`. Stamping properties
 // instead of renaming keeps every existing dashboard and alert on the v1 events working. The
@@ -2199,6 +2205,13 @@ export interface eventUsageLogicActions {
     reportSDKSelected: (sdk: SDK) => {
         sdk: SDK
     }
+    reportSDKSetupInstructionsSDKSelected: (
+        sdkKey: string,
+        surface: SDKSetupInstructionsSurface
+    ) => {
+        sdkKey: string
+        surface: SDKSetupInstructionsSurface
+    }
     reportSavedInsightFilterUsed: (filterKeys: string[]) => {
         filterKeys: string[]
     }
@@ -3281,6 +3294,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportSDKSelected: (sdk: SDK) => ({ sdk }),
+        reportSDKSetupInstructionsSDKSelected: (sdkKey: string, surface: SDKSetupInstructionsSurface) => ({
+            sdkKey,
+            surface,
+        }),
         // Setup wizard sync (CLI ↔ app) funnel. Fired from the Installation layer
         // (installationProgressLogic); guards for "once per session" live in that logic.
         reportWizardSyncSessionDetected: (props: {
@@ -4759,6 +4776,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSDKSelected: ({ sdk }) => {
             posthog.capture('sdk selected', {
                 sdk: sdk.key,
+            })
+        },
+        reportSDKSetupInstructionsSDKSelected: ({ sdkKey, surface }) => {
+            posthog.capture('sdk setup instructions sdk selected', {
+                sdk: sdkKey,
+                surface,
             })
         },
         reportWizardSyncSessionDetected: ({ workflowId, skillId, runPhase, taskCount }) => {

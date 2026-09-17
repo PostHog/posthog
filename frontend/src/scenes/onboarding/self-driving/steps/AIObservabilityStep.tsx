@@ -1,9 +1,12 @@
+import { useActions } from 'kea'
 import { useState } from 'react'
 
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { AIObservabilitySDKInstructions } from 'scenes/onboarding/legacy/sdks/ai-observability/AIObservabilitySDKInstructions'
 import { ALL_SDKS } from 'scenes/onboarding/legacy/sdks/allSDKs'
+import { OnboardingSelectedFileProvider } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { SDKKey } from '~/types'
 
@@ -25,32 +28,41 @@ export function AIObservabilityStep({
     onSkip: () => void
 }): JSX.Element {
     const [provider, setProvider] = useState<SDKKey>(SDKKey.OPENAI)
+    const { reportSDKSetupInstructionsSDKSelected } = useActions(eventUsageLogic)
     const Instructions = AIObservabilitySDKInstructions[provider]
 
     return (
-        <div className="flex flex-col gap-5">
-            <div className="flex items-center justify-center gap-2">
-                <span className="text-secondary text-sm">My AI app uses</span>
-                <LemonSelect
-                    size="small"
-                    value={provider}
-                    onChange={(value) => value && setProvider(value)}
-                    options={PROVIDER_OPTIONS}
-                />
-            </div>
-            {Instructions && (
-                <div className="border rounded p-4 text-left">
-                    <Instructions />
+        <OnboardingSelectedFileProvider>
+            <div className="flex flex-col gap-5">
+                <div className="flex items-center justify-center gap-2">
+                    <span className="text-secondary text-sm">My AI app uses</span>
+                    <LemonSelect
+                        size="small"
+                        value={provider}
+                        onChange={(value) => {
+                            if (!value) {
+                                return
+                            }
+                            setProvider(value)
+                            reportSDKSetupInstructionsSDKSelected(value, 'onboarding_ai_observability')
+                        }}
+                        options={PROVIDER_OPTIONS}
+                    />
                 </div>
-            )}
-            <div className="flex flex-col items-center gap-1 pt-2">
-                <LemonButton type="primary" status="alt" onClick={onContinue}>
-                    Continue
-                </LemonButton>
-                <LemonButton type="tertiary" size="small" onClick={onSkip}>
-                    Skip for now
-                </LemonButton>
+                {Instructions && (
+                    <div className="border rounded p-4 text-left">
+                        <Instructions />
+                    </div>
+                )}
+                <div className="flex flex-col items-center gap-1 pt-2">
+                    <LemonButton type="primary" status="alt" onClick={onContinue}>
+                        Continue
+                    </LemonButton>
+                    <LemonButton type="tertiary" size="small" onClick={onSkip}>
+                        Skip for now
+                    </LemonButton>
+                </div>
             </div>
-        </div>
+        </OnboardingSelectedFileProvider>
     )
 }
