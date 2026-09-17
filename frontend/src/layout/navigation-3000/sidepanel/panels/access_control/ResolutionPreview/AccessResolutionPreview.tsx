@@ -183,10 +183,7 @@ export function AccessResolutionPreview(): JSX.Element {
         return (
             <div className="flex flex-col gap-4">
                 <WhyExplainer />
-                <LemonBanner type="success">
-                    No access rules resolve differently in the projects you administer. Nothing changes when the new
-                    resolution takes effect.
-                </LemonBanner>
+                <LemonBanner type="success">Nothing changes for your organization.</LemonBanner>
                 {footer}
             </div>
         )
