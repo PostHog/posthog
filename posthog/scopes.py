@@ -322,8 +322,6 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
             "warehouse_objects",
             "warehouse_table",
             "warehouse_view",
-            "data_catalog",
-            "data_catalog_approval",
             "batch_export",
             "batch_import",
             "hog_function",
@@ -339,6 +337,8 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
         (
             "conversation",
             "business_knowledge",
+            "data_catalog",
+            "data_catalog_approval",
             "mcp_registry",
             "task",
             "loop",
@@ -371,9 +371,6 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
             "product_enablement",
             "integration",
             "organization_integration",
-            "uploaded_media",
-            "file_system",
-            "file_system_shortcut",
         ),
     ),
     (
@@ -388,6 +385,9 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
             "activity_log",
             "comment",
             "legal_document",
+            "uploaded_media",
+            "file_system",
+            "file_system_shortcut",
         ),
     ),
     (

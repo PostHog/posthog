@@ -105,8 +105,6 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'warehouse_objects',
             'warehouse_table',
             'warehouse_view',
-            'data_catalog',
-            'data_catalog_approval',
             'batch_export',
             'batch_import',
             'hog_function',
@@ -122,6 +120,8 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
         objects: [
             'conversation',
             'business_knowledge',
+            'data_catalog',
+            'data_catalog_approval',
             'mcp_registry',
             'task',
             'loop',
@@ -154,9 +154,6 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'product_enablement',
             'integration',
             'organization_integration',
-            'uploaded_media',
-            'file_system',
-            'file_system_shortcut',
         ],
     },
     {
@@ -171,6 +168,9 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'activity_log',
             'comment',
             'legal_document',
+            'uploaded_media',
+            'file_system',
+            'file_system_shortcut',
         ],
     },
     {
