@@ -22,6 +22,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -168,7 +169,7 @@ def _resolve_report(team: Team, report_id: str) -> SignalReport:
     """The report a run may attach a check to, scoped the way `_resolve_dispatched_check` scopes a check.
 
     A report sits on its own environment team while the run is resolved on the canonical project, so
-    the read is unscoped and matches canonical projects by hand: a report on a child environment of
+    the read matches canonical teams in the query: a report on a child environment of
     the run's project is reachable, and nothing outside it is.
     """
     try:
@@ -177,14 +178,12 @@ def _resolve_report(team: Team, report_id: str) -> SignalReport:
         raise InvalidCheckWriteError(f"report {report_id} not found")
     report = (
         SignalReport.objects.select_related("team")
-        .filter(id=report_id)
+        .alias(effective_project_id=Coalesce("team__parent_team_id", "team_id"))
+        .filter(id=report_id, effective_project_id=team.parent_team_id or team.id)
         .exclude(status=SignalReport.Status.DELETED)
         .first()
     )
     if report is None:
-        raise InvalidCheckWriteError(f"report {report_id} not found")
-    canonical_team_id = team.parent_team_id or team.id
-    if (report.team.parent_team_id or report.team_id) != canonical_team_id:
         raise InvalidCheckWriteError(f"report {report_id} not found")
     return report
 

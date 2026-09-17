@@ -2604,6 +2604,27 @@ class TestScoutReportCheckAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert not SignalReportCheck.objects.for_team(self.team.id).exists()
 
+    def test_a_check_can_target_a_report_in_a_child_environment(self) -> None:
+        self._opt_in(REPORT_TOOLS)
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
+        report = SignalReport.objects.create(team=child, status=SignalReport.Status.READY, title="Checkout")
+
+        response = self.client.post(self._create_url(), {**self._payload(), "report_id": str(report.id)}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        check = SignalReportCheck.objects.for_team(child.id).get(id=response.json()["check_id"])
+        assert check.report_id == report.id
+
+    def test_a_check_cannot_target_a_report_outside_the_canonical_team(self) -> None:
+        self._opt_in(REPORT_TOOLS)
+        other_team = Team.objects.create(organization=self.organization, project=self.team.project, name="Other")
+        report = SignalReport.objects.create(team=other_team, status=SignalReport.Status.READY, title="Checkout")
+
+        response = self.client.post(self._create_url(), {**self._payload(), "report_id": str(report.id)}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert not SignalReportCheck.objects.for_team(other_team.id).exists()
+
     def test_listing_a_reports_checks_returns_what_the_run_wrote(self) -> None:
         self._opt_in(REPORT_TOOLS)
         created = self.client.post(self._create_url(), self._payload(), format="json").json()
