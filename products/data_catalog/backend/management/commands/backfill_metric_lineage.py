@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from django.core.management.base import BaseCommand, CommandParser
+from django.db.models import F, Q
 
 import structlog
 
@@ -67,8 +68,20 @@ class Command(BaseCommand):
         self.stdout.write(f"{'would sync' if dry_run else 'done'}: {total}")
 
     def _teams(self, team_id: int | None):
-        teams = Team.objects.all() if team_id is None else Team.objects.filter(pk=team_id)
-        return teams.order_by("pk").iterator()
+        """Project root teams only.
+
+        A metric canonicalizes to the project root, and its node is written there, so iterating a
+        child environment would sync the same metrics again against the child's schema.
+        """
+        roots = Team.objects.filter(Q(parent_team_id__isnull=True) | Q(parent_team_id=F("id")))
+        if team_id is not None:
+            roots = roots.filter(pk=self._root_team_id(team_id))
+        return roots.order_by("pk").iterator()
+
+    def _root_team_id(self, team_id: int) -> int:
+        """The project root of a team id, so `--team-id` given a child environment backfills its project."""
+        parent_id = Team.objects.filter(pk=team_id).values_list("parent_team_id", flat=True).first()
+        return parent_id or team_id
 
     def _backfill_team(self, team: Team, dry_run: bool) -> TeamResult:
         result = TeamResult()
