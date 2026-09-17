@@ -19,12 +19,7 @@ import {
 } from 'products/posthog_ai/frontend/utils/composerModels'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import {
-    type AIRunPreferenceDraft,
-    decodeModelChoice,
-    encodeModelChoice,
-    taskAgentDefaultsLogic,
-} from './taskAgentDefaultsLogic'
+import { type AIRunPreferenceDraft, taskAgentDefaultsLogic } from './taskAgentDefaultsLogic'
 
 const PI_HARNESS_LABEL = 'Pi'
 
@@ -52,34 +47,20 @@ function PreferenceEditor({
 }): JSX.Element {
     const { catalogue } = useValues(modelCatalogueLogic)
 
-    const isPi = draft.runtime === TaskRuntimeEnumApi.Pi
     // Grouped by harness off the same catalogue the composer renders, so a model you can pick for a
     // run is always settable as a default and vice versa — including the Codex models that only
     // Slack and PostHog Desktop drive today.
-    const modelOptions = useMemo(() => {
-        const adapterGroups = listRuntimeAdapters(catalogue).map((adapter) => ({
-            title: getRuntimeAdapterLabel(adapter),
-            options: modelsForRuntimeAdapter(catalogue, adapter).map((choice) => ({
-                value: encodeModelChoice({ model: choice.model, runtime: TaskRuntimeEnumApi.Acp }) as string,
-                label: choice.display_name,
+    const modelOptions = useMemo(
+        () =>
+            listRuntimeAdapters(catalogue).map((adapter) => ({
+                title: getRuntimeAdapterLabel(adapter),
+                options: modelsForRuntimeAdapter(catalogue, adapter).map((choice) => ({
+                    value: choice.model,
+                    label: choice.display_name,
+                })),
             })),
-        }))
-        if (!isPi || !draft.model) {
-            return adapterGroups
-        }
-        return [
-            {
-                title: PI_HARNESS_LABEL,
-                options: [
-                    {
-                        value: encodeModelChoice({ model: draft.model, runtime: TaskRuntimeEnumApi.Pi }) as string,
-                        label: getModelLabel(catalogue, draft.model),
-                    },
-                ],
-            },
-            ...adapterGroups,
-        ]
-    }, [catalogue, isPi, draft.model])
+        [catalogue]
+    )
     const effortOptions = useMemo(() => getEffortsForModel(catalogue, draft.model), [catalogue, draft.model])
 
     return (
@@ -87,23 +68,18 @@ function PreferenceEditor({
             <LemonField.Pure label="Model" className="min-w-60">
                 <LemonSelect
                     fullWidth
-                    value={encodeModelChoice(draft)}
-                    onChange={(value) => {
-                        const { model, runtime } = decodeModelChoice(value)
-                        const staysOnPi = runtime === TaskRuntimeEnumApi.Pi
+                    value={draft.model}
+                    onChange={(model) =>
                         onChange({
                             model,
                             // A model switch may invalidate the picked effort; drop it rather than store one
                             // the model can't run, and let the server-side default apply instead.
                             reasoning_effort:
                                 draft.reasoning_effort && model
-                                    ? staysOnPi
-                                        ? draft.reasoning_effort
-                                        : filterEffortForModel(catalogue, draft.reasoning_effort, model)
+                                    ? filterEffortForModel(catalogue, draft.reasoning_effort, model)
                                     : null,
-                            runtime,
                         })
-                    }}
+                    }
                     options={[{ options: [{ value: null as string | null, label: inheritLabel }] }, ...modelOptions]}
                     placeholder={inheritLabel}
                     disabledReason={restrictionReason ?? (saving ? 'Saving…' : undefined)}
@@ -120,14 +96,7 @@ function PreferenceEditor({
                         ...effortOptions.map(({ value, label }) => ({ value: value as string, label })),
                     ]}
                     disabledReason={
-                        restrictionReason ??
-                        (saving
-                            ? 'Saving…'
-                            : isPi
-                              ? 'Set the thinking level for Pi in PostHog Desktop'
-                              : draft.model
-                                ? undefined
-                                : 'Pick a model first')
+                        restrictionReason ?? (saving ? 'Saving…' : draft.model ? undefined : 'Pick a model first')
                     }
                     data-attr="task-agent-default-effort"
                 />

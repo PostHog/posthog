@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { decodeModelChoice, encodeModelChoice, taskAgentDefaultsLogic } from './taskAgentDefaultsLogic'
+import { taskAgentDefaultsLogic } from './taskAgentDefaultsLogic'
 
 describe('taskAgentDefaultsLogic', () => {
     let logic: ReturnType<typeof taskAgentDefaultsLogic.build>
@@ -54,7 +54,7 @@ describe('taskAgentDefaultsLogic', () => {
             .toDispatchActions(['loadMyConfigSuccess'])
             .toMatchValues({
                 canResetMyPreference: true,
-                myDraft: { model: 'claude-opus-5', reasoning_effort: 'high', runtime: 'acp' },
+                myDraft: { model: 'claude-opus-5', reasoning_effort: 'high' },
             })
 
         logic.actions.resetMyPreference()
@@ -62,7 +62,7 @@ describe('taskAgentDefaultsLogic', () => {
         await expectLogic(logic)
             .toDispatchActions(['saveMyPreferencesSuccess'])
             .toMatchValues({
-                myDraft: { model: null, reasoning_effort: null, runtime: null },
+                myDraft: { model: null, reasoning_effort: null },
                 canResetMyPreference: false,
                 myDraftDirty: false,
             })
@@ -85,35 +85,17 @@ describe('taskAgentDefaultsLogic', () => {
         await expectLogic(logic).toMatchValues({ canResetMyPreference: true, myDraftDirty: true })
     })
 
-    it('keeps the Pi and ACP options distinct when they name the same model', () => {
-        const shared = 'gpt-5.6-terra'
-        const onPi = encodeModelChoice({ model: shared, runtime: 'pi' })
-        const onAcp = encodeModelChoice({ model: shared, runtime: 'acp' })
-
-        expect(onPi).not.toEqual(onAcp)
-        expect(decodeModelChoice(onPi)).toEqual({ model: shared, runtime: 'pi' })
-        expect(decodeModelChoice(onAcp)).toEqual({ model: shared, runtime: 'acp' })
-        expect(encodeModelChoice({ model: shared, runtime: null })).toEqual(onAcp)
-    })
-
-    it('reads the inherit option as no stored default', () => {
-        expect(encodeModelChoice({ model: null, runtime: null })).toBeNull()
-        expect(decodeModelChoice(null)).toEqual({ model: null, runtime: null })
-    })
-
-    it('saves a Pi default back as Pi, with no adapter', async () => {
+    it('does not seed the editor from a Pi default, but still offers to clear it', async () => {
         useConfigMocks({ runtime: 'pi', model: 'gpt-5.6-terra', reasoning_effort: 'off' })
         mount()
+
         await expectLogic(logic)
             .toDispatchActions(['loadMyConfigSuccess'])
-            .toMatchValues({ myDraft: { model: 'gpt-5.6-terra', reasoning_effort: 'off', runtime: 'pi' } })
-
-        logic.actions.submitMyDraft()
-
-        await expectLogic(logic).toDispatchActions(['saveMyPreferencesSuccess'])
-        expect(posted).toEqual([
-            { runtime: 'pi', runtime_adapter: null, model: 'gpt-5.6-terra', reasoning_effort: 'off' },
-        ])
+            .toMatchValues({
+                myDraft: { model: null, reasoning_effort: null },
+                myDraftDirty: false,
+                canResetMyPreference: true,
+            })
     })
 
     it('moves a Pi default onto the ACP harness when an ACP model is picked', async () => {
@@ -121,7 +103,7 @@ describe('taskAgentDefaultsLogic', () => {
         mount()
         await expectLogic(logic).toDispatchActions(['loadMyConfigSuccess'])
 
-        logic.actions.setMyDraft({ model: 'claude-opus-5', reasoning_effort: null, runtime: 'acp' })
+        logic.actions.setMyDraft({ model: 'claude-opus-5', reasoning_effort: null })
         logic.actions.submitMyDraft()
 
         await expectLogic(logic).toDispatchActions(['saveMyPreferencesSuccess'])
@@ -148,7 +130,7 @@ describe('taskAgentDefaultsLogic', () => {
             .toDispatchActions(['submitTeamDraft', 'saveTeamPreferencesSuccess', 'loadMyConfigSuccess'])
             .toFinishAllListeners()
             .toMatchValues({
-                myDraft: { model: 'claude-opus-5', reasoning_effort: null, runtime: null },
+                myDraft: { model: 'claude-opus-5', reasoning_effort: null },
                 myDraftDirty: true,
             })
     })

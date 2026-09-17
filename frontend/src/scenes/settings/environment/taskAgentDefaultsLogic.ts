@@ -20,10 +20,9 @@ import type {
 export interface AIRunPreferenceDraft {
     model: string | null
     reasoning_effort: string | null
-    runtime: TaskRuntimeEnumApi | null
 }
 
-const EMPTY_DRAFT: AIRunPreferenceDraft = { model: null, reasoning_effort: null, runtime: null }
+const EMPTY_DRAFT: AIRunPreferenceDraft = { model: null, reasoning_effort: null }
 
 interface DraftState {
     draft: AIRunPreferenceDraft
@@ -31,51 +30,29 @@ interface DraftState {
 }
 
 function isDraftChanged(draft: AIRunPreferenceDraft, stored: AIRunPreferenceDraft): boolean {
-    return (
-        draft.model !== stored.model ||
-        draft.reasoning_effort !== stored.reasoning_effort ||
-        draft.runtime !== stored.runtime
-    )
+    return draft.model !== stored.model || draft.reasoning_effort !== stored.reasoning_effort
 }
 
+// A Pi default is authored in PostHog Desktop, and its models are not in this catalogue, so it
+// cannot be edited here. Seeding it as empty keeps the editor on ACP, and any save made here
+// moves the stored default to ACP rather than blocking the person.
 function draftFromStored(stored: TasksAIRunPreferencesApi | null | undefined): AIRunPreferenceDraft {
-    return {
-        model: stored?.model ?? null,
-        reasoning_effort: stored?.reasoning_effort ?? null,
-        runtime: stored?.model ? (stored.runtime ?? TaskRuntimeEnumApi.Acp) : null,
-    }
-}
-
-export function encodeModelChoice(draft: Pick<AIRunPreferenceDraft, 'model' | 'runtime'>): string | null {
-    return draft.model ? `${draft.runtime ?? TaskRuntimeEnumApi.Acp}:${draft.model}` : null
-}
-
-export function decodeModelChoice(value: string | null): Pick<AIRunPreferenceDraft, 'model' | 'runtime'> {
-    const separator = value ? value.indexOf(':') : -1
-    if (!value || separator < 0) {
-        return { model: null, runtime: null }
-    }
-    return {
-        runtime: value.slice(0, separator) as TaskRuntimeEnumApi,
-        model: value.slice(separator + 1),
-    }
+    return stored?.model && stored.runtime !== TaskRuntimeEnumApi.Pi
+        ? { model: stored.model, reasoning_effort: stored.reasoning_effort ?? null }
+        : EMPTY_DRAFT
 }
 
 // The adapter is a property of the model, so it comes off the catalogue rather than the model id's
 // spelling — the settings picker offers Codex models too, and a new harness must not be mislabelled.
 function payloadFromDraft(draft: AIRunPreferenceDraft, catalogue: ModelChoiceApi[]): TasksAIRunPreferencesApi {
-    const runtime = draft.model ? (draft.runtime ?? TaskRuntimeEnumApi.Acp) : null
-    const reasoning_effort = draft.model
-        ? (draft.reasoning_effort as TasksAIRunPreferencesApi['reasoning_effort'])
-        : null
-    if (runtime === TaskRuntimeEnumApi.Pi) {
-        return { runtime, runtime_adapter: null, model: draft.model, reasoning_effort }
+    if (!draft.model) {
+        return { runtime: null, runtime_adapter: null, model: null, reasoning_effort: null }
     }
     return {
-        runtime,
-        runtime_adapter: draft.model ? getRuntimeAdapterForModel(catalogue, draft.model) : null,
+        runtime: TaskRuntimeEnumApi.Acp,
+        runtime_adapter: getRuntimeAdapterForModel(catalogue, draft.model),
         model: draft.model,
-        reasoning_effort,
+        reasoning_effort: draft.reasoning_effort as TasksAIRunPreferencesApi['reasoning_effort'],
     }
 }
 
@@ -303,9 +280,12 @@ export const taskAgentDefaultsLogic = kea<taskAgentDefaultsLogicType>([
         // Nothing to fall back to when neither the draft nor the stored preference pins a model — the
         // effort alone is never stored without one.
         canResetMyPreference: [
-            (s) => [s.myDraft, s.myPreferenceStored],
-            (draft: AIRunPreferenceDraft, stored: AIRunPreferenceDraft): boolean =>
-                Boolean(draft.model || stored.model),
+            (s) => [s.myDraft, s.myPreferences, s.myConfig],
+            (
+                draft: AIRunPreferenceDraft,
+                saved: TasksUserConfigResponseApi | null,
+                loaded: TasksUserConfigResponseApi | null
+            ): boolean => Boolean(draft.model || (saved ?? loaded)?.ai_run_preferences?.model),
         ],
     }),
 
