@@ -81,6 +81,8 @@ pub struct QueryArg {
     pub since: Option<String>,
     /// Series bucket width: 10s, 1m (default), 5m or 1h.
     pub bucket: Option<String>,
+    /// Limit text and series to one database when the query id exists in several.
+    pub datname: Option<String>,
 }
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct DbArg {
@@ -210,6 +212,7 @@ impl PgMcp {
             f,
             t,
             a.bucket.as_deref().unwrap_or("1m"),
+            a.datname.as_deref(),
         )
         .await
         .map_err(err)?)
@@ -340,7 +343,7 @@ impl PgMcp {
             .map_err(err)?)
     }
     #[tool(
-        description = "System view: host CPU/memory (pg_proctab), top backends by CPU, checkpoints, bgwriter, Aurora replica status and per-database commit/DML latency."
+        description = "System view: host CPU % / memory / load and vCPU count (pg_proctab), CPU by user, by code path (query tags) and by query (cpu_seconds, avg_cores, host_pct, backends), a per-minute cores-by-user series, checkpoints, bgwriter, Aurora replica status and per-database commit/DML latency."
     )]
     async fn system_stats(
         &self,

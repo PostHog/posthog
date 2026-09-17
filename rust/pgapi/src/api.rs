@@ -138,6 +138,8 @@ struct BucketQ {
     range: Range,
     #[serde(default = "d_bucket")]
     bucket: String,
+    /// Limit text and series to one database when the query id exists in several.
+    datname: Option<String>,
 }
 fn d_bucket() -> String {
     "1m".into()
@@ -149,7 +151,16 @@ async fn query_detail(
 ) -> R {
     let (f, t) = p.range.resolve()?;
     Ok(Json(
-        q::query_detail(&s.db, &server, queryid, f, t, &p.bucket).await?,
+        q::query_detail(
+            &s.db,
+            &server,
+            queryid,
+            f,
+            t,
+            &p.bucket,
+            p.datname.as_deref(),
+        )
+        .await?,
     ))
 }
 async fn waits(State(s): S, Path(server): Path<String>, Query(p): Query<BucketQ>) -> R {
