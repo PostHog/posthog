@@ -12,9 +12,6 @@ import linearMark from "../../../../assets/services/linear.svg";
 import notionMark from "../../../../assets/services/notion.svg";
 import sentryMark from "../../../../assets/services/sentry.svg";
 
-// Every source ships its own brand mark, so a row never shows a stand-in
-// glyph for a product it is not. Slack keeps its four-colour mark because the
-// monochrome one reads as a globe at row size.
 const BRAND_MARKS: Record<string, string> = {
   atlassian: atlassianMark,
   box: boxMark,
@@ -27,11 +24,6 @@ const BRAND_MARKS: Record<string, string> = {
   sentry: sentryMark,
 };
 
-/**
- * A source's logo: the brand image from the icon proxy when it has one, and
- * the bundled brand mark while it loads or when the proxy has no image, so a
- * link never shows as a blank square or as another product's icon.
- */
 export function SourceLogo({
   source,
   size = 16,

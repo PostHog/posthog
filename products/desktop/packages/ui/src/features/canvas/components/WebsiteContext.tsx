@@ -9,7 +9,6 @@ interface WebsiteContextProps {
   channelId: string;
 }
 
-/** The Context tab of a space. */
 export function WebsiteContext({ channelId }: WebsiteContextProps) {
   const headerContent = useMemo(
     () => <ChannelHeader channelId={channelId} page="context" />,

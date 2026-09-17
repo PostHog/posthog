@@ -26,16 +26,10 @@ interface MarkdownFileDialogProps {
   fileName: string;
   description: string;
   store: ContextDocumentStore;
-  /** What the editor opens with when the file is empty. */
   template?: string;
   onClose: () => void;
 }
 
-/**
- * One Markdown file, as text, in a modal: the editor, Save, Cancel. There is
- * no preview, because the file is what agents read and what a person should
- * see. Closing with unsaved text asks first.
- */
 export function MarkdownFileDialog({
   fileName,
   description,
@@ -99,8 +93,6 @@ function Editor({
     store.refetch();
   };
 
-  // The draft is replaced only once the newer copy has arrived, so a reload
-  // after a conflict shows what the other person saved rather than a blank.
   useEffect(() => {
     if (reloading && !store.isRefreshing) {
       setDraft(saved);
@@ -113,9 +105,7 @@ function Editor({
     try {
       await store.save(draft);
       onClose();
-    } catch {
-      // The store keeps the error; the footer shows it.
-    }
+    } catch {}
   };
 
   const cancel = () => {

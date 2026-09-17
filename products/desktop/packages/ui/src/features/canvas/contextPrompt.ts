@@ -129,10 +129,6 @@ not carry technical substance. Keep it concise. Publishing via the MCP tool is
 what saves it — do not just write a local file.`;
 }
 
-/**
- * The one write a context task may make: publish the whole document through
- * the PostHog MCP, to the wiki page or the legacy channel instructions.
- */
 export function buildContextPublishInstructions(
   channelId: string,
   contextLayerEnabled: boolean,
@@ -161,11 +157,6 @@ export function goalMeasureTaskTitle(goalName: string): string {
   return `Measure goal "${goalName}"`;
 }
 
-/**
- * A task that writes the HogQL measure for one goal in a space's CONTEXT.md.
- * The goal already exists in the Goals section without a measure; the agent
- * adds the query and publishes the document.
- */
 export function buildGoalMeasurePrompt(input: {
   channelName: string;
   channelId: string;
@@ -219,7 +210,6 @@ export interface AgentChoice {
   runtime: AgentRuntime;
 }
 
-/** The agent that runs `buildGoalMeasurePrompt`. */
 export const GOAL_MEASURE_AGENT: AgentChoice = {
   adapter: "codex",
   model: "gpt-5.6-luna",

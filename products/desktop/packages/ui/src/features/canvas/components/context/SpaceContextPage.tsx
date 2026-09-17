@@ -56,21 +56,10 @@ interface SpaceContextPageProps {
   channelId: string;
   channelName: string;
   store: ContextDocumentStore;
-  /** The document's path in the context wiki; null when it lives in folder instructions. */
   wikiPath: string | null;
-  /** Shown when the document lives in the context wiki. */
   onOpenInWiki?: () => void;
 }
 
-/**
- * The Context tab of a space in three zones. Goals: what the space is trying
- * to move. Knowledge: everything a person told it, the briefing and
- * every doc and object as one list of rows. Signals: what agents and source
- * products found about those rows. Knowledge is written once and grows long;
- * signals change daily, so they sit beside it in a column that stays put
- * while the knowledge scrolls, and come first when the page is too narrow
- * for two columns. One CONTEXT.md underneath.
- */
 export function SpaceContextPage({
   channelId,
   channelName,

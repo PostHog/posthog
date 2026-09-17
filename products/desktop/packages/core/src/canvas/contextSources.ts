@@ -8,28 +8,19 @@ import {
 } from "../mcp-servers/status";
 import { isHttpUrl } from "./contextDocument";
 
-/**
- * An external system a space can take context from. Each one is backed by an
- * MCP server in the catalog: agents in the space read what the person linked
- * through that server, so a link is only useful once the server is connected.
- */
 export interface ContextSource {
   id: string;
   name: string;
-  /** The catalog template's `icon_domain`; this is how a source finds its server. */
   iconDomain: string;
-  /** What agents can do with a linked item once the server is connected. */
   purpose: string;
   placeholder: string;
   hosts: RegExp[];
-  /** Turn a link or a short-hand into a target and what to call it, or null. */
   parse: (input: string) => ParsedSourceItem | null;
 }
 
 export interface ParsedSourceItem {
   target: string;
   title: string;
-  /** "Slack channel", "Notion page": what one linked item is called. */
   label: string;
 }
 
@@ -62,8 +53,6 @@ function lastSegmentTitle(input: string, fallback: string): string {
   return title || fallback;
 }
 
-// A channel short-hand becomes Slack's own redirect URL, which opens in the
-// app and which agents resolve by name through the Slack server.
 const SLACK_CHANNEL_RE = /^#([a-z0-9][a-z0-9._-]*)$/i;
 const SLACK_ARCHIVE_RE = /^\/archives\/([A-Z0-9]+)(?:\/(p\d+))?/;
 
@@ -288,7 +277,6 @@ const box: ContextSource = {
       : null,
 };
 
-/** Order is the order the picker shows them in. */
 export const CONTEXT_SOURCES: readonly ContextSource[] = [
   slack,
   notion,
@@ -307,15 +295,10 @@ function matchesHost(source: ContextSource, input: string): boolean {
   return host !== null && source.hosts.some((pattern) => pattern.test(host));
 }
 
-/** The source a link belongs to, from its host alone. */
 export function detectContextSource(target: string): ContextSource | null {
   return CONTEXT_SOURCES.find((source) => matchesHost(source, target)) ?? null;
 }
 
-/**
- * What the person typed, read as an item of one source. A URL names its source
- * by host; a short-hand like `#growth` only parses when that source is chosen.
- */
 export function parseContextSourceInput(
   input: string,
   chosen: ContextSource | null,
@@ -332,7 +315,6 @@ export function parseContextSourceInput(
   return item ? { source, item } : null;
 }
 
-/** The source a catalog template stands for, matched on its brand domain. */
 export function contextSourceForTemplate(template: {
   icon_domain?: string | null;
   name?: string | null;
@@ -354,16 +336,9 @@ export interface ResolvedContextSource {
   template: McpRecommendedServer;
   installation: McpServerInstallation | null;
   status: ContextSourceStatus;
-  /** A key or token cannot be entered here, so this source connects from the MCP servers page. */
   needsCredentials: boolean;
 }
 
-/**
- * Join the sources with the MCP catalog and the team's installations. A source
- * only appears when the catalog has a server for it, and reads as connected
- * only when that server is installed and authorized, because that is what lets
- * agents open the links.
- */
 export function resolveContextSources(
   servers: readonly McpRecommendedServer[],
   installations: readonly McpServerInstallation[],

@@ -1,17 +1,3 @@
-"""Routes a report to the space whose CONTEXT.md names what the report is about.
-
-A space's CONTEXT.md carries a `watching` list in its YAML frontmatter with the dashboards,
-insights, flags, experiments, error issues, and surveys the space owns, each with its app URL, and
-a `goals` list with one entry per goal. When a report surfaces, its evidence (the signals behind
-it, the charts it carries, its title and summary) is matched against every public space's
-watchlist. A match on an object id is strong; a match on a name is weak. The best space
-takes the report through a `channel_assignment` artefact, which is how the space's Context page
-and Reports tab already read ownership. A report nobody's context names stays unassigned.
-
-The person or an agent can move it afterwards through the report state API; the router never
-overrides an assignment that already exists.
-"""
-
 from __future__ import annotations
 
 import re
@@ -34,16 +20,12 @@ logger = structlog.get_logger(__name__)
 
 ROUTABLE_STATUSES = frozenset({SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT})
 
-# Weight of one matched object id against one matched name.
 ID_MATCH = 3
 NAME_MATCH = 1
-# Minimum score for an assignment, and the smaller score that still assigns when no other space
-# comes close.
 ASSIGN_SCORE = ID_MATCH
 CLEAR_LEAD_SCORE = 2 * NAME_MATCH
 MIN_NAME_LENGTH = 5
 
-# Mirrors `OBJECT_PATH_RULES` in the desktop's `contextDocument.ts`.
 _OBJECT_PATHS: list[tuple[str, re.Pattern[str]]] = [
     ("insight", re.compile(r"/insights/([^/?#]+)")),
     ("dashboard", re.compile(r"/dashboard/(\d+)")),
@@ -76,7 +58,6 @@ class SpaceWatchlist:
 
 
 def parse_watchlist(channel_id: UUID, markdown: str) -> SpaceWatchlist:
-    """The objects and goal names a CONTEXT.md's frontmatter asks agents to watch."""
     objects: list[WatchedObject] = []
     for entry in _frontmatter_list(channel_id, markdown, "watching"):
         url = str(entry.get("url", ""))
@@ -92,11 +73,6 @@ def parse_watchlist(channel_id: UUID, markdown: str) -> SpaceWatchlist:
 
 
 def _frontmatter_list(channel_id: UUID, markdown: str, key: str) -> list[dict[str, object]]:
-    """One top-level list block of the frontmatter, read as YAML.
-
-    The wiki reads its frontmatter line by line, so a `summary:` may hold a colon that strict
-    YAML rejects. Only the block under `key` is parsed.
-    """
     match = _FRONTMATTER.match(markdown)
     if not match:
         return []
@@ -120,7 +96,6 @@ def _frontmatter_list(channel_id: UUID, markdown: str, key: str) -> list[dict[st
 
 
 def _id_pattern(object_id: str) -> re.Pattern[str]:
-    # Short numeric ids match only as whole tokens; a "42" inside "1420" is not the flag.
     return re.compile(rf"(?<![\w-]){re.escape(object_id)}(?![\w-])")
 
 
@@ -130,7 +105,6 @@ def score_report(
     evidence_text: str,
     prose: str,
 ) -> int:
-    """How strongly a report's evidence and prose point at one space's watchlist."""
     score = 0
     lowered_prose = prose.lower()
     for obj in watchlist.objects:
@@ -145,7 +119,6 @@ def score_report(
 
 
 def choose_space(scores: dict[UUID, int]) -> UUID | None:
-    """The one space a report belongs to, or None when nothing is clear enough."""
     ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
     if not ranked or ranked[0][1] <= 0:
         return None
@@ -179,8 +152,6 @@ def _has_assignment(team_id: int, report_id: str) -> bool:
 
 
 def _evidence_text(team: Team, report: SignalReport) -> str:
-    # Function-local: the ClickHouse reader pulls the query stack, which the startup-import-budget
-    # test forbids at django.setup().
     from products.signals.backend.temporal.signal_queries import fetch_signals_for_report_sync  # noqa: PLC0415
 
     parts: list[str] = [json.dumps(report.charts or [], default=str)]
@@ -192,7 +163,6 @@ def _evidence_text(team: Team, report: SignalReport) -> str:
 
 
 def route_report_to_space(team_id: int, report_id: str) -> UUID | None:
-    """Assign a surfaced report to the space whose context names it. Idempotent; never reassigns."""
     with team_scope(team_id):
         if _has_assignment(team_id, report_id):
             return None

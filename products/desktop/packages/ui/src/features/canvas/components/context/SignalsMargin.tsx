@@ -14,11 +14,6 @@ interface SignalsMarginProps {
   objects: ContextObject[];
 }
 
-/**
- * The raw signals scouts and source products filed about the objects this
- * space watches, newest first. Facts, not reports: a report is a judgement
- * and lives in the space's Reports tab.
- */
 export function SignalsMargin({ objects }: SignalsMarginProps) {
   return (
     <section className="flex flex-col gap-2">
@@ -70,10 +65,6 @@ function SignalsBody({ objects }: SignalsMarginProps) {
   );
 }
 
-/**
- * One fact: where it came from and when on the first line, the fact under
- * it. When the source product said where it lives, the row opens it.
- */
 function SignalRow({ signal }: { signal: SpaceSignal }) {
   const meta = getSourceProductMeta(signal.sourceProduct);
   const source = signal.sourceType

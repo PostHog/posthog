@@ -20,7 +20,6 @@ export const goalMeasureQueryKey = (measure: GoalMeasure | null) =>
     measure?.kind === "hogql" ? measure.sql : (measure?.shortId ?? ""),
   ] as const;
 
-/** Reads a goal's current value from its measure. */
 export async function readGoalMeasure(
   client: PostHogAPIClient,
   measure: GoalMeasure,
@@ -109,7 +108,6 @@ function bucketStarts(period: TrendPeriod): Date[] {
   return starts;
 }
 
-/** Reads a goal's trend as one value per period, oldest first, with empty periods as zero. */
 export function useGoalTrend(goalName: string, measure: GoalMeasure | null) {
   const query = goalTrendQuery(goalName, measure);
   return useAuthenticatedQuery<GoalTrend>(

@@ -7,7 +7,6 @@ interface ContextEmptyHeroProps {
   onWrite: () => void;
 }
 
-/** The first thing a person sees in a space with no context yet: one decision. */
 export function ContextEmptyHero({
   channelName,
   onAskAgent,

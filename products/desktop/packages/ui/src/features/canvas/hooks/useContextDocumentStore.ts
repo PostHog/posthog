@@ -12,11 +12,6 @@ import {
 } from "@posthog/ui/features/context-wiki/hooks/useContextWiki";
 import { useCallback } from "react";
 
-/**
- * One saved CONTEXT.md and a way to replace it. The Context page edits the
- * document in parts, so every section works against this shape whether the
- * document lives in the legacy channel instructions or the context wiki.
- */
 export interface ContextDocumentStore {
   content: string;
   isLoading: boolean;
@@ -26,7 +21,6 @@ export interface ContextDocumentStore {
   save: (content: string) => Promise<void>;
   isSaving: boolean;
   saveError: Error | null;
-  /** The saved copy moved under this edit; reload before trying again. */
   isConflict: boolean;
   refetch: () => void;
 }
@@ -70,8 +64,6 @@ export function useWikiContextDocumentStore(
   const refetch = page.refetch;
   const mutateAsync = mutation.mutateAsync;
 
-  // A path CONTEXT.md lists but nobody has saved yet reads as an empty page,
-  // and the first save creates it, so there is no head to check against.
   const save = useCallback(
     async (content: string) => {
       if (page.isLoading) throw new Error("The page has not loaded yet.");

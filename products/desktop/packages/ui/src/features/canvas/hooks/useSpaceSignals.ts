@@ -10,7 +10,6 @@ import { useMemo } from "react";
 export const spaceSignalsQueryKey = (sql: string | null) =>
   ["space-signals", sql ?? ""] as const;
 
-/** The latest raw signals about the objects a space watches. */
 export function useSpaceSignals(objects: ContextObject[]) {
   const sql = useMemo(() => buildSpaceSignalsQuery(objects), [objects]);
   return useAuthenticatedQuery<SpaceSignal[]>(

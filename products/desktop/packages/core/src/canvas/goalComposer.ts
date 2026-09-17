@@ -1,6 +1,5 @@
 import type { GoalDirection, GoalTarget } from "./contextDocument";
 
-/** A query pasted into the composer, as opposed to a sentence about a goal. */
 export function looksLikeHogQL(text: string): boolean {
   return /^\s*(select|with)\b/i.test(text);
 }
@@ -35,10 +34,6 @@ function lastDay(year: number, monthIndex: number): number {
   return new Date(year, monthIndex + 1, 0).getDate();
 }
 
-/**
- * Reads a due date from words like "December", "end of Q4", "Mar 15", or an
- * ISO date. A month already past this year means next year.
- */
 export function parseDueDate(text: string, now = new Date()): string | null {
   const trimmed = text
     .trim()
@@ -87,7 +82,6 @@ export function parseDueDate(text: string, now = new Date()): string | null {
 }
 
 export interface ParsedGoalSentence {
-  /** The sentence with the target and due date removed. */
   name: string;
   target: GoalTarget | null;
 }
@@ -101,11 +95,6 @@ function parseNumber(match: RegExpMatchArray): number | null {
   return raw;
 }
 
-/**
- * Splits "Weekly signups above 500 by end of December" into a name, a target,
- * and a due date, so the composer can prefill the target line. Anything it
- * cannot read stays in the name for the person to fix.
- */
 export function parseGoalSentence(
   sentence: string,
   now = new Date(),

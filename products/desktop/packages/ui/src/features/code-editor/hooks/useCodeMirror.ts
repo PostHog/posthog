@@ -10,12 +10,6 @@ interface UseCodeMirrorOptions {
   filePath?: string;
 }
 
-/**
- * One EditorView for the life of the container. Extensions swap through a
- * compartment and an outside document change lands as a transaction, so a
- * consumer that mirrors edits into React state never rebuilds the editor or
- * loses the caret on a keystroke.
- */
 export function useCodeMirror(options: UseCodeMirrorOptions) {
   const containerRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<EditorView | null>(null);

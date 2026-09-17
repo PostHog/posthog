@@ -7,7 +7,6 @@ import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 
 export interface ContextSourceState extends ResolvedContextSource {
-  /** True while the browser authorization for this source is open. */
   connecting: boolean;
 }
 
@@ -16,7 +15,6 @@ export interface ContextSources {
   byId: (id: string) => ContextSourceState | undefined;
 }
 
-/** The external sources this space can link, with whether each one's MCP server is connected. */
 export function useContextSources(): ContextSources {
   const navigate = useNavigate();
   const {

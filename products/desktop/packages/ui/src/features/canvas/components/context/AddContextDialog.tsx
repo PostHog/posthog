@@ -72,22 +72,14 @@ const SUBMIT_LABELS: Record<AddContextMode, string> = {
 interface AddContextDialogProps {
   mode: AddContextMode;
   sources: ContextSources;
-  /** Where this space's Markdown files go; null when the context wiki is not available. */
   filesFolder: string | null;
   existingTargets: readonly string[];
   onAddLink: (link: ContextLink) => Promise<void>;
   onAddObject: (object: ContextObject) => Promise<void>;
-  /** Adds the file to CONTEXT.md; `content` null means the person writes it next. */
   onAddFile: (path: string, content: string | null) => Promise<void>;
   onClose: () => void;
 }
 
-/**
- * One way to add a piece of context, chosen before the dialog opens: paste a
- * link, name a Markdown file, or upload a text file. A link says what it is
- * as soon as it is pasted, so a person sees whether agents can read it before
- * adding it.
- */
 export function AddContextDialog({
   mode,
   sources,
@@ -286,10 +278,6 @@ type DetectedLink =
   | { kind: "web"; target: string; title: string; host: string }
   | { kind: "invalid" };
 
-/**
- * What a pasted URL is: a PostHog object, an item from a source we know how
- * to read through its MCP server, or a web page we keep as a plain link.
- */
 function detectLink(
   input: string,
   sources: ContextSources,
@@ -348,7 +336,6 @@ function titleFromUrl(target: string): string {
   }
 }
 
-/** The line under the URL field: what we made of the link, and whether agents can read it. */
 function Detection({
   detected,
   empty,

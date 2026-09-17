@@ -46,11 +46,8 @@ interface GenerateContextInput {
   /** What the user says this context is about; seeds the plan. */
   description: string;
   workspaceMode?: WorkspaceMode;
-  /** Replace the CONTEXT.md build prompt with another context-editing task. */
   prompt?: string;
-  /** Title for the task when `prompt` is set. */
   title?: string;
-  /** Pin the runtime, adapter, model and effort instead of the composer's last-used ones. */
   agent?: AgentChoice;
 }
 

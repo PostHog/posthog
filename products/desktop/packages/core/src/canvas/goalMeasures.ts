@@ -4,14 +4,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/**
- * The one number a saved insight stands for right now.
- *
- * A trends insight sums its series over the period (the total the insight
- * itself shows as a bold number). A funnel reads as the conversion from the
- * first step to the last, in percent. A HogQL insight reads its first cell.
- * Anything else returns null and the goal shows as unmeasured.
- */
 export function insightCurrentValue(results: unknown): number | null {
   if (!Array.isArray(results) || results.length === 0) return null;
 

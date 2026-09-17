@@ -39,19 +39,15 @@ import {
 import { SqlEditor, type SqlEditorHandle } from "./SqlEditor";
 
 interface GoalComposerProps {
-  /** The goal being edited, or null for a new one. */
   initial: ContextGoal | null;
   onSave: (goal: ContextGoal) => Promise<void>;
-  /** Save the goal and hand it to an agent task that writes its measure. */
   onAskAgent: (goal: ContextGoal) => Promise<void>;
   onDelete?: () => Promise<void>;
   onClose: () => void;
   isSaving: boolean;
-  /** The agent task behind this goal while it has no measure. */
   measureTask?: GoalMeasureTask | null;
   onOpenTask?: (taskId: string) => void;
   onRetryMeasure?: () => Promise<void>;
-  /** Names already used by other goals in this space. */
   takenNames: string[];
 }
 
@@ -62,12 +58,6 @@ function growToFit(el: HTMLTextAreaElement): void {
   el.style.height = `${Math.max(el.scrollHeight, 56)}px`;
 }
 
-/**
- * One line in, then a form. The sentence only fills the name and the target;
- * the person sees what was read and fixes it before anything is saved. A goal
- * saved without a query is handed to an agent that writes one. Pasted HogQL
- * shows the query and its current value instead.
- */
 export function GoalComposer({
   initial,
   onSave,
@@ -118,7 +108,6 @@ export function GoalComposer({
   });
   const runMutate = run.mutate;
 
-  // A fresh query is run once so the review shows a number next to it.
   useEffect(() => {
     if (step === "review" && measure?.kind === "hogql" && measure.sql.trim()) {
       runMutate(measure.sql);

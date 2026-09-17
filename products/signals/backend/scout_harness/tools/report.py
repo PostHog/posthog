@@ -531,11 +531,6 @@ def _emit_result(persisted_report_id: str, judgement: ScoutReportJudgement) -> E
 
 
 def _assign_report_to_space(*, team_id: int, report_id: str, space_id: str, attribution: ArtefactAttribution) -> None:
-    """Hand an authored report to the space (task channel) the scout says it belongs to.
-
-    An unknown or private space is skipped rather than failing the emit: the report is already
-    saved, and the space router can still pick it up from its evidence.
-    """
     from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415
 
     try:

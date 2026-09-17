@@ -12,7 +12,6 @@ interface ServerIconProps {
   serverUrl?: string | null;
   size?: number;
   className?: string;
-  /** Shown when the proxy has no icon for the domain; defaults to a plug glyph. */
   fallback?: ReactNode;
 }
 

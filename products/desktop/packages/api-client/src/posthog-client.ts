@@ -3751,7 +3751,6 @@ export class PostHogAPIClient {
   async putContextWikiPage(input: {
     path: string;
     content: string;
-    /** Omitted when creating a page: there is no saved copy to be stale against. */
     baseHead?: string;
   }): Promise<{ head_sha: string }> {
     const urlPath = `/api/organizations/@current/context_layer/pages/`;
@@ -7261,10 +7260,6 @@ export class PostHogAPIClient {
     return { results: data.results ?? [], columns: data.columns ?? [] };
   }
 
-  /**
-   * Asks PostHog to write a HogQL query from a sentence. Synchronous; the
-   * backend answers 400 with a reason when the sentence is too vague.
-   */
   async draftHogQL(prompt: string, currentQuery?: string): Promise<string> {
     const teamId = await this.getTeamId();
     const path = `/api/projects/${teamId}/query/draft_sql/`;

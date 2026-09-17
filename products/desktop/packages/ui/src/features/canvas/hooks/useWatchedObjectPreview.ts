@@ -7,11 +7,6 @@ import {
 } from "@posthog/ui/features/editor/evidencePreview";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 
-/**
- * The live state of a watched object: a flag's rollout, an experiment's
- * status, an error issue's volume. Reads the same preview the evidence chips
- * in agent messages use, so the two never disagree and share one cache.
- */
 export function useWatchedObjectPreview(object: ContextObject) {
   const parsed = parsePostHogObjectUrl(object.url);
   const target = parsed ? { kind: parsed.kind, id: parsed.id } : null;

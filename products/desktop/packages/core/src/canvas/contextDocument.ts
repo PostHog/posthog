@@ -1,11 +1,6 @@
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { z } from "zod";
 
-// A space's CONTEXT.md keeps its structured parts in the YAML frontmatter:
-// `goals`, `reading` (files and links), and `watching` (PostHog objects). The
-// body under the frontmatter is prose and is stored as it was written. Other
-// frontmatter keys belong to the wiki and travel through untouched.
-
 const OBJECT_KINDS = [
   "insight",
   "dashboard",
@@ -25,9 +20,7 @@ const OBJECT_KINDS = [
 export type ContextObjectKind = (typeof OBJECT_KINDS)[number];
 
 export interface ContextLink {
-  /** Display name. For a bare path, the path itself. */
   title: string;
-  /** A URL, or a wiki path when the entry is a file. */
   target: string;
   note: string;
 }
@@ -43,33 +36,26 @@ export type GoalDirection = "at_least" | "at_most";
 export interface GoalTarget {
   direction: GoalDirection;
   value: number;
-  /** ISO date (YYYY-MM-DD) the target should be met by. */
   dueDate: string | null;
 }
 
-/** How a goal's current value is read. */
 export type GoalMeasure =
   | {
       kind: "hogql";
       sql: string;
-      /** One row per period, period first and value last; drawn as a sparkline. */
       trendSql?: string;
     }
   | { kind: "insight"; shortId: string; url: string; name: string };
 
 export interface ContextGoal {
   name: string;
-  /** Why this goal matters, in markdown. */
   why: string;
-  /** Null until a person or an agent adds one. */
   measure: GoalMeasure | null;
   target: GoalTarget | null;
-  /** The one goal this space is judged on. At most one per document. */
   primary: boolean;
 }
 
 export interface ContextDocument {
-  /** The wiki's own frontmatter lines (summary, status, ids), kept as written. */
   frontmatter: string;
   knowledge: string;
   links: ContextLink[];
@@ -158,8 +144,6 @@ const KEY_LINE = /^([A-Za-z_][\w-]*):/;
 const OWN_KEYS = ["goals", "reading", "watching"] as const;
 type OwnKey = (typeof OWN_KEYS)[number];
 
-// The wiki reads its frontmatter line by line, so a `summary:` may hold a
-// colon that strict YAML rejects. Only the three list blocks are YAML.
 function splitFrontmatter(markdown: string): {
   own: Partial<Record<OwnKey, string>>;
   rest: string;
@@ -210,7 +194,6 @@ function readList<T>(
   return result.data;
 }
 
-/** Throws when a list block is not YAML or has the wrong shape. */
 export function parseContextDocument(markdown: string): ContextDocument {
   const { own, rest, body } = splitFrontmatter(markdown);
   return {
@@ -305,11 +288,6 @@ const OBJECT_PATH_RULES: { kind: ContextObjectKind; re: RegExp }[] = [
   { kind: "person", re: /^\/persons?\/([^/?#]+)/ },
 ];
 
-/**
- * Reads the object kind and id out of a PostHog app URL, or null when the URL
- * points elsewhere. `path` is the object's own path (`/feature_flags/12`),
- * which is how other products' signals refer to it.
- */
 export function parsePostHogObjectUrl(
   url: string,
 ): { kind: ContextObjectKind; id: string; path: string } | null {
@@ -357,7 +335,6 @@ export type GoalStatus =
   | "no_target"
   | "unmeasured";
 
-/** How a measured value stands against the goal's target. */
 export function goalStatus(
   current: number | null,
   target: GoalTarget | null,
@@ -372,7 +349,6 @@ export function goalStatus(
   return goalProgress(current, target) >= 0.7 ? "on_track" : "behind";
 }
 
-/** 0..1 progress toward the target. An "at most" goal is full when the value sits under the cap. */
 export function goalProgress(current: number, target: GoalTarget): number {
   if (target.direction === "at_most") {
     if (current <= target.value) return 1;
@@ -392,7 +368,6 @@ export function numericCell(cell: unknown): number | null {
   return null;
 }
 
-/** The first numeric cell of a HogQL result grid, or null when there is none. */
 export function firstNumericCell(results: unknown[][]): number | null {
   for (const cell of results[0] ?? []) {
     const value = numericCell(cell);

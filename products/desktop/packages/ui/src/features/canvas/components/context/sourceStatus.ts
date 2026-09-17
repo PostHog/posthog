@@ -16,7 +16,6 @@ export function connectLabel(
   return withName ? `${verb} ${state.source.name}` : verb;
 }
 
-/** Why a link from this source is not readable yet, in the status's own words. */
 export function unconnectedWarning(state: ContextSourceState): string {
   const name = state.source.name;
   if (state.needsCredentials) {

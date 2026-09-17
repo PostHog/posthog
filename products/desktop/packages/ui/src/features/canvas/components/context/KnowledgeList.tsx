@@ -52,7 +52,6 @@ interface KnowledgeListProps {
   channelName: string;
   links: ContextLink[];
   objects: ContextObject[];
-  /** Where this space's extra Markdown files live; null without the context wiki. */
   filesFolder: string | null;
   onOpenContextFile: () => void;
   onLinksChange: (links: ContextLink[]) => Promise<void>;
@@ -60,12 +59,6 @@ interface KnowledgeListProps {
   isSaving: boolean;
 }
 
-/**
- * Everything a person told this space, as one flat list: CONTEXT.md first,
- * then its other Markdown files, links and objects. Markdown opens in an
- * editor; everything else opens where it lives. Nothing here is inferred;
- * what agents find about these rows shows up under Signals.
- */
 export function KnowledgeList({
   channelName,
   links,
@@ -81,8 +74,6 @@ export function KnowledgeList({
   const sources = useContextSources();
   const { mutateAsync: writePage } = useContextWikiPageMutation();
 
-  // CONTEXT.md is saved first so its head moves before the file is written;
-  // the file is new, so it has no head to check and is created on the way in.
   const addFile = async (path: string, content: string | null) => {
     await onLinksChange([
       ...links,
@@ -226,12 +217,6 @@ export function KnowledgeList({
   );
 }
 
-/**
- * A link. One from a known source shows that source's icon and what it is;
- * when the source's server is not connected, the row offers to connect it,
- * because agents cannot read the link until then. Anything else is a plain
- * link to its host.
- */
 function LinkRow({
   link,
   sources,
@@ -300,7 +285,6 @@ const TONE_DOT: Record<string, string> = {
   critical: "bg-destructive",
 };
 
-/** A linked object. Its short description is its live state, not a hand-written note. */
 function ObjectRow({
   object,
   onRemove,
@@ -363,15 +347,12 @@ function KnowledgeRow({
 }: {
   icon: ReactNode;
   title: string;
-  /** A fixed second line. Ignored when the note is editable. */
   meta?: ReactNode;
-  /** What the row is, shown before the person's note. */
   prefix?: string | null;
   note?: string;
   onNoteChange?: (note: string) => Promise<void>;
   onOpen: (() => void) | null;
   onRemove?: () => void;
-  /** Controls that stay visible; the remove button only shows on hover. */
   actions?: ReactNode;
   trailing: ReactNode;
   disabled?: boolean;
@@ -431,7 +412,6 @@ function KnowledgeRow({
   );
 }
 
-/** The arrow only shows when the pointer is on the row; the row is the link. */
 function OpenGlyph() {
   return (
     <ArrowSquareOutIcon

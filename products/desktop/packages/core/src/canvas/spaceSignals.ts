@@ -1,13 +1,11 @@
 import { type ContextObject, parsePostHogObjectUrl } from "./contextDocument";
 
-/** One raw finding a scout or source product filed about an object this space watches. */
 export interface SpaceSignal {
   content: string;
   sourceProduct: string;
   sourceType: string;
   sourceId: string;
   timestamp: string;
-  /** Where the source product points for this signal, when it gave one. */
   url: string | null;
 }
 
@@ -15,8 +13,6 @@ const MIN_TITLE_LENGTH = 6;
 const WINDOW_DAYS = 7;
 export const SPACE_SIGNALS_LIMIT = 8;
 
-// Signals are embedding documents; the lazy `document_embeddings` table routes
-// on this filter, and every signals query in the backend uses the same model.
 const SIGNAL_MODEL = "text-embedding-3-small-1536";
 
 function sqlString(value: string): string {
@@ -27,14 +23,6 @@ function sqlList(values: Iterable<string>): string {
   return [...values].map(sqlString).join(", ");
 }
 
-/**
- * HogQL for the latest signals about the objects a space watches. A signal
- * names its object in `metadata.source_id` (error issues, replay scanners),
- * in `metadata.extra` (an analytics anomaly carries its insight, scout evidence
- * carries the URLs it read), or only in its text. Each watched object matches
- * on all three: its id, its app path anywhere in the metadata, and its title in
- * the content. Returns null when the space watches nothing that can match.
- */
 export function buildSpaceSignalsQuery(
   objects: ContextObject[],
 ): string | null {

@@ -41,9 +41,7 @@ import { SectionHeader } from "./SectionHeader";
 interface GoalsListProps {
   goals: ContextGoal[];
   onChange: (goals: ContextGoal[]) => Promise<void>;
-  /** Start a task that writes a measure for a goal saved without one. */
   onAskAgentForMeasure: (goal: ContextGoal) => Promise<void>;
-  /** The agent task behind each goal that has no measure yet, by goal name. */
   measureTasks: ReadonlyMap<string, GoalMeasureTask>;
   onOpenMeasureTask: (taskId: string) => void;
   isSaving: boolean;
@@ -51,11 +49,6 @@ interface GoalsListProps {
 
 const GOAL_GRID = "grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4";
 
-/**
- * The numbers this space moves, as cards at the top of the document. A card
- * opens the goal in a dialog, where removal lives too, so the list never
- * changes shape while someone is writing.
- */
 export function GoalsList({
   goals,
   onChange,
@@ -418,7 +411,6 @@ function CardFooter({
 }: {
   goal: ContextGoal;
   trend: ReturnType<typeof useGoalTrend>;
-  /** The agent task that ended without writing a measure, if any. */
   endedTask: GoalMeasureTask | null;
   disabled: boolean;
   onOpenTask: (taskId: string) => void;

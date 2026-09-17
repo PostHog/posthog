@@ -24,7 +24,6 @@ import type { ReactNode } from "react";
 export interface ResolvedContextDocument {
   store: ContextDocumentStore;
   channelName: string;
-  /** Set when the document lives in the context wiki. */
   wikiPath: string | null;
 }
 
@@ -33,12 +32,6 @@ interface SpaceContextDocumentProps {
   children: (resolved: ResolvedContextDocument) => ReactNode;
 }
 
-/**
- * Resolves where a space's CONTEXT.md lives (a context wiki page, or the
- * legacy channel instructions) and hands whoever renders it one document
- * store either way. The Context tab and the CONTEXT.md page both sit on top
- * of this, so they cannot disagree about which document they show.
- */
 export function SpaceContextDocument({
   channelId,
   children,

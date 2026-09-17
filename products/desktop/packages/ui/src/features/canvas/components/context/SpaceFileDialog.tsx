@@ -11,7 +11,6 @@ interface SpaceFileDialogProps {
   onClose: () => void;
 }
 
-/** A space's extra Markdown file, edited where it lives in the context wiki. */
 export function SpaceFileDialog({
   path,
   channelName,

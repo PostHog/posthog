@@ -53,11 +53,6 @@ export function trendPeriodFor(
   return "day";
 }
 
-/**
- * A goal's measure is one aggregate over events. The same aggregate grouped
- * by period gives its trend, so every goal draws a chart from the query a
- * person wrote. Returns null when the query is not that simple shape.
- */
 export function deriveTrendSql(
   measureSql: string,
   period: TrendPeriod = "day",
