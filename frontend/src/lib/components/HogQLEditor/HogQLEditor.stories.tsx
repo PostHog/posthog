@@ -24,6 +24,11 @@ export default meta
 
 export const HogQLEditor_: Story = {
     args: {},
+    parameters: {
+        testOptions: {
+            snapshotSettleTimeMs: 1000,
+        },
+    },
 }
 
 export const NoValue: Story = {
