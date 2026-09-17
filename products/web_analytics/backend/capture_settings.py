@@ -2,8 +2,10 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from django.db import transaction
+from django.db.models import Min
 from django.utils import timezone
 
+from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
@@ -17,6 +19,12 @@ if TYPE_CHECKING:
 HEATMAP_FREE_CAPTURE_URL_LIMIT = 3
 
 
+@frozen
+class EffectiveCaptureSettings:
+    capture_mode: str
+    url_allowlist: list[str]
+
+
 def is_capture_all_urls_entitled(team: "Team") -> bool:
     return team.organization.has_active_subscription is not False
 
@@ -28,20 +36,32 @@ def default_capture_mode(team: "Team") -> str:
 
 
 def oldest_saved_heatmap_urls(team: "Team", limit: int = HEATMAP_FREE_CAPTURE_URL_LIMIT) -> list[str]:
-    urls: list[str] = []
-    seen: set[str] = set()
-    for url in (
+    return list(
         SavedHeatmap.objects.filter(team=team, deleted=False)
         .exclude(url="")
-        .order_by("created_at")
-        .values_list("url", flat=True)[:100]
-    ):
-        if url not in seen:
-            seen.add(url)
-            urls.append(url)
-        if len(urls) >= limit:
-            break
-    return urls
+        .values("url")
+        .annotate(first_created_at=Min("created_at"))
+        .order_by("first_created_at", "url")
+        .values_list("url", flat=True)[:limit]
+    )
+
+
+def effective_capture_settings(team: "Team", config: TeamHeatmapConfig | None) -> EffectiveCaptureSettings:
+    if is_capture_all_urls_entitled(team):
+        if config is None:
+            return EffectiveCaptureSettings(capture_mode=TeamHeatmapConfig.CaptureMode.ALL, url_allowlist=[])
+        return EffectiveCaptureSettings(
+            capture_mode=config.capture_mode, url_allowlist=list(config.capture_url_allowlist)
+        )
+
+    if config is not None and config.capture_mode == TeamHeatmapConfig.CaptureMode.URL_ALLOWLIST:
+        url_allowlist = list(config.capture_url_allowlist)
+    else:
+        url_allowlist = oldest_saved_heatmap_urls(team)
+    return EffectiveCaptureSettings(
+        capture_mode=TeamHeatmapConfig.CaptureMode.URL_ALLOWLIST,
+        url_allowlist=url_allowlist[:HEATMAP_FREE_CAPTURE_URL_LIMIT],
+    )
 
 
 def normalize_capture_url(value: str) -> str:
@@ -70,8 +90,9 @@ def save_capture_settings(
         config.save(update_fields=["capture_mode", "capture_url_allowlist"])
 
         now = timezone.now()
-        HeatmapCaptureConfigVersion.objects.filter(team_id=team.pk, effective_to__isnull=True).update(effective_to=now)
-        HeatmapCaptureConfigVersion.objects.create(
+        versions = HeatmapCaptureConfigVersion.objects.for_team(team.pk)
+        versions.filter(effective_to__isnull=True).update(effective_to=now)
+        versions.create(
             team=team,
             mode=capture_mode,
             patterns=url_allowlist if capture_mode == TeamHeatmapConfig.CaptureMode.URL_ALLOWLIST else [],

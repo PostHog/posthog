@@ -116,19 +116,52 @@ class TestCaptureSettings(APIBaseTest):
         for i, url in enumerate(["https://ex.com/a", "https://ex.com/b", "https://ex.com/c", "https://ex.com/d"]):
             with time_machine.travel(f"2025-01-0{i + 1}", tick=False):
                 SavedHeatmap.objects.create(team=self.team, url=url)
+        with time_machine.travel("2025-01-05", tick=False):
+            for _ in range(101):
+                SavedHeatmap.objects.create(team=self.team, url="https://ex.com/a")
 
         body = self.client.get(self._url()).json()
         assert body["capture_mode"] == "url_allowlist"
         assert body["url_allowlist"] == ["https://ex.com/a", "https://ex.com/b", "https://ex.com/c"]
-        assert HeatmapCaptureConfigVersion.objects.filter(team=self.team).count() == 0
+        assert HeatmapCaptureConfigVersion.objects.for_team(self.team.pk).count() == 0
         assert not TeamHeatmapConfig.objects.filter(team=self.team).exists()
+
+    def test_downgraded_org_reads_clamped_settings(self) -> None:
+        self.organization.has_active_subscription = True
+        self.organization.save()
+        four = [f"https://example.com/{i}" for i in range(4)]
+        assert (
+            self.client.patch(self._url(), {"capture_mode": "all", "url_allowlist": four}, format="json").status_code
+            == 200
+        )
+        SavedHeatmap.objects.create(team=self.team, url="https://ex.com/a")
+
+        self.organization.has_active_subscription = False
+        self.organization.save()
+        body = self.client.get(self._url()).json()
+        assert body["capture_mode"] == "url_allowlist"
+        assert body["url_allowlist"] == ["https://ex.com/a"]
+        assert body["can_capture_all_urls"] is False
+
+        response = self.client.patch(self._url(), {"url_allowlist": ["https://ex.com/b"]}, format="json")
+        assert response.status_code == 200
+        assert response.json() == {
+            "capture_mode": "url_allowlist",
+            "url_allowlist": ["https://ex.com/b"],
+            "enforcement_enabled": False,
+            "can_capture_all_urls": False,
+            "capture_url_limit": 3,
+        }
+        config = TeamHeatmapConfig.objects.get(team=self.team)
+        assert config.capture_mode == "url_allowlist"
+        assert config.capture_url_allowlist == ["https://ex.com/b"]
 
     def test_paid_org_gets_no_suggestion(self) -> None:
         self.organization.has_active_subscription = True
         self.organization.save()
         SavedHeatmap.objects.create(team=self.team, url="https://ex.com/a")
         assert self.client.get(self._url()).json()["url_allowlist"] == []
-        assert HeatmapCaptureConfigVersion.objects.filter(team=self.team).count() == 0
+        assert HeatmapCaptureConfigVersion.objects.for_team(self.team.pk).count() == 0
 
     @override_settings(HEATMAP_URL_ALLOWLIST_ENFORCEMENT_ENABLED=True)
     def test_get_reflects_enforcement_setting(self) -> None:
@@ -147,7 +180,7 @@ class TestCaptureSettings(APIBaseTest):
         assert config.capture_mode == "url_allowlist"
         assert config.capture_url_allowlist == ["https://example.com/pricing"]
 
-        versions = HeatmapCaptureConfigVersion.objects.filter(team=self.team)
+        versions = HeatmapCaptureConfigVersion.objects.for_team(self.team.pk)
         assert versions.count() == 1
         version = versions.get()
         assert version.effective_to is None
@@ -159,7 +192,7 @@ class TestCaptureSettings(APIBaseTest):
         )
         self.client.patch(self._url(), {"capture_mode": "all", "url_allowlist": []}, format="json")
 
-        versions = HeatmapCaptureConfigVersion.objects.filter(team=self.team).order_by("effective_from")
+        versions = HeatmapCaptureConfigVersion.objects.for_team(self.team.pk).order_by("effective_from")
         assert versions.count() == 2
         first, second = versions
         assert first.effective_to is not None
@@ -172,7 +205,7 @@ class TestCaptureSettings(APIBaseTest):
         body = {"capture_mode": "url_allowlist", "url_allowlist": ["https://example.com/a"]}
         self.client.patch(self._url(), body, format="json")
         self.client.patch(self._url(), body, format="json")
-        assert HeatmapCaptureConfigVersion.objects.filter(team=self.team).count() == 1
+        assert HeatmapCaptureConfigVersion.objects.for_team(self.team.pk).count() == 1
 
 
 class TestCapturePages(APIBaseTest, ClickhouseTestMixin):

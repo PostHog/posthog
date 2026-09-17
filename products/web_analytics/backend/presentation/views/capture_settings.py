@@ -14,14 +14,13 @@ from posthog.models import Team, User
 from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
 from posthog.permissions import TeamMemberStrictManagementPermission
 
-from products.web_analytics.backend.capture_pages import top_heatmap_pages
 from products.web_analytics.backend.facade.capture_settings import (
     HEATMAP_FREE_CAPTURE_URL_LIMIT,
-    default_capture_mode,
+    effective_capture_settings,
     is_capture_all_urls_entitled,
     normalize_capture_url,
-    oldest_saved_heatmap_urls,
     save_capture_settings,
+    top_heatmap_pages,
 )
 
 
@@ -34,17 +33,21 @@ class HeatmapCapturePagesSerializer(serializers.Serializer):
     pages = HeatmapCapturePageSerializer(many=True, help_text="Top pages by recent heatmap volume, most active first.")
 
 
+CAPTURE_MODE_HELP_TEXT = (
+    "Whether to capture heatmap data from every page ('all') or only listed URLs ('url_allowlist')."
+)
+URL_ALLOWLIST_HELP_TEXT = "Full http(s) URLs that may send heatmap data. Use * to match any characters."
+
+
 class HeatmapCaptureSettingsRequestSerializer(serializers.Serializer):
     capture_mode = serializers.ChoiceField(
-        choices=TeamHeatmapConfig.CaptureMode.choices,
-        required=False,
-        help_text="Whether to capture heatmap data from every page ('all') or only listed URLs ('url_allowlist').",
+        choices=TeamHeatmapConfig.CaptureMode.choices, required=False, help_text=CAPTURE_MODE_HELP_TEXT
     )
     url_allowlist = serializers.ListField(
         child=serializers.CharField(max_length=2000),
         max_length=100,
         required=False,
-        help_text="Full http(s) URLs that may send heatmap data. Use * to match any characters.",
+        help_text=URL_ALLOWLIST_HELP_TEXT,
     )
 
     def validate_url_allowlist(self, value: list[str]) -> list[str]:
@@ -54,7 +57,13 @@ class HeatmapCaptureSettingsRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError(str(error)) from None
 
 
-class HeatmapCaptureSettingsSerializer(HeatmapCaptureSettingsRequestSerializer):
+class HeatmapCaptureSettingsSerializer(serializers.Serializer):
+    capture_mode = serializers.ChoiceField(
+        choices=TeamHeatmapConfig.CaptureMode.choices, help_text=CAPTURE_MODE_HELP_TEXT
+    )
+    url_allowlist = serializers.ListField(
+        child=serializers.CharField(max_length=2000), help_text=URL_ALLOWLIST_HELP_TEXT
+    )
     enforcement_enabled = serializers.BooleanField(
         read_only=True, help_text="Whether this installation enforces the URL allow-list for heatmap capture."
     )
@@ -70,17 +79,12 @@ class HeatmapCaptureSettingsSerializer(HeatmapCaptureSettingsRequestSerializer):
 
 def capture_settings_response(team: Team, config: TeamHeatmapConfig | None) -> Response:
     entitled = is_capture_all_urls_entitled(team)
-    if config:
-        capture_mode = config.capture_mode
-        url_allowlist = config.capture_url_allowlist
-    else:
-        capture_mode = default_capture_mode(team)
-        url_allowlist = [] if entitled else oldest_saved_heatmap_urls(team)
+    effective = effective_capture_settings(team, config)
     return Response(
         HeatmapCaptureSettingsSerializer(
             {
-                "capture_mode": capture_mode,
-                "url_allowlist": url_allowlist,
+                "capture_mode": effective.capture_mode,
+                "url_allowlist": effective.url_allowlist,
                 "enforcement_enabled": settings.HEATMAP_URL_ALLOWLIST_ENFORCEMENT_ENABLED,
                 "can_capture_all_urls": entitled,
                 "capture_url_limit": None if entitled else HEATMAP_FREE_CAPTURE_URL_LIMIT,
@@ -119,10 +123,9 @@ class HeatmapCaptureSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         if not serializer.validated_data:
             return capture_settings_response(self.team, config)
 
-        capture_mode = serializer.validated_data.get(
-            "capture_mode", config.capture_mode if config else default_capture_mode(self.team)
-        )
-        url_allowlist = serializer.validated_data.get("url_allowlist", config.capture_url_allowlist if config else [])
+        effective = effective_capture_settings(self.team, config)
+        capture_mode = serializer.validated_data.get("capture_mode", effective.capture_mode)
+        url_allowlist = serializer.validated_data.get("url_allowlist", effective.url_allowlist)
 
         if not is_capture_all_urls_entitled(self.team):
             if capture_mode == TeamHeatmapConfig.CaptureMode.ALL:
