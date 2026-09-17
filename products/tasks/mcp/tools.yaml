@@ -169,7 +169,9 @@ tools:
         hidden_when_flag_on: loops-hog-flows
         superseded_by:
             - workflows-create
-        redirect_hint: 'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with origin_product "loops".'
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
         confirmed_action:
             message: >
                 About to create the loop '{name}', a persistent automation that will run unattended with your GitHub and
@@ -192,7 +194,9 @@ tools:
         hidden_when_flag_on: loops-hog-flows
         superseded_by:
             - workflows-archive
-        redirect_hint: 'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with origin_product "loops".'
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
     loops-list:
         operation: loops_list
         enabled: true
@@ -212,7 +216,9 @@ tools:
         hidden_when_flag_on: loops-hog-flows
         superseded_by:
             - workflows-list
-        redirect_hint: 'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with origin_product "loops".'
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
     loops-partial-update:
         operation: loops_partial_update
         enabled: true
@@ -233,7 +239,9 @@ tools:
         superseded_by:
             - workflows-patch-graph
             - workflows-update
-        redirect_hint: 'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with origin_product "loops".'
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
     loops-preview-create:
         operation: loops_preview_create
         enabled: true
@@ -252,7 +260,9 @@ tools:
         hidden_when_flag_on: loops-hog-flows
         superseded_by:
             - workflows-test-run
-        redirect_hint: 'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with origin_product "loops".'
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
     loops-retrieve:
         operation: loops_retrieve
         enabled: true
@@ -271,7 +281,9 @@ tools:
         hidden_when_flag_on: loops-hog-flows
         superseded_by:
             - workflows-get
-        redirect_hint: 'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with origin_product "loops".'
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
     loops-run-create:
         operation: loops_run_create
         enabled: true
@@ -290,7 +302,9 @@ tools:
         hidden_when_flag_on: loops-hog-flows
         superseded_by:
             - workflows-test-run
-        redirect_hint: 'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with origin_product "loops".'
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
     loops-runs-retrieve:
         operation: loops_runs_retrieve
         enabled: true
@@ -313,7 +327,9 @@ tools:
         hidden_when_flag_on: loops-hog-flows
         superseded_by:
             - workflows-list-invocations
-        redirect_hint: 'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with origin_product "loops".'
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
     loops-skill-bundles-update:
         operation: loops_skill_bundles_update
         enabled: false
