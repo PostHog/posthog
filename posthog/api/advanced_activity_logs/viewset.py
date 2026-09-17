@@ -147,6 +147,18 @@ def restrict_canvas_activity_for_org(queryset: QuerySet[ActivityLog], organizati
     return queryset.exclude(Q(scope="Canvas") & Q(item_id__in=hidden_ids))
 
 
+def restrict_team_activity(queryset: QuerySet[ActivityLog], organization, team_id: int, user) -> QuerySet[ActivityLog]:
+    """Apply the lookback window and the per-scope visibility rules the team routes share."""
+    lookback_date = get_activity_log_lookback_restriction(organization)
+    if lookback_date:
+        queryset = queryset.filter(created_at__gte=lookback_date)
+
+    queryset = apply_activity_visibility_restrictions(queryset, user)
+    queryset = restrict_loop_activity(queryset, team_id, user)
+    queryset = restrict_canvas_activity(queryset, team_id, user)
+    return restrict_task_activity(queryset, team_id, user)
+
+
 def apply_organization_scoped_filter(
     queryset: QuerySet[ActivityLog], include_org_scoped: bool, team_id: int, organization_id
 ) -> QuerySet[ActivityLog]:
@@ -359,14 +371,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
         if params.get("page"):
             queryset = queryset.order_by(*activity_log_ordering(self.request))
 
-        lookback_date = get_activity_log_lookback_restriction(self.organization)
-        if lookback_date:
-            queryset = queryset.filter(created_at__gte=lookback_date)
-
-        queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
-        queryset = restrict_loop_activity(queryset, self.team_id, self.request.user)
-        queryset = restrict_canvas_activity(queryset, self.team_id, self.request.user)
-        queryset = restrict_task_activity(queryset, self.team_id, self.request.user)
+        queryset = restrict_team_activity(queryset, self.organization, self.team_id, self.request.user)
 
         return queryset
 
@@ -645,15 +650,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             self.organization.id,
         )
 
-        # Apply lookback restriction based on feature limits
-        lookback_date = get_activity_log_lookback_restriction(self.organization)
-        if lookback_date:
-            queryset = queryset.filter(created_at__gte=lookback_date)
-
-        queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
-        queryset = restrict_loop_activity(queryset, self.team_id, self.request.user)
-        queryset = restrict_canvas_activity(queryset, self.team_id, self.request.user)
-        queryset = restrict_task_activity(queryset, self.team_id, self.request.user)
+        queryset = restrict_team_activity(queryset, self.organization, self.team_id, self.request.user)
 
         return queryset.order_by(*activity_log_ordering(self.request))
 
