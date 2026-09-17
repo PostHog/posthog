@@ -396,9 +396,10 @@ def iter_markdown_blocks(markdown: str, max_prose_blocks: int | None = None) -> 
         return width
 
     def block_source(start_line: int, end_line: int) -> str:
-        width = span_code_points(start_line, end_line)
-        closing = _markdown_terminator_width(markdown, code_points + width - 1)
-        return markdown[code_points : code_points + width - closing]
+        # The last line of a document often has no terminator, so one looked up from the end of
+        # the span would be a character of the block itself.
+        width = span_code_points(start_line, end_line - 1) + len(lines[end_line - 1])
+        return markdown[code_points : code_points + width]
 
     def consume(start_line: int, end_line: int) -> None:
         nonlocal code_points, utf16
