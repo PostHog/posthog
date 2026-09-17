@@ -218,7 +218,7 @@ async def test_stripe_source_full_refresh_resumes_after_worker_shutdown_without_
             external_data_source=external_data_source,
             external_data_schema=external_data_schema_full_refresh,
             table_name="stripe_balancetransaction",
-            expected_rows_synced=None,
+            expected_rows_synced=len(BALANCE_TRANSACTIONS),
             expected_total_rows=len(BALANCE_TRANSACTIONS),
         )
 

@@ -155,6 +155,7 @@ def get_forecast(
         # Persist immediately — exports are quota-limited, so a retried
         # activity must re-poll this job rather than create another.
         resumable_source_manager.save_state(ClariResumeConfig(job_id=job_id))
+        resumable_source_manager.commit()
 
     status = None
     for _attempt in range(EXPORT_POLL_MAX_ATTEMPTS):
@@ -167,6 +168,7 @@ def get_forecast(
         if status in ("FAILED", "CANCELLED", "ABORTED"):
             # Don't re-poll a dead job on retry.
             resumable_source_manager.save_state(ClariResumeConfig(job_id=None))
+            resumable_source_manager.commit()
             raise ValueError(f"Clari forecast export job {job_id} ended with status {status}")
 
         time.sleep(EXPORT_POLL_INTERVAL_SECONDS)

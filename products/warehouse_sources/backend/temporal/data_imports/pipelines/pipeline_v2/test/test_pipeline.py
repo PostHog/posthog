@@ -265,3 +265,25 @@ class TestResumeCursorCommit:
 
         cast(AsyncMock, pipeline._process_pa_table).assert_not_awaited()
         redis.set.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_rows_buffered_when_the_source_raises_are_written_with_their_cursor(self) -> None:
+        redis = MagicMock()
+        manager = _manager()
+
+        def items():
+            manager.save_state(_Cursor("a"))
+            yield [{"id": "a"}]
+            raise RuntimeError("page budget")
+
+        pipeline = _runnable_pipeline(manager, items)
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(ResumableSourceManager, "_get_redis", lambda self: nullcontext(redis)))
+            for run_patch in _run_patches():
+                stack.enter_context(run_patch)
+            with pytest.raises(RuntimeError):
+                await pipeline.run()
+
+        assert cast(AsyncMock, pipeline._process_pa_table).await_count == 1
+        assert [json.loads(call.args[1])["id"] for call in redis.set.call_args_list] == ["a"]
