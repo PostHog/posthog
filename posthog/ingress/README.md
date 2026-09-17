@@ -50,6 +50,8 @@ An HMAC over raw bytes proves only the signature, so its `facts` are empty and `
 | `slack`      | `/api/conversations/v1/slack/events`                    | `supporthog` | `conversations_slack`                                                                                                                       | `products/conversations/backend/webhook_consumers.py`                   |
 | `pandadoc`   | `/api/legal_documents/pandadoc`                         | `default`    | `legal_documents_signatures`                                                                                                                | `products/legal_documents/backend/webhook_consumers.py`                 |
 | `vapi`       | `/api/user_interviews/vapi_webhook/`                    | `default`    | `user_interviews_vapi`                                                                                                                      | `products/user_interviews/backend/webhook_consumers.py`                 |
+| `mailgun`    | `/api/conversations/v1/email/inbound`                   | `inbound`    | none yet, the endpoint still runs its own verifier                                                                                          | `products/conversations/backend/api/email_events.py`                    |
+| `mailgun`    | `/api/conversations/v1/email/outbound`                  | `outbound`   | none yet, the endpoint still runs its own verifier                                                                                          | `products/conversations/backend/api/email_events.py`                    |
 | `sns`        | `/webhooks/workflows/ses-events`                        | `default`    | `workflows_ses_events`                                                                                                                      | `products/workflows/backend/webhook_consumers.py`                       |
 | `customerio` | `/api/projects/<team_id>/messaging/customerio/webhook/` | none         | none, it is the DRF adapter path                                                                                                            | `products/messaging/backend/api/customerio_webhook.py`                  |
 
@@ -176,6 +178,11 @@ The ownership lookup runs inside the request, before dispatch, and inside the sa
 A lookup that reads the database must be bounded with `bounded_statement_timeout(ms, models=...)`.
 A lookup that raises is logged, captured, counted as `failed` and treated as `UNDECIDED`, so one consumer cannot cost the delivery the receipt it earned by signing.
 
+What crosses is the raw signed body, except for a provider that signs the form rather than the body.
+Reading that form consumes the request stream and leaves no raw bytes, so the forward rebuilds the fields and the files and drops the original `Content-Type`, which names the boundary of a body that is gone.
+
+The forward runs under the provider's `forward_timeout_seconds`, which defaults to 3 and which a provider whose deliveries carry uploaded files raises, because the forward rebuilds and re-sends every part.
+
 A failed forward keeps the receipt by default.
 A provider that redelivers on a non-2xx (Slack does, GitHub does not) sets `retry_status` on its incarnation, and the view answers that status with outcome `forward_failed` instead — so the provider sends the delivery again rather than losing it.
 The same attribute answers a delivery whose consumers did not accept it, under outcome `retry_requested`; see ["Ingress does not let a consumer decide the response"](#non-goals).
@@ -214,6 +221,7 @@ Last, write `<provider>/README.md` with the fixed sections every provider README
 Two shapes that already exist and are worth copying rather than re-deriving:
 
 - **Several apps on one provider.** One incarnation can serve several apps, each with its own secret getter, its own subscribed event types, and its own consumer set. Consumers register against the app name. `github/` is the case.
+- **A provider that signs the form rather than the body.** The incarnation overrides both `verify()` and `parse()` to read `request.POST`, assembles the signed input from the form fields, and hands it to `HmacSha256` as if it came from headers. `mailgun/` is the case.
 - **The DRF adapter path.** An endpoint that genuinely needs DRF's team scoping keeps its view, and the incarnation contributes a scheme only, declaring no spec, because nothing dispatches there. `customerio/` is the case. The view verifies through `posthog.auth.WebhookSignatureAuthentication`.
   That base class computes its digest with `hmac_sha256_signature()` and compares with `signatures_match()` from `verify/schemes.py`, so the adapter path and the dispatched path share one implementation of HMAC-SHA256.
   It backs three endpoints rather than Customer.io alone, because the tasks cross-region usage lookup and the AI observability cross-region spend lookup subclass it too, each with its own header names, signed-input format, and secret.
