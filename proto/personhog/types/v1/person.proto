@@ -29,6 +29,7 @@ message Person {
 message DistinctIdWithVersion {
   string distinct_id = 1;
   optional int64 version = 2;
+  optional int64 id = 3;  // Row ID, usable as a pagination cursor.
 }
 
 // PersonWithDistinctIds pairs a lookup distinct_id with its resolved person
@@ -116,10 +117,12 @@ message GetDistinctIdsForPersonRequest {
   int64 person_id = 2;
   ReadOptions read_options = 3;
   optional int64 limit = 4;  // Max distinct IDs returned. 0 or absent = no limit.
+  optional int64 cursor_id = 5;  // Keyset cursor: return rows with id > cursor_id.
 }
 
 message GetDistinctIdsForPersonResponse {
   repeated DistinctIdWithVersion distinct_ids = 1;
+  optional int64 next_cursor_id = 2;  // Absent when no more pages.
 }
 
 message GetDistinctIdsForPersonsRequest {

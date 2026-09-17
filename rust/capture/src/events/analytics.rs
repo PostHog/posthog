@@ -508,6 +508,7 @@ async fn process_events_inner(
             let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
             let mut limited_event_count: u64 = 0;
             let mut already_disabled_event_count: u64 = 0;
+            let mut already_disabled_over_budget_count: u64 = 0;
             for event in events.iter_mut() {
                 let cache_key =
                     GlobalRateLimitKey::TokenDistinctId(&context.token, &event.event.distinct_id)
@@ -522,6 +523,9 @@ async fn process_events_inner(
                 // so stamp nothing and keep it out of the customer-facing tallies.
                 if event.metadata.skip_person_processing {
                     already_disabled_event_count += 1;
+                    if limited {
+                        already_disabled_over_budget_count += 1;
+                    }
                     continue;
                 }
 
@@ -559,10 +563,23 @@ async fn process_events_inner(
                 );
             }
 
-            if already_disabled_event_count > 0 {
-                // Charged against the limiter but not re-stamped.
-                counter!("capture_global_rate_limiter_already_disabled")
-                    .increment(already_disabled_event_count);
+            // Enforcement alerting needs the over_budget arm; keep both arms emitted.
+            if already_disabled_over_budget_count > 0 {
+                counter!(
+                    "capture_global_rate_limiter_already_disabled",
+                    "over_budget" => "true",
+                )
+                .increment(already_disabled_over_budget_count);
+            }
+
+            let already_disabled_under_budget_count =
+                already_disabled_event_count - already_disabled_over_budget_count;
+            if already_disabled_under_budget_count > 0 {
+                counter!(
+                    "capture_global_rate_limiter_already_disabled",
+                    "over_budget" => "false",
+                )
+                .increment(already_disabled_under_budget_count);
             }
 
             if limited_event_count > 0 {
@@ -2890,13 +2907,36 @@ mod tests {
         assert!(collector.emitted().is_empty());
     }
 
+    /// Counter value for the already-disabled GRL metric at the given `over_budget` label.
+    fn already_disabled_count(
+        snapshotter: &metrics_util::debugging::Snapshotter,
+        over_budget: &str,
+    ) -> Option<u64> {
+        use metrics_util::debugging::DebugValue;
+
+        snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .find_map(|(key, _, _, value)| {
+                if key.key().name() != "capture_global_rate_limiter_already_disabled" {
+                    return None;
+                }
+                let labels: std::collections::HashMap<&str, &str> =
+                    key.key().labels().map(|l| (l.key(), l.value())).collect();
+                if labels.get("over_budget") != Some(&over_budget) {
+                    return None;
+                }
+                match value {
+                    DebugValue::Counter(v) => Some(v),
+                    _ => None,
+                }
+            })
+    }
+
     #[tokio::test]
     async fn global_rate_limit_is_skipped_when_person_processing_was_already_off() {
-        // An ops restriction already took person processing away, so the limiter
-        // is not consulted: it has nothing left to take, and the call would cost a
-        // Redis round trip per event. The event keeps its lane and its partition
-        // key, so the limiter's overflow reroute does not apply either. A hot key
-        // under a restriction is left to the burst limiter downstream.
+        // Still charged so the key's fleet count stays right, but nothing is stamped.
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -2910,6 +2950,10 @@ mod tests {
         let sink = MockSink::new();
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
         let collector = Arc::new(CollectingEmitter::new());
+
+        let recorder = metrics_util::debugging::DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _metrics_guard = metrics::set_default_local_recorder(&recorder);
 
         let service =
             EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
@@ -2945,8 +2989,73 @@ mod tests {
         assert!(captured[0].metadata.skip_person_processing);
         assert_eq!(
             captured[0].metadata.overflow_reason, None,
-            "the limiter is skipped, so it does not reroute the key to overflow"
+            "an already-disabled event is not rerouted to overflow"
         );
+        assert_eq!(
+            already_disabled_count(&snapshotter, "true"),
+            Some(1),
+            "an over-budget event with person processing already off belongs in the over_budget arm"
+        );
+        assert_eq!(
+            already_disabled_count(&snapshotter, "false"),
+            None,
+            "nothing under budget was already disabled in this batch"
+        );
+    }
+
+    #[tokio::test]
+    async fn already_disabled_under_budget_is_counted_separately() {
+        // Under budget: must not enter the enforcement identity.
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let events = vec![create_test_event(
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let sink = MockSink::new();
+        let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&[]));
+
+        let recorder = metrics_util::debugging::DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _metrics_guard = metrics::set_default_local_recorder(&recorder);
+
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
+        let mut manager = RestrictionManager::new();
+        manager.insert_restrictions(
+            Pipeline::Analytics,
+            "test_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::SkipPersonProcessing,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        );
+        service.update(manager).await;
+
+        run_pipeline(
+            Arc::new(OutputRegistry::single(sink.clone())),
+            events,
+            &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                global_rate_limiter: Some(global_limiter),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            already_disabled_count(&snapshotter, "false"),
+            Some(1),
+            "an under-budget event with person processing already off belongs in the other arm"
+        );
+        assert_eq!(already_disabled_count(&snapshotter, "true"), None);
     }
 
     #[tokio::test]

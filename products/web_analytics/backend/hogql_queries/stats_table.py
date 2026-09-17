@@ -265,8 +265,10 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
         Mirrors the family-level branches of `_get_strategy` above, deliberately not its join
         variants: those pick how a family runs the query, not which family owns it. The two
-        taxonomies diverge in one place. INITIAL_PAGE with bounce rate is a simple breakdown with an
-        entry-pathname override on the live path, but the paths family is what precomputes it.
+        taxonomies diverge where the live path treats a pathname breakdown as simple: INITIAL_PAGE
+        (with or without bounce) and bounce-less PAGE run as simple breakdowns live, but the paths
+        family is what precomputes every pathname shape — its buckets store bounce state either
+        way, and the response just omits the column when the query didn't ask for it.
 
         The families are disjoint, so asking only the owner loses no precompute hit: PAGE,
         INITIAL_PAGE and FRUSTRATION_METRICS are all absent from the simple family's
@@ -277,14 +279,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         if breakdown == WebStatsBreakdown.FRUSTRATION_METRICS:
             return "frustration"
 
-        if (
-            breakdown == WebStatsBreakdown.PAGE
-            and not self.query.conversionGoal
-            and (self.query.includeAvgTimeOnPage or self.query.includeBounceRate)
-        ):
-            return "paths"
-
-        if breakdown == WebStatsBreakdown.INITIAL_PAGE and self.query.includeBounceRate:
+        if breakdown in (WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE) and not self.query.conversionGoal:
             return "paths"
 
         return "simple"
@@ -294,7 +289,10 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         direction: Literal["ASC", "DESC"] = "DESC"
         if self.query.orderBy:
             field = cast(WebAnalyticsOrderByFields, self.query.orderBy[0])
-            direction = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1]).value
+            # The schema does not bound orderBy's length, so an API caller can send
+            # just the field; a missing direction defaults to DESC everywhere.
+            if len(self.query.orderBy) > 1:
+                direction = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1]).value
 
             if field == WebAnalyticsOrderByFields.VISITORS:
                 column = "context.columns.visitors"
@@ -700,6 +698,10 @@ WHERE and(
         this just renames fields and applies the `limit + 1` → `hasMore`
         truncation."""
         include_previous = bool(self.query_compare_to_date_range)
+        # The SQL always computes bounce (the stored buckets carry it either way);
+        # the response only carries it when the query asked, so a bounce-less read
+        # (weekly digest, API callers) keeps the same column set as the live path.
+        include_bounce = bool(self.query.includeBounceRate)
         has_more = len(rows) > limit
         page = rows[:limit]
 
@@ -720,22 +722,22 @@ WHERE and(
             # in case a future schema change reintroduces a NaN path.
             bounce_rate = _none_if_nan(bounce_rate)
             prev_bounce_rate = _none_if_nan(prev_bounce_rate)
-            results.append(
-                [
-                    breakdown_value,
-                    (visitors, prev_visitors if include_previous else None),
-                    (views, prev_views if include_previous else None),
-                    (bounce_rate, prev_bounce_rate if include_previous else None),
-                    float(fill_fraction) if fill_fraction is not None else 0.0,
-                    "",  # cross_sell placeholder
-                ]
-            )
+            result_row = [
+                breakdown_value,
+                (visitors, prev_visitors if include_previous else None),
+                (views, prev_views if include_previous else None),
+            ]
+            if include_bounce:
+                result_row.append((bounce_rate, prev_bounce_rate if include_previous else None))
+            result_row.append(float(fill_fraction) if fill_fraction is not None else 0.0)
+            result_row.append("")  # cross_sell placeholder
+            results.append(result_row)
 
         columns = [
             "context.columns.breakdown_value",
             "context.columns.visitors",
             "context.columns.views",
-            "context.columns.bounce_rate",
+            *(["context.columns.bounce_rate"] if include_bounce else []),
             "context.columns.ui_fill_fraction",
             "context.columns.cross_sell",
         ]
@@ -761,8 +763,9 @@ WHERE and(
         field = "visitors"
         if self.query.orderBy:
             order_field = cast(WebAnalyticsOrderByFields, self.query.orderBy[0])
-            order_dir = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1])
-            direction = cast(Literal["ASC", "DESC"], order_dir.value)
+            if len(self.query.orderBy) > 1:
+                order_dir = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1])
+                direction = cast(Literal["ASC", "DESC"], order_dir.value)
             if order_field == WebAnalyticsOrderByFields.VISITORS:
                 field = "visitors"
             elif order_field == WebAnalyticsOrderByFields.VIEWS:
@@ -1010,6 +1013,12 @@ WHERE and(
                 return first_pageview_filter_value_expr(breakdown, modifiers=self.modifiers, timings=self.timings)
             case WebStatsBreakdown.BROWSER:
                 return ast.Field(chain=["properties", "$browser"])
+            case WebStatsBreakdown.IN_APP_BROWSER:
+                # Non-in-app traffic has no $webview_app, so it drops out via the default
+                # outer_where_breakdown branch (IS NOT NULL). That is intentional: this tile lists
+                # the host apps, not a dominant "(not set)" row for everyone else, so its total does
+                # not reconcile with the overview. Do not add it to the "(not set)" list below.
+                return ast.Field(chain=["properties", "$webview_app"])
             case WebStatsBreakdown.OS:
                 return ast.Field(chain=["properties", "$os"])
             case WebStatsBreakdown.VIEWPORT:

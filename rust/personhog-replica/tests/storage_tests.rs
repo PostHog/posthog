@@ -127,7 +127,13 @@ async fn test_get_distinct_ids_for_person() {
 
     let result = ctx
         .storage
-        .get_distinct_ids_for_person(ctx.team_id, person.id, ConsistencyLevel::Eventual, None)
+        .get_distinct_ids_for_person(
+            ctx.team_id,
+            person.id,
+            ConsistencyLevel::Eventual,
+            None,
+            None,
+        )
         .await
         .expect("Failed to get distinct IDs");
 
@@ -3388,6 +3394,92 @@ async fn test_delete_tombstoned_persons_gives_up_when_a_writer_holds_the_row() {
     assert!(started.elapsed() < Duration::from_secs(20));
     holder.rollback().await.unwrap();
     assert!(ctx.person_row_exists(person.id).await.unwrap());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_distinct_ids_for_person_paginated() {
+    let ctx = TestContext::new().await;
+    // Mix anonymous-format UUIDs with identified strings so the anonymous-
+    // deprioritizing sort and ORDER BY id ASC produce different orderings.
+    let person = ctx
+        .insert_person("0190f8e1-1234-7abc-89de-f0123456789a", None)
+        .await
+        .expect("insert person");
+    ctx.add_distinct_id_to_person(person.id, "user@example.com")
+        .await
+        .expect("add distinct id");
+    ctx.add_distinct_id_to_person(person.id, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+        .await
+        .expect("add distinct id");
+    ctx.add_distinct_id_to_person(person.id, "another_identified")
+        .await
+        .expect("add distinct id");
+    ctx.add_distinct_id_to_person(person.id, "01234567-abcd-efab-cdef-0123456789ab")
+        .await
+        .expect("add distinct id");
+
+    // cursor_id=0 selects the keyset branch (ORDER BY id ASC), same as all
+    // subsequent pages, so cross-page ordering is consistent.
+    let page1 = ctx
+        .storage
+        .get_distinct_ids_for_person(
+            ctx.team_id,
+            person.id,
+            ConsistencyLevel::Eventual,
+            Some(2),
+            Some(0),
+        )
+        .await
+        .expect("page 1");
+    assert_eq!(page1.len(), 2);
+
+    let cursor = page1.last().unwrap().id;
+    let page2 = ctx
+        .storage
+        .get_distinct_ids_for_person(
+            ctx.team_id,
+            person.id,
+            ConsistencyLevel::Eventual,
+            Some(2),
+            Some(cursor),
+        )
+        .await
+        .expect("page 2");
+    assert_eq!(page2.len(), 2);
+    assert!(page2[0].id > cursor);
+
+    let cursor2 = page2.last().unwrap().id;
+    let page3 = ctx
+        .storage
+        .get_distinct_ids_for_person(
+            ctx.team_id,
+            person.id,
+            ConsistencyLevel::Eventual,
+            Some(2),
+            Some(cursor2),
+        )
+        .await
+        .expect("page 3");
+    assert_eq!(page3.len(), 1);
+
+    let mut all_dids: Vec<String> = page1
+        .iter()
+        .chain(page2.iter())
+        .chain(page3.iter())
+        .map(|d| d.distinct_id.clone())
+        .collect();
+    all_dids.sort();
+    let mut expected = vec![
+        "0190f8e1-1234-7abc-89de-f0123456789a",
+        "01234567-abcd-efab-cdef-0123456789ab",
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "another_identified",
+        "user@example.com",
+    ];
+    expected.sort();
+    assert_eq!(all_dids, expected);
 
     ctx.cleanup().await.ok();
 }

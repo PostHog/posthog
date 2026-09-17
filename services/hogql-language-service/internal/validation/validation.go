@@ -66,6 +66,17 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 				})
 			}
 		}
+		for source := range statement.DuplicateSources() {
+			if len(diagnostics) >= querylimits.MaxDiagnostics {
+				break
+			}
+			diagnostics = append(diagnostics, Diagnostic{
+				Code:    "duplicate_table",
+				Message: fmt.Sprintf("Table name %q is used more than once. Use a distinct alias for each table.", source.Qualifier()),
+				Start:   source.Start(),
+				End:     source.End(),
+			})
+		}
 		ignoredIdents := map[*clickhouse.Ident]bool{}
 		statement.Walk(func(node clickhouse.Expr) bool {
 			switch typed := node.(type) {
