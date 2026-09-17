@@ -72,7 +72,10 @@ class DynamoBoundary {
         await Promise.resolve()
         if (command.input.ConditionExpression === 'attribute_not_exists(pk)' && this.items.has(id)) {
             this.conditionalFailures += 1
-            throw new ConditionalCheckFailedException({ $metadata: {}, message: 'The conditional request failed' })
+            throw Object.assign(
+                new ConditionalCheckFailedException({ $metadata: {}, message: 'The conditional request failed' }),
+                command.input.ReturnValuesOnConditionCheckFailure === 'ALL_OLD' ? { Item: this.items.get(id) } : {}
+            )
         }
         this.items.set(id, item)
         return {}
@@ -114,10 +117,14 @@ describe('ML session key batches', () => {
             8,
             1_000_000_000
         )
+        coldCache()
+    })
+
+    function coldCache(): void {
         const db = new MlKeyDynamoDB(boundary as unknown as DynamoDBClient, table)
         store = new MlSessionKeyStore(db, encryption)
         reader = new MlKeyReader(db, encryption)
-    })
+    }
 
     afterEach(() => {
         jest.useRealTimers()
@@ -186,6 +193,71 @@ describe('ML session key batches', () => {
         const batch = await store.prepare([session])
         await expect(batch.commit()).rejects.toThrow('ValidationException')
         expect(boundary.writes).toBeLessThanOrEqual(2)
+    })
+
+    it.each([
+        ['prepare', 5, true],
+        ['prepare', 6, false],
+        ['reader', 5, true],
+        ['reader', 6, false],
+    ])('%s under %i consecutive read throttles succeeds: %s', async (entryPoint, failures, succeeds) => {
+        const send = boundary.send.bind(boundary)
+        let remaining = failures as number
+        jest.spyOn(boundary, 'send').mockImplementation((command) => {
+            if (command instanceof BatchGetItemCommand && remaining > 0) {
+                remaining -= 1
+                return Promise.reject(transientError('RequestLimitExceeded'))
+            }
+            return send(command)
+        })
+        jest.useFakeTimers()
+        const settled = (
+            entryPoint === 'prepare'
+                ? store.prepare([session])
+                : reader.read([sessionKeyId(session.teamId, session.sessionId)])
+        ).then(
+            () => 'read',
+            () => 'failed'
+        )
+        await jest.runAllTimersAsync()
+        expect(await settled).toBe(succeeds ? 'read' : 'failed')
+    })
+
+    it('sends no further request when the deadline aborts during a retry delay', async () => {
+        const db = new MlKeyDynamoDB(boundary as unknown as DynamoDBClient, table)
+        const budget = new AbortController()
+        let sends = 0
+        jest.spyOn(boundary, 'send').mockImplementation(() => {
+            sends += 1
+            return Promise.reject(transientError('ThrottlingException'))
+        })
+        jest.useFakeTimers()
+        const settled = db.read([sessionKeyId(session.teamId, session.sessionId)], budget.signal).then(
+            () => 'read',
+            () => 'failed'
+        )
+        await jest.advanceTimersByTimeAsync(0)
+        budget.abort()
+        await jest.runAllTimersAsync()
+        expect(await settled).toBe('failed')
+        expect(sends).toBe(1)
+    })
+
+    it('stops a read when the caller deadline aborts instead of waiting out its attempts', async () => {
+        const db = new MlKeyDynamoDB(boundary as unknown as DynamoDBClient, table)
+        let attempts = 0
+        jest.spyOn(boundary, 'send').mockImplementation(() => {
+            attempts += 1
+            return Promise.reject(transientError('AbortError'))
+        })
+        jest.useFakeTimers()
+        const settled = db.read([sessionKeyId(session.teamId, session.sessionId)], AbortSignal.abort()).then(
+            () => 'read',
+            () => 'failed'
+        )
+        await jest.runAllTimersAsync()
+        expect(await settled).toBe('failed')
+        expect(attempts).toBe(1)
     })
 
     it('writes the month index entry before the key and repairs a failed index put', async () => {
@@ -264,7 +336,7 @@ describe('ML session key batches', () => {
         expect(remaining).toBeGreaterThan(0)
     })
 
-    it('indexes monthly keys, ignores a month marker, and blocks on a team marker set during a batch', async () => {
+    it('indexes monthly keys, ignores a month marker, and refuses a team marker from the next read', async () => {
         const october = { ...session, sessionId: '0199a13b-c000-7000-8000-000000000007' }
         const first = await store.prepare([session, october])
         await first.commit()
@@ -303,8 +375,10 @@ describe('ML session key batches', () => {
         const committing = inFlight.commit()
         await jest.runAllTimersAsync()
         await committing
-        expect(inFlight.get(session.teamId, session.sessionId)).toBeUndefined()
+        // A commit no longer re-reads, so the in-flight batch misses the block that every reader and the next batch see.
+        expect(inFlight.get(session.teamId, session.sessionId)).not.toBeUndefined()
         expect((await reader.read(locations)).size).toBe(0)
+        expect((await store.prepare([session])).get(session.teamId, session.sessionId)).toBeUndefined()
     })
 
     it('wraps new keys without an organization and stores none on the row', async () => {
@@ -384,6 +458,7 @@ describe('ML session key batches', () => {
             const location = tableKeyString(keyId())
             const { wrapped_key: _wrapped, ...stored } = boundary.items.get(location)!
             boundary.items.set(location, stored)
+            coldCache()
             const unusable = jest.spyOn(MlMirrorMetrics, 'incrementMlKeyIdentityMismatch')
             const next = await store.prepare([session])
             expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
@@ -409,18 +484,119 @@ describe('ML session key batches', () => {
         expect(second.get(session.teamId, session.sessionId)!.session.plaintext).not.toEqual(provisional)
     })
 
-    it('blocks an existing session deleted during a batch', async () => {
+    it.each([
+        ['a fractional value', 30_000.5],
+        ['an unparsable value', Number.NaN],
+        ['a zero', 0],
+    ])('refuses to start on %s cache setting', (_label, configured) => {
+        expect(
+            () =>
+                new MlKeyDynamoDB(boundary as unknown as DynamoDBClient, table, undefined, undefined, 1000, configured)
+        ).toThrow('AI_RESEARCH_REPLAY_ROW_CACHE_LIFETIME_MS')
+    })
+
+    it.each([
+        ['a lifetime over the cap is clamped', 86_400_000, 300_001, false],
+        ['a lifetime under the cap is kept', 60_000, 60_001, false],
+        ['a team image key outlives the session cap', 86_400_000, 300_001, true],
+    ])('%s', async (_label, configured, elapsedMs, imageKey) => {
+        let fakeNow = 1_000
+        const clock = jest.spyOn(performance, 'now').mockImplementation(() => fakeNow)
+        try {
+            const db = new MlKeyDynamoDB(
+                boundary as unknown as DynamoDBClient,
+                table,
+                undefined,
+                undefined,
+                1000,
+                configured
+            )
+            const location = imageKey
+                ? imageKeyId(session.teamId, '2025-09')
+                : sessionKeyId(session.teamId, session.sessionId)
+            await (await new MlSessionKeyStore(db, encryption).prepare([session])).commit()
+            const reader = new MlKeyReader(db, encryption)
+            expect((await reader.read([location])).size).toBe(1)
+            boundary.items.set(tableKeyString(location), { ...encodeKey(location), deleted: { BOOL: true } })
+            fakeNow += elapsedMs
+            expect((await reader.read([location])).size).toBe(imageKey ? 1 : 0)
+        } finally {
+            clock.mockRestore()
+        }
+    })
+
+    it('refuses a blocked team on the next batch while its session row is still cached', async () => {
+        await (await store.prepare([session])).commit()
+        const warm = await store.prepare([session])
+        expect(warm.get(session.teamId, session.sessionId)).not.toBeUndefined()
+        const blocked = teamBlockId(session.teamId)
+        boundary.items.set(tableKeyString(blocked), { ...encodeKey(blocked), deleted: { BOOL: true } })
+        const readsBefore = boundary.readSizes.length
+        const next = await store.prepare([session])
+        // Only the team block row reached DynamoDB. The session row was served from the cache and did not hide the block.
+        expect(boundary.readSizes.slice(readsBefore).reduce((total, size) => total + size, 0)).toBe(1)
+        expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
+        // The block is held once seen, so a team that keeps sending stops costing a read per batch.
+        const afterBlockRead = boundary.readSizes.length
+        expect((await store.prepare([session])).get(session.teamId, session.sessionId)).toBeUndefined()
+        expect(boundary.readSizes.slice(afterBlockRead).reduce((total, size) => total + size, 0)).toBe(0)
+    })
+
+    it('holds a session tombstone so a deleted session stops costing a read and a doomed write', async () => {
+        const db = new MlKeyDynamoDB(boundary as unknown as DynamoDBClient, table)
+        const store = new MlSessionKeyStore(db, encryption)
+        const location = sessionKeyId(session.teamId, session.sessionId)
+        await (await store.prepare([session])).commit()
+        boundary.items.set(tableKeyString(location), { ...encodeKey(location), deleted: { BOOL: true } })
+        const cold = new MlSessionKeyStore(new MlKeyDynamoDB(boundary as unknown as DynamoDBClient, table), encryption)
+        const first = await cold.prepare([session])
+        expect(first.get(session.teamId, session.sessionId)).toBeUndefined()
+        const readsBefore = boundary.readSizes.length
+        const writesBefore = boundary.writes
+        const next = await cold.prepare([session])
+        await next.commit()
+        expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
+        // Only the team block row, which is never cached. The tombstone spares the session key row and the image key row.
+        expect(boundary.readSizes.slice(readsBefore).reduce((total, size) => total + size, 0)).toBe(1)
+        expect(boundary.writes).toBe(writesBefore)
+    })
+
+    it('serves a deleted session key until its cached row reaches the lease, then stops', async () => {
+        const lifetimeMs = 60_000
+        let fakeNow = 1_000
+        const clock = jest.spyOn(performance, 'now').mockImplementation(() => fakeNow)
+        try {
+            const db = new MlKeyDynamoDB(
+                boundary as unknown as DynamoDBClient,
+                table,
+                undefined,
+                undefined,
+                1000,
+                lifetimeMs
+            )
+            const warm = new MlSessionKeyStore(db, encryption)
+            const sameReader = new MlKeyReader(db, encryption)
+            const location = sessionKeyId(session.teamId, session.sessionId)
+            await (await warm.prepare([session])).commit()
+            expect((await sameReader.read([location])).size).toBe(1)
+            boundary.items.set(tableKeyString(location), { ...encodeKey(location), deleted: { BOOL: true } })
+            // The read part way through must not extend the entry, or a session read often enough never observes its deletion.
+            fakeNow += lifetimeMs * 0.6
+            expect((await sameReader.read([location])).size).toBe(1)
+            fakeNow += lifetimeMs * 0.4 + 1
+            expect((await sameReader.read([location])).size).toBe(0)
+        } finally {
+            clock.mockRestore()
+        }
+    })
+
+    it('stops serving a deleted session key to a reader that has not cached it', async () => {
         const first = await store.prepare([session])
         await first.commit()
-        const next = await store.prepare([session])
         const blocked = sessionKeyId(session.teamId, session.sessionId)
         boundary.items.set(tableKeyString(blocked), { ...encodeKey(blocked), deleted: { BOOL: true } })
-        jest.useFakeTimers()
-        const committed = next.commit()
-        await jest.runAllTimersAsync()
-        await committed
-        expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
-        expect((await reader.read([sessionKeyId(session.teamId, session.sessionId)])).size).toBe(0)
+        coldCache()
+        expect((await reader.read([blocked])).size).toBe(0)
         expect((await reader.read([imageKeyId(session.teamId, '2025-09')])).size).toBe(1)
     })
 
@@ -428,13 +604,17 @@ describe('ML session key batches', () => {
         const first = await store.prepare([session])
         await first.commit()
         const original = first.get(session.teamId, session.sessionId)!
+        const readsBefore = boundary.readSizes.length
         const resumed = await store.prepare([session])
+        const keysRead = boundary.readSizes.slice(readsBefore).reduce((total, size) => total + size, 0)
         await resumed.commit()
         const keys = resumed.get(session.teamId, session.sessionId)!
         expect(keys.session.plaintext).toEqual(original.session.plaintext)
         expect(keys.image.plaintext).toEqual(original.image.plaintext)
         expect((await reader.read([sessionKeyId(session.teamId, session.sessionId)])).size).toBe(1)
         expect(generated).toBe(2)
+        // Only the team block row, because it decides whether the batch may mint new keys and is never cached.
+        expect(keysRead).toBe(1)
     })
 
     it('publishes only after key writes commit and hands delivery acks to the scheduler', async () => {
@@ -527,6 +707,7 @@ describe('ML session key batches', () => {
                 } as Message
             })
             boundary.items.delete(tableKeyString(sessionKeyId(deleted.teamId, deleted.sessionId)))
+            coldCache()
             const invalidRow = parseJSON(messages[0].value!.toString())
             invalidRow.session_id =
                 malformed === 'oversized-session'
