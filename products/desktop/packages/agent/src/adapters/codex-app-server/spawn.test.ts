@@ -4,6 +4,7 @@ import type { Logger } from "../../utils/logger";
 import {
   buildAppServerArgs,
   SANDBOX_STREAM_IDLE_TIMEOUT_MS,
+  SANDBOX_STREAM_MAX_RETRIES,
   spawnCodexAppServerProcess,
 } from "./spawn";
 
@@ -166,17 +167,23 @@ describe("buildAppServerArgs", () => {
     expect(args).toContain('model_verbosity="low"');
   });
 
-  it("shortens the gateway stream idle timeout only in cloud sandboxes", () => {
-    const idleTimeoutArg = `model_providers.posthog.stream_idle_timeout_ms=${SANDBOX_STREAM_IDLE_TIMEOUT_MS}`;
+  it.each([
+    [
+      "stream idle timeout",
+      `model_providers.posthog.stream_idle_timeout_ms=${SANDBOX_STREAM_IDLE_TIMEOUT_MS}`,
+    ],
+    [
+      "stream retry count",
+      `model_providers.posthog.stream_max_retries=${SANDBOX_STREAM_MAX_RETRIES}`,
+    ],
+  ])("overrides the gateway %s only in cloud sandboxes", (_name, arg) => {
     const options = {
       binaryPath: "/bundle/codex",
       apiBaseUrl: "https://gateway.example/v1",
     };
 
-    expect(buildAppServerArgs(options, { IS_SANDBOX: "1" })).toContain(
-      idleTimeoutArg,
-    );
-    expect(buildAppServerArgs(options, {})).not.toContain(idleTimeoutArg);
+    expect(buildAppServerArgs(options, { IS_SANDBOX: "1" })).toContain(arg);
+    expect(buildAppServerArgs(options, {})).not.toContain(arg);
   });
 
   it("pins the cloud BASH_ENV into tool shells for secondary checkouts", () => {

@@ -77,6 +77,14 @@ export interface CodexAppServerProcessOptions {
 /** Idle time on a gateway SSE stream before codex abandons it and retries, in cloud sandboxes. */
 export const SANDBOX_STREAM_IDLE_TIMEOUT_MS = 90_000;
 
+/**
+ * Times codex re-issues a failed gateway stream before it fails the turn, in cloud sandboxes.
+ * Codex waits 200 ms before the first retry and doubles the wait each time, so its default of 5
+ * gives up within seconds. A gateway restart or a provider capacity refusal lasts longer than
+ * that, and a failed turn fails the whole unattended run. 10 retries wait a few minutes in total.
+ */
+export const SANDBOX_STREAM_MAX_RETRIES = 10;
+
 export interface CodexAppServerProcess {
   process: ChildProcess;
   stdin: Writable;
@@ -225,6 +233,12 @@ export function buildAppServerArgs(
       args.push(
         "-c",
         `model_providers.posthog.stream_idle_timeout_ms=${SANDBOX_STREAM_IDLE_TIMEOUT_MS}`,
+      );
+      // Cloud-only for the same reason: a desktop user sees the error and can resend, and minutes
+      // of silent retries would read as a hang.
+      args.push(
+        "-c",
+        `model_providers.posthog.stream_max_retries=${SANDBOX_STREAM_MAX_RETRIES}`,
       );
     }
   }
