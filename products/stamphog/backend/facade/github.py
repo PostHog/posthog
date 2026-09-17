@@ -16,6 +16,7 @@ from django.db import IntegrityError, router, transaction
 from django.utils import timezone
 
 from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
+from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.stamphog.backend.activity_logging import (
     log_repo_config_bulk_update,
@@ -41,6 +42,11 @@ __all__ = [
     "list_user_installations",
     "user_can_access_installation",
 ]
+
+# How many repo-config rows go into one INSERT. An installation can expose thousands of
+# repositories, and every row in a statement adds its columns to that statement's bind-parameter
+# list, so the batch is chunked to stay clear of Postgres' per-statement parameter ceiling.
+_CREATE_BATCH_SIZE = 500
 
 
 def _adopt_preexisting_config(team_id: int, repository: str, installation_id: str) -> StamphogRepoConfig | None:
@@ -108,70 +114,106 @@ def sync_installation_repositories(
     prove installation ownership is the right principal (the original installer may be long gone).
     """
     repositories = list_user_accessible_repositories(installation_id, user_token)
-    synced: list[StamphogRepoConfig] = []
+    # bulk_create below skips ProductTeamModel.save(), which is what normally rewrites team_id to the
+    # canonical id, so resolve it here instead and pass canonical=True from then on. for_team()
+    # resolves per call, so this also holds the whole sync to one Team lookup.
+    team_id = resolve_effective_team_id(team_id)
+    # Pin the reads and the writes to the model's routed DB (stamphog_db_writer when the product DB
+    # is configured, else default). A lagged reader would miss a row this sync just wrote and try to
+    # create it again.
+    write_db = router.db_for_write(StamphogRepoConfig)
+
+    # One read for the whole installation rather than one per repository. An organization that
+    # installs the App on all of its repositories can expose thousands of them, and a per-repository
+    # round trip made the request cost grow with that count until it ran past the gateway timeout.
+    # A re-sync now finds every row here and does no write work at all.
+    resolved: dict[str, StamphogRepoConfig] = {
+        config.repository: config
+        for config in StamphogRepoConfig.objects.for_team(team_id, canonical=True)
+        .using(write_db)
+        .filter(provider="github", installation_id=installation_id, repository__in=repositories)
+    }
+
     created_rows: list[dict[str, Any]] = []
     skipped: list[str] = []
-    # Bind the per-row savepoint to the model's routed DB (stamphog_db_writer when the product DB is
-    # configured, else default) — a bare atomic() opens on the default connection, so the get_or_create
-    # would run outside any transaction on the product DB.
-    write_db = router.db_for_write(StamphogRepoConfig)
-    # One installation can expose thousands of repositories. Let the loop create the rows without a
-    # per-row audit write and log the creates in one batch below; an adoption still logs its own diff.
-    # The batch runs in a finally: a row that is already committed when the loop dies would otherwise
-    # never be logged, and a retry sees it as pre-existing, so its creation is lost for good.
+    # Create the rows without a per-row audit write and log the creates in one batch below; an
+    # adoption still logs its own diff. The batch runs in a finally: a row that is already committed
+    # when the work dies would otherwise never be logged, and a retry sees it as pre-existing, so its
+    # creation is lost for good.
     try:
         with suppress_created_activity():
-            for full_name in repositories:
-                # Per-row savepoint: an IntegrityError only rolls back that row, leaving the rest of the
-                # batch (and the outer autocommit context) intact.
-                try:
-                    with transaction.atomic(using=write_db):
-                        config, was_created = StamphogRepoConfig.objects.for_team(team_id).get_or_create(
-                            provider="github",
-                            installation_id=installation_id,
-                            repository=full_name,
-                            # for_team() scopes the read but not row creation, so team_id is explicit
-                            # here. Bind disabled: an installation can surface hundreds of repos, so
-                            # connect them but don't start reviewing until a human toggles each on.
-                            # enabled only seeds new rows; an existing row's toggle is never flipped.
-                            # The connecting user is seeded here too, so a new row does not need the
-                            # restamp below and its activity log shows one "connected" entry instead of
-                            # a create plus a connector change.
-                            defaults={
-                                "team_id": team_id,
-                                "enabled": False,
-                                "connected_by_user_id": connected_by_user_id,
-                            },
-                        )
-                except IntegrityError:
-                    # The unique (team, repository) constraint tripped: a same-team row for this repo
-                    # already exists under a different installation_id — the manually-created config
-                    # (blank installation) finally being bound. Adopt it instead of skipping; only a
-                    # real conflict (already bound to another installation) stays skipped.
-                    adopted = _adopt_preexisting_config(team_id, full_name, installation_id)
+            candidates = [
+                StamphogRepoConfig(
+                    # for_team() scopes a read but not row creation, so team_id is explicit here.
+                    team_id=team_id,
+                    provider="github",
+                    installation_id=installation_id,
+                    repository=full_name,
+                    # Bind disabled: an installation can surface hundreds of repos, so connect them
+                    # but don't start reviewing until a human toggles each one on.
+                    enabled=False,
+                    # The connecting user is seeded here, so a new row does not need the restamp
+                    # below and its activity log shows one "connected" entry instead of a create
+                    # plus a connector change.
+                    connected_by_user_id=connected_by_user_id,
+                )
+                for full_name in repositories
+                if full_name not in resolved
+            ]
+            if candidates:
+                # ON CONFLICT DO NOTHING, so both unique constraints still decide which rows land and
+                # a concurrent sync of the same installation cannot make this raise. bulk_create also
+                # sends no per-row save signal, which is the audit outcome the suppression above gives
+                # the rest of this block.
+                StamphogRepoConfig.objects.for_team(team_id, canonical=True).using(write_db).bulk_create(
+                    candidates, ignore_conflicts=True, batch_size=_CREATE_BATCH_SIZE
+                )
+                # The primary keys are generated in Python, so reading them back says exactly which
+                # candidates this call inserted. ignore_conflicts reports nothing itself, and a row
+                # that lost to a conflict needs the per-row resolution below.
+                inserted_ids = set(
+                    StamphogRepoConfig.objects.for_team(team_id, canonical=True)
+                    .using(write_db)
+                    .filter(id__in=[candidate.id for candidate in candidates])
+                    .values_list("id", flat=True)
+                )
+                for candidate in candidates:
+                    if candidate.id in inserted_ids:
+                        resolved[candidate.repository] = candidate
+                        created_rows.append({"id": candidate.id, "repository": candidate.repository})
+                        continue
+                    # A unique constraint holds this repository. Either the same team already has it
+                    # under a different installation_id, which is the manually-created config (blank
+                    # installation) finally being bound, so adopt it; or another team owns the triple,
+                    # which stays skipped.
+                    adopted = _adopt_preexisting_config(team_id, candidate.repository, installation_id)
                     if adopted is None:
-                        skipped.append(full_name)
+                        skipped.append(candidate.repository)
                     else:
-                        synced.append(adopted)
-                    continue
-                synced.append(config)
-                if was_created:
-                    created_rows.append({"id": config.id, "repository": config.repository})
+                        resolved[candidate.repository] = adopted
     finally:
         log_repo_configs_created(
             team_id, created_rows, user=get_current_user(), was_impersonated=get_was_impersonated()
         )
 
-    if synced:
+    # Answer in the order GitHub listed the repositories, which is the order the connect screen renders.
+    synced = [resolved[full_name] for full_name in repositories if full_name in resolved]
+    # A row this call inserted already carries the caller as its connector, so only a pre-existing row
+    # can need a restamp. Leaving the new ones out also keeps a first-time sync of a large installation
+    # from locking every row it just created.
+    created_ids = {row["id"] for row in created_rows}
+    restamp_ids = [config.id for config in synced if config.id not in created_ids]
+
+    if restamp_ids:
         with transaction.atomic(using=write_db):
             # Lock the rows and re-read the connector rather than trusting the objects above: two
             # syncs of the same installation running at once both hold the same stale value, so a
             # real A -> B handover would be logged twice, as C -> A and C -> B.
             locked = (
-                StamphogRepoConfig.objects.for_team(team_id)
+                StamphogRepoConfig.objects.for_team(team_id, canonical=True)
                 .using(write_db)
                 .select_for_update()
-                .filter(id__in=[c.id for c in synced])
+                .filter(id__in=restamp_ids)
                 .values_list("id", "repository", "connected_by_user_id")
             )
             restamped: list[dict[str, Any]] = [
@@ -181,9 +223,9 @@ def sync_installation_repositories(
             ]
             if restamped:
                 # .update() bypasses auto_now, so updated_at is set by hand.
-                StamphogRepoConfig.objects.for_team(team_id).filter(id__in=[row["id"] for row in restamped]).update(
-                    connected_by_user_id=connected_by_user_id, updated_at=timezone.now()
-                )
+                StamphogRepoConfig.objects.for_team(team_id, canonical=True).filter(
+                    id__in=[row["id"] for row in restamped]
+                ).update(connected_by_user_id=connected_by_user_id, updated_at=timezone.now())
                 # update() bypasses the model signal, so the change is logged here.
                 log_repo_config_bulk_update(
                     team_id,

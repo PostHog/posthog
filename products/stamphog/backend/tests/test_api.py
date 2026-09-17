@@ -374,6 +374,12 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         response = self.client.get(f"{self.url}{theirs.id}/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_malformed_config_id_is_a_404(self) -> None:
+        # The lookup parses the id before it queries, so an id that is not a UUID has to read as a
+        # miss. Handing it to the ORM raises instead, which turns a bad URL into a 500.
+        response = self.client.get(f"{self.url}not-a-uuid/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_cannot_delete_other_teams_config(self) -> None:
         other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
         theirs = StamphogRepoConfig.objects.unscoped().create(
@@ -661,6 +667,59 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             assert log.detail["type"] == "connected"
             connected_names.add(log.detail["name"])
         assert connected_names == {"PostHog/other", "PostHog/posthog"}
+
+    @patch(
+        f"{_GITHUB_FACADE}.list_user_accessible_repositories",
+        return_value=["PostHog/mine", "PostHog/theirs"],
+    )
+    @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
+    @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
+    def test_sync_skips_a_repo_another_team_already_owns(self, mock_exchange, mock_verify, mock_list) -> None:
+        # The rows go in as one INSERT with ON CONFLICT DO NOTHING, so the cross-team uniqueness
+        # constraint is what refuses the foreign repo and the insert itself reports nothing. Without
+        # the reconciliation that reads back which rows landed, a repo another team holds under this
+        # installation would be answered as synced and its webhooks would resolve to the wrong team.
+        other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
+        theirs = StamphogRepoConfig.objects.unscoped().create(
+            team_id=other_team.id, repository="PostHog/theirs", installation_id="42"
+        )
+
+        response = self.client.post(
+            self.url, {"installation_id": "42", "code": "oauth-code", "state": self.state}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert [row["repository"] for row in body["synced"]] == ["PostHog/mine"]
+        assert body["skipped"] == ["PostHog/theirs"]
+        theirs.refresh_from_db()
+        assert theirs.team_id == other_team.id
+        assert not (
+            StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id, repository="PostHog/theirs").exists()
+        )
+
+    @patch(
+        f"{_GITHUB_FACADE}.list_user_accessible_repositories",
+        return_value=["PostHog/posthog", "PostHog/other"],
+    )
+    @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
+    @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
+    def test_resyncing_an_installation_creates_nothing_new(self, mock_exchange, mock_verify, mock_list) -> None:
+        # The sync reads the installation's rows once and only inserts what is missing, so a second
+        # pass writes nothing. A regression that puts every repository back through the create path
+        # would duplicate the connected audit entries and make each re-sync cost grow with the
+        # organization's repository count.
+        payload = {"installation_id": "42", "code": "oauth-code", "state": self.state}
+        assert self.client.post(self.url, payload, format="json").status_code == status.HTTP_200_OK
+
+        response = self.client.post(self.url, payload, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert sorted(row["repository"] for row in body["synced"]) == ["PostHog/other", "PostHog/posthog"]
+        assert body["skipped"] == []
+        assert StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id).count() == 2
+        assert ActivityLog.objects.filter(scope="StamphogRepoConfig", activity="created").count() == 2
 
     @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)

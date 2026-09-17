@@ -51,6 +51,22 @@ Runs are listed in the Stamphog runs page in the PostHog app (`/stamphog/runs`),
 Connecting a repository and the digest toggle need the `editor` level on the `stamphog` resource.
 The gating fields, which are enabled, review mode and trigger label, need `manager`, because they decide whether a pull request is reviewed at all.
 
+### Installing on every repository in an organization
+
+GitHub offers the App either all of an organization's repositories or a selected list.
+Either choice is safe to make, and "All repositories" is not a decision to review everything.
+
+The install itself sends one webhook, not one per repository.
+Completing the callback in PostHog then adds one row per repository to the toggle list, and every row is disabled.
+So an organization with hundreds of repositories gets hundreds of rows that review nothing.
+
+GitHub does deliver a webhook for every pull request in every repository the installation can reach.
+A delivery for a repository that is not enabled is dropped before any review work: it costs a database read and nothing else.
+It reaches no sandbox, spends no LLM budget, and posts nothing to GitHub.
+
+Selecting repositories on GitHub is still the smaller blast radius, and it keeps the toggle list short.
+A repository added to the organization later appears as a disabled row on its own, so nothing has to be re-synced by hand.
+
 ## Customize the review for your repository
 
 Customization is optional.
