@@ -173,6 +173,10 @@ const PROMOTED_SHORTCUT_GROUP_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.EmailAddresses,
 ]
 
+function requestsGroup(props: TaxonomicFilterLogicProps, groupType: TaxonomicFilterGroupType): boolean {
+    return !props.taxonomicGroupTypes || props.taxonomicGroupTypes.includes(groupType)
+}
+
 /** Drop the group types no group serves, and the second half of every mutually exclusive pair. */
 export function resolveAvailableGroupTypes(
     groupTypes: TaxonomicFilterGroupType[],
@@ -835,13 +839,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         actions: [primaryEventPropertiesModel, ['ensureLoadedForEvents']],
         logic: [
-            actionsModel({
-                shouldLoad:
-                    !props.taxonomicGroupTypes || props.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Actions),
-            }),
-            ...(!props.taxonomicGroupTypes || props.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Dashboards)
-                ? [dashboardsModel]
-                : []),
+            actionsModel({ shouldLoad: requestsGroup(props, TaxonomicFilterGroupType.Actions) }),
+            ...(requestsGroup(props, TaxonomicFilterGroupType.Dashboards) ? [dashboardsModel] : []),
         ],
     })),
     actions(() => ({
