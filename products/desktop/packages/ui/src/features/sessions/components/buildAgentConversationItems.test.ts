@@ -244,10 +244,8 @@ describe("buildAgentConversationItems", () => {
         },
       ],
       true,
-      { currentRunId: "run-1" },
     );
 
-    expect(result.hasCurrentSetupProgress).toBe(true);
     expect(result.items).toContainEqual(
       expect.objectContaining({
         type: "session_update",

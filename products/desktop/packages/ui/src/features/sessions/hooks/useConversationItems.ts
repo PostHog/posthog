@@ -21,7 +21,6 @@ interface Cache {
   events: AcpMessage[] | null;
   pending: boolean | null;
   debug: boolean | undefined;
-  currentRunId: string | undefined;
   result: BuildResult | null;
   visible: string;
   eventsAtLastVisibleChange: number;
@@ -74,7 +73,6 @@ export function useConversationItems(
       events: null,
       pending: null,
       debug: undefined,
-      currentRunId: undefined,
       result: null,
       visible: "",
       eventsAtLastVisibleChange: 0,
@@ -83,14 +81,12 @@ export function useConversationItems(
   }
   const cache = ref.current;
   const debug = options?.showDebugLogs;
-  const currentRunId = options?.currentRunId;
 
   if (
     cache.result &&
     cache.events === events &&
     cache.pending === isPromptPending &&
-    cache.debug === debug &&
-    cache.currentRunId === currentRunId
+    cache.debug === debug
   ) {
     return cache.result;
   }
@@ -99,7 +95,6 @@ export function useConversationItems(
   cache.events = events;
   cache.pending = isPromptPending;
   cache.debug = debug;
-  cache.currentRunId = currentRunId;
   cache.result = result;
   noteVisibleChange(cache, events, isPromptPending, result);
   return result;

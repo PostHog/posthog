@@ -46,9 +46,10 @@ import type { Task } from "@posthog/shared/domain-types";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useSmoothedText } from "@posthog/ui/features/editor/components/useSmoothedText";
 import { hasUiAppResult } from "@posthog/ui/features/mcp-apps/hasUiAppResult";
-import type {
-  BuildResult,
-  ConversationItem,
+import {
+  type BuildResult,
+  type ConversationItem,
+  hasSetupProgressForRun,
 } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import {
   ChatMarkdown,
@@ -1319,7 +1320,6 @@ export function ChatThread({
     events,
     props.isPromptPending,
     historyVersion,
-    currentRunId,
   );
 
   return (
@@ -1329,6 +1329,7 @@ export function ChatThread({
         {...props}
         conversationItems={items}
         footerState={footerState}
+        hasCurrentSetupProgress={hasSetupProgressForRun(events, currentRunId)}
       />
     </RawLogsToggleContext.Provider>
   );
@@ -1345,7 +1346,6 @@ export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
     props.isPromptPending,
     {
       showDebugLogs,
-      currentRunId,
     },
   );
 
@@ -1356,6 +1356,7 @@ export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
         {...props}
         conversationItems={items}
         footerState={footerState}
+        hasCurrentSetupProgress={hasSetupProgressForRun(events, currentRunId)}
       />
     </RawLogsToggleContext.Provider>
   );
@@ -1364,6 +1365,7 @@ export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
 interface ChatThreadRendererProps extends SharedChatThreadProps {
   conversationItems: ConversationItem[];
   footerState: Omit<BuildResult, "items">;
+  hasCurrentSetupProgress: boolean;
 }
 
 function ChatThreadRenderer({
@@ -1375,6 +1377,7 @@ function ChatThreadRenderer({
   task,
   taskId,
   footerState,
+  hasCurrentSetupProgress,
   hasPendingPermission,
   currentWork,
   promptRecallRef,
@@ -1499,6 +1502,7 @@ function ChatThreadRenderer({
         task={task}
         taskId={taskId}
         footerState={footerState}
+        hasCurrentSetupProgress={hasCurrentSetupProgress}
         hasPendingPermission={hasPendingPermission}
         currentWork={currentWork}
       />

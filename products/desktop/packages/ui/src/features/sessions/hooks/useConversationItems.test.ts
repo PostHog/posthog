@@ -58,32 +58,4 @@ describe("useConversationItems", () => {
 
     expect(warn).not.toHaveBeenCalled();
   });
-
-  it("rebuilds setup progress when the current run changes", () => {
-    const events: AcpMessage[] = [
-      {
-        type: "acp_message",
-        ts: 1,
-        message: {
-          jsonrpc: "2.0",
-          method: "_posthog/progress",
-          params: {
-            step: "sandbox",
-            status: "in_progress",
-            label: "Setting up sandbox",
-            group: "setup:run-1",
-          },
-        },
-      },
-    ];
-    const { result, rerender } = renderHook(
-      ({ currentRunId }: { currentRunId: string }) =>
-        useConversationItems(events, null, { currentRunId }),
-      { initialProps: { currentRunId: "run-2" } },
-    );
-
-    expect(result.current.hasCurrentSetupProgress).toBe(false);
-    rerender({ currentRunId: "run-1" });
-    expect(result.current.hasCurrentSetupProgress).toBe(true);
-  });
 });

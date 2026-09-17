@@ -1,9 +1,10 @@
 import { makeAttachmentUri } from "@posthog/core/sessions/promptContent";
-import type { AcpMessage } from "@posthog/shared";
+import type { AcpMessage, AgentConversationEvent } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
   buildConversationItems,
   type ConversationItem,
+  hasSetupProgressForRun,
 } from "./buildConversationItems";
 
 function consoleMsg(ts: number, message: string, level = "info"): AcpMessage {
@@ -707,8 +708,8 @@ describe("buildConversationItems", () => {
       expect(update.isActive).toBe(true);
     });
 
-    it("reports setup progress only for the current run", () => {
-      const events: AcpMessage[] = [
+    it("finds setup progress for the current run in both event formats", () => {
+      const acpEvents = [
         progressMsg(
           1,
           "sandbox",
@@ -718,15 +719,20 @@ describe("buildConversationItems", () => {
           "setup:run-1",
         ),
       ];
+      const agentEvents: AgentConversationEvent[] = [
+        {
+          type: "progress",
+          timestamp: 1,
+          step: "sandbox",
+          status: "in_progress",
+          label: "Setting up sandbox",
+          group: "setup:run-1",
+        },
+      ];
 
-      expect(
-        buildConversationItems(events, null, { currentRunId: "run-1" })
-          .hasCurrentSetupProgress,
-      ).toBe(true);
-      expect(
-        buildConversationItems(events, null, { currentRunId: "run-2" })
-          .hasCurrentSetupProgress,
-      ).toBe(false);
+      expect(hasSetupProgressForRun(acpEvents, "run-1")).toBe(true);
+      expect(hasSetupProgressForRun(agentEvents, "run-1")).toBe(true);
+      expect(hasSetupProgressForRun(acpEvents, "run-2")).toBe(false);
     });
 
     it("marks the progress group inactive once no step is in_progress", () => {
