@@ -859,6 +859,62 @@ class TestFacadeReadsAndMappers(TestCase):
         new_run = task.runs.exclude(id=previous_run.id).get()
         self.assertEqual(new_run.state.get("self_driving_head_branch"), "posthog-self-driving/fix-abc123")
 
+    def test_run_task_resume_carries_allowed_domains(self):
+        # A successor without the list falls back to the environment alone, or with no environment
+        # to unrestricted egress. The key is PATCH-protected, so this copy is its only way forward.
+        task = self._make_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"allowed_domains": ["status.example.com"]},
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        self.assertEqual(new_run.state.get("allowed_domains"), ["status.example.com"])
+
+    def test_update_task_run_cannot_change_allowed_domains(self):
+        # The PATCH surface is caller-controlled; a widened or removed list would change the
+        # sandbox's reach before the processing context reads it.
+        task = self._make_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"allowed_domains": ["status.example.com"]},
+        )
+
+        facade.update_task_run(
+            run.id,
+            task.id,
+            self.team.id,
+            validated_data={
+                "state": {"allowed_domains": ["evil.example"], "note": "kept"},
+                "state_append": {"allowed_domains": ["evil.example"]},
+            },
+            caller_is_agent=True,
+        )
+        facade.update_task_run(
+            run.id,
+            task.id,
+            self.team.id,
+            validated_data={"state_remove_keys": ["allowed_domains"]},
+            caller_is_agent=True,
+        )
+
+        run.refresh_from_db()
+        self.assertEqual(run.state["allowed_domains"], ["status.example.com"])
+        self.assertEqual(run.state["note"], "kept")
+
     def test_run_task_resume_of_a_pipeline_task_stays_unstamped(self):
         # The predecessor's stage is deliberately not carried forward: a stage makes the run
         # read as pipeline-started and drops it out of the interactive duration ceiling.

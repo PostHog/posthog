@@ -227,6 +227,19 @@ class TestTask(TestCase):
         state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
         self.assertNotIn("allowed_domains", state)
 
+        # Caller-supplied run state wins the merge, so the list must be normalized on that path too.
+        with self.captureOnCommitCallbacks(execute=True):
+            Task.create_and_run(
+                team=self.team,
+                title="Run with extra hosts in run state",
+                description="a workflow snapshot names the host",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                user_id=user.id,
+                extra_run_state={"allowed_domains": ["Status.Example.com"]},
+            )
+        state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
+        self.assertEqual(state["allowed_domains"], ["status.example.com"])
+
         # A bad domain fails before any row exists, where the caller can act on it.
         task_count = Task.objects.count()
         with self.assertRaises(ValueError):

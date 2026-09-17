@@ -1412,6 +1412,12 @@ class Task(DeletedMetaFields, models.Model):
         # derived defaults, matching how loop fires assemble their run state by hand.
         if extra_run_state:
             run_extra_state.update(extra_run_state)
+            if "allowed_domains" in extra_run_state:
+                # The merge trusts the caller for every other key. This one is validated again so a
+                # list that bypassed `_build_task` cannot reach provisioning unnormalized.
+                run_extra_state["allowed_domains"] = normalize_sandbox_allowed_domains(
+                    list(extra_run_state["allowed_domains"] or [])
+                )
         if github_read_access:
             # Read by TaskProcessingContext.github_read_access: provisioning injects a read-only
             # GitHub token instead of taking the full credential path. It holds for the whole run

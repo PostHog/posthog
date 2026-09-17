@@ -1199,16 +1199,16 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                 # Unrestricted already covers whatever the run asked for, so the per-run list is moot.
                 allowed_domains = None
             else:
-                allowed_domains = list(
-                    dict.fromkeys([*sandbox_environment.get_effective_domains(), *run_allowed_domains])
-                )
+                environment_domains = sandbox_environment.get_effective_domains()
+                allowed_domains = list(dict.fromkeys([*environment_domains, *run_allowed_domains]))
+                run_added = len(allowed_domains) - len(dict.fromkeys(environment_domains))
 
             if allowed_domains is not None:
                 emit_agent_log(
                     run_id,
                     "debug",
                     f"Resolved sandbox environment '{sandbox_environment.name}' with agentsh allowlist: {format_allowed_domains_for_log(allowed_domains)}"
-                    + (f" (run added {len(run_allowed_domains)})" if run_allowed_domains else ""),
+                    + (f" (run added {run_added})" if run_added else ""),
                 )
             else:
                 emit_agent_log(
