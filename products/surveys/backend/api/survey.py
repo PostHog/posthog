@@ -91,10 +91,9 @@ from products.surveys.backend.responses import (
     validate_and_parse_dates,
 )
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
+from products.surveys.backend.summarization.headline_summary import generate_survey_headline
 from products.surveys.backend.translation import generate_survey_translation
 from products.surveys.backend.util import SurveyEventProperties, get_archived_response_uuids
-
-from ee.surveys.summaries.headline_summary import generate_survey_headline
 
 # Constants for better maintainability
 logger = structlog.get_logger(__name__)

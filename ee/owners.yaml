@@ -11,5 +11,3 @@ rules:
       owners: team-replay
     - match: '/support_sidebar_max/'
       owners: team-self-driving
-    - match: '/surveys/'
-      owners: conversations
