@@ -826,6 +826,7 @@ class InputsSerializer(serializers.DictField):
         except:
             raise serializers.ValidationError("Missing inputs_schema.")
 
+        assert isinstance(parent_serializer, serializers.Serializer)
         inputs_schema = parent_serializer.fields["inputs_schema"].run_validation(inputs_schema)
 
         # Validate each input against the schema

@@ -17,7 +17,7 @@ RELOAD_PATH = "products.cdp.backend.models.hog_functions.hog_function.reload_hog
 LIVE_HOG = "fetch(inputs.url);"
 EDITED_HOG = "fetch(inputs.url, {'method': 'PUT'});"
 
-BASE_FUNCTION = {
+BASE_FUNCTION: dict[str, Any] = {
     "name": "Webhook",
     "type": "destination",
     "hog": LIVE_HOG,
@@ -386,7 +386,12 @@ class TestHogFunctionDrafts(DraftTestCase):
         logs = ActivityLog.objects.filter(
             team_id=self.team.id, scope="HogFunction", item_id=function_id, activity="updated"
         )
-        changes = [change for log in logs for change in log.detail["changes"] if change["field"] == field]
+        changes = [
+            change
+            for log in logs
+            for change in (log.detail["changes"] if log.detail else [])
+            if change["field"] == field
+        ]
         assert changes
         assert all(change["after"] == "masked" for change in changes)
         assert all("private-input" not in str(log.detail) for log in logs)
