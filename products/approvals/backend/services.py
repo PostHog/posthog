@@ -37,6 +37,11 @@ class RequestContext:
         self.session: dict[str, Any] = {}
         self.META: dict[str, str] = {}
         self.headers: dict[str, str] = {}
+        # An apply is not an authenticated read, so nothing here may decrypt a flag payload.
+        # `get_decrypted_flag_payloads_protected` reads this attribute without a default, so
+        # leaving it off made every apply on an encrypted-payloads flag fail with an
+        # AttributeError. None keeps the payload redacted in the response the apply renders.
+        self.successful_authenticator = None
 
 
 def apply_change_request(change_request: ChangeRequest, request=None) -> Any:

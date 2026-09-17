@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
@@ -8,8 +8,10 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.approvals.backend.exceptions import InvalidStateError
-from products.approvals.backend.models import ChangeRequest, ChangeRequestState
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, ChangeRequestState
 from products.approvals.backend.services import ChangeRequestService
+from products.feature_flags.backend.encrypted_flag_payloads import flag_payload_codec
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 class TestApproveRejectRaceCondition(BaseTest):
@@ -51,3 +53,56 @@ class TestApproveRejectRaceCondition(BaseTest):
         ):
             with self.assertRaises(InvalidStateError):
                 getattr(service, method_name)(reason=reason)
+
+
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestApplyOnEncryptedPayloadsFlag(APIBaseTest):
+    """The apply path builds a RequestContext instead of a real request.
+    `get_decrypted_flag_payloads_protected` reads `successful_authenticator` off it without a
+    default, so a flag with encrypted payloads made every apply raise an AttributeError while the
+    serializer rendered the saved flag. Approving such a change request could never succeed."""
+
+    def test_approving_a_change_request_applies_the_flag(self, _mock_enabled):
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.enable",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="secret-config",
+            active=False,
+            created_by=self.user,
+            has_encrypted_payloads=True,
+            is_remote_configuration=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": flag_payload_codec().encrypt(b'"previous"').decode("utf-8")},
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {
+                "active": True,
+                "has_encrypted_payloads": True,
+                "is_remote_configuration": True,
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "payloads": {"true": '"next"'},
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == 409, response.content
+
+        change_request = ChangeRequest.objects.get(id=response.json()["change_request_id"])
+        ChangeRequestService(change_request, self.user).approve()
+
+        change_request.refresh_from_db()
+        assert change_request.state == ChangeRequestState.APPLIED
+        flag.refresh_from_db()
+        assert flag.active is True
