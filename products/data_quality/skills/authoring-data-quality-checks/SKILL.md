@@ -86,7 +86,7 @@ These tables are large, so consider `lookback_hours` before you author a check o
 the rows the check reads by the table's own time column: `timestamp` on `events`, and `created_at`
 on `persons` and `groups`, which is when each was first seen rather than when it last changed.
 Without it the check reads the whole table, which is allowed and sometimes what you want -- an
-unbounded `unique` on `distinct_id` says something a windowed one cannot. A check that runs out of
+unbounded `unique` on `events.uuid` says something a windowed one cannot. A check that runs out of
 ClickHouse's execution budget reports `errored` with the message; adding a window is usually the fix.
 
 On a `relationships` check, `lookback_hours` bounds the rows it checks and `to_lookback_hours`
