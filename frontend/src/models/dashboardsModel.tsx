@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -705,6 +705,11 @@ export const dashboardsModel = kea<dashboardsModelType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        loadDashboardsIfNeeded: () => {
+            if (!values.pagingDashboardsCompleted && !values.pagedDashboardsLoading) {
+                actions.loadDashboards()
+            }
+        },
         loadDashboardsSuccess: ({ pagedDashboards }) => {
             if (pagedDashboards?.next) {
                 actions.loadDashboards(pagedDashboards.next)
@@ -769,9 +774,6 @@ export const dashboardsModel = kea<dashboardsModelType>([
             )
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadDashboards()
-    }),
     permanentlyMount(),
 ])
 

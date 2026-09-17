@@ -56,8 +56,9 @@ class WebhookConsumer:
     # A consumer whose resources are split by region answers where this delivery's resource lives,
     # and ingress forwards the signed request when the answer is elsewhere. A lookup inside must be
     # bounded (`bounded_statement_timeout`): it runs in the request, before dispatch. Let a
-    # transient error out rather than answering local or undecided through it: a raised lookup asks
-    # a provider that redelivers for the delivery again, and a guess loses it.
+    # transient error out rather than answering local, undecided or elsewhere through it: a raised
+    # lookup asks a provider that redelivers for the delivery again, a guess loses the delivery,
+    # and an elsewhere guess also sends its contents to a region that may not own them.
     ownership: Callable[[WebhookDelivery], DeliveryOwnership] | None = None
 
 
