@@ -71,7 +71,7 @@ const AdvancedActivityLogsListSchema = () => {
 
 const advancedActivityLogsList = (): ToolBase<
     ReturnType<typeof AdvancedActivityLogsListSchema>,
-    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedActivityLogList>>
+    WithPostHogUrl<Schemas.PaginatedActivityLogList>
 > => ({
     name: 'advanced-activity-logs-list',
     schema: AdvancedActivityLogsListSchema(),
@@ -126,8 +126,7 @@ const advancedActivityLogsList = (): ToolBase<
                 )
             ),
         } as typeof result
-        const paged = withPageOffsets(filtered)
-        return await withPostHogUrl(context, paged, '/activity')
+        return await withPostHogUrl(context, filtered, '/activity')
     },
 })
 
@@ -539,10 +538,7 @@ const CommentsListSchema = () => {
     return CommentsListQueryParams
 }
 
-const commentsList = (): ToolBase<
-    ReturnType<typeof CommentsListSchema>,
-    WithPageOffsets<Schemas.PaginatedCommentList>
-> => ({
+const commentsList = (): ToolBase<ReturnType<typeof CommentsListSchema>, Schemas.PaginatedCommentList> => ({
     name: 'comments-list',
     schema: CommentsListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof CommentsListSchema>>) => {
@@ -562,8 +558,7 @@ const commentsList = (): ToolBase<
                 task_id: params.task_id,
             },
         })
-        const paged = withPageOffsets(result)
-        return paged
+        return result
     },
 })
 

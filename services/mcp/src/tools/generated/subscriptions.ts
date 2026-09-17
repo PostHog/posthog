@@ -128,7 +128,7 @@ const SubscriptionsDeliveriesListSchema = () => {
 
 const subscriptionsDeliveriesList = (): ToolBase<
     ReturnType<typeof SubscriptionsDeliveriesListSchema>,
-    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedSubscriptionDeliveryList>>
+    WithPostHogUrl<Schemas.PaginatedSubscriptionDeliveryList>
 > => ({
     name: 'subscriptions-deliveries-list',
     schema: SubscriptionsDeliveriesListSchema(),
@@ -155,8 +155,7 @@ const subscriptionsDeliveriesList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        const paged = withPageOffsets(filtered)
-        return await withPostHogUrl(context, paged, '/subscriptions')
+        return await withPostHogUrl(context, filtered, '/subscriptions')
     },
 })
 
