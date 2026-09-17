@@ -162,17 +162,17 @@ SELECT
     sum(toInt(properties.$ai_cache_read_input_tokens)) AS cache_read_tokens,
     sum(toInt(properties.$ai_cache_creation_input_tokens)) AS cache_write_tokens,
     round(
-        sumIf(toInt(properties.$ai_cache_read_input_tokens),
+        sumIf(ifNull(toInt(properties.$ai_cache_read_input_tokens), 0),
               properties.$ai_cache_reporting_exclusive = 'true')
-        / nullIf(sumIf(toInt(properties.$ai_input_tokens)
-                     + toInt(properties.$ai_cache_read_input_tokens)
-                     + toInt(properties.$ai_cache_creation_input_tokens),
+        / nullIf(sumIf(ifNull(toInt(properties.$ai_input_tokens), 0)
+                     + ifNull(toInt(properties.$ai_cache_read_input_tokens), 0)
+                     + ifNull(toInt(properties.$ai_cache_creation_input_tokens), 0),
                        properties.$ai_cache_reporting_exclusive = 'true'), 0), 3
     ) AS cache_hit_rate_exclusive,
     round(
-        sumIf(toInt(properties.$ai_cache_read_input_tokens),
+        sumIf(ifNull(toInt(properties.$ai_cache_read_input_tokens), 0),
               properties.$ai_cache_reporting_exclusive = 'false')
-        / nullIf(sumIf(toInt(properties.$ai_input_tokens),
+        / nullIf(sumIf(ifNull(toInt(properties.$ai_input_tokens), 0),
                        properties.$ai_cache_reporting_exclusive = 'false'), 0), 3
     ) AS cache_hit_rate_inclusive,
     countIf(properties.$ai_cache_reporting_exclusive IS NULL) AS calls_without_cache_flag
@@ -188,8 +188,11 @@ accounting](./cache-accounting.md). Each one sums only the events whose
 `$ai_cache_reporting_exclusive` matches its branch, so the denominator is
 correct for both reporting styles without hardcoding any provider or model
 name. One model can mix both styles, so a single rate over the whole group is
-wrong and can exceed 1. A null rate means the branch has no valid denominator:
-either the model has no events in it, or those events report no input tokens.
+wrong and can exceed 1. The cache token properties are optional, so each cast
+falls back to zero: `toInt` of an absent property is null, and one null inside
+the sum would drop that event's input tokens from the denominator and overstate
+the rate. A null rate means the branch has no input volume at all — the model
+has no events in it, or its events report no input tokens.
 `calls_without_cache_flag` counts the events with no flag — they have no valid
 denominator either, so they are in neither rate; read `cache_read_tokens` for
 those.
