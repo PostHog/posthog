@@ -1,8 +1,8 @@
 import clsx from 'clsx'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
 import type { OAuthScopeRow, ScopeAccessLevel } from './oauthAuthorizeLogic'
 import { OAuthScopeRowControl } from './OAuthScopeRowControl'
@@ -31,6 +31,7 @@ export function OAuthScopeGroup({
     onChangeGroup,
 }: OAuthScopeGroupProps): JSX.Element {
     const [open, setOpen] = useState(false)
+    const panelId = useId()
     const counts = countByLevel(rows)
     const uniformLevel = rows.every((row) => row.value === rows[0].value) ? rows[0].value : undefined
     const keys = rows.map((row) => row.key)
@@ -38,73 +39,77 @@ export function OAuthScopeGroup({
     const allRequired = rows.every((row) => row.minLevel !== 'none')
     const groupSlug = label.toLowerCase().replace(/[^a-z0-9]+/g, '-')
 
-    const renderRow = (row: OAuthScopeRow): JSX.Element => (
-        <OAuthScopeRowControl key={row.key} row={row} appName={appName} onChange={onChangeRow} />
-    )
-
     return (
         <div className="border-t border-border first:border-t-0">
-            <div className="flex items-center gap-2 py-2 min-h-10">
-                <LemonButton
-                    size="xsmall"
-                    noPadding
-                    icon={
-                        <IconChevronRight
-                            className={clsx('transition-transform motion-reduce:transition-none', open && 'rotate-90')}
-                        />
-                    }
-                    onClick={() => setOpen(!open)}
-                    aria-expanded={open}
-                    aria-label={open ? `Collapse ${label}` : `Expand ${label}`}
-                    data-attr={`oauth-scope-group-toggle-${groupSlug}`}
-                />
+            {/* The header wraps, so at a narrow width the counts and the control drop to a second
+                line instead of pushing the control out of the card. */}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 py-2 min-h-10">
                 <button
                     type="button"
-                    className="flex-1 min-w-0 text-left font-semibold truncate cursor-pointer bg-transparent border-0 p-0 text-inherit"
+                    className="flex items-center gap-2 flex-1 min-w-48 text-left font-semibold cursor-pointer bg-transparent border-0 p-0 text-inherit"
                     onClick={() => setOpen(!open)}
+                    aria-expanded={open}
+                    aria-controls={panelId}
+                    data-attr={`oauth-scope-group-toggle-${groupSlug}`}
                 >
-                    {label}
+                    <IconChevronRight
+                        className={clsx(
+                            'shrink-0 text-muted transition-transform motion-reduce:transition-none',
+                            open && 'rotate-90'
+                        )}
+                    />
+                    <span className="truncate">{label}</span>
                 </button>
-                <span className="text-xs text-muted whitespace-nowrap">
-                    {rows.length} {rows.length === 1 ? 'permission' : 'permissions'}
-                </span>
-                <span className="flex items-center gap-1">
-                    {counts.write > 0 && (
-                        <LemonTag size="small" type="warning">
-                            {counts.write} write
-                        </LemonTag>
-                    )}
-                    {counts.read > 0 && (
-                        <LemonTag size="small" type="success">
-                            {counts.read} read
-                        </LemonTag>
-                    )}
-                    {counts.none > 0 && (
-                        <LemonTag size="small" type="muted">
-                            {counts.none} none
-                        </LemonTag>
-                    )}
-                </span>
-                <LemonSegmentedButton
-                    size="xsmall"
-                    value={uniformLevel}
-                    onChange={(level) => onChangeGroup(keys, level as ScopeAccessLevel)}
-                    options={[
-                        {
-                            label: 'No access',
-                            value: 'none',
-                            disabledReason: allRequired ? `${appName} requires these permissions` : undefined,
-                        },
-                        { label: 'Read', value: 'read' },
-                        {
-                            label: 'Write',
-                            value: 'write',
-                            disabledReason: anyWritable ? undefined : `Not requested by ${appName}`,
-                        },
-                    ]}
-                />
+                <div className="flex items-center gap-2 ml-auto">
+                    <span className="text-xs text-muted whitespace-nowrap">
+                        <span translate="no">{rows.length}</span> {rows.length === 1 ? 'permission' : 'permissions'}
+                    </span>
+                    <span className="flex items-center gap-1">
+                        {counts.write > 0 && (
+                            <LemonTag size="small" type="warning">
+                                <span translate="no">{counts.write}</span> write
+                            </LemonTag>
+                        )}
+                        {counts.read > 0 && (
+                            <LemonTag size="small" type="success">
+                                <span translate="no">{counts.read}</span> read
+                            </LemonTag>
+                        )}
+                        {counts.none > 0 && (
+                            <LemonTag size="small" type="muted">
+                                <span translate="no">{counts.none}</span> none
+                            </LemonTag>
+                        )}
+                    </span>
+                    <div role="group" aria-label={`${label} access`}>
+                        <LemonSegmentedButton
+                            size="xsmall"
+                            value={uniformLevel}
+                            onChange={(level) => onChangeGroup(keys, level as ScopeAccessLevel)}
+                            options={[
+                                {
+                                    label: 'No access',
+                                    value: 'none',
+                                    disabledReason: allRequired ? `${appName} requires these permissions` : undefined,
+                                },
+                                { label: 'Read', value: 'read' },
+                                {
+                                    label: 'Write',
+                                    value: 'write',
+                                    disabledReason: anyWritable ? undefined : `Not requested by ${appName}`,
+                                },
+                            ]}
+                        />
+                    </div>
+                </div>
             </div>
-            {open && <div className="flex flex-col pb-2 pl-7">{rows.map(renderRow)}</div>}
+            {open && (
+                <div id={panelId} className="flex flex-col pb-2 pl-7">
+                    {rows.map((row) => (
+                        <OAuthScopeRowControl key={row.key} row={row} appName={appName} onChange={onChangeRow} />
+                    ))}
+                </div>
+            )}
         </div>
     )
 }

@@ -163,6 +163,8 @@ class TestApiScopeGroups(SimpleTestCase):
         missing = sorted(set(API_SCOPE_OBJECTS) - set(filed))
         unknown = sorted(set(filed) - set(API_SCOPE_OBJECTS))
         assert (duplicates, missing, unknown) == ([], [], [])
+        labels = [label for label, _ in API_SCOPE_GROUPS]
+        assert len(labels) == len(set(labels))
 
     def test_internal_and_hidden_scope_objects_are_filed_under_internal_tools(self) -> None:
         internal_tools = set(dict(API_SCOPE_GROUPS)["Internal tools"])
