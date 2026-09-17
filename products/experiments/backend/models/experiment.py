@@ -499,9 +499,6 @@ class ExperimentTimeseriesRecalculation(UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        indexes = [
-            models.Index(fields=["status"]),
-        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["experiment", "fingerprint"],
