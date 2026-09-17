@@ -32,7 +32,14 @@ from products.replay_vision.evals.collector import (
     build_llm_inputs,
     order_candidates,
 )
-from products.replay_vision.evals.dataset import GoldenCase, GoldenDataset, ensure_dataset_fresh, parse_utc
+from products.replay_vision.evals.dataset import (
+    GoldenCase,
+    GoldenDataset,
+    download_pinned_dataset,
+    ensure_dataset_consent,
+    parse_utc,
+    upload_pinned_dataset,
+)
 from products.replay_vision.evals.eval_scanner_quality import build_case
 from products.replay_vision.evals.scorers import (
     LabeledOutcome,
@@ -344,15 +351,154 @@ def test_parse_utc_rejects_naive_timestamps() -> None:
     assert parse_utc("2026-08-01T12:00:00+12:00") == dt.datetime(2026, 8, 1, 0, 0, 0, tzinfo=dt.UTC)
 
 
-@pytest.mark.parametrize("age_days,fresh", [(0, True), (29, True), (31, False)])
-def test_ensure_dataset_fresh_enforces_consent_ttl(age_days: int, fresh: bool) -> None:
-    created = (dt.datetime.now(dt.UTC) - dt.timedelta(days=age_days)).isoformat()
-    dataset = GoldenDataset(created_at=created, host="https://us.posthog.com", project_id=2, cases=[])
-    if fresh:
-        ensure_dataset_fresh(dataset, Path("/tmp/dataset"))
-    else:
-        with pytest.raises(RuntimeError, match="re-run collect.py"):
-            ensure_dataset_fresh(dataset, Path("/tmp/dataset"))
+@pytest.mark.parametrize("approved", [True, False])
+def test_ensure_dataset_consent_reads_the_source_org(approved: bool) -> None:
+    dataset = GoldenDataset(
+        created_at=dt.datetime.now(dt.UTC).isoformat(),
+        host="https://us.posthog.com",
+        project_id=2,
+        organization_id=1,
+        cases=[],
+    )
+    response = MagicMock()
+    response.json.return_value = {"is_ai_data_processing_approved": approved}
+    with patch("requests.get", return_value=response):
+        if approved:
+            ensure_dataset_consent(dataset, "test-key")
+        else:
+            with pytest.raises(RuntimeError, match="withdrawn AI data-processing consent"):
+                ensure_dataset_consent(dataset, "test-key")
+
+
+def test_ensure_dataset_consent_requires_a_key() -> None:
+    dataset = GoldenDataset(
+        created_at=dt.datetime.now(dt.UTC).isoformat(),
+        host="https://us.posthog.com",
+        project_id=2,
+        organization_id=1,
+        cases=[],
+    )
+    with pytest.raises(RuntimeError, match="POSTHOG_API_KEY"):
+        ensure_dataset_consent(dataset, "")
+
+
+def test_ensure_dataset_consent_resolves_the_org_on_legacy_manifests() -> None:
+    dataset = GoldenDataset(
+        created_at=dt.datetime.now(dt.UTC).isoformat(),
+        host="https://us.posthog.com",
+        project_id=2,
+        organization_id=None,
+        cases=[],
+    )
+    environment = MagicMock()
+    environment.json.return_value = {"organization": 7}
+    organization = MagicMock()
+    organization.json.return_value = {"is_ai_data_processing_approved": True}
+    with patch("requests.get", side_effect=[environment, organization]) as get:
+        ensure_dataset_consent(dataset, "test-key")
+    assert get.call_count == 2
+    assert get.call_args_list[0].args[0].endswith("/api/environments/2/")
+    assert get.call_args_list[1].args[0].endswith("/api/organizations/7/")
+
+
+def _golden_case_on_disk(case_id: str, root: Path, *, write_files: bool = True) -> GoldenCase:
+    """`_golden` with the case's files on disk, so upload/download tests have real bytes to move."""
+    case = _golden("monitor", None, _monitor_output("no"), case_id=case_id)
+    if write_files:
+        case.case_dir(root).mkdir(parents=True)
+        case.video_path(root).write_bytes(f"video-{case_id}".encode())
+        case.inputs_path(root).write_text("{}")
+    return case
+
+
+_PIN_KEY = "replay-vision/golden/main/manifest.json"
+
+
+def test_upload_pinned_dataset_writes_every_case_and_the_manifest_last(tmp_path: Path) -> None:
+    dataset = GoldenDataset(
+        created_at=dt.datetime.now(dt.UTC).isoformat(),
+        host="https://us.posthog.com",
+        project_id=2,
+        organization_id=1,
+        cases=[_golden_case_on_disk("c1", tmp_path), _golden_case_on_disk("c2", tmp_path)],
+    )
+    uploaded: list[str] = []
+    with (
+        patch(
+            "posthog.storage.object_storage.write_from_file",
+            side_effect=lambda key, path, bucket=None: uploaded.append(key),
+        ),
+        patch(
+            "posthog.storage.object_storage.write",
+            side_effect=lambda key, content, bucket=None, extras=None: uploaded.append(key),
+        ),
+    ):
+        upload_pinned_dataset(tmp_path, dataset, bucket="test-bucket", key=_PIN_KEY)
+    assert "replay-vision/golden/main/cases/c1/video.mp4" in uploaded
+    assert "replay-vision/golden/main/cases/c2/video.mp4" in uploaded
+    assert "replay-vision/golden/main/cases/c1/inputs.json" in uploaded
+    assert "replay-vision/golden/main/cases/c2/inputs.json" in uploaded
+    # Manifest lands last, so a reader never sees a manifest naming absent case files.
+    assert uploaded[-1] == _PIN_KEY
+
+
+def test_upload_pinned_dataset_refuses_a_dataset_with_missing_local_files(tmp_path: Path) -> None:
+    dataset = GoldenDataset(
+        created_at=dt.datetime.now(dt.UTC).isoformat(),
+        host="https://us.posthog.com",
+        project_id=2,
+        organization_id=1,
+        cases=[_golden_case_on_disk("c1", tmp_path, write_files=False)],
+    )
+    with pytest.raises(RuntimeError, match="missing files"):
+        upload_pinned_dataset(tmp_path, dataset, bucket="test-bucket", key=_PIN_KEY)
+
+
+def test_download_pinned_dataset_round_trips_and_skips_existing_local_cases(tmp_path: Path) -> None:
+    dataset = GoldenDataset(
+        created_at=dt.datetime.now(dt.UTC).isoformat(),
+        host="https://us.posthog.com",
+        project_id=2,
+        organization_id=1,
+        cases=[_golden_case_on_disk("c1", tmp_path), _golden_case_on_disk("c2", tmp_path, write_files=False)],
+    )
+    remote = {case.case_id: case for case in dataset.cases}
+    with (
+        patch(
+            "posthog.storage.object_storage.read_bytes",
+            side_effect=lambda key, bucket=None, missing_ok=False: (
+                dataset.model_dump_json(indent=2).encode()
+                if key == _PIN_KEY
+                else b"remote-" + key.encode()
+                if key.endswith(("video.mp4", "inputs.json"))
+                else None
+            ),
+        ),
+    ):
+        downloaded = download_pinned_dataset(tmp_path, bucket="test-bucket", key=_PIN_KEY)
+    assert [case.case_id for case in downloaded.cases] == ["c1", "c2"]
+    # c1's local files existed, so they were not overwritten by the remote bytes.
+    assert remote["c1"].video_path(tmp_path).read_bytes() == b"video-c1"
+    assert remote["c2"].video_path(tmp_path).read_bytes().startswith(b"remote-")
+    assert remote["c2"].inputs_path(tmp_path).read_text().startswith("remote-")
+
+
+def test_download_pinned_dataset_fails_when_a_case_video_is_absent_remote(tmp_path: Path) -> None:
+    dataset = GoldenDataset(
+        created_at=dt.datetime.now(dt.UTC).isoformat(),
+        host="https://us.posthog.com",
+        project_id=2,
+        organization_id=1,
+        cases=[_golden_case_on_disk("c1", tmp_path, write_files=False)],
+    )
+    with patch(
+        "posthog.storage.object_storage.read_bytes",
+        side_effect=lambda key, bucket=None, missing_ok=False: (
+            dataset.model_dump_json(indent=2).encode() if key == _PIN_KEY else None
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="missing video for case c1"):
+            download_pinned_dataset(tmp_path, bucket="test-bucket", key=_PIN_KEY)
 
 
 def test_apply_known_freeform_tags_only_touches_freeform_classifiers() -> None:
