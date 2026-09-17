@@ -27,6 +27,7 @@ from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
     DedupResult,
+    GenerateSchemasInput,
     LoadBlindSpotsInput,
     LoadedBlindSpotsSkillDTO,
     LoadedPerspectiveDTO,
@@ -40,9 +41,19 @@ from products.review_hog.backend.temporal.activities import (
     ReviewChunkInput,
     ReviewMeta,
     SelectPerspectivesInput,
+    SyncReviewSkillsInput,
+    TrackReviewCompletedInput,
     TrackReviewFailedInput,
+    TrackReviewStartedInput,
     ValidateChunkInput,
     ValidateChunkResult,
+    ValidateIntegrationInput,
+)
+from products.review_hog.backend.temporal.resolution import (
+    FailResolutionInput,
+    ResolutionRunResult,
+    ResolvePRWorkflow,
+    ResolveThreadsInput,
 )
 from products.review_hog.backend.temporal.types import (
     ResolvePRWorkflowInputs,
@@ -268,14 +279,26 @@ async def _run_full_review_pr_workflow(
     async def fail_status(input) -> None:
         return None
 
-    # Records the failed-turn analytics event's run_index — the completion-rate denominator the
-    # model experiment relies on; the patched block is swallowed best-effort, so without this stub
-    # deleting it would leave every test green.
-    track_failed_calls: list[int] = []
+    # Records the analytics events' run_index and the turn's trigger — the completion-rate
+    # denominator and the per-tier split rely on them; all three captures are swallowed best-effort
+    # in the workflow, so without these stubs deleting any of them would leave every test green.
+    track_failed_calls: list[tuple[int, str | None]] = []
+    track_completed_calls: list[tuple[int, str | None]] = []
+    track_started_calls: list[tuple[int, str | None]] = []
 
     @activity.defn(name="track_review_failed_activity")
     async def track_failed(input: TrackReviewFailedInput) -> None:
-        track_failed_calls.append(input.run_index)
+        track_failed_calls.append((input.run_index, input.turn_trigger_source))
+        return None
+
+    @activity.defn(name="track_review_completed_activity")
+    async def track_completed(input: TrackReviewCompletedInput) -> None:
+        track_completed_calls.append((input.run_index, input.turn_trigger_source))
+        return None
+
+    @activity.defn(name="track_review_started_activity")
+    async def track_started(input: TrackReviewStartedInput) -> None:
+        track_started_calls.append((input.run_index, input.turn_trigger_source))
         return None
 
     result: str | None = None
@@ -313,6 +336,8 @@ async def _run_full_review_pr_workflow(
                 finalize_status,
                 fail_status,
                 track_failed,
+                track_completed,
+                track_started,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
@@ -363,6 +388,8 @@ async def _run_full_review_pr_workflow(
         "thresholds": threshold_calls,
         "finalize_status": finalize_status_calls,
         "track_failed": track_failed_calls,
+        "track_completed": track_completed_calls,
+        "track_started": track_started_calls,
         "resolve_dispatches": list(StubResolvePRWorkflow.dispatches),
     }
 
@@ -516,6 +543,7 @@ async def test_review_pr_workflow_early_exits_when_already_published():
     assert recorded["review"] == []
     assert recorded["validate"] == []
     assert recorded["publish"] == []
+    assert recorded["track_started"] == []  # a skipped turn never counts as started
 
 
 @pytest.mark.asyncio
@@ -528,6 +556,7 @@ async def test_review_pr_workflow_skips_when_author_maps_to_no_user():
     assert recorded["review"] == []
     assert recorded["validate"] == []
     assert recorded["publish"] == []
+    assert recorded["track_started"] == []
 
 
 @parameterized.expand(
@@ -566,11 +595,14 @@ async def test_review_pr_workflow_trigger_aware_gates(
     if expect_ran:
         assert recorded["split"] == [1]
         assert recorded["receipts"] == [("stored", None)]
+        assert recorded["track_started"] == [(1, trigger_source)]
     else:
         assert recorded["split"] == []
         assert recorded["review"] == []
         assert recorded["publish"] == []
         assert recorded["receipts"] == []
+        # The started event counts turns that passed every gate, so a gated-off turn must not fire it.
+        assert recorded["track_started"] == []
 
 
 @pytest.mark.asyncio
@@ -583,6 +615,8 @@ async def test_review_pr_workflow_appends_published_receipt_with_review_url():
     assert recorded["publish"] == [7]
     assert recorded["receipts"] == [("published", _REVIEW_URL)]
     assert recorded["track_failed"] == []  # a completed turn must not also count as failed
+    assert recorded["track_completed"] == [(1, "inbox")]  # this turn's trigger, not the report's
+    assert recorded["track_started"] == [(1, "inbox")]  # once, after the gates, before any sandbox
 
 
 @pytest.mark.asyncio
@@ -601,7 +635,11 @@ async def test_review_pr_workflow_appends_failed_receipt_and_still_fails():
     assert recorded["receipts"] == [("failed", None)]
     # The failed-turn analytics event fires exactly once with the turn's run_index — the completion
     # rate's denominator; it is best-effort-swallowed in the workflow, so only this assert guards it.
-    assert recorded["track_failed"] == [1]
+    assert recorded["track_failed"] == [(1, "inbox")]
+    assert recorded["track_completed"] == []
+    # The turn had started (the gates passed) before dedup killed it, so started + failed is the
+    # honest pair for an abandoned turn.
+    assert recorded["track_started"] == [(1, "inbox")]
 
 
 @pytest.mark.asyncio
@@ -653,6 +691,7 @@ async def test_review_pr_workflow_early_exits_on_empty_branch_diff():
     assert recorded["split"] == []
     assert recorded["review"] == []
     assert recorded["receipts"] == []
+    assert recorded["track_started"] == []
 
 
 def test_review_pr_workflow_inputs_deserialize_old_payloads():
@@ -763,3 +802,52 @@ async def test_validate_issues_workflow_fails_above_failure_floor():
 
     with pytest.raises(WorkflowFailureError):
         await _run_validate_workflow(issue_ids=["1-1-1", "1-2-1"], validate_chunk=validate_chunk)
+
+
+@pytest.mark.asyncio
+async def test_resolve_pr_workflow_runs_the_failure_cleanup_on_a_dead_resolution():
+    # The resolution activity's own failure handler misses prepare failures, timeouts, and worker
+    # death — the workflow-level cleanup is the only thing standing between those and a PR comment
+    # stuck on "Resolving comments" forever. It must fire on terminal failure and never on success.
+    cleanup_calls: list[int] = []
+
+    @activity.defn(name="validate_github_integration_activity")
+    async def validate_integration(input: ValidateIntegrationInput) -> None:
+        return None
+
+    @activity.defn(name="sync_review_skills_activity")
+    async def sync_skills(input: SyncReviewSkillsInput) -> None:
+        return None
+
+    @activity.defn(name="generate_schemas_activity")
+    async def generate_schemas(input: GenerateSchemasInput) -> None:
+        return None
+
+    @activity.defn(name="resolve_threads_activity")
+    async def resolve_threads(input: ResolveThreadsInput) -> ResolutionRunResult:
+        raise ApplicationError("prepare exploded", non_retryable=True)
+
+    @activity.defn(name="fail_resolution_activity")
+    async def fail_resolution(input: FailResolutionInput) -> None:
+        cleanup_calls.append(input.pr_number)
+
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[ResolvePRWorkflow],
+            activities=[validate_integration, sync_skills, generate_schemas, resolve_threads, fail_resolution],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await env.client.execute_workflow(
+                    ResolvePRWorkflow.run,
+                    ResolvePRWorkflowInputs(
+                        team_id=1, user_id=2, acting_user_id=2, pr_url="u", owner="o", repo="r", pr_number=7
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+
+    assert cleanup_calls == [7]

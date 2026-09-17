@@ -41,6 +41,9 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import clean_type
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
+    retry_on_operational_error,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -164,6 +167,11 @@ def _most_recent_computed_at(existing: dict[str, WarehouseColumnStatistics]) -> 
     return max(times) if times else None
 
 
+@retry_on_operational_error
+def _get_team(team_id: int) -> Team:
+    return Team.objects.select_related("organization").only("id", "uuid", "organization_id").get(id=team_id)
+
+
 def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str, Any]:
     """Compute and persist per-column statistics for one warehouse table. Safe to re-run."""
     # Lazy: DeltaTableRef drags deltalake/pyarrow/dlt — keep them off the flag-check import path that
@@ -176,7 +184,9 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
 
     log = logger.bind(team_id=team_id, schema_id=str(schema_id))
 
-    team = Team.objects.select_related("organization").only("id", "uuid", "organization_id").get(id=team_id)
+    # A plain read, so it's safe to retry outright on the Team/Organization join losing a
+    # Postgres deadlock race against an unrelated writer of either table.
+    team = _get_team(team_id)
     event_props: dict[str, Any] = {"schema_id": str(schema_id)}
 
     def emit_completed(status: str, **props: Any) -> None:
@@ -210,7 +220,9 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
     capture_statistics_event(team, EVENT_STARTED, event_props)
 
     # Locate the committed Delta table. folder_path is schema-derived, so any job for this schema works;
-    # resource_name mirrors what the pipeline used to name the Delta folder.
+    # resource_name must resolve the folder leaf the same way the loader wrote it (see
+    # resolve_table_and_folder_names in pipelines/helpers.py), otherwise this reads a path that
+    # does not exist and reports no statistics.
     job = ExternalDataJob.objects.filter(team_id=team_id, schema_id=schema_id).order_by("-created_at").first()
     if job is None:
         emit_completed("skipped", reason="no_job")

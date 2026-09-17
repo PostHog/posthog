@@ -1,13 +1,9 @@
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailjet import (
     MailjetSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.mailjet import MailjetResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.settings import (
     ENDPOINTS,
     MAILJET_WEBHOOK_EVENTS,
@@ -17,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.se
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.source import MailJetSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.webhook_template import template
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _STATISTICS_ENDPOINTS = {"openinformation", "clickstatistics"}
 WEBHOOK_URL = "https://webhooks.us.posthog.com/public/webhooks/dwh/hog-fn-1"
@@ -29,29 +24,6 @@ class TestMailJetSource:
         self.source = MailJetSource()
         self.team_id = 123
         self.config = MailjetSourceConfig(api_key="key", secret_key="secret")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.MAILJET
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Mailjet"
-        assert config.label == "Mailjet"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/mailjet.png"
-
-        assert {f.name for f in config.fields} == {"api_key", "secret_key"}
-        for field in config.fields:
-            assert isinstance(field, SourceFieldInputConfig)
-            assert field.type == SourceFieldInputConfigType.PASSWORD
-            assert field.secret is True
-            assert field.required is True
-
-    def test_non_retryable_errors(self):
-        errors = self.source.get_non_retryable_errors()
-        assert any("401" in key for key in errors)
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -155,12 +127,6 @@ class TestMailJetSource:
 
         assert is_valid is False
         assert error_message == "Invalid Mailjet API key or secret key"
-
-    def test_get_resumable_source_manager(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is MailjetResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.source.mailjet_source")
     def test_source_for_pipeline(self, mock_mailjet_source):

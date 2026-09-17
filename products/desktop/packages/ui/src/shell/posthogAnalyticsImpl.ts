@@ -1,3 +1,4 @@
+import type { NetworkMetricsRequest } from "posthog-js/dist/module.full.no-external";
 import posthog from "posthog-js/dist/module.full.no-external";
 // Import the recorder to set up __PosthogExtensions__.initSessionRecording
 // The module.full.no-external bundle includes rrweb but not the initSessionRecording function
@@ -7,6 +8,12 @@ import type {
   AnalyticsProperties,
   IAnalytics,
 } from "@posthog/platform/analytics";
+import {
+  type Adapter,
+  CLOUD_REGIONS,
+  getCloudUrlFromRegion,
+  type ModelAccess,
+} from "@posthog/shared";
 import {
   type EventPropertyMap,
   isInboxAnalyticsEvent,
@@ -33,12 +40,18 @@ export type HostInfoProperties = { platform: string; arch: string };
 
 let isInitialized = false;
 
+export type AdapterSubscriptionState = {
+  access: ModelAccess;
+  connected: boolean;
+};
+
 // Cached so it can be re-applied after posthog.reset() clears super properties.
 let registeredAppVersion: string | null = null;
 let registeredHostInfo: HostInfoProperties | null = null;
+const registeredSubscriptions = new Map<Adapter, AdapterSubscriptionState>();
 
 // posthog.reset() wipes super properties, so these are re-registered after each reset.
-function registerPersistentSuperProperties() {
+function registerPersistentSuperProperties(): void {
   posthog.register({
     team: "posthog-code",
     ...(registeredAppVersion !== null
@@ -47,6 +60,7 @@ function registerPersistentSuperProperties() {
     ...(registeredHostInfo !== null
       ? hostInfoProperties(registeredHostInfo)
       : {}),
+    ...subscriptionSuperProperties(),
   });
 }
 
@@ -57,6 +71,37 @@ function hostInfoProperties({ platform, arch }: HostInfoProperties): {
   return { os_platform: platform, os_arch: arch };
 }
 
+function subscriptionProperties(
+  adapter: Adapter,
+  { access, connected }: AdapterSubscriptionState,
+): Record<string, string | boolean> {
+  const effectiveAccess = connected ? access : "posthog-gateway";
+  return {
+    [`${adapter}_model_access`]: effectiveAccess,
+    [`${adapter}_subscription_connected`]: connected,
+  };
+}
+
+function subscriptionSuperProperties(): Record<string, string | boolean> {
+  const properties: Record<string, string | boolean> = {};
+  for (const [adapter, state] of registeredSubscriptions) {
+    Object.assign(properties, subscriptionProperties(adapter, state));
+  }
+  return properties;
+}
+
+export function registerAdapterSubscription(
+  adapter: Adapter,
+  state: AdapterSubscriptionState,
+): void {
+  registeredSubscriptions.set(adapter, state);
+  if (!isInitialized) {
+    return;
+  }
+
+  posthog.register(subscriptionProperties(adapter, state));
+}
+
 type PendingFlagListener = {
   callback: () => void;
   unsubscribe: (() => void) | null;
@@ -65,7 +110,70 @@ type PendingFlagListener = {
 // Subscribers added before initializePostHog runs.
 const pendingFlagListeners = new Set<PendingFlagListener>();
 
+// A build with no project key: flags keep their defaults and no remote answer
+// is coming, which counts as resolved for anything waiting on them.
+let flagsUnavailable = false;
+
 const SESSION_IDLE_TIMEOUT_SECONDS = 36_000;
+
+const OWN_BACKEND_FREE_TEXT_PATH_TEMPLATES = [
+  {
+    pattern:
+      /^(\/api\/environments\/)\d+(\/llm_skills\/name\/)[^/]+(\/files\/).+$/,
+    replacement: "$1:id$2:id$3:id",
+  },
+  {
+    pattern: /^(\/api\/environments\/)\d+(\/llm_skills\/name\/)[^/]+$/,
+    replacement: "$1:id$2:id",
+  },
+  {
+    // The tool name comes from the MCP server, so a custom server can put any
+    // text here. `tools/refresh/` is a fixed action rather than a tool name, so
+    // the lookahead keeps that route on its own path.
+    pattern:
+      /^(\/api\/environments\/)\d+(\/mcp_server_installations\/)[^/]+(\/tools\/)(?!refresh\/?$)[^/]+(\/?)$/,
+    replacement: "$1:id$2:id$3:id$4",
+  },
+] as const;
+
+function templateOwnApiPath(pathname: string): string | undefined {
+  for (const template of OWN_BACKEND_FREE_TEXT_PATH_TEMPLATES) {
+    if (template.pattern.test(pathname)) {
+      return pathname.replace(template.pattern, template.replacement);
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Path attribute for the automatic network-duration metric. posthog-js's default
+ * path templating only replaces numeric/uuid-like segments, so a presigned
+ * task-artifact download/preview URL (whose path embeds the artifact's original,
+ * user-controlled filename — see `_build_artifact_storage_path` in
+ * products/tasks/backend/facade/api.py) or any other non-API request would leak
+ * that filename into the shared Metrics project. Only requests to the app's own
+ * backend host get path-based attribution; everything else collapses to a fixed
+ * value.
+ *
+ * Backend URLs come from the region configuration. Analytics ingestion uses
+ * a separate host, so it cannot identify backend requests.
+ */
+export function networkMetricPath(
+  request: NetworkMetricsRequest,
+): string | undefined {
+  try {
+    const requestUrl = new URL(request.url);
+    const isBackend = CLOUD_REGIONS.some(
+      (region) => getCloudUrlFromRegion(region) === requestUrl.origin,
+    );
+    if (!isBackend) {
+      return "external";
+    }
+    return templateOwnApiPath(requestUrl.pathname);
+  } catch {
+    return "external";
+  }
+}
 
 export function initializePostHog(sessionId?: string) {
   const apiKey = import.meta.env.VITE_POSTHOG_API_KEY;
@@ -74,7 +182,16 @@ export function initializePostHog(sessionId?: string) {
   const uiHost =
     import.meta.env.VITE_POSTHOG_UI_HOST || "https://us.i.posthog.com";
 
-  if (!apiKey || isInitialized) {
+  if (!apiKey) {
+    // Settle the waiters instead of leaving them pending forever — a gate that
+    // waits for "flags resolved" would never open in a keyless build.
+    flagsUnavailable = true;
+    for (const listener of pendingFlagListeners) listener.callback();
+    pendingFlagListeners.clear();
+    return;
+  }
+
+  if (isInitialized) {
     return;
   }
 
@@ -82,6 +199,21 @@ export function initializePostHog(sessionId?: string) {
     defaults: "2026-05-30",
     api_host: apiHost,
     ui_host: uiHost,
+    metrics: {
+      serviceName: "posthog-desktop",
+      environment: import.meta.env.PROD ? "production" : "development",
+      // Records every fetch/XHR as an `http.client.request.duration` histogram,
+      // keyed by method/host/path (posthog-js templates numeric and uuid-like
+      // path segments to `:id` before dimensioning). posthog-js's own capture/flags/session-recording
+      // requests are excluded automatically. `attributes` keeps path-based
+      // attribution to this app's own backend — see `networkMetricPath`.
+      network: {
+        attributes: (request) => {
+          const path = networkMetricPath(request);
+          return path === undefined ? undefined : { path };
+        },
+      },
+    },
     // The epoch turns capture_pageview into "history_change". This app routes via
     // createHashHistory() (packages/ui/src/router/router.ts), so the route lives in
     // the URL hash and $pathname is identical for every screen — automatic pageviews
@@ -122,7 +254,7 @@ export function initializePostHog(sessionId?: string) {
   isInitialized = true;
 
   // Dev-only: expose the posthog instance so flags can be toggled from the
-  // renderer console, e.g. `posthog.featureFlags.override({ "agent-platform": true })`
+  // renderer console, e.g. `posthog.featureFlags.override({ "mcp-gateway": true })`
   // (and `posthog.featureFlags.override(false)` to clear). The module build
   // doesn't attach to window otherwise.
   if (import.meta.env.DEV) {
@@ -386,6 +518,11 @@ export function onFeatureFlagsLoaded(callback: () => void): () => void {
     return posthog.onFeatureFlags(callback);
   }
 
+  if (flagsUnavailable) {
+    callback();
+    return () => {};
+  }
+
   const listener: PendingFlagListener = { callback, unsubscribe: null };
   pendingFlagListeners.add(listener);
   return () => {
@@ -410,8 +547,21 @@ export function getFeatureFlagPayload(flagKey: string): unknown {
 }
 
 /**
+ * Matched variant of a multivariate flag; undefined when uninitialized or
+ * unmatched. posthog-js returns `true` for a boolean flag rather than a variant
+ * name, so only string values pass through.
+ */
+export function getFeatureFlagVariant(flagKey: string): string | undefined {
+  if (!isInitialized) {
+    return undefined;
+  }
+
+  const value = posthog.getFeatureFlag(flagKey);
+  return typeof value === "string" ? value : undefined;
+}
+
+/**
  * Reload feature flags from the server.
- * Useful after a person property change (e.g., invite code redemption).
  */
 export function reloadFeatureFlags(): void {
   if (!isInitialized) {
@@ -441,6 +591,7 @@ export const posthogAnalyticsTracker: AnalyticsTracker = {
 export const posthogFeatureFlags: FeatureFlags = {
   isEnabled: isFeatureFlagEnabled,
   getPayload: getFeatureFlagPayload,
+  getVariant: getFeatureFlagVariant,
   onFlagsLoaded: onFeatureFlagsLoaded,
 };
 

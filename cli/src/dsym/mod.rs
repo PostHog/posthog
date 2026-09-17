@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::api::symbol_sets::SymbolSetUpload;
+pub use crate::utils::xcode::PlistInfo;
 use anyhow::{anyhow, Result};
 use clap::Subcommand;
 use posthog_symbol_data::{write_symbol_data, AppleDsym};
@@ -316,56 +317,4 @@ pub fn find_dsym_bundles(directory: &PathBuf) -> Result<Vec<PathBuf>> {
     }
 
     Ok(dsyms)
-}
-
-/// Info extracted from an Info.plist file
-#[derive(Debug, Clone, Default, serde::Serialize)]
-pub struct PlistInfo {
-    /// CFBundleIdentifier (e.g., com.example.app)
-    #[serde(rename = "CFBundleIdentifier")]
-    pub bundle_identifier: Option<String>,
-    /// CFBundleShortVersionString (e.g., 1.2.3)
-    #[serde(rename = "CFBundleShortVersionString")]
-    pub short_version: Option<String>,
-    /// CFBundleVersion (e.g., 42)
-    #[serde(rename = "CFBundleVersion")]
-    pub bundle_version: Option<String>,
-    /// CFBundleDevelopmentRegion (e.g., English, en)
-    #[serde(rename = "CFBundleDevelopmentRegion")]
-    pub development_region: Option<String>,
-}
-
-impl PlistInfo {
-    /// Extract version info from an Info.plist file path
-    pub fn from_plist(plist_path: &Path) -> Result<Self> {
-        if !plist_path.exists() {
-            anyhow::bail!("Info.plist not found at {}", plist_path.display());
-        }
-
-        let plist = plist::Value::from_file(plist_path)
-            .map_err(|e| anyhow!("Failed to parse Info.plist: {e}"))?;
-
-        let dict = plist
-            .as_dictionary()
-            .ok_or_else(|| anyhow!("Info.plist is not a dictionary"))?;
-
-        Ok(Self {
-            bundle_identifier: dict
-                .get("CFBundleIdentifier")
-                .and_then(|v| v.as_string())
-                .map(|s| s.to_string()),
-            short_version: dict
-                .get("CFBundleShortVersionString")
-                .and_then(|v| v.as_string())
-                .map(|s| s.to_string()),
-            bundle_version: dict
-                .get("CFBundleVersion")
-                .and_then(|v| v.as_string())
-                .map(|s| s.to_string()),
-            development_region: dict
-                .get("CFBundleDevelopmentRegion")
-                .and_then(|v| v.as_string())
-                .map(|s| s.to_string()),
-        })
-    }
 }

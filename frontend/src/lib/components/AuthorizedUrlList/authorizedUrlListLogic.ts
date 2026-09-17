@@ -67,6 +67,14 @@ export function hasWildcardInPort(input: unknown): boolean {
     return portWildcardRegex.test(input.trim())
 }
 
+/**
+ * The add URL form starts with `https://` already in the box, so a pasted full URL leaves two
+ * protocols behind. Drop the leading one, because the protocol the user supplied is the real one.
+ */
+export function stripDuplicateProtocol(url: string): string {
+    return url.replace(/^(https?:\/\/)+(?=[a-z][a-z0-9+.-]*:\/\/)/i, '')
+}
+
 export const validateProposedUrl = (
     proposedUrl: string,
     currentUrls: string[],
@@ -503,10 +511,18 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                     limit 25`
 
                 const currentScene = sceneLogic.findMounted()?.values.activeSceneId ?? 'Settings'
-                const response = await api.queryHogQL(query, {
-                    scene: currentScene,
-                    productKey: 'platform_and_support',
-                })
+                let response: Awaited<ReturnType<typeof api.queryHogQL>>
+                try {
+                    response = await api.queryHogQL(query, {
+                        scene: currentScene,
+                        productKey: 'platform_and_support',
+                    })
+                } catch {
+                    // Suggestions are advisory. A failed query (server error or network error) leaves the
+                    // list empty and the manual "Fetch suggestions" retry available, so we swallow it here
+                    // instead of letting it surface as an unhandled loader error.
+                    return []
+                }
                 breakpoint()
                 const result = response.results as [string, number][]
 
@@ -542,7 +558,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 // default to allowing wildcards because that was the original behavior
                 url: validateProposedUrl(
                     url,
-                    values.authorizedUrls,
+                    values.authorizedUrls.filter((_, index) => index !== values.editUrlIndex),
                     values.onlyAllowDomains,
                     props.allowWildCards ?? true
                 ),
@@ -616,6 +632,15 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         },
         newUrl: () => {
             actions.setProposedUrlValue('url', NEW_URL)
+        },
+        setProposedUrlValue: ({ value }) => {
+            if (typeof value !== 'string') {
+                return
+            }
+            const stripped = stripDuplicateProtocol(value)
+            if (stripped !== value) {
+                actions.setProposedUrlValue('url', stripped)
+            }
         },
         addUrl: async ({ url, launch }) => {
             // Await the app_urls PATCH before markTaskAsCompleted to avoid a race on the team PATCH response.

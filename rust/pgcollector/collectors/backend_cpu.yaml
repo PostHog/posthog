@@ -1,0 +1,20 @@
+name: backend_cpu
+description: >
+  Per-backend CPU, page faults and I/O from /proc via pg_proctab, joined to
+  pg_stat_activity — attributes host CPU to users/queries (what pg_stat_kcache
+  would give). Cumulative per (pid, backend_start); rss is a gauge.
+interval: 60s
+scope: cluster
+kind: cumulative
+requires: { extension: pg_proctab }
+key: [pid, backend_start]
+passthrough: [rss_kb, num_threads]
+query: |
+  SELECT a.pid, a.backend_start, a.datname, a.usename, a.application_name, a.backend_type,
+         p.utime AS utime_jiffies, p.stime AS stime_jiffies,
+         p.minflt, p.majflt,
+         p.rchar AS read_chars, p.wchar AS write_chars, p.reads AS read_bytes, p.writes AS write_bytes,
+         (p.rss * 4)::bigint AS rss_kb, p.num_threads
+  FROM pg_proctab() p
+  JOIN pg_stat_activity a ON a.pid = p.pid
+  WHERE a.backend_type IN ('client backend', 'autovacuum worker', 'parallel worker', 'checkpointer', 'background writer', 'walwriter')

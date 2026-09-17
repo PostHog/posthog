@@ -9,12 +9,12 @@ def METRIC_ATTRIBUTES_TABLE_SQL():
     return f"""
 CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}
 (
-    `team_id` Int32 CODEC(DoubleDelta, ZSTD(1)),
-    `time_bucket` DateTime64(0) CODEC(DoubleDelta, ZSTD(1)),
-    `service_name` LowCardinality(String) CODEC(ZSTD(1)),
-    `resource_fingerprint` UInt64 DEFAULT 0 CODEC(DoubleDelta, ZSTD(1)),
-    `attribute_key` LowCardinality(String) CODEC(ZSTD(1)),
-    `attribute_value` String CODEC(ZSTD(1)),
+    `team_id` Int32,
+    `time_bucket` DateTime64(0),
+    `service_name` LowCardinality(String),
+    `resource_fingerprint` UInt64 DEFAULT 0,
+    `attribute_key` LowCardinality(String),
+    `attribute_value` String,
     `attribute_count` SimpleAggregateFunction(sum, UInt64),
     `attribute_type` LowCardinality(String),
     INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,

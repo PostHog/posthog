@@ -12,10 +12,11 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_FLAG_EVALUATIONS
 
 # Flag evaluation telemetry ($feature_flag_called events routed out of the events
 # table). The column set is the events table's, narrowed to what a flag evaluation
-# actually carries: no elements_chain, no person_mode, no *_created_at companions
-# to the person and group properties. It keeps the full properties JSON as the
-# source of truth, so queries and integrations built on event properties survive
-# the routing switch. The 90-day TTL is what makes rows that wide affordable.
+# actually carries: no elements_chain, no person_mode, and no person or group
+# property blobs, since no Insight or Hog function breaks down or filters on them.
+# It keeps the full properties JSON as the source of truth, so queries and
+# integrations built on event properties survive the routing switch. The 90-day
+# TTL is what makes rows that wide affordable.
 #
 # Naming convention follows the sharded main-cluster table family (see heatmaps):
 #   * `sharded_flag_evaluations` — sharded replicated MergeTree on DATA nodes.
@@ -48,8 +49,9 @@ FLAG_EVALUATIONS_SHARDING_KEY = "sipHash64(distinct_id)"
 # The sort key matches the queries we run: per-flag usage over a date range, and
 # uniques within one flag. toDate(timestamp) sits inside it because PARTITION BY
 # is monthly — without it, a one-day query for one flag would read that flag's
-# whole month. flag_key is a materialized column; ClickHouse computes those before
-# it sorts a part, so one can carry a sort key. The trailing hash intentionally
+# whole month. flag_key is a DEFAULT column; ClickHouse fills column defaults at
+# insert, before it sorts a part, so one can carry a sort key, though a key
+# column can never be ALTER UPDATEd, whatever its kind. The trailing hash intentionally
 # differs from the sharding key — cityHash64 is the events table's convention for
 # within-shard ordering — and a MergeTree ORDER BY is immutable once data exists,
 # so the two must not silently move together.
@@ -82,12 +84,6 @@ _FLAG_EVALUATIONS_COLUMNS_TEMPLATE = """
     distinct_id String,
     created_at DateTime64(6, 'UTC'),
     person_id UUID,
-    person_properties String,
-    group0_properties String,
-    group1_properties String,
-    group2_properties String,
-    group3_properties String,
-    group4_properties String,
     inserted_at DateTime64(6, 'UTC'){ts_default}
 """.strip()
 
@@ -111,24 +107,36 @@ _FLAG_EVALUATIONS_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_default
 #
 # $group_0..$group_4 carry the events table's names, types and comment form so
 # group filtering resolves the same columns on both.
-_FLAG_EVALUATIONS_MATERIALIZED_COLUMNS = f"""
-    , $group_0 String MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_0')")} COMMENT 'column_materializer::$group_0'
-    , $group_1 String MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_1')")} COMMENT 'column_materializer::$group_1'
-    , $group_2 String MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_2')")} COMMENT 'column_materializer::$group_2'
-    , $group_3 String MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_3')")} COMMENT 'column_materializer::$group_3'
-    , $group_4 String MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_4')")} COMMENT 'column_materializer::$group_4'
-    , flag_key String MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$feature_flag')")} COMMENT 'column_materializer::properties::$feature_flag'
-    , response LowCardinality(String) MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$feature_flag_response')")} COMMENT 'column_materializer::properties::$feature_flag_response'
-    , session_id String MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$session_id')")} COMMENT 'column_materializer::properties::$session_id'
-    , request_id String MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$feature_flag_request_id')")} COMMENT 'column_materializer::properties::$feature_flag_request_id'
+#
+# DEFAULT rather than MATERIALIZED, the kind materialize() mints on sharded_events:
+# both compute the expression when an insert omits the column, but only a DEFAULT
+# column accepts ALTER UPDATE, which the events property-removal path relies on to
+# reset extracted values whose source property was erased (see
+# docs/internal/clickhouse-deletion-coverage.md). An UPDATE of properties does not
+# recompute these columns, so a rewrite must reset each affected column in the
+# same mutation. The cost is a footgun MATERIALIZED did not have: an insert that
+# names one of these columns stores the given value even when it contradicts
+# properties. Producers must omit them, which the Kafka path enforces by
+# writable_flag_evaluations not declaring them.
+_FLAG_EVALUATIONS_TYPED_COLUMNS = f"""
+    , $group_0 String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$group_0')")} COMMENT 'column_materializer::$group_0'
+    , $group_1 String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$group_1')")} COMMENT 'column_materializer::$group_1'
+    , $group_2 String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$group_2')")} COMMENT 'column_materializer::$group_2'
+    , $group_3 String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$group_3')")} COMMENT 'column_materializer::$group_3'
+    , $group_4 String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$group_4')")} COMMENT 'column_materializer::$group_4'
+    , flag_key String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$feature_flag')")} COMMENT 'column_materializer::properties::$feature_flag'
+    , response LowCardinality(String) DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$feature_flag_response')")} COMMENT 'column_materializer::properties::$feature_flag_response'
+    , session_id String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$session_id')")} COMMENT 'column_materializer::properties::$session_id'
+    , request_id String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$feature_flag_request_id')")} COMMENT 'column_materializer::properties::$feature_flag_request_id'
 """
 
 # A Distributed engine computes nothing, so the read table repeats the same names
 # and types without the expression, which is what lets a query against
 # flag_evaluations select the columns the shards store. The writable table omits
-# them entirely, because rows arrive there without these columns and the shard
-# fills them in.
-_FLAG_EVALUATIONS_PROXY_MATERIALIZED_COLUMNS = """
+# them entirely: carrying the DEFAULT expressions there would compute the values
+# on the ingestion nodes and ship the widened rows over the network, so rows
+# arrive narrow and the shard computes them, matching writable_events.
+_FLAG_EVALUATIONS_PROXY_TYPED_COLUMNS = """
     , $group_0 String COMMENT 'column_materializer::$group_0'
     , $group_1 String COMMENT 'column_materializer::$group_1'
     , $group_2 String COMMENT 'column_materializer::$group_2'
@@ -176,7 +184,7 @@ FLAG_EVALUATIONS_TABLE_SQL = lambda: (
 CREATE TABLE IF NOT EXISTS {FLAG_EVALUATIONS_DATA_TABLE}
 (
     {_FLAG_EVALUATIONS_COLUMNS}
-    {_FLAG_EVALUATIONS_MATERIALIZED_COLUMNS}
+    {_FLAG_EVALUATIONS_TYPED_COLUMNS}
     {_FLAG_EVALUATIONS_INDEXES}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
@@ -213,12 +221,12 @@ def DROP_FLAG_EVALUATIONS_TABLE_SQL() -> str:
     return f"DROP TABLE IF EXISTS {FLAG_EVALUATIONS_DATA_TABLE} SYNC"
 
 
-def _distributed_table_sql(table_name: str, *, materialized_columns: str = "") -> str:
+def _distributed_table_sql(table_name: str, *, typed_columns: str = "") -> str:
     return f"""
 CREATE TABLE IF NOT EXISTS {table_name}
 (
     {_FLAG_EVALUATIONS_COLUMNS}
-    {materialized_columns}
+    {typed_columns}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
 ENGINE = {Distributed(data_table=FLAG_EVALUATIONS_DATA_TABLE, sharding_key=FLAG_EVALUATIONS_SHARDING_KEY)}
@@ -230,7 +238,7 @@ WRITABLE_FLAG_EVALUATIONS_TABLE_SQL = lambda: _distributed_table_sql(FLAG_EVALUA
 
 # Read path on DATA nodes, and the name queries use.
 DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL = lambda: _distributed_table_sql(
-    FLAG_EVALUATIONS_TABLE, materialized_columns=_FLAG_EVALUATIONS_PROXY_MATERIALIZED_COLUMNS
+    FLAG_EVALUATIONS_TABLE, typed_columns=_FLAG_EVALUATIONS_PROXY_TYPED_COLUMNS
 )
 
 
@@ -251,7 +259,6 @@ SETTINGS kafka_skip_broken_messages = 100
 """
 )
 
-
 # The Kafka JSONEachRow parser fills missing fields with the type's zero value, so
 # a DateTime64 column reads as epoch when a producer omits it.
 _EPOCH_DT64 = "toDateTime64('1970-01-01 00:00:00', 6, 'UTC')"
@@ -269,12 +276,6 @@ AS SELECT
     distinct_id,
     created_at,
     person_id,
-    person_properties,
-    group0_properties,
-    group1_properties,
-    group2_properties,
-    group3_properties,
-    group4_properties,
     -- Fall back to the Kafka message timestamp, which is stable across replays
     -- (inserted_at checkpoints the sync_feature_flag_last_called task, and an
     -- epoch-stamped row would stay invisible to it forever).

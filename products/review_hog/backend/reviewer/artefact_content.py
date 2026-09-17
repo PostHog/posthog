@@ -193,6 +193,27 @@ class ThreadVerdictArtefact(BaseModel):
         return v
 
 
+class ResolutionRunArtefact(BaseModel):
+    """Content for a `resolution_run` artefact: one resolution run's opening work-list.
+
+    Appended by the run's prepare step the moment the work-list is classified, so progress surfaces
+    (the reviews API's resolving row, the PR status comment) can count the run's `thread_verdict`
+    artefacts against it. The newest row marks the report's latest resolution run; the run's closing
+    `note` artefact (author `review_hog_resolution`) marks it finished — a run artefact with no
+    later closing note is either still running (recent artefact activity) or died partway (stale).
+    """
+
+    total: int = Field(description="Threads queued for a resolution turn this run (post pre-filter and run cap).")
+    thread_ids: list[str] = Field(
+        default_factory=list,
+        description="The queued threads' node ids, so progress counts only this run's verdicts "
+        "(redelivered prior-run verdicts also append rows during the run).",
+    )
+    redeliver: int = Field(default=0, description="Threads only needing their GitHub writes redelivered (no LLM turn).")
+    skipped: int = Field(default=0, description="Threads skipped as already judged and delivered.")
+    overflow: int = Field(default=0, description="Threads beyond the run cap, left for the next run.")
+
+
 class ChunkSetArtefact(BaseModel):
     """Content for a `chunk_set` artefact: the PR's chunking computed for ONE review turn.
 
@@ -259,6 +280,7 @@ ReviewArtefactContent = (
     | ValidationVerdict
     | FindingOutcomeArtefact
     | ThreadVerdictArtefact
+    | ResolutionRunArtefact
     | ReviewLogArtefactContent
     | ReviewWorkingStateContent
 )
@@ -269,6 +291,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "validation_verdict": ValidationVerdict,
     "finding_outcome": FindingOutcomeArtefact,
     "thread_verdict": ThreadVerdictArtefact,
+    "resolution_run": ResolutionRunArtefact,
     "task_run": TaskRunArtefact,
     "commit": Commit,
     "code_reference": CodeReference,

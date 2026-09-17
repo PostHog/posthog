@@ -93,7 +93,7 @@ export function persistedTurnMessage(
  * typed — stripping it half-way reads worse than the source does, and the
  * surfaces that show this clamp to a couple of lines anyway.
  */
-export function condenseTurnMessage(text: string): string | null {
+function condenseTurnMessage(text: string): string | null {
   const collapsed = text.replace(/\s+/g, " ").trim();
   if (!collapsed) return null;
   if (collapsed.length <= MAX_MESSAGE_CHARS) return collapsed;

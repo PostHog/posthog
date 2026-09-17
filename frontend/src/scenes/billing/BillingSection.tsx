@@ -2,12 +2,13 @@ import './Billing.scss'
 
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { Suspense, lazy, useEffect } from 'react'
+import { Suspense, useEffect } from 'react'
 
 import { LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -17,7 +18,7 @@ import { BillingSpendView } from './BillingSpendView'
 import { BillingUsage } from './BillingUsage'
 import { BillingSectionId } from './types'
 
-const BillingAlerts = lazy(() =>
+const BillingAlerts = lazyWithRetry(() =>
     import('@posthog/products-billing-alerts/frontend/BillingAlerts').then((module) => ({
         default: module.BillingAlerts,
     }))
@@ -38,6 +39,7 @@ const allTabs: { key: BillingSectionId; label: string }[] = [
 export function BillingSection(): JSX.Element {
     const { location, searchParams } = useValues(router)
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const { canAccessBilling, canViewUsageAndSpend, canOnlyViewUsageAndSpend } = useValues(billingLogic)
     const billingAlertsEnabled = !!featureFlags[FEATURE_FLAGS.BILLING_ALERTS]
     const alertsRequested = location.pathname.includes('alerts')
     const billingAlertsPending = alertsRequested && !receivedFeatureFlags
@@ -57,6 +59,20 @@ export function BillingSection(): JSX.Element {
             router.actions.replace(urls.organizationBillingSection('overview'))
         }
     }, [alertsRequested, billingAlertsEnabled, receivedFeatureFlags])
+
+    // View-only members have no access to the Overview tab, so send them to Usage instead.
+    // canOnlyViewUsageAndSpend is only true once org membership and flags are loaded, so admins never bounce.
+    useEffect(() => {
+        if (section === 'overview' && canOnlyViewUsageAndSpend) {
+            router.actions.replace(urls.organizationBillingSection('usage'))
+        }
+    }, [section, canOnlyViewUsageAndSpend])
+
+    // Usage and Spend are the read-only surfaces. Overview and Alerts stay admin-only, since both
+    // can change what the organization is billed.
+    const visibleTabs = tabs.filter((tab) =>
+        tab.key === 'usage' || tab.key === 'spend' ? canViewUsageAndSpend : canAccessBilling
+    )
 
     const handleTabChange = (key: BillingSectionId): void => {
         const newUrl = urls.organizationBillingSection(key)
@@ -87,7 +103,7 @@ export function BillingSection(): JSX.Element {
 
     return (
         <div className="flex flex-col">
-            <LemonTabs activeKey={section} onChange={handleTabChange} tabs={tabs} />
+            {visibleTabs.length > 0 && <LemonTabs activeKey={section} onChange={handleTabChange} tabs={visibleTabs} />}
 
             {section === 'overview' && <Billing />}
             {section === 'usage' && <BillingUsage />}

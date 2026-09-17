@@ -1,10 +1,37 @@
-from products.alerts.backend.destination_configs import AlertDestinationAction, EventKindSpec, slack_blocks, teams_text
+from typing import Any
+
+import pytest
+
+from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
+
+from products.alerts.backend.facade.contracts import (
+    AlertDestinationAction,
+    AlertDestinationData,
+    DestinationType,
+    EventKindSpec,
+)
+from products.alerts.backend.logic.destination_configs import (
+    DESTINATION_SPECS,
+    build_alert_destination_config,
+    slack_blocks,
+    teams_text,
+)
 
 DEFAULT_SPEC = EventKindSpec(
     event_id="$insight_alert_firing",
     display_kind="firing",
     header="Insight alert firing",
     details=(("Threshold", "30"),),
+    primary_action_url="https://example.com/insight",
+    primary_action_label="View insight",
+    webhook_body={},
+)
+
+MULTI_DETAIL_SPEC = EventKindSpec(
+    event_id="$insight_alert_broken",
+    display_kind="broken",
+    header="Insight alert broken",
+    details=(("Reason", "5 consecutive check failures."), ("Last error", "Query is too expensive.")),
     primary_action_url="https://example.com/insight",
     primary_action_label="View insight",
     webhook_body={},
@@ -47,6 +74,23 @@ class TestSpecVocabularyRendering:
         assert "Pageviews is 42, breaching 30" in text
         assert "[View insight](https://example.com/insight) · [Manage alert](https://example.com/alert)" in text
 
+    def test_slack_renders_one_line_per_detail(self) -> None:
+        blocks = slack_blocks(MULTI_DETAIL_SPEC, context_elements=())
+
+        section = next(b for b in blocks if b["type"] == "section")
+        assert section["text"]["text"] == (
+            "*Reason:* 5 consecutive check failures.\n*Last error:* Query is too expensive."
+        )
+
+    def test_teams_separates_details_with_one_blank_line(self) -> None:
+        text = teams_text(MULTI_DETAIL_SPEC)
+
+        assert "**Reason:** 5 consecutive check failures.\n\n**Last error:** Query is too expensive." in text
+        # An Adaptive Card paragraph break is exactly one blank line; stacked ones render as gaps.
+        assert "\n\n\n" not in text
+        # Every asterisk belongs to a `**` pair. A Slack single-asterisk bold renders literally here.
+        assert "*" not in text.replace("**", "")
+
     def test_defaults_render_single_button_and_details_only(self) -> None:
         blocks = slack_blocks(DEFAULT_SPEC, context_elements=())
         actions = next(b for b in blocks if b["type"] == "actions")
@@ -54,3 +98,64 @@ class TestSpecVocabularyRendering:
         assert teams_text(DEFAULT_SPEC) == (
             "**Insight alert firing**\n\n**Threshold:** 30\n\n[View insight](https://example.com/insight)"
         )
+
+
+_TEMPLATES_BY_ID = {template.id: template for template in HOG_FUNCTION_TEMPLATES}
+
+_TEMPLATE_IDS_DEFINED_IN_NODEJS = {"template-slack", "template-webhook"}
+
+_DESTINATION_DATA: dict[DestinationType, AlertDestinationData] = {
+    DestinationType.DISCORD: {"type": DestinationType.DISCORD, "webhook_url": "https://discord.example.com/hook"},
+    DestinationType.TEAMS: {"type": DestinationType.TEAMS, "webhook_url": "https://teams.example.com/hook"},
+}
+
+
+def _inputs_a_hog_function_would_keep(template: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+    return {entry["key"]: inputs.get(entry["key"]) for entry in template.inputs_schema or [] if not entry.get("secret")}
+
+
+class TestDestinationTemplateContract:
+    def test_the_templates_defined_outside_python_are_the_ones_we_expect(self) -> None:
+        unreachable = {spec.template_id for spec in DESTINATION_SPECS.values()} - set(_TEMPLATES_BY_ID)
+
+        assert unreachable == _TEMPLATE_IDS_DEFINED_IN_NODEJS
+
+    @pytest.mark.parametrize("destination_type", list(_DESTINATION_DATA))
+    def test_a_config_read_back_from_the_inputs_a_template_keeps_equals_the_config_built(
+        self, destination_type: DestinationType
+    ) -> None:
+        template = _TEMPLATES_BY_ID[DESTINATION_SPECS[destination_type].template_id]
+        data = _DESTINATION_DATA[destination_type]
+        config = build_alert_destination_config(
+            spec=DEFAULT_SPEC,
+            alert_id="alert-1",
+            alert_name="Signups",
+            data=data,
+            slack_context_elements=(),
+        )
+
+        stored_inputs = _inputs_a_hog_function_would_keep(template, config.payload["inputs"])
+
+        assert DESTINATION_SPECS[destination_type].read(stored_inputs) == data
+
+    def test_slack_channel_name_shapes_the_hog_function_name_and_is_never_stored_in_inputs(self) -> None:
+        data: AlertDestinationData = {
+            "type": DestinationType.SLACK,
+            "slack_workspace_id": 42,
+            "slack_channel_id": "C123",
+            "slack_channel_name": "eng",
+        }
+        config = build_alert_destination_config(
+            spec=DEFAULT_SPEC,
+            alert_id="alert-1",
+            alert_name="Signups",
+            data=data,
+            slack_context_elements=(),
+        )
+
+        assert config.payload["name"].endswith("Slack #eng")
+        assert DESTINATION_SPECS[DestinationType.SLACK].read(config.payload["inputs"]) == {
+            "type": DestinationType.SLACK,
+            "slack_workspace_id": 42,
+            "slack_channel_id": "C123",
+        }

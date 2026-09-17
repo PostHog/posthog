@@ -2,16 +2,10 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-)
-
+from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.openai_ads import OpenAIAdsResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.source import OpenAIAdsSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -21,15 +15,12 @@ _INSIGHTS_ENDPOINTS = ["campaign_insights", "ad_group_insights", "ad_insights", 
 
 
 class TestOpenAIAdsSourceConfig:
-    def test_source_type(self) -> None:
-        assert OpenAIAdsSource().source_type == ExternalDataSourceType.OPENAIADS
-
     def test_config_is_released_with_single_secret_api_key_field(self) -> None:
         config = OpenAIAdsSource().get_source_config
-        assert config.name == SchemaExternalDataSourceType.OPEN_AI_ADS
-        # A finished source must be visible: alpha-labelled, never hidden via unreleasedSource.
+        assert config.name == ExternalDataSourceType.OPENAIADS
+        # A finished source must be visible: stage-labelled, never hidden via unreleasedSource.
         assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/openai-ads"
         fields = [f for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert [f.name for f in fields] == ["api_key"]
@@ -61,12 +52,6 @@ class TestOpenAIAdsSchemas:
     def test_names_filter(self) -> None:
         schemas = OpenAIAdsSource().get_schemas(MagicMock(), team_id=1, names=["campaigns"])
         assert [s.name for s in schemas] == ["campaigns"]
-
-
-class TestOpenAIAdsResumableManager:
-    def test_manager_bound_to_resume_config(self) -> None:
-        manager = OpenAIAdsSource().get_resumable_source_manager(MagicMock())
-        assert manager._data_class is OpenAIAdsResumeConfig
 
 
 class TestOpenAIAdsSourceForPipeline:

@@ -27,16 +27,16 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.gateway_client import get_llm_client
 from posthog.llm.semantic_enrichment import (
     DEFAULT_ENRICHMENT_MODEL,
     MAX_BUSINESS_CONTEXT_CHARS,
     MAX_COLUMNS_PER_TABLE,
     MAX_PROMPT_CHARS,
+    BoundedPrompt,
     bound_prompt_over_columns,
+    build_enrichment_client,
     capture_enrichment_event,
     collapse_untrusted,
-    enrichment_enabled as _shared_enrichment_enabled,
     extract_json_object,
     generate_json_completion,
     get_team_business_context,
@@ -61,7 +61,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 # global structlog config still merges workflow_id/run_id/attempt/task_queue onto every line.
 logger = get_write_only_logger(__name__)
 
-ENRICHMENT_FEATURE_FLAG = "data-warehouse-semantic-enrichment"
 # The bounding constants and the enrichment model now live in the shared core; re-exported here so
 # importers (and the existing test suite) keep resolving them off this module.
 ENRICHMENT_MODEL = DEFAULT_ENRICHMENT_MODEL
@@ -85,10 +84,6 @@ class EnrichTableSemanticsInputs:
     @property
     def properties_to_log(self) -> dict[str, Any]:
         return {"team_id": self.team_id, "schema_id": str(self.schema_id)}
-
-
-def enrichment_enabled(team: Team) -> bool:
-    return _shared_enrichment_enabled(team, ENRICHMENT_FEATURE_FLAG)
 
 
 def build_enrichment_prompt(
@@ -182,7 +177,7 @@ def build_bounded_enrichment_prompt(
     known_descriptions: dict[str, str],
     columns_needing_description: list[str],
     business_context: str,
-) -> str:
+) -> BoundedPrompt:
     """Build the prompt, trimming inputs so it can't exceed the model's context window.
 
     The business context (the team's core memory) is unbounded free text and is the usual culprit
@@ -230,7 +225,7 @@ def _generate_descriptions(
     business_context: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Call the LLM. Returns `(parsed_payload, usage)` — usage carries the model and token counts."""
-    prompt = build_bounded_enrichment_prompt(
+    bounded = build_bounded_enrichment_prompt(
         source_name=source_name,
         table_name=table_name,
         endpoint_name=endpoint_name,
@@ -241,15 +236,23 @@ def _generate_descriptions(
         columns_needing_description=columns_needing_description,
         business_context=business_context,
     )
-    # Resolve the client through this module's get_llm_client so the existing test seam keeps working,
-    # then hand it to the shared JSON completion.
-    client = get_llm_client(product="warehouse_semantic_enrichment", team_id=team_id)
+    # Resolved here so this module exposes a seam the activity tests can patch.
+    client = build_enrichment_client("warehouse_semantic_enrichment", team_id)
+    if bounded.deferred:
+        # Per-column annotation rows are the idempotency record here, so a deferred column is still
+        # unannotated and the next sync asks for it. Logged because the event reports only the ask.
+        logger.info(
+            "Deferred columns to a later enrichment pass to fit the request bounds",
+            deferred_columns=len(bounded.deferred),
+            requested_columns=len(bounded.requested),
+        )
     return generate_json_completion(
         product="warehouse_semantic_enrichment",
         team_id=team_id,
-        prompt=prompt,
+        prompt=bounded.prompt,
         model=ENRICHMENT_MODEL,
         client=client,
+        max_output_tokens=bounded.max_output_tokens,
     )
 
 
@@ -302,12 +305,8 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     def emit_completed(status: str, **props: Any) -> None:
         capture_enrichment_event(team, EVENT_COMPLETED, {"status": status, **event_props, **props})
 
-    if not enrichment_enabled(team):
-        log.info("warehouse_enrichment.skipped", reason="flag_disabled")
-        emit_completed("skipped", reason="flag_disabled")
-        return {"status": "skipped", "reason": "flag_disabled"}
     # Respect the org's AI data-processing opt-out: this path ships table/column metadata and core
-    # memory to the LLM gateway, so the feature flag alone is not enough of a gate.
+    # memory to the LLM gateway.
     if team.organization.is_ai_data_processing_approved is not True:
         log.info("warehouse_enrichment.skipped", reason="ai_data_processing_not_approved")
         emit_completed("skipped", reason="ai_data_processing_not_approved")
@@ -355,7 +354,9 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     # (`created_at`, `customer_id`) each column surfaces as, so the description lands on the column that
     # `information_schema` and the AI agent actually see. Columns with no rename map to themselves.
     hogql_name_by_raw = get_hogql_column_name_mapping(table.table_name_without_prefix())
-    canonical = get_canonical_descriptions_for_source(schema.source.source_type).get(schema.name, {})
+    canonical = get_canonical_descriptions_for_source(
+        schema.source.source_type, table_prefix=schema.source.prefix or ""
+    ).get(schema.name, {})
     canonical_columns = {
         hogql_name_by_raw.get(raw_name, raw_name): description
         for raw_name, description in (canonical.get("columns") or {}).items()

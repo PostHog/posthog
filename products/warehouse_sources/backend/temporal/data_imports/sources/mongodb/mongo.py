@@ -18,7 +18,7 @@ from pymongo import ASCENDING, MongoClient
 from pymongo.collection import Collection
 from pymongo.cursor import Cursor
 from pymongo.database import Database
-from pymongo.errors import CursorNotFound, OperationFailure, PyMongoError
+from pymongo.errors import CursorNotFound, OperationFailure, PyMongoError, ServerSelectionTimeoutError
 from pymongo.server_description import ServerDescription
 from structlog.types import FilteringBoundLogger
 
@@ -31,6 +31,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.par
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_ERROR,
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    TEMPORARY_HOST_RESOLUTION_PREFIX,
+    HostNotAllowedError,
     _is_host_safe,
     log_connection_open,
 )
@@ -246,6 +250,12 @@ def _coerce_object_id_cursor(last_value: Any) -> Any:
     return ObjectId(value) if ObjectId.is_valid(value) else value
 
 
+# No node was selectable, or the outbound host policy refused every one. The extraction read
+# that follows cannot succeed either, so a best-effort probe that swallows one of these spends a
+# whole server-selection window of worker time before the attempt fails anyway. Re-raise instead.
+_UNREACHABLE_CLUSTER_ERRORS = (ServerSelectionTimeoutError, HostNotAllowedError)
+
+
 def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription]], list[ServerDescription]]:
     """Create a PyMongo server_selector that rejects servers resolving to internal IPs.
 
@@ -255,11 +265,23 @@ def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription
 
     def selector(server_descriptions: list[ServerDescription]) -> list[ServerDescription]:
         safe = []
+        rejection: str | None = None
         for server in server_descriptions:
             host = server.address[0]
-            is_safe, _ = _is_host_safe(host, team_id)
+            is_safe, error = _is_host_safe(host, team_id)
             if is_safe:
                 safe.append(server)
+            elif rejection is None and not (error or "").startswith(TEMPORARY_HOST_RESOLUTION_PREFIX):
+                rejection = error or DATABASE_HOST_NOT_ALLOWED_GUIDANCE
+        # pymongo only calls a custom selector with at least one candidate, so an empty result
+        # after a policy rejection means every member was refused. Returning [] instead would let
+        # server selection time out as an ordinary unreachable-cluster error, which retries on
+        # every schedule and keeps the monitors handshaking with a host the policy already refused.
+        # Raising the shared host error stops the schedule and gives the user the fix. A resolver
+        # that never answered is not a policy decision, so it leaves `rejection` unset and the
+        # empty selection retries as before.
+        if not safe and rejection is not None:
+            raise HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {rejection}")
         return safe
 
     return selector
@@ -293,6 +315,43 @@ def mongo_client(connection_string: str, team_id: int) -> Iterator[MongoClient]:
         client.close()
 
 
+def get_server_metadata(connection_string: str, team_id: int) -> dict[str, Any]:
+    """Probe the cluster for the MongoDB version it reports, and for its wire version.
+
+    The driver refuses any server below its own wire-version floor, and that floor rises across
+    pymongo releases, so whether a source survives a driver upgrade is a property of the source
+    and not of our code. Nothing else records it, which makes the question unanswerable before an
+    upgrade ships. AWS DocumentDB and Azure Cosmos DB's Mongo API report the MongoDB version they
+    emulate, and that emulated version is what the driver gates on.
+    """
+    with mongo_client(connection_string, team_id) as client:
+        # buildInfo is answered by every server version we accept and by the DocumentDB and Cosmos
+        # DB Mongo APIs, whereas `hello` was added in MongoDB 5.0 and is missing from the older
+        # emulation levels this probe most needs to identify. Asking for it also completes the
+        # handshake that fills in the wire versions read below, so they cost no extra round trip.
+        server_version = str(client.server_info().get("version") or "")
+        # A node pymongo has not handshaked with reports wire version 0, which would read as older
+        # than any real server and hide the true floor.
+        descriptions = list(client.topology_description.server_descriptions().values())
+        handshaked = [description for description in descriptions if description.is_server_type_known]
+
+    metadata: dict[str, Any] = {
+        "engine": "mongodb",
+        "server_version": server_version,
+        # Server selection returns as soon as one node is usable, so a replica set can still hold
+        # members this probe never handshaked with. Both counts are recorded because a reading that
+        # skipped an older secondary would otherwise pass as an all-clear: it is complete only
+        # where the two agree.
+        "handshaked_nodes": len(handshaked),
+        "topology_nodes": len(descriptions),
+    }
+    # pymongo rejects a whole topology when any single node sits below its floor, so the weakest
+    # node is what decides whether an upgrade cuts this source off.
+    if handshaked:
+        metadata["wire_version"] = min(description.max_wire_version for description in handshaked)
+    return metadata
+
+
 def _get_partition_settings(
     collection: Collection, collection_name: str, partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
 ) -> PartitionSettings | None:
@@ -319,6 +378,8 @@ def _get_partition_settings(
             partition_count=partition_count,
             partition_size=partition_size,
         )
+    except _UNREACHABLE_CLUSTER_ERRORS:
+        raise
     except Exception:
         return None
 
@@ -427,8 +488,9 @@ def _get_schema_from_query(collection: Collection) -> list[tuple[str, str]]:
 
 
 def _determine_field_type_from_bson_types(bson_types: list[str]) -> str:
-    """Determine field type from BSON types."""
-    # If multiple types exist, prioritize based on hierarchy
+    # A field sampled across documents can hold several BSON types. This returns one type by walking
+    # the fixed precedence list below and taking the first present, not a type that fits every
+    # observed value: a field mixing int and string resolves to integer, because int outranks string.
     type_priority = {
         "objectId": "string",
         "string": "string",
@@ -536,6 +598,8 @@ def _get_avg_document_size(collection: Collection, logger: FilteringBoundLogger)
         stats = collection.database.command("collStats", collection.name)
         avg_obj_size = stats.get("avgObjSize")
         return int(avg_obj_size) if avg_obj_size else None
+    except _UNREACHABLE_CLUSTER_ERRORS:
+        raise
     except Exception as e:
         logger.debug(f"MongoDB: could not read collStats avgObjSize ({e}); using default chunk size")
         return None
@@ -546,6 +610,8 @@ def _get_rows_to_sync(collection: Collection, query: dict[str, Any], logger: Fil
         rows_to_sync = collection.count_documents(query)
         logger.debug(f"_get_rows_to_sync: rows_to_sync={rows_to_sync}")
         return rows_to_sync
+    except _UNREACHABLE_CLUSTER_ERRORS:
+        raise
     except PyMongoError as e:
         # rows_to_sync is only a progress estimate, so a failed count degrades to 0
         # rather than failing the sync. Connectivity/auth failures here are expected
@@ -575,6 +641,40 @@ _NO_CURSOR_TIMEOUT_UNSUPPORTED_MARKERS = ("notimeout cursors are disallowed", "n
 def _is_no_cursor_timeout_unsupported(error: OperationFailure) -> bool:
     message = str(error).lower()
     return any(marker in message for marker in _NO_CURSOR_TIMEOUT_UNSUPPORTED_MARKERS)
+
+
+# A find() against a MongoDB view returns the view pipeline's output, which has no `_id` when the
+# pipeline drops it (a $group on another key, a $project that excludes `_id`). The importer keys
+# every collection on `_id`: primary key, incremental cursor, and Delta merge dedup all read it, so
+# an `_id`-less document can't be synced and retrying never recovers. Raise this instead of the bare
+# `doc["_id"]` KeyError, and match it in the source's get_non_retryable_errors.
+MONGO_DOCUMENT_MISSING_ID_ERROR = (
+    "PostHog couldn't import this MongoDB collection because one of its documents has no _id field. "
+    "PostHog uses _id as the primary key for every collection. This usually means the collection is a "
+    "view whose pipeline removes _id. Sync the underlying collection instead, or add _id to the view."
+)
+
+# A cluster signs every command reply with a cluster-time HMAC, keyed off a key document the config
+# servers rotate. While a rotation is in flight, a command fails with OperationFailure code 211
+# (KeyNotFound), and the cluster clears that on its own. Match the code rather than the message,
+# whose key id and cluster time vary per occurrence, and raise our own text instead: pymongo's
+# str() appends the whole server response. The source's get_retryable_errors matches this phrase to
+# keep the occurrence out of error tracking.
+_KEY_NOT_FOUND_ERROR_CODE = 211
+
+MONGO_KEYS_UNAVAILABLE_ERROR = (
+    "PostHog couldn't read this MongoDB collection because the cluster's signing keys were briefly "
+    "unavailable. This clears by itself, and the sync will run again automatically."
+)
+
+# MongoDB OperationFailure code 50 (MaxTimeMSExpired / pymongo's ExecutionTimeout): the server killed
+# a getMore because it ran past an execution time limit. We never set maxTimeMS ourselves on this
+# query, so this is the limit enforced by the cluster itself — notably Atlas free/shared/flex tiers,
+# which cap total operation time regardless of client options (the same tiers already special-cased
+# above for rejecting no_cursor_timeout). The cursor is _id-ordered, so last_id is a safe resume point
+# exactly as for CursorNotFound; a getMore killed before yielding anything would hit the identical
+# limit on retry, so that case re-raises instead of looping forever.
+_EXECUTION_TIMEOUT_ERROR_CODE = 50
 
 
 def mongo_source(
@@ -651,14 +751,18 @@ def mongo_source(
             # 10-minute idle-cursor timeout — the server then kills it, and the next getMore raises
             # CursorNotFound. no_cursor_timeout disables that server-side expiry; we close the cursor
             # explicitly in the finally block below so it doesn't linger on the server instead.
-            cursor = read_collection.find(query, batch_size=chunk_size, no_cursor_timeout=True)
-            no_cursor_timeout_honored = True
+            # Sorting by _id makes last_id a safe resume point for any CursorNotFound, whether
+            # the server-side timeout fired or the cursor was killed by another server-side event
+            # (primary election, Atlas maintenance, admin killCursors).
+            cursor = read_collection.find(query, batch_size=chunk_size, no_cursor_timeout=True).sort("_id", ASCENDING)
             rows_since_cursor_opened = 0
 
             try:
                 while True:
                     try:
                         for doc in cursor:
+                            if "_id" not in doc:
+                                raise ValueError(MONGO_DOCUMENT_MISSING_ID_ERROR)
                             last_id = doc["_id"]
                             rows_since_cursor_opened += 1
 
@@ -685,20 +789,32 @@ def mongo_source(
                             yield result
                         return
                     except CursorNotFound:
-                        # Only reachable once the server-side timeout is back in play, i.e. after the
-                        # fallback below dropped no_cursor_timeout. That read is _id-ordered, so pick
-                        # up after the last document instead of failing the whole sync. Requiring
-                        # progress since the cursor opened stops a cursor that dies immediately from
-                        # looping forever on the same query.
-                        if no_cursor_timeout_honored or rows_since_cursor_opened == 0:
+                        # Both reads (initial and resumable) are _id-ordered, so last_id is always
+                        # a safe resume point. A cursor killed before yielding anything has no safe
+                        # resume point — re-raise so Temporal retries the whole activity.
+                        if rows_since_cursor_opened == 0:
                             raise
                         logger.debug(
-                            f"MongoDB: cursor expired for collection={collection_name}; resuming after _id={last_id}"
+                            f"MongoDB: cursor killed for collection={collection_name}; resuming after _id={last_id}"
                         )
                         cursor.close()
                         cursor = open_resumable_cursor()
                         rows_since_cursor_opened = 0
                     except OperationFailure as e:
+                        if e.code == _KEY_NOT_FOUND_ERROR_CODE:
+                            raise OperationFailure(MONGO_KEYS_UNAVAILABLE_ERROR, e.code) from e
+                        if e.code == _EXECUTION_TIMEOUT_ERROR_CODE:
+                            if rows_since_cursor_opened == 0:
+                                raise
+                            logger.debug(
+                                f"MongoDB: operation exceeded time limit for collection={collection_name}; "
+                                f"resuming after _id={last_id}"
+                            )
+                            cursor.close()
+                            cursor = open_resumable_cursor()
+                            rows_since_cursor_opened = 0
+                            continue
+
                         # The option is rejected when the cursor is opened, before any document is
                         # yielded, so retrying without it can't duplicate rows. The tradeoff is that
                         # the server-side idle timeout applies again — hence the CursorNotFound
@@ -709,7 +825,6 @@ def mongo_source(
                             f"MongoDB: no_cursor_timeout disallowed for collection={collection_name}; retrying without it"
                         )
                         cursor.close()
-                        no_cursor_timeout_honored = False
                         cursor = open_resumable_cursor()
                         rows_since_cursor_opened = 0
             finally:

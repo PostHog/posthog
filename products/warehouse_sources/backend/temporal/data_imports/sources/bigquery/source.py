@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldFileUploadConfig,
     SourceFieldFileUploadJsonFormatConfig,
@@ -10,13 +9,13 @@ from posthog.schema import (
     SourceFieldInputConfigType,
     SourceFieldSwitchGroupConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_API_VERSION_V2,
     BIGQUERY_CREDENTIALS_REJECTED_ERROR,
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
     BIGQUERY_INVALID_KEY_FILE_ERROR,
+    BIGQUERY_INVALID_TOKEN_URI_ERROR,
     BIGQUERY_ON_DEMAND_RATIO_EXCEEDED_ERROR,
     BIGQUERY_RESOURCES_EXCEEDED_ERROR,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
@@ -59,7 +58,14 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "PermissionDenied: 403 request failed": "BigQuery permission denied. Please check that your service account has the necessary permissions.",
+            # google-api-core raises `PermissionDenied` from the Storage Read API's
+            # `create_read_session`, whose message is the gRPC form "403 request failed: the user
+            # does not have '<permission>' permission for '<resource>'". Reading a table that way
+            # needs dataset read access and permission to open a read session on the project the
+            # read bills to, and the denial names only whichever one it hit first — so name both
+            # roles rather than leaving the customer to work out which grant is missing. Matched on
+            # the stable status wording, not the volatile permission and resource ids.
+            "PermissionDenied: 403 request failed": "BigQuery denied your service account access while reading your data. Grant it the BigQuery Data Viewer role on the dataset you're syncing and the Read Session User role on its project, then reconnect the source.",
             # OAuth2 error code returned by Google's token endpoint when the service account grant
             # is rejected — a rotated/revoked private key ("Invalid JWT Signature") or a deleted
             # service account ("account not found"). Raised as a `RefreshError` while refreshing the
@@ -75,6 +81,9 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # be repaired by retrying — the user must re-upload an intact JSON key file. Matched on the
             # stable "Unable to load PEM file" wording rather than the volatile InvalidData detail.
             "Unable to load PEM file": BIGQUERY_INVALID_KEY_FILE_ERROR,
+            # Raised before any request when the key file's token endpoint is not Google's. The key
+            # file is the problem, so retrying cannot help; the user must re-upload an unedited key.
+            BIGQUERY_INVALID_TOKEN_URI_ERROR: BIGQUERY_INVALID_TOKEN_URI_ERROR,
             # Writing query results into the `__posthog_import_...` temp tables PostHog creates
             # (`WRITE_TRUNCATE` in `_run_destination_query_with_job_retry`, on incremental / view /
             # row-filtered reads) needs write access on the dataset those tables live in. When the
@@ -107,6 +116,17 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # Deterministic IAM config problem; retrying can't grant the permission. Matched on the
             # stable permission name, not the volatile project id.
             "bigquery.jobs.create": "BigQuery denied your service account permission to run query jobs — it's missing the bigquery.jobs.create permission on the project it queries. Read access alone isn't enough, because PostHog runs query jobs to sync your data. Please grant your service account permission to run jobs (for example the BigQuery Job User role) on that project, then reconnect the source.",
+            # Raised as a 403 Forbidden when a table or view being synced reads through a BigQuery
+            # connection (used for federated queries or BigLake external tables) that the service
+            # account isn't authorized to use, e.g. "Access Denied: Connection projects/<p>/
+            # locations/<l>/connections/<c>: User does not have bigquery.connections.use permission
+            # for connection projects/<p>/locations/<l>/connections/<c>.". This is a separate IAM
+            # grant from table/dataset access — it lives on the connection resource itself, not the
+            # dataset — so the generic "Access Denied:" key below would match first and misdirect the
+            # customer to grant table read access (Data Viewer), which can't authorize connection use.
+            # Deterministic IAM config problem; retrying can't grant the permission. Matched on the
+            # stable permission name, not the volatile project/location/connection id.
+            "bigquery.connections.use": "BigQuery denied access to a BigQuery connection that a table or view being synced depends on (used for federated queries or external/BigLake tables). Please grant your service account the bigquery.connections.use permission (for example the BigQuery Connection User role) on that connection, then reconnect the source.",
             # BigQuery prefixes every IAM/permission failure with "Access Denied:" — e.g.
             # "Access Denied: Table <id>: Permission bigquery.tables.getData denied on table <id>
             # (or it may not exist).". The matched string above only covers the REST client's
@@ -366,7 +386,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BIG_QUERY,
+            name=ExternalDataSourceType.BIGQUERY,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["bq", "gbq", "sql", "gcp", "google cloud"],
             featured=True,

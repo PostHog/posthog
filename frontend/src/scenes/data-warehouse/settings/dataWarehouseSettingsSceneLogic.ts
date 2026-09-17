@@ -51,6 +51,7 @@ export interface dataWarehouseSettingsSceneLogicValues {
     inEditSchemaMode: boolean
     isEditingSavedQuery: boolean
     materializedViews: DatabaseSchemaMaterializedViewTable[]
+    materializedViewsLoading: boolean
     nonMaterializedViews: DatabaseSchemaTable[]
     schemaModalIsOpen: boolean
     schemaUpdates: Record<string, DatabaseSerializedFieldType>
@@ -61,52 +62,14 @@ export interface dataWarehouseSettingsSceneLogicValues {
 export interface dataWarehouseSettingsSceneLogicActions {
     deleteDataWarehouseSavedQuery: (viewId: string) => string // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuery: (
-        view: Partial<DataWarehouseSavedQuery> & {
-            edited_history_id?: string
-            folder_id?: string | null
-            id: string
-            lifecycle?: string
-            shouldRematerialize?: boolean
-            soft_update?: boolean
-            sync_frequency?: string
-            types?: string[][]
-        }
-    ) => Partial<DataWarehouseSavedQuery> & {
-        edited_history_id?: string
-        folder_id?: string | null
-        id: string
-        lifecycle?: string
-        shouldRematerialize?: boolean
-        soft_update?: boolean
-        sync_frequency?: string
-        types?: string[][]
-    } // dataWarehouseViewsLogic
+        view: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
+    ) => import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuerySuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
-        payload?:
-            | (Partial<DataWarehouseSavedQuery> & {
-                  edited_history_id?: string
-                  folder_id?: string | null
-                  id: string
-                  lifecycle?: string
-                  shouldRematerialize?: boolean
-                  soft_update?: boolean
-                  sync_frequency?: string
-                  types?: string[][]
-              })
-            | undefined
+        payload?: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate | undefined
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
-        payload?: Partial<DataWarehouseSavedQuery> & {
-            edited_history_id?: string
-            folder_id?: string | null
-            id: string
-            lifecycle?: string
-            shouldRematerialize?: boolean
-            soft_update?: boolean
-            sync_frequency?: string
-            types?: string[][]
-        }
+        payload?: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
     } // dataWarehouseViewsLogic
     ensureAllTableFields: () => {
         value: true
@@ -204,6 +167,7 @@ export interface dataWarehouseSettingsSceneLogicMeta {
             views: DatabaseSchemaViewTable[],
             dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery>
         ) => DatabaseSchemaTable[]
+        materializedViewsLoading: (databaseLoading: boolean, dataWarehouseSavedQueriesLoading: boolean) => boolean
         materializedViews: (
             views: DatabaseSchemaViewTable[],
             dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery>
@@ -400,6 +364,14 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
                         type: 'view',
                     }))
             },
+        ],
+        // `materializedViews` needs both loaders: names come from the database schema, the
+        // materialized flag from the saved queries. Consumers that watch only one report an empty
+        // list while the other is still in flight.
+        materializedViewsLoading: [
+            (s) => [s.databaseLoading, s.dataWarehouseSavedQueriesLoading],
+            (databaseLoading: boolean, dataWarehouseSavedQueriesLoading: boolean): boolean =>
+                databaseLoading || dataWarehouseSavedQueriesLoading,
         ],
         materializedViews: [
             (s) => [s.views, s.dataWarehouseSavedQueryMapById],

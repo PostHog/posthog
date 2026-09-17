@@ -2,6 +2,7 @@ import json
 
 from posthog.test.base import BaseTest
 
+from django.core.management import call_command
 from django.db import transaction
 
 from parameterized import parameterized
@@ -39,6 +40,16 @@ class TestGlobalRateLimitThresholdConfig(BaseTest):
         long_distinct_id = "d" * (MAX_DISTINCT_ID_CHARS + 50)
         config = GlobalRateLimitThresholdConfig(token="phc_abc", distinct_id=long_distinct_id, threshold=10)
         self.assertEqual(config.resolved_key, f"phc_abc:{'d' * MAX_DISTINCT_ID_CHARS}")
+
+    def test_sync_command_bootstraps_empty_blob(self):
+        # An environment with zero rows never fires the signals, so the Redis
+        # key stays absent and capture polls not_found forever. The command
+        # writes the explicit empty blob, which capture loads as a valid map.
+        self.assertIsNone(self.redis_client.get(CUSTOM_THRESHOLDS_REDIS_KEY))
+
+        call_command("sync_global_rate_limit_thresholds")
+
+        self.assertEqual(self._blob(), {})
 
     def test_post_save_writes_blob(self):
         with self.captureOnCommitCallbacks(execute=True):

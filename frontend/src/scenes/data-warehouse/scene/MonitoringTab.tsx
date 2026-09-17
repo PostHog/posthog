@@ -3,7 +3,7 @@ import { memo, useMemo } from 'react'
 import type { ReactNode } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
-import { TimeSeriesLineChart, createXAxisTickCallback } from '@posthog/quill-charts'
+import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
@@ -98,15 +98,12 @@ function MonitoringChart({
     const data = useMemo(() => buildMonitoringChartData(responses, metrics), [responses, metrics])
     const config = useChartConfig<TimeSeriesLineChartConfig>(
         () => ({
-            xAxis: {
-                timezone: 'UTC',
-                tickFormatter: createXAxisTickCallback({ allDays: data.labels, timezone: 'UTC' }),
-            },
+            xAxis: { timezone: 'UTC' },
             yAxis,
             legend: { show: data.series.length > 1, interactive: true, position: 'bottom' },
             tooltip: { placement: 'cursor', sortedByValue: true, valueFormatter },
         }),
-        [data.labels, data.series.length, valueFormatter, yAxis]
+        [data.series.length, valueFormatter, yAxis]
     )
 
     return (
@@ -312,7 +309,7 @@ const HistoricalMonitoringCharts = memo(function HistoricalMonitoringCharts({
                         description="Share of queries that returned an error"
                         responses={monitoringSeries}
                         metrics={[{ metric: 'error_ratio', fallbackLabel: 'Errors' }]}
-                        yAxis={{ format: 'percentage' }}
+                        yAxis={{ format: 'percentage_scaled' }}
                         valueFormatter={(value) => percentage(value)}
                         loading={initialLoading}
                     />

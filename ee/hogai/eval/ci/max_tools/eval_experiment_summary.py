@@ -25,6 +25,7 @@ from posthog.schema import (
     MaxExperimentVariantResultFrequentist,
 )
 
+from products.experiments.backend.facade.contracts import ExperimentSummaryData
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.posthog_ai.backend.models.assistant import Conversation
@@ -467,7 +468,12 @@ def call_agent_for_summary(demo_org_team_user, experiment_with_mock_data):
         )
         config = RunnableConfig(configurable={"thread_id": conversation.id}, recursion_limit=48)
 
-        mock_return = (mock_context, datetime.now(tz=ZoneInfo("UTC")), False)
+        mock_return = ExperimentSummaryData(
+            context=mock_context,
+            last_refresh=datetime.now(tz=ZoneInfo("UTC")),
+            pending_calculation=False,
+            omitted_metric_count=0,
+        )
         with (
             patch(
                 "products.experiments.backend.max_tools.ExperimentSummaryDataService.fetch_experiment_data",

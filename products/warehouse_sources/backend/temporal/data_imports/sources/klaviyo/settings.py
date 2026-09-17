@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Optional
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
@@ -24,7 +26,29 @@ class KlaviyoFanOutConfig:
     grandparent: Optional["KlaviyoFanOutConfig"] = None
 
 
-@dataclass
+# The timeframe keys Klaviyo's reporting API publishes. It rejects anything else with a 400, so a
+# window none of these covers goes as a custom start/end pair instead.
+KLAVIYO_TIMEFRAME_KEYS = frozenset(
+    {
+        "today",
+        "yesterday",
+        "this_week",
+        "last_week",
+        "this_month",
+        "last_month",
+        "this_year",
+        "last_year",
+        "last_7_days",
+        "last_30_days",
+        "last_90_days",
+        "last_365_days",
+        "last_3_months",
+        "last_12_months",
+    }
+)
+
+
+@frozen
 class KlaviyoValuesReportConfig:
     """A Klaviyo reporting query: POST a statistics request, get one row back per grouping.
 
@@ -34,8 +58,30 @@ class KlaviyoValuesReportConfig:
 
     report_type: str  # JSON:API resource type the request body declares
     statistics: list[str]  # statistics to request; rate statistics come back as fractions [0, 1]
-    timeframe_key: str  # Klaviyo's predefined timeframe key, capped at one year by the API
-    group_by: list[str]  # grouping attributes, which are also the row's primary key
+    group_by: list[str]  # grouping attributes; empty means the report groups by its own default
+    # The window the report covers. Set exactly one of these two. `timeframe_key` is one of
+    # Klaviyo's predefined keys, sent as {"key": ...}. `timeframe_weeks` is a number of calendar
+    # weeks ending with the current one, sent as a custom {"start": ..., "end": ...} pair computed
+    # in the account's timezone, for a window no key matches.
+    timeframe_key: Optional[str] = None
+    timeframe_weeks: Optional[int] = None
+    # Set for a series report, which buckets the window by this interval and returns each grouping's
+    # statistics as arrays aligned to a top-level date_times list. The source expands them into one
+    # row per bucket tagged with `date_time`. Left None for a values report, which returns one scalar
+    # row per grouping.
+    interval: Optional[str] = None
+    # Campaign and flow reports require a conversion metric on every request; form and segment
+    # reports do not accept one, so their requests must omit it and skip the /metrics lookup.
+    requires_conversion_metric: bool = True
+    list_all_ids_path: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        # Klaviyo requires a timeframe and accepts only one form of it, so a config that sets both
+        # or neither 400s every request the endpoint makes.
+        if (self.timeframe_key is None) == (self.timeframe_weeks is None):
+            raise ValueError(f"{self.report_type}: set exactly one of timeframe_key or timeframe_weeks")
+        if self.timeframe_key is not None and self.timeframe_key not in KLAVIYO_TIMEFRAME_KEYS:
+            raise ValueError(f"{self.report_type}: {self.timeframe_key} is not a Klaviyo timeframe key")
 
 
 @dataclass
@@ -109,6 +155,58 @@ VALUES_REPORT_STATISTICS = [
 
 # The widest window Klaviyo's reporting API allows is one year.
 VALUES_REPORT_TIMEFRAME_KEY = "last_365_days"
+
+# Klaviyo caps a weekly-interval series report at 52 weeks and publishes no timeframe key that long:
+# its keys step from three months straight to last_365_days, one day over the cap. Series reports
+# therefore send a custom start/end window of this many calendar weeks, the current week included.
+# The window opens on a Monday, which is where Klaviyo starts a week, so every bucket but the current
+# one is a complete week and re-syncing never shrinks a stored week. 52 weeks would put the window at
+# 52 weeks minus one second late on a Sunday, and a DST change inside the window adds up to an hour to
+# the elapsed time Klaviyo measures, so one week of margin keeps every request under the cap.
+SERIES_REPORT_TIMEFRAME_WEEKS = 51
+
+# Series reports bucket the window by an interval. Klaviyo caps an hourly interval at 7 days and a
+# daily one at 60, so a weekly interval gives the fullest view within the 52-week series limit
+# (51 rows per grouping).
+SERIES_REPORT_INTERVAL = "weekly"
+
+# A series row is one time bucket, so date_time is a real per-row cursor even though the request
+# always asks for the whole window. Selecting it makes the sync merge on the primary key rather than
+# replace the table, so buckets that age out of the window stay in the warehouse while
+# the buckets still inside it keep getting corrected.
+SERIES_REPORT_INCREMENTAL_FIELDS: list[IncrementalField] = [
+    {
+        "label": "date_time",
+        "type": IncrementalFieldType.DateTime,
+        "field": "date_time",
+        "field_type": IncrementalFieldType.DateTime,
+    }
+]
+
+# Form reports report on signup-form performance and take their own statistic set, which does not
+# overlap the campaign/flow set and carries no conversion metric.
+FORM_REPORT_STATISTICS = [
+    "closed_form",
+    "closed_form_uniques",
+    "qualified_form",
+    "qualified_form_uniques",
+    "submit_rate",
+    "submits",
+    "submitted_form_step",
+    "submitted_form_step_uniques",
+    "viewed_form",
+    "viewed_form_step",
+    "viewed_form_step_uniques",
+    "viewed_form_uniques",
+]
+
+# Segment reports report on membership churn and take only these four statistics.
+SEGMENT_REPORT_STATISTICS = [
+    "members_added",
+    "members_removed",
+    "net_members_changed",
+    "total_members",
+]
 
 
 KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
@@ -430,8 +528,9 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         ),
         description=(
             "Klaviyo's own computed performance statistics per campaign message over the last 365 "
-            "days, replaced in full on every sync. Conversion statistics use the conversion metric "
-            "recorded in the conversion_metric_id column"
+            "days, replaced in full on every sync. Needs a value-tracking conversion metric (such as "
+            "Placed Order); set one on the source if your account has none. Conversion statistics use "
+            "the conversion metric recorded in the conversion_metric_id column"
         ),
     ),
     "flow_values_reports": KlaviyoEndpointConfig(
@@ -447,8 +546,119 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         ),
         description=(
             "Klaviyo's own computed performance statistics per flow message over the last 365 days, "
-            "replaced in full on every sync. Conversion statistics use the conversion metric recorded "
-            "in the conversion_metric_id column"
+            "replaced in full on every sync. Needs a value-tracking conversion metric (such as Placed "
+            "Order); set one on the source if your account has none. Conversion statistics use the "
+            "conversion metric recorded in the conversion_metric_id column"
+        ),
+    ),
+    # Series reports carry the same statistics as the values reports above, but bucketed weekly over
+    # the year instead of collapsed to a single total. They are opt-in because one row per grouping
+    # per week is ~52x the row count of the equivalent values report. Klaviyo exposes series variants
+    # for flows, forms, and segments only; campaigns have a values report but no series report.
+    # Each request asks for the whole window, so the sync merges on the primary key instead of
+    # replacing the table. A week Klaviyo no longer returns keeps the value captured while it was
+    # still in range, which is the only way to hold history past Klaviyo's one-year limit.
+    "flow_series_reports": KlaviyoEndpointConfig(
+        name="flow_series_reports",
+        path="/flow-series-reports",
+        incremental_fields=SERIES_REPORT_INCREMENTAL_FIELDS,
+        default_incremental_field="date_time",
+        primary_keys=["flow_id", "flow_message_id", "send_channel", "date_time"],
+        should_sync_default=False,
+        values_report=KlaviyoValuesReportConfig(
+            report_type="flow-series-report",
+            statistics=VALUES_REPORT_STATISTICS,
+            timeframe_weeks=SERIES_REPORT_TIMEFRAME_WEEKS,
+            group_by=["flow_id", "flow_message_id", "send_channel"],
+            interval=SERIES_REPORT_INTERVAL,
+        ),
+        description=(
+            "Klaviyo's own flow-message performance statistics bucketed by week over the last 51 "
+            "weeks, one row per flow message per week. Needs a value-tracking conversion metric (such "
+            "as Placed Order); set one on the source if your account has none. Conversion statistics "
+            "use the conversion metric recorded in the conversion_metric_id column. Weeks stay in the "
+            "table after Klaviyo stops returning them"
+        ),
+    ),
+    # Form and segment reports need no conversion metric, so they sync even for keys scoped only to
+    # forms or segments. The values variants are one row per form/segment, so they sync by default.
+    "form_values_reports": KlaviyoEndpointConfig(
+        name="form_values_reports",
+        path="/form-values-reports",
+        incremental_fields=[],
+        primary_keys=["form_id"],
+        values_report=KlaviyoValuesReportConfig(
+            report_type="form-values-report",
+            statistics=FORM_REPORT_STATISTICS,
+            timeframe_key=VALUES_REPORT_TIMEFRAME_KEY,
+            group_by=["form_id"],
+            requires_conversion_metric=False,
+            list_all_ids_path="/forms",
+        ),
+        description=(
+            "Klaviyo's own signup-form performance statistics per form over the last 365 days, "
+            "replaced in full on every sync. A form with no activity in the window is listed with "
+            "zero counts and no submit rate."
+        ),
+    ),
+    "segment_values_reports": KlaviyoEndpointConfig(
+        name="segment_values_reports",
+        path="/segment-values-reports",
+        incremental_fields=[],
+        primary_keys=["segment_id"],
+        values_report=KlaviyoValuesReportConfig(
+            report_type="segment-values-report",
+            statistics=SEGMENT_REPORT_STATISTICS,
+            timeframe_key=VALUES_REPORT_TIMEFRAME_KEY,
+            # Segment reports do not accept a group_by; they always group by segment_id.
+            group_by=[],
+            requires_conversion_metric=False,
+        ),
+        description=(
+            "Klaviyo's own segment membership statistics per segment over the last 365 days "
+            "(members added, removed, net change, and total). Replaced in full on every sync"
+        ),
+    ),
+    "form_series_reports": KlaviyoEndpointConfig(
+        name="form_series_reports",
+        path="/form-series-reports",
+        incremental_fields=SERIES_REPORT_INCREMENTAL_FIELDS,
+        default_incremental_field="date_time",
+        primary_keys=["form_id", "date_time"],
+        should_sync_default=False,
+        values_report=KlaviyoValuesReportConfig(
+            report_type="form-series-report",
+            statistics=FORM_REPORT_STATISTICS,
+            timeframe_weeks=SERIES_REPORT_TIMEFRAME_WEEKS,
+            group_by=["form_id"],
+            interval=SERIES_REPORT_INTERVAL,
+            requires_conversion_metric=False,
+        ),
+        description=(
+            "Klaviyo's own signup-form performance statistics bucketed by week over the last 51 "
+            "weeks, one row per form per week. Weeks stay in the table after Klaviyo stops returning "
+            "them"
+        ),
+    ),
+    "segment_series_reports": KlaviyoEndpointConfig(
+        name="segment_series_reports",
+        path="/segment-series-reports",
+        incremental_fields=SERIES_REPORT_INCREMENTAL_FIELDS,
+        default_incremental_field="date_time",
+        primary_keys=["segment_id", "date_time"],
+        should_sync_default=False,
+        values_report=KlaviyoValuesReportConfig(
+            report_type="segment-series-report",
+            statistics=SEGMENT_REPORT_STATISTICS,
+            timeframe_weeks=SERIES_REPORT_TIMEFRAME_WEEKS,
+            group_by=[],
+            interval=SERIES_REPORT_INTERVAL,
+            requires_conversion_metric=False,
+        ),
+        description=(
+            "Klaviyo's own segment membership statistics bucketed by week over the last 51 weeks, "
+            "one row per segment per week. Weeks stay in the table after Klaviyo stops returning "
+            "them"
         ),
     ),
     "templates": KlaviyoEndpointConfig(
@@ -651,6 +861,23 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         path="/accounts",
         page_size=0,
         incremental_fields=[],
+    ),
+    # Custom object records only exist per object type, so fan out over /object-types and pull each
+    # type's records. The endpoint exposes no timestamp filter or sort, so it is full refresh only.
+    # Klaviyo's compound record id (object_type_id:::record_id) is globally unique, so the default
+    # ["id"] primary key holds table-wide; object_type_id rides along as its own column for joins.
+    "custom_object_records": KlaviyoEndpointConfig(
+        name="custom_object_records",
+        path="/object-types/{object_type_id}/object-records",
+        page_size=100,  # object-records caps page[size] at 100
+        incremental_fields=[],
+        fan_out=KlaviyoFanOutConfig(
+            # /object-types exposes no page[size] param; parent_page_size=0 pages it by cursor alone.
+            parent_path="/object-types",
+            parent_page_size=0,
+            parent_id_column="object_type_id",
+        ),
+        description="One row per custom object record, carrying the object_type_id it belongs to",
     ),
 }
 

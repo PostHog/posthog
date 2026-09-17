@@ -1,3 +1,5 @@
+import type { InjectedBlock } from "../editor/injectedBlocks";
+
 export type PanelId = string;
 export type TabId = string;
 export type GroupId = string;
@@ -28,18 +30,8 @@ export type TabData =
       type: "review";
     }
   | {
-      // A read-only snapshot of a channel's CONTEXT.md, shown exactly as it was
-      // sent with the task's prompt (carried inline, not fetched from disk).
-      type: "context";
-      channelName: string | null;
-      body: string;
-    }
-  | {
-      // A read-only snapshot of the canvas generation instructions (authoring
-      // contract + publishing/data rules) sent with a canvas-generation task's
-      // prompt, shown exactly as the agent received them.
-      type: "canvas-instructions";
-      body: string;
+      type: "injected-block";
+      block: InjectedBlock;
     }
   | {
       type: "autoresearch";
@@ -48,6 +40,15 @@ export type TabData =
       type: "artifact";
       runId: string;
       artifactId: string;
+      /** PostHog object kind (e.g. "flag") when the artifact is a PostHog reference. */
+      objectKind?: string;
+    }
+  | {
+      // A PostHog object opened from an inline reference chip; renders the
+      // object page straight from kind + id, with no run artifact behind it.
+      type: "posthog-object";
+      objectKind: string;
+      objectId: string;
     }
   | {
       type: "other";

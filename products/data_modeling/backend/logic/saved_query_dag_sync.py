@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, TypedDict
 
-from django.db.models import QuerySet
+from django.db import IntegrityError, transaction
+from django.db.models import Q, QuerySet
 
 import structlog
 
@@ -9,6 +10,7 @@ from posthog.hogql.database.models import SavedQuery as HogQLSavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 
+from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.node_suspension import clear_suspension_if_query_changed
 from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag
 from products.data_modeling.backend.models.dag import DAG, REVENUE_ANALYTICS_DAG_NAME
@@ -34,13 +36,35 @@ class DegradedSyncMarker(TypedDict):
     at: str
 
 
+def materializes(saved_query: "DataWarehouseSavedQuery") -> bool:
+    """Whether a saved query is asking to be materialized.
+
+    `is_materialized` is the customer's intent, and `table` is one artifact of acting on it. The two
+    come apart, because `table` is `on_delete=SET_NULL`: a backing table that goes away nulls
+    `table_id` and leaves the intent untouched. Reading the artifact instead of the intent then
+    types the node VIEW, which `get_dag_structure` calls ephemeral and a run skips, so the table can
+    never come back and the query stops updating for good, without an error.
+
+    Managed views are excluded because their flag is not a statement of intent: the Revenue
+    Analytics viewsets set `is_materialized` at provisioning, before anything runs, so reading it
+    would enroll a large population of views that have never materialized a row.
+    """
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    if saved_query.origin == DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET:
+        return saved_query.table_id is not None
+    # The column is nullable, and NULL predates its default: it means the same as False here, which
+    # is also how `_materializes_q` reads it.
+    return bool(saved_query.is_materialized)
+
+
 def node_type_for(saved_query: "DataWarehouseSavedQuery") -> NodeType:
     """The node type a saved query's DAG node should carry."""
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
         return NodeType.ENDPOINT
-    if saved_query.table_id is not None:
+    if materializes(saved_query):
         return NodeType.MAT_VIEW
     return NodeType.VIEW
 
@@ -158,12 +182,40 @@ class ManagedDAGError(Exception):
     pass
 
 
+def _rollback_created_node(node: Node, created: bool) -> None:
+    """Undo a Node this call just created, if it's still safe to do so.
+
+    Only ever deletes a node this call created via get_or_create — a node that already
+    existed (and so may be shared by other views) is never touched here, no matter how
+    the rest of the sync fails. Also refuses to delete a node that gained a dependent
+    while we were still resolving the query, mirroring the guard
+    datawarehouse_managed_viewset.py applies before dropping a stale node. A concurrent
+    sync can still attach that dependent between our check and the DELETE, so the check
+    and delete run under a row lock, and a resulting IntegrityError is treated as "someone
+    else has claimed this node" rather than allowed to abort the whole sync.
+    """
+    if not created:
+        return
+    try:
+        with transaction.atomic():
+            locked = Node.objects.select_for_update().filter(pk=node.pk).first()
+            if locked is not None and not locked.outgoing_edges.exists():
+                locked.delete()
+    except IntegrityError:
+        logger.warning(
+            "Skipped rollback delete of DAG node claimed by a concurrent sync",
+            node_id=str(node.pk),
+            team_id=node.team_id,
+        )
+
+
 def sync_saved_query_to_dag(
     saved_query: "DataWarehouseSavedQuery",
     extra_properties: dict | None = None,  # TODO(andrew): remove this after backfill
     dag: DAG | None = None,
     allow_managed: bool = False,
     reconcile: bool = True,
+    database: Database | None = None,
 ) -> Node | None:
     """
     Create or update Node and Edges for a SavedQuery.
@@ -181,6 +233,7 @@ def sync_saved_query_to_dag(
         allow_managed: Whether placement into a system-managed DAG is permitted. Only the
             internal managed-viewset sync passes this; user-initiated callers must not, so a
             same-team user can't insert nodes/edges into a managed DAG via the saved-query API.
+        database: An optional prebuilt database to reuse for dependency resolution.
 
     Returns the Node for the SavedQuery, or None if query parsing fails.
     Raises QueryError or CycleDetectionError if the query would create an invalid DAG.
@@ -199,7 +252,7 @@ def sync_saved_query_to_dag(
 
     node_type = node_type_for(saved_query)
 
-    target, _ = Node.objects.get_or_create(
+    target, created = Node.objects.get_or_create(
         team=team,
         saved_query=saved_query,
         dag=dag,
@@ -210,14 +263,19 @@ def sync_saved_query_to_dag(
 
     # Internal DAG sync (no user); bypass warehouse HogQL access control so dependency resolution
     # sees every referenced table/view.
-    database = Database.create_for(team=team, bypass_warehouse_access_control=True)
+    if database is None:
+        database = Database.create_for(
+            team=team,
+            bypass_warehouse_access_control=True,
+            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+        )
     # clear previous incoming edges, dependencies may have changed
     Edge.objects.filter(team=team, target=target).delete()
 
     # parse query to extract dependencies and create edges
     try:
         model_name = saved_query.name
-        dependencies = get_parents_from_model_query(team, model_name, model_query)
+        dependencies = get_parents_from_model_query(team, model_name, model_query, database=database)
         for dependency_name in dependencies:
             source = resolve_dependency_to_node(dependency_name, team, database, dag)
             Edge.objects.create(
@@ -228,7 +286,7 @@ def sync_saved_query_to_dag(
                 properties=extra_properties,
             )
     except Exception:
-        target.delete()
+        _rollback_created_node(target, created)
         raise
 
     # resolution succeeded, so an edge-less adoption marker no longer describes this node
@@ -308,8 +366,16 @@ def update_node_type(saved_query: "DataWarehouseSavedQuery", type: NodeType) -> 
         maybe_reconcile_dag(dag)
 
 
+def _materializes_q() -> Q:
+    """`materializes` as a filter, for the callers that cannot ask row by row."""
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    managed = Q(saved_query__origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET)
+    return (~managed & Q(saved_query__is_materialized=True)) | (managed & Q(saved_query__table_id__isnull=False))
+
+
 def _promote_view_nodes(nodes: QuerySet[Node]) -> int:
-    """Retype the nodes in `nodes` that a table backs but the graph still calls ephemeral views.
+    """Retype the nodes in `nodes` that materialize but the graph still calls ephemeral views.
 
     `get_dag_structure` calls every VIEW node ephemeral, so a scheduled run reports success for one
     without materializing it and without writing a job row — it just stops updating, silently. A
@@ -317,11 +383,11 @@ def _promote_view_nodes(nodes: QuerySet[Node]) -> int:
     below existed, only the `materialize` action ever typed it back.
 
     Only VIEW nodes are touched: ENDPOINT nodes are a materializing type already and must keep
-    theirs. Views with no backing table are left alone, being genuinely ephemeral. No reconcile
-    follows, because tier membership keys off the node's frequency target, not its type.
+    theirs. Views nobody asked to materialize are left alone, being genuinely ephemeral. No
+    reconcile follows, because tier membership keys off the node's frequency target, not its type.
     """
     return (
-        nodes.filter(type=NodeType.VIEW, saved_query__table_id__isnull=False)
+        nodes.filter(_materializes_q(), type=NodeType.VIEW)
         .exclude(saved_query__deleted=True)
         .update(type=NodeType.MAT_VIEW)
     )

@@ -123,7 +123,7 @@ export function openSaveAsActionDialog({ suggestedName, step, createInFolder }: 
                     steps: [step],
                     ...(createInFolder ? { _create_in_folder: createInFolder } : {}),
                 })
-                actionsModel.findMounted()?.actions.loadActions()
+                actionsModel.findMounted({ shouldLoad: true })?.actions.loadActions(true)
                 lemonToast.success(
                     <>
                         Action created. <Link to={urls.action(action.id)}>View action</Link>

@@ -1,5 +1,6 @@
 import uuid
 import typing
+import datetime as dt
 import dataclasses
 from typing import Any
 
@@ -23,9 +24,15 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import HIDDEN_COLUMNS, DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
+    destination_ids_for_run,
+    is_multi_destination_enabled,
+)
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
+    data_quality_checks_needed_for,
     emit_signals_enabled_for,
     person_property_sync_enabled_for,
+    schema_binding,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
@@ -150,6 +157,7 @@ def _create_job(
     pipeline_version: str,
     billable: bool,
     schema_snapshot: dict[str, Any],
+    destination_ids: list[str] | None = None,
 ) -> ExternalDataJob:
     # A deadlock aborts the INSERT without creating a row, so retrying from scratch is safe. This
     # activity has no Temporal-level retry (see external_data_job.py), because a retry after job
@@ -165,6 +173,7 @@ def _create_job(
         pipeline_version=pipeline_version,
         billable=billable,
         schema_snapshot=schema_snapshot,
+        destination_ids=destination_ids or [],
     )
 
 
@@ -189,6 +198,63 @@ class CreateExternalDataJobModelActivityInputs:
         }
 
 
+FAST_RETURN_FULL_RUN_INTERVAL = dt.timedelta(hours=24)
+
+
+def _fast_return_eligible(
+    *,
+    schema: ExternalDataSchema,
+    team_id: int,
+    enrichment_needed: bool,
+    statistics_needed: bool,
+) -> bool:
+    """Whether this run may complete on a negative probe instead of extracting.
+
+    Every condition here answers one of two questions: is the schema's own state simple enough
+    that "no new source rows" means "nothing to do" (cursor-tracked, past its initial sync, no
+    reset or repartition in flight), and does the pipeline owe this schema any repair work that
+    only a full run performs? A repair loop that runs solely on the sync path — the managed-view
+    sync, DuckLake copies, the person-property prefix sweep — would never run again on a schema
+    that always fast-returns, so anything outstanding forces the full path, and
+    FAST_RETURN_FULL_RUN_INTERVAL forces one anyway for whatever this list cannot see.
+    """
+    if not (schema.is_incremental or schema.is_append):
+        return False
+    # xmin and CDC keep their cursor outside `incremental_field_last_value`, and a webhook
+    # schema's "source" is an S3 prefix rather than a queryable cursor.
+    if schema.is_xmin or schema.is_cdc or schema.is_webhook:
+        return False
+    if not schema.initial_sync_complete or schema.incremental_field_last_value is None:
+        return False
+    if schema.reset_pipeline:
+        return False
+    # A lookback deliberately re-reads rows at or before the watermark, so "nothing past the
+    # watermark" does not mean the sync would have written nothing.
+    if schema.incremental_field_lookback_seconds:
+        return False
+    if (
+        schema.repartition_pending is not None
+        or schema.repartition_swap is not None
+        or schema.delta_revive_required is not None
+    ):
+        return False
+    if enrichment_needed or statistics_needed:
+        return False
+    if data_quality_checks_needed_for(team_id, schema.table_id):
+        return False
+
+    last_full_run_at = schema.last_full_run_at
+    if last_full_run_at is None:
+        return False
+    try:
+        stamped = dt.datetime.fromisoformat(last_full_run_at)
+    except (TypeError, ValueError):
+        return False
+    if stamped.tzinfo is None:
+        return False
+    return dt.datetime.now(dt.UTC) - stamped < FAST_RETURN_FULL_RUN_INTERVAL
+
+
 @dataclasses.dataclass(frozen=True)
 class CreateExternalDataJobModelActivityOutputs:
     job_id: str
@@ -198,7 +264,8 @@ class CreateExternalDataJobModelActivityOutputs:
     # ISO timestamp of when the previous sync completed, used to detect new records
     last_synced_at: str | None = None
     emit_signals_enabled: bool = False
-    # True when semantic enrichment is permitted (feature flag on AND AI data processing approved).
+    # True when semantic enrichment is permitted (AI data processing approved). Kept on the payload for
+    # in-flight workflows; the workflow branches on enrichment_needed.
     enrichment_enabled: bool = False
     # True when column-statistics profiling is permitted (feature flag on). No AI-data-processing consent
     # term: it reads only the Delta log and writes to our own DB — nothing leaves our infra.
@@ -212,6 +279,11 @@ class CreateExternalDataJobModelActivityOutputs:
     # True when the schema feeds at least one enabled person-target Customer analytics source, so the
     # workflow should start the person-property sync child. Gated up front to avoid a no-op child per sync.
     person_property_sync_enabled: bool = False
+    # True when this run may complete without extracting if the source proves it has nothing new:
+    # the schema tracks a cursor, is past its initial sync, and no repair work is outstanding.
+    # Computed here because this activity already resolves the repair gates the decision needs.
+    # Defaults False so a payload from a worker that predates the field takes the full path.
+    fast_return_eligible: bool = False
 
 
 @activity.defn
@@ -232,8 +304,6 @@ def create_external_data_job_model_activity(
             raise Exception("Source or schema no longer exists - deleted temporal schedule")
 
         schema = ExternalDataSchema.objects.get(team_id=inputs.team_id, id=inputs.schema_id)
-        schema.status = ExternalDataSchema.Status.RUNNING
-        schema.save()
 
         source: ExternalDataSource = schema.source
 
@@ -242,6 +312,16 @@ def create_external_data_job_model_activity(
             pipeline_version = ExternalDataJob.PipelineVersion.V3
             _verify_v3_lock_still_held(inputs.team_id, inputs.schema_id)
 
+        # Persist the Running status only after the job row exists: a Running schema with no job
+        # behind it can never be finalized, so it would stay stuck on Running forever. With the job
+        # committed first, the workflow's finalizer can always resolve it and repaint the schema.
+        schema.status = ExternalDataSchema.Status.RUNNING
+        # Only v3 runs deliver to destinations; v2 has no per-batch queue to carry the ids.
+        destination_ids: list[str] = []
+        if pipeline_version == ExternalDataJob.PipelineVersion.V3 and is_multi_destination_enabled(
+            inputs.team_id, source.source_type
+        ):
+            destination_ids = destination_ids_for_run(schema)
         job = _create_job(
             team_id=inputs.team_id,
             source_id=inputs.source_id,
@@ -249,7 +329,9 @@ def create_external_data_job_model_activity(
             pipeline_version=pipeline_version,
             billable=inputs.billable,
             schema_snapshot=_build_schema_snapshot(schema),
+            destination_ids=destination_ids,
         )
+        schema.save(update_fields=["status", "updated_at"])
 
         logger.info(
             f"Created external data job for external data source {inputs.source_id}",
@@ -271,15 +353,6 @@ def create_external_data_job_model_activity(
             inputs.team_id, source.source_type, schema.name, ai_data_processing_approved
         )
 
-        # Semantic enrichment runs only when its flag is on AND AI data processing is approved — let the
-        # workflow skip the child entirely rather than spawn one that immediately no-ops.
-        # Lazy import: enrich_table_semantics is a workflow module; keep it off this activity's import path.
-        from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.enrich_table_semantics import (  # noqa: PLC0415
-            enrichment_enabled,
-        )
-
-        enrichment_should_run = bool(ai_data_processing_approved and team is not None and enrichment_enabled(team))
-
         # Column-statistics profiling is gated on its feature flag only (no consent term) — let the
         # workflow skip the child rather than spawn a no-op. Lazy import keeps deltalake off this path.
         from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (  # noqa: PLC0415
@@ -291,12 +364,19 @@ def create_external_data_job_model_activity(
         # Narrow "permitted" down to "permitted AND has work to do" so steady-state syncs don't spawn
         # no-op metadata workflows. The activities re-check this themselves as a safety net.
         table = schema.table
-        enrichment_needed = enrichment_should_run and _enrichment_pending(inputs.team_id, table, schema)
+        enrichment_needed = ai_data_processing_approved and _enrichment_pending(inputs.team_id, table, schema)
         statistics_needed = statistics_should_run and _statistics_stale(inputs.team_id, table)
 
         # Whether this schema feeds any enabled person-target Customer analytics source (owned by
         # customer_analytics via external_product_hooks; not imported here).
-        person_property_sync_enabled = person_property_sync_enabled_for(inputs.team_id, schema.id)
+        person_property_sync_enabled = person_property_sync_enabled_for(inputs.team_id, schema_binding(schema.id))
+
+        fast_return_eligible = _fast_return_eligible(
+            schema=schema,
+            team_id=inputs.team_id,
+            enrichment_needed=enrichment_needed,
+            statistics_needed=statistics_needed,
+        )
 
         return CreateExternalDataJobModelActivityOutputs(
             job_id=str(job.id),
@@ -305,11 +385,12 @@ def create_external_data_job_model_activity(
             schema_name=schema.name,
             last_synced_at=schema.last_synced_at.isoformat() if schema.last_synced_at else None,
             emit_signals_enabled=emit_signals_enabled,
-            enrichment_enabled=enrichment_should_run,
+            enrichment_enabled=ai_data_processing_approved,
             statistics_enabled=statistics_should_run,
             enrichment_needed=enrichment_needed,
             statistics_needed=statistics_needed,
             person_property_sync_enabled=person_property_sync_enabled,
+            fast_return_eligible=fast_return_eligible,
         )
     except Exception as e:
         logger.exception(

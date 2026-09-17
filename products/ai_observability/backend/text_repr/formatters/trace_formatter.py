@@ -19,11 +19,14 @@ from posthog.dataclasses import frozen
 from .constants import DEFAULT_MAX_LENGTH, MAX_TREE_DEPTH, SEPARATOR
 from .event_formatter import format_event_text_repr
 from .message_formatter import (
+    FormatterLines,
     FormatterOptions,
+    RenderBudgetExceeded,
     add_line_numbers,
     format_input_messages,
     format_output_messages,
     reduce_by_uniform_sampling,
+    sanitize_surrogates,
     truncate_content,
 )
 
@@ -177,14 +180,20 @@ def llm_trace_to_formatter_format(
     return trace_dict, hierarchy
 
 
-def _format_latency(latency: float) -> str:
-    """Format latency to 2 decimal places."""
-    return f"{latency:.2f}s"
+def _format_latency(latency: Any) -> str:
+    """Format latency to 2 decimal places. Coerces string-valued latencies before formatting."""
+    try:
+        return f"{float(latency):.2f}s"
+    except (TypeError, ValueError):
+        return str(latency)
 
 
-def _format_cost(cost: float) -> str:
-    """Format cost in USD."""
-    return f"${cost:.4f}"
+def _format_cost(cost: Any) -> str:
+    """Format cost in USD. Coerces string-valued costs before formatting."""
+    try:
+        return f"${float(cost):.4f}"
+    except (TypeError, ValueError):
+        return str(cost)
 
 
 def _get_event_summary(event: dict[str, Any]) -> str:
@@ -271,9 +280,9 @@ def _get_event_summary(event: dict[str, Any]) -> str:
         if applicable is False or applicable == "false":
             parts.append("N/A")
         elif result is True or result == "true":
-            parts.append("PASS")
+            parts.append("true")
         elif result is False or result == "false":
-            parts.append("FAIL")
+            parts.append("false")
 
         summary = eval_name
         if parts:
@@ -316,6 +325,8 @@ def _format_state(state: Any, label: str, options: FormatterOptions | None = Non
 
         lines.append(str(state))
         return lines
+    except RenderBudgetExceeded:
+        raise
     except Exception:
         return ["", f"{label}:", "", str(state)]
 
@@ -424,13 +435,13 @@ def _render_tree(
     - <<<GEN_EXPANDABLE|eventId|displayText|encodedContent>>> for include_markers=True
     - Plain text [+] indicators for include_markers=False
     """
-    lines: list[str] = []
+    lines = FormatterLines(options)
 
     if depth > MAX_TREE_DEPTH:
         lines.append(f"{prefix}  [... max depth reached]")
         return lines
 
-    options = options or {}  # ty: ignore[invalid-assignment]
+    options = options or {}
     include_markers = options.get("include_markers", True)
     collapsed = options.get("collapsed", False)
 
@@ -481,7 +492,7 @@ def format_trace_text_repr(
     Returns:
         Tuple of (formatted_text, was_sampled) - the text representation and whether uniform sampling was applied
     """
-    lines: list[str] = []
+    lines = FormatterLines(options)
     props = trace.get("properties", {})
 
     # Trace header - support both camelCase (API) and snake_case (properties)
@@ -535,6 +546,8 @@ def format_trace_text_repr(
     if options and options.get("include_line_numbers", False):
         formatted_text = add_line_numbers(formatted_text)
 
+    lines.check_length(len(formatted_text))
+
     # Apply max_length constraint by uniformly sampling lines if needed
     # Defaults to 2M chars to fit within LLM context windows
     max_length = options.get("max_length", DEFAULT_MAX_LENGTH) if options else DEFAULT_MAX_LENGTH
@@ -542,4 +555,4 @@ def format_trace_text_repr(
     if max_length and len(formatted_text) > max_length:
         formatted_text, was_sampled = reduce_by_uniform_sampling(formatted_text, max_length)
 
-    return formatted_text, was_sampled
+    return sanitize_surrogates(formatted_text), was_sampled

@@ -1,7 +1,9 @@
+import math
 from enum import Enum
 from typing import Any, Optional, TypeVar
 
 import structlog
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ExperimentFunnelMetric,
@@ -28,7 +30,6 @@ from posthog.models import Team, User
 
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig, get_cuped_config
-from products.experiments.stats.bayesian.enums import PriorType
 from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
 from products.experiments.stats.frequentist.method import (
     DEFAULT_SEQUENTIAL_TUNING_PARAMETER,
@@ -107,6 +108,24 @@ def _validate_numeric_range(value: Any, min_val: float, max_val: float, default:
         return default
 
 
+def sanitize_non_finite(value: Any) -> Any:
+    """Replace non-finite floats (inf/-inf/nan) with None, recursively.
+
+    Stats can overflow to infinity (e.g. delta-method variance with a near-zero
+    denominator), json.dumps emits those as the nonstandard `Infinity`/`NaN`
+    tokens, and Postgres rejects them in jsonb columns — apply this to result
+    dicts at the storage boundary. None matches the schema: the affected fields
+    (confidence intervals etc.) are already nullable.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {k: sanitize_non_finite(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [sanitize_non_finite(v) for v in value]
+    return value
+
+
 def get_experiment_stats_method(experiment) -> str:
     if experiment.stats_config is None:
         return "bayesian"
@@ -123,7 +142,12 @@ def split_baseline_and_test_variants(
 ) -> tuple[V, list[V]]:
     control_variants = [variant for variant in variants if variant.key == baseline_key]
     if not control_variants:
-        raise ValueError("No control variant found")
+        # Expected while an experiment has no exposures for its baseline yet — a
+        # user-facing validation error, not a server error.
+        raise ValidationError(
+            f"No exposures for the '{baseline_key}' variant yet. Results can be calculated once it has data.",
+            code="no_data",
+        )
     if len(control_variants) > 1:
         raise ValueError("Multiple control variants found")
     control_variant = control_variants[0]
@@ -273,6 +297,10 @@ def validate_variant_result(
         validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_EXPOSURES)
 
     if isinstance(metric, (ExperimentFunnelMetric | ExperimentRetentionMetric)) and variant_result.sum < 5:
+        validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA)
+
+    # A zero denominator makes the ratio undefined, so no statistical result can be computed
+    if isinstance(metric, ExperimentRatioMetric) and not variant_result.denominator_sum:
         validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA)
 
     if is_baseline and variant_result.sum == 0:
@@ -597,7 +625,6 @@ def get_bayesian_experiment_result(
         difference_type=_parse_enum_config(
             bayesian_config.get("difference_type", "RELATIVE"), DifferenceType, DifferenceType.RELATIVE
         ),
-        prior_type=_parse_enum_config(bayesian_config.get("prior_type", "RELATIVE"), PriorType, PriorType.RELATIVE),
     )
     method = BayesianMethod(config)
 

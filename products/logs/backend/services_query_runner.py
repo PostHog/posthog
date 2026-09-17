@@ -168,7 +168,9 @@ def _sampling_rule_summary(rule: LogsExclusionRule) -> str:
 # user-controlled service_name cardinality (a misconfigured SDK can emit a
 # unique name per pod or instance). Names beyond the cap stay reachable via
 # serviceNameSearch, which filters before aggregation.
-SERVICES_LIMIT = 1000
+# The LIMIT applies after the GROUP BY, so raising it costs response bytes rather
+# than query time. The aggregation reads the same window either way.
+SERVICES_LIMIT = 10000
 # Sparklines are fetched per displayed page: the bucket grid is
 # time × service and the sparkline query's row LIMIT would silently drop the
 # most recent buckets if scoped to all SERVICES_LIMIT names at once.
@@ -183,10 +185,11 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
 
     def __init__(self, *args: Any, service_name_search: str | None = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        # Not part of the query object, so it never reaches the cache key. Safe
-        # only while the services endpoint runs CALCULATE_BLOCKING_ALWAYS; a move
-        # to any cached execution mode requires this on LogsQuery instead.
         self.service_name_search = service_name_search.strip() if service_name_search else None
+
+    def get_cache_payload(self) -> dict[str, Any]:
+        # A runner argument, not a query field, so the base payload cannot see it.
+        return {**super().get_cache_payload(), "service_name_search": self.service_name_search}
 
     def _calculate(self) -> LogsQueryResponse:
         aggregates_response = execute_hogql_query(

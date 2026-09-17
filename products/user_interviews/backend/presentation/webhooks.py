@@ -14,16 +14,12 @@ import json
 import string
 import hashlib
 from typing import Any
-from uuid import uuid4
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
-from django.utils.timezone import now
 
 import requests
 import structlog
-import posthoganalytics
 from rest_framework import status
 from rest_framework.decorators import api_view, authentication_classes, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny
@@ -31,19 +27,23 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 
-from posthog.schema import EmbeddingModelName
-
-from posthog.api.embedding_worker import emit_embedding_request
 from posthog.constants import AvailableFeature
 from posthog.egress.vapi import vapi_request
-from posthog.event_usage import groups
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team import Team
 from posthog.rate_limit import IPThrottle
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from ..facade.api import derive_auto_classifications, is_shared_interviewee_context, valid_distinct_id, valid_session_id
-from ..models import UserInterview, UserInterviewClassification, UserInterviewTopic
+from ..logic import (
+    RESPONDENT_KEY_MAX_CHARS,
+    RESPONDENT_NAME_MAX_CHARS,
+    clean_field,
+    resolve_share,
+    shared_interviewee_identifier,
+)
+from ..models import UserInterview, UserInterviewClassification
+from ..vapi_events import capture_user_interview_event, collapse_abandoned_partials, emit_interview_embeddings
 
 logger = structlog.get_logger(__name__)
 
@@ -152,82 +152,6 @@ class InterviewStartCallRespondentThrottle(_RateLimitMetricsMixin):
 _VAPI_SIGNATURE_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
-_EMBEDDING_MODELS = [m.value for m in EmbeddingModelName]
-
-# TODO: figure out a better story for transcripts that exceed our Kafka envelope
-# than head-truncation. Options: (a) chunk + emit multiple documents per type, or
-# (b) push large content to object storage and embed a reference. Truncation is a
-# stop-gap so a 90-minute interview doesn't silently lose its embeddings entirely.
-EMBEDDING_CONTENT_MAX_BYTES = 750_000
-
-
-def _emit_interview_embeddings(interview: UserInterview, topic: UserInterviewTopic) -> None:
-    """Emit transcript and summary as two separate embedding documents so each can be
-    searched independently. Failures are logged but never propagated: Vapi retries are
-    idempotent on call.id, so a re-delivery would skip creation and never re-emit —
-    making a thrown exception here strictly worse than a degraded but acknowledged row."""
-    metadata = {
-        "topic_id": str(topic.id),
-        "interviewee_identifier": interview.interviewee_identifier,
-    }
-    for document_type, content in (("transcript", interview.transcript), ("summary", interview.summary)):
-        if not content or not content.strip():
-            continue
-        content_bytes = content.encode("utf-8")
-        if len(content_bytes) > EMBEDDING_CONTENT_MAX_BYTES:
-            logger.warning(
-                "user_interviews_embedding_content_truncated",
-                team_id=interview.team_id,
-                interview_id=str(interview.id),
-                document_type=document_type,
-                original_bytes=len(content_bytes),
-                truncated_to_bytes=EMBEDDING_CONTENT_MAX_BYTES,
-            )
-            content = content_bytes[:EMBEDDING_CONTENT_MAX_BYTES].decode("utf-8", errors="ignore")
-        try:
-            emit_embedding_request(
-                content=content,
-                team_id=interview.team_id,
-                product="user_interviews",
-                document_type=document_type,
-                rendering="plain",
-                document_id=str(interview.id),
-                models=_EMBEDDING_MODELS,
-                metadata=metadata,
-            )
-        except Exception:
-            logger.exception(
-                "user_interviews_embedding_emit_failed",
-                team_id=interview.team_id,
-                interview_id=str(interview.id),
-                document_type=document_type,
-            )
-
-
-def _resolve_share(access_token: str) -> SharingConfiguration | None:
-    """Resolve a share token to its `SharingConfiguration`, mirroring the filters
-    used by `SharingViewerPageViewSet.get_object()`:
-    * `enabled=True`
-    * not expired (`expires_at` null OR in the future) — rotated tokens past their
-      5-minute grace period are excluded so this surface stays consistent with the
-      public viewer.
-    """
-    try:
-        return (
-            SharingConfiguration.objects.select_related(
-                "team",
-                "team__organization",
-                "interviewee_context",
-                "interviewee_context__topic",
-                "interviewee_context__topic__created_by",
-            )
-            .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
-            .get(access_token=access_token, enabled=True)
-        )
-    except SharingConfiguration.DoesNotExist:
-        return None
-
-
 def _public_sharing_disabled_for_org(sharing_config: SharingConfiguration) -> bool:
     """Mirror of `SharingViewerPageViewSet.retrieve()`'s org-level kill switch."""
     organization = sharing_config.team.organization
@@ -304,30 +228,6 @@ def _build_first_message(
     return rendered[:_FIRST_MESSAGE_MAX_CHARS]
 
 
-# Max lengths for the self-reported fields a shared-link respondent sends to start_call. These
-# are echoed into Vapi metadata and persisted on the UserInterview, so cap them defensively.
-_RESPONDENT_NAME_MAX_CHARS = 200
-_RESPONDENT_KEY_MAX_CHARS = 64
-
-# Every shared-link response is stored under an identifier carrying this prefix. It can NEVER equal a
-# personalised interviewee's identifier (an email or distinct_id), so an anonymous respondent can
-# neither be attributed to nor lock out a targeted invitee.
-SHARED_RESPONDENT_IDENTIFIER_PREFIX = "shared:"
-
-
-def _clean_field(value: Any, max_chars: int) -> str:
-    return str(value).strip()[:max_chars] if value else ""
-
-
-def _shared_interviewee_identifier(respondent_key: str) -> str:
-    """Namespaced, non-authoritative identity for a shared-link respondent.
-
-    Keyed on the stable per-browser ``respondent_key`` so a refreshed respondent keeps one identity;
-    falls back to a random id when no key was supplied so rows stay distinct. Deliberately independent
-    of any self-reported name or untrusted ``distinct_id`` — those never determine attribution."""
-    return f"{SHARED_RESPONDENT_IDENTIFIER_PREFIX}{respondent_key or uuid4().hex}"
-
-
 VAPI_WEB_CALL_URL = "https://api.vapi.ai/call/web"
 
 
@@ -383,46 +283,6 @@ def _create_vapi_web_call(assistant_overrides: dict[str, Any]) -> dict[str, Any]
     return web_call
 
 
-def _collapse_abandoned_partials(*, team: Team, topic: UserInterviewTopic, respondent_key: str, keep_pk: Any) -> None:
-    """Delete the abandoned partial an accidental mid-call refresh leaves behind, when the same
-    respondent (same ``respondent_key``) comes back and finishes — so the topic shows one response
-    per respondent instead of a junk trail.
-
-    Deletes only rows that STILL auto-derive as ``abandoned`` from their own transcript, rather than
-    trusting the stored label. ``abandoned`` is user-mutable (writable via the update API and the MCP
-    tool), so a real response a curator manually re-tagged ``abandoned`` would otherwise be
-    permanently, unrecoverably deleted here. Re-deriving keeps this a cleanup of genuine AI-only
-    partials and never touches a row that contains real interviewee content.
-    """
-    candidates = (
-        UserInterview.objects.filter(
-            team=team,
-            topic=topic,
-            respondent_key=respondent_key,
-            classifications__contains=[UserInterviewClassification.ABANDONED],
-        )
-        .exclude(pk=keep_pk)
-        .only("id", "transcript")
-    )
-    stale_pks = [
-        c.pk for c in candidates if UserInterviewClassification.ABANDONED in derive_auto_classifications(c.transcript)
-    ]
-    if not stale_pks:
-        return
-    deleted_count, _ = UserInterview.objects.filter(
-        team=team,
-        topic=topic,
-        respondent_key=respondent_key,
-        pk__in=stale_pks,
-    ).delete()
-    logger.info(
-        "user_interviews_collapsed_abandoned_partials",
-        team_id=team.id,
-        topic_id=str(topic.id),
-        deleted_count=deleted_count,
-    )
-
-
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -469,7 +329,7 @@ def start_call(request: Request, access_token: str) -> Response:
         )
         return Response({"error": "invalid request"}, status=status.HTTP_400_BAD_REQUEST)
 
-    sharing_config = _resolve_share(access_token)
+    sharing_config = resolve_share(access_token)
     if sharing_config is None or sharing_config.interviewee_context is None:
         logger.warning("user_interviews_start_call_unknown_access_token")
         return Response({"error": "unknown access_token"}, status=status.HTTP_404_NOT_FOUND)
@@ -485,10 +345,10 @@ def start_call(request: Request, access_token: str) -> Response:
     ic = sharing_config.interviewee_context
     topic = ic.topic
     if is_shared_interviewee_context(ic.interviewee_identifier):
-        respondent_name = _clean_field(body.get("name"), _RESPONDENT_NAME_MAX_CHARS)
+        respondent_name = clean_field(body.get("name"), RESPONDENT_NAME_MAX_CHARS)
         if not respondent_name:
             return Response({"error": "name is required"}, status=status.HTTP_400_BAD_REQUEST)
-        respondent_key = _clean_field(body.get("respondent_key"), _RESPONDENT_KEY_MAX_CHARS)
+        respondent_key = clean_field(body.get("respondent_key"), RESPONDENT_KEY_MAX_CHARS)
         user_name = respondent_name or "there"
         agent_context = topic.agent_context or ""
         # The response is stored under a namespaced identifier that can never collide with a targeted
@@ -497,7 +357,7 @@ def start_call(request: Request, access_token: str) -> Response:
         # targeted person out.
         metadata: dict[str, str] = {
             "topic_id": str(topic.id),
-            "interviewee_identifier": _shared_interviewee_identifier(respondent_key),
+            "interviewee_identifier": shared_interviewee_identifier(respondent_key),
             "sharing_access_token": access_token,
             "shared": "true",
             "respondent_name": respondent_name,
@@ -637,9 +497,9 @@ def vapi_webhook(request: Request) -> Response:
         # capture the ended event from that branch where we already have the interview row.
         call_status = message.get("status")
         if call_status == "in-progress" and access_token:
-            sharing_config = _resolve_share(access_token)
+            sharing_config = resolve_share(access_token)
             if sharing_config is not None and sharing_config.interviewee_context is not None:
-                _capture_user_interview_event(
+                capture_user_interview_event(
                     "user_interview_conversation_started",
                     sharing_config=sharing_config,
                     call_id=call_id,
@@ -672,7 +532,7 @@ def vapi_webhook(request: Request) -> Response:
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    sharing_config = _resolve_share(access_token)
+    sharing_config = resolve_share(access_token)
     if sharing_config is None:
         logger.warning(
             "user_interviews_vapi_webhook_unknown_access_token",
@@ -709,11 +569,11 @@ def vapi_webhook(request: Request) -> Response:
     topic = interviewee_context.topic
 
     if is_shared_interviewee_context(interviewee_context.interviewee_identifier):
-        respondent_name = _clean_field(merged_metadata.get("respondent_name"), _RESPONDENT_NAME_MAX_CHARS)
-        respondent_key = _clean_field(merged_metadata.get("respondent_key"), _RESPONDENT_KEY_MAX_CHARS)
+        respondent_name = clean_field(merged_metadata.get("respondent_name"), RESPONDENT_NAME_MAX_CHARS)
+        respondent_key = clean_field(merged_metadata.get("respondent_key"), RESPONDENT_KEY_MAX_CHARS)
         # Recompute the identifier from respondent_key rather than trusting the echoed metadata, so it
         # is always a namespaced shared marker and can never be steered onto a targeted invitee.
-        interviewee_identifier = _shared_interviewee_identifier(respondent_key)
+        interviewee_identifier = shared_interviewee_identifier(respondent_key)
         interviewee_emails = []
         # Best-effort, untrusted person linkage. Re-validated here (defense in depth) and stored in its
         # own column — never as the interviewee_identifier, so it can't forge attribution.
@@ -748,15 +608,15 @@ def vapi_webhook(request: Request) -> Response:
         # respondent comes back (same respondent_key) and finishes, drop their earlier abandoned
         # rows so the topic shows one response per respondent instead of a junk trail.
         if respondent_key and UserInterviewClassification.ABANDONED not in classifications:
-            _collapse_abandoned_partials(
+            collapse_abandoned_partials(
                 team=sharing_config.team,
                 topic=topic,
                 respondent_key=respondent_key,
                 keep_pk=interview.pk,
             )
-        transaction.on_commit(lambda: _emit_interview_embeddings(interview, topic))
+        transaction.on_commit(lambda: emit_interview_embeddings(interview, topic))
 
-    _capture_user_interview_event(
+    capture_user_interview_event(
         "user_interview_conversation_ended",
         sharing_config=sharing_config,
         call_id=call_id,
@@ -775,57 +635,3 @@ def vapi_webhook(request: Request) -> Response:
         interview_id=str(interview.id),
     )
     return Response({"status": "created", "interview_id": str(interview.id)}, status=status.HTTP_201_CREATED)
-
-
-def _capture_user_interview_event(
-    event: str,
-    *,
-    sharing_config: SharingConfiguration,
-    call_id: str | None,
-    session_id: str = "",
-    extra_properties: dict[str, Any] | None = None,
-) -> None:
-    """Fire a PostHog event for a user-interview lifecycle moment (conversation started/ended).
-    Failures never propagate — analytics never blocks a webhook delivery.
-
-    Vapi emits `status-update` per state transition and may re-fire `in-progress` after
-    transient drops or warm-transfer flows, and end-of-call-report can be retried by Vapi
-    until we ack. Set `$insert_id` to `<event>:<call_id>` so PostHog dedupes the second
-    delivery at ingest — funnels see one start and one end per call.
-
-    When a shared-link respondent supplied a valid session_id, it's attached as `$session_id` so
-    the event (and thus the interview) associates with that session recording — this is how the
-    session is linked without a dedicated DB column.
-
-    The `distinct_id` is intentionally an opaque per-share UUID — *not* the interviewee's
-    email/distinct_id — so these feature-usage events never create person profiles for the
-    third-party interviewees themselves. The events report on the user_interviews feature, not
-    the people being interviewed."""
-    interviewee_context = sharing_config.interviewee_context
-    if interviewee_context is None:
-        return
-    properties: dict[str, Any] = {
-        "topic_id": str(interviewee_context.topic_id),
-        "team_id": sharing_config.team_id,
-        "call_id": call_id,
-    }
-    if session_id:
-        properties["$session_id"] = session_id
-    if call_id:
-        properties["$insert_id"] = f"{event}:{call_id}"
-    if extra_properties:
-        properties.update(extra_properties)
-    try:
-        posthoganalytics.capture(
-            distinct_id=f"user_interview:{interviewee_context.id}",
-            event=event,
-            properties=properties,
-            groups=groups(organization=sharing_config.team.organization, team=sharing_config.team),
-        )
-    except Exception:
-        logger.exception(
-            "user_interviews_event_capture_failed",
-            event=event,
-            team_id=sharing_config.team_id,
-            call_id=call_id,
-        )

@@ -19,6 +19,7 @@ from common.hogvm.python.operation import HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTEC
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
 from common.hogvm.python.utils import (
+    MAX_MEMORY,
     HogVMException,
     HogVMMemoryExceededException,
     HogVMRuntimeExceededException,
@@ -34,7 +35,6 @@ from common.hogvm.python.utils import (
 if TYPE_CHECKING:
     from posthog.models import Team
 
-MAX_MEMORY = 64 * 1024 * 1024  # 64 MB
 MAX_FUNCTION_ARGS_LENGTH = 300
 CALLSTACK_LENGTH = 1000
 
@@ -555,11 +555,16 @@ def execute_bytecode(
                         push_stack(functions[name](*args))
                     elif name in STL:
                         check_allowed(name)
+                        stl_fn = STL[name]
+                        if stl_fn.minArgs is not None and arg_count < stl_fn.minArgs:
+                            raise HogVMException(f"Function {name} requires at least {stl_fn.minArgs} arguments")
+                        if stl_fn.maxArgs is not None and arg_count > stl_fn.maxArgs:
+                            raise HogVMException(f"Function {name} requires at most {stl_fn.maxArgs} arguments")
                         if version == 0:
                             args = [pop_stack() for _ in range(arg_count)]
                         else:
                             args = stack_keep_first_elements(len(stack) - arg_count)
-                        push_stack(STL[name].fn(args, team, stdout, remaining_timeout()))
+                        push_stack(stl_fn.fn(args, team, stdout, remaining_timeout()))
                     elif name in BYTECODE_STL:
                         arg_names = BYTECODE_STL[name][0]
                         if len(arg_names) != arg_count:

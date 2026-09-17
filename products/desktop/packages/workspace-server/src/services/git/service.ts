@@ -3,7 +3,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { execGh } from "@posthog/git/gh";
-import { readHandoffLocalGitState } from "@posthog/git/handoff";
 import { getGitOperationManager } from "@posthog/git/operation-manager";
 import {
   type DiffStats,
@@ -32,18 +31,13 @@ import {
   unstageFiles as gitUnstageFiles,
   isGitRepository,
 } from "@posthog/git/queries";
-import {
-  CreateBranchSaga,
-  ResetToDefaultBranchSaga,
-  SwitchBranchSaga,
-} from "@posthog/git/sagas/branch";
+import { CreateBranchSaga, SwitchBranchSaga } from "@posthog/git/sagas/branch";
 import { CleanWorkingTreeSaga } from "@posthog/git/sagas/clean";
 import { CloneSaga } from "@posthog/git/sagas/clone";
 import { CommitSaga } from "@posthog/git/sagas/commit";
 import { DiscardFileChangesSaga } from "@posthog/git/sagas/discard";
 import { PullSaga } from "@posthog/git/sagas/pull";
 import { PushSaga } from "@posthog/git/sagas/push";
-import { StashPushSaga } from "@posthog/git/sagas/stash";
 import { parseGithubUrl } from "@posthog/git/utils";
 import { TypedEventEmitter } from "@posthog/shared";
 import { injectable } from "inversify";
@@ -69,7 +63,6 @@ import type {
   GitStateSnapshot,
   GitStatusOutput,
   GitSyncStatus,
-  HandoffLocalGitState,
   MergePrOutput,
   OpenPrOutput,
   PrActionType,
@@ -91,7 +84,11 @@ import type {
   SyncOutput,
   UpdatePrByUrlOutput,
 } from "./schemas";
-import { getPrInfoByUrlOutput, prConversationCommentSchema } from "./schemas";
+import {
+  getPrDetailsByUrlOutput,
+  getPrInfoByUrlOutput,
+  prConversationCommentSchema,
+} from "./schemas";
 
 const FETCH_THROTTLE_MS = 30_000;
 /** Max PRs per GraphQL request – stays well under GitHub's complexity ceiling. */
@@ -218,7 +215,7 @@ export function mapPrState(
   return null;
 }
 
-export const GitCloneEvent = { CloneProgress: "cloneProgress" } as const;
+const GitCloneEvent = { CloneProgress: "cloneProgress" } as const;
 export interface GitCloneEvents {
   [GitCloneEvent.CloneProgress]: CloneProgressPayload;
 }
@@ -1032,22 +1029,16 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
         "api",
         `repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`,
         "--jq",
-        "{state,merged,draft,headRefName: .head.ref,title}",
+        "{state,merged,draft,headRefName: .head.ref,title,author: (.user.login // null)}",
       ]);
 
       if (result.exitCode !== 0) {
         return null;
       }
 
-      const data = JSON.parse(result.stdout) as {
-        state: string;
-        merged: boolean;
-        draft: boolean;
-        headRefName: string | null;
-        title: string | null;
-      };
-
-      return data;
+      // The jq expression above and this schema describe one shape, so parse
+      // rather than cast: a GitHub field that moves fails here, not downstream.
+      return getPrDetailsByUrlOutput.parse(JSON.parse(result.stdout));
     } catch {
       return null;
     }
@@ -1970,49 +1961,5 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
     } catch {
       return [];
     }
-  }
-
-  async readHandoffLocalGitState(
-    directoryPath: string,
-  ): Promise<HandoffLocalGitState> {
-    return readHandoffLocalGitState(directoryPath);
-  }
-
-  async cleanupAfterCloudHandoff(
-    directoryPath: string,
-    branchName: string | null,
-  ): Promise<{
-    stashed: boolean;
-    switched: boolean;
-    defaultBranch: string | null;
-  }> {
-    let stashed = false;
-    const hasChanges =
-      (await this.getChangedFilesHead(directoryPath)).length > 0;
-
-    if (hasChanges) {
-      const label = branchName ?? "unknown";
-      const stashResult = await new StashPushSaga().run({
-        baseDir: directoryPath,
-        message: `posthog-code: handoff backup (${label})`,
-      });
-      if (!stashResult.success) {
-        return { stashed: false, switched: false, defaultBranch: null };
-      }
-      stashed = true;
-    }
-
-    const resetResult = await new ResetToDefaultBranchSaga().run({
-      baseDir: directoryPath,
-    });
-    if (!resetResult.success) {
-      return { stashed, switched: false, defaultBranch: null };
-    }
-
-    return {
-      stashed,
-      switched: resetResult.data.switched,
-      defaultBranch: resetResult.data.defaultBranch,
-    };
   }
 }

@@ -4,7 +4,7 @@ from threading import Barrier
 from uuid import UUID
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
@@ -15,6 +15,7 @@ from parameterized import parameterized
 
 from posthog.models import Team, User
 
+from products.error_tracking.backend.hogql_queries.issue_state_overlay import latest_issue_state_watermark
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -58,6 +59,22 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
         # deletes issue one
         assert ErrorTrackingIssue.objects.count() == 1
 
+    def test_merge_keeps_state_watermark_monotonic(self):
+        target = self.create_issue(["fingerprint_target"])
+        source = self.create_issue(["fingerprint_source"])
+
+        source_stamp = datetime(2022, 1, 10, 12, 0, tzinfo=UTC)
+        ErrorTrackingIssue.objects.filter(id=source.id).update(state_updated_at=source_stamp)
+        assert latest_issue_state_watermark(self.team.id) == source_stamp
+
+        with time_machine.travel("2022-01-10T12:05:00", tick=False):
+            assert target.merge(issue_ids=[source.id])[0] == ErrorTrackingIssueMergeResult.MERGED
+
+        target.refresh_from_db()
+        assert target.state_updated_at == datetime(2022, 1, 10, 12, 5, tzinfo=UTC)
+        watermark = latest_issue_state_watermark(self.team.id)
+        assert watermark is not None and watermark >= source_stamp
+
     def test_merge_multiple_times(self):
         issue_one = self.create_issue(["fingerprint_one"])
         issue_two = self.create_issue(["fingerprint_two"])
@@ -94,7 +111,10 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
         stale_issue_id = self.create_issue(["fingerprint_three"]).id
         ErrorTrackingIssue.objects.filter(id=stale_issue_id).delete()
 
-        assert issue_two.merge(issue_ids=[issue_one.id, stale_issue_id]) == ErrorTrackingIssueMergeResult.MERGED
+        assert issue_two.merge(issue_ids=[issue_one.id, stale_issue_id]) == (
+            ErrorTrackingIssueMergeResult.MERGED,
+            [issue_one.id],
+        )
 
         # The still-present source is merged into the target even though a sibling source was stale
         assert not ErrorTrackingIssue.objects.filter(id=issue_one.id).exists()
@@ -106,7 +126,7 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
         stale_issue_id = self.create_issue(["fingerprint_three"]).id
         ErrorTrackingIssue.objects.filter(id=stale_issue_id).delete()
 
-        assert issue_two.merge(issue_ids=[stale_issue_id]) == ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES
+        assert issue_two.merge(issue_ids=[stale_issue_id]) == (ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES, [])
 
         assert ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue_two.id).count() == 1
 
@@ -115,7 +135,7 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
         issue_two = self.create_issue(["fingerprint_two"])
         ErrorTrackingIssue.objects.filter(id=issue_two.id).delete()
 
-        assert issue_two.merge(issue_ids=[issue_one.id]) == ErrorTrackingIssueMergeResult.STALE_ISSUES
+        assert issue_two.merge(issue_ids=[issue_one.id]) == (ErrorTrackingIssueMergeResult.STALE_ISSUES, [])
 
         # The source is left untouched when the target the frontend picked is gone
         assert ErrorTrackingIssue.objects.filter(id=issue_one.id).exists()
@@ -126,16 +146,13 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
         issue_two = self.create_issue(["fingerprint_two"])
         issue_three = self.create_issue(["fingerprint_three"])
 
-        assert (
-            issue_two.merge(
-                issue_ids=[issue_one.id],
-                expected_fingerprint_issue_ids={
-                    "fingerprint_one": issue_three.id,
-                    "fingerprint_two": issue_two.id,
-                },
-            )
-            == ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS
-        )
+        assert issue_two.merge(
+            issue_ids=[issue_one.id],
+            expected_fingerprint_issue_ids={
+                "fingerprint_one": issue_three.id,
+                "fingerprint_two": issue_two.id,
+            },
+        ) == (ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS, [])
 
         assert ErrorTrackingIssue.objects.filter(id=issue_one.id).exists()
         assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fingerprint_one").issue_id == issue_one.id
@@ -150,7 +167,7 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
             patch("products.error_tracking.backend.models.sync_issues_to_clickhouse") as sync_issues_to_clickhouse,
             self.captureOnCommitCallbacks(execute=True),
         ):
-            assert issue_two.merge(issue_ids=[issue_one.id]) == ErrorTrackingIssueMergeResult.MERGED
+            assert issue_two.merge(issue_ids=[issue_one.id])[0] == ErrorTrackingIssueMergeResult.MERGED
 
         sync_issues_to_clickhouse.assert_called_once_with(issue_ids=[issue_two.id], team_id=self.team.id)
 
@@ -319,7 +336,7 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
             assert assignment is not None
             assert assignment.user_id == users[expected_key].id
 
-    @freeze_time("2025-01-01")
+    @time_machine.travel("2025-01-01", tick=False)
     def test_error_tracking_issue_first_seen_earliest_fingerprint(self):
         issue = self.create_issue(["fingerprint_one"])
 
@@ -337,11 +354,11 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
     def test_list_issues_created_since_filters_and_orders(self):
         from products.error_tracking.backend.facade import api
 
-        with freeze_time("2020-01-01T00:00:00Z"):
+        with time_machine.travel("2020-01-01T00:00:00Z", tick=False):
             ErrorTrackingIssue.objects.create(team=self.team, name="old")
-        with freeze_time("2026-01-02T00:00:00Z"):
+        with time_machine.travel("2026-01-02T00:00:00Z", tick=False):
             recent_a = ErrorTrackingIssue.objects.create(team=self.team, name="a")
-        with freeze_time("2026-01-03T00:00:00Z"):
+        with time_machine.travel("2026-01-03T00:00:00Z", tick=False):
             recent_b = ErrorTrackingIssue.objects.create(team=self.team, name="b")
 
         previews = api.list_issues_created_since(team_id=self.team.id, since=datetime(2026, 1, 1, tzinfo=UTC), limit=10)
@@ -352,7 +369,7 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
     def test_list_issues_created_since_respects_limit(self):
         from products.error_tracking.backend.facade import api
 
-        with freeze_time("2026-01-02T00:00:00Z"):
+        with time_machine.travel("2026-01-02T00:00:00Z", tick=False):
             for index in range(3):
                 ErrorTrackingIssue.objects.create(team=self.team, name=f"issue_{index}")
 
@@ -362,9 +379,9 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
     def test_list_first_fingerprints_returns_earliest_per_issue(self):
         from products.error_tracking.backend.facade import api
 
-        with freeze_time("2026-01-02T00:00:00Z"):
+        with time_machine.travel("2026-01-02T00:00:00Z", tick=False):
             issue_one = self.create_issue(["fp_one_later"])
-        with freeze_time("2026-01-01T00:00:00Z"):
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False):
             ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue_one, fingerprint="fp_one_early")
         issue_two = self.create_issue(["fp_two"])
         self.create_issue(["fp_other"])
@@ -401,7 +418,7 @@ class TestErrorTrackingMergeConcurrency(ErrorTrackingIssueTestMixin, NonAtomicBa
                 cursor.execute("SET lock_timeout = '10s'")
                 cursor.execute("SET statement_timeout = '15s'")
             start_barrier.wait(timeout=5)
-            return ErrorTrackingIssue.objects.get(id=target_issue_id).merge(issue_ids=source_issue_ids)
+            return ErrorTrackingIssue.objects.get(id=target_issue_id).merge(issue_ids=source_issue_ids)[0]
         finally:
             close_old_connections()
 

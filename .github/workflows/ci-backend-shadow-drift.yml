@@ -1,12 +1,13 @@
 name: Backend CI shadow drift check
 
-# Fails when .github/workflows/ci-backend.yml changes without a matching update
-# to .depot/workflows/ci-backend.yml. The depot file is a hand-maintained shadow
-# of canonical (see header comment in the depot file for the intentional deltas);
-# without this check, canonical drifts silently and the depot timing trial stops
-# measuring the same work.
+# Fails when the canonical backend workflow or a mirrored local action changes
+# without a matching update to the Depot shadow. The workflow is hand-maintained
+# (see its header comment for intentional deltas), while the actions are vendored;
+# without this check, canonical drifts silently and the Depot timing trial stops
+# measuring the same work. The check lives in depot_mirrors.py, which
+# `hogli ci:preflight` also runs before a push.
 #
-# Cheap to run — only triggers when one of the two files changes, so it costs ~nothing.
+# Cheap to run: it triggers only on changes to the backend workflow, local actions, Depot files, or the check itself.
 # Always enforced (no variable gate): keeping the depot mirror in sync with canonical is
 # a structural invariant worth holding whether or not the shadow is currently sampling —
 # you want them already in sync the moment the shadow is switched on. The sampling rate
@@ -16,8 +17,11 @@ name: Backend CI shadow drift check
 on:
     pull_request:
         paths:
+            - .github/workflows/ci-backend-shadow-drift.yml
             - .github/workflows/ci-backend.yml
-            - .depot/workflows/ci-backend.yml
+            - .github/actions/**
+            - .depot/**
+            - tools/hogli-commands/hogli_commands/depot_mirrors.py
 
 permissions:
     contents: read
@@ -28,7 +32,7 @@ concurrency:
 
 jobs:
     check:
-        name: Both ci-backend files updated together
+        name: Backend CI shadows remain synchronized
         runs-on: ubuntu-latest
         # 5 min absorbs cold-runner startup + the explicit depth=100 fetch of BASE_SHA below.
         # `actions/checkout` defaults to depth=1 (HEAD only); a full-history clone is unnecessary
@@ -45,18 +49,4 @@ jobs:
                   # is the merge commit — diffing BASE_SHA..HEAD gives the PR's effective
                   # changes. We only need to fetch BASE_SHA (HEAD is already local).
                   git fetch --no-tags --depth=100 origin "$BASE_SHA"
-                  changed=$(git diff --name-only "$BASE_SHA" HEAD -- \
-                      .github/workflows/ci-backend.yml \
-                      .depot/workflows/ci-backend.yml)
-                  if echo "$changed" | grep -q '^.github/workflows/ci-backend.yml$' && \
-                     ! echo "$changed" | grep -q '^.depot/workflows/ci-backend.yml$'; then
-                      echo "::error::Canonical .github/workflows/ci-backend.yml changed without a matching update to .depot/workflows/ci-backend.yml."
-                      echo "The depot shadow must stay apples-to-apples with canonical. Mirror the change into the depot file"
-                      echo "(or, if the change is one of the intentional deltas listed in the depot file header, document why it is depot-exempt)."
-                      exit 1
-                  fi
-                  if echo "$changed" | grep -q '^.depot/workflows/ci-backend.yml$' && \
-                     ! echo "$changed" | grep -q '^.github/workflows/ci-backend.yml$'; then
-                      echo "::notice::Only the depot shadow changed. That is allowed (e.g. tuning a depot-only knob), but worth a glance from the reviewer."
-                  fi
-                  echo "Shadow drift check passed."
+                  python3 tools/hogli-commands/hogli_commands/depot_mirrors.py "$BASE_SHA"

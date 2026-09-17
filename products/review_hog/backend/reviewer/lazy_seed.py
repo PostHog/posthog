@@ -440,7 +440,8 @@ def _sync_canonicals(
             # The sync owns the category tag; re-stamp a seeded row whose category drifted (e.g. after
             # the canonical category was changed). In-place — it's our metadata, not user content, so
             # no version bump. Idempotent: only writes on actual drift.
-            LLMSkill.objects.filter(pk=live.pk).update(category=category)
+            # QuerySet.update() skips auto_now, but the shared marketplace version uses updated_at.
+            LLMSkill.objects.filter(pk=live.pk).update(category=category, updated_at=timezone.now())
 
         live_files = list(live.files.all())
         live_hash = _compute_row_hash(live, live_files)

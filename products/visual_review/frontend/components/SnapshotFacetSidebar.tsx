@@ -1,6 +1,6 @@
-// Faceted sidebar for the snapshots overview. Three groups (TYPE / AREA /
-// STABILITY), each a flat column of `<button>` rows. Counts are pre-computed
-// by the scene logic so this stays purely presentational.
+// Faceted sidebar for the snapshots and flakiness pages. Each group is a flat
+// column of `<button>` rows, and a group with no buckets is not shown. Counts
+// are pre-computed by the scene logic so this stays purely presentational.
 
 export type FacetBucket = { value: string; label: string; count: number }
 
@@ -8,19 +8,23 @@ export type FacetGroups = {
     type: FacetBucket[]
     area: FacetBucket[]
     stability: FacetBucket[]
+    team: FacetBucket[]
 }
 
 export type FacetSelection = {
     type: Set<string>
     area: Set<string>
     stability: Set<string>
+    team: Set<string>
 }
 
 // Stability first — it's the most actionable facet for the page's primary use
-// case ("which snapshots am I tolerating drift on?"). Type and Area are
-// context refinements after that.
+// case ("which snapshots am I tolerating drift on?"). Team comes next because a
+// team's digest links straight to its own rows. Type and Area are context
+// refinements after that.
 const GROUP_LABELS: Array<{ key: keyof FacetGroups; label: string }> = [
     { key: 'stability', label: 'Stability' },
+    { key: 'team', label: 'Team' },
     { key: 'type', label: 'Type' },
     { key: 'area', label: 'Area' },
 ]

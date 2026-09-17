@@ -1,18 +1,26 @@
 from django.test import SimpleTestCase
 
+import httpx
+import openai
 from parameterized import parameterized
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContextWindowExceededError,
     LLMError,
     ModelNotFoundError,
     ModelPermissionError,
+    ProviderConnectionError,
     ProviderMismatchError,
     QuotaExceededError,
     RateLimitError,
+    StructuredOutputParseError,
     UnsupportedModelError,
     UnsupportedProviderError,
+    user_facing_error_message,
 )
+
+GENERIC_MESSAGE = "The request to the model provider failed. Try again."
 
 
 class TestLLMErrors(SimpleTestCase):
@@ -111,3 +119,63 @@ class TestErrorHierarchy(SimpleTestCase):
         except LLMError:
             caught = True
         assert caught
+
+
+class TestUserFacingErrorMessage(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (ModelNotFoundError("gpt-4-turbo"),),
+            (UnsupportedModelError("gpt-99"),),
+            (UnsupportedProviderError("cohere"),),
+            (ModelPermissionError("o3-pro"),),
+            (ModelPermissionError(),),
+            (ProviderMismatchError("openai", "anthropic"),),
+            (AuthenticationError("401"),),
+            (QuotaExceededError("insufficient_quota"),),
+            (RateLimitError("429"),),
+            (ContextWindowExceededError("too long"),),
+            (ProviderConnectionError("reset by peer"),),
+            (StructuredOutputParseError("bad json"),),
+        ]
+    )
+    def test_every_error_in_the_taxonomy_gets_its_own_copy(self, error):
+        assert user_facing_error_message(error) != GENERIC_MESSAGE
+
+    @parameterized.expand(
+        [
+            (ModelNotFoundError("gpt-4-turbo"),),
+            (UnsupportedModelError("gpt-99"),),
+            (ModelPermissionError("o3-pro"),),
+        ]
+    )
+    def test_copy_about_a_model_names_the_model(self, error):
+        assert error.model in user_facing_error_message(error)
+
+    def test_unmapped_provider_error_keeps_the_providers_reason(self):
+        # A 400 caused by the request itself — an unsupported parameter, a malformed tool schema —
+        # has no branch in the taxonomy, and retrying it can only fail the same way. The provider's
+        # own sentence is the only actionable thing left, so it has to survive.
+        detail = "Unsupported value: 'temperature' does not support 0.7 with this model."
+        body = {"error": {"message": detail}}
+        request = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
+        error = openai.BadRequestError(
+            f"Error code: 400 - {body}",
+            response=httpx.Response(status_code=400, request=request, json=body),
+            body=body,
+        )
+
+        message = user_facing_error_message(error)
+
+        assert detail in message
+        assert "Error code: 400" not in message
+
+    def test_google_style_error_exposes_its_reason_through_the_message_attribute(self):
+        # google-genai puts the text on `message` rather than in a parsed `body`.
+        class FakeAPIError(Exception):
+            message = "models/gemini-1.0-pro is not found for API version v1beta"
+
+        assert "models/gemini-1.0-pro is not found" in user_facing_error_message(FakeAPIError())
+
+    @parameterized.expand([(None,), (RuntimeError("boom"),), (ValueError(""),)])
+    def test_error_with_no_readable_reason_falls_back_to_the_generic_message(self, error):
+        assert user_facing_error_message(error) == GENERIC_MESSAGE

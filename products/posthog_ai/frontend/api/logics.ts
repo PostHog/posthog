@@ -14,6 +14,7 @@ export type { RunStreamLogicProps, RunSseStatus, RunStatus } from '../logics/run
 
 // --- Interaction facade (follow-up / queue) ---
 export { runInteractionLogic } from '../logics/runInteractionLogic'
+export { messageRatingsLogic } from '../logics/messageRatingsLogic'
 export type { RunInteractionLogicProps, QueuedMessage } from '../logics/runInteractionLogic'
 
 // --- Thinking-message helpers ---
@@ -22,6 +23,8 @@ export { getThinkingMessageFromResponse, getRandomThinkingMessage, THINKING_MESS
 // --- Composer model/effort helpers (pure — no component imports) ---
 export { resolveEffortForModel, DEFAULT_COMPOSER_MODEL, DEFAULT_COMPOSER_EFFORT } from '../utils/composerModels'
 export { modelCatalogueLogic } from '../logics/modelCatalogueLogic'
+
+export { tasksLogic } from '../logics/tasksLogic'
 
 // --- Attached-context store + injection hook (headless) ---
 // Global registry of on-screen context providers; `contextItems` is what the send paths wrap into the
@@ -35,9 +38,14 @@ export { attachedContextItemKey } from '../types/contextTypes'
 export { welcomeOverrideLogic } from '../logics/welcomeOverrideLogic'
 export { useWelcomeOverride } from '../hooks/useWelcomeOverride'
 export type { UseWelcomeOverrideOptions } from '../hooks/useWelcomeOverride'
+// Contextual composer overrides (suggestions, repo picker), the sibling of the welcome headline override above.
+export { composerOverrideLogic } from '../logics/composerOverrideLogic'
+export type { ComposerOverride } from '../logics/composerOverrideLogic'
+export { useComposerOverride } from '../hooks/useComposerOverride'
+export type { UseComposerOverrideOptions } from '../hooks/useComposerOverride'
 // The standing "act via tool calls" instruction the sidebar surfaces attach while the user watches a
 // run — the prompt-side half of `useMcpToolApplyBack` (hidden from chips, deduped once per task).
-export { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM } from '../utils/posthogContextBlock'
+export { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 
 // --- User-picked context (the composer's @-affordance, headless half) ---
 // `contextPickerLogic` owns explicit user picks and registers them as the `user-picker` provider;
@@ -53,6 +61,7 @@ export { toolStreamEventsLogic } from '../logics/toolStreamEventsLogic'
 export type { ToolStreamSubscription } from '../logics/toolStreamEventsLogic'
 export { useToolStreamListener } from '../hooks/useToolStream'
 export type { UseToolStreamListenerOptions } from '../hooks/useToolStream'
+export { resolveToolCall } from '../utils/toolResolver'
 
 // --- Foreground stream registry + MCP tool apply-back (headless) ---
 // `foregroundStreamLogic` marks the single stream rendered in the side panel the user is watching; a

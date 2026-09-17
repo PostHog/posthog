@@ -7,6 +7,52 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface TeamLogsConfigApi {
+    /** Legacy single-key alias — always the first entry of `logs_distinct_id_attribute_keys`. Read-only; write the plural field instead. */
+    readonly logs_distinct_id_attribute_key: string
+    /**
+     * Log attribute keys whose values should match a person's distinct_id — a log links to a person when any of these attributes equals one of their distinct IDs. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to ['posthogDistinctId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the person identifier under different attributes.
+     * @maxItems 10
+     * @items.maxLength 200
+     */
+    logs_distinct_id_attribute_keys: string[]
+    /**
+     * Ordered list of log attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.
+     * @maxItems 10
+     * @items.maxLength 200
+     */
+    logs_session_id_attribute_keys: string[]
+    /**
+     * Ordered list of top-level JSON keys whose value is the message text that log patterns are derived from. Keys are matched literally at the top level of the log body; a dot in a key is part of the key name, not a path into nested objects. Selection checks keys in order; the first key whose value is a non-empty string wins. Defaults to ['message', 'msg', 'event']. An empty list turns message extraction off, so JSON log bodies group by their key set instead. The stored log body is never changed by this setting.
+     * @maxItems 10
+     * @items.maxLength 200
+     */
+    logs_pattern_message_keys: string[]
+}
+
+export interface PatchedTeamLogsConfigApi {
+    /** Legacy single-key alias — always the first entry of `logs_distinct_id_attribute_keys`. Read-only; write the plural field instead. */
+    readonly logs_distinct_id_attribute_key?: string
+    /**
+     * Log attribute keys whose values should match a person's distinct_id — a log links to a person when any of these attributes equals one of their distinct IDs. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to ['posthogDistinctId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the person identifier under different attributes.
+     * @maxItems 10
+     * @items.maxLength 200
+     */
+    logs_distinct_id_attribute_keys?: string[]
+    /**
+     * Ordered list of log attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.
+     * @maxItems 10
+     * @items.maxLength 200
+     */
+    logs_session_id_attribute_keys?: string[]
+    /**
+     * Ordered list of top-level JSON keys whose value is the message text that log patterns are derived from. Keys are matched literally at the top level of the log body; a dot in a key is part of the key name, not a path into nested objects. Selection checks keys in order; the first key whose value is a non-empty string wins. Defaults to ['message', 'msg', 'event']. An empty list turns message extraction off, so JSON log bodies group by their key set instead. The stored log body is never changed by this setting.
+     * @maxItems 10
+     * @items.maxLength 200
+     */
+    logs_pattern_message_keys?: string[]
+}
+
 export type FilterLogicalOperatorApi = (typeof FilterLogicalOperatorApi)[keyof typeof FilterLogicalOperatorApi]
 
 export const FilterLogicalOperatorApi = {
@@ -284,6 +330,61 @@ export interface WorkflowVariablePropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export type BehavioralEventSourceApi = (typeof BehavioralEventSourceApi)[keyof typeof BehavioralEventSourceApi]
+
+export const BehavioralEventSourceApi = {
+    Events: 'events',
+    Actions: 'actions',
+} as const
+
+export type TimeUnitTypeApi = (typeof TimeUnitTypeApi)[keyof typeof TimeUnitTypeApi]
+
+export const TimeUnitTypeApi = {
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+    Year: 'year',
+} as const
+
+export type InlineBehavioralTypeApi = (typeof InlineBehavioralTypeApi)[keyof typeof InlineBehavioralTypeApi]
+
+export const InlineBehavioralTypeApi = {
+    PerformedEvent: 'performed_event',
+    PerformedEventMultiple: 'performed_event_multiple',
+} as const
+
+export interface BehavioralPropertyFilterApi {
+    /** Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups */
+    event_filters?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | ElementPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | HogQLPropertyFilterApi
+          )[]
+        | null
+    event_type: BehavioralEventSourceApi
+    /** Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval */
+    explicit_datetime?: string | null
+    explicit_datetime_to?: string | null
+    /** Event name, or action id when event_type is 'actions' */
+    key: string
+    label?: string | null
+    /** Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators */
+    negation?: boolean | null
+    /** Count comparison for performed_event_multiple, defaults to exact */
+    operator?: PropertyOperatorApi | null
+    /** Count threshold for performed_event_multiple */
+    operator_value?: number | null
+    time_interval?: TimeUnitTypeApi | null
+    /** Relative time window size, paired with time_interval */
+    time_value?: number | null
+    /** Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP */
+    type?: 'behavioral'
+    value: InlineBehavioralTypeApi
+}
+
 export interface PropertyGroupFilterValueApi {
     type: FilterLogicalOperatorApi
     values: (
@@ -311,6 +412,7 @@ export interface PropertyGroupFilterValueApi {
         | RevenueAnalyticsPropertyFilterApi
         | AccountCustomPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
+        | BehavioralPropertyFilterApi
     )[]
 }
 
@@ -340,10 +442,10 @@ export interface LogsAlertFiltersApi {
  * * `above` - Above
  * * `below` - Below
  */
-export type LogsAlertThresholdOperatorEnumApi =
-    (typeof LogsAlertThresholdOperatorEnumApi)[keyof typeof LogsAlertThresholdOperatorEnumApi]
+export type LogsAlertConfigurationThresholdOperatorEnumApi =
+    (typeof LogsAlertConfigurationThresholdOperatorEnumApi)[keyof typeof LogsAlertConfigurationThresholdOperatorEnumApi]
 
-export const LogsAlertThresholdOperatorEnumApi = {
+export const LogsAlertConfigurationThresholdOperatorEnumApi = {
     Above: 'above',
     Below: 'below',
 } as const
@@ -490,7 +592,7 @@ export interface LogsAlertConfigurationApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator?: LogsAlertThresholdOperatorEnumApi
+    threshold_operator?: LogsAlertConfigurationThresholdOperatorEnumApi
     /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
     /** How often the alert is evaluated, in minutes. Server-managed. */
@@ -578,6 +680,128 @@ export interface PaginatedLogsAlertConfigurationListApi {
     results: LogsAlertConfigurationApi[]
 }
 
+export interface LogsAlertDestinationConfigApi {
+    hog_function_ids: string[]
+    /** Notification destination type.
+     *
+     * * `slack` - slack
+     * * `webhook` - webhook
+     * * `teams` - teams */
+    type: NotificationDestinationTypeEnumApi
+    /** Whether every HogFunction in the group is enabled, so the destination notifies for all alert event kinds. This is the stored setting: a destination PostHog stopped delivering to after repeated failures still reads as true. */
+    enabled: boolean
+    slack_workspace_id?: number
+    slack_channel_id?: string
+    /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
+    webhook_url?: string
+}
+
+/**
+ * One alert, with the destinations attached to it. The list endpoint leaves them out:
+ * reading a destination pulls its stored inputs, which run to several KB per row.
+ */
+export interface LogsAlertConfigurationDetailApi {
+    /** Unique identifier for this alert. */
+    readonly id: string
+    /**
+     * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
+     * @maxLength 255
+     */
+    name?: string
+    /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
+    enabled?: boolean
+    /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
+    filters?: LogsAlertFiltersApi
+    /**
+     * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.
+     * @minimum 0
+     */
+    threshold_count?: number
+    /** Whether the alert fires when the count is above or below the threshold.
+     *
+     * * `above` - Above
+     * * `below` - Below */
+    threshold_operator?: LogsAlertConfigurationThresholdOperatorEnumApi
+    /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
+    window_minutes?: number
+    /** How often the alert is evaluated, in minutes. Server-managed. */
+    readonly check_interval_minutes: number
+    /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
+     *
+     * * `not_firing` - Not firing
+     * * `firing` - Firing
+     * * `pending_resolve` - Pending resolve
+     * * `errored` - Errored
+     * * `snoozed` - Snoozed
+     * * `broken` - Broken */
+    readonly state: LogsAlertConfigurationStateEnumApi
+    /**
+     * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods?: number
+    /**
+     * How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm?: number
+    /**
+     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+     * @minimum 0
+     */
+    cooldown_minutes?: number
+    /** Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+     * @nullable
+     */
+    snooze_until?: string | null
+    /**
+     * When the next evaluation is scheduled. Server-managed.
+     * @nullable
+     */
+    readonly next_check_at: string | null
+    /**
+     * When the last notification was sent. Server-managed.
+     * @nullable
+     */
+    readonly last_notified_at: string | null
+    /**
+     * When the alert was last evaluated. Server-managed.
+     * @nullable
+     */
+    readonly last_checked_at: string | null
+    /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
+    readonly consecutive_failures: number
+    /**
+     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+     * @nullable
+     */
+    readonly last_error_message: string | null
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    readonly state_timeline: readonly LogsAlertStateIntervalApi[]
+    /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
+    readonly destination_types: readonly NotificationDestinationTypeEnumApi[]
+    /**
+     * When the alert was first enabled. Null means the alert is still in draft state.
+     * @nullable
+     */
+    readonly first_enabled_at: string | null
+    /** When the alert was created. */
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /**
+     * When the alert was last modified.
+     * @nullable
+     */
+    readonly updated_at: string | null
+    /** This alert's notification destinations, one entry per destination. Each carries the HogFunction IDs that delete it as a group, and its configuration with credential-bearing URL components removed. */
+    readonly destinations: readonly LogsAlertDestinationConfigApi[]
+}
+
 export interface PatchedLogsAlertConfigurationApi {
     /** Unique identifier for this alert. */
     readonly id?: string
@@ -599,7 +823,7 @@ export interface PatchedLogsAlertConfigurationApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator?: LogsAlertThresholdOperatorEnumApi
+    threshold_operator?: LogsAlertConfigurationThresholdOperatorEnumApi
     /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
     /** How often the alert is evaluated, in minutes. Server-managed. */
@@ -703,7 +927,6 @@ export interface LogsAlertDeleteDestinationApi {
     /**
      * HogFunction IDs to delete as one atomic destination group.
      * @minItems 1
-     * @maxItems 4
      */
     hog_function_ids: string[]
 }
@@ -767,7 +990,7 @@ export interface LogsAlertSimulateRequestApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator: LogsAlertThresholdOperatorEnumApi
+    threshold_operator: LogsAlertConfigurationThresholdOperatorEnumApi
     /** Window size in minutes — determines bucket interval. */
     window_minutes: number
     /**
@@ -1065,6 +1288,142 @@ export interface LogsAnomalyScanErrorApi {
     error: string
 }
 
+export interface _SeriesBandsDateRangeApi {
+    /**
+     * Start of the window. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1wStart, etc.
+     * @nullable
+     */
+    date_from?: string | null
+    /**
+     * End of the window. Same format as date_from. Omit or null for "now".
+     * @nullable
+     */
+    date_to?: string | null
+}
+
+/**
+ * * `5` - 5
+ * * `15` - 15
+ * * `30` - 30
+ * * `60` - 60
+ */
+export type IntervalMinutesEnumApi = (typeof IntervalMinutesEnumApi)[keyof typeof IntervalMinutesEnumApi]
+
+export const IntervalMinutesEnumApi = {
+    Number5: 5,
+    Number15: 15,
+    Number30: 30,
+    Number60: 60,
+} as const
+
+export interface LogsSeriesBandsRequestApi {
+    /** Service whose per-series volume to chart (the log record's service_name). */
+    serviceName: string
+    /** Window to chart. Defaults to the last 7 days. It may span at most 7 days and start at most 35 days ago, past which the volume rollup no longer reaches. */
+    dateRange?: _SeriesBandsDateRangeApi
+    /** Display grain in minutes for buckets and bands. One of 5, 15, 30, 60. The window may hold at most 500 buckets per series at the chosen grain, so a finer grain needs a shorter window. Omit it to let the window pick its grain, the coarsest that still cuts it into about 168 buckets. A series too sparse to read at this grain is returned at a coarser one; see each series' interval_minutes.
+     *
+     * * `5` - 5
+     * * `15` - 15
+     * * `30` - 30
+     * * `60` - 60 */
+    intervalMinutes?: IntervalMinutesEnumApi | null
+}
+
+/**
+ * * `sparse` - sparse
+ * * `quiet` - quiet
+ */
+export type CoarsenedReasonEnumApi = (typeof CoarsenedReasonEnumApi)[keyof typeof CoarsenedReasonEnumApi]
+
+export const CoarsenedReasonEnumApi = {
+    Sparse: 'sparse',
+    Quiet: 'quiet',
+} as const
+
+/**
+ * * `above` - Above the band
+ * * `below` - Below the band
+ */
+export type LogsSeriesBandVerdictEnumApi =
+    (typeof LogsSeriesBandVerdictEnumApi)[keyof typeof LogsSeriesBandVerdictEnumApi]
+
+export const LogsSeriesBandVerdictEnumApi = {
+    Above: 'above',
+    Below: 'below',
+} as const
+
+export interface LogsSeriesBandBucketApi {
+    /** Start of the display bucket (UTC). */
+    time: string
+    /** Log count observed in this bucket. */
+    observed: number
+    /**
+     * Lower edge of the expected band. Null while the series has too little history to band.
+     * @nullable
+     */
+    lower: number | null
+    /**
+     * Upper edge of the expected band. Null while the series has too little history to band.
+     * @nullable
+     */
+    upper: number | null
+    /** Where the observed count sits against the band: above when it exceeds upper, below when it falls under lower. Null while it sits inside the band, or while the band is not ready.
+     *
+     * * `above` - Above the band
+     * * `below` - Below the band */
+    verdict: LogsSeriesBandVerdictEnumApi | null
+}
+
+export interface LogsSeriesBandSeriesApi {
+    /** Namespace of the emitting resource; empty when the logs carry none. */
+    namespace: string
+    /** Deployment environment of the emitting resource; empty when the logs carry none. */
+    environment: string
+    /** Lowercased log severity of this series (for example info, error). */
+    severity: string
+    /** Total observed log count over the window. Series are ordered by this, descending. */
+    total_count: number
+    /** Full weeks of history behind the band, 0 to 5. Below 2 the series is still learning and its buckets carry no band. */
+    baseline_weeks: number
+    /** Start of sustained traffic inside the fetched lookback: the first bucket followed by a week with enough non-empty buckets. A stray earlier row does not move it. The window start when no traffic is sustained yet. */
+    history_start: string
+    /**
+     * When this series gains its band, so a learning series can count down to it. Null once the band is drawn.
+     * @nullable
+     */
+    band_ready_at: string | null
+    /** Grain of this series' buckets, in minutes. Equals the response interval_minutes unless the series was too sparse at that grain and was coarsened to the next rung it is dense enough to read at. */
+    interval_minutes: number
+    /** Why this series was too thin to read at the requested grain, or null when it was not. sparse: fewer than 20% of its buckets held any records. quiet: its non-empty buckets averaged under 5 records. A series that fails every rung is returned at the coarsest one. A series that a coarser rung has no rows for, or that the request's time budget cannot refetch, keeps the requested grain and still carries its reason.
+     *
+     * * `sparse` - sparse
+     * * `quiet` - quiet */
+    coarsened_reason: CoarsenedReasonEnumApi | null
+    /** One entry per display bucket across the window at this series' interval_minutes, oldest first, zero-filled. A coarsened series' window is snapped to its grain, so it can end short of window_end. */
+    buckets: LogsSeriesBandBucketApi[]
+}
+
+export interface LogsSeriesBandsResponseApi {
+    /** Service the series belong to. */
+    service_name: string
+    /** Start of the observed window (UTC, inclusive). */
+    window_start: string
+    /** End of the observed window (UTC, exclusive). */
+    window_end: string
+    /** Display grain requested, or picked to cut the window into about 168 buckets when the request left it out. */
+    interval_minutes: number
+    /** True when the service has more series than the response carries; the quietest were dropped. */
+    series_truncated: boolean
+    /** One entry per (namespace, environment, severity) series, ordered by observed volume descending. */
+    series: LogsSeriesBandSeriesApi[]
+}
+
+export interface LogsSeriesBandsErrorApi {
+    /** Human readable description of why the series could not be charted. */
+    error: string
+}
+
 export interface _DateRangeApi {
     /**
      * Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.
@@ -1135,7 +1494,7 @@ export const _LogPropertyFilterOperatorEnumApi = {
 } as const
 
 export interface _LogPropertyFilterApi {
-    /** Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name"). */
+    /** Attribute key. For type "log", use "message" for the body text, or a log column: "pattern" and "pattern_version" (the patterns pivot), "severity_level", "service_name", "trace_id", "span_id". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name"). */
     key: string
     /** "log" filters the log body/message. "log_attribute" filters log-level attributes. "log_resource_attribute" filters resource-level attributes.
      *
@@ -1333,6 +1692,8 @@ export interface _LogsFacetValuesBodyApi {
     filterGroup?: _LogPropertyFilterApi[]
     /** Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
     personId?: string
+    /** Scope counts to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsFacetValuesRequestApi {
@@ -1426,6 +1787,10 @@ export interface _LogsGroupByBodyApi {
      * @maximum 500
      */
     limit?: number
+    /** Scope grouping to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+    personId?: string
+    /** Scope grouping to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsGroupByRequestApi {
@@ -1457,6 +1822,62 @@ export interface _LogsGroupByResponseApi {
     truncated: boolean
 }
 
+export interface _LogsImpactRequestApi {
+    /** The impact query to execute. Takes the same filters as the count query. */
+    query: _LogsCountBodyApi
+}
+
+export interface _LogsImpactTopValueApi {
+    /** The session ID or person distinct ID. */
+    value: string
+    /** Approximate number of matching logs that carry this value (topK estimate). */
+    count: number
+}
+
+export interface _LogsImpactGroupKeyApi {
+    /** Attribute map the key lives in, in the group-by endpoint's vocabulary: "log" or "resource".
+     *
+     * * `log` - log
+     * * `resource` - resource
+     * * `column` - column */
+    source: LogsGroupBySourceEnumApi
+    /** The attribute key that carries the ID on most matching logs. */
+    key: string
+}
+
+export interface _LogsImpactResponseApi {
+    /** Number of log entries matching the filters. */
+    total: number
+    /** How many of the matching logs carry a session ID under the team's configured or conventional attribute keys. */
+    logsWithSessionId: number
+    /** Estimated number of unique session IDs across the matching logs (HyperLogLog, about 1-2% error). */
+    sessions: number
+    /** How many of the matching logs carry a person distinct ID under the team's configured or conventional attribute keys. */
+    logsWithDistinctId: number
+    /** Estimated number of unique distinct IDs across the matching logs (HyperLogLog, about 1-2% error). */
+    users: number
+    /** Top session IDs on the matching logs, ordered by log count descending (topK, at most 5). */
+    topSessions: _LogsImpactTopValueApi[]
+    /** Top person distinct IDs on the matching logs, ordered by log count descending (topK, at most 5). */
+    topUsers: _LogsImpactTopValueApi[]
+    /** The dimension that carries the session ID on most matching logs. Group by this dimension to drill into the sessions behind the counts. Null when no matching log carries a session ID. */
+    sessionGroupKey: _LogsImpactGroupKeyApi | null
+    /** The dimension that carries the person distinct ID on most matching logs. Group by this dimension to drill into the users behind the counts. Null when no matching log carries a distinct ID. */
+    personGroupKey: _LogsImpactGroupKeyApi | null
+}
+
+/**
+ * * `logs` - Logs
+ * * `spans` - Spans
+ */
+export type LogsMetricRuleRecordSourceEnumApi =
+    (typeof LogsMetricRuleRecordSourceEnumApi)[keyof typeof LogsMetricRuleRecordSourceEnumApi]
+
+export const LogsMetricRuleRecordSourceEnumApi = {
+    Logs: 'logs',
+    Spans: 'spans',
+} as const
+
 export interface LogsMetricRuleApi {
     /** Unique identifier for this metric rule. */
     readonly id: string
@@ -1475,16 +1896,21 @@ export interface LogsMetricRuleApi {
     /** PropertyGroupFilter JSON (AND/OR tree of property predicates) selecting which log records feed the metric, e.g. `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api","type":"log_attribute"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match. */
     filter_group?: unknown
     /**
-     * Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.
+     * Attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`, prefixed with `attributes.` / `resource_attributes.`. For `source=spans` rules, the span pseudo-key `duration_ms` (span wall-clock duration) is also allowed. Omit to count matching records instead. Immutable after creation — it determines the emitted metric type.
      * @maxLength 512
      * @nullable
      */
     value_attribute?: string | null
     /**
-     * Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+     * Up to 5 dimension keys; each distinct value combination becomes its own metric series. For `source=logs` rules allowed: service_name, severity_text, event_name; for `source=spans` rules allowed: service_name, name, status_code, kind; for either, map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion. For `source=spans` rules, note that `name` is high-cardinality on poorly instrumented services (route params or SQL fragments in the span name), so grouping by `name` can overflow the per-rule series cap on its own.
      * @items.maxLength 512
      */
     group_by?: string[]
+    /** Record source the rule tallies: `logs` (default) evaluates in the logs consumer, `spans` in the traces consumer. Immutable after creation — it decides which keys are valid and which pipeline runs the rule.
+     *
+     * * `logs` - Logs
+     * * `spans` - Spans */
+    source?: LogsMetricRuleRecordSourceEnumApi
     /** Incremented on each update for worker cache coherency. */
     readonly version: number
     readonly created_by: number
@@ -1520,16 +1946,21 @@ export interface PatchedLogsMetricRuleApi {
     /** PropertyGroupFilter JSON (AND/OR tree of property predicates) selecting which log records feed the metric, e.g. `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api","type":"log_attribute"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match. */
     filter_group?: unknown
     /**
-     * Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.
+     * Attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`, prefixed with `attributes.` / `resource_attributes.`. For `source=spans` rules, the span pseudo-key `duration_ms` (span wall-clock duration) is also allowed. Omit to count matching records instead. Immutable after creation — it determines the emitted metric type.
      * @maxLength 512
      * @nullable
      */
     value_attribute?: string | null
     /**
-     * Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+     * Up to 5 dimension keys; each distinct value combination becomes its own metric series. For `source=logs` rules allowed: service_name, severity_text, event_name; for `source=spans` rules allowed: service_name, name, status_code, kind; for either, map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion. For `source=spans` rules, note that `name` is high-cardinality on poorly instrumented services (route params or SQL fragments in the span name), so grouping by `name` can overflow the per-rule series cap on its own.
      * @items.maxLength 512
      */
     group_by?: string[]
+    /** Record source the rule tallies: `logs` (default) evaluates in the logs consumer, `spans` in the traces consumer. Immutable after creation — it decides which keys are valid and which pipeline runs the rule.
+     *
+     * * `logs` - Logs
+     * * `spans` - Spans */
+    source?: LogsMetricRuleRecordSourceEnumApi
     /** Incremented on each update for worker cache coherency. */
     readonly version?: number
     readonly created_by?: number
@@ -1549,6 +1980,10 @@ export interface _LogsPatternsBodyApi {
     searchTerm?: string
     /** Property filters applied before mining. Same shape as the query-logs endpoint. */
     filterGroup?: _LogPropertyFilterApi[]
+    /** Scope mining to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+    personId?: string
+    /** Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsPatternsRequestApi {
@@ -1556,8 +1991,34 @@ export interface _LogsPatternsRequestApi {
     query: _LogsPatternsBodyApi
 }
 
+/**
+ * * `stored_patterns` - stored_patterns
+ * * `body_mining` - body_mining
+ */
+export type LogsPatternsSourceEnumApi = (typeof LogsPatternsSourceEnumApi)[keyof typeof LogsPatternsSourceEnumApi]
+
+export const LogsPatternsSourceEnumApi = {
+    StoredPatterns: 'stored_patterns',
+    BodyMining: 'body_mining',
+} as const
+
+/**
+ * * `flag_disabled` - flag_disabled
+ * * `insufficient_version_coverage` - insufficient_version_coverage
+ * * `empty_window` - empty_window
+ * * `comparison` - comparison
+ */
+export type FallbackReasonEnumApi = (typeof FallbackReasonEnumApi)[keyof typeof FallbackReasonEnumApi]
+
+export const FallbackReasonEnumApi = {
+    FlagDisabled: 'flag_disabled',
+    InsufficientVersionCoverage: 'insufficient_version_coverage',
+    EmptyWindow: 'empty_window',
+    Comparison: 'comparison',
+} as const
+
 export interface _LogPatternExampleApi {
-    /** Log body as the miner saw it: whitespace-collapsed and truncated to the mining length cap, with the message field extracted from JSON bodies. This is not the raw stored line. */
+    /** Original-message example. Body mining normalizes whitespace, extracts JSON message fields and truncates to the mining cap. Stored-pattern aggregation returns the raw body prefix, limited to 4096 Unicode characters. */
     body: string
     /** Severity of the sampled line, e.g. "info", "error". */
     severity_text: string
@@ -1568,34 +2029,34 @@ export interface _LogPatternExampleApi {
 }
 
 /**
- * Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it.
+ * Occurrences keyed by lowercased severity ("trace" through "fatal"). Never extrapolated, because severity dominance is a proportion that scaling would not change. Sample counts when `sampled` is true, counts over every matching row otherwise.
  */
 export type _LogPatternApiSeverityCounts = { [key: string]: number }
 
 export interface _LogPatternApi {
-    /** Mined log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Tokens: <timestamp>, <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. */
+    /** Log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Body mining masks <timestamp>, <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. Stored patterns use the ingestion vocabulary instead: <N>, <TIMESTAMP>, <KLOGTIME>, <UUID>, <IP>, <HOST>, <HEX>, <ID>, <EMAIL>, <JSON_ARRAY>, and <JSON:keys> for a JSON body reduced to its key set. */
     pattern: string
     /** Occurrences of this pattern within the sample. When `sampled` is true this is a sample count, not the full-window total — prefer `estimated_count` for display. */
     count: number
     /** Estimated occurrences across the full window, extrapolated from the sample (`count / scanned_count * total_count`). Equals `count` when the window was not sampled. */
     estimated_count: number
-    /** Share of the sampled log volume this pattern represents (0–100). */
+    /** Share of the log volume this pattern represents (0–100). Measured over the sample when `sampled` is true, over every matching row otherwise. */
     volume_share_pct: number
-    /** Sampled occurrences at severity "error" or "fatal". Prefer `estimated_error_count` for display. */
+    /** Occurrences at severity "error" or "fatal". A sample count when `sampled` is true, so prefer `estimated_error_count` for display. */
     error_count: number
     /** Estimated error/fatal occurrences across the full window, extrapolated from the sample. Equals `error_count` when the window was not sampled. */
     estimated_error_count: number
-    /** ISO 8601 timestamp of the earliest sampled occurrence. */
+    /** ISO 8601 timestamp of the earliest occurrence. Taken from the sample when `sampled` is true, from every matching row otherwise. */
     first_seen: string
-    /** ISO 8601 timestamp of the latest sampled occurrence. */
+    /** ISO 8601 timestamp of the latest occurrence. Taken from the sample when `sampled` is true, from every matching row otherwise. */
     last_seen: string
     /** Up to 10 distinct sampled log lines that produced this pattern, with severity, service, and timestamp for display. */
     examples: _LogPatternExampleApi[]
     /** Up to 4 distinct service names this pattern was observed in. */
     services: string[]
-    /** Estimated occurrences per time bucket, aligned index-for-index with the response's `sparkline_buckets`. Extrapolated from the sample like `estimated_count`, so it shows the volume shape over the window, not exact per-bucket tallies. */
+    /** Occurrences per time bucket, aligned index-for-index with the response's `sparkline_buckets`. When `sampled` is true these are extrapolated like `estimated_count` and show the volume shape over the window rather than exact tallies. Otherwise they are exact per-bucket counts. */
     sparkline: number[]
-    /** Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it. */
+    /** Occurrences keyed by lowercased severity ("trace" through "fatal"). Never extrapolated, because severity dominance is a proportion that scaling would not change. Sample counts when `sampled` is true, counts over every matching row otherwise. */
     severity_counts: _LogPatternApiSeverityCounts
     /**
      * RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from the template and validated against the raw bodies of the pattern's own sampled rows before being offered. Null when the template lacks literal content or validation failed. Never trust an unvalidated predicate. Use with the message/regex log property filter.
@@ -1607,6 +2068,13 @@ export interface _LogPatternApi {
      * @nullable
      */
     match_literal: string | null
+    /** Exact canonical members of a stored-pattern group. Filter pattern IN these values AND pattern_version equals this group's version. Empty for body mining. */
+    match_patterns?: string[]
+    /**
+     * Version required by match_patterns. Null for body mining.
+     * @nullable
+     */
+    pattern_version?: number | null
 }
 
 export interface _LogsPatternsSparklineBucketApi {
@@ -1617,9 +2085,41 @@ export interface _LogsPatternsSparklineBucketApi {
 }
 
 export interface _LogsPatternsResponseApi {
-    /** Mined patterns ordered by `count` descending. */
+    /** Whether counts come from stored-pattern aggregation or body masking and Drain3 mining.
+     *
+     * * `stored_patterns` - stored_patterns
+     * * `body_mining` - body_mining */
+    source?: LogsPatternsSourceEnumApi
+    /**
+     * Stored pattern version used. Null for body mining.
+     * @nullable
+     */
+    pattern_version?: number | null
+    /** Why body mining was used. Null for stored-pattern aggregation.
+     *
+     * * `flag_disabled` - flag_disabled
+     * * `insufficient_version_coverage` - insufficient_version_coverage
+     * * `empty_window` - empty_window
+     * * `comparison` - comparison */
+    fallback_reason?: FallbackReasonEnumApi | null
+    /**
+     * Percentage of all matching rows with a nonempty pattern at the selected version. Null for body mining.
+     * @nullable
+     */
+    pattern_coverage_pct?: number | null
+    /**
+     * Exact rows represented by the returned stored-pattern groups. Null for body mining.
+     * @nullable
+     */
+    represented_count?: number | null
+    /**
+     * Matching rows outside returned groups, including other versions, unstamped rows and the long tail. Null for body mining.
+     * @nullable
+     */
+    remainder_count?: number | null
+    /** Pattern groups ordered by count. Stored-pattern counts are exact; body-mining counts describe the sample. */
     patterns: _LogPatternApi[]
-    /** Number of log rows fed to the miner (the sample size, capped at the sample limit). */
+    /** Rows scanned: the sample size for body mining, or the full matching count for stored-pattern aggregation. */
     scanned_count: number
     /** Total log rows matching the filters in the window, before sampling. Use with `scanned_count` to scale per-pattern counts when `sampled` is true. */
     total_count: number
@@ -1682,6 +2182,38 @@ export interface _LogPatternDiffEntryApi {
 }
 
 export interface _LogsPatternsDiffWindowApi {
+    /** Whether counts come from stored-pattern aggregation or body masking and Drain3 mining.
+     *
+     * * `stored_patterns` - stored_patterns
+     * * `body_mining` - body_mining */
+    source?: LogsPatternsSourceEnumApi
+    /**
+     * Stored pattern version used. Null for body mining.
+     * @nullable
+     */
+    pattern_version?: number | null
+    /** Why body mining was used. Null for stored-pattern aggregation.
+     *
+     * * `flag_disabled` - flag_disabled
+     * * `insufficient_version_coverage` - insufficient_version_coverage
+     * * `empty_window` - empty_window
+     * * `comparison` - comparison */
+    fallback_reason?: FallbackReasonEnumApi | null
+    /**
+     * Percentage of all matching rows with a nonempty pattern at the selected version. Null for body mining.
+     * @nullable
+     */
+    pattern_coverage_pct?: number | null
+    /**
+     * Exact rows represented by the returned stored-pattern groups. Null for body mining.
+     * @nullable
+     */
+    represented_count?: number | null
+    /**
+     * Matching rows outside returned groups, including other versions, unstamped rows and the long tail. Null for body mining.
+     * @nullable
+     */
+    remainder_count?: number | null
     /** Log rows fed to the miner for this window (sample size). */
     scanned_count: number
     /** Total log rows matching the filters in this window. */
@@ -1742,6 +2274,8 @@ export interface _LogsQueryBodyApi {
     customColumns?: string[]
     /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
     personId?: string
+    /** Scope results to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsQueryRequestApi {
@@ -1895,9 +2429,10 @@ export interface LogsRetentionRuleNameSuggestionApi {
  * * `path_drop` - Path exclusion
  * * `rate_limit` - Rate limit
  */
-export type RuleTypeEnumApi = (typeof RuleTypeEnumApi)[keyof typeof RuleTypeEnumApi]
+export type LogsExclusionRuleRuleTypeEnumApi =
+    (typeof LogsExclusionRuleRuleTypeEnumApi)[keyof typeof LogsExclusionRuleRuleTypeEnumApi]
 
-export const RuleTypeEnumApi = {
+export const LogsExclusionRuleRuleTypeEnumApi = {
     SeveritySampling: 'severity_sampling',
     PathDrop: 'path_drop',
     RateLimit: 'rate_limit',
@@ -1926,7 +2461,7 @@ export interface LogsSamplingRuleApi {
      * * `severity_sampling` - Severity-based reduction
      * * `path_drop` - Path exclusion
      * * `rate_limit` - Rate limit */
-    rule_type: RuleTypeEnumApi
+    rule_type: LogsExclusionRuleRuleTypeEnumApi
     /**
      * Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.
      * @maxLength 512
@@ -1983,7 +2518,7 @@ export interface PatchedLogsSamplingRuleApi {
      * * `severity_sampling` - Severity-based reduction
      * * `path_drop` - Path exclusion
      * * `rate_limit` - Rate limit */
-    rule_type?: RuleTypeEnumApi
+    rule_type?: LogsExclusionRuleRuleTypeEnumApi
     /**
      * Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.
      * @maxLength 512
@@ -2088,11 +2623,11 @@ export interface _LogsServicesSummaryApi {
 }
 
 export interface _LogsServicesResponseApi {
-    /** Per-service aggregates, ordered by log_count descending. Capped at 1000 services. */
+    /** Per-service aggregates, ordered by log_count descending. Capped at 10000 services. */
     services: _LogsServiceAggregateApi[]
     /** Time-bucketed counts broken down by service, for plotting volume over time. Covers only the top 25 services in this response; re-request with `serviceNames` to get sparklines for specific services. */
     sparkline: _LogsServicesSparklineBucketApi[]
-    /** True distinct service count for the window and filters, unaffected by the 1000-service cap on `services`. Greater than the length of `services` when the response is truncated. */
+    /** True distinct service count for the window and filters, unaffected by the 10000-service cap on `services`. Greater than the length of `services` when the response is truncated. */
     total_services: number
     /** Roll-up stats for the Services tab header. */
     summary?: _LogsServicesSummaryApi
@@ -2143,6 +2678,8 @@ export interface _LogsSparklineBodyApi {
     sparklineRankBy?: SparklineRankByEnumApi
     /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
     personId?: string
+    /** Scope results to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsSparklineRequestApi {
@@ -2189,6 +2726,9 @@ export interface _LogsValuesResponseApi {
  * * `source` - source
  * * `trace_id` - trace_id
  * * `span_id` - span_id
+ * * `person` - person
+ * * `session` - session
+ * * `pattern` - pattern
  * * `message` - message
  * * `custom` - custom
  */
@@ -2200,6 +2740,9 @@ export const LogsViewColumnTypeEnumApi = {
     Source: 'source',
     TraceId: 'trace_id',
     SpanId: 'span_id',
+    Person: 'person',
+    Session: 'session',
+    Pattern: 'pattern',
     Message: 'message',
     Custom: 'custom',
 } as const
@@ -2207,13 +2750,16 @@ export const LogsViewColumnTypeEnumApi = {
 export interface LogsViewColumnApi {
     /** Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server. */
     id: string
-    /** Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.
+    /** Column type. Most built-in types resolve client-side from log row fields; `pattern` and `custom` columns are computed server-side, the latter from `expression`.
      *
      * * `timestamp` - timestamp
      * * `level` - level
      * * `source` - source
      * * `trace_id` - trace_id
      * * `span_id` - span_id
+     * * `person` - person
+     * * `session` - session
+     * * `pattern` - pattern
      * * `message` - message
      * * `custom` - custom */
     type: LogsViewColumnTypeEnumApi

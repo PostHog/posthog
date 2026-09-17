@@ -152,8 +152,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "Artifact",
         "BatchExportLogEntry",
         "BatchExportRun",
-        "CodeInvite",
-        "CodeInviteRedemption",
         # Comment↔Slack-thread mirror mapping — looked up by source_comment FK or
         # (scope, item_id) within team scope, and by internally-generated task-arg id;
         # never by user-supplied CommentSlackThread id through an API. Fail-closed via
@@ -180,6 +178,10 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # Instance-global classifier definition, so there is no team_id to scope on. Seeded by
         # migration and read by the batch runner; no API endpoint, never looked up by user-supplied ID.
         "EnrichmentPromptConfig",
+        # Instance-global versioned ICP curated-list rows (created_by is authorship provenance,
+        # not access scoping). Written by a management command, read by the enrichment scorer;
+        # admin-only surface, never looked up by user-supplied ID.
+        "IcpScoringConfig",
         # Shadow classifier output, org-scoped rather than team-scoped. Written only by the batch
         # runner and read-only in admin; no API endpoint, never looked up by user-supplied ID.
         # It carries an Organization FK, so the org_scoped rule would otherwise cover it: remove this
@@ -196,13 +198,21 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "TeamConversationsTeamsChannelSync",
         "TeamCustomerAnalyticsConfig",
         "TeamDefaultEvaluationContext",
+        "TeamBusinessKnowledgeConfig",
         "TeamDataQualityConfig",
         "TeamDataWarehouseConfig",
         "TeamExperimentsConfig",
         "TeamFeatureFlagsConfig",
+        # OneToOne extension of Team keyed on team_id, only ever read as get(team=team) via
+        # get_or_create_team_extension; no endpoint looks it up by a user-supplied ID.
+        "TeamFeatureFlagPolicyConfig",
+        # OneToOne extension keyed on the authorized Team; no independently addressable config ID.
+        "TeamHeatmapConfig",
+        "TeamTasksConfig",
         "TeamLogsConfig",
         "TeamMarketingAnalyticsConfig",
         "TeamRevenueAnalyticsConfig",
+        "TeamTracingConfig",
         "TeamJsSnippetConfig",
         "TeamProvisioningConfig",
         # --- User preferences with no IDOR risk (read own data only) ---
@@ -218,9 +228,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "ExplicitTeamMembership",
         # --- Other internal (no user-facing lookup by ID) ---
         "AlertCheck",
-        # Global CIMD URL blocklist - queried by `cimd_url` (unique), never by user-supplied ID.
-        # `created_by` is for audit only.
-        "CIMDBlocklistEntry",
         "CohortCalculationHistory",
         "ColumnConfiguration",
         "DataDeletionRequest",
@@ -255,6 +262,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
     LEGITIMATELY_UNSCOPED: set[str] = {
         # --- Django/third-party internals ---
         "AccessAttempt",
+        "AccessAttemptExpiration",
         "AccessFailureLog",
         "AccessLog",
         "Association",
@@ -293,6 +301,10 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "CommunitySkillFile",  # bundled files of a CommunitySkill (scoped via the catalog row)
         "HogFunctionTemplate",
         "MCPServer",
+        "MCPRegistryServer",  # instance-global MCP registry index, crawled from the official registry
+        "MCPRegistryTool",  # tools of an MCPRegistryServer (scoped via the catalog row)
+        "MCPRankingRun",  # one scoring pass over the global registry index
+        "MCPRankingScore",  # per-server score of an MCPRankingRun (scoped via the run/catalog rows)
         # --- Special (has source_team + destination_team, not a plain team) ---
         "ResourceTransfer",
         # --- Organization-scoped (correctly above team level) ---
@@ -349,6 +361,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "LLMSkillFile",  # via LLMSkill
         "LogsAlertCheck",  # via LogsAlertConfiguration
         "LogsAlertEvent",  # via LogsAlertConfiguration
+        "VisionAlertEvent",  # via VisionAlertConfiguration
         "NotificationReadState",  # via NotificationEvent
         "NotificationArchiveState",  # via NotificationEvent
         "PluginStorage",  # via PluginConfig
@@ -361,14 +374,11 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "SourceBatchStatus",  # via SourceBatch
         "StreamlitAppSandbox",  # via StreamlitApp
         "TaggedItem",  # via Tag/Dashboard/Insight
-        "TaskAutomation",  # via Task
         "TicketAssignment",  # via Ticket
         "UserGroupMembership",  # via UserGroup
         # --- Other models missing direct team_id ---
         "BatchExportDestination",  # via Integration
         "BatchExportRun",  # via BatchExport
-        "CodeInvite",  # user-scoped but stores team data
-        "CodeInviteRedemption",  # via CodeInvite
         "SandboxSnapshot",  # via Integration
         "SlackUserProfileCache",  # via Integration
         "SlackSettings",  # via Integration
@@ -379,9 +389,9 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
     user_scoped: set[str] = set()
     no_scope: set[str] = set()
 
-    # Billing alerts are organization-scoped through BillingAlertConfiguration. Team is only an
-    # execution context; claim and event records inherit scope through their canonical parent.
     organization_scoped_overrides = {
+        "AITrainingConsent",  # Plain organization_id survives organization deletion.
+        # Billing alerts inherit scope through BillingAlertConfiguration; team is an execution context.
         "BillingAlertConfiguration",
         "BillingAlertEvaluationClaim",
         "BillingAlertEvent",

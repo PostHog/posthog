@@ -15,6 +15,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
+import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
+
 import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'
 import { webScriptsSceneLogic } from './webScriptsSceneLogic'
 
@@ -22,6 +24,7 @@ export const scene: SceneExport = {
     component: WebScriptsScene,
     logic: webScriptsSceneLogic,
     productKey: ProductKey.SITE_APPS,
+    emptyState: webScriptsEmptyState,
 }
 
 export function WebScriptsScene(): JSX.Element {
@@ -53,7 +56,7 @@ export function WebScriptsScene(): JSX.Element {
         {
             key: 'all',
             label: 'All web scripts',
-            content: <DataPipelinesHogFunctions kind="site_app" action={action} />,
+            content: <DataPipelinesHogFunctions kind="site_app" />,
         },
         {
             key: 'history',

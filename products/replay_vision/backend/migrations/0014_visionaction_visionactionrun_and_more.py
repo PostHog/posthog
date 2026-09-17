@@ -7,14 +7,11 @@ from django.db import migrations, models
 
 import posthog.models.utils
 
-import products.replay_vision.backend.models.vision_action
-
 
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1224_columnconfiguration_properties"),
         ("replay_vision", "0013_replayscanner_estimated_at_and_more"),
-        ("workflows", "0008_teamworkflowsconfig"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
@@ -73,7 +70,7 @@ class Migration(migrations.Migration):
                 (
                     "selection",
                     models.JSONField(
-                        default=products.replay_vision.backend.models.vision_action.default_selection,
+                        default=dict,
                         help_text="Observation filter applied at synthesis time (scanner_ids, verdict, tags, scores, status, window_days).",
                     ),
                 ),

@@ -15,6 +15,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
+import { DestinationsIncidentReplayBanner } from 'products/cdp/frontend/DestinationsIncidentReplayBanner'
+import { destinationsEmptyState } from 'products/cdp/frontend/emptyState/destinationsEmptyState'
+
 import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'
 import { destinationsSceneLogic } from './destinationsSceneLogic'
 
@@ -22,6 +25,7 @@ export const scene: SceneExport = {
     component: DestinationsScene,
     logic: destinationsSceneLogic,
     productKey: ProductKey.PIPELINE_DESTINATIONS,
+    emptyState: destinationsEmptyState,
 }
 
 export function DestinationsScene(): JSX.Element {
@@ -57,7 +61,6 @@ export function DestinationsScene(): JSX.Element {
                 <DataPipelinesHogFunctions
                     kind="destination"
                     additionalKinds={['site_destination', 'internal_destination']}
-                    action={action}
                 />
             ),
         },
@@ -78,6 +81,7 @@ export function DestinationsScene(): JSX.Element {
                 }}
                 actions={action}
             />
+            <DestinationsIncidentReplayBanner />
             <LemonTabs
                 activeKey={activeTab}
                 onChange={(key) => setActiveTab(key as 'all' | 'history')}

@@ -1,13 +1,13 @@
 import { isPostHogCodeDeeplink } from "@posthog/shared";
 import { ArtifactRefChip } from "@posthog/ui/features/editor/components/ArtifactRefChip";
 import { EvidenceRefChip } from "@posthog/ui/features/editor/components/EvidenceRefChip";
-import { GithubRefChip } from "@posthog/ui/features/editor/components/GithubRefChip";
+import { githubRefChipFor } from "@posthog/ui/features/editor/components/githubRefChipFor";
 import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
-import { parseGithubIssueUrl } from "@posthog/ui/features/message-editor/githubIssueUrl";
 import { CodeBlock } from "@posthog/ui/primitives/CodeBlock";
 import { Divider } from "@posthog/ui/primitives/Divider";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { List, ListItem } from "@posthog/ui/primitives/List";
+import { MermaidDiagram } from "@posthog/ui/primitives/MermaidDiagram";
 import { parseArtifactLink } from "@posthog/ui/utils/artifactLinks";
 import {
   chartBlockKey,
@@ -15,6 +15,10 @@ import {
   parseChartBlock,
 } from "@posthog/ui/utils/chartBlocks";
 import { parseEvidenceLink } from "@posthog/ui/utils/evidenceLinks";
+import {
+  isMermaidCodeBlock,
+  MERMAID_LANGUAGE,
+} from "@posthog/ui/utils/mermaidBlocks";
 import { remarkObjectTags } from "@posthog/ui/utils/remarkObjectTags";
 import { handleShareLinkClick } from "@posthog/ui/utils/shareLinks";
 import { Blockquote, Checkbox, Code, Kbd, Text } from "@radix-ui/themes";
@@ -140,14 +144,16 @@ export const baseComponents: Components = {
     if (!match) {
       return <Code variant="ghost">{children}</Code>;
     }
-    return (
-      <HighlightedCode
-        code={String(children).replace(/\n$/, "")}
-        language={match[1]}
-      />
-    );
+    const source = String(children).replace(/\n$/, "");
+    if (match[1] === MERMAID_LANGUAGE) {
+      return <MermaidDiagram code={source} />;
+    }
+    return <HighlightedCode code={source} language={match[1]} />;
   },
-  pre: ({ children }) => {
+  pre: ({ children, node }) => {
+    if (isMermaidCodeBlock(node?.children[0])) {
+      return children;
+    }
     return <CodeBlock size="1">{children}</CodeBlock>;
   },
   em: ({ children }) => <em>{children}</em>,
@@ -177,18 +183,8 @@ export const baseComponents: Components = {
         </ArtifactRefChip>
       );
     }
-    const githubRef = href ? parseGithubIssueUrl(href) : null;
-    if (githubRef) {
-      const isAutoLink = typeof children === "string" && children === href;
-      const label = isAutoLink
-        ? `${githubRef.owner}/${githubRef.repo}#${githubRef.number}`
-        : children;
-      return (
-        <GithubRefChip href={githubRef.normalizedUrl} kind={githubRef.kind}>
-          {label}
-        </GithubRefChip>
-      );
-    }
+    const githubChip = githubRefChipFor(href, children);
+    if (githubChip) return githubChip;
     return <ExternalMarkdownLink href={href}>{children}</ExternalMarkdownLink>;
   },
   kbd: ({ children }) => <Kbd>{children}</Kbd>,

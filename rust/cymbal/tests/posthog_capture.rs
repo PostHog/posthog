@@ -84,8 +84,12 @@ async fn pipeline_failure_is_captured_as_posthog_exception(db: PgPool) {
         reqwest::StatusCode::INTERNAL_SERVER_ERROR
     );
 
-    // The capture is fire-and-forget; wait for it to reach the mock server.
+    // The capture is fire-and-forget, and the SDK only buffers it: one event
+    // never reaches `flush_at`, so delivery would otherwise wait on the 5s
+    // `flush_interval_ms`. Flush every turn so this waits on the spawned send
+    // rather than racing that interval.
     for _ in 0..100 {
+        posthog_rs::flush().await;
         if capture.hits_async().await > 0 {
             break;
         }

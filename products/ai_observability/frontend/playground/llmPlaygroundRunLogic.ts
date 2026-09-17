@@ -74,6 +74,17 @@ export function appendToolCallChunk(state: AggregatedToolCall[], toolCall: ToolC
     return updated
 }
 
+/** Neutralize markdown syntax in a value we did not author.
+ *
+ * A result card renders its text with `LemonMarkdown`, images included, so a model id taken from
+ * an ingested `$ai_model` property would otherwise turn `![x](https://…)` into a live request off
+ * an analyst's browser. CommonMark treats a backslash before any ASCII punctuation as a literal,
+ * so escaping the whole punctuation range covers link, image, and emphasis syntax at once.
+ */
+export function escapeMarkdownInline(value: string): string {
+    return value.replace(/[!-/:-@[-`{-~]/g, '\\$&')
+}
+
 export function describeError(err: unknown, fallbackMessage: string): { message: string; status?: number } {
     if (err instanceof ApiError) {
         const dataError = typeof err.data?.error === 'string' ? err.data.error : null
@@ -378,8 +389,14 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             (m) => m.id === prompt.model
                         )
                         if (!selectedModel?.provider) {
-                            lemonToast.error('Selected model not found in available models')
-                            responseText = '**Error:** Selected model not available.'
+                            // Reachable without the model ever being picked here: opening a trace in
+                            // the playground, or loading a saved prompt, can carry a model the current
+                            // key set no longer offers. Name it so the user knows what to change.
+                            const describeMissingModel = (model: string): string =>
+                                `Model '${model}' is not one of your available models. Pick a different model and try again.`
+                            // The toast renders as text, the result card renders as markdown.
+                            lemonToast.error(describeMissingModel(prompt.model))
+                            responseText = `**Error:** ${describeMissingModel(escapeMarkdownInline(prompt.model))}`
                             responseHasError = true
                             upsertLiveItem()
                             return

@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "intent": {
+            "description": "What the agent is trying to do, in natural language.",
+            "type": "string"
+        },
+        "limit": {
+            "description": "Candidates to return (default 5, max 20).",
+            "type": "number"
+        },
+        "version": {
+            "description": "Ranking version to rank candidates by.",
+            "type": "string"
+        }
+    },
+    "required": ["intent"],
+    "type": "object"
+}

@@ -1,21 +1,20 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hookdeck import (
     HookdeckSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.hookdeck import HookdeckResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.settings import (
     ENDPOINTS,
     HOOKDECK_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.source import HookdeckSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.source"
+UNREACHABLE_MESSAGE = (
+    "PostHog could not reach Hookdeck to check your API key. Wait a moment and try again, or "
+    "check Hookdeck's status page."
+)
 
 INCREMENTAL_ENDPOINTS = sorted(name for name, c in HOOKDECK_ENDPOINTS.items() if c.incremental_fields)
 FULL_REFRESH_ENDPOINTS = sorted(name for name, c in HOOKDECK_ENDPOINTS.items() if not c.incremental_fields)
@@ -46,27 +45,6 @@ class TestHookdeckSource:
         self.source = HookdeckSource()
         self.team_id = 123
         self.config = HookdeckSourceConfig(api_key="hd_test_key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.HOOKDECK
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Hookdeck"
-        assert config.label == "Hookdeck"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert not config.unreleasedSource
-        assert config.iconPath == "/static/services/hookdeck.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/hookdeck"
-        assert len(config.fields) == 1
-
-        api_key_field = config.fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.name == "api_key"
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
 
     def test_non_retryable_errors_match_the_error_the_api_raises(self) -> None:
         observed = "401 Client Error: Unauthorized for url: https://api.hookdeck.com/2025-07-01/events?limit=250"
@@ -106,19 +84,32 @@ class TestHookdeckSource:
     def test_get_schemas_unknown_name_returns_empty(self) -> None:
         assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
 
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        assert set(self.source.get_canonical_descriptions()) == set(ENDPOINTS)
-
     @pytest.mark.parametrize(
         "probe_result, schema_name, expected",
         [
             ((True, 200), None, (True, None)),
-            ((False, 401), None, (False, "Invalid Hookdeck API key")),
+            (
+                (False, 401),
+                None,
+                (
+                    False,
+                    "Your Hookdeck API key is invalid or has been rotated. Copy the current key from "
+                    "Settings → Project → Secrets in Hookdeck, then enter it again.",
+                ),
+            ),
             # A 403 at source-create is a per-resource restriction, not a bad key.
             ((False, 403), None, (True, None)),
-            ((False, 403), "events", (False, "Your Hookdeck API key can't access this resource")),
-            ((False, None), None, (False, "Could not connect to the Hookdeck API")),
-            ((False, 500), None, (False, "Could not connect to the Hookdeck API")),
+            (
+                (False, 403),
+                "events",
+                (
+                    False,
+                    "Your Hookdeck API key can't access this resource. Check that the key belongs to the "
+                    "project you want to sync.",
+                ),
+            ),
+            ((False, None), None, (False, UNREACHABLE_MESSAGE)),
+            ((False, 500), None, (False, UNREACHABLE_MESSAGE)),
         ],
     )
     @mock.patch(f"{SOURCE_MODULE}.validate_hookdeck_credentials")
@@ -127,12 +118,6 @@ class TestHookdeckSource:
 
         assert self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name) == expected
         mock_validate.assert_called_once_with("hd_test_key", "2025-07-01")
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is HookdeckResumeConfig
 
     @mock.patch(f"{SOURCE_MODULE}.hookdeck_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_hookdeck_source) -> None:

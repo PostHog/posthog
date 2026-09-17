@@ -41,6 +41,22 @@ describe("createPiConversationTranslator", () => {
     });
   });
 
+  it("marks aborted history turns as cancelled", () => {
+    const translator = createPiConversationTranslator();
+
+    translator.translateHistoryMessage({
+      role: "user",
+      content: "Stop this task",
+      timestamp: 5,
+    });
+
+    expect(
+      translator.translateHistoryMessage(assistant([], "aborted", 10)),
+    ).toEqual([
+      { type: "turn_completed", timestamp: 10, stopReason: "cancelled" },
+    ]);
+  });
+
   it("uses message_update deltas without repeating cumulative text at message_end", () => {
     const translator = createPiConversationTranslator();
     const message = assistant([{ type: "text", text: "complete" }]);
@@ -64,6 +80,210 @@ describe("createPiConversationTranslator", () => {
       },
     ]);
     expect(ended).toEqual([]);
+  });
+
+  it("bills every model call in a turn and reads context from the last valid one", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(20);
+    const translator = createPiConversationTranslator(() => 200_000);
+    const first = assistant([{ type: "text", text: "first" }]);
+    Object.assign(first.usage, {
+      input: 1_000,
+      output: 100,
+      cacheRead: 60,
+      cacheWrite: 20,
+      totalTokens: 1_200,
+    });
+    const second = assistant([{ type: "text", text: "second" }]);
+    Object.assign(second.usage, {
+      input: 800,
+      output: 40,
+      cacheRead: 50,
+      cacheWrite: 10,
+      reasoning: 25,
+      totalTokens: 900,
+    });
+
+    translator.translateEvent({ type: "message_end", message: first });
+    translator.translateEvent({ type: "message_end", message: second });
+    translator.translateEvent({
+      type: "agent_end",
+      messages: [first, second],
+      willRetry: false,
+    });
+
+    expect(translator.translateEvent({ type: "agent_settled" })).toEqual([
+      {
+        type: "turn_completed",
+        timestamp: 20,
+        stopReason: "stop",
+        totalTokens: 2_100,
+        usage: {
+          inputTokens: 1_800,
+          outputTokens: 140,
+          cachedReadTokens: 110,
+          cachedWriteTokens: 30,
+          thoughtTokens: 25,
+          totalTokens: 2_100,
+          contextTokens: 900,
+          contextWindow: 200_000,
+        },
+      },
+    ]);
+    vi.useRealTimers();
+  });
+
+  it.each([
+    ["error" as const, "error", 1_000],
+    ["aborted" as const, "cancelled", 1_000],
+  ])(
+    "bills a %s final response but keeps it out of the context reading",
+    (stopReason, expectedStopReason, expectedContextTokens) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(20);
+      const translator = createPiConversationTranslator();
+      const answered = assistant([{ type: "text", text: "answer" }]);
+      answered.usage.input = 1_000;
+      answered.usage.totalTokens = 1_000;
+      const failed = assistant([{ type: "text", text: "boom" }], stopReason);
+      failed.usage.input = 30;
+      failed.usage.totalTokens = 30;
+
+      translator.translateEvent({ type: "message_end", message: answered });
+      translator.translateEvent({ type: "message_end", message: failed });
+      translator.translateEvent({
+        type: "agent_end",
+        messages: [answered, failed],
+        willRetry: false,
+      });
+
+      expect(translator.translateEvent({ type: "agent_settled" })).toEqual([
+        {
+          type: "turn_completed",
+          timestamp: 20,
+          stopReason: expectedStopReason,
+          totalTokens: 1_030,
+          usage: {
+            inputTokens: 1_030,
+            outputTokens: 0,
+            cachedReadTokens: 0,
+            cachedWriteTokens: 0,
+            thoughtTokens: undefined,
+            totalTokens: 1_030,
+            contextTokens: expectedContextTokens,
+            contextWindow: undefined,
+          },
+        },
+      ]);
+      vi.useRealTimers();
+    },
+  );
+
+  it("bills the compaction summarization call and marks the context unknown", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(20);
+    const translator = createPiConversationTranslator();
+    const answered = assistant([{ type: "text", text: "answer" }]);
+    answered.usage.input = 1_000;
+    answered.usage.totalTokens = 1_000;
+
+    translator.translateEvent({ type: "message_end", message: answered });
+    translator.translateEvent({
+      type: "agent_end",
+      messages: [answered],
+      willRetry: false,
+    });
+    translator.translateEvent({
+      type: "compaction_end",
+      reason: "threshold",
+      aborted: false,
+      willRetry: false,
+      result: {
+        summary: "summary",
+        firstKeptEntryId: "entry-1",
+        tokensBefore: 180_000,
+        usage: {
+          input: 5_000,
+          output: 200,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 5_200,
+          cost: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 0,
+          },
+        },
+      },
+    });
+
+    expect(translator.translateEvent({ type: "agent_settled" })).toEqual([
+      {
+        type: "turn_completed",
+        timestamp: 20,
+        stopReason: "stop",
+        totalTokens: 6_200,
+        usage: {
+          inputTokens: 6_000,
+          outputTokens: 200,
+          cachedReadTokens: 0,
+          cachedWriteTokens: 0,
+          totalTokens: 6_200,
+          contextTokens: null,
+        },
+      },
+    ]);
+    vi.useRealTimers();
+  });
+
+  it("does not carry usage from a terminally failed turn into the next turn", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(20);
+    const translator = createPiConversationTranslator();
+    const failedTurnMessage = assistant([{ type: "text", text: "failed" }]);
+    failedTurnMessage.usage.totalTokens = 500;
+    const nextTurnMessage = assistant([{ type: "text", text: "next" }]);
+    nextTurnMessage.usage.totalTokens = 900;
+
+    translator.translateEvent({
+      type: "message_end",
+      message: failedTurnMessage,
+    });
+    translator.translateEvent({
+      type: "agent_end",
+      messages: [failedTurnMessage],
+      willRetry: false,
+    });
+    translator.translateEvent({ type: "agent_settled" });
+    translator.translateEvent({
+      type: "message_end",
+      message: nextTurnMessage,
+    });
+    translator.translateEvent({
+      type: "agent_end",
+      messages: [nextTurnMessage],
+      willRetry: false,
+    });
+
+    expect(translator.translateEvent({ type: "agent_settled" })).toEqual([
+      {
+        type: "turn_completed",
+        timestamp: 20,
+        stopReason: "stop",
+        totalTokens: 900,
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cachedReadTokens: 0,
+          cachedWriteTokens: 0,
+          totalTokens: 900,
+          contextTokens: 900,
+        },
+      },
+    ]);
+    vi.useRealTimers();
   });
 
   it("appends content missing from the streamed deltas at message_end", () => {
@@ -142,9 +362,12 @@ describe("createPiConversationTranslator", () => {
     ).toEqual([]);
   });
 
-  it.each(["stop", "aborted"] as const)(
-    "completes a %s turn using the settlement time and final stop reason",
-    (stopReason) => {
+  it.each([
+    ["stop", "stop"],
+    ["aborted", "cancelled"],
+  ] as const)(
+    "completes a %s turn using the settlement time and normalized stop reason",
+    (stopReason, expectedStopReason) => {
       vi.useFakeTimers();
       vi.setSystemTime(30);
       const translator = createPiConversationTranslator();
@@ -166,7 +389,11 @@ describe("createPiConversationTranslator", () => {
       translator.translateEvent({ type: "message_end", message: laterMessage });
 
       expect(translator.translateEvent({ type: "agent_settled" })).toEqual([
-        { type: "turn_completed", timestamp: 30, stopReason },
+        {
+          type: "turn_completed",
+          timestamp: 30,
+          stopReason: expectedStopReason,
+        },
       ]);
       vi.useRealTimers();
     },
@@ -569,7 +796,7 @@ describe("createPiConversationTranslator", () => {
         args: { command: "printf hello" },
         partialResult: {
           content: [{ type: "text", text: "hel" }],
-          details: undefined,
+          details: { phase: "running" },
         },
       }),
     ).toEqual([
@@ -580,6 +807,7 @@ describe("createPiConversationTranslator", () => {
           id: "tool-1",
           status: "in_progress",
           rawOutput: [{ type: "text", text: "hel" }],
+          details: { phase: "running" },
           content: [
             {
               type: "content",
@@ -649,6 +877,7 @@ describe("createPiConversationTranslator", () => {
           timestamp: 10,
           toolCall: {
             id: "tool-1",
+            name: "bash",
             title: "bash",
             kind: "execute",
             status: "pending",

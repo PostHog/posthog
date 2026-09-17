@@ -30,9 +30,9 @@ export enum Scene {
     Cohort = 'Cohort',
     CohortCalculationHistory = 'CohortCalculationHistory',
     Cohorts = 'Cohorts',
-    Comments = 'Comments',
     CustomCss = 'CustomCss',
     CustomerAnalytics = 'CustomerAnalytics',
+    CustomerAnalyticsAccount = 'CustomerAnalyticsAccount',
     CustomerAnalyticsConfiguration = 'CustomerAnalyticsConfiguration',
     CustomerJourneyBuilder = 'CustomerJourneyBuilder',
     Dashboard = 'Dashboard',
@@ -54,6 +54,7 @@ export enum Scene {
     Error404 = '404',
     ErrorAccessDenied = 'AccessDenied',
     ErrorNetwork = '4xx',
+    ErrorProjectAccessDenied = 'ProjectAccessDenied',
     ErrorProjectUnavailable = 'ProjectUnavailable',
     ErrorTracking = 'ErrorTracking',
     ErrorTrackingFingerprint = 'ErrorTrackingFingerprint',
@@ -69,6 +70,7 @@ export enum Scene {
     Subscription = 'Subscription',
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
+    ExperimentsStaffTools = 'ExperimentsStaffTools',
     ExploreEvents = 'ExploreEvents',
     ExploreSessions = 'ExploreSessions',
     FeatureFlag = 'FeatureFlag',
@@ -89,8 +91,10 @@ export enum Scene {
     IntegrationsLanding = 'IntegrationsLanding',
     StripeConfirmInstall = 'StripeConfirmInstall',
     IngestionWarnings = 'IngestionWarnings',
+    IdentityProviderConfig = 'IdentityProviderConfig',
     InviteSignup = 'InviteSignup',
     BusinessKnowledge = 'BusinessKnowledge',
+    BusinessKnowledgeSettings = 'BusinessKnowledgeSettings',
     LegacyPlugin = 'LegacyPlugin',
     LegalDocuments = 'LegalDocuments',
     LegalDocumentNew = 'LegalDocumentNew',
@@ -137,7 +141,6 @@ export enum Scene {
     PropertyDefinition = 'PropertyDefinition',
     PropertyDefinitions = 'PropertyDefinitions',
     PropertyDefinitionEdit = 'PropertyDefinitionEdit',
-    QueryPerformance = 'QueryPerformance',
     Replay = 'Replay',
     ReplayFilePlayback = 'ReplayFilePlayback',
     ReplayPlaylist = 'ReplayPlaylist',
@@ -148,10 +151,8 @@ export enum Scene {
     ReplayVisionScanner = 'ReplayVisionScanner',
     ReplayVisionScannerEditor = 'ReplayVisionScannerEditor',
     ReplayVisionObservation = 'ReplayVisionObservation',
-    ReplayVisionAction = 'ReplayVisionAction',
-    ReplayVisionActionEditor = 'ReplayVisionActionEditor',
-    ReplayVisionActionRun = 'ReplayVisionActionRun',
     ResourceTransfer = 'ResourceTransfer',
+    RealTimeUsage = 'RealTimeUsage',
     SqlVariableEdit = 'SqlVariableEdit',
     SQLEditor = 'SQLEditor',
     SavedInsights = 'SavedInsights',
@@ -170,6 +171,9 @@ export enum Scene {
     Coupons = 'Coupons',
     Sources = 'Sources',
     StartupProgram = 'StartupProgram',
+    Stamphog = 'Stamphog',
+    StamphogRuns = 'StamphogRuns',
+    StamphogDigests = 'StamphogDigests',
     Survey = 'Survey',
     SurveyWizard = 'SurveyWizard',
     SurveyFormBuilder = 'SurveyFormBuilder',
@@ -185,6 +189,7 @@ export enum Scene {
     CodeCanvasLink = 'CodeCanvasLink',
     CodeChannelLink = 'CodeChannelLink',
     CodeTaskLink = 'CodeTaskLink',
+    CodeLoopLink = 'CodeLoopLink',
     UserInterview = 'UserInterview',
     UserInterviewResponse = 'UserInterviewResponse',
     UserInterviews = 'UserInterviews',
@@ -203,7 +208,6 @@ export enum Scene {
     Endpoint = 'Endpoint',
     Workflow = 'Workflow',
     Workflows = 'Workflows',
-    Wizard = 'Wizard',
     EarlyAccessFeature = 'EarlyAccessFeature',
     EndpointsScene = 'EndpointsScene',
     Game368Hedgehogs = 'Game368Hedgehogs',
@@ -214,6 +218,7 @@ export enum Scene {
     AIObservabilityDatasets = 'AIObservabilityDatasets',
     AIObservabilityEvaluation = 'AIObservabilityEvaluation',
     AIObservabilityEvaluations = 'AIObservabilityEvaluations',
+    AIObservabilityEvaluationTemplates = 'AIObservabilityEvaluationTemplates',
     AIObservabilityPlayground = 'AIObservabilityPlayground',
     AIObservabilityTag = 'AIObservabilityTag',
     AIObservabilityTags = 'AIObservabilityTags',
@@ -302,6 +307,8 @@ export interface SceneConfig {
     name?: string
     /** Optional static description of the scene or product. Used both in the UI and by Max AI as context on what the scene is for */
     description?: string
+    /** Link to this product's page on posthog.com/docs. Shown next to the product in sidebar settings */
+    docsHref?: string
     /** Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too) */
     onlyUnauthenticated?: boolean
     /** Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too) */
@@ -374,9 +381,6 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.ReplayVisionScanner]: AccessControlResourceType.ReplayScanner,
     [Scene.ReplayVisionScannerEditor]: AccessControlResourceType.ReplayScanner,
     [Scene.ReplayVisionObservation]: AccessControlResourceType.ReplayScanner,
-    [Scene.ReplayVisionAction]: AccessControlResourceType.ReplayScanner,
-    [Scene.ReplayVisionActionEditor]: AccessControlResourceType.ReplayScanner,
-    [Scene.ReplayVisionActionRun]: AccessControlResourceType.ReplayScanner,
 
     // Toolbar
     [Scene.ToolbarLaunch]: AccessControlResourceType.Toolbar,
@@ -399,6 +403,11 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.ErrorTrackingFingerprint]: AccessControlResourceType.ErrorTracking,
     [Scene.ErrorTrackingIssue]: AccessControlResourceType.ErrorTracking,
     [Scene.ErrorTrackingIssueFingerprints]: AccessControlResourceType.ErrorTracking,
+
+    // Stamphog
+    [Scene.Stamphog]: AccessControlResourceType.Stamphog,
+    [Scene.StamphogRuns]: AccessControlResourceType.Stamphog,
+    [Scene.StamphogDigests]: AccessControlResourceType.Stamphog,
 
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,
@@ -440,8 +449,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.AIObservabilityClusters]: AccessControlResourceType.AiObservabilityClusters,
     [Scene.AIObservabilityDataset]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityDatasets]: AccessControlResourceType.LlmAnalytics,
-    [Scene.AIObservabilityEvaluation]: AccessControlResourceType.LlmAnalytics,
-    [Scene.AIObservabilityEvaluations]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityEvaluation]: AccessControlResourceType.Evaluation,
+    [Scene.AIObservabilityEvaluations]: AccessControlResourceType.Evaluation,
+    [Scene.AIObservabilityEvaluationTemplates]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityPlayground]: AccessControlResourceType.LlmPlayground,
     [Scene.AIObservabilityTag]: AccessControlResourceType.Tagger,
     [Scene.AIObservabilityTags]: AccessControlResourceType.Tagger,

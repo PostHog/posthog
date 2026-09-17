@@ -7,7 +7,7 @@ interface LoadingScreenProps {
 }
 
 export function LoadingScreen({
-  logoSize = 96,
+  logoSize = 72,
   className,
 }: LoadingScreenProps) {
   return (
@@ -17,7 +17,7 @@ export function LoadingScreen({
         className,
       )}
     >
-      <AnimatedLogo size={logoSize} />
+      <AnimatedLogo size={logoSize} data-testid="app-loading-logo" />
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import re
 import ipaddress
 import urllib.parse as urlparse
 from collections.abc import Iterable, Mapping
@@ -34,9 +35,6 @@ _dns_resolution_executor = ThreadPoolExecutor(
 )
 _dns_resolution_capacity = BoundedSemaphore(DNS_RESOLUTION_MAX_WORKERS)
 
-# Schemes that should never be allowed for external URLs
-DISALLOWED_SCHEMES = {"file", "ftp", "gopher", "ws", "wss", "data", "javascript"}
-
 # Cloud metadata service hosts that should be blocked to prevent SSRF
 METADATA_HOSTS = {"169.254.169.254", "metadata.google.internal"}
 
@@ -62,11 +60,15 @@ INTERNAL_DOMAIN_PATTERNS = (
 
 
 def resolve_host_ips(host: str) -> ResolvedIPs:
-    """Resolve a hostname to its IP addresses."""
-    try:
-        return {ipaddress.ip_address(host)}
-    except ValueError:
-        pass
+    """Resolve a canonical hostname to its IP addresses."""
+    ip = _parse_ip_literal(host)
+    if ip is not None:
+        return {ip}
+
+    # dnspython repeats the queried name in its error text, so a value that is not a host
+    # would reach both the message and the host field of the warning below.
+    if _host_shape_error(host) is not None:
+        return set()
 
     try:
         answers = dns.resolver.Resolver().resolve_name(host, lifetime=DNS_RESOLUTION_LIFETIME_SECONDS)
@@ -122,8 +124,31 @@ def resolve_hosts_ips(hosts: Iterable[str]) -> dict[str, ResolvedIPs]:
     return resolved
 
 
+# Carrier-grade NAT space (RFC 6598). ipaddress classifies it as neither private nor
+# global, so none of the attribute flags in _is_internal_ip catch it, yet it is routable
+# inside VPCs and overlay networks (e.g. Kubernetes pod ranges, Tailscale). It is
+# special-use per RFC 6890, which the CIMD spec requires blocking, so block it explicitly.
+_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+
+
+def _parse_ip_literal(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """Parse a host written as an IP address, or None when it is a name."""
+
+    # ``ipaddress.ip_address`` also takes an integer, where 123 becomes 0.0.0.123.
+    if not isinstance(host, str):
+        raise TypeError("host must be a string")
+    try:
+        return ipaddress.ip_address(host)
+    except ValueError:
+        return None
+
+
 def _is_internal_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     """Check if an IP address is internal/private and should be blocked."""
+    # An IPv4-mapped IPv6 address (::ffff:a.b.c.d) reaches the IPv4 host it embeds, and
+    # network membership does not cross IP versions, so judge the embedded address.
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
     return any(
         [
             ip.is_private,
@@ -132,33 +157,129 @@ def _is_internal_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
             ip.is_multicast,
             ip.is_reserved,
             ip.is_unspecified,
+            ip in _CGNAT_NETWORK,
         ]
     )
 
 
-def _is_private_ip_literal(host: str) -> bool:
-    """Quick check for RFC1918 and link-local IP literals (avoids DNS lookup)."""
-    return (
-        host.startswith("10.")
-        or host.startswith("192.168.")
-        or host.startswith("169.254.")
-        or host.startswith("172.16.")
-        or host.startswith("172.17.")
-        or host.startswith("172.18.")
-        or host.startswith("172.19.")
-        or host.startswith("172.20.")
-        or host.startswith("172.21.")
-        or host.startswith("172.22.")
-        or host.startswith("172.23.")
-        or host.startswith("172.24.")
-        or host.startswith("172.25.")
-        or host.startswith("172.26.")
-        or host.startswith("172.27.")
-        or host.startswith("172.28.")
-        or host.startswith("172.29.")
-        or host.startswith("172.30.")
-        or host.startswith("172.31.")
-    )
+def _is_internal_ip_literal(host: str) -> bool:
+    """True when the host is written as an IP address we must not reach, so DNS is not needed."""
+    ip = _parse_ip_literal(host)
+    return ip is not None and _is_internal_ip(ip)
+
+
+# Labels joined by dots, with an optional root dot. ASCII on purpose, because callers match
+# the punycode form. Underscores are not valid under RFC 1123 but resolve in practice, so the
+# pattern keeps them: the job is to reject the parts of a URL, not to enforce the RFC.
+_HOSTNAME_LABEL = r"[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?"
+_BARE_HOSTNAME = re.compile(rf"{_HOSTNAME_LABEL}(?:\.{_HOSTNAME_LABEL})*\.?")
+_MAX_HOSTNAME_LENGTH = 253
+
+
+def _matches_hostname_pattern(host: str) -> bool:
+    return len(host) <= _MAX_HOSTNAME_LENGTH and _BARE_HOSTNAME.fullmatch(host) is not None
+
+
+def _canonicalize_host(host: str) -> str:
+    """The one form every host check runs on.
+
+    We strip any trailing "." because an absolute FQDN carries the DNS root dot ("db.corp.").
+    The block list matches exactly or by suffix, so it would otherwise miss that form.
+
+    An internationalized name becomes the punycode form the resolver queries. IDNA maps some
+    characters onto ASCII ones, so "ｅｖｉｌ．ｃｏｒｐ" and "evil.corp" reach the same server. The
+    block list would recognize only the second. A name the codec rejects comes back unchanged,
+    and the shape check refuses it.
+    """
+    try:
+        host = host.encode("idna").decode("ascii")
+    except ValueError:  # UnicodeError, which the codec raises, subclasses this
+        pass
+    return host.lower().rstrip(".")
+
+
+def _host_shape_error(host: str) -> str | None:
+    """Reason to reject a host on its form alone, or None when the form is usable.
+
+    A host field takes a hostname or an IP address, so a pasted connection string is rejected
+    before its credentials reach DNS or a log line.
+
+    An IP address is accepted first, because an IPv6 literal carries colons and can never match
+    the hostname pattern. Everything else is judged in canonical form, the one the checks below
+    and the resolver use.
+    """
+    if not host.strip():
+        return "Host is empty"
+    if _parse_ip_literal(host) is not None:
+        return None
+    if not _matches_hostname_pattern(_canonicalize_host(host)):
+        return "Host must be a hostname or IP address"
+    return None
+
+
+def _url_log_fields(raw_url: str) -> dict[str, str]:
+    """Discrete fields for a blocked-URL log line, so a query can group by them.
+
+    The reason string carries no scheme, and an investigation starts from the scheme more
+    often than from anything else. Neither field can hold a credential: ``hostname`` excludes
+    the userinfo, and a scheme is a short token before the colon.
+    """
+    try:
+        parsed = urlparse.urlsplit(raw_url)
+    except ValueError:
+        return {}
+    return {"scheme": parsed.scheme, "host": parsed.hostname or ""}
+
+
+def _url_shape_error(raw_url: str) -> str | None:
+    """Reason to reject a URL on its form alone, or None when the form is usable."""
+    if has_authority_bypass_chars(raw_url):
+        return "Invalid URL: ambiguous authority"
+    try:
+        parsed = urlparse.urlparse(raw_url)
+    except Exception:
+        return "Invalid URL"
+    # The scheme stays out of the message: it is caller-supplied text, and it is empty for
+    # anything urlparse does not read as a URL.
+    if parsed.scheme not in {"http", "https"}:
+        return "URL must start with http:// or https://"
+    if not parsed.netloc:
+        return "Missing host"
+    return None
+
+
+@frozen
+class BlockedName:
+    """Why a host name is blocked, and which internal pattern matched it.
+
+    The pattern travels beside the reason so a log query can group by it. Deriving it again at
+    the log site would mean a second copy of the matching.
+    """
+
+    reason: str
+    pattern: str | None = None
+
+
+def _blocked_host_name(host: str) -> BlockedName | None:
+    """Why to reject a host on its name alone, or None when the name is acceptable.
+
+    These checks run before resolution, so they also catch a name that resolves to a public
+    IP: split-horizon DNS, and a registered domain shaped like an internal one.
+
+    Canonicalizes again although every caller does. Matching below is exact or by suffix, so
+    an un-normalized host would fail it open.
+    """
+    host = _canonicalize_host(host)
+    if host in METADATA_HOSTS:
+        return BlockedName(reason="Local/metadata host")
+    if host in {"localhost", "127.0.0.1", "::1"}:
+        return BlockedName(reason="Local/Loopback host not allowed")
+    for pattern in INTERNAL_DOMAIN_PATTERNS:
+        if host.endswith(pattern):
+            return BlockedName(reason=f"Internal domain pattern blocked: {pattern}", pattern=pattern)
+    if _is_internal_ip_literal(host):
+        return BlockedName(reason="Private IP address not allowed")
+    return None
 
 
 def has_ambiguous_authority(url: str) -> bool:
@@ -230,6 +351,49 @@ def strip_userinfo(url: str) -> str:
     return urlparse.urlunparse(parsed._replace(netloc=netloc))
 
 
+# Hosts that hand out a Microsoft Teams incoming webhook. Dots are escaped and the host is anchored
+# at both ends, so a registrable lookalike such as `evilpowerautomate.com` cannot match. The CDP
+# Teams template matches the same hosts with unescaped dots, so its patterns are not reusable here.
+_TEAMS_LOGIC_APPS_HOST = re.compile(r"^(?:[a-z0-9-]+\.)+logic\.azure\.com$")
+_TEAMS_CONNECTOR_HOST = re.compile(r"^(?:[a-z0-9-]+\.)+webhook\.office\.com$")
+_TEAMS_POWER_AUTOMATE_HOST = re.compile(r"^(?:[a-z0-9-]+\.)+(?:powerautomate\.com|flow\.microsoft\.com)$")
+_TEAMS_POWER_PLATFORM_HOST = re.compile(r"^(?:[a-z0-9-]+\.)+environment\.api\.powerplatform\.com$")
+
+
+def is_microsoft_teams_webhook_url(url: str) -> bool:
+    """Whether a URL is one of the Microsoft Teams webhook shapes we are willing to post to.
+
+    Checks the scheme, host and path only, with no name resolution, so it is cheap enough for a
+    save path. Anything that then delivers to the URL must still run the full SSRF validation,
+    because DNS can change between the save and the send.
+    """
+    if has_authority_bypass_chars(url):
+        return False
+    try:
+        parsed = urlparse.urlparse(url)
+        port = parsed.port
+    except ValueError:
+        return False
+    # `requests` turns userinfo into a Basic `Authorization` header on the outbound POST, and the
+    # credential would sit in the stored URL for as long as the subscription lives.
+    if parsed.username is not None or parsed.password is not None:
+        return False
+    if parsed.scheme != "https" or port not in (None, 443):
+        return False
+
+    host = (parsed.hostname or "").lower()
+    path = parsed.path
+    if _TEAMS_LOGIC_APPS_HOST.match(host):
+        return path.startswith("/workflows/") and "/triggers/manual/paths/invoke" in path
+    if _TEAMS_CONNECTOR_HOST.match(host):
+        return path.startswith("/webhookb2/") and "/IncomingWebhook/" in path
+    if _TEAMS_POWER_AUTOMATE_HOST.match(host):
+        return bool(path.strip("/"))
+    if _TEAMS_POWER_PLATFORM_HOST.match(host):
+        return path.startswith("/powerautomate/automations/direct/") and "/workflows/" in path
+    return False
+
+
 def _dev_bypass_enabled() -> bool:
     """Dev mode short-circuits is_url_allowed.
 
@@ -251,17 +415,11 @@ def resolve_url_hosts_ips(raw_urls: Iterable[str]) -> dict[str, ResolvedIPs]:
             continue
         try:
             parsed_url = urlparse.urlparse(raw_url)
-            host = (parsed_url.hostname or "").lower()
+            host = _canonicalize_host(parsed_url.hostname or "")
         except Exception:
             continue
-        if (
-            parsed_url.scheme not in {"http", "https"}
-            or not parsed_url.netloc
-            or host in METADATA_HOSTS
-            or host in {"localhost", "127.0.0.1", "::1"}
-            or any(host.endswith(pattern) for pattern in INTERNAL_DOMAIN_PATTERNS)
-            or _is_private_ip_literal(host)
-        ):
+        # Skip what the validator will reject anyway. This shares the rule rather than restating it.
+        if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc or _blocked_host_name(host) is not None:
             continue
         hosts.add(host)
     return resolve_hosts_ips(hosts)
@@ -309,30 +467,14 @@ def _validate_url_with_ips(
         logger.warning("url_validation.blocked", reason=reason, **log_kwargs)
         return PinnedUrlVerdict(allowed=False, reason=reason, pinned_ips=empty)
 
-    if has_authority_bypass_chars(raw_url):
-        return _blocked("Invalid URL: ambiguous authority")
-    try:
-        u = urlparse.urlparse(raw_url)
-    except Exception:
-        return _blocked("Invalid URL")
-    if u.scheme not in {"http", "https"} or u.scheme in DISALLOWED_SCHEMES:
-        return _blocked("Disallowed scheme", scheme=u.scheme)
-    if not u.netloc:
-        return _blocked("Missing host")
-    host = (u.hostname or "").lower()
-    if host in METADATA_HOSTS:
-        return _blocked("Local/metadata host", host=host)
-    if host in {"localhost", "127.0.0.1", "::1"}:
-        return _blocked("Local/Loopback host not allowed", host=host)
-
-    # Check internal domain patterns
-    for pattern in INTERNAL_DOMAIN_PATTERNS:
-        if host.endswith(pattern):
-            return _blocked(f"Internal domain pattern blocked: {pattern}", host=host, pattern=pattern)
-
-    # Quick check for private IP literals (avoids DNS lookup)
-    if _is_private_ip_literal(host):
-        return _blocked("Private IP address not allowed", host=host)
+    shape_reason = _url_shape_error(raw_url)
+    if shape_reason is not None:
+        return _blocked(shape_reason, **_url_log_fields(raw_url))
+    u = urlparse.urlparse(raw_url)
+    host = _canonicalize_host(u.hostname or "")
+    blocked_name = _blocked_host_name(host)
+    if blocked_name is not None:
+        return _blocked(blocked_name.reason, host=host, pattern=blocked_name.pattern)
 
     ips = resolve_host_ips(host) if resolved_ips_by_host is None else resolved_ips_by_host.get(host, empty)
     if not ips:
@@ -351,3 +493,78 @@ def should_block_url(u: str) -> bool:
     """
     allowed, _ = is_url_allowed(u)
     return not allowed
+
+
+def _test_bypass_enabled() -> bool:
+    return settings.TEST and not settings.FORCE_URL_VALIDATION
+
+
+def validate_external_url(url: str) -> None:
+    """Raise ``ValueError`` unless ``url`` is safe for our servers to reach.
+
+    SSRF guard for a stored URL a destination later fetches (an S3-compatible endpoint,
+    a webhook). Bypassed in local dev and in tests, unless the
+    ``FORCE_URL_VALIDATION`` setting is true.
+    """
+
+    # The URL could come from untyped config, so check its type first
+    if not isinstance(url, str):
+        raise ShapeError("URL must be a string")
+    shape_reason = _url_shape_error(url)
+    if shape_reason is not None:
+        raise ShapeError(shape_reason)
+
+    if _dev_bypass_enabled() or _test_bypass_enabled():
+        return
+
+    allowed, reason = is_url_allowed(url)
+    if not allowed:
+        raise ValueError(reason or "URL is not allowed")
+
+
+class ShapeError(ValueError):
+    """The value cannot be a host or a URL, judged from its form alone before any lookup.
+
+    Safe to report in detail, because nothing about our network went into the decision and the
+    user has something they can fix.
+    """
+
+
+# A shape error is safe to describe. Every other reason shares one message, so an error cannot
+# be used to find which addresses exist inside our network. Neither echoes the value it
+# rejected.
+INVALID_HOST_MESSAGE = "Invalid host. Enter a hostname or IP address without credentials, scheme, or path."
+UNREACHABLE_HOST_MESSAGE = (
+    "Could not reach this host. Check that the hostname is correct and reachable from the internet."
+)
+
+
+def validate_external_host(host: str) -> None:
+    """Raise ``ValueError`` unless ``host`` is safe for our servers to reach.
+
+    SSRF guard for a destination that stores a bare host rather than a URL (Postgres,
+    Redshift). Applies the same name and IP rules as ``validate_external_url``, so the two
+    cannot drift apart. Bypassed in local dev and in tests, unless the
+    ``FORCE_URL_VALIDATION`` setting is true.
+    """
+
+    # The host could come from untyped config, so check its type first
+    if not isinstance(host, str):
+        raise ShapeError("Host must be a string")
+    shape_reason = _host_shape_error(host)
+    if shape_reason is not None:
+        raise ShapeError(shape_reason)
+    host = _canonicalize_host(host)
+
+    if _dev_bypass_enabled() or _test_bypass_enabled():
+        return
+
+    blocked_name = _blocked_host_name(host)
+    if blocked_name is not None:
+        raise ValueError(blocked_name.reason)
+
+    # Return the same error message in both cases, to avoid exposing details of our internal
+    # network.
+    ips = resolve_host_ips(host)
+    if not ips or any(_is_internal_ip(ip) for ip in ips):
+        raise ValueError("Host does not resolve to a valid IP address")

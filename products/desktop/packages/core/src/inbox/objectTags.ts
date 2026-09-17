@@ -1,5 +1,12 @@
 import { unescapeXmlAttr } from "@posthog/shared";
 
+import {
+  FALLBACK_OBJECT_KIND_DATA,
+  OBJECT_KIND_ALIASES,
+  OBJECT_KIND_DATA,
+  type ObjectKindData,
+} from "./objectKinds.generated";
+
 // Object tags are the message-side counterpart of the `<file path="..."/>`
 // attachment convention: agents embed references to PostHog objects in their
 // replies, and hosts render them as live chips instead of raw text.
@@ -8,9 +15,10 @@ import { unescapeXmlAttr } from "@posthog/shared";
 //   <flag id="42"/>
 //   <hogql label="errors today">SELECT count() FROM events ...</hogql>
 //
-// This module is host-agnostic: it owns the kind registry (minus icons, which
-// are a host concern) and the parser that turns free text into an ordered run
-// of text and tag segments. Rendering lives in each host.
+// This module is host-agnostic: it reads the generated kind registry (source
+// of truth: posthog/object_tags/kinds.py; icons are a host concern) and owns
+// the parser that turns free text into an ordered run of text and tag
+// segments. Rendering lives in each host.
 
 export interface ObjectKindMeta {
   /** Human name of the kind, e.g. "Insight". */
@@ -24,102 +32,31 @@ export interface ObjectKindMeta {
   webPath?: (encodedId: string, rawId: string) => string | null;
 }
 
-export const OBJECT_KINDS: Record<string, ObjectKindMeta> = {
-  insight: {
-    kindLabel: "Insight",
-    source: "Product analytics",
-    webPath: (id) => `/insights/${id}`,
-  },
-  // For hogql the "id" is the SQL itself; the chip opens the SQL editor.
-  hogql: {
-    kindLabel: "SQL query",
-    source: "SQL editor",
-    webPath: (id) => `/sql?open_query=${id}`,
-  },
-  dashboard: {
-    kindLabel: "Dashboard",
-    source: "Product analytics",
-    webPath: (id) => `/dashboard/${id}`,
-  },
-  error: {
-    kindLabel: "Error issue",
-    source: "Error tracking",
-    webPath: (id) => `/error_tracking/${id}`,
-  },
-  replay: {
-    kindLabel: "Session replay",
-    source: "Session replay",
-    webPath: (id) => `/replay/${id}`,
-  },
-  flag: {
-    kindLabel: "Feature flag",
-    source: "Feature flags",
-    // Flag pages only resolve by numeric id, so a flag cited by key gets no
-    // direct URL until its preview resolves the numeric id.
-    webPath: (id, raw) => (/^\d+$/.test(raw) ? `/feature_flags/${id}` : null),
-  },
-  experiment: {
-    kindLabel: "Experiment",
-    source: "Experiments",
-    webPath: (id) => `/experiments/${id}`,
-  },
-  survey: {
-    kindLabel: "Survey",
-    source: "Surveys",
-    webPath: (id) => `/surveys/${id}`,
-  },
-  ticket: {
-    kindLabel: "Support tickets",
-    source: "Conversations",
-    webPath: (id) => `/support/tickets/${id}`,
-  },
-  trace: {
-    kindLabel: "LLM trace",
-    source: "AI observability",
-    webPath: (id) => `/ai-observability/traces/${id}`,
-  },
-  eval: {
-    kindLabel: "Evaluation",
-    source: "AI evals",
-    webPath: (id) => `/ai-evals/evaluations/${id}`,
-  },
-  event: {
-    kindLabel: "Events",
-    source: "Product analytics",
-    webPath: (id, raw) =>
-      /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(raw)
-        ? `/data-management/events/${id}`
-        : null,
-  },
-  cohort: {
-    kindLabel: "Cohort",
-    source: "Product analytics",
-    webPath: (id) => `/cohorts/${id}`,
-  },
-  action: {
-    kindLabel: "Action",
-    source: "Product analytics",
-    webPath: (id) => `/data-management/actions/${id}`,
-  },
-  person: {
-    kindLabel: "Person",
-    source: "Product analytics",
-    webPath: (id) => `/persons/${id}`,
-  },
-};
+/** Builds the runtime meta (label, source, guarded webPath) for one generated entry. */
+export function objectKindMeta(data: ObjectKindData): ObjectKindMeta {
+  const meta: ObjectKindMeta = {
+    kindLabel: data.kindLabel,
+    source: data.source,
+  };
+  const template = data.pathTemplate;
+  if (template) {
+    const guard = data.idPattern ? new RegExp(data.idPattern) : null;
+    meta.webPath = (encodedId, rawId) =>
+      guard && !guard.test(rawId) ? null : template.replace("{id}", encodedId);
+  }
+  return meta;
+}
 
-/** Alternate tag names agents plausibly write, mapped to registry kinds. */
-const OBJECT_KIND_ALIASES: Record<string, string> = {
-  "session-replay": "replay",
-  recording: "replay",
-  "feature-flag": "flag",
-  sql: "hogql",
-};
+const OBJECT_KINDS: Record<string, ObjectKindMeta> = Object.fromEntries(
+  Object.entries(OBJECT_KIND_DATA).map(([name, data]) => [
+    name,
+    objectKindMeta(data),
+  ]),
+);
 
-export const GENERIC_OBJECT_KIND: ObjectKindMeta = {
-  kindLabel: "Evidence",
-  source: "PostHog",
-};
+const GENERIC_OBJECT_KIND: ObjectKindMeta = objectKindMeta(
+  FALLBACK_OBJECT_KIND_DATA,
+);
 
 /** Registry kind for a tag name, or null when the tag isn't an object tag. */
 export function resolveObjectKindName(tag: string): string | null {
@@ -156,7 +93,7 @@ const COMPLETE_TAG_RE =
 const ATTR_RE = /([a-z][\w-]*)\s*=\s*"([^"]*)"/g;
 const KNOWN_TAG_START_RE = /<([a-z][\w-]*)/g;
 
-function parseAttrs(raw: string): Record<string, string> {
+export function parseObjectTagAttrs(raw: string): Record<string, string> {
   const attrs: Record<string, string> = {};
   for (const match of raw.matchAll(ATTR_RE)) {
     attrs[match[1]] = unescapeXmlAttr(match[2]);
@@ -164,7 +101,7 @@ function parseAttrs(raw: string): Record<string, string> {
   return attrs;
 }
 
-function buildRef(
+export function buildObjectTagRef(
   kind: string,
   attrs: Record<string, string>,
   body: string | undefined,
@@ -211,7 +148,11 @@ export function parseObjectTags(text: string): ObjectTagSegment[] {
   while ((match = COMPLETE_TAG_RE.exec(text)) !== null) {
     const kind = resolveObjectKindName(match[1]);
     if (!kind) continue;
-    const ref = buildRef(kind, parseAttrs(match[2]), match[3]);
+    const ref = buildObjectTagRef(
+      kind,
+      parseObjectTagAttrs(match[2]),
+      match[3],
+    );
     if (!ref) continue;
     if (match.index > cursor) {
       segments.push({ type: "text", value: text.slice(cursor, match.index) });

@@ -33,6 +33,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
@@ -60,9 +61,8 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
-
-from ee.models.rbac.access_control import AccessControl
 
 
 # Note that we use allow_unknown_events here since allowing it was the behavior before validating it
@@ -809,6 +809,17 @@ class TestExperimentService(APIBaseTest):
                 },
                 "exposure_criteria.activation_config requires the default exposure event",
             ),
+            (
+                "unknown_top_level_properties",
+                {"properties": [{"key": "email", "value": "x"}]},
+                "exposure_criteria contains unknown key(s): properties. Property filters on the "
+                "exposure event belong at exposure_criteria.exposure_config.properties.",
+            ),
+            (
+                "unknown_top_level_key",
+                {"filterTestAccounts": True, "custom_thing": 1},
+                "exposure_criteria contains unknown key(s): custom_thing",
+            ),
         ]
     )
     def test_validate_experiment_exposure_criteria_rejects_invalid_payloads(
@@ -854,6 +865,10 @@ class TestExperimentService(APIBaseTest):
             (
                 "explicit_null_configs",
                 {"exposure_config": None, "activation_config": None},
+            ),
+            (
+                "multiple_variant_handling",
+                {"multiple_variant_handling": "exclude"},
             ),
             (
                 "null_activation_with_custom_exposure",
@@ -3521,6 +3536,7 @@ class TestExperimentService(APIBaseTest):
         assert paused.end_date is None
         assert paused.is_paused is True
         assert paused.is_running is True  # status remains running while paused
+        assert ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.pk), activity="paused").exists()
 
     def test_resume_experiment_success(self):
         experiment = self._create_running_experiment(name="Resume Test", feature_flag_key="resume-flag")
@@ -3535,6 +3551,7 @@ class TestExperimentService(APIBaseTest):
         assert resumed.feature_flag.active is True
         assert resumed.start_date is not None
         assert resumed.end_date is None
+        assert ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.pk), activity="resumed").exists()
 
     def test_pause_experiment_already_paused_raises(self):
         experiment = self._create_running_experiment(name="Already Paused", feature_flag_key="already-paused-flag")
@@ -3793,6 +3810,14 @@ class TestExperimentService(APIBaseTest):
         assert log.user == self.user
         assert log.detail is not None
         assert log.detail["name"] == "Freeze Exposure"
+
+        # The flag rewrite carries the freeze trigger, so it does not render as a manual edit.
+        flag_log = ActivityLog.objects.filter(
+            scope="FeatureFlag", item_id=str(experiment.feature_flag_id), activity="updated"
+        ).latest("created_at")
+        assert flag_log.detail is not None
+        assert flag_log.detail["trigger"]["job_type"] == "experiment_exposure_frozen"
+        assert flag_log.detail["trigger"]["payload"]["experiment_id"] == experiment.pk
 
     def test_freeze_exposure_multi_group_flag(self):
         experiment = self._create_running_experiment(name="Freeze Multi", feature_flag_key="freeze-multi-flag")
@@ -4318,6 +4343,13 @@ class TestExperimentService(APIBaseTest):
         assert log.detail is not None
         assert log.detail["name"] == "Unfreeze Test"
 
+        # The flag rewrite carries the unfreeze trigger, so it does not render as a manual edit.
+        flag_log = ActivityLog.objects.filter(
+            scope="FeatureFlag", item_id=str(experiment.feature_flag_id), activity="updated"
+        ).latest("created_at")
+        assert flag_log.detail is not None
+        assert flag_log.detail["trigger"]["job_type"] == "experiment_exposure_unfrozen"
+
     def test_unfreeze_exposure_keeps_user_edits_made_while_frozen(self) -> None:
         experiment = self._create_running_experiment(name="Unfreeze Edits", feature_flag_key="unfreeze-edits-flag")
 
@@ -4391,6 +4423,10 @@ class TestExperimentService(APIBaseTest):
         assert reset.conclusion is None
         assert reset.conclusion_comment is None
         assert reset.flag_cleanup_task_id is None
+        assert (
+            ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.pk)).latest("created_at").activity
+            == "reset"
+        )
 
     def test_reset_experiment_leaves_feature_flag_unchanged(self):
         experiment = self._create_running_experiment(name="Reset Flag", feature_flag_key="reset-flag-unchanged")
@@ -4430,6 +4466,13 @@ class TestExperimentService(APIBaseTest):
         assert reset.feature_flag.filters["groups"] == original_groups
         cohort.refresh_from_db()
         assert cohort.deleted is True
+
+        # The reset's freeze-strip flag write carries the unfreeze trigger, like an unfreeze.
+        flag_log = ActivityLog.objects.filter(
+            scope="FeatureFlag", item_id=str(experiment.feature_flag_id), activity="updated"
+        ).latest("created_at")
+        assert flag_log.detail is not None
+        assert flag_log.detail["trigger"]["job_type"] == "experiment_exposure_unfrozen"
 
     def test_reset_experiment_clears_freeze_without_request(self):
         experiment = self._create_running_experiment(name="Reset No Request", feature_flag_key="reset-no-request-flag")
@@ -5840,6 +5883,15 @@ class TestExperimentService(APIBaseTest):
 
         updated = service.update_experiment(experiment, {"deleted": True}, allow_unknown_events=True)
         assert updated.deleted is True
+
+    def test_cannot_adopt_a_flag_another_product_owns(self):
+        flag = self._create_flag(key="owned-by-survey")
+        Survey.objects.create(team=self.team, name="s", type="popover", targeting_flag=flag)
+
+        with self.assertRaises(ValidationError) as cm:
+            self._service().create_experiment(name="Poacher", feature_flag_key="owned-by-survey")
+
+        assert "already belongs to a survey" in str(cm.exception)
 
     def test_clone_regenerates_metric_uuids(self):
         """Cloning an experiment must produce metrics with fresh uuids — never shared with the source."""

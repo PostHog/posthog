@@ -1,10 +1,60 @@
+import type {
+  SignalReportActionability,
+  SignalReportStatus,
+} from "@posthog/shared/types";
 import { describe, expect, it } from "vitest";
 import {
   deriveHeadline,
   displayConventionalCommitTitle,
   formatSignalReportSummaryMarkdown,
+  humanizeReportTitle,
+  isStatusRedundantWithActionability,
   parseConventionalCommitTitle,
+  splitReportSummary,
 } from "./reportPresentation";
+
+describe("isStatusRedundantWithActionability", () => {
+  it.each<{
+    status: SignalReportStatus;
+    actionability: SignalReportActionability | null;
+    expected: boolean;
+  }>([
+    // Without a verdict the status is the only information, so it always shows.
+    { status: "ready", actionability: null, expected: false },
+    { status: "pending_input", actionability: null, expected: false },
+    // Ready is the default terminal state; any verdict supersedes it.
+    {
+      status: "ready",
+      actionability: "immediately_actionable",
+      expected: true,
+    },
+    { status: "ready", actionability: "requires_human_input", expected: true },
+    // Both badges would say "Needs input".
+    {
+      status: "pending_input",
+      actionability: "requires_human_input",
+      expected: true,
+    },
+    // Different stories, so both badges stay.
+    {
+      status: "pending_input",
+      actionability: "immediately_actionable",
+      expected: false,
+    },
+    {
+      status: "in_progress",
+      actionability: "requires_human_input",
+      expected: false,
+    },
+  ])(
+    "$status + $actionability -> $expected",
+    ({ status, actionability, expected }) => {
+      expect(isStatusRedundantWithActionability(status, actionability)).toBe(
+        expected,
+      );
+    },
+  );
+});
 
 describe("deriveHeadline", () => {
   it("returns null for null/undefined/empty input", () => {
@@ -166,5 +216,52 @@ describe("displayConventionalCommitTitle", () => {
       "Plain title",
     );
     expect(displayConventionalCommitTitle(null, "Untitled")).toBe("Untitled");
+  });
+});
+
+describe("humanizeReportTitle", () => {
+  it.each([
+    ["fix(oauth): validate selected scopes", "Validate selected scopes"],
+    [
+      "docs(feature-flags): explain device bucketing",
+      "Explain device bucketing",
+    ],
+    ["Plain already-capitalized title", "Plain already-capitalized title"],
+    ["lowercase plain title", "Lowercase plain title"],
+    [null, "Untitled"],
+  ])("humanizes %j to %j", (title, expected) => {
+    expect(humanizeReportTitle(title, "Untitled")).toBe(expected);
+  });
+});
+
+describe("splitReportSummary", () => {
+  it("splits the lede and each ## section in order, keeping every word", () => {
+    const split = splitReportSummary(
+      "Users hit a dead end.\n\n## Problem\n\nThe cache never expires.\nStill broken.\n\n## Impact\n\n40 users a day.\n\n## Solution\n\nBound the freshness.",
+    );
+    expect(split.lede).toBe("Users hit a dead end.");
+    expect(split.sections.map((s) => s.title)).toEqual([
+      "Problem",
+      "Impact",
+      "Solution",
+    ]);
+    expect(split.sections[0].body).toBe(
+      "The cache never expires.\nStill broken.",
+    );
+    expect(split.sections[1].body).toBe("40 users a day.");
+  });
+
+  it("returns no sections for heading-less summaries so callers render them whole", () => {
+    const split = splitReportSummary(
+      "**What's happening:** one paragraph, bold labels, no headings.",
+    );
+    expect(split.sections).toEqual([]);
+    expect(split.lede).toContain("no headings");
+  });
+
+  it("handles a summary that opens directly with a heading", () => {
+    const split = splitReportSummary("## Problem\n\nIt broke.");
+    expect(split.lede).toBe("");
+    expect(split.sections).toEqual([{ title: "Problem", body: "It broke." }]);
   });
 });

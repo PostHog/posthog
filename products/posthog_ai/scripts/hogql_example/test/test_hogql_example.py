@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -35,7 +38,7 @@ class TestRenderHogQLExample(BaseTest):
 
     These guard against regressions where the rendered HogQL would silently
     drift to wall-clock time, or where the renderer would corrupt global
-    process state (the freezegun bug we replaced with `pin_now`).
+    process state.
     """
 
     def setUp(self) -> None:
@@ -56,45 +59,29 @@ class TestRenderHogQLExample(BaseTest):
         assert "2025-12-10" in result
         assert "2025-12-03" in result
 
-    @patch("django.conf.settings.DEBUG", True)
-    def test_funnel_pins_context_now_for_sub_date_ranges(self) -> None:
-        # FunnelsQuery's sub-helpers read `context.now` rather than the runner's
-        # query_date_range, so this guards the context-pinning branch of
-        # `_pin_runner_now`.
-        result = render_hogql_example(
-            {
-                "kind": "FunnelsQuery",
-                "series": [
-                    {"kind": "EventsNode", "event": "$pageview"},
-                    {"kind": "EventsNode", "event": "user signed up"},
-                ],
-                "dateRange": {"date_from": "-7d"},
-            }
-        )
+    def test_pins_context_now_as_well_as_the_date_range(self) -> None:
+        # Some runners resolve sub-ranges off `context.now` rather than off query_date_range, so
+        # both surfaces have to be pinned. A stub stands in for the runner because the branch is
+        # generic: reaching it through a real query kind ties this suite to whichever product
+        # owns that kind, and the trends case above already covers the pipeline end to end.
+        runner = SimpleNamespace(context=SimpleNamespace(now=None))
 
-        assert "2025-12-10" in result
-        assert "2025-12-03" in result
+        hogql_example_module._pin_runner_now(runner, hogql_example_module._FROZEN_DATETIME)
+
+        assert runner.context.now == hogql_example_module._FROZEN_DATETIME
 
     @patch("django.conf.settings.DEBUG", True)
-    def test_render_does_not_use_freezegun(self) -> None:
-        # The bug: freezegun was used to set `now` for relative date ranges,
-        # but it monkey-patches `datetime.datetime` process-globally. Concurrent
-        # code (Temporal activities, Django request handlers) calling
-        # `timezone.now()` during the freeze races with `tz_offsets.pop()` on
-        # exit, crashing with `IndexError: list index out of range`.
-        #
-        # Single-threaded tests can't observe the race directly because the
-        # freeze cleans up before assertions run. Instead, assert the renderer
-        # never enters `freeze_time` at all — that's the only safe contract.
-        import freezegun
-
+    def test_render_does_not_mock_the_global_clock(self) -> None:
+        # Clock mocking is process-global, so a freeze here hands concurrent Temporal
+        # activities and request handlers the wrong time. A single-threaded test cannot
+        # observe that, so assert the renderer never travels at all.
         def _explode(*args: object, **kwargs: object) -> object:
             raise AssertionError(
-                "render_hogql_example called freezegun.freeze_time — this monkey-patches "
-                "datetime globally and crashes concurrent workers. Use _pin_runner_now instead."
+                "render_hogql_example called time_machine.travel — this mocks the clock "
+                "process-globally and corrupts concurrent workers. Use _pin_runner_now instead."
             )
 
-        with patch.object(freezegun, "freeze_time", _explode):
+        with patch.object(time_machine, "travel", _explode):
             render_hogql_example(
                 {
                     "kind": "TrendsQuery",

@@ -238,10 +238,20 @@ _FORBIDDEN_KEY_MESSAGE = (
     "Your Clerk secret key does not have permission to access this endpoint. Please check the "
     "key's permissions in your Clerk dashboard."
 )
+_UNSUPPORTED_CHARACTER_MESSAGE = (
+    "Your Clerk secret key contains a character that can't be sent to Clerk, such as an invisible "
+    "one pasted from another app. Copy the key again from your Clerk dashboard and reconnect."
+)
 
 
 def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
     """Validate Clerk API credentials by making a test request."""
+    # The key rides in the Authorization header, which http.client encodes as latin-1. A character
+    # outside that range raises UnicodeEncodeError mid-request, so reject it as user input rather
+    # than letting the encoding error surface.
+    if not secret_key.isascii():
+        return False, _UNSUPPORTED_CHARACTER_MESSAGE
+
     url = "https://api.clerk.com/v1/users"
     headers = {
         "Authorization": f"Bearer {secret_key}",
@@ -256,7 +266,10 @@ def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
 
     if response.status_code == 200:
         return True, None
-    if response.status_code == 401:
+    if response.status_code in (400, 401):
+        # Our request (GET /v1/users?limit=1) is always well-formed, so a 400 is Clerk rejecting the
+        # credential itself — a malformed or wrong-format secret key. That is user input, like a 401
+        # revoked key, so explain it the same way instead of filing an error.
         return False, _INVALID_KEY_MESSAGE
     if response.status_code == 403:
         return False, _FORBIDDEN_KEY_MESSAGE
@@ -271,13 +284,18 @@ def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
 # statuses Clerk returns them under: 402 carries no body code, so the status alone is the signal.
 _FEATURE_DISABLED_CODES = frozenset({"billing_not_enabled", "feature_not_enabled"})
 
+# A gated list endpoint (the Restrictions allow-list and block-list) answers 404 `resource_not_found`
+# instead of a 4xx feature code when its feature is off. This check only runs for endpoints that carry
+# a `gated_feature`, so a 404 here means the feature is not on rather than a genuinely missing record.
+_FEATURE_DISABLED_NOT_FOUND_CODE = "resource_not_found"
+
 
 def _is_feature_disabled(response: Optional[Response]) -> bool:
     if response is None:
         return False
     if response.status_code == 402:
         return True
-    if response.status_code not in (400, 403):
+    if response.status_code not in (400, 403, 404):
         return False
 
     try:
@@ -288,7 +306,10 @@ def _is_feature_disabled(response: Optional[Response]) -> bool:
     errors = body.get("errors") if isinstance(body, dict) else None
     if not isinstance(errors, list):
         return False
-    return any(isinstance(error, dict) and error.get("code") in _FEATURE_DISABLED_CODES for error in errors)
+    codes = {error.get("code") for error in errors if isinstance(error, dict)}
+    if response.status_code == 404:
+        return _FEATURE_DISABLED_NOT_FOUND_CODE in codes
+    return bool(codes & _FEATURE_DISABLED_CODES)
 
 
 def _skip_when_feature_disabled(

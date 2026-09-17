@@ -194,14 +194,19 @@ def _ensure_chunks(
 def _ensure_touchpoints_for_team(
     context: dagster.OpExecutionContext, team: Team, start: datetime, end: datetime, chunk_days: int
 ) -> int:
-    """Warm the config-agnostic touchpoints table over [start, end] (start already reaches back past the
+    """Warm the goal-agnostic touchpoints table over [start, end] (start already reaches back past the
     attribution window). One warmed window serves every conversion goal / attribution mode.
+
+    Test-account filtering is the one thing that splits it: the filter is baked into the insert query,
+    which the framework hashes for the job key, so warming the wrong variant leaves every read to
+    materialize inline. The team's own setting is what the dashboard sends, so warm that one.
     """
+    filter_test_accounts = team.marketing_analytics_config.filter_test_accounts
     return _ensure_chunks(
         context,
         team,
         LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
-        build_touchpoints_precompute_query,
+        partial(build_touchpoints_precompute_query, team, filter_test_accounts),
         PRECOMPUTE_TTL_SECONDS,
         start,
         end,
@@ -225,7 +230,14 @@ def _ensure_conversions_for_team(
     goals_warmed = 0
     failures = 0
     for index, goal in enumerate(goals):
-        processor = ConversionGoalProcessor(goal=goal, index=index, team=team, config=config, user=None)
+        processor = ConversionGoalProcessor(
+            goal=goal,
+            index=index,
+            team=team,
+            config=config,
+            user=None,
+            filter_test_accounts=team.marketing_analytics_config.filter_test_accounts,
+        )
         if not processor.is_goal_precomputable():
             continue
         goals_warmed += 1

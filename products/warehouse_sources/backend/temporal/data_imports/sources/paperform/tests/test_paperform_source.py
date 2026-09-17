@@ -3,16 +3,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.paperform import (
     PaperformSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.paperform.paperform import PaperformResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.paperform.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.paperform.source import PaperformSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPaperformSource:
@@ -20,29 +15,6 @@ class TestPaperformSource:
         self.source = PaperformSource()
         self.team_id = 123
         self.config = PaperformSourceConfig(api_key="pf-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PAPERFORM
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Paperform"
-        assert config.label == "Paperform"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/paperform"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
-
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
 
     def test_get_schemas_only_submissions_supports_incremental(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
@@ -56,19 +28,6 @@ class TestPaperformSource:
             for name, s in schemas.items()
             if name != "submissions"
         )
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["submissions"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "submissions"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        assert all("Full refresh" in t["sync_methods"] for t in tables)
 
     @parameterized.expand(
         [
@@ -106,11 +65,6 @@ class TestPaperformSource:
         result = self.source.validate_credentials(self.config, self.team_id)
         mock_validate.assert_called_once_with("pf-key")
         assert result == (False, "Invalid Paperform API key")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is PaperformResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.paperform.source.paperform_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

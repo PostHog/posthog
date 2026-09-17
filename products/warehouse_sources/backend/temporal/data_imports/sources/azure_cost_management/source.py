@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.azure_cost_management import (
     AzureCostManagementResumeConfig,
     azure_cost_management_source,
@@ -34,8 +32,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AzureCostManagementSource(ResumableSource[AzureCostManagementSourceConfig, AzureCostManagementResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("2025-03-01",)
-    default_version = "2025-03-01"
+    # api-version is a required query param on every Cost Management call; the resolved pin flows
+    # through verbatim to `_endpoint_url`. The query/forecast/dimensions wire is identical across
+    # these versions (2026-06-01 only adds MarkupRules, which this source doesn't read), so no
+    # per-version request branching is needed.
+    supported_versions = ("2025-03-01", "2026-06-01")
+    default_version = "2026-06-01"
     api_docs_url = "https://learn.microsoft.com/en-us/rest/api/cost-management/"
 
     @property
@@ -54,7 +56,7 @@ class AzureCostManagementSource(ResumableSource[AzureCostManagementSourceConfig,
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AZURE_COST_MANAGEMENT,
+            name=ExternalDataSourceType.AZURECOSTMANAGEMENT,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Microsoft Azure Cost Management",
             releaseStatus=ReleaseStatus.ALPHA,

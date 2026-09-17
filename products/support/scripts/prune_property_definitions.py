@@ -19,6 +19,11 @@ incoming events, so fix the source instrumentation first. For a full server-side
 cleanup (Postgres + event properties + ClickHouse), use the `cleanup-property-definitions`
 Temporal workflow instead.
 
+--output NAME writes two files: NAME-findings.json (the matched-definitions report, written
+once discovery finishes) and NAME-log.txt (every line the operator sees on stderr, written as
+it happens - a dry run, an aborted confirm, a completed prune, or a crash mid-run all leave a
+complete transcript up to that point).
+
 Usage:
   export POSTHOG_PERSONAL_API_KEY=phx_...   # needs property_definition:read and :write
   python products/support/scripts/prune_property_definitions.py temp_prop other_prop \\
@@ -46,9 +51,9 @@ from typing import Any, Optional
 from urllib.parse import urlencode
 
 import requests
-from lib.console import confirm, format_status_counts, log, printable
+from lib.console import close_log_file, confirm, format_status_counts, log, printable, resolve_output_base, set_log_file
 from lib.errors import PostHogScriptError
-from lib.posthog_api import request_with_retries, resolve_host, setup_session_auth
+from lib.posthog_api import build_session, log_session_expiry, request_with_retries, resolve_host
 
 
 def iter_property_definitions(
@@ -133,15 +138,20 @@ def prune_definitions(
         except PostHogScriptError as err:
             status_counts["error"] += 1
             batch_counts["error"] += 1
-            failures.append(f"{definition['name']} ({definition['id']}): {err}")
+            message = f"{definition['name']} ({definition['id']}): {err}"
+            failures.append(message)
+            log(f"  FAILED: {printable(message)}")
         else:
             code = response.status_code
             status_counts[str(code)] += 1
             batch_counts[str(code)] += 1
             if not 200 <= code < 300:
-                failures.append(f"{definition['name']} ({definition['id']}): HTTP {code} {response.text[:200]}")
+                message = f"{definition['name']} ({definition['id']}): HTTP {code} {response.text[:200]}"
+                failures.append(message)
+                log(f"  FAILED: {printable(message)}")
         if index % batch_size == 0 or index == total:
             log(f"  deletes {batch_start}-{index} of {total}: {format_status_counts(batch_counts)}")
+            log_session_expiry(session, host)
             batch_counts = Counter()
             batch_start = index + 1
     return status_counts, failures
@@ -193,7 +203,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--batch-size", type=int, default=50, help="How many deletes to group per reported status-code batch"
     )
-    parser.add_argument("--output", help="Write the matched definitions report to this JSON file")
+    parser.add_argument(
+        "--output",
+        metavar="NAME",
+        help="Base name for output files (no extension): writes <NAME>-findings.json (the matched "
+        "definitions report) and <NAME>-log.txt (the full run log, written as it happens)",
+    )
     parser.add_argument("--yes", "-y", action="store_true", help="Skip the confirmation prompt")
     args = parser.parse_args()
 
@@ -226,14 +241,19 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    names = sorted(set(args.names))
+    if args.output:
+        args.output = resolve_output_base(args.output)
+        set_log_file(f"{args.output}-log.txt")
+    try:
+        return run(args)
+    finally:
+        close_log_file()
 
-    session = requests.Session()
-    if args.personal_api_key:
-        session.headers["Authorization"] = f"Bearer {args.personal_api_key}"
-    else:
-        setup_session_auth(session, args.host, args.session_id)
 
+def discover_matches(
+    session: requests.Session, args: argparse.Namespace, names: list[str]
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Scan for matching definitions, log a summary, and write the --output findings report."""
     match_desc = f"regex /{args.regex}/" if args.regex else f"{len(names)} name(s)"
     log(f"Scanning {args.prop_type} property definitions in project {args.project_id} matching {match_desc}")
     definitions = list(
@@ -260,7 +280,8 @@ def main() -> int:
             log(f"  {printable(name)}")
 
     if args.output:
-        with open(args.output, "w") as f:
+        findings_path = f"{args.output}-findings.json"
+        with open(findings_path, "w") as f:
             json.dump(
                 {
                     "type": args.prop_type,
@@ -272,12 +293,12 @@ def main() -> int:
                 f,
                 indent=2,
             )
-        log(f"Wrote report to {args.output}")
+        log(f"Wrote report to {findings_path}")
 
-    if not matched:
-        log("Nothing to prune.")
-        return 0
+    return matched, not_found
 
+
+def log_preview(matched: list[dict[str, Any]]) -> None:
     preview = matched[:10]
     log("")
     log("Sample of definitions that would be pruned:")
@@ -295,22 +316,24 @@ def main() -> int:
         "Data Management > Properties, not event-property mappings or the ClickHouse mirror."
     )
 
-    if args.dry_run:
-        log("")
-        log("DRY RUN: no changes made.")
-        return 0
 
-    if not args.yes:
-        prompt = (
-            f"\nAbout to permanently delete {len(matched)} {args.prop_type} property definitions "
-            f"from project {args.project_id}. Type 'prune' to continue: "
-        )
-        if not confirm(
-            prompt, "prune", eof_message="Confirmation requires interactive input; pass --yes for non-interactive runs."
-        ):
-            log("Aborted.")
-            return 1
+def confirm_prune(args: argparse.Namespace, matched: list[dict[str, Any]]) -> bool:
+    """Prompt to confirm the prune (unless --yes); return whether to proceed."""
+    if args.yes:
+        return True
+    prompt = (
+        f"\nAbout to permanently delete {len(matched)} {args.prop_type} property definitions "
+        f"from project {args.project_id}. Type 'prune' to continue: "
+    )
+    if confirm(
+        prompt, "prune", eof_message="Confirmation requires interactive input; pass --yes for non-interactive runs."
+    ):
+        return True
+    log("Aborted.")
+    return False
 
+
+def execute_prune(session: requests.Session, args: argparse.Namespace, matched: list[dict[str, Any]]) -> int:
     status_counts, failures = prune_definitions(session, args.host, args.project_id, matched, args.batch_size)
     deleted = sum(n for code, n in status_counts.items() if code.isdigit() and 200 <= int(code) < 300)
     log("")
@@ -321,13 +344,32 @@ def main() -> int:
             f"  {forbidden} forbidden (HTTP 403): the credential can't delete these - a read-only "
             "session/key, or field-level access control on restricted properties."
         )
-    for failure in failures[:20]:
-        log(f"  FAILED: {printable(failure)}")
-    if len(failures) > 20:
-        log(f"  ... and {len(failures) - 20} more failures")
     if failures:
+        log(f"  {len(failures)} failure(s) - see the FAILED lines above for details")
         return 1
     return 0
+
+
+def run(args: argparse.Namespace) -> int:
+    names = sorted(set(args.names))
+    session = build_session(args)
+    matched, _not_found = discover_matches(session, args, names)
+
+    if not matched:
+        log("Nothing to prune.")
+        return 0
+
+    log_preview(matched)
+
+    if args.dry_run:
+        log("")
+        log("DRY RUN: no changes made.")
+        return 0
+
+    if not confirm_prune(args, matched):
+        return 1
+
+    return execute_prune(session, args, matched)
 
 
 if __name__ == "__main__":

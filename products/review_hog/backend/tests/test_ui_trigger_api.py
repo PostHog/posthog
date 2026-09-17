@@ -15,6 +15,7 @@ _START = "products.review_hog.backend.api.reviews.start_review_pr_workflow"
 _START_RESOLUTION = "products.review_hog.backend.api.reviews.start_resolution_workflow"
 _ACCESS = "products.review_hog.backend.api.reviews.GitHubIntegration.first_for_team_repository"
 _META = "products.review_hog.backend.api.reviews._fetch_pr_metadata"
+_BUSY = "products.review_hog.backend.api.reviews.workflow_running"
 
 
 def _pr_meta(**overrides: object) -> MagicMock:
@@ -28,6 +29,13 @@ def _pr_meta(**overrides: object) -> MagicMock:
 class TestReviewHogUiTriggerApi(APIBaseTest):
     # The settings GET below resolves stamphog_connected off the stamphog product DB.
     databases = {"default", "stamphog_db_writer", "stamphog_db_reader"}
+
+    def setUp(self) -> None:
+        super().setUp()
+        # The busy-guard probes Temporal on every trigger; tests must never open real connections.
+        busy_patcher = patch(_BUSY, return_value=False)
+        self.mock_busy = busy_patcher.start()
+        self.addCleanup(busy_patcher.stop)
 
     def _trigger(self, pr_url: str, run_mode: str | None = None):
         body: dict[str, str] = {"pr_url": pr_url}
@@ -107,6 +115,69 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
             acting_user_id=self.user.id,
             trigger_source="ui",
         )
+
+    @parameterized.expand(
+        [
+            # (name, run_mode, probed_workflow_id_prefix, error_fragment)
+            ("review_blocked_by_running_resolution", None, "resolve-pr", "Still resolving comments"),
+            ("resolve_only_blocked_by_running_review", "resolve_only", "review-pr", "review is already running"),
+        ]
+    )
+    @patch(_META, return_value=_pr_meta())
+    @patch(_ACCESS, return_value=object())
+    @patch(_START_RESOLUTION)
+    @patch(_START)
+    def test_busy_guard_refuses_the_cross_stage_start(
+        self,
+        _name,
+        run_mode,
+        probed_prefix,
+        error_fragment,
+        mock_start,
+        mock_start_resolution,
+        _mock_access,
+        _mock_meta,
+    ):
+        # The busy-guard: Temporal joins same-id starts, but review-pr and resolve-pr are different
+        # ids, so a dropped (or wrong-id) probe means a review racing the resolution session's
+        # pushes — the incident class this refusal exists for. Blocked, not queued.
+        self.mock_busy.return_value = True
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
+            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123", run_mode=run_mode)
+
+        self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT, resp.content)
+        self.assertIn(error_fragment, resp.json()["error"])
+        self.mock_busy.assert_called_once_with(f"{probed_prefix}:{self.team.id}:posthog/posthog.com:123")
+        mock_start.assert_not_called()
+        mock_start_resolution.assert_not_called()
+
+    @patch(_META, return_value=_pr_meta())
+    @patch(_ACCESS, return_value=object())
+    @patch(_START, return_value="wf-ui-1")
+    def test_trigger_during_a_running_cheaper_review_lifts_the_tier_and_says_so(
+        self, mock_start, _mock_access, _mock_meta
+    ):
+        # Same join as the label path: the requester's source never reaches the fetch upsert, so the
+        # lift is written here and the UI is told no new run started.
+        report = ReviewReport.objects.for_team(self.team.id).create(
+            team=self.team,
+            repository="posthog/posthog.com",
+            pr_number=123,
+            pr_url="https://github.com/PostHog/posthog.com/pull/123",
+            head_branch="fix",
+            base_branch="master",
+            review_tier="agent_p2",
+            review_reasoning_effort="medium",
+        )
+        self.mock_busy.side_effect = lambda workflow_id: workflow_id.startswith("review-pr:")
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
+            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123")
+
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
+        self.assertEqual(resp.json(), {"workflow_id": "wf-ui-1", "status": "joined_running_review"})
+        mock_start.assert_called_once()
+        report.refresh_from_db()
+        self.assertEqual((report.review_tier, report.review_reasoning_effort), ("human", "xhigh"))
 
     @patch(_ACCESS, return_value=object())
     @patch(_START_RESOLUTION)

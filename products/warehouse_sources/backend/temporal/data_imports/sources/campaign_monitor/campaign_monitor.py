@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
+    EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -32,6 +33,12 @@ DEFAULT_PAGE_SIZE = 1000  # Campaign Monitor's documented maximum page size.
 # Subscriber-state endpoints require a `date`; this fetches the full history (the filter is
 # inclusive from the given date onward). Used until server-side incremental is verified live.
 FULL_REFRESH_SINCE_DATE = "1900-01-01"
+# The journey report endpoints document their `date` as `YYYY-MM-DD HH:MM`, and default it to the
+# last 30 days when it is omitted — so it always has to be sent.
+JOURNEY_FULL_REFRESH_SINCE_DATE = "1900-01-01 00:00"
+# Intermediate resource fanning the journey summary out into one row per journey email. Not a
+# synced table: it exists so the journey report endpoints have an `EmailID` to resolve.
+JOURNEY_EMAILS_RESOURCE = "journey_emails"
 
 
 @dataclasses.dataclass
@@ -66,6 +73,10 @@ def _paginator() -> PageNumberPaginator:
 def _page_params(config: CampaignMonitorEndpointConfig) -> dict[str, Any]:
     # The `page` param itself is injected by the paginator.
     params: dict[str, Any] = {"pagesize": DEFAULT_PAGE_SIZE}
+    if config.journey_report:
+        params["date"] = JOURNEY_FULL_REFRESH_SINCE_DATE
+        params["orderdirection"] = "asc"
+        return params
     if config.uses_date_filter:
         params["date"] = FULL_REFRESH_SINCE_DATE
     if config.order_field:
@@ -132,18 +143,88 @@ def _top_level_resource(
     )
 
 
-def _inject_parent_id(prefixed_key: str, target_key: str) -> Callable[[dict[str, Any]], dict[str, Any] | list[Any]]:
+def _inject_parent_ids(renames: dict[str, str]) -> Callable[[dict[str, Any]], dict[str, Any] | list[Any]]:
     def _map(row: dict[str, Any]) -> dict[str, Any] | list[Any]:
-        value = row.pop(prefixed_key, None)
+        values = {target: row.pop(prefixed, None) for prefixed, target in renames.items()}
         if not row:
             # An empty body (e.g. a summary object with no fields) is not a row — drop it rather
-            # than emitting a record that carries only the injected parent id.
+            # than emitting a record that carries only the injected parent ids.
             return []
-        if value is not None:
-            row[target_key] = value
+        for target, value in values.items():
+            if value is not None:
+                row[target] = value
         return row
 
     return _map
+
+
+def _journeys_resource(client_id: str) -> EndpointResource:
+    # The client journeys endpoint returns a bare JSON array.
+    return {
+        "name": "journeys",
+        "endpoint": {
+            "path": f"clients/{client_id}/journeys.json",
+            "paginator": SinglePagePaginator(),
+            "data_selector_required": True,
+        },
+    }
+
+
+def _journey_emails_resource(name: str) -> EndpointResource:
+    """One row per journey email, read out of the journey summary's nested `Emails` array. Serves
+    both as the `journey_email_summary` table and as the parent the journey report endpoints
+    resolve their `EmailID` from — the journeys list itself carries no email ids."""
+    return {
+        "name": name,
+        "endpoint": {
+            "path": "journeys/{journey_id}.json",
+            "params": {"journey_id": {"type": "resolve", "resource": "journeys", "field": "JourneyID"}},
+            "paginator": SinglePagePaginator(),
+            # A journey with no emails yields a zero-row page rather than failing the sync.
+            "data_selector": "Emails",
+        },
+        "include_from_parent": ["JourneyID"],
+        "data_map": _inject_parent_ids({"_journeys_JourneyID": "JourneyID"}),
+    }
+
+
+def _child_resource(
+    config: CampaignMonitorEndpointConfig,
+    parent_name: str,
+    resolve_param: str,
+    resolve_field: str,
+    parent_columns: list[str],
+) -> EndpointResource:
+    params: dict[str, Any] = {
+        resolve_param: {"type": "resolve", "resource": parent_name, "field": resolve_field},
+    }
+
+    endpoint: Endpoint
+    if config.paginated:
+        params.update(_page_params(config))
+        endpoint = {
+            "path": config.path,
+            "params": params,
+            "paginator": _paginator(),
+            "data_selector": "Results",
+        }
+    else:
+        # Single-object endpoints (e.g. campaign summary) return one JSON object per parent,
+        # which the framework wraps as a single row.
+        endpoint = {
+            "path": config.path,
+            "params": params,
+            "paginator": SinglePagePaginator(),
+        }
+
+    return {
+        "name": config.name,
+        "endpoint": endpoint,
+        "include_from_parent": parent_columns,
+        # include_from_parent lands each parent column as `_<parent>_<column>`; rename them to the
+        # plain columns the composite primary keys expect.
+        "data_map": _inject_parent_ids({f"_{parent_name}_{column}": column for column in parent_columns}),
+    }
 
 
 def _fan_out_resource(
@@ -154,60 +235,54 @@ def _fan_out_resource(
     job_id: str,
     manager: ResumableSourceManager[CampaignMonitorResumeConfig],
 ) -> Resource:
-    """Fan a list-/campaign-scoped endpoint out over every parent via a dependent resource: the
-    framework fetches the client's lists (or sent campaigns), pages each parent's child endpoint,
-    and injects the parent id into every row."""
-    if config.fan_out_over_lists:
-        parent_name = "lists"
-        parent_path = f"clients/{client_id}/lists.json"
-        resolve_param, parent_id_field = "list_id", "ListID"
-    else:
-        # Only sent campaigns have reports, which is exactly what campaigns.json returns.
-        parent_name = "campaigns"
-        parent_path = f"clients/{client_id}/campaigns.json"
-        resolve_param, parent_id_field = "campaign_id", "CampaignID"
-
-    child_params: dict[str, Any] = {
-        resolve_param: {"type": "resolve", "resource": parent_name, "field": parent_id_field},
-    }
-    child_endpoint: Endpoint
-    if config.paginated:
-        child_params.update(_page_params(config))
-        child_endpoint = {
-            "path": config.path,
-            "params": child_params,
-            "paginator": _paginator(),
-            "data_selector": "Results",
-        }
-    else:
-        # Single-object endpoints (e.g. campaign summary) return one JSON object per parent,
-        # which the framework wraps as a single row.
-        child_endpoint = {
-            "path": config.path,
-            "params": child_params,
-            "paginator": SinglePagePaginator(),
-        }
-
-    rest_config: RESTAPIConfig = {
-        "client": _client_config(api_key),
-        "resources": [
+    """Fan a scoped endpoint out over every parent via dependent resources: the framework walks the
+    parents, pages each parent's child endpoint, and injects the parent ids into every row. The
+    journey report endpoints hang off a two-level chain, because a journey email id is exposed
+    nowhere but inside the journey summary."""
+    resources: list[str | EndpointResource]
+    if config.fan_out_over_journeys:
+        # The journey-emails resource IS this endpoint: the summary's `Emails` array is the table.
+        resources = [_journeys_resource(client_id), _journey_emails_resource(config.name)]
+    elif config.journey_report:
+        resources = [
+            _journeys_resource(client_id),
+            _journey_emails_resource(JOURNEY_EMAILS_RESOURCE),
+            _child_resource(config, JOURNEY_EMAILS_RESOURCE, "email_id", "EmailID", ["EmailID", "JourneyID"]),
+        ]
+    elif config.fan_out_over_lists:
+        resources = [
             {
-                "name": parent_name,
+                "name": "lists",
                 "endpoint": {
-                    "path": parent_path,
+                    # The subscriber-lists endpoint returns a bare JSON array.
+                    "path": f"clients/{client_id}/lists.json",
                     "paginator": SinglePagePaginator(),
                     "data_selector_required": True,
                 },
             },
+            _child_resource(config, "lists", "list_id", "ListID", ["ListID"]),
+        ]
+    else:
+        resources = [
             {
-                "name": config.name,
-                "endpoint": child_endpoint,
-                "include_from_parent": [parent_id_field],
-                # include_from_parent lands the parent id as `_lists_ListID`/`_campaigns_CampaignID`;
-                # rename it to the plain column the composite primary keys expect.
-                "data_map": _inject_parent_id(f"_{parent_name}_{parent_id_field}", parent_id_field),
+                "name": "campaigns",
+                "endpoint": {
+                    # Only sent campaigns have reports, which is exactly what campaigns.json
+                    # returns — in the standard paged envelope (`{"Results": [...],
+                    # "NumberOfPages": N, ...}`), not a bare array like the draft/scheduled
+                    # campaign endpoints.
+                    "path": f"clients/{client_id}/campaigns.json",
+                    "params": {"pagesize": DEFAULT_PAGE_SIZE},
+                    "paginator": _paginator(),
+                    "data_selector": "Results",
+                },
             },
-        ],
+            _child_resource(config, "campaigns", "campaign_id", "CampaignID", ["CampaignID"]),
+        ]
+
+    rest_config: RESTAPIConfig = {
+        "client": _client_config(api_key),
+        "resources": resources,
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
@@ -216,7 +291,8 @@ def _fan_out_resource(
         # Only framework-shaped fan-out state is resumable. A pre-migration bookmark
         # (list_id/campaign_id + page) can't be translated into the completed/current path map, so
         # such a sync restarts fresh — safe, because the merge dedupes re-pulled rows on the
-        # primary key.
+        # primary key. Nothing is ever saved for the two-level journey chain: the framework
+        # declines to share one resume hook across several dependent levels.
         if resume is not None and resume.fanout_state is not None:
             initial_paginator_state = resume.fanout_state
 
@@ -224,7 +300,7 @@ def _fan_out_resource(
         if state:
             manager.save_state(CampaignMonitorResumeConfig(fanout_state=state))
 
-    resources = rest_api_resources(
+    built = rest_api_resources(
         rest_config,
         team_id,
         job_id,
@@ -232,7 +308,7 @@ def _fan_out_resource(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
-    return next(r for r in resources if r.name == config.name)
+    return next(r for r in built if r.name == config.name)
 
 
 def campaign_monitor_source(
@@ -245,7 +321,7 @@ def campaign_monitor_source(
 ) -> SourceResponse:
     config = CAMPAIGN_MONITOR_ENDPOINTS[endpoint]
 
-    if config.fan_out_over_lists or config.fan_out_over_campaigns:
+    if config.is_fanned_out:
         resource = _fan_out_resource(api_key, client_id, config, team_id, job_id, resumable_source_manager)
     else:
         resource = _top_level_resource(api_key, client_id, config, team_id, job_id, resumable_source_manager)

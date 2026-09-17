@@ -157,7 +157,7 @@ await page.addInitScript(`
           orgProjectsMap: {},
           currentOrgId: "org-1",
           currentProjectId: 2,
-          hasCodeAccess: true,
+          desktopAccess: { projectId: 2, status: "allowed", reason: null },
           needsScopeReauth: false,
           sessionType: "desktop",
           sessionExpiresAt: null,

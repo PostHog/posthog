@@ -1,9 +1,10 @@
+import ipaddress
 from contextlib import nullcontext
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Literal, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from unittest.mock import ANY, AsyncMock, patch
 
@@ -22,8 +23,10 @@ from posthog.hogql.errors import QueryError
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.filters.filter import Filter
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.settings import (
     HOGQL_INCREASED_MAX_EXECUTION_TIME,
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -33,17 +36,18 @@ from posthog.settings import (
 )
 from posthog.tasks import exporter
 from posthog.temporal.session_replay.rasterize_recording.types import RASTERIZE_WORKFLOW_TIMEOUT
+from posthog.test.insight_queries import browser_filtered_pageview_query
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
 from products.exports.backend.models.exported_asset import DATASET_EXPORT_KIND, ExportedAsset
+from products.exports.backend.source_authentication import required_scopes_for_export_target
 from products.exports.backend.tasks.failure_handler import FAILURE_TYPE_SYSTEM, FAILURE_TYPE_USER
 from products.exports.backend.tasks.image_exporter import export_image
-from products.product_analytics.backend.api.insight import InsightSerializer
-from products.product_analytics.backend.models.insight import Insight
-
-from ee.models.rbac.access_control import AccessControl
+from products.product_analytics.backend.facade.models import Insight
+from products.product_analytics.backend.presentation.insight import InsightSerializer
 
 TEST_ROOT_BUCKET = "test_exports"
 
@@ -76,6 +80,53 @@ class TestExports(APIBaseTest):
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_ROOT_BUCKET).delete()
 
+    def test_heatmap_export_requires_heatmap_scope(self) -> None:
+        assert required_scopes_for_export_target(
+            insight_id=None,
+            dashboard_id=None,
+            export_context={"heatmap_url": "https://example.com/page"},
+        ) == ["export:write", "heatmap:read"]
+
+    @parameterized.expand(
+        [
+            (
+                "us_same_origin",
+                "https://us.posthog.com",
+                "https://us.posthog.com/api/environments/1/heatmap_screenshots/2/content/",
+                201,
+            ),
+            (
+                "eu_same_origin",
+                "https://eu.posthog.com",
+                "https://eu.posthog.com/api/environments/1/heatmap_screenshots/2/content/",
+                201,
+            ),
+            ("cross_origin", "https://us.posthog.com", "https://example.com/collect", 400),
+        ]
+    )
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_screenshot_heatmap_export_requires_same_origin_url(
+        self, _name: str, site_url: str, heatmap_url: str, expected_status: int, mock_exporter_task
+    ) -> None:
+        with self.settings(SITE_URL=site_url):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/exports/",
+                {
+                    "export_format": ExportedAsset.ExportFormat.PNG,
+                    "export_context": {
+                        "heatmap_url": heatmap_url,
+                        "heatmap_data_url": "https://example.com/page",
+                        "heatmap_type": "screenshot",
+                    },
+                },
+            )
+
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_201_CREATED:
+            mock_exporter_task.assert_called_once()
+        else:
+            mock_exporter_task.assert_not_called()
+
     insight_filter_dict = {
         "events": [{"id": "$pageview"}],
         "properties": [{"key": "$browser", "value": "Mac OS X"}],
@@ -87,7 +138,7 @@ class TestExports(APIBaseTest):
 
         cls.dashboard = Dashboard.objects.create(team=cls.team, name="example dashboard", created_by=cls.user)
         cls.insight = Insight.objects.create(
-            filters=Filter(data=cls.insight_filter_dict).to_dict(),
+            query=browser_filtered_pageview_query(),
             team=cls.team,
             created_by=cls.user,
             name="example insight",
@@ -96,6 +147,122 @@ class TestExports(APIBaseTest):
         cls.exported_asset = ExportedAsset.objects.create(
             team=cls.team, dashboard_id=cls.dashboard.id, export_format="image/png", created_by=cls.user
         )
+
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_api_path_export_rejects_mutating_requests(self, mock_exporter_task) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports/",
+            {
+                "export_format": "text/csv",
+                "export_context": {
+                    "path": f"/api/organizations/{self.organization.id}/invites/",
+                    "method": "POST",
+                    "body": {"target_email": "security-test@example.com", "level": 8},
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_exporter_task.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("missing_query_scope", ["export:write"], status.HTTP_403_FORBIDDEN),
+            ("query_scope", ["export:write", "query:read"], status.HTTP_201_CREATED),
+        ]
+    )
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_query_export_requires_query_scope(
+        self, _name: str, scopes: list[str], expected_status: int, mock_exporter_task
+    ) -> None:
+        token = generate_random_token_personal()
+        personal_api_key = PersonalAPIKey.objects.create(
+            user=self.user,
+            label="query export key",
+            secure_value=hash_key_value(token),
+            scopes=scopes,
+            scoped_teams=[self.team.id],
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports/",
+            {
+                "export_format": "text/csv",
+                "export_context": {"source": {"kind": "HogQLQuery", "query": "select 1"}},
+            },
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_201_CREATED:
+            exported_asset = ExportedAsset.objects.get(id=response.json()["id"])
+            assert exported_asset.source_authentication == ExportedAsset.SourceAuthentication.PERSONAL_API_KEY
+            assert exported_asset.source_credential_id == personal_api_key.id
+            mock_exporter_task.assert_called_once()
+        else:
+            mock_exporter_task.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("insight_missing_scope", "insight", ["export:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "insight_read_scope",
+                "insight",
+                ["export:write", "insight:read"],
+                status.HTTP_201_CREATED,
+            ),
+            ("dashboard_missing_scope", "dashboard", ["export:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "dashboard_read_scope",
+                "dashboard",
+                ["export:write", "dashboard:read"],
+                status.HTTP_201_CREATED,
+            ),
+            ("recording_missing_scope", "recording", ["export:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "recording_read_scope",
+                "recording",
+                ["export:write", "session_recording:read"],
+                status.HTTP_201_CREATED,
+            ),
+        ]
+    )
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_typed_export_requires_resource_read_scope(
+        self,
+        _name: str,
+        target: Literal["insight", "dashboard", "recording"],
+        scopes: list[str],
+        expected_status: int,
+        mock_exporter_task,
+    ) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="typed export key",
+            secure_value=hash_key_value(token),
+            scopes=scopes,
+            scoped_teams=[self.team.id],
+        )
+        payload: dict[str, object] = {"export_format": ExportedAsset.ExportFormat.PNG}
+        if target == "insight":
+            payload["insight"] = self.insight.id
+        elif target == "dashboard":
+            payload["dashboard"] = self.dashboard.id
+        else:
+            payload["export_context"] = {"session_recording_id": "typed-export-recording"}
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports/",
+            payload,
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_201_CREATED:
+            mock_exporter_task.assert_called_once()
+        else:
+            mock_exporter_task.assert_not_called()
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_create_new_valid_export_dashboard(self, mock_exporter_task) -> None:
@@ -121,7 +288,7 @@ class TestExports(APIBaseTest):
             "insight": None,
             "export_context": None,
             # PNG format gets 180 days (6 months) expiry
-            "expires_after": (now() + timedelta(days=180))
+            "expires_after": (now() + timedelta(days=180) + timedelta(days=1))
             .replace(hour=0, minute=0, second=0, microsecond=0)
             .isoformat()
             .replace("+00:00", "Z"),
@@ -147,7 +314,7 @@ class TestExports(APIBaseTest):
 
         # Expiry is determined by format (PNG = 180 days), not the provided value
         expected_expiry = (
-            (now() + timedelta(days=180))
+            (now() + timedelta(days=180) + timedelta(days=1))
             .replace(hour=0, minute=0, second=0, microsecond=0)
             .isoformat()
             .replace("+00:00", "Z")
@@ -172,9 +339,7 @@ class TestExports(APIBaseTest):
         assert mock_exporter_task.call_args[0][0].id == data["id"]
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
-    def test_swallow_missing_schema_and_allow_front_end_to_poll(self, mock_exporter_task) -> None:
-        # regression test see https://github.com/PostHog/posthog/issues/11204
-
+    def test_accepts_legacy_insight_api_path_export(self, mock_exporter_task) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {
@@ -184,18 +349,12 @@ class TestExports(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(
-            response.status_code,
-            status.HTTP_201_CREATED,
-            msg=f"was not HTTP 201 😱 - {response.json()}",
-        )
-        data = response.json()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         mock_exporter_task.assert_called_once()
-        assert mock_exporter_task.call_args[0][0].id == data["id"]
 
     @patch("products.exports.backend.tasks.image_exporter._export_to_png")
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_can_create_new_valid_export_insight(self, mock_exporter_task, mock_export_to_png) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
@@ -216,7 +375,7 @@ class TestExports(APIBaseTest):
                 "exception": None,
                 "export_context": None,
                 # PNG format gets 180 days (6 months) expiry
-                "expires_after": (now() + timedelta(days=180))
+                "expires_after": (now() + timedelta(days=180) + timedelta(days=1))
                 .replace(hour=0, minute=0, second=0, microsecond=0)
                 .isoformat()
                 .replace("+00:00", "Z"),
@@ -345,6 +504,22 @@ class TestExports(APIBaseTest):
             },
         )
 
+    def test_errors_if_the_request_picks_its_own_limit_context(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "image/png",
+                "export_context": {
+                    "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
+                    "limit_context": "posthog_ai",
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "export_context")
+        self.assertEqual(response.json()["detail"], "limit_context is not supported for exports.")
+
     @parameterized.expand(["not/allowed", ExportedAsset.ExportFormat.JSONL])
     def test_errors_if_bad_format(self, export_format: str) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": export_format})
@@ -458,9 +633,8 @@ class TestExports(APIBaseTest):
             },
         )
 
-    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     @patch("products.exports.backend.tasks.csv_exporter.requests.request")
-    def test_can_download_a_csv(self, patched_request, _mock_workflow) -> None:
+    def test_can_download_a_csv(self, patched_request) -> None:
         with self.settings(SITE_URL="http://testserver", OBJECT_STORAGE_ENABLED=False):
             _create_event(
                 event="event_name",
@@ -502,36 +676,29 @@ class TestExports(APIBaseTest):
 
             patched_request.side_effect = requests_side_effect
 
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/exports",
-                {
-                    "export_format": "text/csv",
-                    "export_context": {
-                        "path": "&".join(
-                            [
-                                f"/api/projects/{self.team.id}/events?orderBy=%5B%22-timestamp%22%5D",
-                                "properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D",
-                                f"after={after}",
-                            ]
-                        )
-                    },
-                },
+            path = "&".join(
+                [
+                    f"/api/projects/{self.team.id}/events?orderBy=%5B%22-timestamp%22%5D",
+                    "properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D",
+                    f"after={after}",
+                ]
             )
-            self.assertEqual(
-                response.status_code,
-                status.HTTP_201_CREATED,
-                msg=f"was not HTTP 201 😱 - {response.json()}",
+            instance = ExportedAsset.objects.create(
+                team=self.team,
+                created_by=self.user,
+                export_format=ExportedAsset.ExportFormat.CSV,
+                export_context={"path": path},
+                source_authentication=ExportedAsset.SourceAuthentication.SESSION,
             )
-            instance = response.json()
 
             # limit the query to force it to page against the API
-            exporter.export_asset(instance["id"], limit=1)
+            exporter.export_asset(instance.id, limit=1)
 
             download_response: Optional[HttpResponse] = None
             attempt_count = 0
             while attempt_count < 10 and not download_response:
                 download_response = self.client.get(
-                    f"/api/projects/{self.team.id}/exports/{instance['id']}/content?download=true"
+                    f"/api/projects/{self.team.id}/exports/{instance.id}/content?download=true"
                 )
                 attempt_count += 1
 
@@ -673,7 +840,7 @@ class TestExports(APIBaseTest):
         self.assertIn(ordinary_export.id, {result["id"] for result in list_response.json()["results"]})
 
     def test_list_shows_stuck_exports_as_failed_in_response(self) -> None:
-        with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):
+        with time_machine.travel(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME), tick=False):
             # Create an export that's older than HOGQL_INCREASED_MAX_EXECUTION_TIME
             stuck_export = ExportedAsset.objects.create(
                 team=self.team,
@@ -802,7 +969,7 @@ class TestExports(APIBaseTest):
         age: timedelta,
         expected_failed: bool,
     ) -> None:
-        with freeze_time(now() - age):
+        with time_machine.travel(now() - age, tick=False):
             export = ExportedAsset.objects.create(
                 team=self.team,
                 export_format=export_format,
@@ -823,7 +990,7 @@ class TestExports(APIBaseTest):
         stays incomplete, so the count reflects how often clients poll rather than how many exports
         failed.
         """
-        with freeze_time(now() - RASTERIZE_WORKFLOW_TIMEOUT - timedelta(minutes=1)):
+        with time_machine.travel(now() - RASTERIZE_WORKFLOW_TIMEOUT - timedelta(minutes=1), tick=False):
             ExportedAsset.objects.create(
                 team=self.team,
                 export_format=ExportedAsset.ExportFormat.MP4,
@@ -838,7 +1005,7 @@ class TestExports(APIBaseTest):
         self.assertEqual([call for call in mock_capture.call_args_list if "export" in str(call)], [])
 
     def test_retrieve_shows_stuck_export_as_failed_in_response(self) -> None:
-        with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):
+        with time_machine.travel(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME), tick=False):
             # Create an export that's older than HOGQL_INCREASED_MAX_EXECUTION_TIME
             stuck_export = ExportedAsset.objects.create(
                 team=self.team,
@@ -1320,9 +1487,9 @@ class TestExports(APIBaseTest):
             ("image/png", timedelta(days=180)),
             ("text/csv", timedelta(days=7)),
             ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", timedelta(days=7)),
-            ("video/mp4", timedelta(days=365)),
-            ("video/webm", timedelta(days=365)),
-            ("image/gif", timedelta(days=365)),
+            ("video/mp4", timedelta(days=30)),
+            ("video/webm", timedelta(days=30)),
+            ("image/gif", timedelta(days=30)),
             ("application/pdf", timedelta(days=180)),
         ]
     )
@@ -1350,7 +1517,7 @@ class TestExports(APIBaseTest):
         data = response.json()
 
         expected_expiry = (
-            (now() + expected_delta)
+            (now() + expected_delta + timedelta(days=1))
             .replace(hour=0, minute=0, second=0, microsecond=0)
             .isoformat()
             .replace("+00:00", "Z")
@@ -1463,7 +1630,7 @@ class TestExports(APIBaseTest):
 
     @patch("products.exports.backend.api.exports.async_to_sync")
     @patch("products.exports.backend.api.exports.async_connect")
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_video_export_limit_resets_monthly(self, mock_async_connect, mock_async_to_sync) -> None:
         """Test that the video export limit resets at the beginning of each month"""
 
@@ -1489,7 +1656,7 @@ class TestExports(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         # Move to February 1st
-        with freeze_time("2024-02-01T12:00:00Z"):
+        with time_machine.travel("2024-02-01T12:00:00Z", tick=False):
             # Should succeed in February (limit reset)
             response = self.client.post(
                 f"/api/projects/{self.team.id}/exports",
@@ -1754,8 +1921,6 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
         ]
     )
     def test_accepts_valid_heatmap_url(self, _name: str, url: str) -> None:
-        import ipaddress
-
         with (
             patch("posthog.security.url_validation.resolve_host_ips") as mock_resolve,
             patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow"),
@@ -1770,17 +1935,38 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    @parameterized.expand(
+        [
+            ("http", "http://app.example.com:80", "http://app.example.com/heatmap"),
+            ("https", "https://app.example.com:443", "https://app.example.com/heatmap"),
+        ]
+    )
+    def test_accepts_screenshot_url_with_default_site_port(self, _name: str, site_url: str, heatmap_url: str) -> None:
+        with (
+            self.settings(SITE_URL=site_url),
+            patch("posthog.security.url_validation.resolve_host_ips") as mock_resolve,
+            patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow"),
+        ):
+            mock_resolve.return_value = {ipaddress.ip_address("93.184.216.34")}
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/exports",
+                {
+                    "export_format": "image/png",
+                    "export_context": {"heatmap_url": heatmap_url, "heatmap_type": "screenshot"},
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
 
 class TestExportMixin(APIBaseTest):
     def _get_export_output(self, path: str) -> list[str]:
         """
         Use this function to test the CSV output of exports in other tests
         """
+        path = "/" + path.lstrip("/")
         with self.settings(SITE_URL="http://testserver", OBJECT_STORAGE_ENABLED=False):
-            with (
-                patch("products.exports.backend.tasks.csv_exporter.requests.request") as patched_request,
-                patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow"),
-            ):
+            with patch("products.exports.backend.tasks.csv_exporter.requests.request") as patched_request:
 
                 def requests_side_effect(*args, **kwargs):
                     response = self.client.get(kwargs["url"], kwargs["json"], **kwargs["headers"])
@@ -1794,21 +1980,17 @@ class TestExportMixin(APIBaseTest):
 
                 patched_request.side_effect = requests_side_effect
 
-                response = self.client.post(
-                    f"/api/projects/{self.team.pk}/exports/",
-                    {
-                        "export_context": {
-                            "path": path,
-                        },
-                        "export_format": "text/csv",
-                    },
+                asset = ExportedAsset.objects.create(
+                    team=self.team,
+                    created_by=self.user,
+                    export_context={"path": path},
+                    export_format=ExportedAsset.ExportFormat.CSV,
+                    source_authentication=ExportedAsset.SourceAuthentication.SESSION,
                 )
-                # Workflow is mocked so the export content isn't generated during
-                # the POST. Run the exporter directly to produce CSV content.
-                exporter.export_asset(response.json()["id"])
+                exporter.export_asset(asset.id)
 
                 download_response = self.client.get(
-                    f"/api/projects/{self.team.id}/exports/{response.json()['id']}/content?download=true"
+                    f"/api/projects/{self.team.id}/exports/{asset.id}/content?download=true"
                 )
                 return [str(x) for x in download_response.content.splitlines()]
 

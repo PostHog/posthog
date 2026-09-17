@@ -1,4 +1,4 @@
-import { IconRevert, IconSparkles, IconX } from '@posthog/icons'
+import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -11,6 +11,8 @@ import { SidePanelTab } from '~/types'
 import { buildHealthIssuePrompt, severityToTagType } from '../healthUtils'
 import type { HealthIssue } from '../types'
 import { SEVERITY_ORDER } from '../types'
+import { HealthIssueActions } from './HealthIssueActions'
+import { HealthIssueSnoozedTag } from './HealthIssueSnoozedTag'
 
 export function severityColumn(): LemonTableColumn<HealthIssue, keyof HealthIssue | undefined> {
     return {
@@ -19,16 +21,20 @@ export function severityColumn(): LemonTableColumn<HealthIssue, keyof HealthIssu
         width: 100,
         render: function Render(_, issue: HealthIssue) {
             return (
-                <LemonTag type={severityToTagType(issue.severity)} size="small">
-                    {issue.severity}
-                </LemonTag>
+                <div className="flex items-center gap-1">
+                    <LemonTag type={severityToTagType(issue.severity)} size="small">
+                        {issue.severity}
+                    </LemonTag>
+                    <HealthIssueSnoozedTag issue={issue} />
+                </div>
             )
         },
         sorter: (a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity),
     }
 }
 
-export function dismissActionColumn(
+export function issueActionsColumn(
+    onSnooze: (id: string, duration: string) => void,
     onDismiss: (id: string) => void,
     onUndismiss: (id: string) => void
 ): LemonTableColumn<HealthIssue, keyof HealthIssue | undefined> {
@@ -56,12 +62,11 @@ export function dismissActionColumn(
                             }
                         />
                     )}
-                    <LemonButton
-                        size="xsmall"
-                        type="tertiary"
-                        icon={issue.dismissed ? <IconRevert /> : <IconX />}
-                        tooltip={issue.dismissed ? 'Undismiss' : 'Dismiss'}
-                        onClick={() => (issue.dismissed ? onUndismiss(issue.id) : onDismiss(issue.id))}
+                    <HealthIssueActions
+                        issue={issue}
+                        onSnooze={onSnooze}
+                        onDismiss={onDismiss}
+                        onUndismiss={onUndismiss}
                     />
                 </div>
             )

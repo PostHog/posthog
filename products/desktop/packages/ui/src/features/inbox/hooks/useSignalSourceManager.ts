@@ -43,6 +43,7 @@ export function useSignalSourceManager() {
     handleUpdateTeamSlackChannel: teamMutations.handleUpdateTeamSlackChannel,
     handleUpdateAutostartBaseBranches:
       teamMutations.handleUpdateAutostartBaseBranches,
+    handleUpdateMaxReportsPerDay: teamMutations.handleUpdateMaxReportsPerDay,
 
     // User autonomy
     userAutonomyConfig,

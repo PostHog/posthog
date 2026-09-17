@@ -3,6 +3,7 @@ from typing import Optional, Union
 from posthog.hogql import ast
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.visitor import TraversingVisitor
 
 
 def is_aggregation_function(function_name: str) -> bool:
@@ -75,6 +76,33 @@ def extract_aggregation_and_inner_expr(
     else:
         # Not an aggregation function - return the whole expression as the inner part
         return None, expr, None, False
+
+
+# Registered in HOGQL_AGGREGATIONS for their rewriting behavior but compile to scalar
+# expressions — not real aggregates (md5 -> hex(MD5(...))).
+_SCALAR_REGISTRY_QUIRKS = frozenset({"md5"})
+
+
+class _AggregationFinder(TraversingVisitor):
+    def __init__(self):
+        super().__init__()
+        self.found = False
+
+    def visit_call(self, node: ast.Call):
+        if node.name.lower() not in _SCALAR_REGISTRY_QUIRKS and is_aggregation_function(node.name):
+            self.found = True
+            return
+        for arg in node.args:
+            self.visit(arg)
+        for param in node.params or []:
+            self.visit(param)
+
+
+def contains_aggregation(expr: ast.Expr) -> bool:
+    """Whether a real aggregate call appears anywhere in the expression."""
+    finder = _AggregationFinder()
+    finder.visit(expr)
+    return finder.found
 
 
 _NON_NUMERIC_AGGREGATIONS = frozenset(

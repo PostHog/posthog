@@ -106,9 +106,6 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   }[]
               }
             | {
-                  delay_duration: string
-              }
-            | {
                   reason?: string | undefined
               }
             | {
@@ -129,6 +126,7 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   filters: {
                       all_roles_unassigned?: boolean | undefined
                       assigned_to_user_ids?: number[] | undefined
+                      assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                       audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
                       tag_names?: string[] | undefined
@@ -143,6 +141,14 @@ export interface stepWaitUntilTimeWindowLogicActions {
                       properties?: any[] | undefined
                   }
                   type: 'event'
+              }
+            | {
+                  filters: {
+                      events: any[]
+                      properties?: any[] | undefined
+                      source: 'internal-events'
+                  }
+                  type: 'internal-event'
               }
             | {
                   condition: {
@@ -170,6 +176,21 @@ export interface stepWaitUntilTimeWindowLogicActions {
                         }[]
                       | undefined
                   max_wait_duration: string
+              }
+            | {
+                  delay_duration?: string | undefined
+                  delay_until?:
+                      | {
+                            bytecode?: any
+                            bytecode_error?: string | undefined
+                            expression: string
+                            fallback_timezone?: string | null | undefined
+                            offset?: string | undefined
+                            timezone?: string | null | undefined
+                            use_person_timezone?: boolean | undefined
+                        }
+                      | undefined
+                  max_delay_duration?: string | undefined
               }
             | {
                   inputs: Record<
@@ -237,7 +258,12 @@ export interface stepWaitUntilTimeWindowLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'signals_scout'
                                           | 'string'
+                                          | 'task_mcp_installations'
+                                          | 'task_model'
+                                          | 'task_repository'
+                                          | 'task_skills'
                                   }[]
                                 | undefined
                             name: string
@@ -253,6 +279,14 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   key_property?: string | undefined
                   table_name: string
                   type: 'data-warehouse-table'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  key_property?: string | undefined
+                  table_name: string
+                  type: 'data-warehouse-view'
               }
             | {
                   inputs: Record<
@@ -370,9 +404,6 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   }[]
               }
             | {
-                  delay_duration: string
-              }
-            | {
                   reason?: string | undefined
               }
             | {
@@ -391,6 +422,14 @@ export interface stepWaitUntilTimeWindowLogicActions {
               }
             | {
                   filters: {
+                      events: any[]
+                      properties?: any[] | undefined
+                      source: 'internal-events'
+                  }
+                  type: 'internal-event'
+              }
+            | {
+                  filters: {
                       actions?: any[] | undefined
                       events?: any[] | undefined
                       filter_test_accounts?: boolean | undefined
@@ -402,6 +441,7 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   filters: {
                       all_roles_unassigned?: boolean | undefined
                       assigned_to_user_ids?: number[] | undefined
+                      assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                       audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
                       tag_names?: string[] | undefined
@@ -436,12 +476,35 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   max_wait_duration: string
               }
             | {
+                  delay_duration?: string | undefined
+                  delay_until?:
+                      | {
+                            bytecode?: any
+                            bytecode_error?: string | undefined
+                            expression: string
+                            fallback_timezone?: string | null | undefined
+                            offset?: string | undefined
+                            timezone?: string | null | undefined
+                            use_person_timezone?: boolean | undefined
+                        }
+                      | undefined
+                  max_delay_duration?: string | undefined
+              }
+            | {
                   filters: {
                       properties?: any[] | undefined
                   }
                   key_property?: string | undefined
                   table_name: string
                   type: 'data-warehouse-table'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  key_property?: string | undefined
+                  table_name: string
+                  type: 'data-warehouse-view'
               }
             | {
                   inputs: Record<
@@ -509,7 +572,12 @@ export interface stepWaitUntilTimeWindowLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'signals_scout'
                                           | 'string'
+                                          | 'task_mcp_installations'
+                                          | 'task_model'
+                                          | 'task_repository'
+                                          | 'task_skills'
                                   }[]
                                 | undefined
                             name: string

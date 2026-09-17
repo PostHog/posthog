@@ -1,6 +1,6 @@
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeVar
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -60,6 +60,24 @@ class SourceSchema:
     # The SQL sources' location keys above (source_catalog/source_schema/source_table_name)
     # stay separate: their persistence is gated on column-selection/direct-query paths.
     schema_metadata: dict[str, Any] | None = None
+
+
+def rank_incremental_fields(incremental_fields: list[IncrementalField]) -> list[IncrementalField]:
+    """Stable-sort candidate cursor fields so update-tracking columns come first.
+
+    Several surfaces default to the first candidate (the schema picker response, the sync
+    settings modal), so for sources with arbitrary user columns the leading candidate must
+    be one that advances on writes rather than whichever column comes first in the table
+    definition. Fields not in the preference list keep their original relative order.
+    """
+
+    def preference(field: IncrementalField) -> int:
+        name = (field.get("field") or "").lower()
+        if name in _INCREMENTAL_FIELD_PREFERENCE:
+            return _INCREMENTAL_FIELD_PREFERENCE.index(name)
+        return len(_INCREMENTAL_FIELD_PREFERENCE)
+
+    return sorted(incremental_fields, key=preference)
 
 
 def _select_incremental_field(incremental_fields: list[IncrementalField]) -> IncrementalField | None:
@@ -192,3 +210,28 @@ def build_endpoint_schemas(
         schemas = [s for s in schemas if s.name in names_set]
 
     return schemas
+
+
+_ResourceSchema = TypeVar("_ResourceSchema")
+
+# Marks a resource the running worker has no schema definition for. Matched by
+# `import_data_sync` to classify the failure as retryable.
+UNKNOWN_RESOURCE_PREFIX = "This table is not available on this worker yet:"
+
+
+class UnknownResourceError(Exception):
+    """The worker's resource catalog holds no schema for the table being synced."""
+
+
+def schema_for_resource(schemas: Mapping[str, _ResourceSchema], resource_name: str) -> _ResourceSchema:
+    """Look up a resource's schema definition, with a clear error when the worker doesn't know it.
+
+    The web pods and the data-import workers deploy separately, so for up to about an hour after a
+    new resource ships the schema picker offers a table the worker cannot resolve yet. A bare
+    ``KeyError`` there reports as a bug and shows the customer a raw Python error; this named error
+    is classified retryable instead, so the sync recovers once the rollout finishes.
+    """
+    try:
+        return schemas[resource_name]
+    except KeyError:
+        raise UnknownResourceError(f"{UNKNOWN_RESOURCE_PREFIX} {resource_name}") from None

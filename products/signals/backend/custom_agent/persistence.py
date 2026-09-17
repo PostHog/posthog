@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from django.db import transaction
+from django.utils import timezone
 
 from products.signals.backend.artefact_schemas import ArtefactContent, SuggestedReviewers
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
@@ -43,6 +44,9 @@ def create_custom_agent_ready_report(
             summary=final_report.description,
             signal_count=0,
             total_weight=0.0,
+            # Born directly READY without passing through transition_to (which stamps this for
+            # pipeline reports), so the daily report limit counts it from creation.
+            first_visible_at=timezone.now(),
         )
 
         # Written through the model helpers (the single artefact write path). Auto-start is
@@ -106,16 +110,21 @@ def create_custom_agent_ready_report(
     # are written after the assignees append, so a registered SuggestedReviewers overrides it —
     # including an empty one, which is a persisted "no reviewers" state and must still emit.
     reviewer_logins = [assignee.github_login for assignee in final_report.assignees]
+    reviewer_user_uuids: list[str] = []
     reviewers_written = bool(final_report.assignees)
     for artefact_content in registered_artefacts:
         if isinstance(artefact_content, SuggestedReviewers):
             reviewers_written = True
-            reviewer_logins = [entry.github_login for entry in artefact_content.root]
+            reviewer_logins = [entry.github_login for entry in artefact_content.root if entry.github_login]
+            reviewer_user_uuids = [
+                entry.user_uuid for entry in artefact_content.root if entry.user_uuid and not entry.github_login
+            ]
     if reviewers_written:
         capture_suggested_reviewers_resolved(
             team_id=team_id,
             report_id=str(report.id),
             github_logins=reviewer_logins,
+            user_uuids=reviewer_user_uuids,
             source="custom_agent",
         )
 

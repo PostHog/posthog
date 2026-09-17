@@ -2,9 +2,10 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
+from posthog.models import Organization, OrganizationMembership, PropertyDefinition
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.access_control.backend.property_access_control import (
     PropertyAccessLevel,
     _restriction_cache_var,
@@ -89,7 +90,7 @@ class TestGetPropertyAccessLevel(BaseTest):
         assert level.grants_access()
 
     def test_read_role_rule_grants_access(self):
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         role = Role.objects.create(name="Reader", organization=self.organization)
         RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
@@ -143,7 +144,7 @@ class TestGetPropertyAccessLevel(BaseTest):
     def test_org_admin_bypasses_role_restriction(self):
         from posthog.models import OrganizationMembership
 
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -200,7 +201,7 @@ class TestGetPropertyAccessLevel(BaseTest):
         assert level == PropertyAccessLevel.NONE
 
     def test_role_rule_overrides_default(self):
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         role = Role.objects.create(name="Analyst", organization=self.organization)
         RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
@@ -222,7 +223,7 @@ class TestGetPropertyAccessLevel(BaseTest):
         assert level == PropertyAccessLevel.READ_WRITE
 
     def test_user_rule_takes_priority_over_role_rule(self):
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         role = Role.objects.create(name="Viewer", organization=self.organization)
         RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
@@ -245,7 +246,7 @@ class TestGetPropertyAccessLevel(BaseTest):
         assert level == PropertyAccessLevel.NONE
 
     def test_multiple_roles_most_permissive_wins(self):
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         role_viewer = Role.objects.create(name="Viewer", organization=self.organization)
         role_analyst = Role.objects.create(name="Analyst", organization=self.organization)
@@ -393,7 +394,7 @@ class TestGetRestrictedPropertiesForTeam(BaseTest):
         assert restricted == set()
 
     def test_role_override_removes_from_restricted(self):
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         role = Role.objects.create(name="Analyst", organization=self.organization)
         RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
@@ -413,6 +414,30 @@ class TestGetRestrictedPropertiesForTeam(BaseTest):
         )
         restricted = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
         assert restricted == set()
+
+    def test_role_membership_from_another_organization_does_not_remove_restriction(self):
+        other_organization = Organization.objects.create(name="Other organization")
+        other_membership = OrganizationMembership.objects.create(
+            organization=other_organization,
+            user=self.user,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        role = Role.objects.create(name="Analyst", organization=self.organization)
+        RoleMembership.objects.create(role=role, user=self.user, organization_member=other_membership)
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.event_prop,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.event_prop,
+            access_level=PropertyAccessLevel.READ_WRITE.value,
+            role=role,
+        )
+
+        restricted = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
+        assert restricted == {("secret_event_prop", PropertyDefinition.Type.EVENT)}
 
 
 class TestRestrictionCacheScope(BaseTest):

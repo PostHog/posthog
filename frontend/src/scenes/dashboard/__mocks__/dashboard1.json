@@ -18,13 +18,25 @@
                 "short_id": "NqD3cS7N",
                 "name": "Weekly signups",
                 "derived_name": null,
-                "filters": {
-                    "events": [{ "id": "signed_up", "type": "events", "order": 0 }],
-                    "actions": [],
-                    "display": "ActionsLineGraph",
-                    "insight": "TRENDS",
-                    "interval": "week",
-                    "date_from": "-8w"
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "dateRange": {
+                            "date_from": "-8w"
+                        },
+                        "series": [
+                            {
+                                "kind": "EventsNode",
+                                "event": "signed_up",
+                                "math": "total"
+                            }
+                        ],
+                        "interval": "week",
+                        "trendsFilter": {
+                            "display": "ActionsLineGraph"
+                        }
+                    }
                 },
                 "filters_hash": "cache_e70019305379d96e7996f34fc0a3fc1f",
                 "order": null,
@@ -232,14 +244,28 @@
                 "short_id": "Mwbqlk39",
                 "name": "Last month's signups by country",
                 "derived_name": null,
-                "filters": {
-                    "events": [{ "id": "signed_up", "type": "events", "order": 0 }],
-                    "actions": [],
-                    "display": "WorldMap",
-                    "insight": "TRENDS",
-                    "breakdown": "$geoip_country_code",
-                    "date_from": "-1m",
-                    "breakdown_type": "event"
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "dateRange": {
+                            "date_from": "-1m"
+                        },
+                        "series": [
+                            {
+                                "kind": "EventsNode",
+                                "event": "signed_up",
+                                "math": "total"
+                            }
+                        ],
+                        "breakdownFilter": {
+                            "breakdown_type": "event",
+                            "breakdown": "$geoip_country_code"
+                        },
+                        "trendsFilter": {
+                            "display": "WorldMap"
+                        }
+                    }
                 },
                 "filters_hash": "cache_ceb3f58b5afdd69bd25c42f87b0359c9",
                 "order": null,
@@ -804,26 +830,48 @@
                 "short_id": "H6Vw9ZiY",
                 "name": "New user retention",
                 "derived_name": null,
-                "filters": {
-                    "period": "Week",
-                    "display": "ActionsTable",
-                    "insight": "RETENTION",
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "type": "AND",
-                                "values": [
-                                    { "key": "email", "type": "person", "value": "is_set", "operator": "is_set" }
-                                ]
-                            }
-                        ]
-                    },
-                    "target_entity": { "id": "signed_up", "name": "signed_up", "type": "events", "order": 0 },
-                    "retention_type": "retention_first_time",
-                    "total_intervals": 9,
-                    "returning_entity": { "id": 1, "name": "Interacted with file", "type": "actions", "order": 0 },
-                    "date_from": "-7d"
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "RetentionQuery",
+                        "properties": {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "email",
+                                            "type": "person",
+                                            "value": "is_set",
+                                            "operator": "is_set"
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        "dateRange": {
+                            "date_from": "-7d"
+                        },
+                        "retentionFilter": {
+                            "retentionType": "retention_first_time",
+                            "totalIntervals": 9,
+                            "returningEntity": {
+                                "id": 1,
+                                "name": "Interacted with file",
+                                "type": "actions",
+                                "order": 0
+                            },
+                            "targetEntity": {
+                                "id": "signed_up",
+                                "name": "signed_up",
+                                "type": "events",
+                                "order": 0
+                            },
+                            "period": "Week",
+                            "meanRetentionCalculation": "simple"
+                        }
+                    }
                 },
                 "filters_hash": "cache_6b4441baca5d5db6c136efe0e7e6b82b",
                 "order": null,
@@ -976,35 +1024,37 @@
                 "short_id": "XbzObpS2",
                 "name": "Weekly file volume",
                 "derived_name": null,
-                "filters": {
-                    "events": [
-                        {
-                            "id": "uploaded_file",
-                            "math": "sum",
-                            "name": "uploaded_file",
-                            "type": "events",
-                            "order": 0,
-                            "custom_name": "Uploaded bytes",
-                            "math_property": "file_size_b"
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "filterTestAccounts": true,
+                        "dateRange": {
+                            "date_from": "-8w"
                         },
-                        {
-                            "id": "deleted_file",
-                            "math": "sum",
-                            "name": "deleted_file",
-                            "type": "events",
-                            "order": 1,
-                            "custom_name": "Deleted bytes",
-                            "math_property": "file_size_b"
+                        "series": [
+                            {
+                                "kind": "EventsNode",
+                                "event": "uploaded_file",
+                                "name": "uploaded_file",
+                                "custom_name": "Uploaded bytes",
+                                "math": "sum",
+                                "math_property": "file_size_b"
+                            },
+                            {
+                                "kind": "EventsNode",
+                                "event": "deleted_file",
+                                "name": "deleted_file",
+                                "custom_name": "Deleted bytes",
+                                "math": "sum",
+                                "math_property": "file_size_b"
+                            }
+                        ],
+                        "interval": "week",
+                        "trendsFilter": {
+                            "display": "ActionsLineGraph"
                         }
-                    ],
-                    "actions": [],
-                    "display": "ActionsLineGraph",
-                    "insight": "TRENDS",
-                    "interval": "week",
-                    "date_from": "-8w",
-                    "new_entity": [],
-                    "properties": [],
-                    "filter_test_accounts": true
+                    }
                 },
                 "filters_hash": "cache_70ee46d0dc8508016c96227dca04de20",
                 "order": null,
@@ -1406,30 +1456,38 @@
                 "short_id": "g5Yz2ij1",
                 "name": "Activation",
                 "derived_name": null,
-                "filters": {
-                    "events": [
-                        {
-                            "id": "signed_up",
-                            "name": "signed_up",
-                            "type": "events",
-                            "order": 2,
-                            "custom_name": "Signed up"
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "FunnelsQuery",
+                        "filterTestAccounts": true,
+                        "dateRange": {
+                            "date_from": "-1m"
                         },
-                        {
-                            "id": "upgraded_plan",
-                            "name": "upgraded_plan",
-                            "type": "events",
-                            "order": 4,
-                            "custom_name": "Upgraded plan"
+                        "series": [
+                            {
+                                "kind": "EventsNode",
+                                "event": "signed_up",
+                                "name": "signed_up",
+                                "custom_name": "Signed up"
+                            },
+                            {
+                                "kind": "ActionsNode",
+                                "id": 1,
+                                "name": "Interacted with file"
+                            },
+                            {
+                                "kind": "EventsNode",
+                                "event": "upgraded_plan",
+                                "name": "upgraded_plan",
+                                "custom_name": "Upgraded plan"
+                            }
+                        ],
+                        "interval": "day",
+                        "funnelsFilter": {
+                            "funnelVizType": "steps"
                         }
-                    ],
-                    "actions": [{ "id": 1, "name": "Interacted with file", "type": "actions", "order": 3 }],
-                    "display": "FunnelViz",
-                    "insight": "FUNNELS",
-                    "interval": "day",
-                    "date_from": "-1m",
-                    "funnel_viz_type": "steps",
-                    "filter_test_accounts": true
+                    }
                 },
                 "filters_hash": "cache_f80465780a58a5a48c547fb5b3a5812b",
                 "order": null,
@@ -1515,20 +1573,23 @@
                 "short_id": "Qcvds2lB",
                 "name": "Active user lifecycle",
                 "derived_name": null,
-                "filters": {
-                    "events": [],
-                    "actions": [
-                        { "id": 1, "math": "total", "name": "Interacted with file", "type": "actions", "order": 0 }
-                    ],
-                    "compare": false,
-                    "display": "ActionsLineGraph",
-                    "insight": "LIFECYCLE",
-                    "interval": "day",
-                    "shown_as": "Lifecycle",
-                    "date_from": "-8w",
-                    "new_entity": [],
-                    "properties": [],
-                    "filter_test_accounts": true
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "LifecycleQuery",
+                        "filterTestAccounts": true,
+                        "dateRange": {
+                            "date_from": "-8w"
+                        },
+                        "series": [
+                            {
+                                "kind": "ActionsNode",
+                                "id": 1,
+                                "name": "Interacted with file"
+                            }
+                        ],
+                        "interval": "day"
+                    }
                 },
                 "filters_hash": "cache_beb8babf8ebf9370338881a5c7945d77",
                 "order": null,

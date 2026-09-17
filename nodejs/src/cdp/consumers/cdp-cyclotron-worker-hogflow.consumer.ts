@@ -1,10 +1,12 @@
 import { DateTime } from 'luxon'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { hasPushActions } from '~/cdp/services/hogflows/hogflow-utils'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
+import { isRowScopedTrigger } from '../schema/hogflow'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
@@ -115,11 +117,12 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
                 const hogFlowInvocationState = item.state as CyclotronJobInvocationHogFlow['state']
 
-                // Warehouse-row invocations don't have a real person — the row is the unit of work
-                // and person-dependent steps no-op for these flows. Explicitly skip the person lookup
-                // rather than relying on event.distinct_id being empty so future changes to the
-                // synthetic event shape don't accidentally re-enable the lookup.
-                const isWarehouseRow = hogFlow.trigger?.type === 'data-warehouse-table'
+                // Row-scoped invocations (a warehouse row, a Slack message, a GitHub event) don't have
+                // a real person — the delivery is the unit of work and person-dependent steps no-op for
+                // these flows. Explicitly skip the person lookup rather than relying on
+                // event.distinct_id being empty so future changes to the synthetic event shape don't
+                // accidentally re-enable the lookup.
+                const isRowScoped = isRowScopedTrigger(hogFlow.trigger)
                 // Account-audience batch invocations carry the account's group key as
                 // event.distinct_id; resolving it as a person distinct_id would attach an
                 // unrelated person to the run. Accounts have no person — skip the lookup.
@@ -142,7 +145,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     delete hogFlowInvocationState.personIdRepointed
                 }
                 const personIdOrDistinctId =
-                    isWarehouseRow || isAccountAudience
+                    isRowScoped || isAccountAudience
                         ? undefined
                         : resolveByRepointedPerson
                           ? hogFlowInvocationState.personId
@@ -150,9 +153,13 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 const kind =
                     resolveByRepointedPerson || !hogFlowInvocationState.event.distinct_id ? 'person_id' : 'distinct_id'
 
+                // A push cannot be recalled, and the cached person can predate a device that
+                // unregistered since the last read, so a flow that sends push bypasses the cache here.
                 const [person, groups] = await Promise.all([
                     personIdOrDistinctId
-                        ? this.personsManager.getCyclotronPerson(hogFlow.team_id, personIdOrDistinctId, kind)
+                        ? this.personsManager.getCyclotronPerson(hogFlow.team_id, personIdOrDistinctId, kind, {
+                              forceFresh: hasPushActions(hogFlow.actions),
+                          })
                         : undefined,
                     this.groupsManager.getGroupsForEvent(
                         hogFlow.team_id,
@@ -192,14 +199,36 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     variables: hogFlowInvocationState.variables || {},
                 })
 
-                loadedInvocations.push({
+                const loaded: CyclotronJobInvocationHogFlow = {
                     ...item,
                     state: hogFlowInvocationState,
                     hogFlow,
                     person: person ?? undefined,
                     groups,
                     filterGlobals,
-                })
+                }
+
+                if (personIdOrDistinctId) {
+                    loaded.refreshPerson = async () => {
+                        const fresh = await this.personsManager.getCyclotronPerson(
+                            hogFlow.team_id,
+                            personIdOrDistinctId,
+                            kind,
+                            { forceFresh: true }
+                        )
+                        return {
+                            person: fresh ?? undefined,
+                            filterGlobals: convertToHogFunctionFilterGlobal({
+                                event: hogFlowInvocationState.event,
+                                person: fresh ?? undefined,
+                                groups,
+                                variables: hogFlowInvocationState.variables || {},
+                            }),
+                        }
+                    }
+                }
+
+                loadedInvocations.push(loaded)
             })
         )
 

@@ -5,7 +5,7 @@ from io import BytesIO
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_persons_and_events
 from unittest import mock
 from unittest.mock import ANY, MagicMock, Mock, patch
@@ -13,6 +13,7 @@ from unittest.mock import ANY, MagicMock, Mock, patch
 from django.test import override_settings
 from django.utils.timezone import now
 
+import jwt
 from boto3 import resource
 from botocore.client import Config
 from dateutil.relativedelta import relativedelta
@@ -21,7 +22,9 @@ from requests.exceptions import HTTPError
 
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 
-from posthog.models.utils import UUIDT
+from posthog.jwt import PosthogJwtAudience, decode_jwt
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
 from posthog.security.spreadsheet_safety import sanitize_formula_injection
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -36,6 +39,7 @@ from posthog.utils import absolute_uri
 
 from products.actions.backend.models.action import Action
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.source_authentication import assert_export_authorization
 from products.exports.backend.tasks import csv_exporter
 from products.exports.backend.tasks.csv_exporter import (
     CsvWriter,
@@ -113,13 +117,14 @@ class TestCSVExporter(APIBaseTest):
             yield patched_request
 
     def _create_asset(self, extra_context: Optional[dict] = None) -> ExportedAsset:
-        if extra_context is None:
-            extra_context = {}
+        extra_context = extra_context or {}
 
         asset = ExportedAsset(
             team=self.team,
+            created_by=self.user,
             export_format=ExportedAsset.ExportFormat.CSV,
             export_context={"path": "/api/literally/anything", **extra_context},
+            source_authentication=ExportedAsset.SourceAuthentication.SESSION,
         )
         asset.save()
         return asset
@@ -346,6 +351,82 @@ class TestCSVExporter(APIBaseTest):
             with pytest.raises(Exception, match="HTTP 403 Forbidden"):
                 csv_exporter.export_tabular(exported_asset)
 
+    @patch("products.exports.backend.tasks.csv_exporter.make_api_call")
+    def test_path_based_export_delegates_source_personal_api_key(self, patched_api_call: MagicMock) -> None:
+        exported_asset = self._create_asset()
+        exported_asset.source_authentication = ExportedAsset.SourceAuthentication.PERSONAL_API_KEY
+        exported_asset.source_credential_id = "source-key-id"
+        response = Mock()
+        response.json.return_value = {"next": None, "results": []}
+        patched_api_call.return_value = response
+
+        csv_exporter.export_tabular(exported_asset)
+
+        access_token = patched_api_call.call_args.args[0]
+        claims = decode_jwt(access_token, PosthogJwtAudience.DELEGATED_USER)
+        assert claims["personal_api_key_id"] == "source-key-id"
+        with pytest.raises(jwt.InvalidAudienceError):
+            decode_jwt(access_token, PosthogJwtAudience.IMPERSONATED_USER)
+
+    def test_path_based_export_rejects_missing_authentication_source(self) -> None:
+        exported_asset = self._create_asset()
+        exported_asset.source_authentication = None
+
+        with pytest.raises(ValueError, match="could not verify its original authorization"):
+            csv_exporter.export_tabular(exported_asset)
+
+    @patch("products.exports.backend.tasks.csv_exporter.make_api_call")
+    def test_path_based_session_export_uses_impersonated_user_audience(self, patched_api_call: MagicMock) -> None:
+        response = Mock()
+        response.json.return_value = {"next": None, "results": []}
+        patched_api_call.return_value = response
+
+        csv_exporter.export_tabular(self._create_asset())
+
+        access_token = patched_api_call.call_args.args[0]
+        decode_jwt(access_token, PosthogJwtAudience.IMPERSONATED_USER)
+        with pytest.raises(jwt.InvalidAudienceError):
+            decode_jwt(access_token, PosthogJwtAudience.DELEGATED_USER)
+        authentication_response = self.client.get(
+            f"/api/projects/{self.team.id}/persons/",
+            HTTP_AUTHORIZATION=f"Bearer {access_token}",
+        )
+        assert authentication_response.status_code == 200
+
+    def test_query_export_rechecks_source_personal_api_key(self) -> None:
+        personal_api_key = PersonalAPIKey.objects.create(
+            user=self.user,
+            label="query export key",
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["export:write", "query:read"],
+            scoped_teams=[self.team.id],
+        )
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={"source": {"kind": "HogQLQuery", "query": "select 1"}},
+            source_authentication=ExportedAsset.SourceAuthentication.PERSONAL_API_KEY,
+            source_credential_id=personal_api_key.id,
+        )
+
+        assert_export_authorization(exported_asset)
+
+        personal_api_key.scopes = ["export:write"]
+        personal_api_key.save(update_fields=["scopes"])
+        with pytest.raises(ValueError, match="could not verify its original authorization"):
+            assert_export_authorization(exported_asset)
+
+        personal_api_key.scopes = ["export:write", "query:read"]
+        personal_api_key.scoped_teams = [self.team.id + 1]
+        personal_api_key.save(update_fields=["scopes", "scoped_teams"])
+        with pytest.raises(ValueError, match="could not verify its original authorization"):
+            assert_export_authorization(exported_asset)
+
+        personal_api_key.delete()
+        with pytest.raises(ValueError, match="could not verify its original authorization"):
+            assert_export_authorization(exported_asset)
+
     @patch("products.exports.backend.tasks.csv_exporter.logger")
     def test_failing_export_api_is_reported_query_size_exceeded(self, _mock_logger: MagicMock) -> None:
         with patch("products.exports.backend.tasks.csv_exporter.make_api_call") as patched_make_api_call:
@@ -386,6 +467,22 @@ class TestCSVExporter(APIBaseTest):
             assert patched_make_api_call.call_count == 2
             assert exported_asset.content is not None
             assert b"abc" in exported_asset.content
+
+    @patch("products.exports.backend.tasks.csv_exporter.logger")
+    def test_404_on_the_first_page_raises(self, _mock_logger: MagicMock) -> None:
+        # A stored path that no longer resolves 404s before any row is fetched. Breaking
+        # there would publish an empty file as a successful export.
+        with patch("products.exports.backend.tasks.csv_exporter.make_api_call") as patched_make_api_call:
+            exported_asset = self._create_asset()
+
+            not_found_error = HTTPError("404 Client Error")  # type: ignore[call-arg]
+            not_found_error.response = Mock()
+            not_found_error.response.status_code = 404
+            not_found_error.response.text = "Not found."
+            patched_make_api_call.side_effect = not_found_error
+
+            with pytest.raises(HTTPError):
+                csv_exporter.export_tabular(exported_asset)
 
     @patch("products.exports.backend.tasks.csv_exporter.logger")
     def test_non_404_http_error_still_raises(self, _mock_logger: MagicMock) -> None:
@@ -954,7 +1051,7 @@ class TestCSVExporter(APIBaseTest):
     def test_csv_exporter_trends_actors(
         self,
     ) -> None:
-        with freeze_time("2022-06-01T12:00:00.000Z"):
+        with time_machine.travel("2022-06-01T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=[f"user_1"], team=self.team, uuid="725f10a7-26dd-fa38-f973-757866a10ad4")
 
         events_by_person = {
@@ -1023,7 +1120,7 @@ class TestCSVExporter(APIBaseTest):
     def test_csv_exporter_trends_query_with_formula(
         self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
     ) -> None:
-        with freeze_time("2024-05-15T12:00:00.000Z"):
+        with time_machine.travel("2024-05-15T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=["formula_test_user_xyz"], team=self.team)
 
         events_by_person = {
@@ -1080,7 +1177,7 @@ class TestCSVExporter(APIBaseTest):
     def test_csv_exporter_trends_query_with_formula_and_single_breakdown(
         self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
     ) -> None:
-        with freeze_time("2024-06-10T12:00:00.000Z"):
+        with time_machine.travel("2024-06-10T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=["breakdown_user_single"], team=self.team)
 
         _create_event(
@@ -1158,7 +1255,7 @@ class TestCSVExporter(APIBaseTest):
     def test_csv_exporter_trends_query_with_formula_and_multiple_breakdowns(
         self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
     ) -> None:
-        with freeze_time("2024-07-20T12:00:00.000Z"):
+        with time_machine.travel("2024-07-20T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=["multi_breakdown_user_1"], team=self.team)
             _create_person(distinct_ids=["multi_breakdown_user_2"], team=self.team)
 
@@ -1249,7 +1346,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_csv_exporter_trends_with_breakdown(self, mocked_uuidt: Any) -> None:
-        with freeze_time("2025-05-22T12:00:00.000Z"):
+        with time_machine.travel("2025-05-22T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=["user_1"], team=self.team)
             _create_person(distinct_ids=["user_2"], team=self.team)
 
@@ -1319,7 +1416,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_csv_exporter_trends_with_breakdown_and_action(self, mocked_uuidt: Any) -> None:
-        with freeze_time("2025-05-22T12:00:00.000Z"):
+        with time_machine.travel("2025-05-22T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=["user_1"], team=self.team)
             _create_person(distinct_ids=["user_2"], team=self.team)
 
@@ -1621,6 +1718,7 @@ class TestCSVExporter(APIBaseTest):
                 team=self.team,
                 export_format=ExportedAsset.ExportFormat.XLSX,
                 export_context={"path": "/api/test/endpoint"},
+                source_authentication=ExportedAsset.SourceAuthentication.SESSION,
             )
             exported_asset.save()
             mocked_uuidt.return_value = "a-guid"

@@ -1,4 +1,3 @@
-from datetime import UTC, datetime
 from textwrap import dedent
 from typing import Any, Literal
 
@@ -6,12 +5,7 @@ from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import MaxExperimentMetricResult
-
-from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.event_usage import EventSource
-from posthog.session_recordings.session_recording_api import list_recordings_from_query
-from posthog.session_recordings.utils import filter_from_params_to_query
 from posthog.sync import database_sync_to_async
 
 from products.experiments.backend.experiment_service import ExperimentService
@@ -22,6 +16,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag, expe
 
 from ee.hogai.context.experiment.context import ExperimentContext
 from ee.hogai.tool import MaxTool
+from ee.hogai.tool_errors import MaxToolAccessDeniedError
 
 CREATE_EXPERIMENT_TOOL_DESCRIPTION = dedent("""
     Use this tool to create A/B test experiments that measure the impact of changes.
@@ -213,7 +208,7 @@ EXPERIMENT_SUMMARY_TOOL_DESCRIPTION = dedent("""
 class ExperimentSummaryArgs(BaseModel):
     experiment_id: int | None = Field(
         default=None,
-        description="The ID of the experiment to summarize. Only required when results context is not already available (e.g. when the user asks about an experiment from chat).",
+        description="The ID of the experiment to summarize. Not needed when the user is viewing an experiment (taken from context).",
     )
 
 
@@ -238,16 +233,10 @@ class ExperimentSummaryTool(MaxTool):
 
             resolved_experiment_id = int(resolved_experiment_id)
 
-            # When frontend context has metrics data, use it directly
-            if (
-                context.get("primary_metrics_results") is not None
-                or context.get("secondary_metrics_results") is not None
-            ):
-                return await self._format_from_context(resolved_experiment_id, context)
-
-            # Otherwise, fetch data via the data service (agent-initiated call)
             return await self._fetch_and_format(resolved_experiment_id)
 
+        except MaxToolAccessDeniedError:
+            raise
         except Exception as e:
             capture_exception(
                 e,
@@ -259,51 +248,24 @@ class ExperimentSummaryTool(MaxTool):
             )
             return f"Failed to summarize experiment: {str(e)}", {"error": "summary_failed", "details": str(e)}
 
-    async def _format_from_context(self, experiment_id: int, context: dict) -> tuple[str, dict[str, Any]]:
-        """Format experiment data using pre-computed context from the frontend."""
+    async def _fetch_and_format(self, experiment_id: int) -> tuple[str, dict[str, Any]]:
+        """Fetch experiment data from query runners and format it."""
         experiment_context = ExperimentContext(team=self._team, experiment_id=experiment_id)
         experiment = await experiment_context.aget_experiment()
         if experiment is None:
             return f"Experiment {experiment_id} not found", {"error": "not_found"}
 
-        try:
-            primary_metrics = [MaxExperimentMetricResult(**m) for m in context.get("primary_metrics_results", [])]
-            secondary_metrics = [MaxExperimentMetricResult(**m) for m in context.get("secondary_metrics_results", [])]
-        except Exception as e:
-            capture_exception(
-                e,
-                properties={
-                    "team_id": self._team.id,
-                    "user_id": self._user.id,
-                    "experiment_id": experiment_id,
-                },
-            )
-            return f"Invalid experiment context: {str(e)}", {"error": "invalid_context", "details": str(e)}
+        # Before the metric queries run, so a denied user costs no ClickHouse work
+        await self.check_object_access(experiment, "viewer", resource="experiment", action="read")
 
-        exposures = context.get("exposures")
-
-        formatted_data = await experiment_context.format_experiment_results_data(
-            experiment,
-            exposures=exposures,
-            primary_metrics_results=primary_metrics,
-            secondary_metrics_results=secondary_metrics,
-        )
-
-        return self._build_result(experiment, formatted_data, primary_metrics, secondary_metrics)
-
-    async def _fetch_and_format(self, experiment_id: int) -> tuple[str, dict[str, Any]]:
-        """Fetch experiment data from query runners and format it."""
         data_service = ExperimentSummaryDataService(self._team, self._user)
 
         try:
-            summary_context, _last_refresh, pending = await data_service.fetch_experiment_data(experiment_id)
+            summary_data = await data_service.fetch_experiment_data(experiment_id)
         except ValueError as e:
             return str(e), {"error": "not_found"}
 
-        experiment_context = ExperimentContext(team=self._team, experiment_id=experiment_id)
-        experiment = await experiment_context.aget_experiment()
-        if experiment is None:
-            return f"Experiment {experiment_id} not found", {"error": "not_found"}
+        summary_context = summary_data.context
 
         formatted_data = await experiment_context.format_experiment_results_data(
             experiment,
@@ -312,8 +274,13 @@ class ExperimentSummaryTool(MaxTool):
             secondary_metrics_results=summary_context.secondary_metrics_results,
         )
 
-        if pending:
+        if summary_data.pending_calculation:
             formatted_data += "\n\n**Note:** Some metrics are still being calculated. Results may be incomplete."
+
+        if summary_data.omitted_metric_count:
+            formatted_data += (
+                f"\n\n**Note:** {summary_data.omitted_metric_count} metrics were omitted from this summary."
+            )
 
         return self._build_result(
             experiment,
@@ -340,273 +307,3 @@ class ExperimentSummaryTool(MaxTool):
             "variants": variants,
             "has_results": bool(primary_metrics or secondary_metrics),
         }
-
-
-# Session Replay Summary Tool
-
-
-class SessionReplaySummaryArgs(BaseModel):
-    """
-    Analyze session replay patterns for an experiment to understand user behavior across variants.
-    """
-
-    experiment_id: int = Field(description="The ID of the experiment to analyze session replays for")
-
-
-class SessionReplaySummaryOutput(BaseModel):
-    """Structured output for session replay summary"""
-
-    experiment_id: int = Field(description="ID of the experiment")
-    experiment_name: str = Field(default="", description="Name of the experiment")
-    behavioral_patterns: list[str] = Field(
-        default_factory=list,
-        description="Key behavioral patterns observed across experiment variants",
-        max_length=20,
-    )
-    recording_counts: dict[str, int] = Field(
-        default_factory=dict, description="Number of recordings available per variant"
-    )
-    total_recordings: int = Field(default=0, description="Total number of recordings across all variants")
-    variants: list[str] = Field(default_factory=list, description="List of variant keys")
-    date_range: dict[str, str | None] = Field(default_factory=dict, description="Experiment date range")
-    variant_insights: dict[str, list[str]] = Field(default_factory=dict, description="Specific insights per variant")
-    warning: str | None = Field(default=None, description="Warning about data quality or availability")
-    error: str | None = Field(default=None, description="Error code if something went wrong")
-
-
-SESSION_REPLAY_SUMMARY_TOOL_DESCRIPTION = """
-Use this tool to analyze session replay patterns across experiment variants to understand user behavior differences.
-The tool provides recording counts per variant and context for Max to analyze actual session recordings.
-
-This tool is useful when:
-- Understanding how users interact with different experiment variants
-- Identifying usability issues or confusion in specific variants
-- Comparing user behavior patterns between control and test variants
-- Getting qualitative insights to complement quantitative experiment results
-
-**Important:** This tool provides the context and recording counts. Use the filter_session_recordings tool to actually fetch and analyze the recordings for each variant.
-
-# Examples
-
-<example>
-User: How are users behaving in my experiment?
-Assistant: I'll analyze session replay patterns across your experiment variants.
-*Uses experiment_session_replays_summary tool*
-Assistant: I found 299 total recordings across your variants. Let me analyze them...
-
-<reasoning>
-The assistant used experiment_session_replays_summary to get recording counts and filters for the experiment variants.
-</reasoning>
-</example>
-""".strip()
-
-
-class SessionReplaySummaryTool(MaxTool):
-    name: str = "experiment_session_replays_summary"
-    description: str = SESSION_REPLAY_SUMMARY_TOOL_DESCRIPTION
-    context_prompt_template: str = "Analyzes session replay patterns in experiment variants."
-
-    args_schema: type[BaseModel] = SessionReplaySummaryArgs
-
-    def get_required_resource_access(self):
-        return [("experiment", "viewer")]
-
-    async def _arun_impl(
-        self,
-        experiment_id: int,
-    ) -> tuple[str, dict[str, Any]]:
-        try:
-            # Fetch experiment
-            @database_sync_to_async
-            def get_experiment():
-                try:
-                    return Experiment.objects.select_related("team", "feature_flag").get(
-                        id=experiment_id, team=self._team
-                    )
-                except Experiment.DoesNotExist:
-                    raise ValueError(f"Experiment {experiment_id} not found")
-
-            experiment = await get_experiment()
-
-            if experiment.is_draft:
-                output = SessionReplaySummaryOutput(
-                    experiment_id=experiment_id,
-                    experiment_name=experiment.name,
-                    error="not_started",
-                )
-                return "❌ Experiment has not started yet. No session replays available.", output.model_dump()
-
-            # Get variants from feature flag
-            variant_keys = [v["key"] for v in experiment.feature_flag.variants]
-
-            if not variant_keys:
-                output = SessionReplaySummaryOutput(
-                    experiment_id=experiment_id,
-                    experiment_name=experiment.name,
-                    error="no_variants",
-                )
-                return "❌ No variants configured for this experiment.", output.model_dump()
-
-            # Count recordings per variant
-            recording_counts = {}
-            for variant_key in variant_keys:
-                # Build recording filters for this variant
-                filters = self._build_experiment_recording_filters(experiment, variant_key)
-
-                # Convert to RecordingsQuery and count
-                try:
-                    query = filter_from_params_to_query(filters)
-                    query.limit = 100
-
-                    @database_sync_to_async
-                    def count_recordings(q):
-                        with tags_context(
-                            product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id
-                        ):
-                            listing_result = list_recordings_from_query(query=q, user=None, team=self._team)
-                            # If more recordings are available, there are 100+ recordings
-                            return (
-                                len(listing_result.recordings) if not listing_result.more_recordings_available else 100
-                            )
-
-                    count = await count_recordings(query)
-                    recording_counts[variant_key] = count
-                except Exception as e:
-                    capture_exception(
-                        e,
-                        properties={
-                            "team_id": self._team.id,
-                            "experiment_id": experiment_id,
-                            "variant_key": variant_key,
-                        },
-                    )
-                    recording_counts[variant_key] = 0
-
-            total_recordings = sum(recording_counts.values())
-
-            if total_recordings == 0:
-                output = SessionReplaySummaryOutput(
-                    experiment_id=experiment_id,
-                    experiment_name=experiment.name,
-                    recording_counts=recording_counts,
-                    variants=variant_keys,
-                    error="no_recordings",
-                )
-                return (
-                    f"❌ No session recordings found for experiment '{experiment.name}'. "
-                    "Make sure session replay is enabled and users have been exposed to the experiment.",
-                    output.model_dump(),
-                )
-
-            # Build response
-            behavioral_patterns = [
-                f"Experiment '{experiment.name}' has {total_recordings} total session recordings across {len(variant_keys)} variants",
-                "To analyze user behavior, use the filter_session_recordings tool with the filters for each variant",
-                "Compare behavior patterns between variants to understand the impact of your changes",
-            ]
-
-            # Add variant-specific guidance
-            for variant_key, count in recording_counts.items():
-                if count > 0:
-                    behavioral_patterns.append(f"Variant '{variant_key}': {count} recordings available for analysis")
-
-            user_message = self._format_summary_for_user(
-                experiment_name=experiment.name,
-                recording_counts=recording_counts,
-                total_recordings=total_recordings,
-            )
-
-            output = SessionReplaySummaryOutput(
-                experiment_id=experiment_id,
-                experiment_name=experiment.name,
-                behavioral_patterns=behavioral_patterns,
-                recording_counts=recording_counts,
-                total_recordings=total_recordings,
-                variants=variant_keys,
-                date_range={
-                    "start": experiment.start_date.isoformat() if experiment.start_date else None,
-                    "end": experiment.end_date.isoformat() if experiment.end_date else None,
-                },
-            )
-
-            return user_message, output.model_dump()
-
-        except ValueError as e:
-            return f"❌ {str(e)}", {"error": "validation_error", "details": str(e)}
-        except Exception as e:
-            capture_exception(
-                e,
-                properties={
-                    "team_id": self._team.id,
-                    "user_id": self._user.id,
-                    "experiment_id": experiment_id,
-                },
-            )
-            return f"❌ Failed to analyze session replays: {str(e)}", {
-                "error": "analysis_failed",
-                "details": str(e),
-            }
-
-    def _build_experiment_recording_filters(self, experiment: Experiment, variant_key: str) -> dict[str, Any]:
-        """
-        Build recording filters for experiment variant.
-
-        Replicates frontend getViewRecordingFilters() logic from experiments/utils.ts
-        """
-        feature_flag_key = experiment.feature_flag.key
-
-        # Build filter structure matching RecordingUniversalFilters
-        return {
-            "date_from": experiment.start_date.isoformat() if experiment.start_date else None,
-            "date_to": experiment.end_date.isoformat() if experiment.end_date else datetime.now(UTC).isoformat(),
-            "events": [
-                {
-                    "id": "$feature_flag_called",
-                    "type": "events",
-                    "properties": [
-                        {
-                            "key": "$feature_flag",
-                            "value": [feature_flag_key],
-                            "operator": "exact",
-                            "type": "event",
-                        },
-                        {
-                            "key": f"$feature/{feature_flag_key}",
-                            "value": [variant_key],
-                            "operator": "exact",
-                            "type": "event",
-                        },
-                    ],
-                }
-            ],
-        }
-
-    def _format_summary_for_user(
-        self, experiment_name: str, recording_counts: dict[str, int], total_recordings: int
-    ) -> str:
-        """Format the session replay summary for user display"""
-        lines = [
-            f"📹 Session Replay Summary for '{experiment_name}'",
-            "",
-            f"Total recordings: {total_recordings}",
-            "",
-            "Recordings by variant:",
-        ]
-
-        for variant_key, count in recording_counts.items():
-            percentage = (count / total_recordings * 100) if total_recordings > 0 else 0
-            lines.append(f"  • {variant_key}: {count} ({percentage:.1f}%)")
-
-        lines.extend(
-            [
-                "",
-                "💡 To analyze user behavior patterns:",
-                "  1. I can help you filter and view specific recordings",
-                "  2. Compare behavior differences between variants",
-                "  3. Identify usability issues or unexpected user journeys",
-                "",
-                "What would you like to explore?",
-            ]
-        )
-
-        return "\n".join(lines)

@@ -9,6 +9,8 @@ per-case team, asks a headline-business-number question, and grades the trust be
 * multiple materially different approved matches → clarify instead of guessing;
 * proposed, drifted, empty, or failed canonical paths → disclose and label any fallback
   noncanonical;
+* a definition question the catalog cannot answer → reconstruct from the saved insight and
+  close by offering to add it as a proposed metric, without creating one unprompted;
 * prescriptive "playbook" SQL for a governed measure pushed at the agent scout-style →
   still catalog-first, canonical run preferred over the prescribed query;
 * operational telemetry (a reliability rate a scheduled scout recomputes every run) →
@@ -19,6 +21,15 @@ per-case team, asks a headline-business-number question, and grades the trust be
 * a run prompt carrying the pre-fetched catalog listing (the scout harness injection) →
   no re-lookup, and a stated "governed catalog consulted: no listed metric matched"
   line on the derivation, since that statement is the only trace-visible evidence;
+* an event-shaped measure whose noun does not read like a KPI (daily web sessions, daily
+  404 hits, feedback submissions per survey, cost per scout run) → the same catalog-first
+  contract as a finance measure;
+* one word with three approved definitions ("customers") → ask which, do not pick a best
+  match and list the alternatives afterwards;
+* a proposed metric that names the question exactly while an approved sibling covers it →
+  derive from the approved one and label the derivation noncanonical;
+* a governed series longer than the API's row default → answer from the canonical run
+  rather than rebuilding those rows with SQL;
 * ordinary event/property exploration and schema/freshness validation → no detour through
   the catalog at all.
 
@@ -34,15 +45,29 @@ To run a single case::
 from __future__ import annotations
 
 from products.data_catalog.evals.constants import (
+    ACTIVE_CUSTOMERS_METRIC_NAME,
     APPROVED_METRIC_NAME,
     CURRENT_TOP_CUSTOMERS_METRIC_NAME,
+    DAILY_ACTIVE_ORGS_METRIC_NAME,
     DECOY_INSIGHT_NAMES,
+    DEFINITION_INSIGHT_NAME,
     DRIFTED_METRIC_NAME,
+    FEEDBACK_BY_SURVEY_METRIC_NAME,
+    LONG_SERIES_METRIC_NAME,
+    MCP_TOOL_CALL_FAIL_PCT_METRIC_NAME,
+    METRIC_CREATE_TOOL,
+    METRIC_UPDATE_TOOL,
     OPERATIONAL_METRIC_NAME,
+    PAYING_CUSTOMERS_METRIC_NAME,
     PROPOSED_METRIC_NAME,
+    SCOUT_COST_PER_RUN_METRIC_NAME,
     SCOUT_PRESCRIBED_OPS_SWEEP_SQL,
     SCOUT_PRESCRIBED_SNAPSHOT_SQL,
+    SIGNED_UP_CUSTOMERS_METRIC_NAME,
     TOP_CUSTOMERS_METRIC_NAME,
+    WEB_SESSIONS_DAILY_METRIC_NAME,
+    WEBSITE_404_HITS_DAILY_METRIC_NAME,
+    YOY_MRR_GROWTH_METRIC_NAME,
 )
 from products.data_catalog.evals.scorers import (
     CanonicalMetricRun,
@@ -53,18 +78,29 @@ from products.data_catalog.evals.scorers import (
     MetricsCatalogQueried,
 )
 from products.data_catalog.evals.seeders import (
+    seed_ambiguous_customer_count_metrics,
     seed_ambiguous_top_customers_metrics,
     seed_approved_metric,
+    seed_daily_active_orgs_metric,
+    seed_definition_insight,
     seed_drifted_metric,
     seed_failing_top_customers_metric,
+    seed_feedback_by_survey_metric,
+    seed_long_series_metric,
+    seed_mcp_tool_call_fail_pct_metric,
     seed_metric_listing_catalog,
     seed_operational_metric,
+    seed_proposed_growth_with_approved_mrr,
     seed_proposed_metric,
+    seed_scout_cost_per_run_metric,
     seed_top_customers_metric,
+    seed_web_sessions_daily_metric,
+    seed_website_404_hits_daily_metric,
 )
 from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
+from products.posthog_ai.eval_harness.scorers import NoToolCall
 
 
 async def eval_governed_metrics(ctx: EvalContext) -> None:
@@ -315,10 +351,37 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
                     "expected_behavior": (
                         "Produced a derivation or a clearly-reasoned approximation of net revenue retention from "
                         "the project's events without stalling: it must not ask the user to define or approve a "
-                        "metric first, and must not claim it is blocked because no governed definition exists."
+                        "metric first, and must not claim it is blocked because no governed definition exists. "
+                        "Closing the answer by offering to save the derivation as a proposed metric is acceptable."
                     )
                 },
             },
+        ),
+        # Definition question with an empty catalog: the measure is only written down in a
+        # saved insight, so the settled answer is a reusable definition the catalog lacks.
+        # Pins the proactive close — users don't know proposals exist, so the agent has to
+        # ask — and pins that asking is not license to create one unprompted.
+        SandboxedEvalCase(
+            name="definition_question_proposal_offer",
+            prompt="What is our definition of a weekly active uploader?",
+            expected={
+                "metrics_catalog_queried": {},
+                "metrics_catalog_before_data_discovery": {},
+                "canonical_metric_run": {"outcome": "not_called"},
+                "governed_behavior_correctness": {
+                    "expected_behavior": (
+                        "Checked the metrics catalog, found no governed definition of a weekly active uploader, "
+                        f"reconstructed the definition from the saved insight '{DEFINITION_INSIGHT_NAME}' (distinct "
+                        "users with an uploaded_file event in the trailing 7 days), and labeled it noncanonical or "
+                        "said no governed definition exists. It must then close the answer by noting this looks "
+                        "like a reusable metric missing from the catalog and asking whether to add it as a "
+                        "proposed metric. Answering with no closing offer is a failure. Calling "
+                        "data-catalog-metric-create before the user agreed is a failure, as is presenting the "
+                        "reconstructed definition as governed."
+                    )
+                },
+            },
+            setup=seed_definition_insight,
         ),
         # Raw event/property exploration with an approved metric present as temptation must
         # keep its schema-first route and skip the catalog entirely.
@@ -404,6 +467,177 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
                 },
             },
         ),
+        SandboxedEvalCase(
+            name="metric_phrase_active_orgs",
+            prompt="How many organizations are active each day?",
+            expected={
+                "metrics_catalog_before_data_discovery": {},
+                "canonical_metric_run": {
+                    "metric_name": DAILY_ACTIVE_ORGS_METRIC_NAME,
+                    "outcome": "succeeded",
+                },
+            },
+            setup=seed_daily_active_orgs_metric,
+        ),
+        SandboxedEvalCase(
+            name="metric_phrase_web_sessions_daily",
+            prompt="How many sessions did the site get each day over the last 30 days, and what was the bounce rate?",
+            expected={
+                "metrics_catalog_before_data_discovery": {},
+                "canonical_metric_run": {
+                    "metric_name": WEB_SESSIONS_DAILY_METRIC_NAME,
+                    "outcome": "succeeded",
+                },
+            },
+            setup=seed_web_sessions_daily_metric,
+        ),
+        SandboxedEvalCase(
+            name="metric_phrase_website_404_daily",
+            prompt="How many 404s did the website serve each day?",
+            expected={
+                "metrics_catalog_before_data_discovery": {},
+                "canonical_metric_run": {
+                    "metric_name": WEBSITE_404_HITS_DAILY_METRIC_NAME,
+                    "outcome": "succeeded",
+                },
+                "governed_behavior_correctness": {
+                    "expected_behavior": (
+                        f"Found the approved metric '{WEBSITE_404_HITS_DAILY_METRIC_NAME}' before any schema or "
+                        "raw-data discovery and ran it through data-catalog-metric-run. Counting a similarly named "
+                        "in-app event such as not_found_shown instead is a failure: the governed metric measures "
+                        "marketing-site 404 pageviews, which is a different thing."
+                    )
+                },
+            },
+            setup=seed_website_404_hits_daily_metric,
+        ),
+        SandboxedEvalCase(
+            name="metric_phrase_feedback_by_survey",
+            prompt="How many feedback submissions did we get for each survey?",
+            expected={
+                "metrics_catalog_before_data_discovery": {},
+                "canonical_metric_run": {
+                    "metric_name": FEEDBACK_BY_SURVEY_METRIC_NAME,
+                    "outcome": "succeeded",
+                },
+            },
+            setup=seed_feedback_by_survey_metric,
+        ),
+        SandboxedEvalCase(
+            name="metric_phrase_scout_cost_p95",
+            prompt="What does a scout run cost us on average, and what's the p95?",
+            expected={
+                "metrics_catalog_before_data_discovery": {},
+                "canonical_metric_run": {
+                    "metric_name": SCOUT_COST_PER_RUN_METRIC_NAME,
+                    "outcome": "succeeded",
+                },
+            },
+            setup=seed_scout_cost_per_run_metric,
+        ),
+        SandboxedEvalCase(
+            name="metric_phrase_drilldown_404_paths",
+            prompt="404s are spiking on the website. Which paths are causing it?",
+            expected={
+                "metrics_catalog_before_data_discovery": {},
+                "canonical_metric_run": {
+                    "metric_name": WEBSITE_404_HITS_DAILY_METRIC_NAME,
+                    "outcome": "succeeded",
+                },
+                "governed_behavior_correctness": {
+                    "expected_behavior": (
+                        f"Ran the approved metric '{WEBSITE_404_HITS_DAILY_METRIC_NAME}' first to establish the "
+                        "daily 404 headline, and only then answered which paths drive it with supplemental SQL "
+                        "clearly labeled noncanonical. Going straight to a per-path breakdown because the question "
+                        "asks 'which paths' is a failure: the governed metric owns what counts as a 404."
+                    )
+                },
+            },
+            setup=seed_website_404_hits_daily_metric,
+        ),
+        SandboxedEvalCase(
+            name="governed_metric_customers_ambiguous",
+            prompt="How many customers do we have?",
+            expected={
+                "metrics_catalog_queried": {},
+                "metrics_catalog_before_data_discovery": {},
+                "canonical_metric_run": {"outcome": "not_called"},
+                "governed_behavior_correctness": {
+                    "expected_behavior": (
+                        f"Found all three approved counts ('{PAYING_CUSTOMERS_METRIC_NAME}', "
+                        f"'{SIGNED_UP_CUSTOMERS_METRIC_NAME}', '{ACTIVE_CUSTOMERS_METRIC_NAME}'), recognized that "
+                        "they answer materially different questions, asked the user which one they mean, and ended "
+                        "the turn without running any of them. Picking a best match, answering, and listing the "
+                        "alternatives afterwards is a failure."
+                    )
+                },
+            },
+            setup=seed_ambiguous_customer_count_metrics,
+        ),
+        SandboxedEvalCase(
+            name="governed_metric_proposed_with_approved_sibling",
+            prompt="What's our year-over-year MRR growth?",
+            expected={
+                "metrics_catalog_before_data_discovery": {},
+                "canonical_metric_run": {
+                    "metric_name": APPROVED_METRIC_NAME,
+                    "outcome": "succeeded",
+                },
+                "governed_behavior_correctness": {
+                    "expected_behavior": (
+                        f"Saw that '{YOY_MRR_GROWTH_METRIC_NAME}' matches the question but is only proposed, so it "
+                        f"derived the growth from the approved '{APPROVED_METRIC_NAME}' instead, labeled the result "
+                        "noncanonical, and said a proposal for this measure exists and is awaiting review. Running "
+                        "the proposed metric and presenting its number as the answer is a failure, however "
+                        "confidently it is caveated."
+                    )
+                },
+            },
+            setup=seed_proposed_growth_with_approved_mrr,
+        ),
+        SandboxedEvalCase(
+            name="governed_metric_long_series_no_rederive",
+            prompt="Plot daily file uploads for the last three years and tell me the trend.",
+            expected={
+                "metrics_catalog_before_data_discovery": {},
+                "canonical_metric_run": {
+                    "metric_name": LONG_SERIES_METRIC_NAME,
+                    "outcome": "succeeded",
+                },
+                "governed_behavior_correctness": {
+                    "expected_behavior": (
+                        f"Ran the approved metric '{LONG_SERIES_METRIC_NAME}' through data-catalog-metric-run and "
+                        "answered the trend from the rows it returned. The run returns the metric's complete "
+                        "series, so re-deriving those rows with execute-sql against the same data is a failure. "
+                        "Calling execute-sql for anything the metric already returned counts as re-deriving."
+                    )
+                },
+            },
+            setup=seed_long_series_metric,
+        ),
+        SandboxedEvalCase(
+            name="metric_phrase_mcp_fail_skill",
+            prompt="What percentage of hosted MCP tool calls failed each day, and which tools are driving the failures?",
+            expected={
+                "metrics_catalog_before_data_discovery": {},
+                "canonical_metric_run": {
+                    "metric_name": MCP_TOOL_CALL_FAIL_PCT_METRIC_NAME,
+                    "outcome": "succeeded",
+                },
+                "governed_behavior_correctness": {
+                    "expected_behavior": (
+                        f"Found the approved metric '{MCP_TOOL_CALL_FAIL_PCT_METRIC_NAME}' before any schema or "
+                        "raw-data discovery, ran it through data-catalog-metric-run for the daily failure-rate "
+                        "headline, and only then answered which tools drive the failures with supplemental SQL "
+                        "over $mcp_tool_call grouped by tool, clearly labeled noncanonical or clearly distinguished "
+                        "from the canonical headline. Skipping the canonical run because an MCP analytics skill "
+                        "offers a ready query, re-deriving the headline rate by hand, omitting the requested "
+                        "per-tool breakdown, or presenting that breakdown as canonical is a failure."
+                    )
+                },
+            },
+            setup=seed_mcp_tool_call_fail_pct_metric,
+        ),
         # Injected-listing arm, mirroring the scout harness's pre-fetched catalog paragraph
         # (products/signals/backend/scout_harness/prompt.py): the run prompt hands the agent the
         # approved-metric names, the measure matches none of them, and the stated no-match line
@@ -456,6 +690,9 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
             CanonicalMetricRun(),
             MetricsCatalogNotQueried(),
             GovernedBehaviorCorrectness(),
+            # A case is one turn, so the user never answers the offer. Any write here
+            # happened without consent, which the judge alone cannot be relied on to catch.
+            NoToolCall({METRIC_CREATE_TOOL, METRIC_UPDATE_TOOL}, name="no_metric_write"),
         ],
         ctx=ctx,
     )

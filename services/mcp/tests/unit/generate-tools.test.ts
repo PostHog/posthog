@@ -214,7 +214,7 @@ describe('generateToolCode with input_schema', () => {
             stubGetQuerySchema
         )
 
-        expect(result.code).toContain('const parsedParams = ThingsCreateSchema.parse(params)')
+        expect(result.code).toContain('const parsedParams = ThingsCreateSchema().parse(params)')
         expect(result.code).toContain('body: parsedParams')
     })
 
@@ -236,7 +236,7 @@ describe('generateToolCode with input_schema', () => {
             stubGetQuerySchema
         )
 
-        expect(result.code).toContain('const parsedParams = ThingsListSchema.parse(params)')
+        expect(result.code).toContain('const parsedParams = ThingsListSchema().parse(params)')
         expect(result.code).toContain('query: parsedParams')
     })
 
@@ -260,7 +260,7 @@ describe('generateToolCode with input_schema', () => {
         )
 
         expect(result.code).toContain(
-            "const thingsList = (): ToolBase<typeof ThingsListSchema, Omit<Schemas.ThingList, 'results'> & { results: unknown[] }>"
+            "const thingsList = (): ToolBase<ReturnType<typeof ThingsListSchema>, Omit<Schemas.ThingList, 'results'> & { results: unknown[] }>"
         )
         expect(result.code).toContain(
             "const result = await context.api.request<Omit<Schemas.ThingList, 'results'> & { results: unknown[] }>({"
@@ -1116,7 +1116,7 @@ describe('param_overrides aliases', () => {
 
         expect(result.castHelperImports.has('normalizeParamAliases')).toBe(true)
         expect(result.code).toContain(
-            "const ThingsGetSchema = z.preprocess(normalizeParamAliases({ id: ['thingId', 'thing_id'] }), ThingsRetrieveParams.omit({ project_id: true }))"
+            "const ThingsGetSchema = () => {\n    const ThingsRetrieveParams = orvalSchemas.ThingsRetrieveParams()\n    return z.preprocess(normalizeParamAliases({ id: ['thingId', 'thing_id'] }), ThingsRetrieveParams.omit({ project_id: true }))\n}"
         )
     })
 })
@@ -1503,6 +1503,16 @@ describe('ToolConfigSchema validation', () => {
         expect(result.success).toBe(true)
     })
 
+    it('rejects response.strip_nulls on a list tool', () => {
+        const result = ToolConfigSchema.safeParse({
+            operation: 'things_list',
+            enabled: true,
+            list: true,
+            response: { strip_nulls: true },
+        })
+        expect(result.success).toBe(false)
+    })
+
     it('accepts response.exclude alone', () => {
         const result = ToolConfigSchema.safeParse({
             operation: 'things_list',
@@ -1522,7 +1532,7 @@ describe('buildResponseFilter', () => {
         const config: ToolConfig = { operation: 'things_list', enabled: true }
         const result = buildResponseFilter(config)
         expect(result.code).toBe('')
-        expect(result.helperImport).toBeNull()
+        expect(result.helperImports).toEqual([])
     })
 
     it('generates pickResponseFields for detail endpoint with response.include', () => {
@@ -1534,7 +1544,7 @@ describe('buildResponseFilter', () => {
         const result = buildResponseFilter(config)
         expect(result.code).toContain('pickResponseFields(result, ')
         expect(result.code).toContain("'id', 'name', 'status'")
-        expect(result.helperImport).toBe('pickResponseFields')
+        expect(result.helperImports).toEqual(['pickResponseFields'])
     })
 
     it('generates omitResponseFields for detail endpoint with response.exclude', () => {
@@ -1546,7 +1556,7 @@ describe('buildResponseFilter', () => {
         const result = buildResponseFilter(config)
         expect(result.code).toContain('omitResponseFields(result, ')
         expect(result.code).toContain("'filters', 'created_by'")
-        expect(result.helperImport).toBe('omitResponseFields')
+        expect(result.helperImports).toEqual(['omitResponseFields'])
     })
 
     it('maps pickResponseFields over results for list endpoint with response.include', () => {
@@ -1559,7 +1569,7 @@ describe('buildResponseFilter', () => {
         const result = buildResponseFilter(config)
         expect(result.code).toContain('(result.results ?? []).map')
         expect(result.code).toContain('pickResponseFields(item, ')
-        expect(result.helperImport).toBe('pickResponseFields')
+        expect(result.helperImports).toEqual(['pickResponseFields'])
     })
 
     it('maps omitResponseFields over results for list endpoint with response.exclude', () => {
@@ -1572,7 +1582,29 @@ describe('buildResponseFilter', () => {
         const result = buildResponseFilter(config)
         expect(result.code).toContain('(result.results ?? []).map')
         expect(result.code).toContain('omitResponseFields(item, ')
-        expect(result.helperImport).toBe('omitResponseFields')
+        expect(result.helperImports).toEqual(['omitResponseFields'])
+    })
+
+    it('wraps the exclude expression in stripNullFields for response.strip_nulls', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            response: { exclude: ['filters'], strip_nulls: true },
+        }
+        const result = buildResponseFilter(config)
+        expect(result.code).toContain("stripNullFields(omitResponseFields(result, ['filters']))")
+        expect(result.helperImports).toEqual(['omitResponseFields', 'stripNullFields'])
+    })
+
+    it('generates stripNullFields alone when no include or exclude is configured', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            response: { strip_nulls: true },
+        }
+        const result = buildResponseFilter(config)
+        expect(result.code).toContain('stripNullFields(result)')
+        expect(result.helperImports).toEqual(['stripNullFields'])
     })
 
     it('preserves wildcard dot-path patterns in generated code', () => {
@@ -1720,7 +1752,9 @@ describe('generateToolCode with informational response wrapping', () => {
             stubGetQuerySchema
         )
 
-        expect(result.code).toContain('ToolBase<typeof ThingsGetSchema, WithInformationalResponse<unknown>>')
+        expect(result.code).toContain(
+            'ToolBase<ReturnType<typeof ThingsGetSchema>, WithInformationalResponse<unknown>>'
+        )
         const filteringIndex = result.code.indexOf('const filtered =')
         const wrappingIndex = result.code.indexOf('withInformationalResponse(')
         expect(filteringIndex).toBeGreaterThan(-1)
@@ -2181,5 +2215,107 @@ describe('optional param with state fallback', () => {
         // demand the id the fallback exists to supply.
         const collapsed = result.code.replace(/\s+/g, ' ')
         expect(collapsed).toContain('.optional()).optional()')
+    })
+})
+
+describe('composeToolSchema param aliases', () => {
+    const resolvedWithIdAndQuery = makeResolved({
+        path: '/api/projects/{project_id}/things/{id}/',
+        operation: {
+            operationId: 'things_retrieve',
+            parameters: [
+                { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
+                { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
+                { name: 'thing_id', in: 'query', required: false, schema: { type: 'string' } },
+            ],
+        },
+    })
+
+    it('collects aliases that shadow nothing', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            param_overrides: { id: { aliases: ['thingId', 'thing_identifier'] } },
+        }
+
+        const result = composeToolSchema(config, resolvedWithIdAndQuery, makeSpec(), stubGetQuerySchema)
+
+        expect(result.paramAliases).toEqual({ id: ['thingId', 'thing_identifier'] })
+    })
+
+    // normalizeParamAliases deletes alias keys, so an alias that is also a real parameter
+    // would drop that parameter's value with no error at runtime. The generator is the only
+    // place that sees both the alias list and the operation's parameters.
+    it('rejects an alias that is also a declared parameter of the operation', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            param_overrides: { id: { aliases: ['thingId', 'thing_id'] } },
+        }
+
+        expect(() => composeToolSchema(config, resolvedWithIdAndQuery, makeSpec(), stubGetQuerySchema)).toThrow(
+            /alias "thing_id" for param "id" is also a declared parameter/
+        )
+    })
+
+    it('rejects an alias that collides with a body field, including one added by a later override', () => {
+        const withBody = makeResolved({
+            method: 'POST',
+            path: '/api/projects/{project_id}/things/{id}/',
+            operation: {
+                operationId: 'things_update',
+                parameters: [
+                    { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
+                    { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
+                ],
+                requestBody: {
+                    content: { 'application/json': { schema: { properties: { name: { type: 'string' } } } } },
+                },
+            },
+        })
+
+        const collidesWithBody: ToolConfig = {
+            operation: 'things_update',
+            enabled: true,
+            param_overrides: { id: { aliases: ['name'] } },
+        }
+        expect(() => composeToolSchema(collidesWithBody, withBody, makeSpec(), stubGetQuerySchema)).toThrow(
+            /alias "name" for param "id" is also a declared parameter/
+        )
+
+        // The alias override comes first in key order; the field it collides with is only
+        // added by the input_schema override after it, so the check must run after the loop.
+        const collidesWithLaterOverride: ToolConfig = {
+            operation: 'things_update',
+            enabled: true,
+            param_overrides: { id: { aliases: ['steps'] }, steps: { input_schema: 'StepsSchema' } },
+        }
+        expect(() => composeToolSchema(collidesWithLaterOverride, withBody, makeSpec(), stubGetQuerySchema)).toThrow(
+            /alias "steps" for param "id" is also a declared parameter/
+        )
+    })
+
+    it('rejects one alias claimed by two params', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            param_overrides: { id: { aliases: ['ref'] }, thing_id: { aliases: ['ref'] } },
+        }
+
+        expect(() => composeToolSchema(config, resolvedWithIdAndQuery, makeSpec(), stubGetQuerySchema)).toThrow(
+            /alias "ref" is declared by both "id" and "thing_id"/
+        )
+    })
+
+    it('rejects an alias equal to its own canonical name', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            param_overrides: { id: { aliases: ['id'] } },
+        }
+
+        expect(() => composeToolSchema(config, resolvedWithIdAndQuery, makeSpec(), stubGetQuerySchema)).toThrow(
+            /alias "id" for param "id"/
+        )
     })
 })

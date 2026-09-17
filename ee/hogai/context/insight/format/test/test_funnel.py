@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
@@ -208,7 +208,7 @@ class TestFunnelResultsFormatter(BaseTest):
             ],
         ]
 
-        with freeze_time("2025-02-07T15:00:00"):
+        with time_machine.travel("2025-02-07T15:00:00", tick=False):
             self.assertEqual(
                 FunnelResultsFormatter(
                     AssistantFunnelsQuery(series=[]),

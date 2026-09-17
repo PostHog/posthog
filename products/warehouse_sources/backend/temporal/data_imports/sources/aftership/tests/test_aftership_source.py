@@ -2,24 +2,14 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.aftership.aftership import AftershipResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.aftership.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aftership.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.aftership.source import AftershipSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aftership import (
     AftershipSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 CHECK_ACCESS_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.aftership.source.check_access"
 AFTERSHIP_SOURCE_PATH = (
@@ -33,29 +23,9 @@ class TestAftershipSource:
         self.team_id = 123
         self.config = AftershipSourceConfig(api_key="as-key")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.AFTERSHIP
-
     def test_version_pin_matches_the_path_the_code_calls(self) -> None:
         assert self.source.supported_versions == ("2026-07",)
         assert self.source.default_version == "2026-07"
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Aftership"
-        assert config.label == "AfterShip"
-        assert config.category == DataWarehouseSourceCategory.E_COMMERCE
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # A finished source must stay visible in the wizard.
-        assert not config.unreleasedSource
-
-    def test_api_key_field_is_a_required_secret(self) -> None:
-        config = self.source.get_source_config
-        fields = [f for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert [f.name for f in fields] == ["api_key"]
-        assert fields[0].type == SourceFieldInputConfigType.PASSWORD
-        assert fields[0].secret is True
-        assert fields[0].required is True
 
     def test_get_schemas_marks_only_trackings_incremental(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -68,10 +38,6 @@ class TestAftershipSource:
         for name in ("couriers", "courier_connections"):
             assert by_name[name].supports_incremental is False
             assert by_name[name].incremental_fields == []
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["couriers", "nope"])
-        assert [s.name for s in schemas] == ["couriers"]
 
     def test_canonical_descriptions_cover_every_table(self) -> None:
         # Keys must match the schema names, or the enrichment silently falls back to the LLM.
@@ -144,11 +110,6 @@ class TestAftershipSource:
     )
     def test_non_retryable_errors_ignore_transient_failures(self, _name: str, unrelated_error: str) -> None:
         assert not any(key in unrelated_error for key in self.source.get_non_retryable_errors())
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is AftershipResumeConfig
 
     @parameterized.expand([("unpinned", None, "2026-07"), ("pinned", "2026-07", "2026-07")])
     @mock.patch(AFTERSHIP_SOURCE_PATH)

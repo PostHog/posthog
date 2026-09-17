@@ -1,10 +1,9 @@
 import type { TooltipContext } from '@posthog/quill-charts'
 
-import { funnelComparePeriodDateRange, getFunnelAggregateConversionRate } from 'scenes/funnels/funnelUtils'
-
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
 import type { FunnelStepWithConversionMetrics } from '~/types'
 
+import { funnelComparePeriodDateRange, getFunnelAggregateConversionRate } from '../funnelUtils'
 import { FunnelStepTooltip } from '../shared/FunnelStepTooltip'
 import type { FunnelStepsBarSeriesMeta } from './funnelStepsBarTransforms'
 
@@ -41,9 +40,8 @@ export function FunnelStepsBarTooltip({
         ? funnelComparePeriodDateRange(series.compare_label, resolvedDateRange, compareTo)
         : null
 
-    // Vertical bar chart: cursor above the bar's top pixel is in the track (drop-off) region.
-    const isDropOffHover =
-        stepIndex > 0 && context.hoverPosition != null && entry.yPixel != null && context.hoverPosition.y < entry.yPixel
+    // Shares the chart's hit-test rects, so the drop-off framing matches what a click opens.
+    const isDropOffHover = stepIndex > 0 && context.inTrackArea === true
 
     const sharedProps = {
         showPersonsModal,

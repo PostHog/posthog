@@ -45,8 +45,8 @@ class ShutterstockAuth:
     OAuth token; the catalog feeds work with either."""
 
     consumer_key: str | None = None
-    consumer_secret: str | None = None
-    access_token: str | None = None
+    consumer_secret: str | None = dataclasses.field(default=None, repr=False)
+    access_token: str | None = dataclasses.field(default=None, repr=False)
 
 
 def _auth_config(auth: ShutterstockAuth) -> AuthConfig:

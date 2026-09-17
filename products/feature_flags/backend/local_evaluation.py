@@ -17,9 +17,8 @@ Configuration:
 
 import time
 from collections import defaultdict
-from collections.abc import Generator
 from itertools import groupby
-from typing import Any, Union, cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
@@ -32,6 +31,7 @@ import structlog
 from posthoganalytics import capture_exception
 from prometheus_client import Counter
 
+from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.group_type_mapping import (
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
     GroupTypesUnavailable,
@@ -53,6 +53,8 @@ from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, is_coh
 from products.cohorts.backend.models.util import get_nested_cohort_ids
 from products.experiments.backend.models.experiment import Experiment, live_experiment_exists
 from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
+from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.facade.references import flag_dependency_properties, referenced_cohort_ids
 from products.feature_flags.backend.flags_cache import (
     _compare_flag_fields,
     get_team_ids_with_recently_updated_flags,
@@ -60,8 +62,11 @@ from products.feature_flags.backend.flags_cache import (
 )
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
-from products.feature_flags.backend.types import FlagFilters, FlagProperty, PropertyFilterType
+from products.feature_flags.backend.models.team_feature_flags_config import (
+    PropertyMatchingVersion,
+    TeamFeatureFlagsConfig,
+)
+from products.feature_flags.backend.types import FlagProperty
 from products.surveys.backend.models import Survey
 
 logger = structlog.get_logger(__name__)
@@ -85,43 +90,6 @@ HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER = Counter(
     "Rebuilds skipped because the freshly built group_type_mapping was empty over populated data",
     labelnames=["namespace"],
 )
-
-
-def _get_properties_from_filters(
-    filters: Union[dict, FlagFilters], property_type: str | None = None
-) -> Generator[FlagProperty]:
-    """
-    Extract properties from filters by iterating through groups.
-
-    Args:
-        filters: The filters dictionary containing groups
-        property_type: Optional filter by property type (e.g., 'flag', 'cohort')
-
-    Yields:
-        Property dictionaries matching the criteria
-    """
-    for group in filters.get("groups", []):
-        for prop in group.get("properties", []):
-            if property_type is None or prop.get("type") == property_type:
-                yield prop
-
-
-def _extract_cohort_ids_from_filters(filters: Union[dict, FlagFilters]) -> set[int]:
-    """Extract cohort IDs directly referenced in flag filter properties."""
-    cohort_ids: set[int] = set()
-    for prop in _get_properties_from_filters(filters, "cohort"):
-        value = prop.get("value")
-        if value is not None:
-            try:
-                cohort_ids.add(int(value))
-            except (TypeError, ValueError):
-                continue
-    return cohort_ids
-
-
-def _get_flag_properties_from_filters(filters: Union[dict, FlagFilters]) -> Generator[FlagProperty]:
-    """Extract flag properties from filters."""
-    return _get_properties_from_filters(filters, PropertyFilterType.FLAG)
 
 
 def _resolve_flag_dependency_key(flag_prop: FlagProperty, flag_id_to_key: dict[str, str]) -> str:
@@ -187,7 +155,7 @@ class _DependencyChainBuilder:
             return False
 
         filters = flag_data.get("filters", {})
-        for flag_prop in _get_flag_properties_from_filters(filters):
+        for flag_prop in flag_dependency_properties(filters):
             dep_flag_key = flag_prop["key"]  # Already normalized to key
             if dep_flag_key == flag_key:
                 return True
@@ -241,7 +209,7 @@ class _DependencyChainBuilder:
             return False
 
         filters = current_flag.get("filters", {})
-        for flag_prop in _get_flag_properties_from_filters(filters):
+        for flag_prop in flag_dependency_properties(filters):
             dep_flag_key = flag_prop["key"]  # Already normalized to key
             if dep_flag_key != current_key:  # Avoid self-dependency
                 if not self._validate_dependency(dep_flag_key, current_key, visited, temp_visited, chain):
@@ -284,7 +252,7 @@ def _normalize_and_collect_dependency_target_keys(
 
     for flag_data in flags_data:
         filters = flag_data.get("filters", {})
-        for flag_prop in _get_flag_properties_from_filters(filters):
+        for flag_prop in flag_dependency_properties(filters):
             # Transform flag ID to flag key
             flag_key = _resolve_flag_dependency_key(flag_prop, flag_id_to_key)
             flag_prop["key"] = flag_key
@@ -316,7 +284,7 @@ def _build_all_dependency_chains(
     for flag_data in flags_data:
         filters = flag_data.get("filters", {})
 
-        for flag_prop in _get_flag_properties_from_filters(filters):
+        for flag_prop in flag_dependency_properties(filters):
             flag_key = flag_prop["key"]
 
             dependency_chain = builder.build_chain(flag_key)
@@ -397,16 +365,25 @@ def _load_flag_definitions_with_cohorts(key: KeyType) -> dict[str, Any]:
     return _get_flags_response_for_local_evaluation(HyperCache.team_from_key(key))
 
 
-flag_definitions_hypercache = HyperCache(
-    namespace="feature_flags",
-    value="flags_with_cohorts.json",
-    load_fn=_load_flag_definitions_with_cohorts,
-    cache_ttl=settings.FLAGS_CACHE_TTL,
-    cache_miss_ttl=settings.FLAGS_CACHE_MISS_TTL,
-    batch_load_fn=lambda teams: _get_flags_response_for_local_evaluation_batch(teams),
-    enable_etag=True,
-    expiry_sorted_set_key=FLAG_DEFINITIONS_CACHE_EXPIRY_SORTED_SET,
-)
+def _build_flag_definitions_hypercache() -> HyperCache:
+    has_dedicated_cache = FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES
+    return HyperCache(
+        namespace="feature_flags",
+        value="flags_with_cohorts.json",
+        load_fn=_load_flag_definitions_with_cohorts,
+        cache_ttl=settings.FLAGS_CACHE_TTL,
+        cache_miss_ttl=settings.FLAGS_CACHE_MISS_TTL,
+        batch_load_fn=lambda teams: _get_flags_response_for_local_evaluation_batch(teams),
+        enable_etag=True,
+        expiry_sorted_set_key=FLAG_DEFINITIONS_CACHE_EXPIRY_SORTED_SET,
+        cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if has_dedicated_cache else None,
+        # Mirror to the shared Redis while the /flags/definitions reader still reads
+        # from it.
+        secondary_cache_alias="default" if has_dedicated_cache else None,
+    )
+
+
+flag_definitions_hypercache = _build_flag_definitions_hypercache()
 
 
 def _resolve_team(team: Team | int) -> Team | None:
@@ -549,12 +526,14 @@ def _local_eval_response(
     group_type_mapping: dict[str, str],
     cohorts: dict[str, Any],
     minimal_flag_called_events: bool,
+    property_matching_version: int,
 ) -> dict[str, Any]:
     return {
         "flags": flags,
         "group_type_mapping": group_type_mapping,
         "cohorts": cohorts,
         "minimal_flag_called_events": minimal_flag_called_events,
+        "property_matching_version": property_matching_version,
     }
 
 
@@ -563,7 +542,13 @@ def _get_flags_response_for_local_evaluation(team: Team) -> dict[str, Any]:
     results = _get_flags_response_for_local_evaluation_batch([team])
     return results.get(
         team.id,
-        _local_eval_response(flags=[], group_type_mapping={}, cohorts={}, minimal_flag_called_events=False),
+        _local_eval_response(
+            flags=[],
+            group_type_mapping={},
+            cohorts={},
+            minimal_flag_called_events=False,
+            property_matching_version=PropertyMatchingVersion.LEGACY,
+        ),
     )
 
 
@@ -584,15 +569,16 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
     team_by_id = {t.id: t for t in teams}
     project_ids = list({t.project_id for t in teams})
 
-    # Slim $feature_flag_called gate, exposed top-level so local-eval SDKs (which never
-    # call /flags) get the same signal FlagsResponse.minimal_flag_called_events carries.
-    # Absent row → False → SDKs send full events, same fail-safe as the /flags path.
-    minimal_flag_called_events_by_team: defaultdict[int, bool] = defaultdict(
-        bool,
-        TeamFeatureFlagsConfig.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
+    # Local-evaluation SDKs never call /flags, so team rollout settings must travel in
+    # this blob. Missing config rows retain both legacy behaviors.
+    team_config_by_team_id = {
+        team_id: (minimal_flag_called_events, property_matching_version)
+        for team_id, minimal_flag_called_events, property_matching_version in TeamFeatureFlagsConfig.objects.db_manager(
+            DATABASE_FOR_LOCAL_EVALUATION
+        )
         .filter(team_id__in=team_ids)
-        .values_list("team_id", "minimal_flag_called_events"),
-    )
+        .values_list("team_id", "minimal_flag_called_events", "property_matching_version")
+    }
 
     # Bulk load survey flag IDs across all teams
     survey_flag_ids: set[int] = set()
@@ -626,17 +612,22 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
         .order_by("team_id", "key")
     )
 
-    referenced_cohort_ids: set[int] = set()
+    direct_cohort_ids: set[int] = set()
     for flag in all_flags:
         flag._evaluation_tag_names = flag.evaluation_tag_names_agg or []
         flag._has_experiment = flag.has_experiment_agg
-        referenced_cohort_ids.update(_extract_cohort_ids_from_filters(flag.filters or {}))
+        try:
+            direct_cohort_ids.update(referenced_cohort_ids(flag.filters))
+        except ConfigFormatError:
+            # The per-flag pass below drops this flag through its error handling; one
+            # unsupported document must not fail the whole batch here.
+            continue
 
     # Load only the referenced cohorts and resolve nested dependencies
     # iteratively. Each iteration loads newly discovered nested cohort IDs
     # until there are none left (typically 1-2 iterations).
     cohorts_by_project: dict[int, dict[int, Cohort]] = defaultdict(dict)
-    ids_to_load = referenced_cohort_ids.copy()
+    ids_to_load = direct_cohort_ids.copy()
     loaded_ids: set[int] = set()
 
     while ids_to_load:
@@ -690,7 +681,7 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
                 # Pre-populate cache with empty entries for any referenced cohort_id
                 # not already loaded, so get_cohort_ids doesn't make fallback DB queries
                 # for deleted or cross-team cohorts.
-                for cid in _extract_cohort_ids_from_filters(filters):
+                for cid in referenced_cohort_ids(filters):
                     if cid not in seen_cohorts_cache:
                         seen_cohorts_cache[cid] = ""
 
@@ -722,11 +713,15 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
                 FLAG_PROCESSING_ERROR_COUNTER.inc()
                 continue
 
+        minimal_flag_called_events, property_matching_version = team_config_by_team_id.get(
+            tid, (False, PropertyMatchingVersion.LEGACY)
+        )
         response_data = _local_eval_response(
             flags=flags_data,
             group_type_mapping=gtm_by_project.get(team.project_id, {}),
             cohorts=cohorts,
-            minimal_flag_called_events=minimal_flag_called_events_by_team[tid],
+            minimal_flag_called_events=minimal_flag_called_events,
+            property_matching_version=property_matching_version,
         )
 
         results[tid] = _apply_flag_dependency_transformation(response_data, flag_id_to_key)
@@ -734,11 +729,15 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
     # Ensure every requested team has a result, even if it had no flags
     for tid in team_ids:
         if tid not in results:
+            minimal_flag_called_events, property_matching_version = team_config_by_team_id.get(
+                tid, (False, PropertyMatchingVersion.LEGACY)
+            )
             results[tid] = _local_eval_response(
                 flags=[],
                 group_type_mapping=gtm_by_project.get(team_by_id[tid].project_id, {}),
                 cohorts={},
-                minimal_flag_called_events=minimal_flag_called_events_by_team[tid],
+                minimal_flag_called_events=minimal_flag_called_events,
+                property_matching_version=property_matching_version,
             )
 
     return results
@@ -784,6 +783,7 @@ _TOP_LEVEL_FIELDS_TO_COMPARE: list[tuple[str, str, Any]] = [
     ("cohorts", "COHORTS_MISMATCH", None),
     ("group_type_mapping", "GROUP_TYPE_MAPPING_MISMATCH", None),
     ("minimal_flag_called_events", "MINIMAL_FLAG_CALLED_EVENTS_MISMATCH", False),
+    ("property_matching_version", "PROPERTY_MATCHING_VERSION_MISMATCH", PropertyMatchingVersion.LEGACY),
 ]
 
 

@@ -16,6 +16,7 @@ export const manifest: ProductManifest = {
             description: 'Manage versioned agent skills that any MCP-connected agent can discover and use.',
             layout: 'app-container',
             iconType: 'llm_prompts',
+            docsHref: 'https://posthog.com/docs/skills',
         },
         Skill: {
             import: () => import('./frontend/LLMSkillScene'),
@@ -35,14 +36,17 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/skills': ['Skills', 'skills'],
-        // Category tabs (e.g. /skills/scouts) must precede the `/skills/:name` wildcard so they
-        // aren't captured as a skill named after the tab. Route order = match precedence.
+        // Tab routes (e.g. /skills/scouts) must precede the `/skills/:name` wildcard so they
+        // aren't captured as a skill named after the tab. Route order = match precedence. Every
+        // slug here is also in RESERVED_SKILL_NAMES so no skill can claim a shadowed name.
         '/skills/scouts': ['Skills', 'skillsScouts'],
         '/skills/review-hog': ['Skills', 'skillsReviewHog'],
-        '/community-skills': ['CommunitySkills', 'communitySkills'],
+        '/skills/community': ['CommunitySkills', 'communitySkills'],
         '/skills/:name': ['Skill', 'skill'],
     },
     redirects: {
+        '/community-skills': (_params, searchParams, hashParams) =>
+            combineUrl(urls.communitySkills(), searchParams, hashParams).url,
         '/prompt-management/skills': (_params, searchParams, hashParams) =>
             combineUrl(urls.skills(), searchParams, hashParams).url,
         '/prompt-management/skills/:name': (params, searchParams, hashParams) =>
@@ -58,7 +62,7 @@ export const manifest: ProductManifest = {
         skillsCategoryTab: (categoryTab: string): string => `/skills/${categoryTab}`,
         skill: (name: string, params?: { file?: string; version?: number }): string =>
             combineUrl(`/skills/${name}`, params).url,
-        communitySkills: (): string => '/community-skills',
+        communitySkills: (): string => '/skills/community',
     },
     fileSystemTypes: {},
     treeItemsNew: [],

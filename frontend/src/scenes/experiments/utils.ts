@@ -4,7 +4,7 @@ import { getSeriesColor } from 'lib/colors'
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout, MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils/dom'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 
 import {
     AnyDataWarehouseNode,
@@ -30,7 +30,6 @@ import {
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
-    AnyPropertyFilter,
     ChartDisplayType,
     Experiment,
     ExperimentMetricGoal,
@@ -47,12 +46,12 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
+import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
 import type {
     ExperimentFeatureFlagFiltersApi,
     ExperimentFeatureFlagInputApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
-import { EXPERIMENT_VARIANT_MULTIPLE } from './constants'
 import {
     EXPOSURE_DEFAULT_EVENT,
     EXPOSURE_FEATURE_FLAG_PROPERTY,
@@ -144,7 +143,7 @@ export function ensureIsPercent(value: string | number | undefined): number {
 
 export function percentageDistribution(variantCount: number): number[] {
     const basePercentage = Math.floor(100 / variantCount)
-    const percentages = new Array(variantCount).fill(basePercentage)
+    const percentages = Array.from<number>({ length: variantCount }).fill(basePercentage)
     let remaining = 100 - basePercentage * variantCount
     for (let i = 0; remaining > 0; i++, remaining--) {
         // try to equally distribute `remaining` across variants
@@ -217,188 +216,6 @@ function seriesToFilter(series: AnyEntityNode | ExperimentMetricSource): Univers
 }
 
 /**
- * Mirrors the backend's exposure semantics (`build_common_exposure_conditions`, also behind the
- * replay player's experiment session context): the variant property must be IN the experiment's
- * variant keys. Matching only on the event would include sessions of users who evaluated the flag
- * but were never enrolled, e.g. `$feature_flag_called` with a `false` response on a partial rollout.
- */
-function variantPropertyFilter(propertyKey: string, variantKeys: string[]): AnyPropertyFilter {
-    if (variantKeys.length === 0) {
-        // Variants unknown (flag not loaded) — the variant property being stamped at all is the
-        // closest available enrollment marker.
-        return {
-            key: propertyKey,
-            type: PropertyFilterType.Event,
-            value: PropertyOperator.IsSet,
-            operator: PropertyOperator.IsSet,
-        }
-    }
-    return {
-        key: propertyKey,
-        type: PropertyFilterType.Event,
-        value: variantKeys,
-        operator: PropertyOperator.Exact,
-    }
-}
-
-function resolveVariantKeys(experiment: Experiment, variantKey?: string | string[]): string[] {
-    if (variantKey === undefined) {
-        return getExperimentVariants(experiment).map((variant) => variant.key)
-    }
-    return Array.isArray(variantKey) ? variantKey : [variantKey]
-}
-
-function createExposureFilter(
-    exposureConfig: ExperimentExposureConfig,
-    featureFlagKey: string,
-    variantKeys: string[]
-): UniversalFiltersGroupValue {
-    const isEvent = isEventExposureConfig(exposureConfig)
-    return {
-        id: isEvent ? exposureConfig.event || 'unknown' : exposureConfig.id,
-        name: isEvent ? exposureConfig.event || 'Unknown Event' : exposureConfig.name || `Action ${exposureConfig.id}`,
-        type: isEvent ? 'events' : 'actions',
-        properties: [
-            ...(exposureConfig.properties || []),
-            variantPropertyFilter(featureFlagVariantProperty(featureFlagKey), variantKeys),
-        ],
-    }
-}
-
-/**
- * Exposure filter for an experiment's recordings: one variant (or a subset, when given an array),
- * or every enrolled session (variant property IN the experiment's variants) when `variantKey` is
- * omitted. Exposure-only — metric steps are never added, so a metric event captured without a
- * `$session_id` can't zero out the result.
- */
-export function getViewRecordingFiltersForVariant(
-    experiment: Experiment,
-    variantKey?: string | string[]
-): UniversalFiltersGroupValue[] {
-    const variantKeys = resolveVariantKeys(experiment, variantKey)
-    const exposureConfig = experiment.exposure_criteria?.exposure_config
-    if (exposureConfig && !(isEventExposureConfig(exposureConfig) && exposureConfig.event === EXPOSURE_DEFAULT_EVENT)) {
-        return [createExposureFilter(exposureConfig, experiment.feature_flag_key, variantKeys)]
-    }
-
-    const exposureEvent = resolvedExposureEvent(experiment)
-    return [
-        {
-            id: exposureEvent,
-            name: exposureEvent,
-            type: 'events',
-            properties: [
-                variantPropertyFilter(EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY, variantKeys),
-                {
-                    key: EXPOSURE_FEATURE_FLAG_PROPERTY,
-                    type: PropertyFilterType.Event,
-                    value: experiment.feature_flag_key,
-                    operator: PropertyOperator.Exact,
-                },
-            ],
-        },
-    ]
-}
-
-/**
- * Stand-in exposure filter for when the default `$feature_flag_called` exposure event is captured
- * server-side and can never match a session. `posthog-js` stamps `$feature/<flag_key>` on every
- * client-side event captured after flags load, so this property filter matches sessions where the
- * flag was active regardless of where the flag was evaluated. It is an approximation of exposure,
- * not the real thing: the property reflects the flag's value on each event, not the enrollment
- * moment. Custom exposure criteria carry semantics (a specific event plus its property filters)
- * that a flag-value filter can't stand in for, so those return null and keep the
- * blank-with-explanation behavior.
- */
-export function getExposureFallbackFilter(
-    experiment: Experiment,
-    variantKey?: string | string[]
-): UniversalFiltersGroupValue | null {
-    const exposureConfig = experiment.exposure_criteria?.exposure_config
-    if (exposureConfig && !(isEventExposureConfig(exposureConfig) && exposureConfig.event === EXPOSURE_DEFAULT_EVENT)) {
-        return null
-    }
-    const variantKeys = resolveVariantKeys(experiment, variantKey)
-    const propertyKey = featureFlagVariantProperty(experiment.feature_flag_key)
-    // Typed as an event property, not PropertyFilterType.Feature: the recordings query backend
-    // only routes event-typed filters through its events subquery (see `is_event_property` in
-    // posthog/session_recordings/queries/utils.py) and treats feature-typed ones as unexpected.
-    if (variantKeys.length === 0) {
-        return {
-            key: propertyKey,
-            type: PropertyFilterType.Event,
-            value: PropertyOperator.IsSet,
-            operator: PropertyOperator.IsSet,
-        }
-    }
-    return {
-        key: propertyKey,
-        type: PropertyFilterType.Event,
-        value: variantKeys,
-        operator: PropertyOperator.Exact,
-    }
-}
-
-/**
- * Gets the Filters to ExperimentMetrics, Can't quite use `exposureConfigToFilter` or
- * `metricToFilter` because the format is not quite the same, but we can use `seriesToFilter`
- *
- * TODO: refactor the *ToFilter functions so we can use bits of them.
- */
-export function getViewRecordingFilters(
-    experiment: Experiment,
-    metric: ExperimentMetric,
-    variantKey: string
-): UniversalFiltersGroupValue[] {
-    /**
-     * The exposure criteria is always the first link in the filter chain.
-     */
-    const filters: UniversalFiltersGroupValue[] = getViewRecordingFiltersForVariant(experiment, variantKey)
-
-    /**
-     * for mean metrics, we add the single action/event to the filters
-     */
-    if (
-        isExperimentMeanMetric(metric) &&
-        (metric.source.kind === NodeKind.EventsNode || metric.source.kind === NodeKind.ActionsNode)
-    ) {
-        const meanFilter = seriesToFilter(metric.source)
-        if (meanFilter) {
-            filters.push(meanFilter)
-        }
-    }
-
-    /**
-     * for funnel metrics, we need to add each element in the series as a filter
-     */
-    if (isExperimentFunnelMetric(metric)) {
-        metric.series.forEach((series) => {
-            const funnelMetric = seriesToFilter(series)
-            if (funnelMetric) {
-                filters.push(funnelMetric)
-            }
-        })
-    }
-
-    /**
-     * for ratio metrics, we add both numerator and denominator events to the filters
-     */
-    if (isExperimentRatioMetric(metric)) {
-        const numeratorFilter = seriesToFilter(metric.numerator)
-        const denominatorFilter = seriesToFilter(metric.denominator)
-
-        if (numeratorFilter) {
-            filters.push(numeratorFilter)
-        }
-        if (denominatorFilter) {
-            filters.push(denominatorFilter)
-        }
-    }
-
-    return filters
-}
-
-/**
  * Event/action filters for one metric's sources — the "session reached this metric" part of a
  * recordings query. Data-warehouse sources have no session events and are skipped, so a metric
  * whose every source is a data-warehouse node (or a retention metric, whose steps the recordings
@@ -418,8 +235,19 @@ export function getMetricSessionFilters(metric: ExperimentMetric): UniversalFilt
         .filter((filter): filter is UniversalFiltersGroupValue => filter !== null)
 }
 
-export const NOT_A_FUNNEL_REASON =
-    "This filter shows sessions that didn't finish a funnel, so it needs a funnel metric."
+/**
+ * The distinct events a metric counts. A metric's name is free text ("Rageclicks per user"), so
+ * on its own it doesn't say what a session has to have fired to match.
+ */
+export function getMetricSourceEventNames(metric: ExperimentMetric): string[] {
+    const names = getMetricSessionFilters(metric)
+        // Only entity filters name an event; a nested filter group (which the type allows) doesn't.
+        .flatMap((filter) => ('id' in filter ? [String(filter.name ?? filter.id ?? '')] : []))
+        .filter(Boolean)
+    return [...new Set(names)]
+}
+
+export const NOT_A_FUNNEL_REASON = "This filter reads a funnel's last step, so it needs a funnel metric."
 
 export const FUNNEL_SERVER_SIDE_COMPLETION_REASON =
     "This filter reads a funnel's last step. This one is captured server-side without a session ID, so recordings can't be matched."
@@ -467,23 +295,56 @@ export function isUnlinkableEventFilter(
     )
 }
 
+export const METRIC_UNLINKABLE_REASON =
+    "This metric's events are captured server-side without a session ID, so recordings can't be matched."
+
+export const RETENTION_UNLINKABLE_REASON =
+    'Retention metrics measure a return visit, which happens in a later session than the one that starts it. No single recording can show both, so these metrics are left out of the filter.'
+
+export const DATA_WAREHOUSE_UNLINKABLE_REASON =
+    'This metric is measured entirely in the data warehouse, which has no session events to match recordings on.'
+
+/**
+ * Why a metric can't narrow a recordings list, or null when it can. A metric is unlinkable when
+ * every one of its sources is a never-session-linked event, or when it yields no session filter at
+ * all (a retention metric, or one measured only in the data warehouse). Either way its filter could
+ * only match zero sessions. Pass an empty `unlinkableEventNames` while the linkability check loads,
+ * which fails open, the posture every linkability consumer shares.
+ */
+export function getMetricUnlinkableReason(metric: ExperimentMetric, unlinkableEventNames: Set<string>): string | null {
+    const filters = getMetricSessionFilters(metric)
+    if (filters.length === 0) {
+        return isExperimentRetentionMetric(metric) ? RETENTION_UNLINKABLE_REASON : DATA_WAREHOUSE_UNLINKABLE_REASON
+    }
+    return filters.every((filter) => isUnlinkableEventFilter(filter, unlinkableEventNames))
+        ? METRIC_UNLINKABLE_REASON
+        : null
+}
+
+/**
+ * The single event an experiment's exposure is counted on, for the session-linkability check.
+ * Null for an action exposure config, which can match several events, so no one name applies.
+ */
+export function getExposureLinkabilityEventName(experiment: Experiment): string | null {
+    const exposureConfig = experiment.exposure_criteria?.exposure_config
+    if (exposureConfig && !(isEventExposureConfig(exposureConfig) && exposureConfig.event === EXPOSURE_DEFAULT_EVENT)) {
+        return isEventExposureConfig(exposureConfig) && exposureConfig.event ? exposureConfig.event : null
+    }
+    return resolvedExposureEvent(experiment)
+}
+
 /**
  * Event names whose session-linkability must be checked before building "View recordings" links:
  * the exposure event plus every plain-event metric step across primary, secondary and shared
- * metrics, mirroring how `getViewRecordingFilters` enumerates them. Action and data warehouse
- * steps pass through unchecked (same as the replay playlist's own check), as do "all events"
- * steps, which have no event name.
+ * metrics. Action and data warehouse steps pass through unchecked (same as the replay playlist's
+ * own check), as do "all events" steps, which have no event name.
  */
 export function getSessionLinkabilityEventNames(experiment: Experiment): string[] {
     const eventNames = new Set<string>()
 
-    const exposureConfig = experiment.exposure_criteria?.exposure_config
-    if (exposureConfig && !(isEventExposureConfig(exposureConfig) && exposureConfig.event === EXPOSURE_DEFAULT_EVENT)) {
-        if (isEventExposureConfig(exposureConfig) && exposureConfig.event) {
-            eventNames.add(exposureConfig.event)
-        }
-    } else {
-        eventNames.add(resolvedExposureEvent(experiment))
+    const exposureEventName = getExposureLinkabilityEventName(experiment)
+    if (exposureEventName) {
+        eventNames.add(exposureEventName)
     }
 
     const metrics = [
@@ -508,50 +369,6 @@ export function getSessionLinkabilityEventNames(experiment: Experiment): string[
     }
 
     return Array.from(eventNames)
-}
-
-/**
- * Post-filters `getViewRecordingFilters` output. Recordings are matched through events carrying
- * a `$session_id`, so an event filter the project has never seen with that property (e.g. one
- * captured server-side) would zero out the whole AND-combined recordings query. The exposure
- * filter is always first. When it is itself unlinkable, `exposureFallbackFilter` (see
- * `getExposureFallbackFilter`) takes its place with `usedExposureFallback: true`, so callers can
- * label the result as "flag was active" rather than "exposed"; without a fallback there are no
- * recordings to show at all.
- */
-export function applySessionLinkability(
-    filters: UniversalFiltersGroupValue[],
-    unlinkableEventNames: Set<string>,
-    exposureFallbackFilter: UniversalFiltersGroupValue | null = null
-): {
-    filters: UniversalFiltersGroupValue[]
-    droppedMetricEventCount: number
-    exposureUnlinkable: boolean
-    usedExposureFallback: boolean
-} {
-    const isUnlinkable = (filter: UniversalFiltersGroupValue): boolean =>
-        isUnlinkableEventFilter(filter, unlinkableEventNames)
-
-    if (filters.length === 0) {
-        return { filters: [], droppedMetricEventCount: 0, exposureUnlinkable: false, usedExposureFallback: false }
-    }
-
-    const [exposureFilter, ...metricFilters] = filters
-    const exposureIsUnlinkable = isUnlinkable(exposureFilter)
-    if (exposureIsUnlinkable && !exposureFallbackFilter) {
-        return { filters: [], droppedMetricEventCount: 0, exposureUnlinkable: true, usedExposureFallback: false }
-    }
-
-    const keptMetricFilters = metricFilters.filter((filter) => !isUnlinkable(filter))
-    return {
-        filters: [
-            exposureIsUnlinkable && exposureFallbackFilter ? exposureFallbackFilter : exposureFilter,
-            ...keptMetricFilters,
-        ],
-        droppedMetricEventCount: metricFilters.length - keptMetricFilters.length,
-        exposureUnlinkable: false,
-        usedExposureFallback: exposureIsUnlinkable,
-    }
 }
 
 export function getViewRecordingFiltersLegacy(
@@ -1198,10 +1015,22 @@ export function getOrderedMetricsWithResults(
             name: sharedMetric.name,
             sharedMetricId: sharedMetric.saved_metric,
             isSharedMetric: true,
-            // Merge breakdowns from metadata into breakdownFilter
+            /**
+             * Merge per-experiment breakdown attribution from metadata into the query
+             */
+            ...(sharedMetric.metadata?.breakdownAttributionType !== undefined && {
+                breakdownAttributionType: sharedMetric.metadata.breakdownAttributionType,
+                breakdownAttributionValue: sharedMetric.metadata.breakdownAttributionValue,
+            }),
+            /**
+             * Merge breakdowns from metadata into breakdownFilter
+             */
             breakdownFilter: {
                 ...sharedMetric.query?.breakdownFilter,
                 breakdowns: sharedMetric.metadata?.breakdowns || [],
+                ...(sharedMetric.metadata?.breakdown_limit !== undefined && {
+                    breakdown_limit: sharedMetric.metadata.breakdown_limit,
+                }),
             },
         })) as ExperimentMetric[]
 
@@ -1405,9 +1234,22 @@ export const metricResults =
                 name: sharedMetric.name,
                 sharedMetricId: sharedMetric.saved_metric,
                 isSharedMetric: true,
+                /**
+                 * Merge per-experiment breakdown attribution from metadata into the query
+                 */
+                ...(sharedMetric.metadata?.breakdownAttributionType !== undefined && {
+                    breakdownAttributionType: sharedMetric.metadata.breakdownAttributionType,
+                    breakdownAttributionValue: sharedMetric.metadata.breakdownAttributionValue,
+                }),
+                /**
+                 * Merge breakdowns from metadata into breakdownFilter
+                 */
                 breakdownFilter: {
                     ...sharedMetric.query?.breakdownFilter,
                     breakdowns: sharedMetric.metadata?.breakdowns || [],
+                    ...(sharedMetric.metadata?.breakdown_limit !== undefined && {
+                        breakdown_limit: sharedMetric.metadata.breakdown_limit,
+                    }),
                 },
             })) as ExperimentMetric[]
 

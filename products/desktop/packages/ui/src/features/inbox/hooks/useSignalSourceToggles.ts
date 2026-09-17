@@ -1,4 +1,8 @@
-import type { SignalSourceConfig } from "@posthog/api-client/posthog-client";
+import type {
+  ExternalDataSource,
+  SignalSourceConfig,
+} from "@posthog/api-client/posthog-client";
+import { effectiveGithubSourceRepos } from "@posthog/core/integrations/githubSourceRepos";
 import {
   ANALYTICS_EVENTS,
   EXTERNAL_INBOX_SOURCES,
@@ -23,7 +27,6 @@ type SourceKey = keyof SignalSourceValues;
 const SOURCE_TYPE_MAP: Partial<Record<SourceKey, SourceType>> = {
   conversations: "ticket",
   health_checks: "health_issue",
-  session_replay: "session_analysis_cluster",
   // AI observability signals are always emitted per evaluation report.
   llm_analytics: "evaluation_report",
   ...Object.fromEntries(
@@ -41,7 +44,6 @@ const SOURCE_LABELS: Partial<Record<SourceKey, string>> = {
   conversations: "PostHog Support",
   error_tracking: "Error tracking",
   health_checks: "Health checks",
-  session_replay: "Session replay",
   llm_analytics: "AI observability",
   ...Object.fromEntries(
     EXTERNAL_INBOX_SOURCES.map((s) => [s.product, s.label]),
@@ -66,7 +68,6 @@ const ALL_SOURCE_PRODUCTS: SourceKey[] = [
   "conversations",
   "error_tracking",
   "health_checks",
-  "session_replay",
   "llm_analytics",
   ...EXTERNAL_INBOX_SOURCES.map((s) => s.product),
 ];
@@ -109,6 +110,9 @@ function computeValues(
  *  - Optimistic per-source toggle overrides so a click reflects without waiting for the API.
  *  - Triggering the warehouse setup wizard when a source requires it (`github`, `linear`, `zendesk`, `pganalyze`).
  *  - Forcing `issues` (`should_sync=true`, `sync_type=full_refresh` for GitHub/Linear) when a source is turned on.
+ *
+ * Replay Vision is absent by design: each scanner's `emits_signals` flag is its own per-source
+ * config, so there is no row here to switch. Scanners are set up in PostHog or by the Wizard.
  */
 export function useSignalSourceToggles() {
   const client = useAuthenticatedClient();
@@ -163,18 +167,26 @@ export function useSignalSourceToggles() {
           requiresSetup: boolean;
           loading: boolean;
           syncStatus?: SignalSourceConfig["status"];
+          externalSource?: ExternalDataSource;
+          /** GitHub only: the repositories the warehouse source syncs. */
+          configuredRepos?: string[];
         }
       >
     > = {};
     for (const product of ALL_SOURCE_PRODUCTS) {
       const config = configs?.find((c) => c.source_product === product);
       if (isSetupSourceProduct(product)) {
-        const hasExternalSource = !!findExternalSource(product);
+        const externalSource = findExternalSource(product) ?? undefined;
         const isEnabled = serverValues[product];
         states[product] = {
-          requiresSetup: !hasExternalSource && !isEnabled,
+          requiresSetup: !externalSource && !isEnabled,
           loading: !!loadingSources[product],
           syncStatus: config?.status ?? null,
+          externalSource,
+          configuredRepos:
+            product === "github" && externalSource
+              ? effectiveGithubSourceRepos(externalSource.job_inputs)
+              : undefined,
         };
       } else {
         states[product] = {

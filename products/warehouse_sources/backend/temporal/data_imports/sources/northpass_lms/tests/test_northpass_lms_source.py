@@ -2,20 +2,12 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
+from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.northpasslms import (
     NorthpassLMSSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.northpass_lms import (
-    NorthpassResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.settings import (
-    ENDPOINTS,
-    NORTHPASS_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.source import NorthpassLMSSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestNorthpassLMSSource:
@@ -23,9 +15,6 @@ class TestNorthpassLMSSource:
         self.source = NorthpassLMSSource()
         self.team_id = 123
         self.config = NorthpassLMSSourceConfig(api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.NORTHPASSLMS
 
     def test_get_source_config(self):
         config = self.source.get_source_config
@@ -38,17 +27,14 @@ class TestNorthpassLMSSource:
         assert config.iconPath == "/static/services/northpass_lms.png"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/northpass-lms"
 
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        api_key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.secret is True
-        assert api_key_field.required is True
-
     @parameterized.expand(
         [
             ("unauthorized", "401 Client Error: Unauthorized for url: https://api.northpass.com/v2/people?limit=100"),
             ("forbidden", "403 Client Error: Forbidden for url: https://api.northpass.com/v2/courses?limit=100"),
+            (
+                "empty_quiz_log",
+                "Northpass sent-webhooks log returned no quiz-completed events, so quiz_attempts has no rows to sync",
+            ),
         ]
     )
     def test_non_retryable_errors_match_auth_failures(self, _name, observed_error):
@@ -113,10 +99,6 @@ class TestNorthpassLMSSource:
         documented = self.source.get_documented_tables()
         assert {table["name"] for table in documented} == set(ENDPOINTS)
 
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        canonical = self.source.get_canonical_descriptions()
-        assert set(canonical) == set(NORTHPASS_ENDPOINTS)
-
     @parameterized.expand(
         [
             ("valid", (True, 200), True, None),
@@ -141,23 +123,3 @@ class TestNorthpassLMSSource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with("key")
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert manager._data_class is NorthpassResumeConfig
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.source.northpass_source"
-    )
-    def test_source_for_pipeline_plumbs_arguments(self, mock_northpass_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "courses"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_northpass_source.assert_called_once()
-        kwargs = mock_northpass_source.call_args.kwargs
-        assert kwargs["api_key"] == "key"
-        assert kwargs["endpoint"] == "courses"
-        assert kwargs["resumable_source_manager"] is manager

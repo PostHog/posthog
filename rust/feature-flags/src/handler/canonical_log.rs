@@ -1198,7 +1198,7 @@ mod tests {
             503,
             "service_unavailable"
         )]
-        #[case(FlagError::Internal("test".into()), 500, "internal_error")]
+        #[case(FlagError::internal(anyhow::anyhow!("test")), 500, "internal_error")]
         #[case(FlagError::RequestDecodingError("test".into()), 400, "request_decoding_error")]
         #[case(FlagError::MissingDistinctId, 400, "missing_distinct_id")]
         #[case(FlagError::NoTokenError, 401, "missing_token")]
@@ -1207,8 +1207,8 @@ mod tests {
         #[case(FlagError::SecretApiTokenInvalid, 401, "secret_api_token_invalid")]
         #[case(FlagError::NoAuthenticationProvided, 401, "no_authentication")]
         #[case(FlagError::RowNotFound, 500, "row_not_found")]
-        #[case(FlagError::DataParsingErrorWithContext("test".into()), 500, "flag_data_parsing_error")]
-        #[case(FlagError::RedisUnavailable, 503, "redis_unavailable")]
+        #[case(FlagError::flag_data_parsing("test"), 500, "flag_data_parsing_error")]
+        #[case(FlagError::redis_unavailable(anyhow::anyhow!("connection refused")), 503, "redis_unavailable")]
         #[case(FlagError::DatabaseUnavailable, 503, "database_unavailable")]
         #[case(FlagError::TimeoutError(None), 503, "timeout")]
         #[case(FlagError::TimeoutError(Some("pool".into())), 503, "timeout")]
@@ -1227,9 +1227,14 @@ mod tests {
             500,
             "cohort_filters_parsing_error"
         )]
-        #[case(FlagError::PersonNotFound, 503, "person_not_found")]
-        #[case(FlagError::CacheMiss, 503, "cache_miss")]
-        #[case(FlagError::DataParsingError, 500, "data_parsing_error")]
+        #[case(FlagError::person_not_found(), 503, "person_not_found")]
+        #[case(FlagError::cache_miss(), 503, "cache_miss")]
+        #[case(FlagError::data_parsing(anyhow::anyhow!("bad payload")), 500, "data_parsing_error")]
+        #[case(
+            FlagError::batch_evaluation_panicked(),
+            500,
+            "batch_evaluation_panicked"
+        )]
         #[case(FlagError::HashKeyOverrideError, 500, "hash_key_override_error")]
         fn test_set_error_populates_fields(
             #[case] error: FlagError,

@@ -61,7 +61,6 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.enrich_table_semantics import (
     EnrichTableSemanticsInputs,
     EnrichTableSemanticsWorkflow,
-    enrichment_enabled,
 )
 
 LOGGER = get_logger(__name__)
@@ -151,12 +150,7 @@ def _enrichment_gate(gate: PostImportGateContext) -> bool:
     # Same gates create_external_data_job_model_activity applies for V2, but evaluated
     # post-register: columns this sync added are already visible, so enrichment picks
     # them up now instead of on the next sync. Both children re-check and are idempotent.
-    return bool(
-        gate.ai_data_processing_approved
-        and gate.team is not None
-        and enrichment_enabled(gate.team)
-        and _enrichment_pending(gate.team_id, gate.schema.table, gate.schema)
-    )
+    return gate.ai_data_processing_approved and _enrichment_pending(gate.team_id, gate.schema.table, gate.schema)
 
 
 def _statistics_gate(gate: PostImportGateContext) -> bool:
@@ -167,6 +161,12 @@ def _statistics_gate(gate: PostImportGateContext) -> bool:
 
 def _always(gate: PostImportGateContext) -> bool:
     return True
+
+
+def _wrote_rows_gate(gate: PostImportGateContext) -> bool:
+    """Table size describes the rows this run loaded, so a run that wrote none leaves it
+    unchanged. `None` predates row counting, so it runs the step."""
+    return gate.job.rows_synced != 0
 
 
 def _data_quality_gate(gate: PostImportGateContext) -> bool:
@@ -309,7 +309,7 @@ POST_IMPORT_STEPS: tuple[PostImportStep, ...] = (
     PostImportStep(key=EMIT_SIGNALS_STEP, enabled=_emit_signals_gate, start=_start_emit_signals),
     PostImportStep(key=SEMANTIC_ENRICHMENT_STEP, enabled=_enrichment_gate, start=_start_semantic_enrichment),
     PostImportStep(key=TABLE_STATISTICS_STEP, enabled=_statistics_gate, start=_start_table_statistics),
-    PostImportStep(key=TABLE_SIZE_STEP, enabled=_always, start=_start_table_size),
+    PostImportStep(key=TABLE_SIZE_STEP, enabled=_wrote_rows_gate, start=_start_table_size),
     PostImportStep(key=DUCKLAKE_COPY_STEP, enabled=_always, start=_start_ducklake_copy),
     PostImportStep(key=DATA_QUALITY_CHECKS_STEP, enabled=_data_quality_gate, start=_start_data_quality_checks),
 )

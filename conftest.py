@@ -1,7 +1,15 @@
 import gc
 import warnings
+from collections.abc import Generator
 
 import pytest
+import time_machine
+
+from posthog.test.junit import set_junit_report_location
+
+# The default MIXED mode reads naive strings as local time, so a non-UTC machine would
+# freeze at a different instant than CI does.
+time_machine.naive_mode = time_machine.NaiveMode.UTC  # ty: ignore[invalid-assignment]
 
 # Test-session boot — plugin imports and importing every collected test module —
 # allocates almost exclusively permanent objects, so automatic cyclic GC during that
@@ -69,7 +77,7 @@ def _cache_reverse_rel_identity() -> None:
             self._identity_hash = h = hash(self.identity)
             return h
 
-    ForeignObjectRel.__hash__ = cached_hash  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+    ForeignObjectRel.__hash__ = cached_hash  # type: ignore[assignment]
 
     # __eq__ compares the full identity tuples element by element (each element itself a
     # Field with a non-trivial __eq__), and dict probing in select-mask construction calls
@@ -93,7 +101,7 @@ def _cache_reverse_rel_identity() -> None:
     # object each rel is ever compared with. Bounded by schema size, not test count, so
     # harmless in practice — but don't mistake it for a per-test cache.
     cached_eq.__wrapped__ = orig_eq  # exposes the original for the canary tests
-    ForeignObjectRel.__eq__ = cached_eq  # type: ignore[method-assign, assignment]  # ty: ignore[invalid-assignment]
+    ForeignObjectRel.__eq__ = cached_eq  # type: ignore[method-assign, assignment]
 
 
 def _cache_select_masks() -> None:
@@ -121,7 +129,7 @@ def _cache_select_masks() -> None:
         return mask
 
     get_select_mask.__wrapped__ = orig_get_select_mask  # exposes the original for the canary tests
-    Query.get_select_mask = get_select_mask  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    Query.get_select_mask = get_select_mask  # type: ignore[method-assign]
 
 
 def _cache_drf_field_info() -> None:
@@ -172,38 +180,35 @@ def _cache_url_resolution() -> None:
         match = object.__new__(type(hit))
         match.__dict__.update(hit.__dict__)
         match.kwargs = dict(hit.kwargs)
-        match.captured_kwargs = dict(getattr(hit, "captured_kwargs", None) or {})
-        match.extra_kwargs = dict(getattr(hit, "extra_kwargs", None) or {})
+        match.captured_kwargs = dict(getattr(hit, "captured_kwargs", None) or {})  # ty: ignore[invalid-assignment]
+        match.extra_kwargs = dict(getattr(hit, "extra_kwargs", None) or {})  # ty: ignore[invalid-assignment]
         return match
 
     resolve.__wrapped__ = orig_resolve  # exposes the original for the canary tests
-    resolvers.URLResolver.resolve = resolve  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    resolvers.URLResolver.resolve = resolve  # type: ignore[method-assign]
 
 
-def _cheapen_freezegun_module_hash() -> None:
-    # Every freeze_time().start() revalidates freezegun's per-module patch cache by
-    # hashing each loaded module's attribute list: hash(frozenset(dir(module))) across
-    # every module in sys.modules, per freeze. dir() sorts and materializes a list per
-    # module, so freeze-heavy suites pay seconds per run for it (2.25M hash calls in a
-    # profiled replay-listing run). tuple(module.__dict__) carries the same invalidation
-    # signal ~6x cheaper: every module attribute add/delete mutates __dict__ (dir() has
-    # no extra visibility for cache purposes — PEP 562 lazy attrs only materialize into
-    # __dict__ anyway), and both keys share the same blind spot (rebinding an existing
-    # name), so semantics are unchanged. Installed before any freeze so the cache never
-    # mixes hash schemes.
-    import types  # noqa: PLC0415 — deferred until pytest_configure
+def _cache_fixture_parent_nodeids() -> None:
+    # FixtureManager._matchfactories rebuilds a node's parent-nodeid set for every fixture-name
+    # lookup, and collection resolves many fixture names per item. A node's parents are fixed at
+    # construction, so the set can be reused. Node uses __slots__, so key by id() and keep a strong
+    # reference to prevent id() reuse for the node's session lifetime.
+    from _pytest import fixtures, nodes  # noqa: PLC0415 — deferred until pytest_configure
 
-    from freezegun import api  # noqa: PLC0415 — deferred until pytest_configure
+    orig_matchfactories = fixtures.FixtureManager._matchfactories
+    parents: dict[int, tuple[nodes.Node, set[str]]] = {}
 
-    def _fast_module_attributes_hash(module: types.ModuleType) -> str:
-        try:
-            keys_hash = hash(tuple(module.__dict__))
-        except (ImportError, TypeError, AttributeError):
-            keys_hash = 0
-        return f"{id(module)}-{keys_hash}"
+    def _matchfactories(self, fixturedefs, node):
+        entry = parents.get(id(node))
+        if entry is None:
+            entry = parents[id(node)] = (node, {n.nodeid for n in node.iter_parents()})
+        parentnodeids = entry[1]
+        for fixturedef in fixturedefs:
+            if fixturedef.baseid in parentnodeids:
+                yield fixturedef
 
-    _fast_module_attributes_hash.__wrapped__ = api._get_module_attributes_hash  # type: ignore[attr-defined]
-    api._get_module_attributes_hash = _fast_module_attributes_hash  # ty: ignore[invalid-assignment]
+    _matchfactories.__wrapped__ = orig_matchfactories  # exposes the original for the canary tests
+    fixtures.FixtureManager._matchfactories = _matchfactories  # type: ignore[method-assign]
 
 
 def pytest_configure(config) -> None:
@@ -211,11 +216,17 @@ def pytest_configure(config) -> None:
     _cache_select_masks()
     _cache_drf_field_info()
     _cache_url_resolution()
-    _cheapen_freezegun_module_hash()
+    _cache_fixture_parent_nodeids()
 
 
 def pytest_collection_finish() -> None:
     _end_gc_boot_window()
+
+
+@pytest.hookimpl(hookwrapper=True, tryfirst=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) -> Generator[None]:
+    outcome = yield
+    set_junit_report_location(item, outcome.get_result())
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -287,6 +298,7 @@ def _query_cache_raw_redis_uses_fakeredis(monkeypatch):
     """In tests the query_cache alias is backed by LocMem, which has no Redis connection
     to hand out, so raw-client lookups against it get the shared fakeredis instead."""
     from posthog import redis  # noqa: PLC0415
-    from posthog.query_cache import size_tracker  # noqa: PLC0415
+    from posthog.query_cache import storage  # noqa: PLC0415
 
-    monkeypatch.setattr(size_tracker, "get_redis_connection", lambda alias: redis.get_client())
+    monkeypatch.setattr(storage, "query_cache_raw_client", lambda: redis.get_client())
+    monkeypatch.setattr(storage, "query_cache_read_client", lambda: redis.get_client())

@@ -2,9 +2,10 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 
-import type { SourceConfig } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import type { ExternalDataSourceSyncSchema } from '~/types'
+import type { ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
+
+import type { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import {
     buildKeaFormDefaultFromSourceDetails,
@@ -16,18 +17,29 @@ import {
     sourceWizardLogic,
 } from '../sourceWizardLogic'
 
+function buildSourceConfig(overrides: Partial<SourceConfigResponseApi>): SourceConfigResponseApi {
+    // Fills the fields the wizard endpoint always sends but no case here exercises, so each
+    // fixture states only what it is about.
+    return {
+        name: 'Postgres',
+        iconPath: '',
+        caption: null,
+        fields: [],
+        supportsColumnSelection: false,
+        versions: [],
+        defaultVersion: '',
+        deprecatedVersions: [],
+        ...overrides,
+    }
+}
+
 describe('sourceWizardLogic', () => {
     beforeEach(() => {
         initKeaTests()
     })
 
     it('shares a single wizard instance across references with the same props', () => {
-        const postgresSource = {
-            name: 'Postgres',
-            iconPath: '',
-            caption: null,
-            fields: [],
-        } as SourceConfig
+        const postgresSource = buildSourceConfig({ name: 'Postgres' })
         const availableSources = { Postgres: postgresSource }
         const firstReference = sourceWizardLogic({ availableSources })
         const secondReference = sourceWizardLogic({ availableSources })
@@ -50,12 +62,7 @@ describe('sourceWizardLogic', () => {
         // Regression test: onSubmit used to read `values.currentStep` again after onNext()
         // advanced it, so a single click on step 4 (webhook) fell through into the step-5
         // completion branch in the same call, skipping the progress step entirely.
-        const postgresSource = {
-            name: 'Postgres',
-            iconPath: '',
-            caption: null,
-            fields: [],
-        } as SourceConfig
+        const postgresSource = buildSourceConfig({ name: 'Postgres' })
         const onComplete = jest.fn()
         const logic = sourceWizardLogic({ availableSources: { Postgres: postgresSource }, onComplete })
         const unmount = logic.mount()
@@ -75,12 +82,7 @@ describe('sourceWizardLogic', () => {
     })
 
     it('does not hydrate the same source URL again after the wizard has started', () => {
-        const postgresSource = {
-            name: 'Postgres',
-            iconPath: '',
-            caption: null,
-            fields: [],
-        } as SourceConfig
+        const postgresSource = buildSourceConfig({ name: 'Postgres' })
 
         expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'direct', 'direct')).toBe(false)
         expect(shouldHydrateSourceFromUrl(1, postgresSource, postgresSource, 'direct', 'direct')).toBe(true)
@@ -99,6 +101,14 @@ describe('sourceWizardLogic', () => {
             expect(resolveConnectErrorMessage({ data: { message: 'Invalid credentials' }, status: 400 })).toEqual(
                 'Invalid credentials'
             )
+        })
+
+        it('replaces the generic server-error detail with connection guidance', () => {
+            // DRF answers an unhandled 500 with a fixed placeholder detail. Surfacing it told the
+            // user nothing, and it masked the 5xx branch below.
+            const message = resolveConnectErrorMessage({ detail: 'A server error occurred.', status: 500 })
+            expect(message).toContain('check your connection details')
+            expect(message).not.toContain('A server error occurred.')
         })
 
         it('never returns undefined for a 4xx with no message body', () => {
@@ -149,10 +159,8 @@ describe('sourceWizardLogic', () => {
         it('returns defaults for text fields', async () => {
             const sourceWizardLogic = await import('../sourceWizardLogic')
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
-                Test: {
+                Test: buildSourceConfig({
                     name: 'Stripe',
-                    iconPath: '',
-                    caption: null,
                     fields: [
                         {
                             name: 'test_field',
@@ -163,7 +171,7 @@ describe('sourceWizardLogic', () => {
                             secret: false,
                         },
                     ],
-                },
+                }),
             })
 
             expect(res).toEqual({ prefix: '', description: '', payload: { test_field: '' } })
@@ -172,10 +180,8 @@ describe('sourceWizardLogic', () => {
         it('returns defaults for pure select field', async () => {
             const sourceWizardLogic = await import('../sourceWizardLogic')
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
-                Test: {
+                Test: buildSourceConfig({
                     name: 'Stripe',
-                    iconPath: '',
-                    caption: null,
                     fields: [
                         {
                             name: 'test_field',
@@ -186,7 +192,7 @@ describe('sourceWizardLogic', () => {
                             defaultValue: 'value1',
                         },
                     ],
-                },
+                }),
             })
 
             expect(res).toEqual({ prefix: '', description: '', payload: { test_field: 'value1' } })
@@ -195,10 +201,8 @@ describe('sourceWizardLogic', () => {
         it('returns an array default for a multiple select field', async () => {
             const sourceWizardLogic = await import('../sourceWizardLogic')
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
-                Test: {
+                Test: buildSourceConfig({
                     name: 'GoogleSearchConsole',
-                    iconPath: '',
-                    caption: null,
                     fields: [
                         {
                             name: 'search_types',
@@ -213,7 +217,7 @@ describe('sourceWizardLogic', () => {
                             defaultValue: 'web',
                         },
                     ],
-                },
+                }),
             })
 
             expect(res).toEqual({ prefix: '', description: '', payload: { search_types: ['web'] } })
@@ -222,10 +226,8 @@ describe('sourceWizardLogic', () => {
         it('returns defaults for select field with fields', async () => {
             const sourceWizardLogic = await import('../sourceWizardLogic')
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
-                Test: {
+                Test: buildSourceConfig({
                     name: 'Stripe',
-                    iconPath: '',
-                    caption: null,
                     fields: [
                         {
                             name: 'test_field',
@@ -251,7 +253,7 @@ describe('sourceWizardLogic', () => {
                             defaultValue: 'value1',
                         },
                     ],
-                },
+                }),
             })
 
             expect(res).toEqual({
@@ -264,10 +266,8 @@ describe('sourceWizardLogic', () => {
         it('returns defaults for switch group field - default disabled', async () => {
             const sourceWizardLogic = await import('../sourceWizardLogic')
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
-                Test: {
+                Test: buildSourceConfig({
                     name: 'Stripe',
-                    iconPath: '',
-                    caption: null,
                     fields: [
                         {
                             name: 'test_field',
@@ -286,7 +286,7 @@ describe('sourceWizardLogic', () => {
                             ],
                         },
                     ],
-                },
+                }),
             })
 
             expect(res).toEqual({
@@ -299,10 +299,8 @@ describe('sourceWizardLogic', () => {
         it('returns defaults for switch group field - default enabled', async () => {
             const sourceWizardLogic = await import('../sourceWizardLogic')
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
-                Test: {
+                Test: buildSourceConfig({
                     name: 'Stripe',
-                    iconPath: '',
-                    caption: null,
                     fields: [
                         {
                             name: 'test_field',
@@ -321,7 +319,7 @@ describe('sourceWizardLogic', () => {
                             ],
                         },
                     ],
-                },
+                }),
             })
 
             expect(res).toEqual({
@@ -767,12 +765,7 @@ describe('sourceWizardLogic', () => {
 
     // Reducer guards for permission_error rows (Stripe scope gating).
     describe('permission_error sync gating', () => {
-        const stripeSource = {
-            name: 'Stripe',
-            iconPath: '',
-            caption: null,
-            fields: [],
-        } as SourceConfig
+        const stripeSource = buildSourceConfig({ name: 'Stripe' })
 
         const buildSchema = (overrides: Partial<ExternalDataSourceSyncSchema> = {}): ExternalDataSourceSyncSchema =>
             ({
@@ -820,6 +813,30 @@ describe('sourceWizardLogic', () => {
                 const byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
                 expect(byTable['Customer'].should_sync).toBe(true)
                 expect(byTable['Charge'].should_sync).toBe(false)
+            } finally {
+                unmount()
+            }
+        })
+
+        it('toggleAllTables(selectAll=true) never opts into default-off rows, deselect still clears them', () => {
+            // Default-off tables (e.g. Supabase Vault secrets tables) need an explicit per-table
+            // opt-in; select-all must neither enable them nor undo a deliberate manual opt-in.
+            const { logic, unmount } = mountWithSchemas([
+                buildSchema({ table: 'Customer' }),
+                buildSchema({ table: 'vault.decrypted_secrets', should_sync_default: false }),
+                buildSchema({ table: 'vault.secrets', should_sync_default: false, should_sync: true }),
+            ])
+
+            try {
+                logic.actions.toggleAllTables(true)
+                let byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
+                expect(byTable['Customer'].should_sync).toBe(true)
+                expect(byTable['vault.decrypted_secrets'].should_sync).toBe(false)
+                expect(byTable['vault.secrets'].should_sync).toBe(true)
+
+                logic.actions.toggleAllTables(false)
+                byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
+                expect(byTable['vault.secrets'].should_sync).toBe(false)
             } finally {
                 unmount()
             }
@@ -932,12 +949,7 @@ describe('sourceWizardLogic', () => {
     // Onboarding one-click setup: autoConfigureTables opts every syncable table in so the user
     // can sync the whole source without touching the schema step.
     describe('autoConfigureTables', () => {
-        const stripeSource = {
-            name: 'Stripe',
-            iconPath: '',
-            caption: null,
-            fields: [],
-        } as SourceConfig
+        const stripeSource = buildSourceConfig({ name: 'Stripe' })
 
         const apiSchema = (overrides: Partial<ExternalDataSourceSyncSchema> = {}): ExternalDataSourceSyncSchema =>
             ({
@@ -971,14 +983,16 @@ describe('sourceWizardLogic', () => {
             jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
                 apiSchema({
                     table: 'Customer',
-                    should_sync_default: false, // proves autoConfigureTables overrides the per-table default
                     incremental_available: true,
                     incremental_fields: [
                         { field: 'updated_at', field_type: 'datetime', label: 'updated_at', type: 'datetime' },
                     ],
                 }),
-                apiSchema({ table: 'Product', should_sync_default: false }),
+                apiSchema({ table: 'Product' }),
                 apiSchema({ table: 'Charge', permission_error: 'Missing scope' }),
+                // Auto-configure shows no table picker, so a table the source marks default-off
+                // (e.g. a Supabase Vault secrets table) must not be silently opted in.
+                apiSchema({ table: 'vault.decrypted_secrets', should_sync_default: false }),
             ] as ExternalDataSourceSyncSchema[])
 
             const logic = sourceWizardLogic({ availableSources: { Stripe: stripeSource }, autoConfigureTables: true })
@@ -995,6 +1009,7 @@ describe('sourceWizardLogic', () => {
                 expect(byTable['Product'].should_sync).toBe(true)
                 // permission_error rows can never be synced, even under auto-configure.
                 expect(byTable['Charge'].should_sync).toBe(false)
+                expect(byTable['vault.decrypted_secrets'].should_sync).toBe(false)
             } finally {
                 unmount()
             }
@@ -1020,12 +1035,7 @@ describe('sourceWizardLogic', () => {
 
     // Signals setup passes requiredTables to skip the schema step and sync just those tables.
     describe('requiredTables', () => {
-        const githubSource = {
-            name: 'Github',
-            iconPath: '',
-            caption: null,
-            fields: [],
-        } as SourceConfig
+        const githubSource = buildSourceConfig({ name: 'Github' })
 
         const apiSchema = (
             table: string,
@@ -1187,6 +1197,106 @@ describe('sourceWizardLogic', () => {
                 expect(createWebhook).toHaveBeenCalledTimes(2)
                 expect(createWebhook).toHaveBeenLastCalledWith('source-1')
                 expect(onComplete).toHaveBeenCalled()
+            } finally {
+                unmount()
+            }
+        })
+    })
+
+    // Supabase tables carry arbitrary user columns, so the wizard only trusts update-tracking
+    // columns as default cursors; anything else falls back to full refresh instead of a cursor
+    // that never advances (see resolveUpdateTrackedIncrementalField).
+    describe('Supabase incremental defaults', () => {
+        const supabaseSource = buildSourceConfig({ name: 'Supabase' })
+        const postgresSource = buildSourceConfig({ name: 'Postgres' })
+
+        const apiSchema = (
+            table: string,
+            overrides: Partial<ExternalDataSourceSyncSchema> = {}
+        ): ExternalDataSourceSyncSchema =>
+            ({
+                table,
+                label: null,
+                rows: null,
+                should_sync: false,
+                sync_time_of_day: null,
+                incremental_field: null,
+                incremental_field_type: null,
+                sync_type: null,
+                incremental_fields: [],
+                incremental_available: true,
+                append_available: true,
+                supports_webhooks: false,
+                description: null,
+                should_sync_default: true,
+                primary_key_columns: null,
+                available_columns: [],
+                detected_primary_keys: null,
+                permission_error: null,
+                cdc_available: false,
+                ...overrides,
+            }) as ExternalDataSourceSyncSchema
+
+        const dateOfBirthFields: IncrementalField[] = [
+            { field: 'date_of_birth', field_type: 'date', label: 'date_of_birth', type: 'date' },
+        ]
+
+        const mountAndLoadSchemas = async (
+            source: SourceConfigResponseApi
+        ): Promise<{ logic: ReturnType<typeof sourceWizardLogic>; unmount: () => void }> => {
+            const logic = sourceWizardLogic({ availableSources: { [source.name]: source } })
+            const unmount = logic.mount()
+            logic.actions.selectConnector(source)
+            await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+            return { logic, unmount }
+        }
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('defaults Supabase tables without an update-tracking column to full refresh', async () => {
+            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+                apiSchema('public.users', {
+                    incremental_fields: [
+                        { field: 'priority', field_type: 'integer', label: 'priority', type: 'integer' },
+                        ...dateOfBirthFields,
+                    ],
+                    incremental_field: 'priority',
+                }),
+                apiSchema('public.tasks', {
+                    incremental_fields: [
+                        { field: 'updated_at', field_type: 'timestamp', label: 'updated_at', type: 'timestamp' },
+                    ],
+                    incremental_field: 'updated_at',
+                }),
+            ] as ExternalDataSourceSyncSchema[])
+
+            const { logic, unmount } = await mountAndLoadSchemas(supabaseSource)
+
+            try {
+                const byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
+                expect(byTable['public.users'].sync_type).toBe('full_refresh')
+                expect(byTable['public.tasks'].sync_type).toBe('incremental')
+                expect(byTable['public.tasks'].incremental_field).toBe('updated_at')
+            } finally {
+                unmount()
+            }
+        })
+
+        it('keeps the any-timestamp fallback for other database sources', async () => {
+            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+                apiSchema('public.users', {
+                    incremental_fields: dateOfBirthFields,
+                    incremental_field: 'date_of_birth',
+                }),
+            ] as ExternalDataSourceSyncSchema[])
+
+            const { logic, unmount } = await mountAndLoadSchemas(postgresSource)
+
+            try {
+                expect(logic.values.databaseSchema[0].sync_type).toBe('incremental')
+                expect(logic.values.databaseSchema[0].incremental_field).toBe('date_of_birth')
             } finally {
                 unmount()
             }

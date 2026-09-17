@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
 import { Meta, StoryObj } from '@storybook/react'
 import { HttpResponse } from 'msw'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import dashboardFixture from 'scenes/dashboard/__mocks__/dashboard.json'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
@@ -51,7 +52,7 @@ const RECORDING_ID = String(recordings[0].id)
 const PLAYLIST_ID = 'widget-playlist'
 const PERSON_ID = '0198a76b-7d8b-7000-8fb2-a6f4d27b0811'
 const GROUP_KEY = 'example-company'
-const ERROR_TRACKING_ISSUE_ID = 'widget-issue'
+const ERROR_TRACKING_ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5b'
 const LLM_TRACE_ID = traceWithoutContent.id
 const DASHBOARD_ID = 5
 const ACTION_ID = 123
@@ -325,14 +326,52 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/notebooks/:short_id/sql_v2/runs/:run_id': {
+                    status: 'done',
+                    result: {
+                        columns: ['event', 'count'],
+                        types: [
+                            ['event', 'String'],
+                            ['count', 'Int64'],
+                        ],
+                        row_count: 1,
+                    },
+                    rows: [['$pageview', 42]],
+                    error: null,
+                },
+                '/api/projects/:team_id/notebooks/kernel/compute_options': {
+                    currency: 'USD',
+                    cpu_rate_per_core_hour: 0.2,
+                    memory_rate_per_gb_hour: 0.025,
+                    default_preset_key: 'small',
+                    presets: [
+                        {
+                            key: 'small',
+                            name: 'Small',
+                            description: 'Exploring data and working with small dataframes.',
+                            cpu_cores: 1,
+                            memory_gb: 2,
+                            hourly_price: 0.25,
+                        },
+                    ],
+                    allowed_cpu_cores: [1],
+                    allowed_memory_gb: [2],
+                    allowed_idle_timeout_seconds: [3600],
+                },
                 '/api/projects/:team_id/notebooks/:short_id': ({ params }) => [
                     200,
-                    notebooks[params.short_id as keyof typeof notebooks],
+                    { ...notebooks[params.short_id as keyof typeof notebooks], short_id: params.short_id },
                 ],
                 [`/api/projects/:team_id/feature_flags/${FEATURE_FLAG_ID}/`]: featureFlag,
                 [`/api/projects/:team_id/feature_flags/${FEATURE_FLAG_ID}/status`]: {
                     status: 'active',
                     reason: 'Feature flag is active',
+                    rollout: {
+                        effectively_full_rollout: false,
+                        has_targeting_conditions: false,
+                        max_rollout_percentage: 50,
+                        is_multivariate: false,
+                    },
                 },
                 [`/api/projects/:team_id/surveys/${SURVEY_ID}/`]: survey,
                 '/api/projects/:team_id/surveys/responses_count/': { [SURVEY_ID]: 42 },
@@ -343,6 +382,7 @@ const meta: Meta = {
                 [`/api/projects/:team_id/cohorts/${COHORT_ID}/`]: cohort,
                 [`/api/environments/:team_id/insights/${INSIGHT_ID}/`]: insight,
                 [`/api/projects/:team_id/insights/${INSIGHT_ID}/`]: insight,
+                '/api/environments/:team_id/insights/': { results: [insight], count: 1, next: null, previous: null },
                 '/api/environments/:team_id/session_recordings/:id': recording,
                 '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) => {
                     if (new URL(request.url).searchParams.get('source') === 'blob_v2') {
@@ -397,12 +437,30 @@ const meta: Meta = {
                 '/api/environments/:team_id/default_release_conditions/': [],
             },
             patch: {
+                '/api/projects/:team_id/notebooks/:short_id': async ({ params, request }) => ({
+                    ...notebooks[params.short_id as keyof typeof notebooks],
+                    short_id: params.short_id,
+                    ...((await request.json()) as Record<string, unknown>),
+                }),
                 '/api/projects/:team_id/session_recording_playlists/:playlist_id': async ({ request }) => {
                     const body = (await request.json()) as Record<string, unknown>
                     return { ...playlist, ...body }
                 },
             },
             post: {
+                '/api/projects/:team_id/notebooks/:short_id/collab/markdown_save': async ({ params, request }) => {
+                    const body = (await request.json()) as Record<string, unknown> & { version: number }
+                    return {
+                        ...notebooks[params.short_id as keyof typeof notebooks],
+                        short_id: params.short_id,
+                        ...body,
+                        version: body.version + 1,
+                    }
+                },
+                '/api/projects/:team_id/notebooks/:short_id/sql_v2/run': async ({ request }) => {
+                    const body = (await request.json()) as { node_id: string }
+                    return { run_id: `run-${body.node_id}`, starts_sandbox: false }
+                },
                 '/api/projects/:team_id/session_recording_playlists/:playlist_id/playlist_viewed': { success: true },
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as {
@@ -410,6 +468,9 @@ const meta: Meta = {
                     }
                     const query = body.query
 
+                    if (query?.kind === NodeKind.TrendsQuery) {
+                        return { results: insight.result, hogql: 'SELECT event, count() FROM events GROUP BY event' }
+                    }
                     if (query?.kind === NodeKind.TraceQuery) {
                         return { results: [traceWithoutContent] }
                     }
@@ -457,7 +518,10 @@ export const EarlyAccessFeatureViews: Story = {
 }
 export const CohortViews: Story = { parameters: { pageUrl: urls.notebook('cohort-widget-views') } }
 export const InsightViews: Story = {
-    parameters: { pageUrl: urls.notebook('insight-widget-views') },
+    parameters: {
+        pageUrl: urls.notebook('insight-widget-views'),
+        featureFlags: [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS],
+    },
     play: async ({ canvasElement }) => {
         await waitFor(() => {
             expect(

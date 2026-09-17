@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto'
 
-import type { MCPAnalyticsIntentSource } from '@posthog/mcp-analytics'
+import type { MCPAnalyticsIntentSource, MCPAnalyticsModelSource } from '@posthog/mcp-analytics'
 
 import type { McpAuthFailure } from '@/lib/auth-errors'
 import { classifyAuthMethod } from '@/lib/auth-method'
-import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
+import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { resolveEventSource } from '@/lib/event-source'
 import { gatewayServerSlug, isGatewayToolName, THIRD_PARTY_TOOL_CATEGORY } from '@/lib/gateway-tools'
 import { getPostHogClient } from '@/lib/posthog'
@@ -15,8 +15,11 @@ import {
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
 import type { RequestProperties } from '@/lib/request-properties'
+import { resolveScopePreset } from '@/lib/scope-preset'
+import type { SkillInvocation } from '@/tools/exec-learn'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
+import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { buildMCPSessionAnalyticsProperties, getEffectiveMCPClientIdentity } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
@@ -64,6 +67,9 @@ function buildBaseProperties(
         $mcp_mode: requestContext.mode,
         $mcp_region: requestContext.region,
         $mcp_auth_method: requestContext.authMethod,
+        // Which kind of caller minted this token — scout, research run, implementation run, or
+        // ordinary user — so scratchpad and notes calls split by caller in one breakdown.
+        $mcp_scope_preset: resolveScopePreset(state.apiKeyScopes),
         ...(analyticsContext
             ? {
                   $mcp_organization_id: analyticsContext.organizationId,
@@ -74,11 +80,7 @@ function buildBaseProperties(
               }
             : {}),
         mcp_runtime: 'hono',
-        mcp_vendor_client: clientIdentity.mcpVendorClient,
-        // Stamped on every event so catalog-on vs catalog-off cohorts can be split
-        // in analytics; the flag only gates instructions content, so nothing else
-        // on the event reveals whether the agent was steered toward the catalog.
-        mcp_data_catalog_enabled: state.toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true,
+        $mcp_vendor_client: clientIdentity.mcpVendorClient,
         ...buildMCPSessionAnalyticsProperties(state.sessionContext),
     }
     return { properties, groups }
@@ -117,11 +119,31 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
     }
 }
 
-export interface ToolCallIntentMeta {
+type ModelMissingReason = 'missing' | 'unknown' | 'invalid' | 'not_captured' | 'capture_error'
+
+export function getModelMissingReason(modelArgument: unknown): ModelMissingReason {
+    if (modelArgument === undefined) {
+        return 'missing'
+    }
+    if (typeof modelArgument !== 'string' || !modelArgument.trim()) {
+        return 'invalid'
+    }
+    if (modelArgument.trim().toLowerCase() === 'unknown') {
+        return 'unknown'
+    }
+    return 'not_captured'
+}
+
+export interface ToolCallAnalyticsMeta {
     /** The agent's stated intent (the injected `context` arg) → `$mcp_intent`. */
     intent?: string
     /** Where it came from → `$mcp_intent_source`. */
     intentSource?: MCPAnalyticsIntentSource
+    /** The calling model -> `$mcp_llm_model`. */
+    llmModel?: string
+    /** Where the model identifier came from -> `$mcp_llm_model_source`. */
+    llmModelSource?: MCPAnalyticsModelSource
+    llmModelMissingReason?: ModelMissingReason
 }
 
 export async function trackToolCall(
@@ -130,7 +152,7 @@ export async function trackToolCall(
     isError: boolean,
     state: ResolvedState,
     extraProperties?: Record<string, unknown>,
-    intentMeta?: ToolCallIntentMeta,
+    analyticsMeta?: ToolCallAnalyticsMeta,
     servedDescription?: string
 ): Promise<void> {
     try {
@@ -170,11 +192,16 @@ export async function trackToolCall(
             distinctId: state.distinctId,
             groups,
             ...(sessionUuid ? { sessionId: sessionUuid } : {}),
-            ...(intentMeta?.intent ? { intent: intentMeta.intent } : {}),
-            ...(intentMeta?.intentSource ? { intentSource: intentMeta.intentSource } : {}),
+            ...(analyticsMeta?.intent ? { intent: analyticsMeta.intent } : {}),
+            ...(analyticsMeta?.intentSource ? { intentSource: analyticsMeta.intentSource } : {}),
+            ...(analyticsMeta?.llmModel ? { llmModel: analyticsMeta.llmModel } : {}),
+            ...(analyticsMeta?.llmModelSource ? { llmModelSource: analyticsMeta.llmModelSource } : {}),
             properties: {
                 ...properties,
                 tool_name: toolName,
+                ...(!analyticsMeta?.llmModel && analyticsMeta?.llmModelMissingReason
+                    ? { $mcp_llm_model_missing_reason: analyticsMeta.llmModelMissingReason }
+                    : {}),
                 ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
                 ...(toolDescription ? { $mcp_tool_description: toolDescription } : {}),
                 // Which vendor ran the tool, so "who do people actually call" is a
@@ -206,7 +233,7 @@ export async function trackExecuteSqlGeneration(
     args: unknown,
     state: ResolvedState,
     meta: ExecuteSqlGenerationMeta,
-    intentMeta?: ToolCallIntentMeta
+    analyticsMeta?: ToolCallAnalyticsMeta
 ): Promise<void> {
     if (toolName !== EXECUTE_SQL_TOOL_NAME) {
         return
@@ -229,7 +256,7 @@ export async function trackExecuteSqlGeneration(
                 ...(sessionUuid ? { $session_id: sessionUuid } : {}),
                 $ai_trace_id: sessionUuid ?? randomUUID(),
                 $ai_span_name: EXECUTE_SQL_TOOL_NAME,
-                $ai_input: [{ role: 'user', content: intentMeta?.intent ?? '' }],
+                $ai_input: [{ role: 'user', content: analyticsMeta?.intent ?? '' }],
                 $ai_output_choices: [{ role: 'assistant', content: query }],
                 $ai_latency: meta.durationMs / 1000,
                 $ai_is_error: meta.isError,
@@ -267,6 +294,14 @@ function isMetadataQuery(query: string): boolean {
     return stripSqlCommentsAndLiterals(query).toLowerCase().includes(METADATA_QUERY_MARKER)
 }
 
+// Its result is a live presigned S3 POST — a policy, signature and credential fields
+// that grant write access to one object-storage key until they expire. Key-based
+// redaction can't reach them: they're byte-identical output fields (`upload_url`,
+// `form_fields`), not fields whose *name* looks like a secret, and the policy
+// document also embeds the credential in a form redaction wouldn't recognize either
+// way. `$mcp_tool_call` still records that the call happened.
+const PRESIGNED_UPLOAD_TOOL_NAME = 'media-image-upload-start'
+
 function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
     // A proxied third-party tool's args and result are the vendor's content — an issue
     // body, a support ticket, a CRM record — passing through our gateway on its way
@@ -275,6 +310,9 @@ function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
     // evaluations that target PostHog's own tools. `$mcp_tool_call` still records that
     // the call happened, with its server, duration and outcome.
     if (isGatewayToolName(toolName)) {
+        return false
+    }
+    if (toolName === PRESIGNED_UPLOAD_TOOL_NAME) {
         return false
     }
     // execute-sql can't be captured wholesale: its payload is the query result,
@@ -295,10 +333,37 @@ const REDACTED_VALUE = '[redacted]'
 // like user-settings-update carry `password`/`current_password`, warehouse
 // sources carry `client_secret`, and hog-function inputs carry `secret` values.
 // Match errs toward redaction — an over-redacted eval field is harmless, a
-// leaked credential is not. Deliberately excludes bare `key`/`id`/`token`, which
-// are almost always identifiers or token counts an evaluation needs.
+// leaked credential is not.
+//
+// Enumerating credential prefixes missed most of them: our own warehouse sources
+// name their secret `api_token`, `database_token`, `consumer_key`,
+// `signing_key`, and a dozen more, none of which the prefix list matched. The
+// trailing-segment rule catches that whole shape. Plural `*_tokens` stays out on
+// purpose — it is LLM token counts and Adjust's `app_tokens` app ids, never a
+// secret. `connection_string` gets its own name: Postgres, MSSQL, Redshift,
+// Snowflake and friends all accept one as an alternative to discrete
+// host/user/password fields, and it carries the credentials inline
+// (`postgres://user:pass@host/db`) — MongoDB's source has no other field for them.
+// `certificate` covers Temporal Cloud's `client_certificate`: the source config
+// itself marks it `secret: true` even though the name reads as public key
+// material, and a client cert is namespace-identifying enough to keep out of
+// telemetry too. `server_client_root_ca` stays unmatched on purpose — it is
+// the CA the client uses to verify the *server*, public key material with no
+// private half, marked `secret: true` only because the UI groups it with the
+// real credentials.
+//
+// `app_id`/`api_id` and the trailing `username` case cover sources whose
+// credential is an identifier rather than a token: Open Exchange Rates'
+// `app_id` and Veracode's `api_id` are the whole usable credential, and
+// Pipeliner generates its `username` alongside `password` as one half of a
+// one-time API key pair (`secret: true` on the source config), unlike every
+// other source's plain login `username`. Aircall's `api_id` and
+// AppsFlyer/AppSignal/Churnkey's `app_id` are not credentials — they select
+// which account or app an already-redacted token applies to — but the
+// pattern can't tell those apart by name, and over-redacting a non-secret
+// identifier is harmless where under-redacting a credential is not.
 const SENSITIVE_KEY_PATTERN =
-    /password|passwd|passphrase|secret|credential|private[_-]?key|access[_-]?key|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|session[_-]?token|authorization|bearer/i
+    /password|passwd|passphrase|secret|credential|certificate|private[_-]?key|access[_-]?key|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|session[_-]?token|authorization|bearer|keypair|key[_-]?file|token[_-]?request|connection[_-]?string|app[_-]?id|api[_-]?id|(^|[_-])(token|key|keys|username)$/i
 
 function redactSecrets(value: unknown): unknown {
     if (Array.isArray(value)) {
@@ -328,6 +393,20 @@ function serializeSpanState(value: unknown): string | undefined {
     }
 }
 
+function omitAppData(output: unknown): unknown {
+    if (typeof output !== 'object' || output === null || Array.isArray(output)) {
+        return output
+    }
+    const result = output as Record<string, unknown>
+    const meta = result._meta
+    if (typeof meta !== 'object' || meta === null || Array.isArray(meta) || !(APP_DATA_META_KEY in meta)) {
+        return output
+    }
+    const sanitizedMeta: Record<string, unknown> = { ...meta }
+    delete sanitizedMeta[APP_DATA_META_KEY]
+    return { ...result, _meta: sanitizedMeta }
+}
+
 /**
  * Captures an `$ai_span` for a tool call, joining the same MCP-session trace as
  * the execute-sql `$ai_generation` events. Trace-target online evaluations then
@@ -347,7 +426,9 @@ export async function trackToolSpan(toolName: string, state: ResolvedState, meta
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
         const toolCategory = getToolCategory(toolName)
         const inputState = serializeSpanState(meta.input)
-        const outputState = serializeSpanState(meta.output)
+        const outputState = serializeSpanState(
+            state.clientProfile.consumer === 'posthog_ai' ? omitAppData(meta.output) : meta.output
+        )
 
         getPostHogClient().capture({
             distinctId: state.distinctId,
@@ -412,7 +493,7 @@ export function trackAuthFailure(props: RequestProperties, failure: McpAuthFailu
                 $mcp_region: props.region,
                 $mcp_auth_method: classifyAuthMethod(props.apiToken),
                 mcp_runtime: 'hono',
-                mcp_vendor_client: props.mcpVendorClient,
+                $mcp_vendor_client: props.mcpVendorClient,
                 $mcp_auth_failure_reason: failure.reason,
                 ...(failure.status ? { $mcp_auth_status: failure.status } : {}),
                 ...(failure.missingScope ? { $mcp_missing_scope: failure.missingScope } : {}),
@@ -443,6 +524,38 @@ export async function trackToolsList(toolNames: string[], state: ResolvedState):
             properties: {
                 ...properties,
                 tool_count: toolNames.length,
+            },
+        })
+    } catch {
+        // never break the request for analytics
+    }
+}
+
+/**
+ * Captures `skill invoked` when a skill's content is consumed through exec `learn`,
+ * whichever read kind delivered it (full load, file read, file search, line range) —
+ * the consumption counterpart of the authoring `llma skill *` events emitted by
+ * `products/skills`. The caller dedupes per skill identifier per request, so a
+ * command that reads one skill several ways still counts once. Keep property keys
+ * additive: they feed the same LLMA skills adoption dashboards.
+ */
+export async function trackSkillInvoked(state: ResolvedState, invocation: SkillInvocation): Promise<void> {
+    try {
+        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
+        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
+        const { properties, groups } = buildBaseProperties(state, analyticsContext)
+
+        getPostHogClient().capture({
+            distinctId: state.distinctId,
+            event: 'skill invoked',
+            groups,
+            properties: {
+                ...properties,
+                ...(sessionUuid ? { $session_id: sessionUuid } : {}),
+                skill_source: invocation.source,
+                skill_name: invocation.skill,
+                skill_identifier: `${invocation.source}:${invocation.skill}`,
+                skill_read_kind: invocation.readKind,
             },
         })
     } catch {

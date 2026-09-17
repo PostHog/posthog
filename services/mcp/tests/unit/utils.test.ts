@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { env } from '@/lib/env'
 import { extractBearerToken, formatPrompt, redactToken, sanitizeHeaderValue } from '@/lib/utils'
-import { omitResponseFields, pickResponseFields, withInformationalResponse, withPostHogUrl } from '@/tools/tool-utils'
+import {
+    omitResponseFields,
+    pickResponseFields,
+    stripNullFields,
+    withInformationalResponse,
+    withPostHogUrl,
+} from '@/tools/tool-utils'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type Context } from '@/tools/types'
 
 // Mock the env proxy that the production code reads through, rather than poking
@@ -260,6 +266,34 @@ describe('utils', () => {
             const obj = { id: 1, name: 'test', extra: 'data' }
             pickResponseFields(obj, ['id'])
             expect(obj).toEqual({ id: 1, name: 'test', extra: 'data' })
+        })
+    })
+
+    describe('stripNullFields', () => {
+        it('removes null-valued keys and keeps the other falsy values', () => {
+            const obj = { id: 1, name: null, saved: false, count: 0, label: '' }
+            expect(stripNullFields(obj)).toEqual({ id: 1, saved: false, count: 0, label: '' })
+        })
+
+        it('recurses through objects nested in arrays', () => {
+            const obj = {
+                series: [
+                    { event: 'signup', math_property: null },
+                    { event: 'login', limit: null },
+                ],
+            }
+            expect(stripNullFields(obj)).toEqual({ series: [{ event: 'signup' }, { event: 'login' }] })
+        })
+
+        it('keeps array element positions when an element is null', () => {
+            const obj = { values: [1, null, 3] }
+            expect(stripNullFields(obj)).toEqual({ values: [1, null, 3] })
+        })
+
+        it('does not mutate the original object', () => {
+            const obj = { id: 1, nested: { keep: true, drop: null } }
+            stripNullFields(obj)
+            expect(obj.nested.drop).toBeNull()
         })
     })
 

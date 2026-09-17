@@ -9,10 +9,11 @@ from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import User
-from posthog.rbac.user_access_control import UserAccessControl
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 NAME_COLUMN = "name"
 
@@ -128,6 +129,9 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
     def _build_where_exprs(self) -> list[ast.Expr]:
         where_exprs: list[ast.Expr] = []
 
+        if not self.query.includeIgnored:
+            where_exprs.append(parse_expr("isNull(accounts.ignored_at)"))
+
         if self.query.search and self.query.search.strip():
             pattern = f"%{self.query.search.strip()}%"
             where_exprs.append(
@@ -144,6 +148,9 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             where_exprs.append(
                 parse_expr("id NOT IN {subquery}", {"subquery": self._active_relationship_account_ids()})
             )
+
+        if self.query.assignedOnly:
+            where_exprs.append(parse_expr("id IN {subquery}", {"subquery": self._active_relationship_account_ids()}))
 
         if self.query.assignedToUserIds:
             where_exprs.append(

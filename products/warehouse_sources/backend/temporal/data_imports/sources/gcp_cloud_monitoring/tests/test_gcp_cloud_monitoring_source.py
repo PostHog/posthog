@@ -1,14 +1,13 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
     SourceFieldSelectConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.gcp_cloud_monitoring.gcp_cloud_monitoring import (
     GcpCloudMonitoringResumeConfig,

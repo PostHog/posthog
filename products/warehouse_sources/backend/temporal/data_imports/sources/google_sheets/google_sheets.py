@@ -5,8 +5,6 @@ from collections import Counter
 from collections.abc import Callable
 from typing import Any, Optional, TypeVar, cast
 
-from django.conf import settings
-
 import gspread
 import requests
 from cachetools import Cache, TTLCache, cached
@@ -17,6 +15,7 @@ from gspread.utils import numericise_all
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesheets import (
@@ -44,12 +43,20 @@ GOOGLE_SHEETS_API_VERSION_V4 = "v4"
 
 
 def google_sheets_client() -> gspread.Client:
+    resolved = integration_secrets.get_secrets(
+        [
+            "GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY",
+            "GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY_ID",
+            "GOOGLE_SHEETS_SERVICE_ACCOUNT_TOKEN_URI",
+            "GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL",
+        ]
+    )
     credentials = service_account.Credentials.from_service_account_info(
         {
-            "private_key": settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY,
-            "private_key_id": settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY_ID,
-            "token_uri": settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_TOKEN_URI,
-            "client_email": settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL,
+            "private_key": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY"],
+            "private_key_id": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY_ID"],
+            "token_uri": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_TOKEN_URI"],
+            "client_email": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL"],
         },
         scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"],
     )
@@ -70,11 +77,13 @@ max_attempts = 10
 jitter_in_seconds = 10
 sleep_per_attempt_in_seconds = 30
 
-# Transient Google Sheets API failures worth retrying: 429 (per-minute quota exhausted) plus the
-# 5xx server-side errors Google returns intermittently (e.g. "[500]: Internal error encountered.").
-# Google's API guidance is to retry these with backoff — they are not caused by our request and
-# usually clear on the next attempt, so re-raising immediately turns a blip into a failed sync.
-_RETRYABLE_API_ERROR_CODES = {429, 500, 502, 503, 504}
+# Transient Google Sheets API failures worth retrying: 429 (per-minute quota exhausted), the
+# 5xx server-side errors Google returns intermittently (e.g. "[500]: Internal error encountered."),
+# and 409 ("[409]: The operation was aborted.") — Google's ABORTED code, a concurrency conflict
+# (e.g. another process editing the same spreadsheet) rather than a problem with our request.
+# Google's API guidance is to retry these with backoff — they usually clear on the next attempt,
+# so re-raising immediately turns a blip into a failed sync.
+_RETRYABLE_API_ERROR_CODES = {409, 429, 500, 502, 503, 504}
 
 # gspread raises a bare `PermissionError` (with no message) when the Google Sheets
 # API returns 403 — see gspread/client.py: `raise PermissionError from ex`.
@@ -356,7 +365,16 @@ def google_sheets_source(
 
     worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id, api_version)
 
-    headers = _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:1"))  # Get the first row
+    try:
+        headers = _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:1"))  # Get the first row
+    except gspread.exceptions.APIError as e:
+        # Same deterministic 400 handled in `get_schema_incremental_fields` above (e.g. empty
+        # sheets, or sheets resized to have no columns) — treat it as a worksheet with no header
+        # row rather than failing the sync.
+        if e.code == 400 and "Unable to parse range" in str(e):
+            headers = []
+        else:
+            raise
     if len(headers) > 0:
         _assert_unique_normalized_column_names(headers[0])
     primary_keys = None
@@ -379,7 +397,17 @@ def google_sheets_source(
         # Read the raw grid and build the records ourselves rather than calling
         # `get_all_records`, which can't cope with a blank header cell. `pad_values=True` mirrors
         # what `get_all_records` asks for, so every row is the same width as the widest one.
-        grid = cast(list[list[str]], _retry_on_transient_api_error(lambda: worksheet.get(pad_values=True)))
+        try:
+            grid = cast(list[list[str]], _retry_on_transient_api_error(lambda: worksheet.get(pad_values=True)))
+        except gspread.exceptions.APIError as e:
+            # Same deterministic 400 handled above for the header/incremental-field reads (e.g. an
+            # empty sheet, or a sheet resized to have no columns) — this call has no explicit range,
+            # so Google rejects the bare sheet-name reference as "Invalid range: '<title>'" instead
+            # of "Unable to parse range". Treat it as an empty grid rather than failing the sync.
+            if e.code == 400 and "Invalid range" in str(e):
+                grid = []
+            else:
+                raise
         values = _records_from_grid(grid)
 
         if should_use_incremental_field and db_incremental_field_last_value is not None:

@@ -2,7 +2,7 @@ import { Meta } from '@storybook/react'
 
 import { LemonCard } from '@posthog/lemon-ui'
 
-import { getAdditionalProperties, getExceptionAttributes } from 'lib/components/Errors/utils'
+import { getAdditionalProperties } from 'lib/components/Errors/utils'
 
 import { TEST_EVENTS, TestEventName } from '../../__mocks__/events'
 import { ContextDisplay, ContextDisplayProps } from './ContextDisplay'
@@ -20,7 +20,7 @@ export default meta
 ///////////////////// Context Display
 
 export function ContextDisplayEmpty(): JSX.Element {
-    return <ContextDisplay loading={false} exceptionAttributes={{}} additionalProperties={{}} />
+    return <ContextDisplay loading={false} properties={{}} additionalProperties={{}} />
 }
 
 export function ContextDisplayWithStacktrace(): JSX.Element {
@@ -31,7 +31,7 @@ export function ContextDisplayMisc(): JSX.Element {
     return (
         <ContextDisplay
             loading={false}
-            exceptionAttributes={{}}
+            properties={{}}
             additionalProperties={{
                 undefined_value: undefined,
                 null_value: null,
@@ -49,10 +49,9 @@ export function ContextDisplayMisc(): JSX.Element {
 
 function getProps(event_name: TestEventName): ContextDisplayProps {
     const properties = event_name ? TEST_EVENTS[event_name].properties : {}
-    const exceptionAttributes = properties ? getExceptionAttributes(properties) : null
     const additionalProperties = getAdditionalProperties(properties, true)
 
-    return { loading: false, exceptionAttributes, additionalProperties }
+    return { loading: false, properties, additionalProperties }
 }
 
 function ContextWrapperAllEvents({ children }: { children: (props: ContextDisplayProps) => JSX.Element }): JSX.Element {

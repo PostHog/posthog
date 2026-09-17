@@ -18,7 +18,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings, LimitContext
-from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import has_aggregation
@@ -27,12 +26,14 @@ from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.actor_strategies import ActorStrategy, GroupStrategy, PersonStrategy, SessionStrategy
-from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner, get_query_runner
 from posthog.hogql_queries.utils.person_display_name import person_display_name_property_exprs
 from posthog.models import User
+from posthog.slo.context import tag_current_slo
+
+from products.product_analytics.backend.facade.queries import FunnelsQueryRunner
 
 
 class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
@@ -77,7 +78,12 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         cache_age_seconds: Optional[int] = None,
         analytics_props: Optional["AnalyticsProps"] = None,
     ):
-        self.user = user
+        # This runner takes the run() user verbatim, including None. A bare assignment would
+        # hide the change from the base run(), leaving the shared database and access-control
+        # snapshot scoped to the previous user.
+        if user is not self.user:
+            self.user = user
+            self._on_user_changed()
         return super().run(
             execution_mode,
             user,
@@ -201,6 +207,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
+            context=self.build_hogql_context(),
         )
         input_columns = self.input_columns()
         missing_actors_count = None
@@ -264,6 +271,10 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         # `hogql_cohort_query._actors_query_from_source`) that invoke `to_query()` with
         # platform-constant select lists are not mis-attributed.
         tag_contains_user_hogql()
+        # Search is the expensive arm of an actors query, so the surrounding SLO event needs to
+        # separate it from a plain listing. Works for both entry points: `run()` opens a
+        # query-service SLO, `/api/persons/` opens a persons-list one.
+        tag_current_slo(has_search=bool(self.query.search), actor_type=self.strategy.field)
         try:
             self.calculating = True
             return self._calculate_internal()
@@ -496,7 +507,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                 try:
                     prepare_and_print_ast(
                         select_query,
-                        context=HogQLContext(
+                        context=self.build_hogql_context(
                             team=self.team,
                             enable_select_queries=True,
                             timings=self.timings,

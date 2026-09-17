@@ -8,6 +8,7 @@ import pytest
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
+    NewEventsSchemaSnapshotExtension,
     _create_event,
     flush_persons_and_events,
     get_indexes_from_explain,
@@ -35,6 +36,8 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.property import property_to_expr
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.property_planner import (
     PropertyComparisonPlan,
     PropertyLiteralConversion,
@@ -166,6 +169,35 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
         assert "JSONHas(events.properties" not in printed, printed
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_negative_multi_icontains_array_property_stays_optimized(self) -> None:
+        where = property_to_expr(
+            {
+                "type": "event",
+                "key": "$active_feature_flags",
+                "value": ["alpha", "beta"],
+                "operator": "not_icontains_multi",
+            },
+            team=Team(id=1, project_id=1),
+            scope="event",
+        )
+        select = cast(ast.SelectQuery, parse_select("select count() from events"))
+        select.where = where
+        context = self._context()
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            query, _ = prepare_and_print_ast(select, context, "clickhouse")
+        printed = pretty_print_in_tests(query, 1)
+
+        # Wrapping the search call in ifNull hides the bare multiSearchAnyCaseInsensitive call from the
+        # array optimizer, which then falls back to multiSearchAnyCaseInsensitive(toString(…)) over the
+        # array serialized to JSON text instead of an element-wise arrayExists scan.
+        assert "arrayExists" in printed, printed
+        assert "events.properties.`$active_feature_flags`" in printed, printed
+        assert "multiSearchAnyCaseInsensitive(toString(" not in printed, printed
+        # The missing-property branch must resolve to empty(column), not isNull(toJSONString(column)),
+        # or every row pays to serialize the array just to null-check it.
+        assert "toJSONString" not in printed, printed
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_exception_types_use_array_subcolumn(self) -> None:
         printed = self._print_select("select count() from events where properties.$exception_types = 'TypeError'")
 
@@ -291,13 +323,13 @@ class TestPropertyTypes(BaseTest):
     def _events_schema_snapshot(self):
         self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            return self.snapshot(name="new_events_schema")
+            return self.snapshot(name="new_events_schema", extension_class=NewEventsSchemaSnapshotExtension)
         return self.snapshot
 
     def _plan_where_comparison(
         self,
         select: str,
-        restricted_properties: set[tuple[str, int]] | None = None,
+        restricted_properties: set[RestrictedProperty] | None = None,
     ) -> PropertyComparisonPlan:
         context, resolved = self._resolve_select(select, restricted_properties=restricted_properties)
         comparison = cast(ast.CompareOperation, resolved.where)
@@ -308,7 +340,7 @@ class TestPropertyTypes(BaseTest):
     def _resolve_select(
         self,
         select: str,
-        restricted_properties: set[tuple[str, int]] | None = None,
+        restricted_properties: set[RestrictedProperty] | None = None,
     ) -> tuple[HogQLContext, ast.SelectQuery]:
         """Resolve types and build the property-swapper registry without preparing further.
 
@@ -328,7 +360,7 @@ class TestPropertyTypes(BaseTest):
     def _prepare_select(
         self,
         select: str,
-        restricted_properties: set[tuple[str, int]] | None = None,
+        restricted_properties: set[RestrictedProperty] | None = None,
     ) -> tuple[HogQLContext, ast.SelectQuery]:
         expr = parse_select(select)
         context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
@@ -502,7 +534,9 @@ class TestPropertyTypes(BaseTest):
         with materialized("events", "$browser", is_nullable=True, create_minmax_index=True):
             plan = self._plan_where_comparison(
                 "select count() from events where properties.$browser < 'm'",
-                restricted_properties={("$browser", PropertyDefinition.Type.EVENT)},
+                restricted_properties={
+                    RestrictedProperty(name="$browser", property_type=PropertyDefinition.Type.EVENT)
+                },
             )
 
         assert plan.access.source.kind == PropertySourceKind.JSON
@@ -755,7 +789,7 @@ class TestPropertyTypes(BaseTest):
 
 
 class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
-    def _print_select(self, select: str, restricted_properties: set[tuple[str, int]] | None = None):
+    def _print_select(self, select: str, restricted_properties: set[RestrictedProperty] | None = None):
         expr = parse_select(select)
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         if restricted_properties is not None:
@@ -950,8 +984,8 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             "JSONHas(properties, 'secret') "
             "from events",
             restricted_properties={
-                ("secret", PropertyDefinition.Type.EVENT),
-                ("email", PropertyDefinition.Type.EVENT),
+                RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT),
+                RestrictedProperty(name="email", property_type=PropertyDefinition.Type.EVENT),
             },
         )
 

@@ -1,17 +1,18 @@
+import '../../../tests/helpers/mocks/consumer.mock'
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import {
     createOrganization,
     createTeam,
-    getFirstTeam,
+    createTestTeamFixture,
     getTeam,
-    resetTestDatabase,
     updateOrganizationAvailableFeatures,
 } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
@@ -50,9 +51,12 @@ describe('CdpEventsConsumer', () => {
     }
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub.postgres) // This team has data_pipelines feature by default (legacy addon)
+        const fixture = await createTestTeamFixture(hub.postgres)
+        team = fixture.team
+        await updateOrganizationAvailableFeatures(hub.postgres, fixture.organizationId, [
+            { key: 'data_pipelines', name: 'Data Pipelines' },
+        ])
 
         // Create second organization without data_pipelines for testing quota limiting
         const otherOrganizationId = await createOrganization(hub.postgres)
@@ -68,13 +72,6 @@ describe('CdpEventsConsumer', () => {
             hogQueue: mockJobQueue,
             hogflowQueue: mockJobQueue,
         })
-
-        // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
-        processor['kafkaConsumer'] = {
-            connect: jest.fn(),
-            disconnect: jest.fn(),
-            isHealthy: jest.fn(),
-        } as any
 
         mockQueueInvocations = mockJobQueue.queueInvocations
 
@@ -117,6 +114,55 @@ describe('CdpEventsConsumer', () => {
 
             const invocations2 = await processor._parseKafkaBatch(events)
             expect(invocations2).toHaveLength(2)
+        })
+    })
+
+    describe('parse failures', () => {
+        beforeEach(async () => {
+            await insertHogFunction({
+                team_id: team.id,
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+        })
+
+        it.each([
+            [
+                'rethrows a retriable team lookup error so the batch is retried',
+                new DependencyUnavailableError('connection reset', 'Postgres', new Error('reset')),
+                true,
+            ],
+            ['drops the message on a non-retriable team lookup error', new Error('event shape is wrong'), false],
+        ])('%s', async (_name, error, shouldRethrow) => {
+            jest.spyOn(processor['deps'].teamManager, 'getTeam').mockRejectedValue(error)
+            const messages = [createKafkaMessage(createIncomingEvent(team.id, {}))]
+
+            if (shouldRethrow) {
+                await expect(processor._parseKafkaBatch(messages)).rejects.toThrow(error)
+            } else {
+                await expect(processor._parseKafkaBatch(messages)).resolves.toEqual([])
+            }
+        })
+
+        it('lets a retriable failure escape the batch handler, and processes the batch on a later attempt', async () => {
+            // The consumer stores offsets only after this handler resolves, so the handler
+            // rejecting is what leaves the batch unacknowledged. A try/catch added around
+            // _parseKafkaBatch here would swallow the rejection and silently restore the old
+            // drop-everything behaviour, which the unit assertion above cannot see.
+            const error = new DependencyUnavailableError('connection reset', 'Postgres', new Error('reset'))
+            const getTeam = jest.spyOn(processor['deps'].teamManager, 'getTeam').mockRejectedValue(error)
+            const handleBatch = (processor['kafkaConsumer'].connect as jest.Mock).mock.calls[0][0]
+            const messages = [createKafkaMessage(createIncomingEvent(team.id, {}))]
+
+            await expect(handleBatch(messages)).rejects.toThrow(error)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+
+            getTeam.mockRestore()
+            const { backgroundTask } = await handleBatch(messages)
+            await backgroundTask
+
+            expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
         })
     })
 
@@ -225,7 +271,7 @@ describe('CdpEventsConsumer', () => {
                         instance_id: globals.event.uuid,
                         metric_kind: 'billing',
                         metric_name: 'billable_invocation',
-                        team_id: 2,
+                        team_id: team.id,
                     })
                 }
             })
@@ -254,7 +300,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'other',
                             metric_name: 'filtered',
-                            team_id: 2,
+                            team_id: team.id,
                             timestamp: expect.any(String),
                         },
                     },
@@ -267,7 +313,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'other',
                             metric_name: 'triggered',
-                            team_id: 2,
+                            team_id: team.id,
                             timestamp: expect.any(String),
                         },
                     },
@@ -282,7 +328,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'billing',
                             metric_name: 'billable_invocation',
-                            team_id: 2,
+                            team_id: team.id,
                             timestamp: expect.any(String),
                         },
                     },
@@ -307,7 +353,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'failure',
                             metric_name: 'disabled_permanently',
-                            team_id: 2,
+                            team_id: team.id,
                         },
                     },
                     {
@@ -318,7 +364,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'failure',
                             metric_name: 'disabled_permanently',
-                            team_id: 2,
+                            team_id: team.id,
                         },
                     },
                 ])
@@ -533,7 +579,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'other',
                             metric_name: 'filtering_failed',
-                            team_id: 2,
+                            team_id: team.id,
                             timestamp: expect.any(String),
                         },
                     },
@@ -565,9 +611,12 @@ describe('hog flow processing', () => {
     }
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub.postgres)
+        const fixture = await createTestTeamFixture(hub.postgres)
+        team = fixture.team
+        await updateOrganizationAvailableFeatures(hub.postgres, fixture.organizationId, [
+            { key: 'data_pipelines', name: 'Data Pipelines' },
+        ])
         const mockQueue = createMockJobQueue()
 
         processor = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub), {
@@ -576,12 +625,6 @@ describe('hog flow processing', () => {
         })
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
-        processor['kafkaConsumer'] = {
-            connect: jest.fn(),
-            disconnect: jest.fn(),
-            isHealthy: jest.fn(),
-        } as any
-
         await processor.start()
     })
 
@@ -679,7 +722,7 @@ describe('hog flow processing', () => {
                     event: globals.event,
                     actionStepCount: 0,
                 },
-                teamId: 2,
+                teamId: team.id,
             })
         })
 

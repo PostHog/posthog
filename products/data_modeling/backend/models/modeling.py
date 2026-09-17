@@ -19,11 +19,13 @@ from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWareh
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import Resolver, ResolverFactory
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
 
+from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -98,24 +100,37 @@ class ResolutionTimeoutError(BoundedResolverError):
         self.deadline_seconds = deadline_seconds
 
 
+# `source` separates the two jobs the resolver does, which fail differently and are read
+# differently: a `materialization` failure fails a customer's model on a scheduled run, while
+# `lineage` resolves a query's parents at save time to maintain DAG edges and view metadata.
+# Lineage runs orders of magnitude more often, so unlabelled they share one series and the
+# rarer, costlier one becomes unreadable. Anything under `other` is a caller added without
+# saying which of the two it is.
+RESOLUTION_SOURCE_MATERIALIZATION = "materialization"
+RESOLUTION_SOURCE_LINEAGE = "lineage"
+RESOLUTION_SOURCE_OTHER = "other"
+
 DAG_RESOLUTION_TOTAL = Counter(
     "data_modeling_dag_resolution_total",
-    "Total HogQL view-dependency resolutions performed, labelled by terminal status.",
-    labelnames=["status"],  # ok | cycle | depth_exceeded | timeout | error
+    "Total HogQL view-dependency resolutions performed, by calling path and terminal status.",
+    labelnames=["source", "status"],  # ok | cycle | depth_exceeded | timeout | error
 )
 DAG_RESOLUTION_DURATION_SECONDS = Histogram(
     "data_modeling_dag_resolution_duration_seconds",
-    "Wall-clock time spent resolving HogQL view dependencies.",
+    "Wall-clock time spent resolving HogQL view dependencies, by calling path.",
+    labelnames=["source"],
     buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
 )
 DAG_RESOLUTION_VIEW_DEPTH = Histogram(
     "data_modeling_dag_resolution_view_depth",
-    "Maximum nested view depth observed on successful HogQL dependency resolution.",
+    "Maximum nested view depth observed on successful HogQL dependency resolution, by calling path.",
+    labelnames=["source"],
     buckets=(1, 2, 4, 8, 16, 25, 50, 100),
 )
 DAG_RESOLUTION_DEADLINE_VIOLATIONS = Counter(
     "data_modeling_dag_resolution_deadline_violations_total",
     "Resolutions where the deadline elapsed; in soft mode this is observed without raising.",
+    labelnames=["source"],
 )
 
 
@@ -155,9 +170,11 @@ class BoundedResolver(Resolver):
         deadline_seconds: float | None = DEFAULT_RESOLUTION_DEADLINE_SECONDS,
         enforce_bounds: bool = True,
         deadline_anchor: float | None = None,
+        source: str = RESOLUTION_SOURCE_OTHER,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
+        self.source = source
         self.initial_view_name = initial_view_name
         # views whose bodies are currently being visited; seeded with the current view name so
         # it counts as "visited" for cycle detection
@@ -199,12 +216,12 @@ class BoundedResolver(Resolver):
             status = "error"
             raise
         finally:
-            DAG_RESOLUTION_TOTAL.labels(status=status).inc()
-            DAG_RESOLUTION_DURATION_SECONDS.observe(time.monotonic() - start_time)
+            DAG_RESOLUTION_TOTAL.labels(source=self.source, status=status).inc()
+            DAG_RESOLUTION_DURATION_SECONDS.labels(source=self.source).observe(time.monotonic() - start_time)
             if status == "ok":
-                DAG_RESOLUTION_VIEW_DEPTH.observe(self.max_view_depth_observed)
+                DAG_RESOLUTION_VIEW_DEPTH.labels(source=self.source).observe(self.max_view_depth_observed)
             if self.deadline_violated:
-                DAG_RESOLUTION_DEADLINE_VIOLATIONS.inc()
+                DAG_RESOLUTION_DEADLINE_VIOLATIONS.labels(source=self.source).inc()
 
     def _check_deadline(self) -> None:
         if self.deadline_seconds is None:
@@ -308,6 +325,7 @@ def bounded_resolver_factory_for_view(
     max_view_depth: int = DEFAULT_RESOLUTION_MAX_VIEW_DEPTH,
     deadline_seconds: float | None = DEFAULT_RESOLUTION_DEADLINE_SECONDS,
     enforce_bounds: bool = True,
+    source: str = RESOLUTION_SOURCE_MATERIALIZATION,
 ) -> ResolverFactory:
     """Build a ResolverFactory bound to a specific saved-query view.
 
@@ -340,6 +358,7 @@ def bounded_resolver_factory_for_view(
             deadline_seconds=deadline_seconds,
             enforce_bounds=enforce_bounds,
             deadline_anchor=anchor,
+            source=source,
         )
 
     return factory
@@ -460,10 +479,54 @@ def _select_queries_with_scope(
     return result
 
 
-def get_parents_from_model_query(team: Team, model_name: str, model_query: str) -> set[str]:
+class _SubqueryCollector(TraversingVisitor):
+    """Collect the subqueries a FROM-chain walk never reaches.
+
+    Stops at every nested select rather than descending into it, so the caller can feed
+    each one back through its own loop with the CTE scope that query can see. Skips a
+    join's table and a CTE's body for the same reason: both already have an owner.
+    """
+
+    def __init__(self, root: ast.SelectQuery) -> None:
+        self._root = root
+        self.selects: list[ast.SelectQuery | ast.SelectSetQuery] = []
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        if node is self._root:
+            super().visit_select_query(node)
+            return
+        self.selects.append(node)
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        self.selects.append(node)
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        # the FROM-chain walk already reaches node.table, but nothing else reaches an ON
+        # constraint or a table function's arguments
+        self.visit(node.constraint)
+        for arg in node.table_args or []:
+            self.visit(arg)
+        self.visit(node.next_join)
+
+    def visit_cte(self, node: ast.CTE) -> None:
+        # a CTE body is expanded where it is referenced, so that an unreferenced one stays
+        # out of the parent set
+        pass
+
+
+def _subqueries_outside_from(query: ast.SelectQuery) -> list[ast.SelectQuery | ast.SelectSetQuery]:
+    collector = _SubqueryCollector(query)
+    collector.visit(query)
+    return collector.selects
+
+
+def get_parents_from_model_query(
+    team: Team, model_name: str, model_query: str, database: Database | None = None
+) -> set[str]:
     """Get parents from a given query.
 
-    The parents of a query are any names in the `FROM` clause of the query.
+    The parents of a query are every name it reads: the `FROM` clause, and any subquery
+    that sits elsewhere — a `WHERE`, a `HAVING`, the select list, a join's `ON`.
     Uses BoundedResolver to detect circular dependencies, cap nested view
     depth, and enforce a wall-clock deadline on view references. Resolver-level
     metrics (`DAG_RESOLUTION_*`) are emitted from the resolver itself, so this
@@ -474,6 +537,7 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
         model_name: The name of the saved query being parsed; used as the
             initial view so cycles back to it are detected.
         model_query: The HogQL query string to parse.
+        database: An optional prebuilt database to reuse for dependency resolution.
     """
     hogql_query = parse_select(model_query)
     context = HogQLContext(
@@ -481,6 +545,7 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
         team=team,
         enable_select_queries=True,
     )
+    context.database = database
     if context.database is None:
         # Internal DAG parsing (no user); bypass warehouse HogQL access control so parent-table
         # resolution sees every referenced table/view.
@@ -489,9 +554,12 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
             modifiers=context.modifiers,
             team=context.team,
             bypass_warehouse_access_control=True,
+            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
         )
 
-    resolver = BoundedResolver(context=context, dialect="hogql", initial_view_name=model_name)
+    resolver = BoundedResolver(
+        context=context, dialect="hogql", initial_view_name=model_name, source=RESOLUTION_SOURCE_LINEAGE
+    )
     prepared_ast = resolver.visit(hogql_query)
 
     if prepared_ast is None:
@@ -509,11 +577,31 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
     # lifetime of this function, so the id() identity is stable.
     expanded_ctes: set[int] = set()
 
+    def record_or_queue(select: ast.SelectQuery | ast.SelectSetQuery, scope: CteScope) -> None:
+        """Record a view by name, or queue an anonymous query to be walked.
+
+        A saved-query view is itself the parent, so descending past it would report its
+        sources instead of it. A SelectQuery view carries its name; a union body doesn't,
+        so recover that one from the resolver's id map.
+        """
+        if isinstance(select, ast.SelectQuery):
+            view_name = select.view_name
+        else:
+            view_name = resolver.union_view_name_by_id.get(id(select))
+
+        if view_name is not None:
+            parents.add(view_name)
+        else:
+            queries.extend(_select_queries_with_scope(select, scope))
+
     while queries:
         query, scope = queries.pop()
 
         if query.ctes:
             scope = (query.ctes, *scope)
+
+        for subquery in _subqueries_outside_from(query):
+            record_or_queue(subquery, scope)
 
         # a FROM clause is a next_join chain; PIVOT/UNPIVOT over a join nests another chain,
         # so keep a stack of chains still to walk
@@ -538,17 +626,7 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
                     join = join.next_join
                     continue
                 elif isinstance(table, ast.SelectQuery | ast.SelectSetQuery):
-                    # a saved-query view is the parent, so record it rather than descending past
-                    # it into its own sources. A SelectQuery view carries its name; a union body
-                    # doesn't, so recover it from the resolver's id map
-                    if isinstance(table, ast.SelectQuery):
-                        view_name = table.view_name
-                    else:
-                        view_name = resolver.union_view_name_by_id.get(id(table))
-                    if view_name is not None:
-                        parents.add(view_name)
-                    else:
-                        queries.extend(_select_queries_with_scope(table, scope))
+                    record_or_queue(table, scope)
                     join = join.next_join
                     continue
                 elif isinstance(table, ast.ValuesQuery):
@@ -786,7 +864,11 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
     def get_hogql_database(self, team: Team) -> Database:
         """Get the HogQL database for given team."""
         # Internal model-path resolution (no user); bypass warehouse HogQL access control.
-        return Database.create_for(team=team, bypass_warehouse_access_control=True)
+        return Database.create_for(
+            team=team,
+            bypass_warehouse_access_control=True,
+            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+        )
 
     def get_or_create_root_path_for_data_warehouse_table(
         self, data_warehouse_table: DataWarehouseTable
@@ -1023,9 +1105,9 @@ class DataWarehouseModelPath(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     objects: DataWarehouseModelPathManager = DataWarehouseModelPathManager()
 
     path = LabelTreeField(null=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     table = models.ForeignKey(
-        "warehouse_sources.DataWarehouseTable", null=True, default=None, on_delete=models.SET_NULL
+        "warehouse_sources.DataWarehouseTable", null=True, default=None, on_delete=models.SET_NULL, related_name="+"
     )
     saved_query = models.ForeignKey(
         "data_modeling.DataWarehouseSavedQuery", null=True, default=None, on_delete=models.SET_NULL

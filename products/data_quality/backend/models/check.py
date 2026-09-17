@@ -9,13 +9,23 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel
 
-from ..facade.enums import CheckRunStatus, CheckSeverity, CreatedSource, SubjectStatus, SubjectType
+from ..facade.enums import (
+    CheckRunStatus,
+    CheckSeverity,
+    CreatedSource,
+    SubjectStatus,
+    SubjectType,
+    subject_type_choices,
+)
 
 # A check name is an addressable handle in `information_schema.data_quality_checks` and in agent
 # prose, so it follows the same bare-identifier discipline as a metric name.
 CHECK_NAME_REGEX = r"^[A-Za-z][A-Za-z0-9_]*$"
 
 SUBJECT_STATUS_FIELD = "subject_status"
+
+# `deleted` is nullable, so "not deleted" has to name the null case too.
+ACTIVE = models.Q(deleted=False) | models.Q(deleted__isnull=True)
 
 validate_check_name = RegexValidator(
     regex=CHECK_NAME_REGEX,
@@ -48,15 +58,16 @@ orphan_check_on_subject_delete.lazy_sub_objs = True  # type: ignore[attr-defined
 class DataQualityCheck(
     ModelActivityMixin, TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDModel
 ):
-    """An assertion about a warehouse table or view, in the ``dbt test`` sense.
+    """An assertion about a warehouse table, view, or data catalog metric.
 
     A check passes when its compiled query finds zero failing rows. The definition is the source of
     truth here; ``fingerprint`` makes agent authoring idempotent (re-creating a semantically
-    identical check upserts instead of duplicating), and it is also the stable identity a git-synced
-    config file would round-trip against.
+    identical *active* check upserts instead of duplicating), and it is also the stable identity a
+    git-synced config file would round-trip against. Editing the assertion recomputes it in place:
+    the check keeps its id, history, and latest status.
 
-    The subject is one of two foreign keys -- ``saved_query`` (views and matviews) or ``table``
-    (warehouse source tables) -- and never both. The data modeling Node for a subject is resolved at
+    The subject is one of three foreign keys: ``saved_query`` (views and matviews), ``table``
+    (warehouse source tables), or ``metric``. The data modeling Node for a subject is resolved at
     trigger time rather than referenced here: node rows are per-DAG structural records that DAG sync
     deletes and recreates, so they cannot anchor a check's identity, and a table in no DAG has no
     node at all. A hard-deleted subject nulls its FK (the check turns ``orphaned`` and is skipped);
@@ -66,16 +77,25 @@ class DataQualityCheck(
     ``last_status`` / ``last_run_at`` are denormalized from the newest ``DataQualityCheckRun`` so
     per-subject health is a single indexed read rather than a correlated subquery over run history.
 
-    Checks carry no cadence: they run when their subject's data changes (a sync completes, a
-    materialization runs) or on demand, never on a timer of their own.
+    Checks run when their subject's data changes, on demand, or on a shared per-metric schedule.
     """
 
     # db_constraint=False on FKs to hot tables (posthog_team, posthog_user): a real FK constraint
     # takes SHARE ROW EXCLUSIVE on the parent, stalling writes under traffic. Scoping/integrity is
     # enforced at the app layer.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
+    definition_author = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        related_name="+",
+        help_text="Who last changed what this check asserts. Automated runs authorize as them, "
+        "falling back to created_by.",
     )
     owner = models.ForeignKey(
         "posthog.User",
@@ -97,8 +117,8 @@ class DataQualityCheck(
 
     subject_type = models.CharField(
         max_length=32,
-        choices=[(t.value, t.value) for t in SubjectType],
-        help_text="Kind of catalog object being checked: table or view. Kept so orphaned checks stay readable.",
+        choices=subject_type_choices,
+        help_text="Kind of catalog object being checked: table, view, or metric. Kept so orphaned checks stay readable.",
     )
     saved_query = models.ForeignKey(
         "data_modeling.DataWarehouseSavedQuery",
@@ -117,6 +137,16 @@ class DataQualityCheck(
         db_constraint=False,
         related_name="+",
         help_text="The warehouse source table this check audits. Exclusive with saved_query.",
+    )
+    metric = models.ForeignKey(
+        "data_catalog.Metric",
+        on_delete=orphan_check_on_subject_delete,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+        help_text="The data catalog metric this check evaluates. Exclusive with table and saved_query.",
     )
     subject_name = models.CharField(
         max_length=400,
@@ -161,6 +191,18 @@ class DataQualityCheck(
         blank=True,
         help_text="Outcome of the newest run, denormalized so health rollups stay a single read.",
     )
+    # Denormalized for the same reason as last_status: "failing since when" is the first question a
+    # failing check raises, and the answer can be older than any page of run history.
+    last_succeeded_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the check last passed. Null means it has not passed within the run retention window.",
+    )
+    failing_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the current streak of failing runs started. Null when the check is not failing.",
+    )
 
     fingerprint = models.CharField(
         max_length=64,
@@ -185,29 +227,46 @@ class DataQualityCheck(
                 name="quality_check_subject_binding",
                 condition=(
                     ~models.Q(saved_query__isnull=False, table__isnull=False)
-                    & ~models.Q(saved_query__isnull=False, subject_type=SubjectType.TABLE)
-                    & ~models.Q(table__isnull=False, subject_type=SubjectType.VIEW)
+                    & ~models.Q(saved_query__isnull=False, metric__isnull=False)
+                    & ~models.Q(table__isnull=False, metric__isnull=False)
+                    & (models.Q(saved_query__isnull=True) | models.Q(subject_type=SubjectType.VIEW))
+                    & (models.Q(table__isnull=True) | models.Q(subject_type=SubjectType.TABLE))
+                    & (models.Q(metric__isnull=True) | models.Q(subject_type=SubjectType.METRIC))
                 ),
             ),
-            # Partial per FK: orphaned checks (both FKs null) are exempt on purpose.
+            # Partial per FK: orphaned checks (both FKs null) are exempt on purpose, and so are
+            # soft-deleted ones -- a deleted definition may be authored again, as a new check with
+            # its own id and history, rather than resurrecting the row that was deleted.
             models.UniqueConstraint(
                 fields=["team", "saved_query", "fingerprint"],
-                condition=models.Q(saved_query__isnull=False),
+                condition=models.Q(saved_query__isnull=False) & ACTIVE,
                 name="unique_quality_check_fp_view",
             ),
             models.UniqueConstraint(
                 fields=["team", "table", "fingerprint"],
-                condition=models.Q(table__isnull=False),
+                condition=models.Q(table__isnull=False) & ACTIVE,
                 name="unique_quality_check_fp_table",
             ),
-            # Partial: a blank name is the "address me by id" case, and many checks share it.
+            models.UniqueConstraint(
+                fields=["team", "metric", "fingerprint"],
+                condition=models.Q(metric__isnull=False) & ACTIVE,
+                name="unique_quality_check_fp_metric",
+            ),
+            # Partial on both counts: a blank name is the "address me by id" case, which many checks
+            # share, and a deleted check keeps its name only as history -- holding the name against a
+            # new check would make a delete irreversible for anyone who wants that name back.
             models.UniqueConstraint(
                 fields=["team", "name"],
-                condition=~models.Q(name=""),
+                condition=~models.Q(name="") & ACTIVE,
                 name="unique_quality_check_name_per_team",
             ),
         ]
         indexes = [
+            models.Index(
+                fields=["team", "metric"],
+                condition=models.Q(metric__isnull=False),
+                name="quality_check_metric_idx",
+            ),
             models.Index(
                 fields=["team", "saved_query"],
                 condition=models.Q(saved_query__isnull=False),
@@ -223,7 +282,7 @@ class DataQualityCheck(
     @property
     def subject_uuid(self) -> "uuid.UUID | None":
         """Id of whichever subject FK is set; None once orphaned."""
-        return self.saved_query_id or self.table_id
+        return self.saved_query_id or self.table_id or self.metric_id
 
     def __str__(self) -> str:
         return self.name or f"{self.check_type} on {self.subject_name}"
