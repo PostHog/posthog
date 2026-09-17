@@ -592,6 +592,9 @@ chat copied by either looks the same:
 The copy is idempotent, so a chat touched by both paths ends up copied once. The
 `phai-conversation-task-mirror` flag is the kill switch for both: off means nothing is written.
 
+Neither path copies a chat made while a support agent impersonates a customer. Those chats are
+hidden from the customer, and a task made from one would belong to that customer.
+
 ### Running the backfill
 
 Start it from a production toolbox pod against the general-purpose task queue:
