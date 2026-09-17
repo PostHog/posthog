@@ -309,18 +309,39 @@ class TestBehavioralBackfillDependencies(BaseTest):
 
         self._assert_one_debounced_task_per_kind(enqueue, redis, cohort, "cohort_created")
 
-    def test_edit_touching_both_leaf_kinds_enqueues_one_task_per_kind(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "both_leaf_shapes",
+                {"window_days": 7, "person_hash": "person-a"},
+                {"window_days": 30, "person_hash": "person-b"},
+            ),
+            (
+                "group_operator_on_mixed",
+                {"window_days": 7, "person_hash": "person-a"},
+                {"window_days": 7, "person_hash": "person-a", "group_type": "OR"},
+            ),
+            (
+                "first_behavioral_leaf_added_with_the_group_operator",
+                {"window_days": None, "person_hash": "person-a", "extra_person_hash": "person-b"},
+                {"window_days": 7, "person_hash": "person-a", "extra_person_hash": "person-b", "group_type": "OR"},
+            ),
+        ]
+    )
+    def test_edit_owing_both_kinds_enqueues_one_task_per_kind(self, _name: str, before: dict, after: dict) -> None:
         # The kinds seed different stores, so one save that moves both shapes owes a task to each, on
-        # keys that cannot debounce one another. The cohort is created before the trigger allowlist
-        # opens, so the create dispatches nothing real behind the edit's mocks.
-        cohort = self._cohort(7, person_hash="person-a")
+        # keys that cannot debounce one another. A composition edit on a mixed cohort owes both as
+        # well: a pruning person run stores state valid only for the tree it pinned, and the
+        # behavioral run is what nulls the events stamp flags route on. The cohort is created before
+        # the trigger allowlist opens, so the create dispatches nothing real behind the edit's mocks.
+        cohort = Cohort.objects.create(team=self.team, cohort_type=CohortType.REALTIME, filters=self._filters(**before))
         redis = self._redis()
         with (
             override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all"),
             mock.patch("products.cohorts.backend.models.dependencies.get_redis_client", return_value=redis),
             mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async") as enqueue,
         ):
-            cohort.filters = self._filters(30, person_hash="person-b")
+            cohort.filters = self._filters(**after)
             cohort.save()
 
         self._assert_one_debounced_task_per_kind(enqueue, redis, cohort, "cohort_edited")
@@ -334,12 +355,6 @@ class TestBehavioralBackfillDependencies(BaseTest):
 
     @parameterized.expand(
         [
-            (
-                "group_operator_on_mixed",
-                {"window_days": 7, "person_hash": "person-a"},
-                {"window_days": 7, "person_hash": "person-a", "group_type": "OR"},
-                CohortBackfillKind.BEHAVIORAL,
-            ),
             (
                 "group_operator_on_person_only",
                 {"window_days": None, "person_hash": "person-a", "extra_person_hash": "person-b"},
@@ -384,7 +399,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
         self._assert_one_debounced_task(enqueue, redis, cohort, kind)
 
     @parameterized.expand([("group_operator", None), ("empty_and", "AND"), ("empty_or", "OR")])
-    def test_composition_edit_nulls_the_events_stamp_and_moves_no_kind_hash(
+    def test_composition_edit_nulls_both_stamps_and_moves_no_kind_hash(
         self, _name: str, empty_group: str | None
     ) -> None:
         cohort = self._cohort(7, person_hash="person-a")
@@ -414,7 +429,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
         self.assertEqual(cohort.behavioral_filters_shape_hash, old_behavioral_hash)
         self.assertEqual(cohort.person_filters_shape_hash, old_person_hash)
         self.assertIsNone(cohort.last_backfill_events_at)
-        self.assertEqual(cohort.last_backfill_person_properties_at, ready_at)
+        self.assertIsNone(cohort.last_backfill_person_properties_at)
         self.assertIsNone(cohort.last_realtime_cohort_calculation_at)
         self.assertEqual(self._orphan_count(), before + 1)
 

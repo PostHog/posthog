@@ -9,6 +9,8 @@ from posthog.dataclasses import frozen
 _I32_MIN = -(2**31)
 _I32_MAX = 2**31 - 1
 
+RepairKind = Literal["behavioral", "person_property"]
+
 
 class BehavioralLeafKey(NamedTuple):
     """The behavioral-leaf fields Stage 1 hashes into a `LeafStateKey`.
@@ -123,9 +125,15 @@ def _canonical(node: object) -> str:
     return json.dumps(node, sort_keys=True, separators=(",", ":"))
 
 
-def _render_definition(node: object) -> list[object] | None:
+def _render_definition(node: object, *, person_view: bool = False) -> list[object] | None:
     """Render one filter node into an order-insensitive, JSON-serializable form, or `None` if it
     contributes nothing to the definition.
+
+    `person_view` renders the tree as a person backfill run sees it. The seeder pins only person
+    leaves and holds every other leaf unknown while deciding whether a person's leaf truths can move
+    the cohort (`rust/cohort-seeder/src/domain/person_relevance.rs`), and an unknown reads the same
+    whatever the leaf says or whether it is negated, so every non-person leaf renders as one
+    anonymous marker and the group dedupe collapses any number of them into one.
 
     Group children are deduped and sorted because AND and OR are commutative and idempotent, so a
     reordered or repeated criterion is the same definition. A group of one operand renders as that
@@ -148,7 +156,7 @@ def _render_definition(node: object) -> list[object] | None:
     if node_type in ("AND", "OR"):
         unique: dict[str, list[object]] = {}
         for child in node.get("values") or []:
-            if (rendered := _render_definition(child)) is not None:
+            if (rendered := _render_definition(child, person_view=person_view)) is not None:
                 unique.setdefault(_canonical(rendered), rendered)
         # Rust retains empty groups and excludes their cohort from realtime evaluation.
         children = [unique[key] for key in sorted(unique)]
@@ -157,6 +165,10 @@ def _render_definition(node: object) -> list[object] | None:
         return [node_type, children]
 
     negation = node.get("negation") is True
+    if node_type == "person":
+        return ["person", node.get("conditionHash"), negation]
+    if person_view:
+        return ["unknown"]
     if node_type == "behavioral":
         return [
             "behavioral",
@@ -172,8 +184,6 @@ def _render_definition(node: object) -> list[object] | None:
             ),
             negation,
         ]
-    if node_type == "person":
-        return ["person", node.get("conditionHash"), negation]
     if node_type == "cohort":
         return ["cohort", node.get("value"), negation or node.get("operator") == "not_in"]
     return [node_type]
@@ -190,10 +200,25 @@ def extract_leaf_shape_hash(filters: dict | None) -> str:
     Keep the leaf fields in lockstep with Rust: behavioral leaves via `BehavioralLeafKey`; person
     conditionHash; cohort value; the negation rules in `_render_definition`.
     """
+    return _fingerprint(filters, person_view=False)
+
+
+def extract_person_composition_hash(filters: dict | None) -> str:
+    """Fingerprint the definition as a person backfill run sees it: person leaves by condition hash
+    and negation, every other leaf one anonymous unknown, in the AND/OR tree they sit in.
+
+    The seeder emits a person only when their leaf truths can move this tree, so the person state a
+    run stores is valid for this fingerprint alone. An edit that moves it and not the person hash
+    owes a person run, which `FilterShapeHashes.composition_repair_kinds` decides.
+    """
+    return _fingerprint(filters, person_view=True)
+
+
+def _fingerprint(filters: dict | None, *, person_view: bool) -> str:
     if not filters or not (properties := filters.get("properties")):
         return ""
 
-    rendered = _render_definition(properties)
+    rendered = _render_definition(properties, person_view=person_view)
     if rendered is None:
         return ""
     return hashlib.sha256(_canonical(rendered).encode()).hexdigest()
@@ -214,6 +239,7 @@ class FilterShapeHashes:
     definition: str | None
     behavioral: str | None
     person: str | None
+    person_composition: str | None
 
     @classmethod
     def from_filters(cls, filters: dict | None) -> "FilterShapeHashes":
@@ -221,25 +247,34 @@ class FilterShapeHashes:
             definition=extract_leaf_shape_hash(filters),
             behavioral=extract_behavioral_leaf_shape_hash(filters),
             person=extract_person_leaf_shape_hash(filters),
+            person_composition=extract_person_composition_hash(filters),
         )
 
-    def composition_repair_kind(
-        self, previous: "FilterShapeHashes", filters: dict | None
-    ) -> Literal["behavioral", "person_property"] | None:
+    def composition_repair_kinds(self, previous: "FilterShapeHashes", filters: dict | None) -> frozenset[RepairKind]:
+        """The kinds a definition change must re-run beyond the ones its leaf-hash changes already fire.
+
+        Behavioral leaf state is per leaf and survives a composition change, so a behavioral run only
+        re-reconciles the tree: one is owed when the definition moved and no leaf hash fires a run,
+        and it is the kind chosen there because the events stamp it nulls is the one strict flag
+        routing reads.
+
+        Person state is not per leaf. The seeder emits a person only when their leaf truths can move
+        the tree it pinned, so what a run stored is valid for that tree alone, and a person run is
+        owed whenever the tree as the person path sees it moved and the person hash did not, whatever
+        else the same save changed.
+        """
         if previous.definition is None or previous.definition == self.definition:
-            return None
+            return frozenset()
 
         leaf_types = {leaf.get("type") for leaf in walk_filter_leaves((filters or {}).get("properties"))}
         person_backfillable = bool(self.person) and "person_metadata" not in leaf_types
         # Match the run creators: an unhashed behavioral leaf can trigger a run, but person metadata cannot.
-        if previous.behavioral != self.behavioral and "behavioral" in leaf_types:
-            return None
-        if previous.person != self.person and person_backfillable:
-            return None
+        behavioral_run_fires = previous.behavioral != self.behavioral and "behavioral" in leaf_types
+        person_run_fires = previous.person != self.person and person_backfillable
 
-        # Either kind reconciles the whole tree. Prefer the events stamp used by strict flag routing.
-        if self.behavioral:
-            return "behavioral"
-        if person_backfillable:
-            return "person_property"
-        return None
+        kinds: set[RepairKind] = set()
+        if person_backfillable and not person_run_fires and previous.person_composition != self.person_composition:
+            kinds.add("person_property")
+        if self.behavioral and not behavioral_run_fires and not person_run_fires:
+            kinds.add("behavioral")
+        return frozenset(kinds)

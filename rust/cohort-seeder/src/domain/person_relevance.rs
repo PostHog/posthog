@@ -24,6 +24,14 @@
 //! was a side effect of seeding everyone, never a promise: a cohort's readiness only ever came from
 //! its own run. Stopping it is the point, not an oversight.
 //!
+//! # The tree is part of the contract
+//!
+//! What a run stores is valid for the trees it pinned: a person pruned under `AND(a, b)` has no
+//! record for a later `OR(a, b)` to read, and the consumer reads an absent leaf as false. Django
+//! therefore re-runs the person kind whenever the tree as this oracle sees it moves
+//! (`FilterShapeHashes::composition_repair_kinds` in `products/cohorts/backend/models/leaf_shape.py`),
+//! and the finalizer refuses to stamp a person run that predates such an edit.
+//!
 //! # Why three-valued logic
 //!
 //! A run pins only its person conditions. Behavioral leaves, cohort references, and person leaves

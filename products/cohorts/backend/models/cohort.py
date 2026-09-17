@@ -39,6 +39,7 @@ from products.cohorts.backend.models.leaf_shape import (
     FilterShapeHashes,
     extract_behavioral_leaf_shape_hash,
     extract_leaf_shape_hash,
+    extract_person_composition_hash,
     extract_person_leaf_shape_hash,
 )
 from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
@@ -378,12 +379,14 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             new_shape_hash = extract_leaf_shape_hash(self.filters)
             new_behavioral_shape_hash = extract_behavioral_leaf_shape_hash(self.filters)
             new_person_shape_hash = extract_person_leaf_shape_hash(self.filters)
+            new_person_composition_hash = extract_person_composition_hash(self.filters)
             stored_shape_hash = self.__dict__.get("filters_shape_hash")
             stored_behavioral_shape_hash = self.__dict__.get("behavioral_filters_shape_hash")
             stored_person_shape_hash = self.__dict__.get("person_filters_shape_hash")
             previous_behavioral_shape_hash = stored_behavioral_shape_hash
             previous_person_shape_hash = stored_person_shape_hash
             previous_shape_hash = None
+            previous_person_composition_hash = None
 
             if not self._state.adding:
                 persisted_query = Cohort.objects.filter(id=self.pk, team_id=self.team_id)
@@ -406,9 +409,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                     # Recomputing those baselines from filters would lose that invalidation signal.
                     try:
                         previous_shape_hash = extract_leaf_shape_hash(persisted["filters"])
+                        previous_person_composition_hash = extract_person_composition_hash(persisted["filters"])
                     except Exception:
                         # A malformed baseline must not disable invalidation for a valid replacement.
                         previous_shape_hash = None
+                        previous_person_composition_hash = None
                     if stored_shape_hash is None:
                         stored_shape_hash = persisted["filters_shape_hash"]
                     if stored_behavioral_shape_hash is None:
@@ -441,16 +446,20 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             person_shape_changed = not self._state.adding and previous_person_shape_hash != new_person_shape_hash
 
             current_shape = FilterShapeHashes(
-                definition=new_shape_hash, behavioral=new_behavioral_shape_hash, person=new_person_shape_hash
+                definition=new_shape_hash,
+                behavioral=new_behavioral_shape_hash,
+                person=new_person_shape_hash,
+                person_composition=new_person_composition_hash,
             )
             previous_shape = FilterShapeHashes(
                 definition=previous_shape_hash,
                 behavioral=previous_behavioral_shape_hash,
                 person=previous_person_shape_hash,
+                person_composition=previous_person_composition_hash,
             )
-            repair_kind = current_shape.composition_repair_kind(previous_shape, self.filters)
-            behavioral_shape_changed |= repair_kind == "behavioral"
-            person_shape_changed |= repair_kind == "person_property"
+            repair_kinds = current_shape.composition_repair_kinds(previous_shape, self.filters)
+            behavioral_shape_changed |= "behavioral" in repair_kinds
+            person_shape_changed |= "person_property" in repair_kinds
 
             self.filters_shape_hash = new_shape_hash
             self.behavioral_filters_shape_hash = new_behavioral_shape_hash
