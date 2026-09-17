@@ -113,7 +113,7 @@ src/
 ## Prerequisites
 
 - Node.js 22+
-- pnpm 10.23.0
+- pnpm 10.29.3
 - Xcode (for iOS development)
 - **watchOS SDK** (iOS builds embed the Apple Watch companion; without this SDK installed, `expo run:ios` fails with `watchOS X.X must be installed in order to run the scheme`)
   - Install via `xcodebuild -downloadPlatform watchOS`, or in Xcode → **Settings → Components → Platforms** → download the latest watchOS
