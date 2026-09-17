@@ -188,6 +188,15 @@ DIAGNOSTIC INVESTIGATION (this ticket reports something broken — investigate t
   - dashboard tools: list dashboards and the widget catalog, and get a dashboard's structure — to reference what the team already tracks.
   - action / annotation / event-definition / property-definition tools: the team's tracked actions, annotations, and event/property taxonomy — for "what do we track / what does this event mean" questions."""
 
+    followup = input.clarification_round >= 1
+    followup_block = ""
+    customer_blocker_instruction = "- If a fact you need can only come from the customer, do not guess. Set verdict=blocked_on_customer. Put one short question that asks for the missing fact and says why you need it in the same sentence into clarifying_questions. Put what you already checked in investigation_summary, which is private."
+    if followup:
+        followup_block = """
+FOLLOW-UP: You already asked a clarifying question. The customer's answer is in the ticket. You must answer, suggest, or produce findings. Do not set verdict=blocked_on_customer. Do not ask another question.
+"""
+        customer_blocker_instruction = "- You already asked a clarifying question and the customer answered. Do not set verdict=blocked_on_customer. Do not ask another question. Answer, or put what remains unknown in investigation_summary."
+
     prompt = f"""You are a support agent drafting a reply to a customer ticket.
 
 SECURITY:
@@ -209,10 +218,10 @@ KNOWLEDGE BASE RESULTS:
 {chunks_text[:12000]}{refinement}
 
 TICKET TYPE: {input.ticket_type} — {TICKET_TYPE_HINTS.get(input.ticket_type, "")}
-{data_safety_block}{diagnostic_block}
+{data_safety_block}{diagnostic_block}{followup_block}
 INSTRUCTIONS:
 - PLAN first: list what you need to know, which tools answer each of those questions, then execute that plan before you draft.
-- If a fact you need can only come from the customer, do not guess. Set verdict=blocked_on_customer, put the one question that unblocks you in clarifying_questions, and put what you already checked in investigation_summary.
+{customer_blocker_instruction}
 - If the knowledge base and docs do not cover the question, set verdict=blocked_on_knowledge.
 - If the ticket is not a support question this team can answer, set verdict=out_of_scope.
 - If verdict is answerable, draft a helpful, accurate reply. Lead with the answer, be concise and friendly.

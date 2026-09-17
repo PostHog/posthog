@@ -34,6 +34,7 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.types impo
 from products.error_tracking.backend.temporal.lifecycle.rendering import render_stacktrace
 from products.error_tracking.backend.temporal.lifecycle.side_effects import (
     KAFKA_DELIVERY_TIMEOUT_SECONDS,
+    dispatch_issue_lifecycle_alert,
     emit_issue_lifecycle_signal,
     produce_issue_lifecycle_internal_event,
 )
@@ -201,6 +202,13 @@ def merge_issue_created_fingerprint_activity(
 @activity.defn
 @posthoganalytics.scoped(capture_exceptions=False)
 @close_db_connections
+def dispatch_issue_created_alert_activity(inputs: IssueCreatedWorkflowInputs) -> None:
+    dispatch_issue_lifecycle_alert(inputs, event="$error_tracking_issue_created", humanize_status=False)
+
+
+@activity.defn
+@posthoganalytics.scoped()
+@close_db_connections
 def emit_issue_created_internal_event_activity(inputs: IssueCreatedWorkflowInputs) -> None:
     produce_issue_lifecycle_internal_event(
         inputs,
@@ -222,6 +230,7 @@ async def emit_issue_created_signal_activity(inputs: IssueCreatedWorkflowInputs)
 
 
 ACTIVITIES = [
+    dispatch_issue_created_alert_activity,
     generate_issue_created_embedding_activity,
     persist_issue_created_embedding_activity,
     merge_issue_created_fingerprint_activity,
