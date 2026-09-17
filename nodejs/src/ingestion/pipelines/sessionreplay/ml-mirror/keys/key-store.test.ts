@@ -498,8 +498,10 @@ describe('ML session key batches', () => {
             await (await warm.prepare([session])).commit()
             expect((await sameReader.read([location])).size).toBe(1)
             boundary.items.set(tableKeyString(location), { ...encodeKey(location), deleted: { BOOL: true } })
+            // The read part way through must not extend the entry, or a session read often enough never observes its deletion.
+            fakeNow += lifetimeMs * 0.6
             expect((await sameReader.read([location])).size).toBe(1)
-            fakeNow += lifetimeMs + 1
+            fakeNow += lifetimeMs * 0.4 + 1
             expect((await sameReader.read([location])).size).toBe(0)
         } finally {
             clock.mockRestore()
