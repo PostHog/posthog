@@ -39,6 +39,9 @@ Warehouse callers can obtain curated definitions from `resolve_external_table_fi
 using the source resource name and the columns actually present in the import.
 Supplying raw column metadata alone omits these semantic mappings.
 
+Structural lowering retains logical field names until the second type-resolution pass finishes.
+Physical names are emitted during final lowering, so a curated schema does not need to expose physical columns as additional logical fields.
+
 When a logical field maps to a different physical column, Trino keeps the source qualifier after rewriting the field.
 This lets a query join tables that share the physical column name while selecting the intended logical field.
 `JOIN ... USING` becomes an `ON` condition with both sources qualified, including joins between CTEs and subqueries.
