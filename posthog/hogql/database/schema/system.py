@@ -1253,9 +1253,6 @@ session_recordings: PostgresTable = PostgresTable(
         "retention_period_days": IntegerDatabaseField(
             name="retention_period_days", description="How long the recording is retained, in days."
         ),
-        "storage_version": StringDatabaseField(
-            name="storage_version", description="Storage format version of the recording payload."
-        ),
     },
 )
 

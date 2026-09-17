@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -21,6 +21,7 @@ import {
     MarketingAnalyticsTab,
     marketingAnalyticsLogic,
 } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+import { webAnalyticsFilterLogic } from './webAnalyticsFilterLogic'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 describe('webAnalyticsLogic focus mode', () => {
@@ -322,6 +323,54 @@ describe('webAnalyticsLogic precompute payload', () => {
         await expectLogic(logic).toMatchValues({
             controls: expect.objectContaining({ useWebAnalyticsPrecompute: expected }),
         })
+    })
+})
+
+describe('webAnalyticsLogic restricted UI gating', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    const mountWithTeamModifier = (legacyEngineModifier: boolean): void => {
+        localStorage.clear()
+        initKeaTests(true, {
+            ...MOCK_DEFAULT_TEAM,
+            modifiers: { useWebAnalyticsPreAggregatedTables: legacyEngineModifier },
+        })
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api, 'update').mockResolvedValue({} as any)
+        featureFlagLogic.mount()
+        logic = webAnalyticsLogic()
+        logic.mount()
+    }
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    // Regression guard for the legacy-tables retirement: the restricted-ui flag
+    // must restrict on its own with no team modifier involved — a collapse of
+    // the OR re-exposes tiles that run unservable live queries on billion-event
+    // teams — while the legacy pair must keep working until it is removed, and
+    // neither half of the pair may restrict alone.
+    it.each([
+        ['restricted-ui flag alone', [FEATURE_FLAGS.WEB_ANALYTICS_RESTRICTED_UI], false, true],
+        ['no flags, no modifier', [], false, false],
+        [
+            'legacy flag without the modifier',
+            [FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES],
+            false,
+            false,
+        ],
+        ['modifier without the legacy flag', [], true, false],
+        ['legacy flag and modifier', [FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES], true, true],
+    ])('%s → restricted %s', async (_name, flags, legacyEngineModifier, expected) => {
+        mountWithTeamModifier(legacyEngineModifier as boolean)
+        featureFlagLogic.actions.setFeatureFlags(
+            flags as string[],
+            Object.fromEntries((flags as string[]).map((flag) => [flag, true]))
+        )
+        await expectLogic(logic).toMatchValues({ restrictedUiEnabled: expected })
     })
 })
 
@@ -849,5 +898,48 @@ describe('webAnalyticsLogic URL restoration', () => {
         router.actions.push('/web/bots')
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
+    })
+})
+
+describe('webAnalyticsLogic warmablePresetShortId', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        featureFlagLogic.mount()
+        logic = webAnalyticsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    const applyPreset = (): void => {
+        webAnalyticsFilterLogic.actions.loadPreset(logic.values.currentFiltersConfig)
+        webAnalyticsFilterLogic.actions.setAppliedPreset('abc123', logic.values.currentFiltersConfig)
+    }
+
+    it('tags queries while the applied preset still matches the filters', () => {
+        expect(logic.values.warmablePresetShortId).toBeNull()
+
+        applyPreset()
+
+        expect(logic.values.warmablePresetShortId).toBe('abc123')
+    })
+
+    it('stops tagging as soon as the user drifts off the preset', () => {
+        applyPreset()
+
+        // An applied preset stays applied while the filters move, so without the equality
+        // check the warmer would attribute unrelated shapes to this preset.
+        webAnalyticsFilterLogic.actions.togglePropertyFilter(PropertyFilterType.Event, '$browser', 'Chrome')
+
+        expect(logic.values.appliedPresetShortId).toBe('abc123')
+        expect(logic.values.warmablePresetShortId).toBeNull()
     })
 })
