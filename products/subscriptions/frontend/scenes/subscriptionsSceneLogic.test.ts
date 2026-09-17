@@ -319,6 +319,24 @@ describe('subscriptionsSceneLogic', () => {
             targetLogic.unmount()
         })
 
+        it('drops the deep-linked target when a later new-subscription link names no type', async () => {
+            await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: true,
+            })
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true })
+            const targetLogic = newSubscriptionTargetLogic()
+            targetLogic.mount()
+
+            router.actions.push(`${urls.subscriptionNew()}?resource_type=ai_prompt`)
+            expect(targetLogic.values.target).toEqual({ kind: 'ai' })
+
+            router.actions.push(urls.subscriptionNew())
+            expect(targetLogic.values.target).toBeNull()
+            targetLogic.unmount()
+        })
+
         it('drops the deep-linked target when the list route closes the modal', async () => {
             await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
             organizationLogic.actions.loadCurrentOrganizationSuccess({

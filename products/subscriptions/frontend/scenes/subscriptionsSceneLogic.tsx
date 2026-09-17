@@ -688,8 +688,13 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
     urlToAction(({ actions, values }) => ({
         [urls.subscriptionNew()]: (_, searchParams) => {
             actions.setSubscriptionModalId('new')
-            // A deep link that already says what to send skips the "What should we send?" step.
-            actions.setDeepLinkResourceType(searchParams.resource_type ?? null)
+            // A deep link that already says what to send skips the "What should we send?" step. A
+            // later push with another (or no) type must not keep the target the earlier one picked.
+            const resourceType = searchParams.resource_type ?? null
+            if (resourceType !== values.deepLinkResourceType) {
+                actions.resetNewSubscriptionTarget()
+            }
+            actions.setDeepLinkResourceType(resourceType)
             actions.applyDeepLinkTarget()
         },
         [urls.subscriptionEdit(':subscriptionId')]: ({ subscriptionId }) => {
