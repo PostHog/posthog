@@ -12,5 +12,5 @@ class Command(BaseCommand):
         parser.add_argument("--team-id", type=int, default=None, help="Copy one team's configurations only.")
 
     def handle(self, *args: Any, **options: Any) -> None:
-        created, updated = backfill_wip_alert_configurations(team_id=options["team_id"])
-        self.stdout.write(f"Created {created}, updated {updated}")
+        counts = backfill_wip_alert_configurations(team_id=options["team_id"])
+        self.stdout.write(f"Created {counts.created}, updated {counts.updated}")
