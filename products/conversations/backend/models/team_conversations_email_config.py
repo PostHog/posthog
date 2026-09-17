@@ -57,7 +57,18 @@ class EmailChannel(UUIDModel):
     # Only support channels can be the fallback sender for tickets without an explicit channel.
     is_default = models.BooleanField(default=False)
 
+    # Opt-in relay support, empty when disabled. The one sender allowed to name the requester on
+    # someone else's behalf, via X-PostHog-Requester or Reply-To. Naming the exact address is what
+    # makes this safe: SPF proves a sender is authenticated for its own domain, which every sender
+    # is for theirs, so trusting SPF alone would let any stranger redirect this team's replies.
+    trusted_relay_sender = models.EmailField(max_length=254, blank=True, default="", db_default="")
+
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def relay_sender_trusted(self, sender_email: str) -> bool:
+        """True when `sender_email` is the relay this channel delegates requester identity to."""
+        allowed = (self.trusted_relay_sender or "").strip().lower()
+        return bool(allowed) and (sender_email or "").strip().lower() == allowed
 
     def mark_domain_unverified(self) -> None:
         """Flip domain_verified off after Mailgun reports the domain is no longer
