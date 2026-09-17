@@ -45,6 +45,7 @@ class PersonDeletionStep(StrEnum):
     QUEUE_RECORDING_DELETION = "queue_recording_deletion"
     TOMBSTONE_CLICKHOUSE = "tombstone_clickhouse"
     DELETE_POSTGRES = "delete_postgres"
+    LOG_ACTIVITY = "log_activity"
 
 
 PERSON_DELETION_STEP_FAILURES_COUNTER = Counter(
@@ -444,7 +445,9 @@ def _tombstone_and_delete_persons(
     The activity log is written last so that a failed Postgres delete followed by a retry
     does not produce duplicate log rows (and the CDP events they fan out to). Logging needs
     an ``organization_id``; a missing ``actor`` (for example a user removed before a queued
-    task ran) still records the deletion, with no user attached.
+    task ran) still records the deletion, with no user attached. A failed log write is
+    recorded as its own step rather than raised: the persons are already gone by then, so
+    raising would hide a completed deletion behind an error.
     """
     deleted: builtins.list[Person] = []
     failures: builtins.list[PersonDeletionFailure] = []
@@ -475,33 +478,42 @@ def _tombstone_and_delete_persons(
             deleted = []
 
     if organization_id is not None and deleted:
-        # Person reads are eventually consistent, so a retry can resolve and delete a person that
-        # an earlier attempt already removed. Skip persons that already have a deleted entry so the
-        # audit trail does not record the same deletion twice.
-        already_logged = set(
-            ActivityLog.objects.filter(
-                team_id=team_id,
-                scope="Person",
-                activity="deleted",
-                item_id__in=[str(person.pk) for person in deleted],
-            ).values_list("item_id", flat=True)
-        )
-        bulk_log_activity(
-            [
-                LogActivityEntry(
-                    organization_id=organization_id,
+        try:
+            # Person reads are eventually consistent, so a retry can resolve and delete a person
+            # that an earlier attempt already removed. Skip persons that already have a deleted
+            # entry so the audit trail does not record the same deletion twice.
+            already_logged = set(
+                ActivityLog.objects.filter(
                     team_id=team_id,
-                    user=actor,
-                    was_impersonated=was_impersonated,
-                    item_id=person.pk,
                     scope="Person",
                     activity="deleted",
-                    detail=Detail(name=str(person.uuid)),
-                )
-                for person in deleted
-                if str(person.pk) not in already_logged
-            ]
-        )
+                    item_id__in=[str(person.pk) for person in deleted],
+                ).values_list("item_id", flat=True)
+            )
+            bulk_log_activity(
+                [
+                    LogActivityEntry(
+                        organization_id=organization_id,
+                        team_id=team_id,
+                        user=actor,
+                        was_impersonated=was_impersonated,
+                        item_id=person.pk,
+                        scope="Person",
+                        activity="deleted",
+                        detail=Detail(name=str(person.uuid)),
+                    )
+                    for person in deleted
+                    if str(person.pk) not in already_logged
+                ]
+            )
+        except Exception as exc:
+            _record_step_failure(
+                failures,
+                step=PersonDeletionStep.LOG_ACTIVITY,
+                team_id=team_id,
+                exc=exc,
+                person_uuids=[person.uuid for person in deleted],
+            )
 
     return PersonProfileDeletionResult(deleted_count=len(deleted), failures=failures)
 

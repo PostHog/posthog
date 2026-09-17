@@ -298,8 +298,12 @@ class PersonBulkDeleteResponseSerializer(serializers.Serializer):
     deletion_errors = serializers.ListField(
         child=serializers.DictField(),
         required=False,
-        help_text="Persons that could not be deleted. Each entry contains 'person_uuid' and 'step', the deletion "
-        "step that failed for that person. Contact support if this persists.",
+        help_text="Persons whose deletion did not fully complete in this request. Each entry contains 'person_uuid' "
+        "and 'step', the deletion step that failed for that person. A failed database delete is reported here "
+        "rather than as an error response, so a 202 with entries means some or all persons were not deleted. "
+        "A 'log_activity' step means the person was deleted but the activity log entry was not written. "
+        "Always empty when the deletion was queued (see persons_queued_for_deletion). "
+        "Contact support if this persists.",
     )
 
 
