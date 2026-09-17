@@ -1,7 +1,8 @@
 import * as fetchEventSourceModule from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import api, { ApiConfig, ApiError, ApiRequest, NetworkError } from 'lib/api'
+import api, { ApiConfig, ApiError, ApiRequest, NetworkError, ResponseBodyReadError } from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -359,11 +360,34 @@ describe('API helper', () => {
             expect(error.message).toContain('[POST /api/environments/2/insights]')
         })
 
-        it('surfaces a body stream that fails mid-read as an ApiError instead of null', async () => {
+        it('surfaces a body stream that fails mid-read as a ResponseBodyReadError instead of null', async () => {
             fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(new TypeError('network error')) }))
             const error = await api.get('api/environments/2/insights').catch((e) => e)
+            // Still an ApiError, so every existing catch path degrades exactly as it did before.
             expect(error).toBeInstanceOf(ApiError)
+            expect(error).toBeInstanceOf(ResponseBodyReadError)
             expect(error.status).toBeUndefined()
+            expect(shouldReportApiFailure(error)).toBe(false)
+            // Error tracking drops this shape, so the aggregate event is what keeps a persistent
+            // truncation regression visible.
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'client_request_failure',
+                expect.objectContaining({
+                    pathname: '/api/environments/2/insights/',
+                    method: 'GET',
+                    status: 200,
+                    failure_reason: 'response_body_read',
+                })
+            )
+        })
+
+        it('keeps a fully-read but unparsable body reportable', async () => {
+            fakeFetch.mockResolvedValue(fakeResponse({ text: bodyOf('<html></html>') }))
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+            expect(error).toBeInstanceOf(ApiError)
+            expect(error).not.toBeInstanceOf(ResponseBodyReadError)
+            expect(shouldReportApiFailure(error)).toBe(true)
+            expect(posthog.capture).not.toHaveBeenCalledWith('client_request_failure', expect.anything())
         })
 
         it.each([
