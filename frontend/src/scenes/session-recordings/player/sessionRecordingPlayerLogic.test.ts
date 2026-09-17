@@ -947,7 +947,7 @@ describe('sessionRecordingPlayerLogic', () => {
         })
 
         it('flips a stuck still-ingesting recording to the terminal error once grace lapses', () => {
-            // The afterMount BUFFERING_REEVALUATION_INTERVAL_MS interval re-runs syncPlayerState;
+            // The BUFFERING_REEVALUATION_DELAYS_MS cadence re-runs syncPlayerState;
             // this asserts that payload directly (no timer): a recording buffering on waitingForIngestion
             // transitions to the terminal error the next time syncPlayerState runs after the grace
             // period has elapsed — without any new snapshot data arriving.
@@ -969,6 +969,31 @@ describe('sessionRecordingPlayerLogic', () => {
                 expect(logic.values.playerError).toBe('noPlayableFullSnapshot')
             } finally {
                 graceSpy.mockRestore()
+            }
+        })
+
+        it('keeps re-evaluating a stuck buffer in seconds and then offers a retry', () => {
+            // A viewer abandons a buffering recording after a few seconds, so the cadence has to
+            // re-evaluate the verdict inside that window and surface the retry action.
+            jest.useFakeTimers()
+            try {
+                seedRecording(null, [inc(START + 61000), inc(START + 62000)])
+                logic.actions.setPause()
+                logic.actions.seekToTimestamp(START + 61500)
+                expect(logic.values.isBuffering).toBe(true)
+
+                // re-arm the cadence on the fake clock, since mount armed it on the real one
+                logic.actions.endBuffer()
+                logic.actions.startBuffer()
+                expect(logic.values.isBufferingStalled).toBe(false)
+
+                // long enough for several backing-off re-evaluations, far short of a flat safety interval
+                jest.advanceTimersByTime(6000)
+
+                expect(logic.values.isBuffering).toBe(true)
+                expect(logic.values.isBufferingStalled).toBe(true)
+            } finally {
+                jest.useRealTimers()
             }
         })
 

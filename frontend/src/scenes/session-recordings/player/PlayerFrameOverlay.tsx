@@ -85,6 +85,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
         logicProps,
         playerError,
         isWaitingForIngestion,
+        isBufferingStalled,
         sessionPlayerMetaData,
         matchingEventSkipTarget,
     } = useValues(sessionRecordingPlayerLogic)
@@ -186,15 +187,31 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
         )
     }
     if (currentPlayerState === SessionPlayerState.BUFFER) {
-        content = isWaitingForIngestion ? (
+        content = (
             <div className="SessionRecordingPlayer--buffering flex flex-col items-center gap-1 text-center text-white">
-                <div className="text-3xl italic font-medium">Still processing…</div>
-                <div className="text-sm max-w-100">
-                    This recording is finishing ingestion. It's usually ready to play within a few minutes.
+                <div className="text-3xl italic font-medium">
+                    {isWaitingForIngestion ? 'Still processing…' : 'Buffering…'}
                 </div>
+                <div className="text-sm max-w-100">
+                    {isWaitingForIngestion
+                        ? "This recording is finishing ingestion. It's usually ready to play within a few minutes."
+                        : 'Waiting for the recording data for this point in the session to load.'}
+                </div>
+                {isBufferingStalled && (
+                    <LemonButton
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            retryLoadingSnapshots()
+                        }}
+                        type="primary"
+                        size="small"
+                        className="mt-2"
+                        data-attr="replay-overlay-buffering-retry"
+                    >
+                        Retry
+                    </LemonButton>
+                )}
             </div>
-        ) : (
-            <div className="SessionRecordingPlayer--buffering text-3xl italic font-medium text-white">Buffering…</div>
         )
     }
     if (pausedState) {
