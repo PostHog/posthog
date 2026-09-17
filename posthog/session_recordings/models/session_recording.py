@@ -104,8 +104,11 @@ class SessionRecording(UUIDTModel):
         # loads at django.setup() in every process.
         from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents  # noqa: PLC0415
 
-        # Always ClickHouse, even for a row that holds an LTS path: only ClickHouse carries the
-        # deletion tombstone, so the row's own counters would keep describing a deleted recording.
+        if self.full_recording_v2_path:
+            # The row holds the counters of a recording kept past its retention, which the metadata
+            # query would drop as expired; only the deletion tombstone lives in ClickHouse alone.
+            return not SessionReplayEvents().is_deleted(session_id=self.session_id, team=self.team)
+
         metadata = SessionReplayEvents().get_metadata(
             team=self.team,
             session_id=self.session_id,
