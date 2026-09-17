@@ -11,6 +11,7 @@ from parameterized import parameterized
 
 from posthog.hogql.database.database import Database
 
+from posthog.models import Team
 from posthog.models.scoping import team_scope
 
 from products.data_catalog.backend.logic.lineage import dependency_names, has_executable_definition, sync_metric_lineage
@@ -239,6 +240,40 @@ class TestBackfillMetricLineage(BaseTest):
 
         assert "1 degraded" in output.getvalue()
         assert "0 synced" in output.getvalue()
+
+    def _child_environment(self) -> Team:
+        return Team.objects.create(
+            organization=self.organization, project=self.team.project, parent_team=self.team, name="staging"
+        )
+
+    def _patched_database(self):
+        patcher = patch("products.data_catalog.backend.management.commands.backfill_metric_lineage.Database")
+        database_class = patcher.start()
+        self.addCleanup(patcher.stop)
+        database_class.create_for.return_value = Database.create_for(
+            team=self.team, bypass_warehouse_access_control=True
+        )
+        return database_class
+
+    def test_a_child_environment_does_not_repeat_its_projects_backfill(self) -> None:
+        self._upsert("mrr", definition=_HOGQL_EVENTS)
+        self._child_environment()
+        database_class = self._patched_database()
+
+        call_command("backfill_metric_lineage")
+
+        assert database_class.create_for.call_count == 1
+        assert Node.objects.filter(type=NodeType.METRIC).count() == 1
+
+    def test_a_child_environment_id_backfills_its_project(self) -> None:
+        metric = self._upsert("mrr", definition=_HOGQL_EVENTS)
+        child = self._child_environment()
+        database_class = self._patched_database()
+
+        call_command("backfill_metric_lineage", "--team-id", str(child.pk))
+
+        assert database_class.create_for.call_args.kwargs["team"] == self.team
+        assert Node.objects.filter(team=self.team, metric_id=metric.id).exists()
 
     def test_backfill_repairs_a_degraded_node(self) -> None:
         metric = self._upsert("mrr", definition=_HOGQL_EVENTS)
