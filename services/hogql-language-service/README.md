@@ -44,6 +44,9 @@ Select fewer fields to stay within the limit.
 Field lookup work has a separate request-wide budget.
 Queries that exceed it return HTTP 400 for completion or a `query_limit` validation diagnostic; reduce the number of sources or qualify field names.
 Joining a CTE or subquery without a `properties` output does not suppress the physical table's property suggestions or validation.
+Direct property containers retain their catalog namespace through CTEs, aliased subqueries, renamed projections, wildcards, and visible SELECT aliases.
+For example, `WITH t AS (SELECT properties AS props FROM events) SELECT t.props.$br FROM t` suggests `$browser`.
+Computed or ambiguous property origins remain unknown; the service does not guess a namespace from a projected name.
 
 Validation diagnostic offsets use `positionEncoding`, which defaults to UTF-16. Diagnostics include up to five visible
 typo suggestions ranked by case-insensitive Levenshtein distance. Dynamic properties use the same cached namespaces as

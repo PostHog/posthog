@@ -71,6 +71,12 @@ An alias named `UUID` does not hide a source field named `uuid`; they can refer 
 An alias takes precedence over an unqualified field with the same name, while qualified field lookup still uses the relation.
 Direct alias chains retain catalog types, and validation typo suggestions include visible aliases.
 
+Direct property-container projections retain their original catalog namespace through CTEs, aliased subqueries, renamed fields, wildcard expansion, and visible SELECT aliases.
+Completion and property-name validation use that same origin, rather than guessing from the projected name.
+For example, `WITH recent AS (SELECT properties FROM events) SELECT recent.properties.$br FROM recent` suggests `$browser`.
+A CTE named `events` that projects `persons.properties` uses the person property catalog, not the event catalog.
+Renaming a container to `props` preserves its origin; projecting an individual property value does not preserve the whole container's namespace.
+
 Physical field completion borrows the catalog prefix index.
 Derived projections have a shared limit of 16,384 fields before deduplication.
 Field resolution also has a request-wide budget of 1,048,576 work units, counting relation visits and identifier bytes used for lookups and derived-field indexes.
@@ -83,9 +89,10 @@ Derived qualified suggestions are sorted and deduplicated before pagination.
 
 - Cursor replacement must produce parseable SQL to resolve CTE and subquery fields. Recovery for missing parentheses or incomplete predicates in multi-scope queries remains follow-up work.
 - For an incomplete single `SELECT` without `WITH`, completion can recover a parseable `FROM` clause before an unfinished predicate. The response retains `parseError`. Recovery never overlays parsed bindings or scans aliases from sibling scopes.
-- Property provenance through derived projections is not available. Completion suppresses property suggestions for derived owners, including CTEs that shadow built-in names such as `events`. Unqualified physical properties remain available when joined derived relations do not project `properties`; a derived `properties` field makes the namespace ambiguous. Add provenance before enabling those ambiguous suggestions.
+- Property provenance covers direct containers only. Computed JSON expressions, nested JSON schemas, conflicting sources, and duplicate projected names do not establish a namespace. Completion suppresses property suggestions and validation skips property-name checks when the origin is unknown. Expression inference and explicit ambiguity diagnostics remain follow-up work.
+- Projecting a nested virtual container such as `e.person.properties AS props` does not retain provenance. Model virtual-table traversal before enabling those projected namespaces; existing direct physical property paths remain available.
 - Select-alias recovery requires parseable cursor-replaced SQL. Single-SELECT recovery retains only FROM bindings and does not guess discarded aliases. Preserve SELECT items in a structured recovery pass before enabling those suggestions.
-- Property provenance through select aliases is not available. A visible alias that shadows a property owner suppresses its property suggestions and property-name validation. Track the alias expression's owner before enabling property traversal; qualified physical properties remain available.
+- SELECT-alias property provenance follows the existing visibility and case-sensitive precedence rules. An alias without a known container origin suppresses property-owner fallback; it does not inherit a namespace from a name such as `person` or `properties`.
 - Scalar WITH aliases, aliases inside expressions, ARRAY JOIN aliases, QUALIFY, and duplicate-alias diagnostics remain follow-up work. Model their resolver order and parser support before extending the top-level SELECT alias index. For duplicate declarations, the index retains the first declaration; it does not establish that the query is valid.
 - Validation skips field checks when a query has no known FROM bindings, including SELECT without FROM. Completion can still suggest its aliases. Add explicit empty-source scopes and distinguish unknown relations before enabling strict validation there.
 - JOIN USING output coalescing and ambiguous unqualified-field diagnostics remain follow-up work. Completion offers each source's qualified field; it does not choose a join-wide value or change validation's ambiguity rules.

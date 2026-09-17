@@ -213,6 +213,29 @@ func (b Bindings) UniqueRelations() iter.Seq[Relation] {
 
 func (b Bindings) PropertyNamespace(parts []string) (string, bool) {
 	if len(parts) >= 2 {
+		ownerParts := parts[:len(parts)-1]
+		if len(ownerParts) == 1 {
+			if alias, ok := b.selectAlias(ownerParts[0]); ok {
+				return alias.propertyNamespace, alias.propertyNamespace != ""
+			}
+			_, qualified := b.Relation(ownerParts[0])
+			if !qualified && resolveCTE(b.scope, ownerParts[0], b.position) == nil {
+				namespace, ok, matched := b.scope.unqualifiedPropertyNamespace(ownerParts[0])
+				if ok {
+					return namespace, true
+				}
+				if matched {
+					return "", false
+				}
+			}
+		}
+		if len(ownerParts) == 2 {
+			if relation, ok := b.Relation(ownerParts[0]); ok {
+				return bindingPropertyNamespace(relation, ownerParts[1])
+			}
+		}
+	}
+	if len(parts) >= 2 {
 		_, bound := b.Relation(parts[0])
 		if _, shadowed := b.SelectAlias(parts[0]); shadowed {
 			if len(parts) == 2 || !bound {

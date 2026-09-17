@@ -305,6 +305,13 @@ func TestValidatePropertiesAcrossGenericNamespaces(t *testing.T) {
 		{query: "WITH t AS (SELECT 1 AS x) SELECT properties.$geo_cty FROM events JOIN t ON 1 = 1", suggestion: "$geo_city"},
 		{query: "SELECT properties.$geo_cty FROM events JOIN (SELECT 1 AS x) AS t ON 1 = 1", suggestion: "$geo_city"},
 		{query: "WITH t AS (SELECT properties AS attrs FROM events) SELECT properties.$geo_cty FROM events JOIN t ON 1 = 1", suggestion: "$geo_city"},
+		{query: "WITH recent AS (SELECT properties FROM events) SELECT recent.properties.$geo_cty FROM recent", suggestion: "$geo_city"},
+		{query: "WITH recent AS (SELECT properties FROM events) SELECT properties.$geo_cty FROM recent", suggestion: "$geo_city"},
+		{query: "SELECT recent.properties.$geo_cty FROM (SELECT properties FROM events) AS recent", suggestion: "$geo_city"},
+		{query: "WITH recent AS (SELECT properties AS props FROM events) SELECT recent.props.$geo_cty FROM recent", suggestion: "$geo_city"},
+		{query: "WITH recent AS (SELECT properties AS props FROM events) SELECT props.$geo_cty FROM recent", suggestion: "$geo_city"},
+		{query: "WITH a AS (SELECT properties FROM persons), events AS (SELECT * FROM a) SELECT events.properties.$geo_contry FROM events", suggestion: "$geo_country"},
+		{query: "SELECT properties AS props, props AS attrs, attrs.$geo_cty FROM events", suggestion: "$geo_city"},
 	}
 	for _, test := range tests {
 		result := Validate(schema(), test.query)
