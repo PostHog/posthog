@@ -144,8 +144,8 @@ class SlackSettings(UUIDModel):
     resolution time.
     """
 
-    # Nullable so a personal row can carry AI preferences while inheriting the
-    # workspace routing default.
+    # Nullable so a personal row can carry other settings (e.g. the follow-up
+    # mode) while inheriting the workspace routing default.
     default_integration = models.ForeignKey(
         "posthog.Integration",
         on_delete=models.CASCADE,
@@ -162,8 +162,6 @@ class SlackSettings(UUIDModel):
         null=True,
         help_text="Per-integration permission mode for Slack-started agent runs, keyed by integration id.",
     )
-    # Keys mirror the task-run request serializer.
-    ai_preferences = models.JSONField(blank=True, null=True)
     # NULL means the user has never picked, which resolves to ``NEVER``: nothing
     # is picked up in their threads until they turn it on from the Home tab.
     untagged_followup_mode = models.CharField(
@@ -196,18 +194,6 @@ class SlackSettings(UUIDModel):
         who = self.slack_user_id or "(workspace default)"
         target = self.default_integration_id if self.default_integration_id else "(inherit)"
         return f"{self.slack_workspace_id} / {who} → integration {target}"
-
-    @property
-    def runtime_adapter(self) -> str | None:
-        return (self.ai_preferences or {}).get("runtime_adapter")
-
-    @property
-    def model(self) -> str | None:
-        return (self.ai_preferences or {}).get("model")
-
-    @property
-    def reasoning_effort(self) -> str | None:
-        return (self.ai_preferences or {}).get("reasoning_effort")
 
 
 class SlackChannel(UUIDModel):

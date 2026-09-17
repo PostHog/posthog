@@ -103,6 +103,18 @@ prefer_queue_comment() {
     fi
 }
 
+# Whether the last thing Trunk said was that it refused a `/trunk merge`. That refusal is the only
+# report that a requeue did nothing, and it loses the preference above to any comment that reports
+# queue state, so it is read separately and returned as its own field. The state stays the truth
+# about the queue: a PR that merged before a requeue reached it is `merged`, with the refusal
+# alongside it.
+rejection_pending() {
+    local bodies=$1 newest
+    [ -s "$bodies" ] || return 1
+    newest=$(sort -r "$bodies" | head -1 | cut -f2-)
+    [ "$(classify "$newest")" = submit_rejected ]
+}
+
 # Every trunk-io[bot] comment on the PR, newest last. Test Analytics comments share the author
 # but report flake counts, not queue state, so they are dropped before the preference runs.
 sticky_body() {
@@ -185,6 +197,8 @@ classify() {
         echo blocked
     elif printf '%s' "$body" | grep -qE 'required check .* has failed'; then
         echo failed
+    elif printf '%s' "$body" | grep -qE 'error occurred while submitting your (PR|pull request) to the queue'; then
+        echo submit_rejected
     elif printf '%s' "$body" | grep -qE 'Running tests on this (pull request|stack)'; then
         echo testing
     elif printf '%s' "$body" | grep -qE 'Waiting to start tests'; then
@@ -314,6 +328,7 @@ main() {
                 echo "fingerprint_sha=$digest"
                 retained=$(retain_wording "$digest" "$body") && echo "fingerprint_file=$retained"
             fi
+            if rejection_pending "$TMP/bodies"; then echo "submit_rejected=yes"; fi
             if printf '%s' "$body" | grep -qiE '\bstack(ed)?\b'; then echo "stacked=yes"; fi
             # shellcheck disable=SC2016 # the backticks are literal Markdown, not expansion
             check=$(printf '%s' "$body" | grep -oE '\[`'"$CHECK_RE"'`\]' | head -1 | sed -E 's/^\[`//; s/`\]$//' || true)

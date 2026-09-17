@@ -213,11 +213,6 @@ devbox:
     devbox:sync:
         click: hogli_commands.devbox.sync:cmd_sync
         description: Mirror your local PostHog checkout to a devbox
-    devbox:task:
-        click: hogli_commands.devbox.cli:devbox_task
-        description: Run a background agent task on a fresh devbox
-        # exec-replaces the process (os.execvp): completed events can't fire
-        untracked: true
     devbox:secret:list:
         click: hogli_commands.devbox.cli:devbox_secret_list
         description: List your Coder user secrets
@@ -454,34 +449,23 @@ deploy:
         description: Upgrade existing hobby deployment with data loss warnings and volume
             checks
         prompt: true
-    deploy:migrate-recordings:
-        bin_script: migrate-session-recordings-hobby
-        description: Migrate session recordings from MinIO to SeaweedFS for hobby deployments
     deploy:migrate-storage:
         bin_script: migrate-minio-to-seaweedfs
         description: "Migrate or sync object storage between MinIO and SeaweedFS\n\nServices:\
             \ session-recordings, session-recordings-lts, query-cache, \n         media-uploads,\
-            \ exports, source-maps\n\nModes:\n  --mode migrate  One-way copy (default)\n\
-            \  --mode sync     Bidirectional sync\n\nExamples:\n  hogli deploy:migrate-storage\
-            \ --service query-cache --mode sync --dry-run\n  hogli deploy:migrate-storage\
-            \ --service media-uploads --mode migrate"
+            \ exports, source-maps, ai-blobs, general-storage\n\nModes:\n  --mode migrate\
+            \  One-way copy (default)\n  --mode sync     Bidirectional sync\n\nExamples:\
+            \n  hogli deploy:migrate-storage --service query-cache --mode sync --dry-run\
+            \n  hogli deploy:migrate-storage --service media-uploads --mode migrate"
         prompt: true
     deploy:migrate-storage-hobby:
         bin_script: migrate-storage-hobby
-        description: "Hobby: Migrate or sync ALL services between MinIO and SeaweedFS\
-            \ via docker-compose\n\nExamples:\n  hogli deploy:migrate-storage-hobby    \
-            \           # Sync all services\n  hogli deploy:migrate-storage-hobby --mode\
-            \ migrate # One-way migrate all (MinIO \u2192 SeaweedFS)\n  hogli deploy:migrate-storage-hobby\
-            \ exports -n     # Dry run exports only"
-        prompt: true
-    deploy:upgrade-objectstorage:
-        bin_script: upgrade-objectstorage
-        description: "Dev: salvage objectstorage data from the old MinIO volume into the\
-            \ running SeaweedFS (interactive)\n\nExamples:\n  hogli deploy:upgrade-objectstorage\
-            \              # Detect and copy the orphaned MinIO volume\n  hogli deploy:upgrade-objectstorage\
-            \ --list       # List all MinIO volumes"
-        services:
-            - docker
+        description: "Hobby: copy object storage out of the legacy MinIO volume into\
+            \ SeaweedFS\n\nRuns against a temporary MinIO container, so the stack no longer\
+            \ needs a MinIO service.\n\nExamples:\n  hogli deploy:migrate-storage-hobby\
+            \                 # Copy every service\n  hogli deploy:migrate-storage-hobby\
+            \ exports -n     # Dry run exports only\n  hogli deploy:migrate-storage-hobby\
+            \ --list         # List the MinIO volumes on this host"
         prompt: true
 build:
     build:
@@ -797,6 +781,9 @@ tests:
     test:e2e:
         bin_script: e2e-test-runner
         description: Set up test databases and run Playwright E2E tests
+    test:workflows:
+        cmd: pnpm --filter @posthog/workflow-plan test
+        description: Check which jobs of .github/workflows run per PR/push/schedule scenario against the pinned expectations
     test:quarantine:
         click: hogli_commands.quarantine.cli:quarantine
         description: Manage .test_quarantine.json — quarantine flaky tests so they stop blocking CI
@@ -861,6 +848,9 @@ quality:
     lint:feature-flags:fix:
         cmd: node bin/lint-feature-flag-sorting.mjs --fix
         description: Auto-sort FEATURE_FLAGS in constants.tsx alphabetically
+    lint:duplication:
+        cmd: python3 bin/lint_duplication.py
+        description: Gate the branch on new Python and TypeScript code duplication via jscpd (test files get a relaxed limit)
     lint:complexity:
         click: hogli_commands.complexity_lint:cmd_lint_complexity
         description: Check cyclomatic complexity of changed Python/TypeScript files (warn-only; test files get a relaxed limit)
@@ -1059,6 +1049,9 @@ tools:
     ci:preflight:
         click: hogli_commands.ci_preflight:ci_preflight
         description: Catch deterministic CI failures reachable from your diff before you push (advisory; --fix, --strict)
+    ci:plan:
+        cmd: pnpm --filter @posthog/workflow-plan --silent plan
+        description: Show which jobs (or --steps <job>) of a workflow file run on a draft, ready, or fork PR, the merge queue, a master push, schedule, and dispatch
 desktop:
     desktop:dev:
         cmd: pnpm --dir products/desktop dev
@@ -1086,6 +1079,9 @@ owners:
     owners:census:
         click: posthog_owners.cli:cmd_census
         description: Count test files per owning team (optional PREFIX; --json for machine output)
+    owners:codeowners:
+        click: posthog_owners.cli:cmd_codeowners
+        description: Emit a CODEOWNERS projection of test-file ownership for tools that only read CODEOWNERS (-o writes a file)
     owners:unowned:
         click: posthog_owners.cli:cmd_unowned
         description: List unowned tracked files, respecting owners:null exemptions (optional PREFIX)
@@ -1250,4 +1246,8 @@ environment:
     profile_migrations:
         bin_script: profile_migrations
         description: 'Profile Django migrations on fresh DBs and render a per-op timing report'
+        hidden: true
+    docker:worker:ai:training:privacy:
+        bin_script: docker-worker-ai-training-privacy
+        description: 'Start the dedicated AI training privacy worker'
         hidden: true

@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buildbette
     BUILDBETTER_API_URL,
     BUILDBETTER_ENDPOINTS,
     BuildBetterEndpointConfig,
+    BuildBetterNestedConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -109,8 +110,50 @@ def _execute_query(
     return payload
 
 
+def _nested_items(nested: BuildBetterNestedConfig, parent: dict) -> list[dict]:
+    value = parent.get(nested.nested_field)
+    if not nested.single:
+        return value or []
+    return [{f"{nested.unwrap_prefix}{key}": item for key, item in value.items()}] if value else []
+
+
+def _flatten_nested_rows(nested: BuildBetterNestedConfig, parent_rows: list[dict]) -> list[dict]:
+    rows: list[dict] = []
+    for parent in parent_rows:
+        parent_columns = {column: parent.get(parent_field) for parent_field, column in nested.parent_columns.items()}
+        for index, child in enumerate(_nested_items(nested, parent)):
+            row = dict(child)
+            if nested.unwrap_field:
+                inner = row.pop(nested.unwrap_field, None)
+                if not inner:
+                    # Without the wrapped record the row has no key columns to merge on
+                    continue
+                row = {f"{nested.unwrap_prefix}{key}": value for key, value in inner.items()} | row
+            if nested.index_column:
+                row[nested.index_column] = index
+            rows.append(parent_columns | row)
+    return rows
+
+
+def _filter_field(endpoint_config: BuildBetterEndpointConfig, incremental_field: str) -> str:
+    """Map a row's incremental column back to the field the filter applies to.
+
+    A nested table's rows carry the parent's timestamps under a prefixed column name, but the
+    `where` clause filters the parent query, which knows them by their own names.
+    """
+    nested = endpoint_config.nested
+    if nested is None:
+        return incremental_field
+
+    for parent_field, column in nested.parent_columns.items():
+        if column == incremental_field:
+            return parent_field
+    return incremental_field
+
+
 def _initial_variables(
     endpoint_name: str,
+    endpoint_config: BuildBetterEndpointConfig,
     page_size: int,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[BuildBetterResumeConfig],
@@ -128,7 +171,7 @@ def _initial_variables(
     }
 
     if incremental_field and incremental_field_last_value:
-        variables["where"] = {incremental_field: {"_gt": incremental_field_last_value}}
+        variables["where"] = {_filter_field(endpoint_config, incremental_field): {"_gt": incremental_field_last_value}}
 
     return variables
 
@@ -158,6 +201,7 @@ def _make_paginated_request(
 
     variables = _initial_variables(
         endpoint_name=endpoint_name,
+        endpoint_config=endpoint_config,
         page_size=page_size,
         logger=logger,
         resumable_source_manager=resumable_source_manager,
@@ -181,7 +225,9 @@ def _make_paginated_request(
             if not data:
                 break
 
-            yield data
+            rows = _flatten_nested_rows(endpoint_config.nested, data) if endpoint_config.nested else data
+            if rows:
+                yield rows
 
             if len(data) < page_size:
                 break
@@ -221,7 +267,7 @@ def buildbetter_source(
 
     return SourceResponse(
         items=get_rows,
-        primary_keys=[endpoint_config.primary_key],
+        primary_keys=endpoint_config.primary_keys,
         name=endpoint_name,
         partition_count=endpoint_config.partition_count,
         partition_size=endpoint_config.partition_size,

@@ -139,6 +139,16 @@ once the command has run everywhere.
   (same call `get_bot_user_id_cached` already caches a field from), so the fix is a cached lookup
   in conversations exposed through its facade, consumed here and by the frontend.
 
+## Workflow task signing key
+
+- **Account actions and task creation share a signing key.** Both use `CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET` to avoid provisioning another key for workflow task creation.
+  Task tokens retain the `posthog:customer-tasks:create` audience and project, workflow, and invocation claims.
+  Account tokens cannot call the task endpoint, and task creation still checks the workflow owner's permissions.
+- **Key access and rotation are shared.** A service with the signing key can mint tokens for either audience.
+  A key compromise therefore affects both surfaces, and rotating the key affects both.
+  Use a dedicated task signing key when these surfaces need separate service access or independent rotation.
+- **Task creation has no legacy fallback.** If the shared key is unset, task creation fails even when account actions work through the project secret API token.
+
 ## Tech debt
 
 - **Account property writes have no single choke point.** `Account._properties` is mutated from

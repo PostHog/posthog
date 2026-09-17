@@ -13,19 +13,13 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
     FILE_FORMAT_EXTENSIONS,
     SUPPORTED_COMPRESSIONS,
 )
-from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
-    has_valid_gcs_credentials,
-    run_s3_batch_export_workflow,
-)
+from products.batch_exports.backend.tests.temporal.destinations.s3.utils import run_s3_batch_export_workflow
 from products.batch_exports.backend.tests.temporal.utils.s3 import delete_all_from_s3
 
 pytestmark = [
+    pytest.mark.requires_vendor_credentials("GCS_TEST_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"),
     pytest.mark.asyncio,
     pytest.mark.django_db,
-    pytest.mark.skipif(
-        not has_valid_gcs_credentials(),
-        reason="GCS credentials (AWS keys) not set in environment or missing GCS_TEST_BUCKET variable",
-    ),
 ]
 
 

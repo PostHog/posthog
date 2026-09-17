@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Protocol
+from uuid import UUID
 
 from .contracts import EvidenceBundle, EvidenceRef, validate_learning_provider_name
 
@@ -12,7 +13,15 @@ class LearningEvidenceProvider(Protocol):
     name: str
 
     # Coordinator passes the environment the tickets live in, not the canonical parent.
-    def collect(self, team_id: int, *, since: datetime, limit: int) -> list[EvidenceRef]: ...
+    def collect(
+        self,
+        team_id: int,
+        *,
+        since: datetime,
+        limit: int,
+        offset: int = 0,
+        ticket_id: UUID | None = None,
+    ) -> list[EvidenceRef]: ...
 
     # Look up with ref.source_team_id. ticket_id alone is not tenant-scoped.
     def load(self, ref: EvidenceRef) -> EvidenceBundle | None: ...

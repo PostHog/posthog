@@ -6,7 +6,6 @@ from dataclasses import Field, asdict, dataclass, field, fields
 from uuid import UUID
 
 from django.conf import settings
-from django.db.models import Q
 
 import structlog
 import temporalio
@@ -359,21 +358,14 @@ class FileDownloadBatchExportInputs(BaseBatchExportInputs):
 class SnowflakeBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Snowflake export workflow.
 
-    account, user, authentication_type and the credential fields are optional here:
-    integration-backed exports resolve them from the linked Integration at run time (see
-    `integration_id`), while legacy exports carry them inline.
+    Credentials are never carried here: the activity resolves them from the linked Integration at
+    run time (see `integration_id`).
     """
 
     database: str
     warehouse: str
     schema: str
-    account: str | None = None
-    user: str | None = None
     table_name: str = "events"
-    authentication_type: str = "password"
-    password: str | None = field(default=None, repr=False)
-    private_key: str | None = field(default=None, repr=False)
-    private_key_passphrase: str | None = field(default=None, repr=False)
     role: str | None = None
 
 
@@ -1359,7 +1351,7 @@ async def aupdate_records_total_count(
 
 
 async def afetch_last_run_records_completed(
-    parent_id: UUID,
+    batch_export_id: UUID,
     *,
     matching_interval_duration: dt.timedelta | None,
     before_or_at_interval_end: dt.datetime | None = None,
@@ -1367,9 +1359,9 @@ async def afetch_last_run_records_completed(
 ) -> int | None:
     """Async fetch the `records_completed` of the most recent completed run for a batch export.
 
-    Used as a rough estimate to pick how many staging files to write. A run belongs to exactly one of
-    a `BatchExport` (scheduled) or a `BatchExportOnDemand`, and their ids are globally unique UUIDs, so
-    we match `parent_id` against either parent.
+    Used as a rough estimate to pick how many staging files to write. Only scheduled `BatchExport`
+    runs are matched. A `BatchExportOnDemand` is created for each request and runs once, so it has no
+    earlier run to estimate from, and `compute_num_partitions` does not call this for one.
 
     The `before_or_at_interval_end` and `not_older_than` filters are relative to the interval being
     processed (which improves accuracy for backfills):
@@ -1385,7 +1377,7 @@ async def afetch_last_run_records_completed(
     Returns None when no usable run exists (e.g. the first ever run, or a frequency change).
     """
     queryset = BatchExportRun.objects.filter(
-        Q(batch_export_id=parent_id) | Q(batch_export_on_demand_id=parent_id),
+        batch_export_id=batch_export_id,
         status=BatchExportRun.Status.COMPLETED,
         records_completed__isnull=False,
     )

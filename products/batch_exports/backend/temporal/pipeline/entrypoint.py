@@ -185,6 +185,7 @@ async def _stage_batch_export_data(
         backfill_details=batch_export_inputs.backfill_details,
         batch_export_model=batch_export_inputs.batch_export_model,
         is_workflows=is_workflows,
+        on_demand=batch_export_inputs.on_demand,
         batch_export_schema=batch_export_inputs.batch_export_schema,
         destination_default_fields=batch_export_inputs.destination_default_fields,
     )

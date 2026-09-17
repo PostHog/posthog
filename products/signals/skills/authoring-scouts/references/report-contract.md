@@ -34,7 +34,7 @@ Judges the report for safety, then persists it at the judged status.
 | `summary`                   | string                  | The report body prose — one tight passage a busy human can act on: a **quantified hook** (what's happening, with numbers), the **pattern** that makes it signal rather than noise, the suspected-cause **hypothesis**, and the **recommendation**. Cite entities inline as markdown links so the reader pivots straight to source (see below). |
 | `evidence`                  | list, 1–50              | Each `{description, source_id}`. Becomes a bound signal row backing the report. `source_id` is the citable entity id. Hard cap of **50** — summarize/trim before calling; a longer list fails validation before the report is judged or persisted.                                                                                             |
 | `actionability_explanation` | string                  | One sentence justifying the actionability call below.                                                                                                                                                                                                                                                                                          |
-| `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it.                                                                                                                                                                                                                |
+| `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it. See _Choosing actionability_ below.                                                                                                                                                                            |
 | `already_addressed`         | bool, default `false`   | Set when the underlying issue is already handled and you're filing for the record.                                                                                                                                                                                                                                                             |
 | `metrics`                   | list, ≤6, optional      | Typed impact measurements the inbox shows as tiles. The report's full set. Each `{metric_id, title, kind, query, role?, value?, value_at?, series?, value_format?, unit?, caption?}`. See _Measuring impact_ below.                                                                                                                            |
 | `charts`                    | list, ≤20, optional     | Queries the inbox draws on the report — the report's full set, replacing any it already had. Each `{chart_id, title, query, caption?, size?}`. See _Attaching charts_ below.                                                                                                                                                                   |
@@ -59,6 +59,17 @@ Leave a blank line above each label, since a label the line above runs onto is p
 | safe         | `requires_human_input`   | `PENDING_INPUT`  | yes                |
 | safe         | `not_actionable`         | `SUPPRESSED`     | no                 |
 | unsafe       | (any)                    | `SUPPRESSED`     | no                 |
+
+**Choosing actionability.** The harness prompt carries the full criteria; the call comes down to what a person would have to supply.
+
+1. `immediately_actionable` — a coding agent could take concrete, useful action right now: a bug fix, an experiment reaction, a flag cleanup, a UX fix, or a deep investigation with a clear jumping-off point.
+   An unknown root cause does not disqualify a report. When you name the evidence, the code surface, or a failure path someone can reproduce, the investigation is the action.
+2. `requires_human_input` — a code change is plausible, but a person must first make a call only a person can make: a product decision, a trade-off between valid approaches, business context that is not in the data or the code.
+   Name that decision in `actionability_explanation`. If you cannot name it, the report is not waiting on a human.
+3. `not_actionable` — no answer would lead to code work.
+
+In doubt between the first two, pick `immediately_actionable`; in doubt between the last two, pick `not_actionable`.
+It is not a free hedge: autostart only considers an immediately-actionable report, so parking one costs it the draft PR a person then has to start by hand.
 
 The result tells you what happened: `report_id` (always set when a report was persisted — **even when suppressed**, so you can edit or dedup against it), `report_status` (the birth status — `ready` / `pending_input` / `suppressed` — the field is named `report_status` in the response, not `status`), `emitted` (true only when it actually surfaced — `READY` / `PENDING_INPUT`), `safety_explanation`, and `skipped_reason` (set only when a preflight gate stopped the call before any report was created — the AI-data-processing / source-enabled gates that govern every scout write).
 

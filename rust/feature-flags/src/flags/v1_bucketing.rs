@@ -1,0 +1,52 @@
+use crate::api::errors::FlagError;
+use crate::flags::flag_models::MultivariateFlagVariant;
+
+/// The hash is a closure because identifier resolution and hashing must stay lazy at 100%:
+/// a flag at full rollout is included even when the identifier cannot be resolved.
+pub fn is_in_rollout(
+    percentage: f64,
+    hash: impl FnOnce() -> Result<f64, FlagError>,
+) -> Result<bool, FlagError> {
+    if percentage == 100.0 {
+        return Ok(true);
+    }
+    Ok(hash()? <= percentage / 100.0)
+}
+
+pub fn select_variant(hash: f64, variants: &[MultivariateFlagVariant]) -> Option<&str> {
+    let mut cumulative_percentage = 0.0;
+    for variant in variants {
+        cumulative_percentage += variant.rollout_percentage / 100.0;
+        if hash < cumulative_percentage {
+            return Some(&variant.key);
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn full_rollout_bypasses_hash_errors() {
+        let hash_error = || Err(FlagError::HashKeyOverrideError);
+        assert!(is_in_rollout(100.0, hash_error).unwrap());
+        assert!(matches!(
+            is_in_rollout(99.0, hash_error),
+            Err(FlagError::HashKeyOverrideError)
+        ));
+        assert!(is_in_rollout(100.0, || panic!("must not hash")).unwrap());
+    }
+
+    #[test]
+    fn incomplete_variant_weights_leave_the_remainder_unassigned() {
+        let variants = [MultivariateFlagVariant {
+            key: "control".to_string(),
+            rollout_percentage: 40.0,
+            ..Default::default()
+        }];
+        assert_eq!(select_variant(0.4, &variants), None);
+        assert_eq!(select_variant(1.0, &variants), None);
+    }
+}
