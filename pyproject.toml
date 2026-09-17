@@ -726,6 +726,7 @@ ignore_imports = [
     "products.access_control.backend.presentation.access_control -> products.access_control.backend.models.access_control",
     "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.access_control",
     "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.role",
+    "products.access_control.backend.presentation.role -> products.access_control.backend.models.role",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the
