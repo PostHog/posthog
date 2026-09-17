@@ -24,6 +24,8 @@ from rest_framework.parsers import FormParser
 from rest_framework.request import Request
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api_queries_budget import debit
+from posthog.hogql_queries.query_runner import api_queries_budget_enforcement_enabled, get_api_queries_budget_status
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.security.outbound_proxy import internal_requests
@@ -35,6 +37,7 @@ logger = structlog.get_logger(__name__)
 SNUFFLE_API_FEATURE_FLAG = "logs-metrics-snuffle-api"
 
 TEAM_ID_HEADER = "X-Team-ID"
+SNUFFLE_READ_BYTES_HEADER = "X-Snuffle-ClickHouse-Read-Bytes"
 # Snuffle also accepts the tenant as a `team_id` parameter, with lower precedence than the header;
 # strip it so the forwarded request only ever names the team from the URL. PostHog accepts the
 # caller's personal API key as a parameter too, and that must never leave PostHog.
@@ -55,6 +58,23 @@ def _error_response(status_code: int, error_type: str, message: str) -> HttpResp
     )
 
 
+def _read_bytes_from(upstream: requests.Response) -> int | None:
+    """Read the total ClickHouse bytes that Snuffle reports for this request.
+
+    A missing or malformed header means an older or unhealthy upstream. Metering
+    must fail open in that case, like the shared query budget does.
+    """
+    value = upstream.headers.get(SNUFFLE_READ_BYTES_HEADER)
+    if value is None:
+        return None
+    try:
+        bytes_read = int(value)
+    except (TypeError, ValueError):
+        logger.warning("snuffle_proxy_invalid_read_bytes", value=value)
+        return None
+    return bytes_read if bytes_read >= 0 else None
+
+
 class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Base for the team-scoped Prometheus- and Loki-compatible query endpoints.
 
@@ -72,7 +92,14 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     permission_classes = [PostHogFeatureFlagPermission]
     # The Prometheus and Loki APIs take POST bodies as form fields, the same shape as the query string.
     parser_classes = [FormParser]
+    # Kept as a fallback until the upstream version that reports read bytes is deployed.
+    # The byte-budget flag removes these request-count limits before the proxy action runs.
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
+
+    def get_throttles(self):
+        if api_queries_budget_enforcement_enabled(self.team):
+            return []
+        return super().get_throttles()
 
     @extend_schema(exclude=True)
     @action(detail=False, methods=["GET", "POST"], url_path=r"api/v1/(?P<path>[A-Za-z0-9_./-]+)")
@@ -90,6 +117,20 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
 
         team_id = self.team_id
+        budget_status = get_api_queries_budget_status(self.team)
+        if (
+            budget_status is not None
+            and budget_status.remaining_bytes <= 0
+            and api_queries_budget_enforcement_enabled(self.team)
+        ):
+            response = _error_response(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "rate_limited",
+                "ClickHouse query byte budget exhausted. Try again later.",
+            )
+            response["Retry-After"] = str(budget_status.retry_after_seconds)
+            return response
+
         method = request.method or "GET"
         url = f"{base_url.rstrip('/')}{self.upstream_prefix}/{path}"
         params = _forwardable(request.query_params)
@@ -122,8 +163,15 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if upstream.status_code >= 500:
             logger.warning("snuffle_proxy_upstream_error", team_id=team_id, path=path, status=upstream.status_code)
 
-        return HttpResponse(
+        response = HttpResponse(
             upstream.content,
             status=upstream.status_code,
             content_type=upstream.headers.get("Content-Type", "application/json"),
         )
+        bytes_read = _read_bytes_from(upstream)
+        if bytes_read is not None:
+            remaining = debit(str(team_id), bytes_read)
+            response["X-PostHog-Query-Bytes-Read"] = str(bytes_read)
+            if remaining is not None:
+                response["X-PostHog-Query-Budget-Remaining-Bytes"] = str(int(remaining))
+        return response

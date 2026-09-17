@@ -428,6 +428,15 @@ def _api_queries_budget_enforcement_enabled(team: Team) -> bool:
         return False
 
 
+def api_queries_budget_enforcement_enabled(team: Team) -> bool:
+    """Whether the read-byte budget rejects API requests for this team.
+
+    Kept separate from the query runner so other ClickHouse API proxies use the
+    same staged rollout without depending on its private helper.
+    """
+    return _api_queries_budget_enforcement_enabled(team)
+
+
 @frozen
 class BudgetStatus:
     remaining_bytes: float

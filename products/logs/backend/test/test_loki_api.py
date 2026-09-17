@@ -22,7 +22,7 @@ def _upstream(status_code: int = 200, body: bytes = b'{"status":"success","data"
     response = MagicMock(spec=requests.Response)
     response.status_code = status_code
     response.content = body
-    response.headers = {"Content-Type": "application/json; charset=utf-8"}
+    response.headers = {"Content-Type": "application/json; charset=utf-8", "X-Snuffle-ClickHouse-Read-Bytes": "1234"}
     return response
 
 
@@ -50,6 +50,7 @@ class TestLokiQueryApi(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response["Content-Type"] == "application/json; charset=utf-8"
         assert response.content == b'{"status":"success","data":{}}'
+        assert response["X-PostHog-Query-Bytes-Read"] == "1234"
         self.request_mock.assert_called_once()
         method, url = self.request_mock.call_args.args
         kwargs = self.request_mock.call_args.kwargs
@@ -65,6 +66,25 @@ class TestLokiQueryApi(APIBaseTest):
         assert kwargs["auth"] == ("reader", "secret")
         assert kwargs["timeout"] == 12
         assert kwargs["data"] is None
+
+    @patch("posthog.api.snuffle_proxy.debit", return_value=5678)
+    def test_read_bytes_are_debited_from_the_project_budget(self, debit_mock):
+        response = self.client.get(f"{self.base}/query", {"query": '{service_name="api"}'})
+
+        assert response.status_code == status.HTTP_200_OK
+        debit_mock.assert_called_once_with(str(self.team.pk), 1234)
+        assert response["X-PostHog-Query-Budget-Remaining-Bytes"] == "5678"
+
+    @patch("posthog.api.snuffle_proxy.api_queries_budget_enforcement_enabled", return_value=True)
+    @patch("posthog.api.snuffle_proxy.get_api_queries_budget_status")
+    def test_exhausted_byte_budget_refuses_before_reaching_snuffle(self, budget_status, _enforced):
+        budget_status.return_value = MagicMock(remaining_bytes=0, retry_after_seconds=42)
+
+        response = self.client.get(f"{self.base}/query", {"query": '{service_name="api"}'})
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response["Retry-After"] == "42"
+        self.request_mock.assert_not_called()
 
     def test_post_form_body_is_forwarded(self):
         body = "query=%7Bservice_name%3D%22api%22%7D&start=1&end=2"
