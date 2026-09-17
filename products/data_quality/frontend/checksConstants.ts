@@ -99,6 +99,10 @@ export function checkTypeLabel(checkType: string): string {
     return CHECK_TYPE_LABELS[checkType] ?? checkType
 }
 
+export function subjectTypeLabel(subjectType: string): string {
+    return SUBJECT_TYPE_TAGS[subjectType]?.label ?? subjectType
+}
+
 interface NamedCheck {
     name?: string | null
     check_type: string

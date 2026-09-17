@@ -25,9 +25,9 @@ import { urls } from 'scenes/urls'
 import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 
 import type { DataQualitySubjectRef } from './checksApi'
-import { checkTypeLabel } from './checksConstants'
+import { checkTypeLabel, subjectTypeLabel } from './checksConstants'
 import { dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
-import { CheckTypeEnumApi, DataQualityCheckSeverityEnumApi, SubjectTypeEnumApi } from './generated/api.schemas'
+import { CheckTypeEnumApi, DataQualityCheckSeverityEnumApi } from './generated/api.schemas'
 import { formatPreviewCell } from './previewCell'
 
 type CodeEditorInstance = Parameters<NonNullable<CodeEditorProps['onMount']>>[0]
@@ -113,11 +113,7 @@ export function CheckEditorModal(): JSX.Element {
                                     <div className="flex items-center justify-between gap-2 w-full">
                                         <span>{candidate.name}</span>
                                         <LemonTag type="muted" size="small">
-                                            {candidate.type === SubjectTypeEnumApi.Metric
-                                                ? 'Metric'
-                                                : candidate.type === SubjectTypeEnumApi.View
-                                                  ? 'View'
-                                                  : 'Table'}
+                                            {subjectTypeLabel(candidate.type)}
                                         </LemonTag>
                                     </div>
                                 ),
