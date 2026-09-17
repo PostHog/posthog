@@ -45,14 +45,22 @@ const INVOCATIONS = new Map<string, ToolInvocation>([
 ])
 
 describe('conversationNotebook', () => {
-    it('collects the question, live cells for the queries, and the answer in thread order', () => {
+    it('collects the question, the query cells and the answer in thread order, and serializes cells only on build', () => {
         const collected = collectConversationBlocks(THREAD, INVOCATIONS)
 
         expect(collected.messageCount).toBe(2)
         expect(collected.queryCount).toBe(2)
         expect(collected.blocks).toEqual([
             '**You asked:** Why did signups drop on Tuesday?',
-            expect.stringMatching(/^<SQLV2 .*code=.*SELECT count\(\) FROM events/s),
+            { component: 'SQLV2', props: expect.objectContaining({ code: 'SELECT count() FROM events' }) },
+            { component: 'Query', props: { query: { kind: 'SavedInsightNode', shortId: 'abc123' } } },
+            'A checkout error cut signups by a third.',
+        ])
+
+        const { markdown } = buildConversationNotebook({ title: 'Why', summary: '', blocks: collected.blocks })
+        expect(markdown.split('\n\n').slice(1)).toEqual([
+            '**You asked:** Why did signups drop on Tuesday?',
+            expect.stringMatching(/^<SQLV2 .*nodeId="node-1".*code=.*SELECT count\(\) FROM events/s),
             expect.stringMatching(/^<Query .*SavedInsightNode.*abc123/s),
             'A checkout error cut signups by a third.',
         ])

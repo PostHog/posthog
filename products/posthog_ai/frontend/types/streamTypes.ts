@@ -262,8 +262,14 @@ export interface PermissionRequestRecord {
     questions?: AgentQuestion[]
 }
 
-export type ScoutSuggestionCadence = 'daily' | 'weekly'
-export type ScoutSuggestionMode = 'report' | 'watch' | 'investigate' | 'check_back' | 'digest'
+export const SCOUT_CADENCES = ['daily', 'weekly'] as const
+export type ScoutSuggestionCadence = (typeof SCOUT_CADENCES)[number]
+
+export const SCOUT_MODES = ['report', 'watch', 'investigate', 'check_back', 'digest'] as const
+export type ScoutSuggestionMode = (typeof SCOUT_MODES)[number]
+
+export const ALERT_DIRECTIONS = ['decrease', 'increase'] as const
+export type AlertSuggestionDirection = (typeof ALERT_DIRECTIONS)[number]
 
 export interface ScoutSuggestionDraft {
     mode: ScoutSuggestionMode
@@ -280,9 +286,9 @@ export interface IncidentOutline {
 }
 
 export interface NotebookSuggestionDraft {
-    template: 'conversation' | 'incident'
     title: string
     summary: string
+    /** Present when the notebook is laid out as an incident write-up rather than the conversation as is. */
     incident: IncidentOutline | null
 }
 
@@ -291,10 +297,7 @@ export interface SuggestedInsightRef {
     insightShortId: string
     insightId: number | null
     insightName: string
-    queryKind: string
 }
-
-export type AlertSuggestionDirection = 'decrease' | 'increase' | 'either'
 
 export interface AlertSuggestionDraft extends SuggestedInsightRef {
     direction: AlertSuggestionDirection

@@ -1,37 +1,31 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonLabel, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonLabel, LemonSelect, Link } from '@posthog/lemon-ui'
 
-import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { urls } from 'scenes/urls'
 
-import { scoutSuggestionLogic } from '../logics/scoutSuggestionLogic'
+import { suggestionActionLogic } from '../logics/suggestionActionLogic'
 import type { TurnSuggestionLogicProps } from '../logics/turnSuggestionLogic'
 import { CADENCE_OPTIONS, SCOUT_MODE_HINTS, cadenceLabel } from '../utils/turnSuggestions'
 import { SlackDestinationSection } from './SlackDestinationSection'
+import { SuggestionActionRow } from './SuggestionActionRow'
+import { SuggestionDraftSummary } from './SuggestionDraftSummary'
 
 export function ScoutSuggestionCard(props: TurnSuggestionLogicProps): JSX.Element | null {
-    const logic = scoutSuggestionLogic(props)
-    const {
-        suggestion,
-        cadence,
-        slackChannel,
-        createdScout,
-        createdScoutLoading,
-        createDisabledReason,
-        createError,
-        scoutUrl,
-    } = useValues(logic)
-    const { setCadence, createScout } = useActions(logic)
+    const logic = suggestionActionLogic(props)
+    const { suggestion, cadence, accepted, slackChannelLabel } = useValues(logic)
+    const { setCadence } = useActions(logic)
 
-    if (!suggestion) {
+    if (suggestion?.kind !== 'scout') {
         return null
     }
-    if (createdScout) {
+    if (accepted) {
         return (
-            <LemonBanner type="success" action={scoutUrl ? { to: scoutUrl, children: 'View scout' } : undefined}>
-                Scout created. It runs {cadenceLabel(cadence)} and posts to{' '}
-                {slackChannel ? slackChannelDisplayName(slackChannel) : 'Slack'}.
+            <LemonBanner
+                type="success"
+                action={accepted.url ? { to: accepted.url, children: 'View scout' } : undefined}
+            >
+                Scout created. It runs {cadenceLabel(cadence)} and posts to {slackChannelLabel}.
             </LemonBanner>
         )
     }
@@ -39,13 +33,12 @@ export function ScoutSuggestionCard(props: TurnSuggestionLogicProps): JSX.Elemen
 
     return (
         <>
-            <div className="flex flex-col gap-0.5 rounded bg-surface-secondary px-2 py-1.5">
-                <span className="text-sm font-medium">{suggestion.scout.displayName}</span>
+            <SuggestionDraftSummary name={suggestion.scout.displayName}>
                 {suggestion.scout.description && (
                     <span className="text-xs text-secondary">{suggestion.scout.description}</span>
                 )}
                 {modeHint && <span className="text-xs text-secondary">{modeHint}</span>}
-            </div>
+            </SuggestionDraftSummary>
 
             <div className="flex flex-col gap-1">
                 <LemonLabel>Runs</LemonLabel>
@@ -59,24 +52,17 @@ export function ScoutSuggestionCard(props: TurnSuggestionLogicProps): JSX.Elemen
 
             <SlackDestinationSection {...props} connectHint="Connect Slack to get each run posted to a channel." />
 
-            {createError && (
-                <LemonBanner type="error">
-                    Couldn't create the scout. Try again, or create it from the <Link to={urls.inbox()}>inbox</Link>.
-                </LemonBanner>
-            )}
-
-            <div className="flex justify-end">
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    onClick={createScout}
-                    loading={createdScoutLoading}
-                    disabledReason={createDisabledReason ?? undefined}
-                    data-attr="posthog-ai-turn-suggestion-create-scout"
-                >
-                    Create scout
-                </LemonButton>
-            </div>
+            <SuggestionActionRow
+                {...props}
+                label="Create scout"
+                dataAttr="posthog-ai-turn-suggestion-create-scout"
+                failedMessage={
+                    <>
+                        Couldn't create the scout. Try again, or create it from the <Link to={urls.inbox()}>inbox</Link>
+                        .
+                    </>
+                }
+            />
         </>
     )
 }

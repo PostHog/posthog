@@ -44,12 +44,23 @@ class EarlierTurn:
     answer_excerpt: str
 
 
+_ALERTABLE_INSIGHT_KINDS = frozenset({"TrendsQuery"})
+
+
 @frozen
 class SavedInsightRef:
     short_id: str
     insight_id: int | None
     name: str
     query_kind: str
+
+    @property
+    def alertable(self) -> bool:
+        """The alert card configures a series threshold, which only a trends insight carries."""
+        return self.query_kind in _ALERTABLE_INSIGHT_KINDS
+
+    def to_params(self) -> dict:
+        return {"insightShortId": self.short_id, "insightId": self.insight_id, "insightName": self.name}
 
 
 @frozen

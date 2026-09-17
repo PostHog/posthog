@@ -22,11 +22,7 @@ from products.posthog_ai.backend.turn_suggestions.classifier import (
     TurnVerdict,
     classify_turn,
 )
-from products.posthog_ai.backend.turn_suggestions.transcript import (
-    SavedInsightRef,
-    TurnTranscript,
-    build_turn_transcript,
-)
+from products.posthog_ai.backend.turn_suggestions.transcript import TurnTranscript, build_turn_transcript
 from products.signals.backend.facade.api import scout_creation_available
 from products.tasks.backend.facade.api import (
     parse_task_run_log_entries,
@@ -136,18 +132,14 @@ def _turn_has_substance(transcript: TurnTranscript) -> bool:
     return bool(transcript.tool_calls) and bool(transcript.assistant_text)
 
 
-# The alert card configures a series threshold, which only a trends insight carries.
-_ALERTABLE_INSIGHT_KINDS = frozenset({"TrendsQuery"})
-
-
 def _available_offers(task_run: TaskRun, transcript: TurnTranscript) -> frozenset[OfferKind]:
-    """The offers this turn and project can act on; the classifier picks among these only."""
-    offers = {OfferKind.NONE}
+    """The offers this turn and project can act on; the classifier picks among these or none."""
+    offers = set()
     if _turn_has_substance(transcript):
         offers.add(OfferKind.NOTEBOOK)
     if transcript.saved_insights:
         offers.add(OfferKind.SUBSCRIPTION)
-        if any(ref.query_kind in _ALERTABLE_INSIGHT_KINDS for ref in transcript.saved_insights):
+        if any(ref.alertable for ref in transcript.saved_insights):
             offers.add(OfferKind.ALERT)
     if transcript.error_issues:
         offers.add(OfferKind.ERROR_ALERT)
@@ -158,73 +150,18 @@ def _available_offers(task_run: TaskRun, transcript: TurnTranscript) -> frozense
     return frozenset(offers)
 
 
-def _insight_params(insight: SavedInsightRef) -> dict:
-    return {
-        "insightShortId": insight.short_id,
-        "insightId": insight.insight_id,
-        "insightName": insight.name,
-        "queryKind": insight.query_kind,
-    }
-
-
 def _suggestion_params(verdict: TurnVerdict, turn_index: int) -> dict | None:
-    if not verdict.offers:
+    if verdict.draft is None or not verdict.offers:
         return None
-    base = {
+    return {
         "turnIndex": turn_index,
         "kind": verdict.offer.value,
         "intent": verdict.intent.value,
         "confidence": verdict.confidence,
         "title": verdict.title,
         "description": verdict.description,
+        verdict.draft.WIRE_KEY: verdict.draft.to_params(),
     }
-    if verdict.scout is not None:
-        return {
-            **base,
-            "scout": {
-                "mode": verdict.scout.mode.value,
-                "displayName": verdict.scout.display_name,
-                "description": verdict.scout.description,
-                "body": verdict.scout.body,
-                "cadence": verdict.scout.cadence.value,
-            },
-        }
-    if verdict.notebook is not None:
-        incident = verdict.notebook.incident
-        return {
-            **base,
-            "notebook": {
-                "template": verdict.notebook.template.value,
-                "title": verdict.notebook.title,
-                "summary": verdict.notebook.summary,
-                "incident": (
-                    {"timeline": incident.timeline, "cause": incident.cause, "fix": incident.fix} if incident else None
-                ),
-            },
-        }
-    if verdict.alert is not None:
-        return {
-            **base,
-            "alert": {
-                **_insight_params(verdict.alert.insight),
-                "direction": verdict.alert.direction.value,
-                "changePercent": verdict.alert.change_percent,
-            },
-        }
-    if verdict.subscription is not None:
-        return {
-            **base,
-            "subscription": {
-                **_insight_params(verdict.subscription.insight),
-                "cadence": verdict.subscription.cadence.value,
-            },
-        }
-    if verdict.error_alert is not None:
-        return {
-            **base,
-            "errorAlert": {"issueId": verdict.error_alert.issue.issue_id, "issueName": verdict.error_alert.issue.name},
-        }
-    return None
 
 
 def _capture_classified(
@@ -279,7 +216,7 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
     if not transcript.assistant_text and not transcript.tool_calls:
         return _skipped("empty_turn")
     available = _available_offers(task_run, transcript)
-    if available == {OfferKind.NONE}:
+    if not available:
         return _skipped("no_offers_available")
     if not _claim_turn(task_run, turn_index):
         return _skipped("already_classified")
@@ -289,9 +226,8 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
         _capture_classified(task_run, None, offer=None, emitted=False, turn_index=turn_index)
         return TurnSuggestionOutcome(status="failed", reason="classifier_failed")
 
-    # The classifier saw the same list, but a pick outside it must never reach the thread.
-    params = _suggestion_params(verdict, turn_index) if verdict.offer in available else None
-    offer = str(params["kind"]) if params is not None else None
+    params = _suggestion_params(verdict, turn_index)
+    offer = verdict.offer.value if params is not None else None
     # Publishing also appends to the run's S3 log, a rewrite of the whole log; the offer budget is
     # what keeps that to a couple of times per conversation.
     emitted = params is not None and publish_task_run_stream_notification(
@@ -303,4 +239,4 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
     if not emitted:
         return TurnSuggestionOutcome(status="failed", reason="publish_failed")
     _record_offer(task_run)
-    return TurnSuggestionOutcome(status="emitted", reason=offer or "unknown")
+    return TurnSuggestionOutcome(status="emitted", reason=verdict.offer.value)

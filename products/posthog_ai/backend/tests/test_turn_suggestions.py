@@ -12,10 +12,10 @@ from products.posthog_ai.backend.turn_suggestions.classifier import (
     CLASSIFIER_MODEL,
     AlertDirection,
     AlertDraft,
+    Draft,
     ErrorAlertDraft,
     IncidentOutline,
     NotebookDraft,
-    NotebookTemplate,
     OfferKind,
     ScoutCadence,
     ScoutDraft,
@@ -40,7 +40,7 @@ from products.posthog_ai.backend.turn_suggestions.transcript import (
 from products.tasks.backend.models import Task
 
 SERVICE = "products.posthog_ai.backend.turn_suggestions.service"
-ALL_OFFERS = frozenset(OfferKind)
+ALL_OFFERS = frozenset(OfferKind) - {OfferKind.NONE}
 
 
 def _notification(method: str, params: dict) -> dict:
@@ -126,14 +126,14 @@ SAVED_INSIGHT = SavedInsightRef(short_id="abc123", insight_id=42, name="Signups"
 ERROR_ISSUE = ErrorIssueRef(issue_id="0199c0de-1111-7000-8000-0000000000aa", name="Checkout error")
 
 
-def _saved_insight_turn() -> list[dict]:
+def _saved_insight_turn(query_kind: str = "TrendsQuery") -> list[dict]:
     return [
         _user_message("How many signups did we get this week? Save it."),
         _exec_tool_call(
             "t1",
             'call insight-create {"name":"Signups"}',
             "completed",
-            {"id": 42, "short_id": "abc123", "name": "Signups", "query": {"kind": "TrendsQuery", "series": []}},
+            {"id": 42, "short_id": "abc123", "name": "Signups", "query": {"kind": query_kind, "series": []}},
         ),
         _agent_text("Saved. You had 412 signups this week."),
     ]
@@ -152,37 +152,32 @@ def _error_turn() -> list[dict]:
     ]
 
 
+_DRAFTS: dict[OfferKind, Draft] = {
+    OfferKind.SCOUT: ScoutDraft(
+        mode=ScoutMode.REPORT,
+        display_name="Weekly signups",
+        description="Counts signed_up events for the last 7 days.",
+        body="# Weekly signups\n\nQuery `signed_up` for the last 7 days...",
+        cadence=ScoutCadence.WEEKLY,
+    ),
+    OfferKind.NOTEBOOK: NotebookDraft(
+        title="Why signups dropped on Tuesday",
+        summary="A checkout error cut Tuesday's signups by a third.",
+        incident=IncidentOutline(timeline="- 14:10 release", cause="Checkout error.", fix="Rolled back."),
+    ),
+    OfferKind.ALERT: AlertDraft(insight=SAVED_INSIGHT, direction=AlertDirection.DECREASE, change_percent=20),
+    OfferKind.SUBSCRIPTION: SubscriptionDraft(insight=SAVED_INSIGHT, cadence=ScoutCadence.WEEKLY),
+    OfferKind.ERROR_ALERT: ErrorAlertDraft(issue=ERROR_ISSUE),
+}
+
+
 def _verdict(offer: OfferKind = OfferKind.SCOUT, intent: TurnIntent = TurnIntent.METRIC_STATE) -> TurnVerdict:
     return TurnVerdict(
         intent=intent,
-        offer=offer,
         confidence=0.92,
         title="Get this every week in Slack",
         description="A scout can rerun this count each week and post the result.",
-        scout=ScoutDraft(
-            mode=ScoutMode.REPORT,
-            display_name="Weekly signups",
-            description="Counts signed_up events for the last 7 days.",
-            body="# Weekly signups\n\nQuery `signed_up` for the last 7 days...",
-            cadence=ScoutCadence.WEEKLY,
-        )
-        if offer == OfferKind.SCOUT
-        else None,
-        notebook=NotebookDraft(
-            template=NotebookTemplate.INCIDENT,
-            title="Why signups dropped on Tuesday",
-            summary="A checkout error cut Tuesday's signups by a third.",
-            incident=IncidentOutline(timeline="- 14:10 release", cause="Checkout error.", fix="Rolled back."),
-        )
-        if offer == OfferKind.NOTEBOOK
-        else None,
-        alert=AlertDraft(insight=SAVED_INSIGHT, direction=AlertDirection.DECREASE, change_percent=20)
-        if offer == OfferKind.ALERT
-        else None,
-        subscription=SubscriptionDraft(insight=SAVED_INSIGHT, cadence=ScoutCadence.WEEKLY)
-        if offer == OfferKind.SUBSCRIPTION
-        else None,
-        error_alert=ErrorAlertDraft(issue=ERROR_ISSUE) if offer == OfferKind.ERROR_ALERT else None,
+        draft=_DRAFTS.get(offer),
     )
 
 
@@ -313,10 +308,10 @@ class TestBuildTurnTranscript(SimpleTestCase):
         prompt = render_turn_prompt(
             build_turn_transcript(entries),
             today=date(2026, 9, 16),
-            available=frozenset({OfferKind.NONE, OfferKind.SCOUT, OfferKind.NOTEBOOK}),
+            available=frozenset({OfferKind.SCOUT, OfferKind.NOTEBOOK}),
         )
 
-        assert "<available_offers>\n- none\n- scout" in prompt and "alert" not in prompt.split("</available_offers>")[0]
+        assert "<available_offers>\n- scout" in prompt and "alert" not in prompt.split("</available_offers>")[0]
         assert "- Q: How many signups did we get this week? Save it." in prompt
         assert "<user_question>\nBreak that down by country\n</user_question>" in prompt
         assert "posthog_untrusted_context" not in prompt
@@ -422,20 +417,32 @@ class TestClassifyTurn(SimpleTestCase):
             _saved_insight_turn(),
         )
 
-        assert verdict is not None and verdict.alert is not None
-        assert verdict.alert.insight == SAVED_INSIGHT
-        assert verdict.alert.change_percent == 20
+        assert verdict is not None and isinstance(verdict.draft, AlertDraft)
+        assert verdict.draft.insight == SAVED_INSIGHT
+        assert verdict.draft.change_percent == 20
 
     @parameterized.expand(
         [
-            ("offer_not_available", {**_REPLY, "offer": "scout"}, frozenset({OfferKind.NONE, OfferKind.NOTEBOOK})),
-            ("alert_on_unknown_insight", {**_REPLY, "offer": "alert", "alert_insight_short_id": "nope"}, ALL_OFFERS),
+            ("offer_not_available", {**_REPLY, "offer": "scout"}, frozenset({OfferKind.NOTEBOOK}), "TrendsQuery"),
+            (
+                "alert_on_unknown_insight",
+                {**_REPLY, "offer": "alert", "alert_insight_short_id": "nope"},
+                ALL_OFFERS,
+                "TrendsQuery",
+            ),
+            (
+                "alert_on_a_funnel",
+                {**_REPLY, "offer": "alert", "alert_insight_short_id": "abc123"},
+                ALL_OFFERS,
+                "FunnelsQuery",
+            ),
         ]
     )
-    def test_a_pick_the_project_cannot_act_on_becomes_none(self, _name: str, reply: dict, available):
-        verdict, _ = self._classify(reply, _saved_insight_turn(), available)
+    def test_a_pick_the_project_cannot_act_on_becomes_none(self, _name: str, reply: dict, available, query_kind: str):
+        verdict, _ = self._classify(reply, _saved_insight_turn(query_kind), available)
 
         assert verdict is not None
+        assert verdict.offer == OfferKind.NONE
         assert verdict.offers is False
 
     @parameterized.expand([("prose", "I cannot tell."), ("invalid_shape", json.dumps({"intent": "metric_state"}))])
@@ -538,7 +545,7 @@ class TestGenerateTurnSuggestion(BaseTest):
             "body": "# Weekly signups\n\nQuery `signed_up` for the last 7 days...",
             "cadence": "weekly",
         }
-        assert self._available() == frozenset({OfferKind.NONE, OfferKind.NOTEBOOK, OfferKind.SCOUT})
+        assert self._available() == frozenset({OfferKind.NOTEBOOK, OfferKind.SCOUT})
 
     @parameterized.expand(
         [
@@ -547,7 +554,6 @@ class TestGenerateTurnSuggestion(BaseTest):
                 OfferKind.NOTEBOOK,
                 "notebook",
                 {
-                    "template": "incident",
                     "title": "Why signups dropped on Tuesday",
                     "summary": "A checkout error cut Tuesday's signups by a third.",
                     "incident": {"timeline": "- 14:10 release", "cause": "Checkout error.", "fix": "Rolled back."},
@@ -561,7 +567,6 @@ class TestGenerateTurnSuggestion(BaseTest):
                     "insightShortId": "abc123",
                     "insightId": 42,
                     "insightName": "Signups",
-                    "queryKind": "TrendsQuery",
                     "direction": "decrease",
                     "changePercent": 20,
                 },
@@ -574,7 +579,6 @@ class TestGenerateTurnSuggestion(BaseTest):
                     "insightShortId": "abc123",
                     "insightId": 42,
                     "insightName": "Signups",
-                    "queryKind": "TrendsQuery",
                     "cadence": "weekly",
                 },
             ),
@@ -597,23 +601,19 @@ class TestGenerateTurnSuggestion(BaseTest):
         assert params["kind"] == offer.value
         assert params[key] == expected
 
-    def test_offers_follow_what_the_turn_and_project_make_possible(self):
-        self.mocks["stream"].return_value = _saved_insight_turn()
+    @parameterized.expand(
+        [
+            ("trends_insight", "TrendsQuery", {OfferKind.NOTEBOOK, OfferKind.SUBSCRIPTION, OfferKind.ALERT}),
+            ("funnel_insight", "FunnelsQuery", {OfferKind.NOTEBOOK, OfferKind.SUBSCRIPTION}),
+        ]
+    )
+    def test_offers_follow_what_the_turn_and_project_make_possible(self, _name: str, query_kind: str, expected: set):
+        self.mocks["stream"].return_value = _saved_insight_turn(query_kind)
         self.mocks["scouts"].return_value = False
 
         self._generate()
 
-        assert self._available() == frozenset(
-            {OfferKind.NONE, OfferKind.NOTEBOOK, OfferKind.SUBSCRIPTION, OfferKind.ALERT}
-        )
-
-    def test_a_pick_outside_the_available_offers_is_not_published(self):
-        self.mocks["scouts"].return_value = False
-
-        outcome = self._generate()
-
-        assert outcome.reason == "no_offer:metric_state"
-        self.mocks["publish"].assert_not_called()
+        assert self._available() == frozenset(expected)
 
     def test_a_turn_with_nothing_to_offer_never_reaches_the_classifier(self):
         self.mocks["scouts"].return_value = False
