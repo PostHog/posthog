@@ -442,10 +442,9 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         assert new not in results
 
     @parameterized.expand([("within_one_day", timedelta(hours=2)), ("beyond_one_day", timedelta(days=3))])
-    def test_overlapping_session_reports_full_stats_not_clipped(self, _name: str, session_age: timedelta) -> None:
-        # A session straddling the window start is included with its FULL stats: the event
-        # before the window counts too, so start/duration/tool count span the whole session
-        # rather than just the in-window slice.
+    def test_overlapping_session_reports_stats_within_scan_buffer(self, _name: str, session_age: timedelta) -> None:
+        # A session straddling the window start keeps calls before the window when they
+        # fall inside the bounded scan.
         session_id = str(uuid7())
         now = datetime.now(tz=UTC)
         self._seed_session(
@@ -468,6 +467,28 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         assert sorted(session.tools_used) == ["insight_get", "query_run"]
         # session_start is the pre-window event, not clipped up to the window start.
         assert session.session_start < now - session_age + timedelta(minutes=1)
+
+    def test_overlapping_session_excludes_events_beyond_scan_buffer(self) -> None:
+        session_id = str(uuid7())
+        now = datetime.now(tz=UTC)
+        self._seed_session(
+            session_id,
+            ["outside_scan", "inside_window"],
+            session_start=now - timedelta(days=8),
+            session_end=now - timedelta(minutes=10),
+        )
+
+        one_hour_ago = (now - timedelta(hours=1)).isoformat()
+        sessions = [
+            s
+            for s in api.list_mcp_sessions(self.team, limit=50, offset=0, date_from=one_hour_ago).results
+            if s.session_id == session_id
+        ]
+
+        assert len(sessions) == 1
+        assert sessions[0].tool_calls == 1
+        assert sessions[0].tools_used == ["inside_window"]
+        assert sessions[0].session_start > now - timedelta(hours=1)
 
     def test_session_entirely_outside_window_is_excluded(self) -> None:
         # A session with no event inside the window must not appear in the list.

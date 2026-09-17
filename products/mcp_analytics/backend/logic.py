@@ -100,6 +100,7 @@ DEFAULT_SESSION_SORT_COLUMN = "session_start"
 # default so both tabs show the same set of sessions out of the box. The UI always
 # sends an explicit range; this only covers param-less API/token callers.
 DEFAULT_SESSIONS_DATE_FROM = "-7d"
+SESSION_OVERLAP_BUFFER = timedelta(days=7)
 
 # Short TTL so concurrent dashboard tabs / auto-refreshes share one ClickHouse
 # aggregation instead of each re-running it — long enough to absorb a burst,
@@ -113,15 +114,15 @@ SESSIONS_CACHE_TTL_SECONDS = 30
 # value placeholders.
 #
 # Session-level windowing: find sessions with a matching event inside the selected
-# window, then aggregate their full history. The session-id filter can use the
-# events skip index; a bounded outer scan would clip long sessions and their detail.
+# window, then aggregate within a bounded overlap. The timestamp bound lets the
+# events sort key prune the scan. Longer sessions need a session-indexed source
+# for complete stats without reading the team's full event history.
 #
 # The shared filters are a per-event `matches` flag rather than a WHERE clause, so they
 # narrow *what the session did* (tool_call_count, tools_used, and which client and user
-# the row names) without moving *when it ran*. session_start has to stay the session's
-# real first event: it bounds the detail scan and the intent generation, both of which
-# describe the whole session and must not shrink to the first matching call. A session
-# with no matching event at all is dropped by the HAVING.
+# the row names) without moving *when it ran* within the scan. session_start must stay
+# the first scanned event, not the first matching call: it bounds the detail scan and
+# intent generation. A session with no matching event is dropped by the HAVING.
 #
 # NB: the session id reads from the `$session_id` field, NOT `properties.$session_id`.
 # `$session_id` is a materialised events column; the `properties.` accessor renders it
@@ -148,6 +149,8 @@ FROM (
         {shared_filters} AS matches
     FROM events
     WHERE event = {event}
+        AND timestamp >= {scan_from}
+        AND timestamp <= {scan_to}
         -- $session_id is a materialised String column — '' (not NULL) for sessionless
         -- events — so a bare `!= ''` drops them without a coalesce.
         AND $session_id != ''
@@ -228,9 +231,8 @@ def list_mcp_sessions(
     """List a page of MCP sessions for a team, aggregated on the fly from $mcp_tool_call events.
 
     One row per $session_id whose session overlaps the selected window, grouped in ClickHouse and
-    scoped to the team so the events sort key prunes the scan. Stats are full-session: a session
-    that straddles the window boundary reports its true start/end/duration/tool count, not just the
-    in-window slice (see ``_MCP_SESSIONS_SQL`` for the ``countIf`` mechanism).
+    scoped to the team. Stats include calls up to ``SESSION_OVERLAP_BUFFER`` outside the window;
+    longer sessions are clipped so the events sort key can prune the scan.
     Over-fetches one row to report ``has_next`` (replay-style) without a separate count query.
     Results are cached briefly so concurrent dashboard refreshes share a single aggregation.
 
@@ -244,8 +246,8 @@ def list_mcp_sessions(
 
     ``properties`` and ``filter_test_accounts`` are the tabs' shared filters. A session with no
     matching event is dropped; a session that keeps some reports how many of *its* calls matched
-    (``tool_call_count``, ``tools_used``) while ``session_start`` / ``session_end`` still describe
-    when the whole session ran, because those bound the detail and intent scans.
+    (``tool_call_count``, ``tools_used``) while ``session_start`` / ``session_end`` describe the
+    scanned session span, because those bound the detail and intent scans.
 
     ``user`` is the caller. It carries through to ``execute_hogql_query`` so property-level access
     control is evaluated for that member, not with the project defaults, because ``properties`` is
@@ -325,6 +327,8 @@ def _query_mcp_sessions(
     # Over-fetch one row to learn whether a next page exists, without a count query.
     placeholders: dict[str, ast.Expr] = {
         "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
+        "scan_from": ast.Constant(value=window_from - SESSION_OVERLAP_BUFFER),
+        "scan_to": ast.Constant(value=window_to + SESSION_OVERLAP_BUFFER),
         "window_from": ast.Constant(value=window_from),
         "window_to": ast.Constant(value=window_to),
         "limit": ast.Constant(value=limit + 1),

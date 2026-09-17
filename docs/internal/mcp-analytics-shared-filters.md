@@ -4,7 +4,7 @@ Property filters and the test-account setting carry from the dashboard into Tool
 Report links preserve those filters in the URL.
 MCP analytics query runners accept event, person, and session property filters. They reject executable HogQL, cohort, and warehouse filters. Project-configured test-account filters still apply when enabled.
 The sessions and Activity API endpoints accept event, person, and session property filters. They reject executable HogQL, cohort, and warehouse filters because those endpoints require only MCP analytics read access.
-Sessions with a matching call inside the selected date range appear with their complete start, end, duration, and call count, even when the session extends beyond that range.
+Sessions with a matching call inside the selected date range include calls up to seven days before and after that range in their start, end, duration, and call count. Longer sessions can be clipped because the events scan stays bounded.
 
 Changing a shared filter closes any open failure details and reloads the report.
 Select a failure again to see occurrences for the new filters.

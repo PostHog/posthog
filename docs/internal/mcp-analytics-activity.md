@@ -26,7 +26,7 @@ Other DataTable consumers opt into this behavior through
 nouns through `QueryContext.dataTableNouns`.
 
 Session filters select matching tool calls without moving the session bounds within the query's scan range.
-The scan includes one extra day on each side of the selected date range.
+The scan includes seven extra days on each side of the selected date range.
 Calls outside that range are excluded, so a session that extends beyond it can have truncated bounds and totals.
 If session details fail to load, a retry action replaces the loading indicator and calls from previous filters stay hidden.
 Tool-neighbor reports keep the full sequence of calls when finding the calls before and after a match.
