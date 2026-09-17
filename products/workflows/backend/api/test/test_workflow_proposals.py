@@ -105,11 +105,8 @@ class TestWorkflowProposals(APIBaseTest):
         assert response.json()["status"] == "approved"
 
         flow = HogFlow.objects.get(id=flow_id)
-        # The live config is untouched: an approval can only ever stage.
         assert flow.actions[1]["config"]["inputs"]["url"]["value"] == "https://example.com"
         assert flow.version == 1
-        # The staged draft is a whole-content snapshot (live as the base, the proposal on top), which
-        # is what publish's plain copy needs — a partial draft would drop the rest of the workflow.
         draft = flow.draft
         assert draft is not None
         assert set(draft.keys()) == set(DRAFT_CONTENT_FIELDS)
@@ -143,8 +140,6 @@ class TestWorkflowProposals(APIBaseTest):
 
         self._publish(flow_id)
 
-        # The second approval replaced the first one's content in the draft, so only the second went
-        # live. Recording both as applied would give the first a measured outcome it never earned.
         assert WorkflowProposal.objects.for_team(self.team.id).get(id=second["id"]).status == "applied"
         replaced = WorkflowProposal.objects.for_team(self.team.id).get(id=first["id"])
         assert replaced.status == "suggested"
@@ -165,7 +160,6 @@ class TestWorkflowProposals(APIBaseTest):
         assert stored.status == "suggested"
         assert stored.resolved_at is None
 
-        # An unrelated later publish must not adopt it: its change was never in that draft.
         self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
             {"operations": [{"op": "update_action", "id": "action_1", "patch": {"name": "renamed"}}]},
@@ -176,8 +170,6 @@ class TestWorkflowProposals(APIBaseTest):
 
     @parameterized.expand([("actions",), ("variables",)])
     def test_a_suggestion_is_refused_once_someone_edits_what_it_changes(self, _mock_flag, field: str):
-        # `actions` collides here because the publish below renames the same step. `variables` reads
-        # like a single setting but is a whole list, so any publish since is a collision.
         flow_id = self._create_active_flow()
         content = (
             {"actions": [_webhook_action(url="https://proposed.example.com")]}
@@ -203,8 +195,6 @@ class TestWorkflowProposals(APIBaseTest):
     def test_a_suggestion_older_than_the_live_workflow_is_refused(self, _mock_flag):
         flow_id = self._create_active_flow()
         proposal = self._propose(flow_id)
-        # Someone publishes a step change after the suggestion was written. Its action list is now the
-        # older shape, so staging it would drop that edit.
         self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
             {"operations": [{"op": "update_action", "id": "action_1", "patch": {"name": "renamed"}}]},
@@ -292,9 +282,6 @@ class TestWorkflowProposals(APIBaseTest):
         ]
     )
     def test_a_rate_the_panel_cannot_read_back_is_refused(self, _mock_flag, _name: str, evidence: dict, expected: str):
-        # The loop's two worst failures are declaring a win off twenty sends and lifting one metric
-        # while harming another. Both are refused at the seam rather than left to a producer's prompt.
-        # A number with no unit is the third: the panel would read a count of 1 as 100%.
         flow_id = self._create_active_flow()
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
@@ -324,8 +311,6 @@ class TestWorkflowProposals(APIBaseTest):
         assert proposal["evidence"]["guardrails"][0]["metric"] == "complaint rate"
 
     def test_the_outcome_reads_the_step_the_suggestion_named(self, _mock_flag):
-        # A workflow with several email steps would otherwise measure a change to one of them against
-        # the sends of all of them, diluting a real move and attributing an unrelated one.
         flow_id = self._create_active_flow()
         proposal = self._propose(flow_id, step_id="action_1")
         self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
@@ -351,14 +336,10 @@ class TestWorkflowProposals(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
         body = response.json()
-        # Before is the version proposed against, after is the version it went live as, so a reader
-        # cannot accidentally compare a version against itself.
         assert body["before"]["version"] == 1
         assert body["after"]["version"] == 2
         assert body["after"]["target"]["n"] == 0
         assert body["after"]["target"]["below_minimum_sample"] is True
-        # Opens and clicks move for different reasons — a subject line gets a message opened, the body
-        # gets it clicked — so a suggestion that lifts one and flattens the other has to be visible.
         assert body["after"]["click_through"]["metric"] == "click rate"
         assert body["after"]["click_through"]["n"] == body["after"]["target"]["n"]
         assert [guardrail["metric"] for guardrail in body["after"]["guardrails"]] == [
@@ -368,9 +349,6 @@ class TestWorkflowProposals(APIBaseTest):
         assert body["unavailable_guardrails"] == ["unsubscribe rate"]
 
     def test_an_api_key_can_read_the_outcome_of_what_it_proposed(self, _mock_flag):
-        # The producer is an agent authenticating with a personal API key, so every endpoint it needs
-        # has to declare a scope. An action missing from the scope lists is rejected before it runs,
-        # whatever scopes the key holds.
         flow_id = self._create_active_flow()
         proposal = self._propose(flow_id)
         self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
@@ -403,7 +381,6 @@ class TestWorkflowProposals(APIBaseTest):
         assert approve.status_code == 200, approve.json()
         draft = HogFlow.objects.get(id=flow_id).draft
         assert draft is not None
-        # The trigger was never in the payload, so it is still in the staged draft.
         assert [action["id"] for action in draft["actions"]] == ["trigger_node", "action_1"]
         assert draft["actions"][1]["config"]["inputs"]["url"]["value"] == "https://proposed.example.com"
 
@@ -413,7 +390,6 @@ class TestWorkflowProposals(APIBaseTest):
             flow_id,
             content={"actions": [_webhook_action(url="https://proposed.example.com")]},
         )
-        # Somebody renames the trigger and publishes while the suggestion sits in the queue.
         self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
             {"operations": [{"op": "update_action", "id": "trigger_node", "patch": {"name": "renamed by a human"}}]},
@@ -428,7 +404,6 @@ class TestWorkflowProposals(APIBaseTest):
         assert approve.status_code == 200, approve.json()
         draft = HogFlow.objects.get(id=flow_id).draft
         assert draft is not None
-        # The rename survives: the suggestion never carried the trigger, so there was nothing to revert it to.
         assert draft["actions"][0]["name"] == "renamed by a human"
         assert draft["actions"][1]["config"]["inputs"]["url"]["value"] == "https://proposed.example.com"
 
@@ -451,7 +426,6 @@ class TestWorkflowProposals(APIBaseTest):
         )
 
         assert approve.status_code == 409, approve.json()
-        # The step is gone from the live workflow, so it has no name left to show.
         assert "action_1" in approve.json()["detail"]
 
     def test_a_step_needs_the_id_of_the_step_it_changes(self, _mock_flag):
@@ -488,7 +462,6 @@ class TestWorkflowProposals(APIBaseTest):
     def test_approving_over_a_staged_draft_needs_the_draft_stamp_it_saw(self, _mock_flag):
         flow_id = self._create_active_flow()
         proposal = self._propose(flow_id)
-        # A draft staged after the confirmation dialog opened must not be silently overwritten.
         staged = self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
             {"operations": [{"op": "update_action", "id": "action_1", "patch": {"name": "renamed"}}]},
@@ -503,8 +476,6 @@ class TestWorkflowProposals(APIBaseTest):
         assert WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"]).status == "suggested"
 
     def test_a_whole_list_proposal_must_say_which_version_it_read(self, _mock_flag):
-        # Without it the row records the version at create time, so a producer that took its time
-        # looks current and the approve-time staleness guard never fires.
         flow_id = self._create_active_flow()
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
@@ -530,8 +501,6 @@ class TestWorkflowProposals(APIBaseTest):
     def test_content_the_publish_path_cannot_carry_is_refused(
         self, _mock_flag, _name: str, content: dict, expected: str
     ):
-        # Each of these used to reach the graph validator or the secret stripper, which read every
-        # item as a mapping and answered a bad request with a 500.
         flow_id = self._create_active_flow()
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
@@ -547,8 +516,6 @@ class TestWorkflowProposals(APIBaseTest):
         assert expected in str(response.json())
 
     def test_editing_the_draft_returns_the_approved_suggestion_to_the_queue(self, _mock_flag):
-        # Approved means "this suggestion is what sits in the draft". An edit over that draft can
-        # undo the change, and publish reads approved as shipped, so the edit hands the decision back.
         flow_id = self._create_active_flow()
         proposal = self._propose(flow_id)
         approve = self.client.post(
@@ -577,9 +544,6 @@ class TestWorkflowProposals(APIBaseTest):
         assert applied.applied_version is None
 
     def test_applied_suggestions_are_listed_by_the_version_that_carried_them(self, _mock_flag):
-        # Apply order follows the version that shipped a suggestion, not when it was written: a
-        # suggestion approved after later-written ones ships last. The panel reads only the newest
-        # few applied, so creation order would hide the change that shipped most recently.
         flow_id = self._create_active_flow()
         flow = HogFlow.objects.get(id=flow_id)
         written_first = WorkflowProposal(

@@ -28,10 +28,6 @@ class TestAppMetrics2Timezone(ClickhouseTestMixin, BaseTest):
         ]
     )
     def test_totals_optional_filters_are_bound(self, _name: str, filters: dict):
-        # Each of these renders a placeholder into the SQL, so an unbound one raises KeyError before
-        # the query runs — a 500 on `/metrics/totals?name=…` for every hog function and hog flow.
-        # Its own app_source_id: ClickHouse rows outlive a test, so sharing one would land these rows
-        # inside the window the timezone cases below count.
         self._seed(datetime(2026, 6, 8, 12, 0, 0, tzinfo=UTC), app_source_id="fn-filters")
 
         result = fetch_app_metric_totals(
