@@ -6,6 +6,7 @@ A feature request can link to one GitHub issue through a GitHub integration conn
 
 - Linking and resuming sync fetch the current issue through the selected GitHub App integration.
 - The integration must be active, belong to the project, still reference the saved installation, and be visible to the person linking or resuming sync.
+- Feature request responses and history include GitHub link metadata only when the person can view the integration. Other history changes remain visible.
 - GitHub issue URLs use `https://github.com/<owner>/<repo>/issues/<number>`. Pull request URLs are rejected. Comment fragments do not affect the saved link.
 - Closing an issue with reason `completed` marks the request Completed. Legacy closures without a reason also map to Completed.
 - Closing an issue with reason `not_planned` marks the request Won't fix. Unsupported closure reasons do not change the request.

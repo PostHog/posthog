@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Protocol, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.db import IntegrityError, transaction
 from django.db.models import (
     Case,
@@ -125,9 +125,24 @@ def _get_feature_request_can_update(feature_request: FeatureRequest, user_access
     )
 
 
-def _to_github_link_view(link: FeatureRequestGitHubLink | None) -> contracts.FeatureRequestGitHubLinkView | None:
+def _can_view_github_link(link: FeatureRequestGitHubLink | None, user_access_control: "UserAccessControl") -> bool:
     if link is None:
+        return False
+    try:
+        integration = link.integration
+    except ObjectDoesNotExist:
+        return False
+    return integration is not None and user_access_control.check_access_level_for_object(
+        integration, required_level="viewer"
+    )
+
+
+def _to_github_link_view(
+    link: FeatureRequestGitHubLink | None, *, user_access_control: "UserAccessControl"
+) -> contracts.FeatureRequestGitHubLinkView | None:
+    if not _can_view_github_link(link, user_access_control):
         return None
+    assert link is not None
     return contracts.FeatureRequestGitHubLinkView(
         id=link.id,
         issue_url=f"https://github.com/{link.repository}/issues/{link.issue_number}",
@@ -172,7 +187,9 @@ def _to_feature_request_view(
         account_links=account_links,
         evidence_count=sum(link.evidence_count for link in account_links),
         product_areas=[_to_product_area_view(area) for area in feature_request.product_areas.all()],
-        github_link=_to_github_link_view(getattr(feature_request, "github_link", None)),
+        github_link=_to_github_link_view(
+            getattr(feature_request, "github_link", None), user_access_control=user_access_control
+        ),
         created_by=feature_request.created_by_id,
         updated_by=feature_request.updated_by_id,
         created_at=feature_request.created_at,
@@ -209,7 +226,7 @@ def _feature_request_queryset(
     queryset = (
         FeatureRequest.objects.for_team(team_id)
         .filter(account_links__account_id__in=accessible_account_ids, account_links__unlinked_at__isnull=True)
-        .select_related("github_link")
+        .select_related("github_link__integration")
         .prefetch_related("product_areas", Prefetch("account_links", queryset=visible_links))
     )
     return queryset.prefetch_related(
@@ -1338,6 +1355,13 @@ def list_feature_request_history(
 ) -> list[contracts.FeatureRequestHistoryView] | None:
     if not _feature_request_queryset(team_id, user_access_control).filter(id=feature_request_id).exists():
         return None
+    github_link = (
+        FeatureRequestGitHubLink.objects.for_team(team_id)
+        .select_related("integration")
+        .filter(feature_request_id=feature_request_id)
+        .first()
+    )
+    can_view_github_link = _can_view_github_link(github_link, user_access_control)
     history = list(
         FeatureRequestHistory.objects.for_team(team_id)
         .filter(feature_request_id=feature_request_id)
@@ -1366,7 +1390,11 @@ def list_feature_request_history(
     actor_names = {actor.id: actor.get_full_name().strip() or actor.email for actor in actors}
     visible_history: list[contracts.FeatureRequestHistoryView] = []
     for entry in history:
-        visible_changes = _redact_inaccessible_history_accounts(entry.changes, accessible_account_ids)
+        visible_changes = [
+            change
+            for change in _redact_inaccessible_history_accounts(entry.changes, accessible_account_ids)
+            if change["field"] != "github_link" or can_view_github_link
+        ]
         if not visible_changes:
             continue
         visible_history.append(
