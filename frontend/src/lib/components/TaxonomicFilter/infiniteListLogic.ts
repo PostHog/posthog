@@ -590,7 +590,7 @@ export interface infiniteListLogicMeta {
         ) => boolean
         allowNonCapturedEvents: (arg: any) => boolean
         isLocalDataLoading: (arg: any) => boolean
-        isLoading: (remoteItemsLoading: boolean) => boolean
+        isLoading: (remoteItemsLoading: boolean, isLocalDataLoading: boolean) => boolean
         group: (
             listGroupType: TaxonomicFilterGroupType,
             taxonomicGroups: TaxonomicFilterGroup[]
@@ -1259,7 +1259,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             ],
             (isLocalDataLoading: boolean) => isLocalDataLoading,
         ],
-        isLoading: [(s) => [s.remoteItemsLoading], (remoteItemsLoading: boolean) => remoteItemsLoading],
+        isLoading: [
+            (s) => [s.remoteItemsLoading, s.isLocalDataLoading],
+            (remoteItemsLoading: boolean, isLocalDataLoading: boolean) => remoteItemsLoading || isLocalDataLoading,
+        ],
         group: [
             (s) => [s.listGroupType, s.taxonomicGroups],
             (
