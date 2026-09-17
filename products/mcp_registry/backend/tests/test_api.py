@@ -375,6 +375,55 @@ class TestMCPRegistryAPI(APIBaseTest):
 
         assert [tool["name"] for tool in detail["tools"]] == ["probed_tool"]
 
+    def test_co_measurer_does_not_read_the_other_projects_tool_names(self) -> None:
+        # A tool row records no team, so when two projects measure one server there is no
+        # way to tell whose traffic named a tool. Having a row of your own is therefore
+        # not licence to read the rest.
+        servers = self._seed_index()
+        for name, source in (("probed_tool", "tools_list"), ("learned_from_traffic", "analytics")):
+            MCPRegistryTool.objects.create(
+                server=servers["measured"],
+                name=name,
+                description="",
+                source=source,
+                last_seen_at=timezone.now(),
+            )
+        self._seed_another_projects_stats(servers["measured"])
+
+        detail = self.client.get(self._url(f"{servers['measured'].id}/")).json()
+
+        # The caller keeps its own measured figures, but not the shared tool names.
+        assert [row["calls"] for row in detail["measured_stats"]] == [50_000]
+        assert [tool["name"] for tool in detail["tools"]] == ["probed_tool"]
+
+    def test_analytics_tools_stay_hidden_on_a_server_with_no_measurements(self) -> None:
+        # On a server nobody has measured, both row counts are zero, which used to read as
+        # "sees every row" and hand out the analytics-derived tool names. Those names
+        # outlive the rows that produced them: re-keying a standalone row onto its owning
+        # project leaves the old server holding tools and no stats.
+        servers = self._seed_index()
+        MCPRegistryTool.objects.create(
+            server=servers["unmeasured"],
+            name="learned_from_traffic",
+            description="",
+            source="analytics",
+            last_seen_at=timezone.now(),
+        )
+
+        detail = self.client.get(self._url(f"{servers['unmeasured'].id}/")).json()
+
+        assert [tool["name"] for tool in detail["tools"]] == ["query_analytics"]
+
+        # Staff keep the fleet view, which is the point of that tier.
+        self.user.is_staff = True
+        self.user.save()
+        staff_detail = self.client.get(self._url(f"{servers['unmeasured'].id}/")).json()
+
+        assert sorted(tool["name"] for tool in staff_detail["tools"]) == [
+            "learned_from_traffic",
+            "query_analytics",
+        ]
+
     def test_measured_only_rows_from_another_project_stay_hidden(self) -> None:
         # A row absent from the official registry exists only because another project's
         # events named a server we could not match, and that name is unvalidated text
