@@ -1,5 +1,7 @@
 import dataclasses
 
+from django.db.models import Q
+
 from temporalio import activity
 
 from posthog.sync import database_sync_to_async_pool
@@ -49,7 +51,9 @@ def _get_dag_structure_async(team_id: int, dag_id: str) -> DAG:
     executable_nodes = nodes.filter(type__in=[NodeType.VIEW, NodeType.MAT_VIEW, NodeType.ENDPOINT]).exclude(
         saved_query__deleted=True
     )
-    ephemeral_nodes = executable_nodes.filter(type=NodeType.VIEW)
+    ephemeral_nodes = executable_nodes.filter(
+        Q(type=NodeType.VIEW) | Q(type=NodeType.ENDPOINT, saved_query__is_materialized=False)
+    )
     edges = (
         Edge.objects.prefetch_related("source", "target")
         .filter(team_id=team_id, dag_id=dag_id)

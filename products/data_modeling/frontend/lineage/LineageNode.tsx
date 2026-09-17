@@ -39,6 +39,7 @@ export type LineageNodeShape = Pick<
     | 'downstream_count'
     | 'user_tag'
     | 'suspended'
+    | 'endpoint'
 >
 
 export interface LineageNodeState {
@@ -171,8 +172,10 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     const { node, variant, direction, state, callbacks } = data
     const [isHovered, setIsHovered] = useState(false)
 
-    const showMetadata = node.type === 'matview' || node.type === 'endpoint'
-    const showRunArrows = variant === 'canvas' && isHovered && !state.isRunning
+    const displayName = node.endpoint ? `${node.endpoint.name} v${node.endpoint.version}` : node.name
+    const isInlineEndpoint = node.type === 'endpoint' && node.endpoint?.is_materialized === false
+    const showMetadata = node.type === 'matview' || (node.type === 'endpoint' && !isInlineEndpoint)
+    const showRunArrows = variant === 'canvas' && isHovered && !state.isRunning && !isInlineEndpoint
     const { color } = NODE_TYPE_TAG_SETTINGS[node.type]
 
     const handleMouseEnter = useCallback(() => {
@@ -190,7 +193,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     }
 
     return (
-        <Tooltip title={node.name} delayMs={500}>
+        <Tooltip title={displayName} delayMs={500}>
             <div
                 className={clsx(
                     'relative rounded-lg border bg-bg-light cursor-pointer min-w-[180px]',
@@ -250,7 +253,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                         )}
                     </div>
                     <div className="flex items-center justify-between gap-2 py-2">
-                        <span className="font-medium text-sm truncate">{node.name}</span>
+                        <span className="font-medium text-sm truncate">{displayName}</span>
                         {callbacks.onEdit && (
                             <LemonButton
                                 size="xxsmall"
@@ -259,7 +262,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                                 onClick={stop(callbacks.onEdit)}
                             />
                         )}
-                        {callbacks.onMaterialize && (node.type === 'matview' || node.type === 'endpoint') && (
+                        {callbacks.onMaterialize && showMetadata && (
                             <Tooltip title={state.isRunning ? null : 'Run this node'}>
                                 <LemonButton
                                     size="xsmall"
@@ -272,6 +275,13 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                         )}
                     </div>
                 </div>
+                {isInlineEndpoint && (
+                    <div className="bg-primary dark:bg-primary/60 rounded-b-lg px-2.5 py-1.5 text-[10px] text-secondary">
+                        <Tooltip title="Runs its query when called. Results are not stored on a refresh schedule.">
+                            Inline
+                        </Tooltip>
+                    </div>
+                )}
                 {showMetadata && <MetadataBar node={node} />}
             </div>
         </Tooltip>

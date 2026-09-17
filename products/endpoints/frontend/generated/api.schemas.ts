@@ -91,7 +91,7 @@ export interface EndpointMaterializationApi {
     /** Last materialization error message, if any. */
     error?: string
     /**
-     * UUID of the underlying saved query backing this materialization. Only populated when the version is materialized.
+     * UUID of the model backing this version, including versions that execute inline.
      * @nullable
      */
     saved_query_id?: string | null
@@ -154,6 +154,16 @@ export interface EndpointResponseApi {
     is_materialized: boolean
     /** Latest version number. */
     current_version: number
+    /**
+     * Data model node for this endpoint version, whether materialized or inline.
+     * @nullable
+     */
+    node_id: string | null
+    /**
+     * Why lineage and data quality are unavailable for this version, or null when available.
+     * @nullable
+     */
+    model_unavailable_reason: string | null
     /**
      * UUID of the current EndpointVersion row.
      * @nullable
@@ -311,6 +321,16 @@ export interface EndpointVersionResponseApi {
     is_materialized: boolean
     /** Latest version number. */
     current_version: number
+    /**
+     * Data model node for this endpoint version, whether materialized or inline.
+     * @nullable
+     */
+    node_id: string | null
+    /**
+     * Why lineage and data quality are unavailable for this version, or null when available.
+     * @nullable
+     */
+    model_unavailable_reason: string | null
     /**
      * UUID of the current EndpointVersion row.
      * @nullable

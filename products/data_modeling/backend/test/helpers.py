@@ -17,7 +17,10 @@ def table_node(team, dag: DAG, name: str, properties: dict) -> Node:
 
 def saved_query_node(team, dag: DAG, name: str, node_type: str) -> Node:
     saved_query = DataWarehouseSavedQuery.objects.create(
-        name=name, team=team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        name=name,
+        team=team,
+        query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        is_materialized=node_type in {NodeType.MAT_VIEW, NodeType.ENDPOINT},
     )
     return Node.objects.create(team=team, dag=dag, saved_query=saved_query, type=node_type)
 

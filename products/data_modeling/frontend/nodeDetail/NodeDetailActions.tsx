@@ -8,7 +8,6 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType, DataModelingNode, DataWarehouseSavedQuery } from '~/types'
 
-import { nodeEndpointUrl } from 'products/data_modeling/frontend/endpointModelName'
 import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
 
 export function NodeDetailActions({
@@ -21,10 +20,15 @@ export function NodeDetailActions({
     const { hasMaterializationChanges, savingMaterialization } = useValues(
         materializationJobsLogic({ viewId: savedQuery.id, kind: node.type === 'endpoint' ? 'endpoint' : 'view' })
     )
+    const endpoint = node.endpoint ?? savedQuery.endpoint
     return (
         <>
             {node.type === 'endpoint' ? (
-                <LemonButton type="secondary" size="small" to={nodeEndpointUrl(node)}>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    to={endpoint ? urls.endpoint(endpoint.name, endpoint.version) : urls.endpoints()}
+                >
                     Open endpoint
                 </LemonButton>
             ) : (

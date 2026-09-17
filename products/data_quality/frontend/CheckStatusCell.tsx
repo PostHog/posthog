@@ -9,8 +9,16 @@ import type { DataQualityCheckApi } from './generated/api.schemas'
 export function CheckStatusCell({
     check,
 }: {
-    check: Pick<DataQualityCheckApi, 'last_status' | 'last_succeeded_at' | 'failing_since'>
+    check: Pick<DataQualityCheckApi, 'last_status' | 'last_succeeded_at' | 'failing_since'> &
+        Partial<Pick<DataQualityCheckApi, 'subject_status'>>
 }): JSX.Element {
+    if (check.subject_status === 'needs_review') {
+        return (
+            <Tooltip title="This check was copied from an earlier version. Edit it to match this version's columns before running it.">
+                <LemonTag type="warning">Needs review</LemonTag>
+            </Tooltip>
+        )
+    }
     const failingFor = failingForLabel(check)
     if (!check.last_status) {
         return <LemonTag type="muted">Not run yet</LemonTag>

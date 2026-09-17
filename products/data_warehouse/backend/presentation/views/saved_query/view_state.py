@@ -25,11 +25,31 @@ from . import sync_cadence, view_description
 STATUSES_STILL_WRITTEN = frozenset({DataWarehouseSavedQuery.Status.MODIFIED, DataWarehouseSavedQuery.Status.CANCELLED})
 
 
+class SavedQueryEndpointSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Name of the endpoint that publishes this model.")
+    version = serializers.IntegerField(help_text="Endpoint version represented by this model.")
+    is_current = serializers.BooleanField(help_text="Whether this is the endpoint's current version.")
+
+
 class DataWarehouseSavedQuerySerializerMixin:
     """Shared methods for DataWarehouseSavedQuery serializers.
 
     This mixin is intended to be used with serializers.ModelSerializer subclasses.
     """
+
+    @extend_schema_field(SavedQueryEndpointSerializer(allow_null=True))
+    def get_endpoint(self, view: DataWarehouseSavedQuery) -> dict[str, str | int | bool] | None:
+        if view.origin != DataWarehouseSavedQuery.Origin.ENDPOINT:
+            return None
+        name = getattr(view, "_endpoint_name", None)
+        version = getattr(view, "_endpoint_version", None)
+        if not isinstance(name, str) or not isinstance(version, int):
+            return None
+        return {
+            "name": name,
+            "version": version,
+            "is_current": version == getattr(view, "_endpoint_current_version", None),
+        }
 
     def _serving_run(self, view: DataWarehouseSavedQuery) -> DataModelingJob | None:
         """The newest materialization run that serves this view, or None if it has never run.
@@ -140,6 +160,7 @@ class DataWarehouseSavedQueryMinimalSerializer(
     status = serializers.SerializerMethodField(read_only=True)
     latest_error = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
+    endpoint = serializers.SerializerMethodField(help_text="Endpoint publication represented by this model, if any.")
     folder_id = serializers.UUIDField(source="folder.id", read_only=True, allow_null=True)
     folder_name = serializers.CharField(source="folder.name", read_only=True, allow_null=True)
     is_incremental = serializers.SerializerMethodField(
@@ -162,6 +183,7 @@ class DataWarehouseSavedQueryMinimalSerializer(
             "status",
             "last_run_at",
             "managed_viewset_kind",
+            "endpoint",
             "folder_id",
             "folder_name",
             "latest_error",

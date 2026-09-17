@@ -104,6 +104,7 @@ class DataWarehouseSavedQuerySerializer(
     status = serializers.SerializerMethodField(read_only=True)
     latest_error = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
+    endpoint = serializers.SerializerMethodField(help_text="Endpoint publication represented by this model, if any.")
     suspended = serializers.SerializerMethodField(read_only=True)
     folder_id = TeamScopedPrimaryKeyRelatedField(
         source="folder",
@@ -169,6 +170,7 @@ class DataWarehouseSavedQuerySerializer(
             "status",
             "last_run_at",
             "managed_viewset_kind",
+            "endpoint",
             "folder_id",
             "folder_name",
             "latest_error",
@@ -193,6 +195,7 @@ class DataWarehouseSavedQuerySerializer(
             "status",
             "last_run_at",
             "managed_viewset_kind",
+            "endpoint",
             "sync_frequency_bounds",
             "folder_name",
             "latest_error",
@@ -347,6 +350,17 @@ class DataWarehouseSavedQuerySerializer(
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
+        if instance.origin == DataWarehouseSavedQuery.Origin.ENDPOINT and {
+            "name",
+            "query",
+            "deleted",
+            "is_materialized",
+            "is_test",
+            "expires_at",
+        }.intersection(validated_data):
+            raise serializers.ValidationError(
+                "This model is an endpoint version. Edit the query on its endpoint page to create a new version."
+            )
         dag_id = validated_data.pop("dag_id", None)
         has_description = "description" in validated_data
         description = validated_data.pop("description", None)

@@ -23,12 +23,15 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
+from posthog.permissions import is_service_auth
 from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
 from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
+from products.endpoints.backend.facade.api import denied_endpoint_saved_query_ids
+from products.endpoints.backend.facade.models import EndpointVersion
 from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
 from . import editing, incremental_config, lifecycle, lineage, sync_cadence, view_state
@@ -143,14 +146,23 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             .order_by(self.ordering)
         )
 
-        # Hide endpoint-origin saved queries from the list view — they belong to the endpoints UI.
-        # Allow retrieve so the Node detail page can fetch them by ID.
         if self.action == "list":
             # The list serializer reads none of these large JSONB columns. Left in the SELECT,
             # Postgres detoasts each one per view, and a page holds up to a thousand views.
-            base_queryset = base_queryset.exclude(origin=DataWarehouseSavedQuery.Origin.ENDPOINT).defer(
-                "query", "external_tables", "incremental_state"
+            base_queryset = base_queryset.defer("query", "external_tables", "incremental_state")
+
+        if not is_service_auth(self.request):
+            base_queryset = base_queryset.exclude(
+                id__in=denied_endpoint_saved_query_ids(self.team_id, self.user_access_control)
             )
+        endpoint_versions = EndpointVersion.objects.filter(
+            endpoint__team_id=self.team_id, saved_query_id=OuterRef("pk")
+        ).exclude(endpoint__deleted=True)
+        base_queryset = base_queryset.annotate(
+            _endpoint_name=Subquery(endpoint_versions.values("endpoint__name")[:1]),
+            _endpoint_version=Subquery(endpoint_versions.values("version")[:1]),
+            _endpoint_current_version=Subquery(endpoint_versions.values("endpoint__current_version")[:1]),
+        )
 
         # Detect whether we should include managed views in the queryset
         is_managed_viewset_enabled = posthoganalytics.feature_enabled(
@@ -258,6 +270,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         body.is_valid(raise_exception=True)
 
         saved_query = self.get_object()
+        if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT and not saved_query.is_materialized:
+            raise serializers.ValidationError(
+                "Enable materialization for this version on its endpoint page before running it."
+            )
 
         if body.validated_data["full_refresh"]:
             # Dropping the watermark is the whole mechanism: the next run finds no progress to
@@ -362,6 +378,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         """
         saved_query: DataWarehouseSavedQuery = self.get_object()
 
+        if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+            raise serializers.ValidationError("Change materialization for this version on its endpoint page.")
+
         if saved_query.managed_viewset is not None:
             raise serializers.ValidationError("Cannot revert materialization of a query from a managed viewset.")
 
@@ -402,6 +421,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         Enable materialization for this saved query, at the requested sync frequency or daily.
         """
         saved_query: DataWarehouseSavedQuery = self.get_object()
+
+        if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+            raise serializers.ValidationError("Change materialization for this version on its endpoint page.")
 
         if saved_query.managed_viewset is not None:
             raise serializers.ValidationError("Cannot materialize a query from a managed viewset.")

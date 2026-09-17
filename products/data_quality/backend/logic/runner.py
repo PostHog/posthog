@@ -182,6 +182,12 @@ def _execute(
     staged: StagedSubjectOverride | None = None,
     staged_database_cache: "dict[Any, Database | None] | None" = None,
 ) -> CheckOutcome:
+    if check.subject_status == SubjectStatus.NEEDS_REVIEW:
+        return CheckOutcome(
+            status=CheckRunStatus.SKIPPED,
+            error="This check needs review for this endpoint version. Edit or remove it before running checks.",
+        )
+
     # A hard-deleted subject nulls the FK; there is no id left to resolve.
     if check.subject_uuid is None:
         check.subject_status = SubjectStatus.ORPHANED

@@ -543,21 +543,24 @@ class TestMaterializationStateCacheTimeout(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("pending_first_run_rechecks_soon", True, STALE_STATE_RECHECK_TTL),
-            ("no_materialization_holds_the_window", False, MATERIALIZED_ENDPOINT_CACHE_TTL),
+            ("pending_first_run_rechecks_soon", True, True, STALE_STATE_RECHECK_TTL),
+            ("no_materialization_holds_the_window", False, False, MATERIALIZED_ENDPOINT_CACHE_TTL),
+            ("inline_model_holds_the_window", True, False, MATERIALIZED_ENDPOINT_CACHE_TTL),
         ]
     )
-    def test_not_ready_timeout_tracks_whether_a_run_is_pending(self, name, materialization_enabled, expected_timeout):
+    def test_not_ready_timeout_tracks_whether_a_run_is_pending(
+        self, name, has_model, materialization_enabled, expected_timeout
+    ):
         saved_query = (
             DataWarehouseSavedQuery.objects.create(
                 name=f"{name}_query",
                 team=self.team,
                 query={"kind": "HogQLQuery", "query": "SELECT 1"},
-                is_materialized=True,
+                is_materialized=materialization_enabled,
                 status=DataWarehouseSavedQuery.Status.RUNNING,
                 origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
             )
-            if materialization_enabled
+            if has_model
             else None
         )
         endpoint = Endpoint.objects.create(

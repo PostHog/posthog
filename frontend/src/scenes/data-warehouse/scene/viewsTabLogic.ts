@@ -4,8 +4,12 @@ import { loaders } from 'kea-loaders'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
+import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { DataModelingEdge, DataModelingNode, DataWarehouseSavedQuery, DataWarehouseSavedQueryRunHistory } from '~/types'
 
@@ -15,6 +19,9 @@ import {
     nodeIdsForLineageSearch,
     parseLineageSearch,
 } from 'products/data_modeling/frontend/lineage/lineageSearch'
+import { ModelListRow, groupEndpointVersions } from 'products/data_modeling/frontend/modelList'
+import { endpointsList, endpointsVersionsList } from 'products/endpoints/frontend/generated/api'
+import type { EndpointResponseApi, EndpointVersionResponseApi } from 'products/endpoints/frontend/generated/api.schemas'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type {
@@ -25,11 +32,17 @@ import type {
 } from '../../../queries/schema/schema-general'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 
-export const PAGE_SIZE = 10
+export const PAGE_SIZE = 25
 
-export type ViewTypeFilter = 'all' | 'materialized' | 'view'
+export type ViewTypeFilter = 'all' | 'materialized' | 'view' | 'endpoint'
 
 export interface viewsTabLogicValues {
+    currentTeamId: number | null
+    modelEndpoints: EndpointResponseApi[]
+    modelEndpointVersions: Record<string, EndpointVersionResponseApi[]>
+    modelEndpointVersionsLoading: boolean
+    modelEndpointsLoading: boolean
+    endpointsError: boolean
     dataWarehouseSavedQueries: DataWarehouseSavedQuery[] // dataWarehouseViewsLogic
     dataWarehouseSavedQueriesLoading: boolean // dataWarehouseViewsLogic
     database: Required<DatabaseSchemaQueryResponse> | null // databaseTableListLogic
@@ -43,7 +56,7 @@ export interface viewsTabLogicValues {
     currentPage: number
     editingAccessControlView: DataWarehouseSavedQuery | null
     enrichedViews: DataWarehouseSavedQuery[]
-    filteredViews: DataWarehouseSavedQuery[]
+    filteredViews: ModelListRow[]
     lineageNames: Set<string> | null
     parsedSearch: ParsedLineageSearch
     runHistoryMap: Record<string, DataWarehouseSavedQueryRunHistory[]>
@@ -51,10 +64,25 @@ export interface viewsTabLogicValues {
     searchTerm: string
     typeFilter: ViewTypeFilter
     viewsLoading: boolean
-    visibleViews: DataWarehouseSavedQuery[]
+    sorting: Sorting | null
+    expandedEndpointNames: string[]
+    visibleModelRows: ModelListRow[]
+    visibleViews: ModelListRow[]
 }
 
 export interface viewsTabLogicActions {
+    setSorting: (sorting: Sorting | null) => { sorting: Sorting | null }
+    toggleEndpointExpanded: (name: string) => { name: string }
+    loadModelEndpointVersions: (name: string) => { name: string }
+    loadModelEndpointVersionsSuccess: (
+        modelEndpointVersions: Record<string, EndpointVersionResponseApi[]>,
+        payload?: { name: string }
+    ) => { modelEndpointVersions: Record<string, EndpointVersionResponseApi[]>; payload?: { name: string } }
+    loadModelEndpointVersionsFailure: (error: string, errorObject?: unknown) => { error: string; errorObject?: unknown }
+    loadModelEndpoints: () => void
+    loadModelEndpointsSuccess: (modelEndpoints: EndpointResponseApi[]) => { modelEndpoints: EndpointResponseApi[] }
+    loadModelEndpointsFailure: (error: string, errorObject?: unknown) => { error: string; errorObject?: unknown }
+
     deleteDataWarehouseSavedQuery: (viewId: string) => string // dataWarehouseViewsLogic
     runDataWarehouseSavedQuery: (
         viewId: string,
@@ -124,17 +152,21 @@ export interface viewsTabLogicActions {
 
 export interface viewsTabLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        viewsLoading: (dataWarehouseSavedQueriesLoading: boolean) => boolean
+        viewsLoading: (dataWarehouseSavedQueriesLoading: boolean, modelEndpointsLoading: boolean) => boolean
         enrichedViews: (
             dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
             runHistoryMap: Record<string, DataWarehouseSavedQueryRunHistory[]>
         ) => DataWarehouseSavedQuery[]
         filteredViews: (
             enrichedViews: DataWarehouseSavedQuery[],
-            searchTerm: string,
-            typeFilter: ViewTypeFilter
-        ) => DataWarehouseSavedQuery[]
-        visibleViews: (filteredViews: DataWarehouseSavedQuery[], currentPage: number) => DataWarehouseSavedQuery[]
+            parsedSearch: ParsedLineageSearch,
+            lineageNames: Set<string> | null,
+            typeFilter: ViewTypeFilter,
+            modelEndpoints: EndpointResponseApi[],
+            modelEndpointVersions: Record<string, EndpointVersionResponseApi[]>
+        ) => ModelListRow[]
+        visibleViews: (filteredViews: ModelListRow[], currentPage: number, sorting: Sorting | null) => ModelListRow[]
+        visibleModelRows: (views: ModelListRow[], expanded: string[]) => ModelListRow[]
     }
 }
 
@@ -149,6 +181,8 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
     path(['scenes', 'data-warehouse', 'scene', 'viewsTabLogic']),
     connect(() => ({
         values: [
+            teamLogic,
+            ['currentTeamId'],
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueriesLoading'],
             featureFlagLogic,
@@ -166,6 +200,8 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         ],
     })),
     actions({
+        setSorting: (sorting: Sorting | null) => ({ sorting }),
+        toggleEndpointExpanded: (name: string) => ({ name }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setTypeFilter: (typeFilter: ViewTypeFilter) => ({ typeFilter }),
         setPage: (page: number) => ({ page }),
@@ -173,10 +209,27 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         runMaterialization: (viewId: string) => ({ viewId }),
         loadRunHistory: (viewIds: string[]) => ({ viewIds }),
         loadVisibleData: true,
+        loadModelEndpointVersions: (name: string) => ({ name }),
         openAccessControlModal: (view: DataWarehouseSavedQuery) => ({ view }),
         closeAccessControlModal: true,
     }),
     reducers({
+        sorting: [null as Sorting | null, { setSorting: (_, { sorting }) => sorting }],
+        expandedEndpointNames: [
+            [] as string[],
+            {
+                toggleEndpointExpanded: (state, { name }) =>
+                    state.includes(name) ? state.filter((item) => item !== name) : [...state, name],
+            },
+        ],
+        endpointsError: [
+            false,
+            {
+                loadModelEndpoints: () => false,
+                loadModelEndpointsSuccess: () => false,
+                loadModelEndpointsFailure: () => true,
+            },
+        ],
         searchTerm: [
             '' as string,
             {
@@ -193,6 +246,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
             1 as number,
             {
                 setPage: (_, { page }) => page,
+                setSorting: () => 1,
                 setSearchTerm: () => 1,
                 setTypeFilter: () => 1,
             },
@@ -213,6 +267,48 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         ],
     }),
     loaders(({ values }) => ({
+        modelEndpointVersions: [
+            {} as Record<string, EndpointVersionResponseApi[]>,
+            {
+                loadModelEndpointVersions: async ({ name }) => {
+                    if (values.modelEndpointVersions[name] || !values.currentTeamId) {
+                        return values.modelEndpointVersions
+                    }
+                    const versions: EndpointVersionResponseApi[] = []
+                    let hasMore = true
+                    while (hasMore) {
+                        const page = await endpointsVersionsList(String(values.currentTeamId), name, {
+                            limit: 100,
+                            offset: versions.length,
+                        })
+                        versions.push(...page.results)
+                        hasMore = !!page.next && page.results.length > 0
+                    }
+                    return { ...values.modelEndpointVersions, [name]: versions }
+                },
+            },
+        ],
+        modelEndpoints: [
+            [] as EndpointResponseApi[],
+            {
+                loadModelEndpoints: async () => {
+                    const endpoints: EndpointResponseApi[] = []
+                    if (!values.currentTeamId) {
+                        return endpoints
+                    }
+                    let hasMore = true
+                    while (hasMore) {
+                        const page = await endpointsList(String(values.currentTeamId), {
+                            limit: 100,
+                            offset: endpoints.length,
+                        })
+                        endpoints.push(...page.results)
+                        hasMore = !!page.next && page.results.length > 0
+                    }
+                    return endpoints
+                },
+            },
+        ],
         runHistoryMap: [
             {} as Record<string, DataWarehouseSavedQueryRunHistory[]>,
             {
@@ -244,7 +340,10 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         ],
     })),
     selectors({
-        viewsLoading: [(s) => [s.dataWarehouseSavedQueriesLoading], (loading: boolean): boolean => loading],
+        viewsLoading: [
+            (s) => [s.dataWarehouseSavedQueriesLoading, s.modelEndpointsLoading],
+            (loading: boolean, endpointsLoading: boolean): boolean => loading || endpointsLoading,
+        ],
         enrichedViews: [
             (s) => [s.dataWarehouseSavedQueries, s.runHistoryMap],
             (
@@ -277,37 +376,87 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         ],
 
         filteredViews: [
-            (s) => [s.enrichedViews, s.parsedSearch, s.lineageNames, s.typeFilter],
+            (s) => [
+                s.enrichedViews,
+                s.parsedSearch,
+                s.lineageNames,
+                s.typeFilter,
+                s.modelEndpoints,
+                s.modelEndpointVersions,
+            ],
             (
                 views: DataWarehouseSavedQuery[],
                 parsedSearch: ParsedLineageSearch,
                 lineageNames: Set<string> | null,
-                typeFilter: ViewTypeFilter
-            ): DataWarehouseSavedQuery[] => {
+                typeFilter: ViewTypeFilter,
+                publishedEndpoints: EndpointResponseApi[],
+                publishedVersions: Record<string, EndpointVersionResponseApi[]>
+            ): ModelListRow[] => {
                 const term = parsedSearch.term.toLowerCase()
-                return views.filter((view) => {
-                    if (typeFilter === 'materialized' && !view.is_materialized) {
+                return groupEndpointVersions(views, publishedEndpoints, publishedVersions).filter((view) => {
+                    const versions = view.endpointVersions ?? [view]
+                    if (typeFilter === 'endpoint' && !view.endpoint) {
                         return false
                     }
-                    if (typeFilter === 'view' && view.is_materialized) {
+                    if (typeFilter === 'materialized' && !versions.some((version) => version.is_materialized)) {
+                        return false
+                    }
+                    if (typeFilter === 'view' && (view.is_materialized || !!view.endpoint)) {
                         return false
                     }
                     if (lineageNames) {
-                        return lineageNames.has(view.name)
+                        return versions.some((version) => lineageNames.has(version.name))
                     }
-                    return !term || view.name.toLowerCase().includes(term)
+                    return (
+                        !term ||
+                        versions.some(
+                            (version) =>
+                                version.name.toLowerCase().includes(term) ||
+                                version.endpoint?.name.toLowerCase().includes(term)
+                        )
+                    )
                 })
             },
         ],
+        visibleModelRows: [
+            (s) => [s.visibleViews, s.expandedEndpointNames],
+            (views: ModelListRow[], expanded: string[]): ModelListRow[] =>
+                views.flatMap((view) =>
+                    view.endpoint && expanded.includes(view.endpoint.name)
+                        ? [view, ...(view.endpointVersions ?? [])]
+                        : [view]
+                ),
+        ],
         visibleViews: [
-            (s) => [s.filteredViews, s.currentPage],
-            (views: DataWarehouseSavedQuery[], currentPage: number): DataWarehouseSavedQuery[] => {
+            (s) => [s.filteredViews, s.currentPage, s.sorting],
+            (views: ModelListRow[], currentPage: number, sorting: Sorting | null): ModelListRow[] => {
                 const startIndex = (currentPage - 1) * PAGE_SIZE
-                return views.slice(startIndex, startIndex + PAGE_SIZE)
+                const sorted = sorting
+                    ? [...views].sort((a, b) => {
+                          const comparison =
+                              sorting.columnKey === 'created_at'
+                                  ? dayjs(a.created_at || 0).diff(b.created_at || 0)
+                                  : (a.created_by?.first_name || a.created_by?.email || '').localeCompare(
+                                        b.created_by?.first_name || b.created_by?.email || ''
+                                    )
+                          return comparison * sorting.order
+                      })
+                    : views
+                return sorted.slice(startIndex, startIndex + PAGE_SIZE)
             },
         ],
     }),
     listeners(({ actions, values }) => ({
+        toggleEndpointExpanded: ({ name }) => {
+            if (values.expandedEndpointNames.includes(name)) {
+                actions.loadModelEndpointVersions(name)
+                actions.loadVisibleData()
+            }
+        },
+        loadModelEndpointVersionsSuccess: () => actions.loadVisibleData(),
+        loadModelEndpointVersionsFailure: () => {
+            lemonToast.error('Could not load endpoint versions. Collapse and expand the model to try again.')
+        },
         deleteView: ({ viewId }) => {
             LemonDialog.open({
                 title: 'Delete view?',
@@ -330,6 +479,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         loadDataWarehouseSavedQueriesSuccess: () => {
             actions.loadVisibleData()
         },
+        setSorting: () => actions.loadVisibleData(),
         setPage: () => {
             actions.loadVisibleData()
         },
@@ -340,17 +490,20 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
             actions.loadVisibleData()
         },
         loadVisibleData: () => {
-            const visible = values.visibleViews
+            const visible = values.visibleModelRows
             if (visible.length === 0) {
                 return
             }
-            const materializedIds = visible.filter((view) => view.is_materialized).map((view) => view.id)
+            const materializedIds = visible
+                .filter((view) => view.is_materialized && !view.isEndpointPlaceholder)
+                .map((view) => view.id)
             if (materializedIds.length > 0) {
                 actions.loadRunHistory(materializedIds)
             }
         },
     })),
     afterMount(({ actions, values }) => {
+        actions.loadModelEndpoints()
         if (values.dataWarehouseSavedQueries.length > 0) {
             actions.loadVisibleData()
         }

@@ -57,6 +57,7 @@ if TYPE_CHECKING:
 
 # symbol -> source module (relative to products.endpoints.backend)
 _LAZY = {
+    "denied_endpoint_saved_query_ids": "logic.access_control",
     "EndpointCrudService": "logic.crud",
     "EndpointExecutionService": "logic.execution",
     "REWRITE_CONTRACT": "logic.ai_materialization_fix",
@@ -119,6 +120,15 @@ def list_endpoints(team_id: int) -> list[contracts.EndpointInfo]:
     return [_to_endpoint_info(e) for e in endpoints]
 
 
+def get_endpoint_publications(team_id: int, saved_query_ids: list[str]) -> dict[str, dict[str, str | int]]:
+    return {
+        str(saved_query_id): {"name": name, "version": version}
+        for saved_query_id, name, version in EndpointVersion.objects.filter(
+            endpoint__team_id=team_id, endpoint__deleted=False, saved_query_id__in=saved_query_ids
+        ).values_list("saved_query_id", "endpoint__name", "version")
+    }
+
+
 def get_endpoint(team_id: int, name: str) -> contracts.EndpointInfo | None:
     endpoint = Endpoint.objects.filter(team_id=team_id, name=name, deleted=False).first()
     return _to_endpoint_info(endpoint) if endpoint is not None else None
@@ -164,6 +174,7 @@ __all__ = [
     "generate_openapi_spec",
     "get_endpoint",
     "get_endpoint_version",
+    "get_endpoint_publications",
     "get_last_execution_times",
     "is_materialization_ready",
     "is_materialized_request",

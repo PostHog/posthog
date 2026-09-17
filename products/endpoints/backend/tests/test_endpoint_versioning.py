@@ -1,9 +1,12 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_quality.backend.facade.models import DataQualityCheck
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 
@@ -18,11 +21,43 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             "query": "SELECT count(1) FROM query_log",
         }
 
-    def test_create_endpoint_creates_version_1(self):
-        """Initial endpoint creation should create version 1."""
+    @parameterized.expand(
+        [
+            ("hogql", {"kind": "HogQLQuery", "query": "SELECT event FROM events"}, True),
+            ("query_log", {"kind": "HogQLQuery", "query": "SELECT count(1) FROM query_log"}, True),
+            ("legacy_view", {"kind": "HogQLQuery", "query": "SELECT value FROM legacy_parent"}, False),
+            (
+                "trends",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview", "math": "total"}],
+                    "dateRange": {"date_from": "-7d"},
+                },
+                True,
+            ),
+            (
+                "compare",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview", "math": "total"}],
+                    "dateRange": {"date_from": "-7d"},
+                    "compareFilter": {"compare": True},
+                },
+                False,
+            ),
+        ]
+    )
+    def test_create_endpoint_creates_version_1(self, _name, query, has_model):
+        if _name == "legacy_view":
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name="legacy_parent",
+                query={"kind": "HogQLQuery", "query": "SELECT 1 AS value"},
+                columns={"value": "Int64"},
+            )
         data = {
             "name": "test_endpoint",
-            "query": self.sample_query,
+            "query": query,
         }
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
@@ -32,6 +67,9 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(1, response_data["current_version"])
         self.assertEqual(1, response_data["versions_count"])
+        self.assertEqual(response_data["node_id"] is not None, has_model)
+        self.assertEqual(response_data["model_unavailable_reason"] is None, has_model)
+        self.assertFalse(response_data["materialization"]["enabled"])
 
         endpoint = Endpoint.objects.get(name="test_endpoint", team=self.team)
         self.assertEqual(1, endpoint.current_version)
@@ -41,17 +79,34 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         assert version is not None
         self.assertEqual(1, version.version)
         # Check key fields (Pydantic expands with defaults)
-        self.assertEqual("HogQLQuery", version.query["kind"])
-        self.assertEqual(self.sample_query["query"], version.query["query"])
+        self.assertEqual(query["kind"], version.query["kind"])
+        self.assertEqual(version.saved_query is not None, has_model or _name == "legacy_view")
+        if version.saved_query:
+            self.assertFalse(version.saved_query.is_materialized)
+            assert version.saved_query.query is not None
+            self.assertEqual("HogQLQuery", version.saved_query.query["kind"])
+            self.assertEqual(version.saved_query.created_by_id, version.created_by_id)
         self.assertEqual(self.user, version.created_by)
 
     def test_update_query_creates_new_version(self):
         """Changing query should increment version."""
-        endpoint = create_endpoint_with_version(
-            name="version_test",
-            team=self.team,
-            query={"kind": "HogQLQuery", "query": "SELECT 1"},
-            created_by=self.user,
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/endpoints/",
+            {"name": "version_test", "query": {"kind": "HogQLQuery", "query": "SELECT 1 AS value"}},
+            format="json",
+        )
+        self.assertEqual(status.HTTP_201_CREATED, created.status_code, created.json())
+        endpoint = Endpoint.objects.get(name="version_test", team=self.team)
+        previous = endpoint.get_version()
+        assert previous.saved_query is not None
+        original_check = DataQualityCheck.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            saved_query=previous.saved_query,
+            subject_type="view",
+            subject_name=previous.saved_query.name,
+            check_type="not_null",
+            column_name="value",
+            fingerprint="original_version_check",
         )
 
         # Update query
@@ -79,7 +134,14 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         # Check version 1 still has old query
         v1 = endpoint.get_version(1)
         assert v1 is not None
-        self.assertEqual("SELECT 1", v1.query["query"])
+        self.assertEqual("SELECT 1 AS value", v1.query["query"])
+        copied_check = DataQualityCheck.objects.for_team(self.team.pk).get(saved_query=v2.saved_query)
+        self.assertNotEqual(copied_check.pk, original_check.pk)
+        self.assertEqual(copied_check.column_name, "value")
+        self.assertEqual(copied_check.subject_status, "needs_review")
+        original_check.refresh_from_db()
+        self.assertEqual(original_check.subject_status, "active")
+        self.assertNotEqual(created.json()["node_id"], response_data["node_id"])
 
     def test_update_metadata_does_not_create_version(self):
         """Changing name/description shouldn't create new version."""
@@ -455,10 +517,11 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         endpoint.refresh_from_db()
 
-        # Verify version was incremented but no saved query was created on new version
+        # The backing model must not enable a materialization schedule.
         self.assertEqual(2, endpoint.current_version)
         new_version = endpoint.get_version()
-        self.assertIsNone(new_version.saved_query)
+        self.assertIsNotNone(new_version.saved_query)
+        self.assertFalse(new_version.saved_query.is_materialized)
 
     def test_version_activate_deactivate(self):
         """Version can be activated and deactivated via update endpoint with version param."""
@@ -691,7 +754,8 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         # v2 should still NOT be materialized
         self.assertFalse(v2.is_materialized)
-        self.assertIsNone(v2.saved_query)
+        self.assertIsNotNone(v2.saved_query)
+        self.assertFalse(v2.saved_query.is_materialized)
 
     def test_update_with_version_param_disables_materialization_on_specific_version(self):
         """Update with ?version=N should disable materialization on that specific version."""
@@ -755,11 +819,10 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         # v1 should no longer be materialized
         self.assertFalse(v1.is_materialized)
-        self.assertIsNone(v1.saved_query)
+        self.assertEqual(v1.saved_query_id, saved_query.id)
 
-        # Saved query should be soft-deleted
         saved_query.refresh_from_db()
-        self.assertTrue(saved_query.deleted)
+        self.assertFalse(saved_query.deleted)
 
     def test_update_with_version_param_updates_description_on_specific_version(self):
         """Update with ?version=N should update description on that specific version."""

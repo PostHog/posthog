@@ -1,12 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { pluralize } from 'lib/utils/strings'
-import { urls } from 'scenes/urls'
 
 import { DataModelingNodeType } from '~/types'
 
@@ -14,6 +12,7 @@ import { LineageGraph } from 'products/data_modeling/frontend/lineage/LineageGra
 import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
 import { NodeTypeLegend } from 'products/data_modeling/frontend/lineage/NodeTypeLegend'
 import { SEARCH_SYNTAX_HELP } from 'products/data_modeling/frontend/lineage/SearchSyntaxHelp'
+import { openModelNode } from 'products/data_modeling/frontend/modelNodeNavigation'
 
 import { LINEAGE_FILTER_TYPES, modelsLineageLogic } from '../modelsLineageLogic'
 
@@ -94,7 +93,7 @@ export function ModelsLineageTab(): JSX.Element {
                         isHighlighted: highlightedNodeIds.has(node.id),
                         isRunning: node.last_run_status === 'Running',
                     })}
-                    onNodeClick={(node) => router.actions.push(urls.nodeDetail(node.id))}
+                    onNodeClick={(node) => openModelNode(node)}
                     panelPosition="bottom-left"
                     panels={<NodeTypeLegend collapsed={legendCollapsed} onToggleCollapse={toggleLegendCollapsed} />}
                 />

@@ -60,7 +60,7 @@ export function ChecksTable({ columns, outputSchema, ...props }: ChecksTableProp
                     title: 'Name',
                     key: 'name',
                     render: (_, check) => (
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             <Tooltip title={check.description || undefined}>
                                 <span className="font-semibold">{checkDisplayName(check)}</span>
                             </Tooltip>
@@ -68,6 +68,16 @@ export function ChecksTable({ columns, outputSchema, ...props }: ChecksTableProp
                                 <Tooltip title={aiTooltip(check)}>
                                     <LemonTag type="completion">AI</LemonTag>
                                 </Tooltip>
+                            )}
+                            {check.subject_status === 'needs_review' && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="xsmall"
+                                    onClick={() => openEditor(check, props, columns)}
+                                    data-attr="data-quality-review-check"
+                                >
+                                    Review check
+                                </LemonButton>
                             )}
                             {check.owner && <span className="text-secondary text-xs">{check.owner}</span>}
                         </div>
@@ -99,7 +109,9 @@ export function ChecksTable({ columns, outputSchema, ...props }: ChecksTableProp
                         <LemonSwitch
                             checked={check.enabled !== false}
                             onChange={(enabled) => toggleCheckEnabled(check.id, enabled)}
-                            disabled={!!pendingCheckActions.toggling[check.id]}
+                            disabled={
+                                !!pendingCheckActions.toggling[check.id] || check.subject_status === 'needs_review'
+                            }
                             aria-label={`Enable check ${checkDisplayName(check)}`}
                         />
                     ),
@@ -124,9 +136,12 @@ export function ChecksTable({ columns, outputSchema, ...props }: ChecksTableProp
                                 {
                                     label: 'Run now',
                                     onClick: () => runCheck(check.id),
-                                    disabledReason: pendingCheckActions.running[check.id]
-                                        ? 'This check is already starting'
-                                        : undefined,
+                                    disabledReason:
+                                        check.subject_status === 'needs_review'
+                                            ? 'Review this check to match the columns in this version before running it'
+                                            : pendingCheckActions.running[check.id]
+                                              ? 'This check is already starting'
+                                              : undefined,
                                 },
                                 { label: 'Edit', onClick: () => openEditor(check, props, columns, outputSchema) },
                                 {

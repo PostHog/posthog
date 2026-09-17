@@ -43,3 +43,13 @@ class SavedQuerySummary:
     team_id: int
     name: str
     last_run_at: datetime | None
+
+
+class UnknownParentError(Exception):
+    """Exception raised when the parent for a model is not found."""
+
+    def __init__(self, parent: str, query: str) -> None:
+        super().__init__(
+            f"The parent name {parent} does not correspond to an existing PostHog table, Data Warehouse Table, or Data Warehouse Saved Query."
+        )
+        self.query = query

@@ -370,7 +370,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Data freshness must be one of", str(response.json()))
 
-    def test_disable_materialization_removes_saved_query(self):
+    def test_disable_materialization_retains_saved_query(self):
         """Test that disabling materialization removes the SavedQuery."""
         # Create and materialize an endpoint
         endpoint = create_endpoint_with_version(
@@ -406,13 +406,11 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         response_data = response.json()
         self.assertFalse(response_data["is_materialized"])
 
-        # Verify saved_query is removed from version
         version.refresh_from_db()
-        self.assertIsNone(version.saved_query)
-
-        # Verify SavedQuery is soft-deleted
+        self.assertEqual(version.saved_query_id, saved_query_id)
         saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
-        self.assertTrue(saved_query.deleted)
+        self.assertFalse(saved_query.deleted)
+        self.assertFalse(saved_query.is_materialized)
 
     def test_cannot_materialize_query_with_invalid_variables(self):
         """Test that queries with invalid variable metadata cannot be materialized."""
@@ -1635,9 +1633,12 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         node_response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{node.id}/")
         self.assertEqual(node_response.status_code, status.HTTP_200_OK, node_response.json())
-        self.assertEqual(node_response.json()["endpoint"], {"name": endpoint.name, "version": version.version})
+        self.assertEqual(
+            node_response.json()["endpoint"],
+            {"name": endpoint.name, "version": version.version, "is_materialized": True},
+        )
 
-    def test_disable_materialization_removes_dag_node(self):
+    def test_disable_materialization_retains_dag_node(self):
         endpoint = create_endpoint_with_version(
             name="remove_dag_endpoint",
             team=self.team,
@@ -1668,7 +1669,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        self.assertFalse(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
+        self.assertTrue(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
 
     def test_delete_endpoint_removes_dag_node(self):
         endpoint = create_endpoint_with_version(
@@ -2263,8 +2264,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         v1.refresh_from_db()
         self.assertFalse(v1.is_active)
-        self.assertIsNone(v1.saved_query_id, "deactivated version kept its materialization")
-        self.assertTrue(DataWarehouseSavedQuery.objects.get(id=saved_query_id).deleted)
+        self.assertEqual(v1.saved_query_id, saved_query_id)
+        self.assertFalse(v1.saved_query.is_materialized)
+        self.assertFalse(DataWarehouseSavedQuery.objects.get(id=saved_query_id).deleted)
 
     def test_deactivating_endpoint_disables_all_versions_materialization(self):
         """Deactivating the endpoint must tear down every materialized version, not just the current one."""
@@ -2304,14 +2306,14 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         v1.refresh_from_db()
         v2.refresh_from_db()
-        self.assertIsNone(v1.saved_query_id, "non-current version kept its materialization")
-        self.assertIsNone(v2.saved_query_id, "current version kept its materialization")
-        self.assertTrue(DataWarehouseSavedQuery.objects.get(id=v1_saved_query_id).deleted)
-        self.assertTrue(DataWarehouseSavedQuery.objects.get(id=v2_saved_query_id).deleted)
-        self.assertIsNone(v1.saved_query_id, "non-current version kept its materialization")
-        self.assertIsNone(v2.saved_query_id, "current version kept its materialization")
-        self.assertTrue(DataWarehouseSavedQuery.objects.get(id=v1_saved_query_id).deleted)
-        self.assertTrue(DataWarehouseSavedQuery.objects.get(id=v2_saved_query_id).deleted)
+        self.assertFalse(v1.saved_query.is_materialized)
+        self.assertFalse(v2.saved_query.is_materialized)
+        self.assertFalse(DataWarehouseSavedQuery.objects.get(id=v1_saved_query_id).deleted)
+        self.assertFalse(DataWarehouseSavedQuery.objects.get(id=v2_saved_query_id).deleted)
+        self.assertFalse(v1.saved_query.is_materialized)
+        self.assertFalse(v2.saved_query.is_materialized)
+        self.assertFalse(DataWarehouseSavedQuery.objects.get(id=v1_saved_query_id).deleted)
+        self.assertFalse(DataWarehouseSavedQuery.objects.get(id=v2_saved_query_id).deleted)
 
     def test_enable_materialization_does_not_hijack_user_saved_query(self):
         """A user-created saved query whose name collides with {endpoint}_v{n} must not be taken over."""

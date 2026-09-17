@@ -5,8 +5,10 @@ from rest_framework import filters, serializers, viewsets
 from rest_framework.pagination import PageNumberPagination
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.permissions import is_service_auth
 
 from products.data_modeling.backend.facade.models import Edge
+from products.endpoints.backend.facade.api import denied_endpoint_saved_query_ids
 
 
 class EdgeSerializer(serializers.ModelSerializer):
@@ -71,6 +73,9 @@ class EdgeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset):
         qs = queryset.filter(team_id=self.team_id)
+        if not is_service_auth(self.request):
+            denied_ids = denied_endpoint_saved_query_ids(self.team_id, self.user_access_control)
+            qs = qs.exclude(source__saved_query_id__in=denied_ids).exclude(target__saved_query_id__in=denied_ids)
         dag_id = self.request.query_params.get("dag")
         if dag_id:
             try:

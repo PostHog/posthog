@@ -71,7 +71,7 @@ def deactivate_stale_materializations() -> None:
     twenty_four_hours_ago = now - timedelta(hours=24)
     stale_threshold = now - timedelta(days=STALE_THRESHOLD_DAYS)
 
-    # A still-running job does not count: reverting soft-deletes the saved query under a live workflow.
+    # Do not revert a materialization while its workflow is running.
     recent_job = DataModelingJob.objects.filter(
         saved_query_id=OuterRef("saved_query_id"),
         last_run_at__gte=twenty_four_hours_ago,
@@ -132,7 +132,7 @@ def _deactivate_version_materialization(version: EndpointVersion) -> None:
     Deactivate materialization for an endpoint version.
 
     This reverts the materialization (removes Temporal schedule, cleans up S3 tables)
-    and soft-deletes the saved_query.
+    and retains the saved query for lineage and data quality checks.
     """
     saved_query = version.saved_query
     if not saved_query:

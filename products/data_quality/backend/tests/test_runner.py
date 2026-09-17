@@ -196,15 +196,17 @@ class TestCheckRunner(BaseTest):
         assert run.status == CheckRunStatus.ERRORED
         assert run.error
 
-    def test_a_gone_subject_is_skipped_and_marks_the_check_orphaned(self) -> None:
-        check = self._check()
-        self.view.soft_delete()
+    @parameterized.expand([(SubjectStatus.ORPHANED,), (SubjectStatus.NEEDS_REVIEW,)])
+    def test_unresolvable_checks_are_skipped(self, expected_status: SubjectStatus) -> None:
+        check = self._check(subject_status=expected_status)
+        if expected_status == SubjectStatus.ORPHANED:
+            self.view.soft_delete()
 
         outcome = run_check(check, self.suite_run, self.team)
 
         check.refresh_from_db()
         assert outcome.status == CheckRunStatus.SKIPPED
-        assert check.subject_status == SubjectStatus.ORPHANED
+        assert check.subject_status == expected_status
 
     def test_a_hard_deleted_subject_is_skipped_without_a_history_row(self) -> None:
         check = self._check(saved_query_id=None)

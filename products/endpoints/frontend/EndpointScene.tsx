@@ -48,6 +48,7 @@ import { ActivityScope, EndpointVersionType } from '~/types'
 
 import { EndpointConfiguration } from './endpoint-tabs/EndpointConfiguration'
 import { EndpointLogs } from './endpoint-tabs/EndpointLogs'
+import { EndpointModelTab } from './endpoint-tabs/EndpointModelTab'
 import { EndpointOverview } from './endpoint-tabs/EndpointOverview'
 import { EndpointPlayground } from './endpoint-tabs/EndpointPlayground'
 import { EndpointQuery } from './endpoint-tabs/EndpointQuery'
@@ -96,6 +97,30 @@ export function EndpointScene(): JSX.Element {
                 ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.CONFIGURATION }).url
                 : undefined,
         },
+        {
+            key: EndpointTab.LINEAGE,
+            label: 'Lineage',
+            'data-attr': 'endpoint-lineage-tab',
+            content: <EndpointModelTab tab="lineage" />,
+            link: endpoint
+                ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.LINEAGE }).url
+                : undefined,
+        },
+        ...(featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS]
+            ? [
+                  {
+                      key: EndpointTab.DATA_QUALITY,
+                      label: 'Data quality',
+                      tooltip: 'New versions copy these checks for review.',
+                      'data-attr': 'endpoint-data-quality-tab',
+                      content: <EndpointModelTab tab="tests" />,
+                      link: endpoint
+                          ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.DATA_QUALITY })
+                                .url
+                          : undefined,
+                  },
+              ]
+            : []),
         {
             key: EndpointTab.VERSIONS,
             label: 'Versions',
@@ -172,27 +197,6 @@ export function EndpointScene(): JSX.Element {
             return
         }
         confirmToggleActive(endpoint)
-    }
-
-    const renderTabContent = (): JSX.Element => {
-        if (!endpoint) {
-            return <></>
-        }
-        switch (activeTab) {
-            case EndpointTab.CONFIGURATION:
-                return <EndpointConfiguration />
-            case EndpointTab.VERSIONS:
-                return <EndpointVersions />
-            case EndpointTab.PLAYGROUND:
-                return <EndpointPlayground />
-            case EndpointTab.LOGS:
-                return <EndpointLogs />
-            case EndpointTab.HISTORY:
-                return <ActivityLog scope={[ActivityScope.ENDPOINT, ActivityScope.ENDPOINT_VERSION]} id={endpoint.id} />
-            case EndpointTab.QUERY:
-            default:
-                return <EndpointQuery />
-        }
     }
 
     return (
@@ -330,7 +334,7 @@ export function EndpointScene(): JSX.Element {
                     />
                 )}
                 {!endpointLoading && <EndpointOverview />}
-                {sceneMenuBarEnabled ? renderTabContent() : <LemonTabs activeKey={activeTab} tabs={tabs} />}
+                <LemonTabs activeKey={activeTab} tabs={tabs} />
             </SceneContent>
             {endpoint && (
                 <ScenePanel>

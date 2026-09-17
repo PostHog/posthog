@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl } from 'kea-router'
 import { useMemo } from 'react'
 
 import { IconExternal } from '@posthog/icons'
@@ -12,6 +12,8 @@ import { urls } from 'scenes/urls'
 import { DataModelingJobStatus, DataModelingNode } from '~/types'
 
 import { LineageGraph } from 'products/data_modeling/frontend/lineage/LineageGraph'
+import { lineageNodeName } from 'products/data_modeling/frontend/lineage/lineageSearch'
+import { openModelNode } from 'products/data_modeling/frontend/modelNodeNavigation'
 
 import { nodeDetailSceneLogic } from '../nodeDetailSceneLogic'
 
@@ -43,8 +45,14 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
     }, [lineageGraph, effectiveLastRunAt, effectiveLastRunStatus])
 
     const openNode = (node: DataModelingNode): void => {
-        router.actions.push(urls.nodeDetail(node.id, 'lineage'))
+        openModelNode(node, 'lineage')
     }
+
+    const origin = nodes.find((node) => node.id === id)
+    const fullGraphUrl = combineUrl(
+        urls.models('lineage'),
+        origin ? { search: `+${lineageNodeName(origin)}+` } : {}
+    ).url
 
     if (lineageGraphLoading) {
         return (
@@ -72,7 +80,7 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
                         recorded connections yet.
                     </p>
                 </div>
-                <LemonButton type="secondary" size="small" to={urls.models('lineage')} icon={<IconExternal />}>
+                <LemonButton type="secondary" size="small" to={fullGraphUrl} icon={<IconExternal />}>
                     Explore all lineage
                 </LemonButton>
             </div>
@@ -81,35 +89,37 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
 
     return (
         <>
-            <div className="flex-1 min-h-[400px] max-h-[70vh] w-full border rounded bg-bg-light">
-                <LineageGraph
-                    nodes={nodes}
-                    edges={lineageGraph?.edges ?? []}
-                    currentNodeId={lineageGraph?.currentNodeId}
-                    variant="full"
-                    interactive
-                    showControls
-                    showMinimap
-                    onNodeClick={openNode}
-                    panels={
-                        <div className="flex flex-col gap-1">
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                to={urls.models('lineage')}
-                                tooltip="Open the full graph"
-                                icon={<IconExternal />}
-                            />
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={openLineageModal}
-                                tooltip="Fullscreen"
-                                icon={<IconFullScreen />}
-                            />
-                        </div>
-                    }
-                />
+            <div className="relative flex-1 min-h-[400px] max-h-[70vh] w-full border rounded bg-bg-light">
+                <div className="absolute inset-0">
+                    <LineageGraph
+                        nodes={nodes}
+                        edges={lineageGraph?.edges ?? []}
+                        currentNodeId={lineageGraph?.currentNodeId}
+                        variant="full"
+                        interactive
+                        showControls
+                        showMinimap
+                        onNodeClick={openNode}
+                        panels={
+                            <div className="flex flex-col gap-1">
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    to={fullGraphUrl}
+                                    tooltip="Open the full graph"
+                                    icon={<IconExternal />}
+                                />
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={openLineageModal}
+                                    tooltip="Fullscreen"
+                                    icon={<IconFullScreen />}
+                                />
+                            </div>
+                        }
+                    />
+                </div>
             </div>
             <LemonModal
                 isOpen={lineageModalOpen}
