@@ -751,19 +751,22 @@ function getInsightErrorKind(status?: number | null, code?: string | null): Insi
     if (status === 513) {
         return 'memory_limit'
     }
+    // Several unrelated failures answer 503 and they need different remediation, so the backend
+    // code is the only thing that tells a capacity wait apart from a single-flight collision. The
+    // code decides before the status, because an async failure read back from a poll carries the
+    // code with HTTP 400. Each code belongs to one exception class, so a real validation error
+    // cannot carry either one.
+    if (code === CLICKHOUSE_AT_CAPACITY_ERROR_CODE) {
+        return 'capacity'
+    }
+    if (code === QUERY_RAN_CONCURRENTLY_ERROR_CODE) {
+        return 'concurrent'
+    }
     if (status === 400 || status === 422) {
         return 'invalid_query'
     }
     if (status === 401 || status === 403) {
         return 'permission'
-    }
-    // Several unrelated failures answer 503 and they need different remediation, so the backend
-    // code is the only thing that tells a capacity wait apart from a single-flight collision.
-    if (status === 503 && code === CLICKHOUSE_AT_CAPACITY_ERROR_CODE) {
-        return 'capacity'
-    }
-    if (status === 503 && code === QUERY_RAN_CONCURRENTLY_ERROR_CODE) {
-        return 'concurrent'
     }
     if (status === 502 || status === 503 || status === 504) {
         return 'transient'

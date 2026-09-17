@@ -165,6 +165,14 @@ describe('insight error states', () => {
             queryDebugger: false,
             bugReport: false,
         },
+        {
+            status: 400,
+            code: 'clickhouse_at_capacity',
+            expectedCopy: 'Too many queries are running at once. Try again in a few minutes.',
+            retry: true,
+            queryDebugger: false,
+            bugReport: false,
+        },
     ])(
         'shows the correct action for HTTP $status errors ($code)',
         ({
@@ -216,6 +224,7 @@ describe('insight error states', () => {
         { status: 503, expectedTitle: "This query couldn't run right now" },
         { status: 503, code: 'clickhouse_at_capacity', expectedTitle: 'PostHog is busy right now' },
         { status: 503, code: 'query_ran_concurrently', expectedTitle: 'This query was already running' },
+        { status: 400, code: 'query_ran_concurrently', expectedTitle: 'This query was already running' },
         { status: 500, expectedTitle: "PostHog couldn't complete this query" },
         { status: 418, expectedTitle: "We couldn't complete this query" },
     ])('uses clear copy for server error $status ($code)', ({ status, code, expectedTitle }) => {
