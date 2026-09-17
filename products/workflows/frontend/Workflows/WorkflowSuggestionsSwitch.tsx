@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 
@@ -27,17 +27,25 @@ export function WorkflowSuggestionsSwitch({ id }: { id: string }): JSX.Element {
             minAccessLevel={AccessControlLevel.Editor}
             userAccessLevel={workflowUserAccessLevel ?? undefined}
         >
-            {({ disabledReason }) => (
-                <LemonSwitch
-                    bordered
-                    label="Suggest improvements"
-                    checked={optimisationEnabled}
-                    disabled={optimisationLoading}
-                    disabledReason={disabledReason ?? notLiveReason}
-                    onChange={(checked) => setOptimisationEnabled(checked)}
-                    data-attr="workflow-suggestions-enable"
-                />
-            )}
+            {({ disabledReason }) => {
+                const reason = disabledReason ?? notLiveReason
+                // LemonSwitch's own disabledReason tooltip covers only the knob, so the reason wraps
+                // the whole bordered control and shows when hovering the label too.
+                return (
+                    <Tooltip title={reason}>
+                        <div className="flex items-center">
+                            <LemonSwitch
+                                bordered
+                                label="Suggest improvements"
+                                checked={optimisationEnabled}
+                                disabled={optimisationLoading || !!reason}
+                                onChange={(checked) => setOptimisationEnabled(checked)}
+                                data-attr="workflow-suggestions-enable"
+                            />
+                        </div>
+                    </Tooltip>
+                )
+            }}
         </AccessControlAction>
     )
 }
