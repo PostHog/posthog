@@ -320,7 +320,7 @@ class TestExternalAccountListAPI(APIBaseTest):
                 key.secure_value = hash_key_value(token)
                 key.save(update_fields=["secure_value"])
             if key_type == "personal_query":
-                response = self.client.get(self.url, data={"project_id": self.team.id, "personal_api_key": token})
+                response = self.client.get(self.url, data={"project_id": str(self.team.id), "personal_api_key": token})
             elif key_type == "personal_body":
                 response = self.client.generic(
                     "GET",
