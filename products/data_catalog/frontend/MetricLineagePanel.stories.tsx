@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { DataModelingEdge, DataModelingNode } from '~/types'
 
 import { DataCatalogMetricApi } from './generated/api.schemas'
-import { MetricLineagePanel, MetricLineagePanelProps } from './MetricLineageTab'
+import { MetricLineagePanel, MetricLineagePanelProps } from './MetricLineagePanel'
 
 function metric(overrides: Partial<DataCatalogMetricApi> = {}): DataCatalogMetricApi {
     return {
