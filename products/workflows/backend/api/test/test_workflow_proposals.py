@@ -247,9 +247,6 @@ class TestWorkflowProposals(APIBaseTest):
         assert WorkflowProposal.objects.for_team(self.team.id).count() == 0
 
     def test_a_retry_after_opt_out_returns_the_suggestion_it_already_made(self, _mock_flag):
-        # `source_id` promises a retry resolves to the proposal it created. Refusing that retry
-        # because the switch moved would leave a producer unable to recover a suggestion that is
-        # still sitting in someone's queue.
         flow_id = self._create_active_flow()
         self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimisation", {"enabled": True}, format="json"
@@ -290,11 +287,8 @@ class TestWorkflowProposals(APIBaseTest):
         )
         assert off.status_code == 200, off.json()
         assert off.json()["enabled"] is False
-        # The row stays, marked off: how many people tried this and stopped is a question about the
-        # rollout, and a deleted row cannot answer it.
         assert HogFlowOptimisation.objects.for_team(self.team.id).get(hog_flow_id=flow_id).enabled is False
 
-        # The queue someone still has to resolve stays readable, and resolvable.
         listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/?status=suggested")
         assert listed.status_code == 200, listed.json()
         assert [row["id"] for row in listed.json()["results"]] == [proposal["id"]]
@@ -304,8 +298,6 @@ class TestWorkflowProposals(APIBaseTest):
         assert rejected.status_code == 200, rejected.json()
 
     def test_the_toggle_lands_in_the_workflow_history(self, _mock_flag):
-        # Who turned suggestions on or off is answered from the workflow's own history, which is why
-        # the row carries no enabled_by/disabled_by columns.
         flow_id = self._create_active_flow()
         url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimisation"
         self.client.post(url, {"enabled": False}, format="json")
@@ -335,8 +327,6 @@ class TestWorkflowProposals(APIBaseTest):
         assert row.enabled is True
 
     def test_the_list_can_be_narrowed_to_workflows_with_suggestions_on(self, _mock_flag):
-        # This is the producer's work list: without it an agent reads every workflow to find the few
-        # it may look at, which is the cost the opt-in exists to avoid.
         opted_in = self._create_active_flow()
         untouched = self._create_active_flow()
         self.client.post(
@@ -349,7 +339,6 @@ class TestWorkflowProposals(APIBaseTest):
         listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows?optimisation_enabled=true")
 
         assert listed.status_code == 200, listed.json()
-        # An archived workflow drops out even though someone opted it in: its metrics are history.
         assert [row["id"] for row in listed.json()["results"]] == [opted_in]
 
     def test_provenance_comes_from_the_transport_not_the_payload(self, _mock_flag):

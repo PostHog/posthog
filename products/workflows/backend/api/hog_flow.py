@@ -4163,8 +4163,7 @@ class CommaSeparatedListFilter(BaseInFilter, CharFilter):
 
 
 class HogFlowFilterSet(FilterSet):
-    # A producer's work list. Without it an agent would have to read every workflow in the project to
-    # find the few it may look at, which is the cost the opt-in exists to avoid.
+    # A producer's work list, so an agent need not read every workflow to find the few it may look at.
     optimisation_enabled = BooleanFilter(
         method="filter_optimisation_enabled",
         label="Only workflows someone turned suggestions on for.",
@@ -4177,9 +4176,7 @@ class HogFlowFilterSet(FilterSet):
         fields = ["id", "created_at", "updated_at", "status"]
 
     def filter_optimisation_enabled(self, queryset, name: str, value: bool):
-        # An opt-in someone turned off keeps its row, so "on" is a row that is still enabled. Archived
-        # workflows drop out: their metrics are history, and a suggestion about one changes nothing
-        # that runs, so a producer should never spend a read on them.
+        # Off keeps its row, so "on" is a row still enabled. Archived workflows drop out: nothing runs there.
         if not value:
             return queryset.exclude(optimisation__enabled=True)
         return queryset.filter(optimisation__enabled=True).exclude(status=HogFlow.State.ARCHIVED)
@@ -4337,8 +4334,7 @@ class HogFlowViewSet(
         # lists above can't distinguish GET (read) from POST (write) on the same action. Without
         # this, these actions declare no scope and reject all personal-API-key (MCP) access.
         if self.action == "optimisation":
-            # Reading whether a workflow is opted in is workflow-read; turning it on or off decides
-            # whether an agent may read the workflow at all, so it is a workflow write.
+            # Reading the opt-in is workflow-read; flipping it decides whether an agent may read the workflow, so it is a write.
             if request.method in ("GET", "HEAD", "OPTIONS"):
                 return ["hog_flow:read"]
             return ["hog_flow:write"]
@@ -5451,9 +5447,7 @@ class HogFlowViewSet(
         param_serializer.is_valid(raise_exception=True)
         params = param_serializer.validated_data
 
-        # A retry names the suggestion it already made, and that suggestion is still in someone's
-        # queue whatever the switch says now, so returning it is the honest answer — and the only one
-        # that keeps a retry from reading as "make another". The opt-in gates producing a new one.
+        # A retry names the suggestion it already made, which is still in someone's queue whatever the switch says now.
         retry_of = (
             WorkflowProposal.objects.filter(hog_flow=instance, source_id=params.get("source_id") or None).first()
             if params.get("source_id")
@@ -5462,14 +5456,11 @@ class HogFlowViewSet(
         if retry_of:
             return Response(WorkflowProposalSerializer(retry_of).data, status=status.HTTP_200_OK)
 
-        # Reading the queue stays open while the flag is on, so a workflow turned off keeps showing
-        # the suggestions someone already has to resolve. Producing a new one is what the workflow's
-        # own opt-in gates.
+        # Reading the queue stays open while the flag is on; the workflow's opt-in only gates producing a new one.
         if not HogFlowOptimisation.objects.filter(hog_flow=instance, enabled=True).exists():
             raise WorkflowNotOptimisedError()
 
-        # An agent has no business setting secret function inputs, and proposal content is stored in
-        # plaintext like a revision snapshot, so strip them rather than silently persisting them.
+        # Proposal content is stored in plaintext like a revision snapshot, so secrets are stripped.
         content = strip_content_secrets(dict(params["content"]))
         source_id = params.get("source_id") or None
 
@@ -5746,16 +5737,13 @@ class HogFlowViewSet(
                 if enabled:
                     row = HogFlowOptimisation.objects.create(hog_flow=instance, enabled=True)
             else:
-                # Turning it off keeps the row: how many people tried this and stopped is a question
-                # about the rollout, and a deleted row cannot answer it.
+                # Off keeps the row: how many tried this and stopped is a rollout question.
                 changed = row.enabled != enabled
                 if changed:
                     row.enabled = enabled
                     row.save(update_fields=["enabled"])
 
             if changed:
-                # Who flipped it and when belongs with the rest of the workflow's history, rather than
-                # in columns here that could only ever remember the last flip.
                 log_activity_from_viewset(
                     self,
                     instance,

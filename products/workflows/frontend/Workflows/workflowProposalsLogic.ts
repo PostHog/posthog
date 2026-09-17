@@ -233,8 +233,7 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                 setResolvingId: (_, { action }) => action,
             },
         ],
-        // A failed read must not read as "off": the switch governs whether PostHog may look at this
-        // workflow, and a person who wanted it off would take no action on a false negative.
+        // A failed read must not read as "off".
         optimisationUnreadable: [
             false,
             {

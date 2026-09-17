@@ -26,7 +26,6 @@ class HogFlowOptimisation(TeamScopedRootMixin, UUIDTModel):
 
     class Meta:
         indexes = [
-            # The producer's work list: which of a team's workflows are in scope right now.
             models.Index(fields=["team", "enabled"], name="hogflow_optimisation_scope"),
         ]
 
@@ -39,8 +38,7 @@ class HogFlowOptimisation(TeamScopedRootMixin, UUIDTModel):
     created_at = models.DateTimeField(auto_now_add=True, help_text="When this workflow was first opted in.")
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        # The opt-in's tenant scope always mirrors its workflow's, as WorkflowProposal's does: a
-        # mismatched pair would hand one team's workflow to another team's producer.
+        # Mirrors the workflow's team, as WorkflowProposal does.
         self.team_id = self.hog_flow.team_id
         super().save(*args, **kwargs)
 
