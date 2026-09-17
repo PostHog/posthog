@@ -62,6 +62,14 @@ def make_response(
     return response
 
 
+def bodyless_bad_request(content: bytes = b"") -> requests.Response:
+    response = requests.Response()
+    response.status_code = 400
+    response.headers["x-amzn-ErrorType"] = "BadRequestException:http://internal.amazon.example/coral/"
+    response._content = content
+    return response
+
+
 def suppression_page(emails: list[str], next_token: Optional[str] = None) -> dict[str, Any]:
     body: dict[str, Any] = {
         "SuppressedDestinationSummaries": [
@@ -198,14 +206,14 @@ class TestErrorClassification:
             headers={"x-amzn-ErrorType": "AccessDeniedException:http://internal.amazon.example/coral/"},
         )
 
-        assert str(error_for_response(response, "account", "/v2/email/account")) == (
+        assert str(error_for_response(response, "account", "/v2/email/account", "us-east-1")) == (
             "Amazon SES request failed: AccessDeniedException - denied (table account, GET /v2/email/account)"
         )
 
     def test_the_namespaced_body_type_is_stripped_to_the_bare_code(self) -> None:
         response = make_response(400, {"__type": "com.amazonaws.ses#BadRequestException", "message": "bad"})
 
-        assert str(error_for_response(response, "account", "/v2/email/account")) == (
+        assert str(error_for_response(response, "account", "/v2/email/account", "us-east-1")) == (
             "Amazon SES request failed: BadRequestException - bad (table account, GET /v2/email/account)"
         )
 
@@ -213,15 +221,41 @@ class TestErrorClassification:
     # with an empty JSON object or with no bytes at all.
     @pytest.mark.parametrize("content", [b"{}", b"", b"  \n "])
     def test_a_bodyless_bad_request_is_explained_instead_of_trailing_off_after_the_dash(self, content: bytes) -> None:
-        response = requests.Response()
-        response.status_code = 400
-        response.headers["x-amzn-ErrorType"] = "BadRequestException:http://internal.amazon.example/coral/"
-        response._content = content
-
-        message = str(error_for_response(response, "multi_region_endpoints", "/v2/email/multi-region-endpoints"))
+        message = str(
+            error_for_response(bodyless_bad_request(content), "email_identities", "/v2/email/identities/x", "eu-west-2")
+        )
 
         assert f"BadRequestException - {aws_ses._BAD_REQUEST_EXPLANATION}" in message
+        assert message.endswith("(table email_identities, GET /v2/email/identities/x)")
+
+    @pytest.mark.parametrize("content", [b"{}", b"", b"  \n "])
+    def test_a_bodyless_bad_request_on_a_faultless_request_names_the_region(self, content: bytes) -> None:
+        # PageSize is the only input such a request carries and SESv2 range-checks it, so the
+        # 400 can only mean the region has no such table. Say that, and say which region.
+        message = str(
+            error_for_response(
+                bodyless_bad_request(content),
+                "multi_region_endpoints",
+                "/v2/email/multi-region-endpoints",
+                "eu-west-2",
+                fixed_inputs_only=True,
+            )
+        )
+
+        assert "does not serve this table in AWS region eu-west-2" in message
         assert message.endswith("(table multi_region_endpoints, GET /v2/email/multi-region-endpoints)")
+
+    def test_an_aws_message_still_wins_over_the_region_explanation(self) -> None:
+        response = make_response(400, {"message": "Pool name describes a shared pool."})
+
+        message = str(
+            error_for_response(
+                response, "dedicated_ip_pools", "/v2/email/dedicated-ip-pools/p", "eu-west-2", fixed_inputs_only=True
+            )
+        )
+
+        assert "Pool name describes a shared pool." in message
+        assert "eu-west-2" not in message
 
     def test_a_bodyless_error_that_is_not_a_bad_request_reports_its_status(self) -> None:
         response = requests.Response()
@@ -229,13 +263,15 @@ class TestErrorClassification:
         response._content = b""
 
         assert "Amazon SES returned HTTP 502 with no message." in str(
-            error_for_response(response, "account", "/v2/email/account")
+            error_for_response(response, "account", "/v2/email/account", "us-east-1")
         )
 
     def test_an_email_identity_in_the_path_is_masked(self) -> None:
         response = make_response(400, {"message": "bad"})
 
-        message = str(error_for_response(response, "email_identities", "/v2/email/identities/user%40example.com"))
+        message = str(
+            error_for_response(response, "email_identities", "/v2/email/identities/user%40example.com", "us-east-1")
+        )
 
         assert message.endswith("(table email_identities, GET /v2/email/identities/{email})")
         assert "example.com" not in message
@@ -245,7 +281,7 @@ class TestErrorClassification:
         response.status_code = 503
         response._content = b"<html>gateway</html>"
 
-        assert "HTTP 503" in str(error_for_response(response, "account", "/v2/email/account"))
+        assert "HTTP 503" in str(error_for_response(response, "account", "/v2/email/account", "us-east-1"))
 
 
 class TestResolveStartDate:
@@ -398,6 +434,34 @@ class TestGetRows:
                 endpoint="multi_region_endpoints",
             )
 
+    @pytest.mark.parametrize(
+        "endpoint,responses,manager,expected",
+        [
+            ("multi_region_endpoints", [{"MultiRegionEndpoints": []}], None, [True]),
+            ("account", [{"SendingEnabled": True}], None, [True]),
+            (
+                "multi_region_endpoints",
+                [{"MultiRegionEndpoints": [], "NextToken": "p2"}, {"MultiRegionEndpoints": []}],
+                None,
+                [True, False],
+            ),
+            (
+                "multi_region_endpoints",
+                [{"MultiRegionEndpoints": []}],
+                FakeResumeManager(AwsSesResumeConfig(next_token="saved")),
+                [False],
+            ),
+        ],
+    )
+    def test_only_a_request_aws_cannot_fault_earns_the_region_wording(
+        self, endpoint: str, responses: list[Any], manager: Optional[FakeResumeManager], expected: list[bool]
+    ) -> None:
+        # A page token or a path name is an input AWS can legitimately reject, so a 400 on one
+        # of those must not be read as the region missing the table.
+        _, send, _ = self._run(responses, manager=manager, endpoint=endpoint)
+
+        assert [call[1].get("fixed_inputs_only", False) for call in send.call_args_list] == expected
+
     def test_an_incremental_run_asks_aws_only_for_updates_since_the_watermark(self) -> None:
         _, send, _ = self._run(
             [suppression_page([])],
@@ -406,6 +470,8 @@ class TestGetRows:
         )
 
         assert send.call_args[0][5]["StartDate"] == "2026-08-06T12:00:00Z"
+        # A date filter is an input AWS can reject, so this request keeps the hedged wording.
+        assert send.call_args[1].get("fixed_inputs_only", False) is False
 
     def test_a_full_refresh_walks_the_list_unbounded(self) -> None:
         _, send, _ = self._run([suppression_page([])])
@@ -786,7 +852,13 @@ class TestValidateCredentials:
 class TestEndpointPermissions:
     def test_only_the_denied_endpoint_is_reported_unreachable(self) -> None:
         def respond(
-            session: Any, credentials: Any, region: str, endpoint: str, path: str, params: Any = None
+            session: Any,
+            credentials: Any,
+            region: str,
+            endpoint: str,
+            path: str,
+            params: Any = None,
+            **kwargs: Any,
         ) -> dict[str, Any]:
             if path == "/v2/email/account":
                 raise AwsSesError("AccessDeniedException", "not authorized to perform: ses:GetAccount", endpoint, path)
@@ -831,18 +903,21 @@ class TestEndpointPermissions:
 
         assert reasons == {"suppressed_destinations": None}
 
-    def test_a_table_the_region_cannot_serve_is_reported_instead_of_staying_selectable(self) -> None:
-        # SESv2 answers an operation the region does not support with a bodyless 400.
-        with mock.patch.object(
-            aws_ses,
-            "send_request",
-            side_effect=AwsSesError(
-                "BadRequestException", "no reason", "multi_region_endpoints", "/v2/email/multi-region-endpoints"
-            ),
-        ):
-            reasons = probe_endpoint_permissions("key", "secret", None, "us-east-1", ["multi_region_endpoints"])
+    def test_a_table_the_region_cannot_serve_is_reported_instead_of_staying_selectable(
+        self, requests_mock: Any
+    ) -> None:
+        # SESv2 answers an operation the region does not support with a bodyless 400. The probe
+        # sends only PageSize, so the reason can name the region instead of hedging.
+        requests_mock.get(
+            "https://email.eu-west-2.amazonaws.com/v2/email/multi-region-endpoints",
+            status_code=400,
+            headers={"x-amzn-ErrorType": "BadRequestException"},
+            json={},
+        )
 
-        assert reasons == {"multi_region_endpoints": aws_ses._BAD_REQUEST_EXPLANATION}
+        reasons = probe_endpoint_permissions("key", "secret", None, "eu-west-2", ["multi_region_endpoints"])
+
+        assert reasons == {"multi_region_endpoints": aws_ses._region_missing_table_explanation("eu-west-2")}
 
     @pytest.mark.parametrize(
         "pool_name,code,status_code,expected_reason",
@@ -885,9 +960,9 @@ class TestEndpointPermissions:
         )
 
         assert probe_endpoint_permissions("key", "secret", None, "us-east-1", ["dedicated_ip_pools"]) == {
-            "dedicated_ip_pools": aws_ses._BAD_REQUEST_EXPLANATION
+            "dedicated_ip_pools": aws_ses._region_missing_table_explanation("us-east-1")
         }
         assert validate_credentials("key", "secret", None, "us-east-1", schema_name="dedicated_ip_pools") == (
             False,
-            aws_ses._BAD_REQUEST_EXPLANATION,
+            aws_ses._region_missing_table_explanation("us-east-1"),
         )

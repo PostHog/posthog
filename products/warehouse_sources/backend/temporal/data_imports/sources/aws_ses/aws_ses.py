@@ -65,6 +65,21 @@ _CREDENTIAL_ERROR_CODES = (
 )
 
 
+def _region_missing_table_explanation(region: str) -> str:
+    """Wording for a bodyless 400 on a request whose only input is `PageSize`.
+
+    SESv2 range-checks `PageSize` against its own model, so nothing in such a request can be
+    invalid and the 400 can only mean the region does not serve the operation. SES gates some
+    tables by region: `multi_region_endpoints` lists global endpoints, which a region either
+    offers or does not.
+    """
+    return (
+        f"Amazon SES does not serve this table in AWS region {region}. The request sent no "
+        "inputs AWS could reject, so the operation itself is unavailable there. Deselect the "
+        "table, or connect a source in a region that offers it."
+    )
+
+
 class AwsSesError(Exception):
     def __init__(self, code: str, message: str, endpoint: str, path: str) -> None:
         # A verified SES identity can be an email address, and the fan-out puts it in the detail
@@ -156,16 +171,21 @@ def _error_code(response: requests.Response, body: dict[str, Any]) -> str:
     return str(raw).split("#")[-1]
 
 
-def _error_message(response: requests.Response, body: dict[str, Any], code: str) -> str:
+def _error_message(
+    response: requests.Response, body: dict[str, Any], code: str, region: str, fixed_inputs_only: bool
+) -> str:
     message = body.get("message") or body.get("Message") or ""
     if message:
         return str(message)[:500]
     if code == "BadRequestException":
-        return _BAD_REQUEST_EXPLANATION
+        return _region_missing_table_explanation(region) if fixed_inputs_only else _BAD_REQUEST_EXPLANATION
     return f"Amazon SES returned HTTP {response.status_code} with no message."
 
 
-def error_for_response(response: requests.Response, endpoint: str, path: str) -> AwsSesError:
+def error_for_response(
+    response: requests.Response, endpoint: str, path: str, region: str, fixed_inputs_only: bool = False
+) -> AwsSesError:
+    """Build the error for a 4xx/5xx. `fixed_inputs_only` marks a request AWS cannot fault."""
     try:
         parsed = response.json()
     except ValueError:
@@ -178,7 +198,7 @@ def error_for_response(response: requests.Response, endpoint: str, path: str) ->
     text = "" if isinstance(parsed, dict) else response.text.strip()
     if text:
         return AwsSesError(code, text[:500], endpoint, path)
-    return AwsSesError(code, _error_message(response, body, code), endpoint, path)
+    return AwsSesError(code, _error_message(response, body, code, region, fixed_inputs_only), endpoint, path)
 
 
 def make_session(secret_access_key: str, session_token: Optional[str]) -> requests.Session:
@@ -193,8 +213,13 @@ def send_request(
     endpoint: str,
     path: str,
     params: Optional[dict[str, Any]] = None,
+    fixed_inputs_only: bool = False,
 ) -> dict[str, Any]:
-    """Sign one SESv2 GET with SigV4 and send it over the tracked session."""
+    """Sign one SESv2 GET with SigV4 and send it over the tracked session.
+
+    Set `fixed_inputs_only` when the request carries nothing the account chose: no name in the
+    path, no saved page token, no date filter. It decides how a bodyless 400 is explained.
+    """
     url = SES_ENDPOINT_TEMPLATE.format(region=region) + path
     if params:
         # Encoded exactly like the SigV4 canonical query string (RFC 3986, sorted keys), so the
@@ -206,7 +231,7 @@ def send_request(
 
     response = session.get(url, headers=dict(aws_request.headers.items()), timeout=REQUEST_TIMEOUT_SECONDS)
     if response.status_code >= 400:
-        raise error_for_response(response, endpoint, path)
+        raise error_for_response(response, endpoint, path, region, fixed_inputs_only)
     return response.json()
 
 
@@ -298,7 +323,15 @@ def _walk_pages(
             page_params["NextToken"] = next_token
 
         try:
-            body = send_request(session, credentials, region, endpoint_config.name, endpoint_config.path, page_params)
+            body = send_request(
+                session,
+                credentials,
+                region,
+                endpoint_config.name,
+                endpoint_config.path,
+                page_params,
+                fixed_inputs_only=set(page_params) <= {"PageSize"},
+            )
         except AwsSesError as error:
             # A token saved by a previous attempt can expire; restart the walk instead of
             # failing the job. Merge on the primary key absorbs the re-read rows. The restart
@@ -347,7 +380,9 @@ def get_rows(
         yield [
             normalize_row(
                 endpoint_config,
-                send_request(session, credentials, region, endpoint_config.name, endpoint_config.path),
+                send_request(
+                    session, credentials, region, endpoint_config.name, endpoint_config.path, fixed_inputs_only=True
+                ),
             )
         ]
         return
@@ -378,8 +413,9 @@ def _permission_reason(error: AwsSesError) -> Optional[str]:
         return "AWS rejected the access key. Please check the access key ID and secret access key."
     if error.code == "BadRequestException":
         # A 400 on the probe is deterministic, not a blip, so reporting it keeps the table out of
-        # the picker in a region that can never load it.
-        return _BAD_REQUEST_EXPLANATION
+        # the picker in a region that can never load it. The raised message already carries
+        # either AWS's own text or the explanation the bodyless case earns.
+        return error.message
     return None
 
 
@@ -396,10 +432,20 @@ def endpoint_permission_reason(
     """
     try:
         if endpoint_config.page_size is None:
-            send_request(session, credentials, region, endpoint_config.name, endpoint_config.path)
+            send_request(
+                session, credentials, region, endpoint_config.name, endpoint_config.path, fixed_inputs_only=True
+            )
             return None
 
-        body = send_request(session, credentials, region, endpoint_config.name, endpoint_config.path, {"PageSize": 1})
+        body = send_request(
+            session,
+            credentials,
+            region,
+            endpoint_config.name,
+            endpoint_config.path,
+            {"PageSize": 1},
+            fixed_inputs_only=True,
+        )
         if endpoint_config.detail_path:
             for item in (body.get(endpoint_config.result_key or "") or [])[:1]:
                 name = item.get(endpoint_config.item_name_key) if isinstance(item, dict) else item
@@ -462,7 +508,7 @@ def validate_credentials(
 
     try:
         account = AWS_SES_ENDPOINTS["account"]
-        send_request(session, credentials, region, account.name, account.path)
+        send_request(session, credentials, region, account.name, account.path, fixed_inputs_only=True)
     except AwsSesError as error:
         # A denied GetAccount still proves the key is genuine; per-table access is reported in
         # the schema picker instead of blocking source creation.
