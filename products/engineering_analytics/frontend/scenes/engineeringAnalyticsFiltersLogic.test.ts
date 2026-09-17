@@ -13,7 +13,9 @@ describe('windowStartFromUrl', () => {
     test.each([
         ['a window inside the cap', '-90d', null, '-90d'],
         ['a relative window past the cap', '-2y', null, `-${MAX_WINDOW_DAYS}d`],
-        ['a relative start with a fixed end, as a relative start', '-2y', '2026-06-30', '-444d'],
+        ['a relative start with a relative end, as a relative start', '-2y', '-30d', '-395d'],
+        ['a relative start with a fixed end, as a date', '-2y', '2026-06-30', '2025-06-30'],
+        ['a window ending far in the future, as a date', '-2y', '2028-01-01', '2027-01-01'],
         ['an absolute window past the cap', '2024-01-01', '2026-06-30', '2025-06-30'],
         ['an absolute start without an end, as a date', '2024-01-01', null, '2025-09-17'],
         ['an absolute window inside the cap', '2026-01-01', '2026-06-30', '2026-01-01'],
