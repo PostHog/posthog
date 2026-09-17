@@ -743,12 +743,14 @@ class TeamCIHealthItem:
     # Owned tests that failed with no such proof and still hit the blast-radius bar. Not flakes.
     regression_test_count: int
     regression_test_count_prior: int
-    # Runs (not spans) where an owned test's recorded outcome was failed or error.
+    # Distinct runs where at least one owned test failed or errored. One run that failed many of the
+    # team's tests counts once, so these are never a sum of the per-test run counts.
     failed_run_count: int
     failed_run_count_prior: int
     same_commit_recovery_run_count: int
     same_commit_recovery_run_count_prior: int
-    # Runs where an owned test recorded a tolerated failure while quarantined: already masked, still failing.
+    # Distinct runs where an owned test recorded a tolerated failure while quarantined: already
+    # masked, still failing.
     quarantined_failed_run_count: int
     quarantined_failed_run_count_prior: int
     # Most recent failure, recovery, or quarantined-failure run across the team's owned tests,

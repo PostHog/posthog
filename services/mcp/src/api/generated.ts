@@ -93417,15 +93417,15 @@ export namespace Schemas {
       regression_test_count: number;
       /** Same count over the prior window. */
       regression_test_count_prior: number;
-      /** CI runs (not spans) where an owned test's recorded outcome was failed or error. An absolute count, not a rate: fast passing runs are not emitted. */
+      /** Distinct CI runs where at least one owned test failed or errored. A run with many failing owned tests counts once. An absolute count, not a rate: fast passing runs are not emitted. */
       failed_run_count: number;
       /** Same count over the prior window. */
       failed_run_count_prior: number;
-      /** Runs where one commit both failed and passed an owned test: a re-run attempt went green, or an in-job retry recovered it. */
+      /** Distinct CI runs where one commit both failed and passed at least one owned test: a re-run attempt went green, or an in-job retry recovered it. */
       same_commit_recovery_run_count: number;
       /** Same count over the prior window. */
       same_commit_recovery_run_count_prior: number;
-      /** Runs where an owned test recorded a tolerated failure while quarantined: masked in CI, still failing. */
+      /** Distinct CI runs where at least one owned test recorded a tolerated failure while quarantined. */
       quarantined_failed_run_count: number;
       /** Same count over the prior window. */
       quarantined_failed_run_count_prior: number;

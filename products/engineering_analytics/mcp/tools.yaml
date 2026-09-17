@@ -245,8 +245,9 @@ tools:
             maximum 30 days). It reads the same per-run evidence as engineering-analytics-flaky-tests and means the same
             thing by flaky: flaky_test_count is owned tests one commit was seen both failing and passing in the window
             (a re-run attempt went green, or an in-job retry recovered it), regression_test_count is owned tests that
-            failed with no such proof and still hit min_failed_prs distinct PRs or master, and failed_run_count /
-            same_commit_recovery_run_count / quarantined_failed_run_count are run counts. Each has an equal-length
+            failed with no such proof and still hit min_failed_prs distinct PRs or master, and failed_run_count,
+            same_commit_recovery_run_count and quarantined_failed_run_count count distinct CI runs across the team's
+            owned tests, so one run with many failing tests counts once. Each has an equal-length
             previous-window twin (*_prior) for honest deltas. Use this for "which team owns the flakiest surfaces right
             now" and to route a flaky-test or CI Signal to its owning team. Ownership is stamped on the spans at CI
             emission time from the repo's ownership map (the distributed owners.yaml files); spans without a stamp
