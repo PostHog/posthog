@@ -19,6 +19,31 @@ import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
 import {
+  appendBenjaminGuidance,
+  appendSte100Guidance,
+  BENJAMIN_UPSTREAM_COMMIT,
+  isBenjaminEnabled,
+} from "@posthog/harness/extensions/benjamin";
+import {
+  GH_STACK_QUALIFIED_TOOL_NAME,
+  resolveGithubToken,
+  SIGNED_COMMIT_QUALIFIED_TOOL_NAME,
+  SIGNED_MERGE_QUALIFIED_TOOL_NAME,
+  SIGNED_REWRITE_QUALIFIED_TOOL_NAME,
+} from "@posthog/harness/extensions/local-tools";
+import {
+  compilePostHogExecPermissionRegex,
+  DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE,
+  extractPostHogSubTool,
+  isPostHogExecDescriptor,
+  matchesPostHogExecPermission,
+} from "@posthog/harness/extensions/posthog-mcp-policy";
+import { appendRtkGuidanceForCodex } from "@posthog/harness/extensions/rtk";
+import {
+  buildStoreSkillsInstructions,
+  syncStoreSkills,
+} from "@posthog/harness/extensions/skills-store";
+import {
   type AcpMcpServer,
   type Adapter,
   buildPrOutput,
@@ -55,11 +80,6 @@ import {
   createAcpConnection,
   type InProcessAcpConnection,
 } from "../adapters/acp-connection";
-import { BENJAMIN_UPSTREAM_COMMIT } from "../adapters/benjamin/instruction";
-import {
-  appendBenjaminGuidance,
-  isBenjaminEnabled,
-} from "../adapters/benjamin-guidance";
 import { setAlwaysAskMcpServers } from "../adapters/claude/mcp/tool-metadata";
 import {
   getSessionJsonlPath,
@@ -76,27 +96,12 @@ import {
   isRetryableUpstreamErrorClassification,
   sanitizeAgentErrorCause,
 } from "../adapters/error-classification";
-import { GH_STACK_QUALIFIED_TOOL_NAME } from "../adapters/local-tools/tools/gh-stack";
 import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
-import { appendRtkGuidanceForCodex } from "../adapters/rtk-guidance";
-import {
-  SIGNED_COMMIT_QUALIFIED_TOOL_NAME,
-  SIGNED_MERGE_QUALIFIED_TOOL_NAME,
-  SIGNED_REWRITE_QUALIFIED_TOOL_NAME,
-} from "../adapters/signed-commit-shared";
-import { appendSte100Guidance } from "../adapters/ste100-guidance";
 import type { PermissionMode } from "../execution-mode";
 import { DEFAULT_CODEX_MODEL, fetchGatewayModels } from "../gateway-models";
 import { OtelRunTelemetry } from "../otel-telemetry";
 import { configurePersistentAgentState } from "../persistent-agent-state";
 import { PostHogAPIClient } from "../posthog-api";
-import {
-  compilePostHogExecPermissionRegex,
-  DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE,
-  extractPostHogSubTool,
-  isPostHogExecDescriptor,
-  matchesPostHogExecPermission,
-} from "../posthog-exec-permission";
 import {
   findPrUrls,
   type OwnedBranch,
@@ -123,7 +128,6 @@ import { resourceLink } from "../utils/acp-content";
 import { withTimeout } from "../utils/common";
 import { createEventIdSource } from "../utils/event-id";
 import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
-import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
 import { redactSecrets, SecretEventRedactor } from "../utils/redact-secrets";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
@@ -148,7 +152,6 @@ import {
   jsonRpcRequestSchema,
   validateCommandParams,
 } from "./schemas";
-import { buildStoreSkillsInstructions, syncStoreSkills } from "./store-skills";
 import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
 import { waitForFile } from "./wait-for-file";
 

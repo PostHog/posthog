@@ -19,6 +19,13 @@ export type {
 } from "./agent-conversation";
 export * from "./agent-runtime";
 export * from "./analytics-events";
+export type { TaskRunUpdate } from "./api-http-client";
+export {
+  API_TRANSFER_TIMEOUT_MS,
+  PostHogHttpClient,
+  PostHogHttpError,
+  transferTimeoutMs,
+} from "./api-http-client";
 export type { ArchivedTask } from "./archive-domain";
 export { withTimeout } from "./async";
 export {
@@ -281,6 +288,7 @@ export {
   type PiToolCallRecord,
   type PiToolName,
 } from "./pi-tool-call";
+export { POSTHOG_PRODUCTS, type PostHogProductId } from "./posthog-products";
 export {
   buildPrOutput,
   mergePrUrls,
