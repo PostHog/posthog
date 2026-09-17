@@ -289,35 +289,64 @@ describe('SessionRecordingIngester', () => {
         await ingester.stop()
     })
 
-    describe('with staged batches', () => {
+    it('passes the consumer no background task options for a runner with one stage', () => {
+        expect(mockKafkaConsumerConfigs.at(-1)).not.toHaveProperty('maxBackgroundTasks')
+        expect(mockKafkaConsumerConfigs.at(-1)).not.toHaveProperty('backgroundTaskTimeoutMs')
+    })
+
+    describe('with a runner of one stage', () => {
         let runner: StagedBatchRunner
 
         beforeEach(() => {
-            runner = { stages: ['record'], start: jest.fn(), run: jest.fn() }
-            createIngester({}, { stagedRunner: runner })
+            runner = { stages: ['ingest'], start: jest.fn(), run: jest.fn() }
+            createIngester({}, { runner })
+        })
+
+        it('completes the batch inside handleEachBatch and returns no task', async () => {
+            const done = deferred()
+            runner.run = (_messages, batch) => batch.stage('ingest', () => done.promise).done()
+            await ingester.start()
+
+            let returned: unknown = 'pending'
+            const handled = ingester.handleEachBatch([kafkaMessage(0, 42)]).then((result) => (returned = result))
+            await flushMicrotasks()
+            expect(returned).toBe('pending')
+
+            done.resolve()
+            await handled
+            expect(returned).toBeUndefined()
+            await ingester.stop()
+        })
+    })
+
+    describe('with a runner of several stages', () => {
+        let runner: StagedBatchRunner
+
+        beforeEach(() => {
+            runner = { stages: ['prepare', 'ingest'], start: jest.fn(), run: jest.fn() }
+            createIngester({}, { runner })
         })
 
         it('keeps one batch per stage in flight at the consumer', () => {
-            expect(mockKafkaConsumerConfigs.at(-1)).toMatchObject({ maxBackgroundTasks: 1 })
+            expect(mockKafkaConsumerConfigs.at(-1)).toMatchObject({ maxBackgroundTasks: 2 })
         })
 
-        it('returns each poll batch as a background task, and the committer records only for held partitions and tracks only their offsets', async () => {
-            const recordedInto: SessionBatchRecorder[] = []
+        it('returns each poll batch as a background task, and tells the write which partitions are held under the lock', async () => {
+            const writtenInto: SessionBatchRecorder[] = []
             const ownership: boolean[][] = []
             runner.run = (messages, batch, committer) =>
                 batch
-                    .stage('record', () =>
-                        committer.commit(
-                            new Map([
-                                [0, 42],
-                                [1, 7],
-                            ]),
-                            (recorder, isAssigned) => {
-                                recordedInto.push(recorder)
-                                ownership.push([isAssigned!(0), isAssigned!(1)])
-                                return Promise.resolve(messages.filter((m) => isAssigned!(m.partition)))
-                            }
-                        )
+                    .stage('prepare', () => Promise.resolve())
+                    .stage('ingest', () =>
+                        committer.commit((recorder, isAssigned) => {
+                            writtenInto.push(recorder)
+                            ownership.push([isAssigned(0), isAssigned(1)])
+                            const held = messages.filter((m) => isAssigned(m.partition))
+                            return Promise.resolve({
+                                maxOffsets: new Map(held.map((m) => [m.partition, m.offset])),
+                                okMessages: held,
+                            })
+                        })
                     )
                     .done()
             jest.mocked(ingester.kafkaConsumer).assignments.mockReturnValue([{ topic: consumeTopic, partition: 0 }])
@@ -330,7 +359,7 @@ describe('SessionRecordingIngester', () => {
             await result!.backgroundTask
             expect(runPipelineMock).not.toHaveBeenCalled()
             expect(ownership).toEqual([[true, false]])
-            expect(recordedInto).toHaveLength(1)
+            expect(writtenInto).toHaveLength(1)
 
             await ingester.stop()
             expect(jest.mocked(ingester.kafkaConsumer).offsetsStore).toHaveBeenCalledWith([
@@ -339,11 +368,16 @@ describe('SessionRecordingIngester', () => {
         })
 
         it('answers a known retention from the batch current at the time of the call, not the one current when the batch was admitted', async () => {
-            createIngester({ SESSION_RECORDING_MAX_BATCH_AGE_MS: 0 }, { stagedRunner: runner })
+            createIngester({ SESSION_RECORDING_MAX_BATCH_AGE_MS: 0 }, { runner })
             let committer!: BatchCommitter
             runner.run = (_messages, batch, handedCommitter) => {
                 committer = handedCommitter
-                return batch.stage('record', () => committer.commit(new Map(), () => Promise.resolve([]))).done()
+                return batch
+                    .stage('prepare', () => Promise.resolve())
+                    .stage('ingest', () =>
+                        committer.commit(() => Promise.resolve({ maxOffsets: new Map(), okMessages: [] }))
+                    )
+                    .done()
             }
             await ingester.start()
             const admittedInto = ingester['currentBatch']
@@ -360,16 +394,17 @@ describe('SessionRecordingIngester', () => {
             await ingester.stop()
         })
 
-        it('tracks the offsets of a commit under the same lock as its record, so a revoke flush queued behind it stores them', async () => {
-            const recordEntered = deferred()
-            const recordGate = deferred()
+        it('tracks the offsets of a commit under the same lock as its write, so a revoke flush queued behind it stores them', async () => {
+            const writeEntered = deferred()
+            const writeGate = deferred()
             runner.run = (messages, batch, committer) =>
                 batch
-                    .stage('record', () =>
-                        committer.commit(new Map([[0, 42]]), async () => {
-                            recordEntered.resolve()
-                            await recordGate.promise
-                            return messages
+                    .stage('prepare', () => Promise.resolve())
+                    .stage('ingest', () =>
+                        committer.commit(async () => {
+                            writeEntered.resolve()
+                            await writeGate.promise
+                            return { maxOffsets: new Map([[0, 42]]), okMessages: messages }
                         })
                     )
                     .done()
@@ -382,19 +417,19 @@ describe('SessionRecordingIngester', () => {
                 events.push('offsets_tracked')
                 trackProcessedOffsets(offsets)
             })
-            const batchBeingRecorded = ingester['currentBatch']
-            const flush = batchBeingRecorded.flush.bind(batchBeingRecorded)
-            batchBeingRecorded.flush = () => {
+            const batchBeingWritten = ingester['currentBatch']
+            const flush = batchBeingWritten.flush.bind(batchBeingWritten)
+            batchBeingWritten.flush = () => {
                 events.push('flush_started')
                 return flush()
             }
 
             const result = await ingester.handleEachBatch([kafkaMessage(0, 42)])
-            await recordEntered.promise
+            await writeEntered.promise
             // Models a revoke whose drain timed out: its flush queues on the batch lock while the commit still holds it.
             const revoked = onPartitionsRevoked([{ topic: consumeTopic, partition: 0 }])
             await flushMicrotasks()
-            recordGate.resolve()
+            writeGate.resolve()
             await result!.backgroundTask
             await revoked
             await ingester.stop()

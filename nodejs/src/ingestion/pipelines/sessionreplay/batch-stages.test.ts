@@ -67,7 +67,7 @@ describe('BatchStages', () => {
         ])
     })
 
-    it('stops the batches behind a failed one at their next stage, whether admitted before or after the failure, and lets the batch ahead finish', async () => {
+    it('stops the batches in flight behind a failed one at their next stage, lets the batch ahead finish, and admits new batches after it', async () => {
         const stages = new BatchStages(['load', 'process'])
         const holdProcessOfFirst = gate()
         let secondLoadFailed = false
@@ -103,8 +103,6 @@ describe('BatchStages', () => {
 
         await until(() => secondLoadFailed)
         await new Promise(setImmediate)
-        const fourth = admitAfter(4)
-        await new Promise(setImmediate)
         expect(loaded.size).toBe(0)
 
         // The rejections surface through the process stage, which sits behind the first batch until it is released.
@@ -112,8 +110,11 @@ describe('BatchStages', () => {
         await expect(first).resolves.toBeUndefined()
         await expect(second).resolves.toEqual(new Error('broken'))
         await expect(third).resolves.toEqual(new Error('broken'))
-        await expect(fourth).resolves.toEqual(new Error('broken'))
         expect(loaded.size).toBe(0)
+
+        // Whether to admit anything after a failure is the consumer's call, so a batch admitted afterwards runs.
+        await expect(admitAfter(4)).resolves.toBeUndefined()
+        expect(loaded).toEqual(new Set([4]))
     })
 
     it('stops a later batch at its next stage when an earlier batch fails in a later stage while the later batch is mid-stage', async () => {

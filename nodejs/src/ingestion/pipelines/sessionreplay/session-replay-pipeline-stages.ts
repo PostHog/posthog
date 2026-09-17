@@ -20,7 +20,7 @@ import { TeamFilterStepOutput, createTeamFilterStep } from './team-filter-step'
 import { TeamForReplay } from './teams/types'
 import { createValidateSessionReplayHeadersStep } from './validate-headers-step'
 
-/** What preprocessing needs from an element. The main lane stamps the full recorder; a lane that overlaps batches stamps only the retention lookup. */
+/** What preprocessing needs from an element. The main lane stamps the full recorder. A lane that overlaps batches stamps only the retention lookup. */
 export type SessionReplayPreprocessingInput = { message: Message } & RetentionLookupContext
 /** A preprocessed element: the headers validated and the team resolved. */
 export type PreprocessedReplayInput<I> = Omit<I & { headers: EventHeaders }, 'headers'> & {
