@@ -2,10 +2,23 @@ import { mkdtempSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import {
   listPendingCrashDumps,
   reportPendingCrashDumps,
 } from "./pending-crash-dumps";
+
+const warn = vi.hoisted(() => vi.fn());
+vi.mock("./logger", () => ({
+  logger: {
+    scope: () => ({
+      info: vi.fn(),
+      error: vi.fn(),
+      warn,
+      debug: vi.fn(),
+    }),
+  },
+}));
 
 describe("pending crash dumps", () => {
   let pendingDir: string;
@@ -19,6 +32,7 @@ describe("pending crash dumps", () => {
 
   beforeEach(() => {
     pendingDir = mkdtempSync(path.join(tmpdir(), "crash-dumps-"));
+    warn.mockClear();
   });
 
   it.each([
@@ -33,6 +47,20 @@ describe("pending crash dumps", () => {
       pruned: 0,
     });
     expect(captureException).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("logs a read failure that is not a missing directory", () => {
+    const notADirectory = path.join(pendingDir, "pending");
+    writeFileSync(notADirectory, "not a directory");
+    const captureException = vi.fn();
+
+    expect(reportPendingCrashDumps(notADirectory, captureException)).toEqual({
+      found: 0,
+      reported: 0,
+      pruned: 0,
+    });
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it("lists only dumps, newest first", () => {

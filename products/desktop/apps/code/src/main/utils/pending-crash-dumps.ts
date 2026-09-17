@@ -1,5 +1,8 @@
 import { readdirSync, statSync, unlinkSync } from "node:fs";
 import path from "node:path";
+import { logger } from "./logger";
+
+const log = logger.scope("crash-dumps");
 
 export interface PendingCrashDump {
   filePath: string;
@@ -18,7 +21,12 @@ export function listPendingCrashDumps(pendingDir: string): PendingCrashDump[] {
   let entries: string[];
   try {
     entries = readdirSync(pendingDir);
-  } catch {
+  } catch (error) {
+    // No directory means crashpad has never written a dump. Anything else
+    // hides dumps from both callers, so it has to leave a trace.
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      log.warn("Failed to read the pending crash dump directory", error);
+    }
     return [];
   }
   const dumps: PendingCrashDump[] = [];
@@ -33,7 +41,9 @@ export function listPendingCrashDumps(pendingDir: string): PendingCrashDump[] {
         sizeBytes: stats.size,
         writtenAtMs: stats.mtimeMs,
       });
-    } catch {}
+    } catch (error) {
+      log.warn("Failed to read a pending crash dump", { fileName, error });
+    }
   }
   return dumps.sort((a, b) => b.writtenAtMs - a.writtenAtMs);
 }
