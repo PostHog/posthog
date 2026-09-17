@@ -11,7 +11,8 @@ from django.db import transaction
 from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
-from django.http.response import HttpResponseBase
+from django.http.response import HttpResponseBase, HttpResponseRedirect
+from django.urls import reverse
 
 import requests
 import structlog
@@ -1072,6 +1073,44 @@ class ReplayObservationViewSet(
             team_id=observation.team_id, observation=observation, user=request.user
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        request=None,
+        responses={
+            302: OpenApiResponse(description="Redirect to the image."),
+            404: OpenApiResponse(
+                response=ReplayVisionErrorSerializer,
+                description="The observation has no thumbnail, or its render has not landed yet.",
+            ),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["GET"],
+        url_path="thumbnail",
+        required_scopes=["replay_scanner:read", "session_recording:read"],
+    )
+    def thumbnail(self, request: Request, **kwargs: Any) -> HttpResponseBase:
+        """Redirect to the frame that illustrates this observation, so a caller with only the observation id can show it."""
+        observation = self.get_object()
+        media = (
+            ReplayObservationMedia.objects.for_team(observation.team_id)
+            .filter(observation_id=observation.id, kind=ReplayObservationMedia.Kind.THUMBNAIL)
+            .exclude(asset__content_location=None)
+            .order_by("position")
+            .first()
+        )
+        if media is None:
+            raise NotFound("This observation has no thumbnail.")
+        response = HttpResponseRedirect(
+            reverse(
+                "project_exports-content",
+                kwargs={"parent_lookup_team_id": observation.team_id, "pk": media.asset_id},
+            )
+        )
+        # The target is a signed, expiring URL, so a cached redirect outlives what it points at.
+        response["Cache-Control"] = "no-store"
+        return response
 
     @extend_schema(
         request=None,

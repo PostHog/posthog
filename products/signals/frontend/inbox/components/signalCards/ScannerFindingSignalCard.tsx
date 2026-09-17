@@ -1,9 +1,13 @@
+import { useValues } from 'kea'
+
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { colonDelimitedDuration, humanFriendlyDuration } from 'lib/utils/durations'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { ReplayVisionScannerFindingSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { observationThumbnailUrl } from './observationThumbnailUrl'
 import { RecordingPreview } from './RecordingPreview'
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'
@@ -32,6 +36,7 @@ function findingSeekTime(recordingStartTime: string | null | undefined, offsetSe
 
 /** Live card for a replay-vision scanner finding: thumbnail preview and a play affordance that seeks to the observation. */
 export function ScannerFindingSignalCard({ signal }: SignalCardProps): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
     const extra = signal.extra as Record<string, unknown> & ReplayVisionScannerFindingSignalExtraApi
 
     const activeDuration =
@@ -51,7 +56,9 @@ export function ScannerFindingSignalCard({ signal }: SignalCardProps): JSX.Eleme
             <RecordingPreview
                 sessionId={extra.session_id}
                 seekTime={findingSeekTime(extra.recording_start_time, extra.start_time)}
-                exportedAssetId={extra.exported_asset_id}
+                thumbnailSrc={
+                    currentTeamId !== null ? observationThumbnailUrl(currentTeamId, extra.observation_id) : undefined
+                }
                 alt={`Recording preview for ${extra.scanner_name}`}
             />
 

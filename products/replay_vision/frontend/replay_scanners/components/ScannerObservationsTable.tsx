@@ -142,7 +142,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             width: 96,
             render: (_, obs) => (
                 <Link to={observationDetailUrl(obs.id, observationDetailLinkParams)}>
-                    <ObservationThumbnail observation={obs} className="w-20" />
+                    <ObservationThumbnail observationId={obs.id} className="w-20" />
                 </Link>
             ),
         },

@@ -349,7 +349,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                         aria-expanded={false}
                         data-attr="vision-observation-recording-toggle"
                     >
-                        <ObservationThumbnail observation={observation} className="w-20 shrink-0">
+                        <ObservationThumbnail observationId={observation.id} className="w-20 shrink-0">
                             <IconPlayFilled className="text-xl text-brand-red drop-shadow" />
                         </ObservationThumbnail>
                         <span className="flex-1 min-w-0">
