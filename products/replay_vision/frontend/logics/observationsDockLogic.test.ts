@@ -135,6 +135,9 @@ describe('observationsDockLogic', () => {
         await new Promise((resolve) => setTimeout(resolve, 0))
 
         expect(inlineScanCalls).toBe(1)
+        // The second click is dropped, but it now says so rather than leaving the user in front of a
+        // button that looked live and did nothing.
+        expect(lemonToast.info).toHaveBeenCalled()
     })
 
     it('warns rather than promising a result when an already-summarized row is unreadable', async () => {
@@ -221,6 +224,47 @@ describe('observationsDockLogic', () => {
 
         expect(observeCalls).toBe(routingCase.runsOwnScanner ? 1 : 0)
         expect(inlineScanCalls).toBe(routingCase.runsOwnScanner ? 0 : 1)
+    })
+
+    it('stays pending while a summary row is still running, and settles once it is not', async () => {
+        // The reason the button kept reverting mid-scan: the old spinner cleared on the trigger
+        // response, not on the summary itself. `summarizePending` reads the row's own status, so it
+        // holds a recording that was opened with a summary already in flight, then clears when the
+        // scan lands — no click needed to reproduce either state.
+        const runningRow = {
+            id: 'obs-run',
+            scanner_id: 'scanner-x',
+            session_id: 'sess-1',
+            status: 'running',
+            scanner_snapshot: { scanner_type: 'summarizer' },
+        } as ReplayObservationApi
+
+        observationResults = [runningRow]
+        logic.actions.loadObservations()
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        await expectLogic(logic).toMatchValues({ summaryInFlight: true, summarizePending: true })
+
+        observationResults = [{ ...runningRow, status: 'succeeded' } as ReplayObservationApi]
+        logic.actions.loadObservations()
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        await expectLogic(logic).toMatchValues({ summaryInFlight: false, summarizePending: false })
+    })
+
+    it('does not treat a running monitor scan as a summary in flight', async () => {
+        // The summarize button only owns summaries. A monitor scan the sidebar started is in flight
+        // too, but claiming it here would leave the button pending over a run it never triggered.
+        observationResults = [
+            {
+                id: 'obs-mon',
+                scanner_id: 'scanner-m',
+                session_id: 'sess-1',
+                status: 'running',
+                scanner_snapshot: { scanner_type: 'monitor' },
+            } as ReplayObservationApi,
+        ]
+        logic.actions.loadObservations()
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        await expectLogic(logic).toMatchValues({ summaryInFlight: false, summarizePending: false })
     })
 
     it('keeps the summarizer picked from the dropdown on the next recording', async () => {
