@@ -323,6 +323,9 @@ Product teams own their definitions and control which operations are exposed as 
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
 
+   For scheduled HogQL exports, `batch-export-create` and `batch-export-update` accept `hogql_query`.
+   Do not exclude it: creating an export with `model: hogql` requires a query.
+
    For generated list apps, `generate:ui-apps` also checks `detail_tool` and the
    `detail_args` keys against the tool's input schema snapshot, so a wrong argument
    name fails generation instead of silently dropping the argument at runtime.

@@ -2242,6 +2242,7 @@ def create_backfill(
             except UnsupportedHogQLQueryError as e:
                 raise ValidationError(str(e)) from e
             if DATA_INTERVAL_START_PLACEHOLDER in find_interval_placeholders(parsed):
+                # TODO: We should maybe support beginning-of-time backfills with this placeholder.
                 raise ValidationError(
                     "This query references {data_interval_start}, which is unavailable when backfilling from the "
                     "beginning of time. Provide 'start_at' or remove {data_interval_start} from the query."

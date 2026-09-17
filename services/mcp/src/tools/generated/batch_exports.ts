@@ -32,6 +32,9 @@ const batchExportCreate = (): ToolBase<ReturnType<typeof BatchExportCreateSchema
         if (params.paused !== undefined) {
             body['paused'] = params.paused
         }
+        if (params.hogql_query !== undefined) {
+            body['hogql_query'] = params.hogql_query
+        }
         if (params.timezone !== undefined) {
             body['timezone'] = params.timezone
         }
@@ -112,6 +115,9 @@ const batchExportUpdate = (): ToolBase<ReturnType<typeof BatchExportUpdateSchema
         }
         if (params.paused !== undefined) {
             body['paused'] = params.paused
+        }
+        if (params.hogql_query !== undefined) {
+            body['hogql_query'] = params.hogql_query
         }
         if (params.timezone !== undefined) {
             body['timezone'] = params.timezone
