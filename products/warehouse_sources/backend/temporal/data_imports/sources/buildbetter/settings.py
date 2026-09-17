@@ -17,6 +17,8 @@ EXTRACTION_ID = "extraction_id"
 EXTRACTION_CREATED_AT = "extraction_created_at"
 SENTENCE_INDEX = "sentence_index"
 TOPIC_ID = "topic_id"
+TAG_ID = "tag_id"
+TYPE_ID = "type_id"
 
 BUILDBETTER_API_URL = "https://api.buildbetter.app/v1/graphql"
 BUILDBETTER_DEFAULT_PAGE_SIZE = 1000
@@ -43,9 +45,9 @@ INCREMENTAL_EXTRACTION_CREATED_AT = _incremental_datetime_field(EXTRACTION_CREAT
 class BuildBetterNestedConfig:
     """A table built from a nested relation of a parent query, one row per nested item.
 
-    BuildBetter exposes attendees, transcript sentences and extraction topics only as relations
-    of `interview` / `extraction`, so these tables page their parent query and flatten the
-    relation, carrying the parent's identifier and timestamps onto every row.
+    BuildBetter exposes attendees, transcript sentences, tags and the topic and type lookups only
+    as relations of `interview` / `extraction`, so these tables page their parent query and
+    flatten the relation, carrying the parent's identifier and timestamps onto every row.
     """
 
     nested_field: str
@@ -53,6 +55,9 @@ class BuildBetterNestedConfig:
     unwrap_field: str | None = None
     unwrap_prefix: str = ""
     index_column: str | None = None
+    # An object relationship resolves to one record rather than a list, so the record's own
+    # fields become the row and `unwrap_prefix` applies to them directly.
+    single: bool = False
 
 
 @dataclass(frozen=True)
@@ -107,6 +112,32 @@ BUILDBETTER_ENDPOINTS: dict[str, BuildBetterEndpointConfig] = {
         ),
         partition_keys=[INTERVIEW_CREATED_AT],
     ),
+    "interview_tags": BuildBetterEndpointConfig(
+        graphql_query_name="interview",
+        incremental_fields=INCREMENTAL_INTERVIEW_UPDATED_AT,
+        page_size=500,
+        primary_keys=[INTERVIEW_ID, TAG_ID],
+        nested=BuildBetterNestedConfig(
+            nested_field="tags",
+            parent_columns=INTERVIEW_PARENT_COLUMNS,
+            unwrap_field="tag",
+            unwrap_prefix="tag_",
+        ),
+        partition_keys=[INTERVIEW_CREATED_AT],
+    ),
+    "interview_types": BuildBetterEndpointConfig(
+        graphql_query_name="interview",
+        incremental_fields=INCREMENTAL_INTERVIEW_UPDATED_AT,
+        page_size=500,
+        primary_keys=[INTERVIEW_ID, TYPE_ID],
+        nested=BuildBetterNestedConfig(
+            nested_field="type",
+            parent_columns=INTERVIEW_PARENT_COLUMNS,
+            unwrap_prefix="type_",
+            single=True,
+        ),
+        partition_keys=[INTERVIEW_CREATED_AT],
+    ),
     "extractions": BuildBetterEndpointConfig(
         graphql_query_name="extraction",
         incremental_fields=INCREMENTAL_CREATED_AT,
@@ -122,6 +153,19 @@ BUILDBETTER_ENDPOINTS: dict[str, BuildBetterEndpointConfig] = {
             parent_columns={ID: EXTRACTION_ID, CREATED_AT: EXTRACTION_CREATED_AT},
             unwrap_field="topic",
             unwrap_prefix="topic_",
+        ),
+        partition_keys=[EXTRACTION_CREATED_AT],
+    ),
+    "extraction_types": BuildBetterEndpointConfig(
+        graphql_query_name="extraction",
+        incremental_fields=INCREMENTAL_EXTRACTION_CREATED_AT,
+        page_size=500,
+        primary_keys=[EXTRACTION_ID, TYPE_ID],
+        nested=BuildBetterNestedConfig(
+            nested_field="types",
+            parent_columns={ID: EXTRACTION_ID, CREATED_AT: EXTRACTION_CREATED_AT},
+            unwrap_field="type",
+            unwrap_prefix="type_",
         ),
         partition_keys=[EXTRACTION_CREATED_AT],
     ),

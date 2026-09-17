@@ -79,6 +79,8 @@ jobs:
                   list-files: 'escape'
                   filters: |
                       nodejs:
+                        - '.github/scripts/jest-retries.cjs'
+                        - 'patches/jest-junit@16.0.0.patch'
                         - .github/workflows/ci-nodejs.yml
                         - .github/actions/setup-uv/**
                         # The report job executes these after Jest uploads its JUnit artifacts.
@@ -127,6 +129,8 @@ jobs:
                       # Anything here invalidates jest's view of the module graph, or changes
                       # the native addons every suite links, so no narrowed run can be trusted.
                       node_full:
+                        - '.github/scripts/jest-retries.cjs'
+                        - 'patches/jest-junit@16.0.0.patch'
                         - 'nodejs/jest*.config.js'
                         - 'nodejs/package.json'
                         - 'nodejs/tsconfig*.json'

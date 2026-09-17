@@ -7,6 +7,13 @@ registration dates, organisation/service types, regulated activities, specialism
 ratings — only comes from the per-id detail endpoints (`/providers/{id}`, `/locations/{id}`). So
 each stream pages the list and fans out one detail call per id.
 
+Inspection areas come in three streams. `/inspection-areas` is the global taxonomy: one unpaginated
+body holding every area code CQC inspects against. `/providers/{id}/inspection-areas` and
+`/locations/{id}/inspection-areas` give the areas actually inspected at one organisation, along with
+the ratings for them, so both fan out over their parent list the same way the detail streams do.
+CQC publishes no schema for the per-organisation variants, so they are parsed like the taxonomy
+endpoint they mirror — rows nested under `inspectionAreas`.
+
 Authentication is a single subscription/primary key (obtained from the CQC developer portal at
 api-portal.service.cqc.org.uk) sent as the `Ocp-Apim-Subscription-Key` header. A `partnerCode`
 query param is recommended on every request — clients sending it get the 2000 req/min tier; without
@@ -16,7 +23,7 @@ Incremental sync: the API only surfaces change detection via `/changes/provider`
 `/changes/location` (which return changed ids for a `startTimestamp`/`endTimestamp` window). Those
 would require fanning out to detail per changed id, but — critically — the detail records carry no
 stable "last modified" timestamp we can anchor the pipeline's incremental watermark to. Without a
-row-level cursor field the watermark can't advance correctly, so both streams ship full-refresh
+row-level cursor field the watermark can't advance correctly, so every stream ships full-refresh
 only. Full refresh is resumable at list-page granularity so a long fan-out survives heartbeat
 timeouts.
 """
@@ -108,7 +115,40 @@ def validate_credentials(api_key: str, partner_code: str | None) -> bool:
         return False
 
 
-def _iter_detail_rows(
+def _rows_for_item(
+    session: requests.Session,
+    config: CQCEndpointConfig,
+    item: dict,
+    headers: dict[str, str],
+    partner_code: str | None,
+    logger: FilteringBoundLogger,
+) -> Iterator[dict]:
+    if config.detail_path is None or config.id_field is None:
+        yield item
+        return
+
+    # Direct access: a list record missing its id field is an API contract violation worth
+    # surfacing as a KeyError rather than silently skipping the row.
+    record_id = item[config.id_field]
+
+    detail = _fetch(
+        session,
+        _build_url(config.detail_path.format(id=record_id), {"partnerCode": partner_code}),
+        headers,
+        logger,
+    )
+
+    if config.detail_data_key is None:
+        yield detail
+        return
+
+    for row in detail.get(config.detail_data_key) or []:
+        # Stamp the parent id: the same inspectionAreaId recurs across organisations, so it only
+        # identifies a row together with the organisation it was inspected at.
+        yield {**row, config.id_field: record_id}
+
+
+def _iter_endpoint_rows(
     session: requests.Session,
     config: CQCEndpointConfig,
     headers: dict[str, str],
@@ -120,12 +160,13 @@ def _iter_detail_rows(
 ) -> Iterator[Any]:
     page = start_page
     while True:
-        list_data = _fetch(
-            session,
-            _build_url(config.list_path, {"page": page, "perPage": LIST_PAGE_SIZE, "partnerCode": partner_code}),
-            headers,
-            logger,
-        )
+        params: dict[str, Any] = {}
+        if config.paginated:
+            params["page"] = page
+            params["perPage"] = LIST_PAGE_SIZE
+        params["partnerCode"] = partner_code
+
+        list_data = _fetch(session, _build_url(config.list_path, params), headers, logger)
 
         items = list_data.get(config.list_data_key, [])
         if not items:
@@ -138,25 +179,16 @@ def _iter_detail_rows(
             total_pages = math.inf
 
         for item in items:
-            # Direct access: a list record missing its id field is an API contract violation worth
-            # surfacing as a KeyError rather than silently skipping the row.
-            record_id = item[config.id_field]
+            for row in _rows_for_item(session, config, item, headers, partner_code, logger):
+                batcher.batch(row)
 
-            detail = _fetch(
-                session,
-                _build_url(config.detail_path.format(id=record_id), {"partnerCode": partner_code}),
-                headers,
-                logger,
-            )
-            batcher.batch(detail)
+                if batcher.should_yield():
+                    yield batcher.get_table()
+                    # Save AFTER yielding so a crash re-fetches the current page rather than
+                    # skipping rows; merge dedupes the re-pulled records on the primary key.
+                    resumable_source_manager.save_state(CQCResumeConfig(page=page))
 
-            if batcher.should_yield():
-                yield batcher.get_table()
-                # Save AFTER yielding so a crash re-fetches the current page rather than skipping
-                # rows; merge dedupes the re-pulled records on the primary key.
-                resumable_source_manager.save_state(CQCResumeConfig(page=page))
-
-        if page >= total_pages:
+        if not config.paginated or page >= total_pages:
             break
 
         page += 1
@@ -185,7 +217,7 @@ def get_rows(
     if resume is not None:
         logger.debug(f"CQC: resuming {endpoint} from page {start_page}")
 
-    yield from _iter_detail_rows(
+    yield from _iter_endpoint_rows(
         session, config, headers, partner_code, logger, batcher, resumable_source_manager, start_page
     )
 

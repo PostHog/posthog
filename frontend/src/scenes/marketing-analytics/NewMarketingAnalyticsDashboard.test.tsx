@@ -56,7 +56,10 @@ jest.mock('scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketin
 jest.mock('scenes/web-analytics/tabs/marketing-analytics/frontend/shared', () => ({
     MarketingAnalyticsCell: () => null,
 }))
-jest.mock('scenes/web-analytics/tiles/WebAnalyticsTile', () => ({ webAnalyticsDataTableQueryContext: {} }))
+jest.mock('scenes/web-analytics/tiles/WebAnalyticsTile', () => ({
+    VariationCell: () => () => null,
+    webAnalyticsDataTableQueryContext: {},
+}))
 jest.mock('~/queries/nodes/DataNode/dataNodeLogic', () => ({ dataNodeLogic: () => ({}) }))
 jest.mock('~/queries/nodes/OverviewGrid/OverviewMetricCardGrid', () => ({ OverviewMetricCardGrid: () => null }))
 jest.mock('~/queries/nodes/WebOverview/WebOverview', () => ({ labelFromKey: () => '' }))
