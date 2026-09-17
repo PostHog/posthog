@@ -3,6 +3,7 @@ import {
     ActivityLogItem,
     ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
@@ -64,6 +65,7 @@ export function dataWarehouseSavedQueryActivityDescriber(
 
     if (logItem.activity === 'created') {
         return {
+            summary: activityLogSummary(logItem, 'Created the view', viewName),
             description: <SentenceList listParts={[<>created {viewName}</>]} prefix={user} />,
         }
     }
@@ -72,6 +74,11 @@ export function dataWarehouseSavedQueryActivityDescriber(
         const changes = logItem.detail?.changes ?? []
         const parts = changes.map(describeChange).filter((p): p is JSX.Element => p !== null)
         return {
+            summary: activityLogSummary(
+                logItem,
+                <SentenceList listParts={parts.length ? parts : ['Updated the view']} />,
+                viewName
+            ),
             description: (
                 <SentenceList
                     listParts={parts.length > 0 ? parts : [<>updated the view</>]}
@@ -84,12 +91,14 @@ export function dataWarehouseSavedQueryActivityDescriber(
 
     if (logItem.activity === 'sync_triggered') {
         return {
+            summary: activityLogSummary(logItem, 'Triggered an ad-hoc sync', viewName),
             description: <SentenceList listParts={[<>triggered an ad-hoc sync on {viewName}</>]} prefix={user} />,
         }
     }
 
     if (logItem.activity === 'sync_cancelled') {
         return {
+            summary: activityLogSummary(logItem, 'Canceled a running sync', viewName),
             description: <SentenceList listParts={[<>cancelled a running sync on {viewName}</>]} prefix={user} />,
         }
     }
@@ -106,11 +115,20 @@ export function dataWarehouseSavedQueryActivityDescriber(
                 </>
             )
         }
-        return { description: <SentenceList listParts={parts} prefix={user} /> }
+        return {
+            summary: activityLogSummary(
+                logItem,
+                'Enabled materialization',
+                viewName,
+                freqChange ? `Sync frequency: ${humanizeInterval(freqChange.after as string | null)}` : undefined
+            ),
+            description: <SentenceList listParts={parts} prefix={user} />,
+        }
     }
 
     if (logItem.activity === 'materialization_disabled') {
         return {
+            summary: activityLogSummary(logItem, 'Disabled materialization', viewName),
             description: <SentenceList listParts={[<>disabled materialization for {viewName}</>]} prefix={user} />,
         }
     }
@@ -120,6 +138,7 @@ export function dataWarehouseSavedQueryActivityDescriber(
         const freqChange = changes.find((c) => c.field === 'sync_frequency_interval')
         const after = freqChange ? humanizeInterval(freqChange.after as string | null) : 'default'
         return {
+            summary: activityLogSummary(logItem, <>Reset sync frequency to {after}</>, viewName),
             description: (
                 <SentenceList
                     listParts={[
@@ -135,6 +154,7 @@ export function dataWarehouseSavedQueryActivityDescriber(
 
     if (logItem.activity === 'deleted') {
         return {
+            summary: activityLogSummary(logItem, 'Deleted the view', viewName),
             description: <SentenceList listParts={[<>deleted {viewName}</>]} prefix={user} />,
         }
     }

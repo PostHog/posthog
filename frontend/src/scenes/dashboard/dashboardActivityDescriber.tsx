@@ -8,6 +8,10 @@ import {
 } from '@posthog/products-dashboards/frontend/dashboardCustomization'
 
 import {
+    describeDescriptionChange,
+    describeTagChanges,
+} from 'lib/components/ActivityLog/activityDescriptions/changeDescriptions'
+import {
     ActivityChange,
     ActivityLogItem,
     ActivityLogSummary,
@@ -15,6 +19,7 @@ import {
     ChangeMapping,
     Description,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
     detectBoolean,
 } from 'lib/components/ActivityLog/humanizeActivity'
@@ -25,9 +30,7 @@ import {
     PropertiesSummary,
     VariablesSummary,
 } from 'lib/components/Cards/InsightCard/InsightDetails'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { isKeyOf } from 'lib/utils/guards'
-import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { DashboardType } from '~/types'
@@ -83,42 +86,12 @@ const dashboardActionsMapping: Record<
     },
     description: function onDescription(change, _, asNotification) {
         return {
-            description: [
-                <>
-                    changed the description {asNotification && ' of the dashboard '}to{' '}
-                    <strong>"{change?.after as string}"</strong>
-                </>,
-            ],
+            description: describeDescriptionChange(change, asNotification, 'dashboard'),
             summary: [change?.after ? 'updated the description' : 'removed the description'],
             preview: typeof change?.after === 'string' ? change.after : undefined,
         }
     },
-    tags: function onTags(change) {
-        const tagsBefore = change?.before as string[]
-        const tagsAfter = change?.after as string[]
-        const addedTags = tagsAfter.filter((t) => tagsBefore.indexOf(t) === -1)
-        const removedTags = tagsBefore.filter((t) => tagsAfter.indexOf(t) === -1)
-
-        const changes: Description[] = []
-        if (addedTags.length) {
-            changes.push(
-                <>
-                    added {pluralize(addedTags.length, 'tag', 'tags', false)}{' '}
-                    <ObjectTags tags={addedTags} saving={false} style={{ display: 'inline' }} staticOnly />
-                </>
-            )
-        }
-        if (removedTags.length) {
-            changes.push(
-                <>
-                    removed {pluralize(removedTags.length, 'tag', 'tags', false)}{' '}
-                    <ObjectTags tags={removedTags} saving={false} style={{ display: 'inline' }} staticOnly />
-                </>
-            )
-        }
-
-        return { description: changes }
-    },
+    tags: describeTagChanges,
     pinned: function onPinned(change, logItem, asNotification) {
         const isFavoriteAfter = detectBoolean(change?.after)
         return {
@@ -204,122 +177,106 @@ const dashboardActionsMapping: Record<
     },
 }
 
-export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
-    if (logItem.scope != 'Dashboard') {
-        console.error('dashboard describer received a non-dashboard activity')
+function describeSingleChange(
+    change: ActivityChange | undefined,
+    logItem: ActivityLogItem,
+    asNotification: boolean | undefined
+): ChangeMapping | null {
+    // dashboard updates have to have a "field" to be described
+    if (!change?.field || !isKeyOf(change.field, dashboardActionsMapping)) {
+        return null
+    }
+    return dashboardActionsMapping[change.field](change, logItem, asNotification)
+}
+
+interface CollectedChanges {
+    description: Description[]
+    summary: Description[]
+    preview?: string
+    extendedDescription?: JSX.Element
+    suffix?: Description
+}
+
+function collectDescribedChanges(logItem: ActivityLogItem, asNotification: boolean | undefined): CollectedChanges {
+    let changes: Description[] = []
+    let summaryChanges: Description[] = []
+    let preview: string | undefined
+    let extendedDescription: JSX.Element | undefined
+    let suffix: Description | undefined
+
+    for (const change of logItem.detail.changes || []) {
+        const processedChange = describeSingleChange(change, logItem, asNotification)
+        if (processedChange === null) {
+            continue // // unexpected log from backend is indescribable
+        }
+
+        const { description, extendedDescription: _extendedDescription } = processedChange
+        if (description) {
+            changes = changes.concat(description)
+            summaryChanges = summaryChanges.concat(processedChange.summary ?? description)
+            preview = processedChange.preview ?? preview
+        }
+        if (_extendedDescription) {
+            extendedDescription = _extendedDescription
+        }
+        if (processedChange.suffix) {
+            suffix = processedChange.suffix
+        }
+    }
+
+    return { description: changes, summary: summaryChanges, preview, extendedDescription, suffix }
+}
+
+function describeUpdatedDashboard(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
+    let collected: ReturnType<typeof collectDescribedChanges>
+    try {
+        collected = collectDescribedChanges(logItem, asNotification)
+    } catch (e) {
+        console.error('Error while summarizing dashboard update', e)
+        posthog.captureException(e)
         return { description: null }
     }
 
-    if (logItem.activity == 'created') {
-        return {
-            description: (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> created the dashboard {nameAndLink(logItem)}
-                </>
-            ),
-            summary: dashboardSummary(logItem, 'Created the dashboard'),
-        }
+    const { description: changes, summary: summaryChanges, preview, extendedDescription, suffix } = collected
+
+    if (!changes.length) {
+        return { description: null }
     }
 
-    if (logItem.activity == 'updated') {
-        let changes: Description[] = []
-        let summaryChanges: Description[] = []
-        let preview: string | undefined
-        let extendedDescription: JSX.Element | undefined
-        let changeSuffix: Description = (
-            <>
-                on {asNotification && ' the dashboard '}
-                {nameAndLink(logItem)}
-            </>
-        )
-
-        try {
-            for (const change of logItem.detail.changes || []) {
-                if (!change?.field || !isKeyOf(change.field, dashboardActionsMapping)) {
-                    continue // dashboard updates have to have a "field" to be described
+    return {
+        description: (
+            <SentenceList
+                listParts={changes}
+                prefix={<ActivityLogUserName logItem={logItem} />}
+                suffix={
+                    suffix ?? (
+                        <>
+                            on {asNotification && ' the dashboard '}
+                            {nameAndLink(logItem)}
+                        </>
+                    )
                 }
-
-                const actionHandler = dashboardActionsMapping[change.field]
-                const processedChange = actionHandler(change, logItem, asNotification)
-                if (processedChange === null) {
-                    continue // // unexpected log from backend is indescribable
-                }
-
-                const { description, extendedDescription: _extendedDescription, suffix } = processedChange
-                if (description) {
-                    changes = changes.concat(description)
-                    summaryChanges = summaryChanges.concat(processedChange.summary ?? description)
-                    preview = processedChange.preview ?? preview
-                }
-                if (_extendedDescription) {
-                    extendedDescription = _extendedDescription
-                }
-                if (suffix) {
-                    changeSuffix = suffix
-                }
-            }
-        } catch (e) {
-            console.error('Error while summarizing dashboard update', e)
-            posthog.captureException(e)
-        }
-
-        if (changes.length) {
-            return {
-                description: (
-                    <SentenceList
-                        listParts={changes}
-                        prefix={<ActivityLogUserName logItem={logItem} />}
-                        suffix={changeSuffix}
-                    />
-                ),
-                summary: dashboardSummary(logItem, <SentenceList listParts={summaryChanges} />, preview),
-                extendedDescription,
-            }
-        }
+            />
+        ),
+        summary: dashboardSummary(logItem, <SentenceList listParts={summaryChanges} />, preview),
+        extendedDescription,
     }
+}
 
-    if (logItem.activity === 'sharing enabled') {
-        return {
-            description: (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> shared {asNotification ? 'your' : 'the'} dashboard{' '}
-                    {nameAndLink(logItem)}
-                </>
-            ),
-            summary: dashboardSummary(logItem, 'Shared the dashboard'),
-        }
-    }
+function describeShareLogin(logItem: ActivityLogItem, succeeded: boolean): HumanizedChange {
+    const afterData = logItem.detail.changes?.[0]?.after as any
+    const clientIp = afterData?.client_ip || 'unknown IP'
 
-    if (logItem.activity === 'sharing disabled') {
-        return {
-            description: (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> deleted shared link for {asNotification ? 'your' : 'the'}{' '}
-                    dashboard {nameAndLink(logItem)}
-                </>
-            ),
-            summary: dashboardSummary(logItem, 'Deleted the shared link'),
-        }
-    }
-
-    if (logItem.activity === 'access token refreshed') {
-        return {
-            description: (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> refreshed the shared link for{' '}
-                    {asNotification ? 'your' : 'the'} dashboard {nameAndLink(logItem)}
-                </>
-            ),
-            summary: dashboardSummary(logItem, 'Refreshed the shared link'),
-        }
-    }
-
-    if (logItem.activity === 'share_login_success') {
-        const afterData = logItem.detail.changes?.[0]?.after as any
-        const clientIp = afterData?.client_ip || 'unknown IP'
+    if (succeeded) {
         const passwordNote = afterData?.password_note || 'unknown password'
-
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Authenticated to the shared dashboard',
+                nameAndLink(logItem),
+                `From ${clientIp}, using password ${passwordNote}`,
+                <strong>Anonymous user</strong>
+            ),
             description: (
                 <>
                     <strong>Anonymous user</strong> successfully authenticated to shared dashboard{' '}
@@ -328,19 +285,87 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
             ),
         }
     }
+    return {
+        summary: activityLogSummary(
+            logItem,
+            'Failed to authenticate to the shared dashboard',
+            nameAndLink(logItem),
+            `From ${clientIp}`,
+            <strong>Anonymous user</strong>
+        ),
+        description: (
+            <>
+                <strong>Anonymous user</strong> failed to authenticate to shared dashboard <b>{nameAndLink(logItem)}</b>{' '}
+                from {clientIp}
+            </>
+        ),
+    }
+}
+
+const SHARING_SUMMARIES: Record<string, string> = {
+    'sharing enabled': 'Shared the dashboard',
+    'sharing disabled': 'Deleted the shared link',
+    'access token refreshed': 'Refreshed the shared link',
+}
+
+const SHARING_SENTENCES: Record<string, string> = {
+    'sharing enabled': 'shared',
+    'sharing disabled': 'deleted shared link for',
+    'access token refreshed': 'refreshed the shared link for',
+}
+
+const dashboardActivitySentences: Record<
+    string,
+    (logItem: ActivityLogItem, asNotification?: boolean) => HumanizedChange
+> = {
+    created: (logItem) => ({
+        description: (
+            <>
+                <ActivityLogUserName logItem={logItem} /> created the dashboard {nameAndLink(logItem)}
+            </>
+        ),
+        summary: dashboardSummary(logItem, 'Created the dashboard'),
+    }),
+    'sharing enabled': describeSharingActivity,
+    'sharing disabled': describeSharingActivity,
+    'access token refreshed': describeSharingActivity,
+}
+
+function describeSharingActivity(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
+    const sentence = SHARING_SENTENCES[logItem.activity]
+    const summary = SHARING_SUMMARIES[logItem.activity]
+    return {
+        description: (
+            <>
+                <ActivityLogUserName logItem={logItem} /> {sentence} {asNotification ? 'your' : 'the'} dashboard{' '}
+                {nameAndLink(logItem)}
+            </>
+        ),
+        summary: dashboardSummary(logItem, summary),
+    }
+}
+
+export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
+    if (logItem.scope != 'Dashboard') {
+        console.error('dashboard describer received a non-dashboard activity')
+        return { description: null }
+    }
+
+    if (logItem.activity == 'updated') {
+        return describeUpdatedDashboard(logItem, asNotification)
+    }
+
+    const sentenceDescriber = dashboardActivitySentences[logItem.activity]
+    if (sentenceDescriber) {
+        return sentenceDescriber(logItem, asNotification)
+    }
+
+    if (logItem.activity === 'share_login_success') {
+        return describeShareLogin(logItem, true)
+    }
 
     if (logItem.activity === 'share_login_failed') {
-        const afterData = logItem.detail.changes?.[0]?.after as any
-        const clientIp = afterData?.client_ip || 'unknown IP'
-
-        return {
-            description: (
-                <>
-                    <strong>Anonymous user</strong> failed to authenticate to shared dashboard{' '}
-                    <b>{nameAndLink(logItem)}</b> from {clientIp}
-                </>
-            ),
-        }
+        return describeShareLogin(logItem, false)
     }
 
     return defaultDescriber(logItem, asNotification, nameAndLink(logItem))

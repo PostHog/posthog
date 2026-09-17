@@ -1,6 +1,10 @@
 import { Fragment } from 'react'
 
 import {
+    describeListChanges,
+    describeTagChanges,
+} from 'lib/components/ActivityLog/activityDescriptions/changeDescriptions'
+import {
     ActivityChange,
     ActivityLogItem,
     ActivityLogUserName,
@@ -8,11 +12,11 @@ import {
     Description,
     ExpandedView,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
     detectBoolean,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils/strings'
@@ -258,9 +262,10 @@ const featureFlagActionsMapping: Record<
     keyof FeatureFlagType,
     (change?: ActivityChange, logItem?: ActivityLogItem) => ChangeMapping | null
 > = {
-    name: function onName() {
+    name: function onName(change) {
         return {
             description: [<>changed the description</>],
+            preview: typeof change?.after === 'string' ? change.after : undefined,
         }
     },
     active: function onActive(change, logItem) {
@@ -415,6 +420,11 @@ const featureFlagActionsMapping: Record<
         const changeAfter = change?.after as string
         return {
             description: [<>changed flag key on {changeBefore} to</>],
+            summary: [
+                <>
+                    Changed the flag key from {changeBefore} to {changeAfter}
+                </>,
+            ],
             suffix: <>{nameOrLinkToFlag(logItem?.item_id, changeAfter)}</>,
         }
     },
@@ -461,58 +471,8 @@ const featureFlagActionsMapping: Record<
             ],
         }
     },
-    tags: function onTags(change) {
-        const tagsBefore = change?.before as string[]
-        const tagsAfter = change?.after as string[]
-        const addedTags = tagsAfter.filter((t) => tagsBefore.indexOf(t) === -1)
-        const removedTags = tagsBefore.filter((t) => tagsAfter.indexOf(t) === -1)
-
-        const changes: Description[] = []
-        if (addedTags.length) {
-            changes.push(
-                <>
-                    added {pluralize(addedTags.length, 'tag', 'tags', false)}{' '}
-                    <ObjectTags tags={addedTags} saving={false} style={{ display: 'inline' }} staticOnly />
-                </>
-            )
-        }
-        if (removedTags.length) {
-            changes.push(
-                <>
-                    removed {pluralize(removedTags.length, 'tag', 'tags', false)}{' '}
-                    <ObjectTags tags={removedTags} saving={false} style={{ display: 'inline' }} staticOnly />
-                </>
-            )
-        }
-
-        return { description: changes }
-    },
-    evaluation_contexts: function onEvaluationContexts(change) {
-        const contextsBefore = (change?.before as string[]) || []
-        const contextsAfter = (change?.after as string[]) || []
-        const addedContexts = contextsAfter.filter((c) => contextsBefore.indexOf(c) === -1)
-        const removedContexts = contextsBefore.filter((c) => contextsAfter.indexOf(c) === -1)
-
-        const changes: Description[] = []
-        if (addedContexts.length) {
-            changes.push(
-                <>
-                    added {pluralize(addedContexts.length, 'evaluation context', 'evaluation contexts', false)}{' '}
-                    <ObjectTags tags={addedContexts} saving={false} style={{ display: 'inline' }} staticOnly />
-                </>
-            )
-        }
-        if (removedContexts.length) {
-            changes.push(
-                <>
-                    removed {pluralize(removedContexts.length, 'evaluation context', 'evaluation contexts', false)}{' '}
-                    <ObjectTags tags={removedContexts} saving={false} style={{ display: 'inline' }} staticOnly />
-                </>
-            )
-        }
-
-        return { description: changes }
-    },
+    tags: describeTagChanges,
+    evaluation_contexts: (change) => describeListChanges(change, 'evaluation context', 'evaluation contexts'),
     // fields that are excluded on the backend
     id: excludedFieldHandler,
     created_at: excludedFieldHandler,
@@ -561,6 +521,13 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
 
     if (logItem.activity === 'created') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Created the feature flag',
+                nameOrLinkToFlag(logItem.item_id, logItem.detail.name),
+                undefined,
+                getActorName(logItem)
+            ),
             description: (
                 <SentenceList
                     listParts={[<>created a new feature flag:</>]}
@@ -579,6 +546,20 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
         if (logItem.detail.trigger?.job_type === 'cohort_conditions_updated') {
             const { cohort_id, cohort_name } = logItem.detail.trigger.payload ?? {}
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    <>
+                        Changed the conditions of linked cohort{' '}
+                        {cohort_id ? (
+                            <Link to={urls.cohort(cohort_id)}>{cohort_name || `#${cohort_id}`}</Link>
+                        ) : (
+                            cohort_name || 'unknown'
+                        )}
+                    </>,
+                    nameOrLinkToFlag(logItem.item_id, logItem.detail.name),
+                    undefined,
+                    getActorName(logItem)
+                ),
                 description: (
                     <SentenceList
                         listParts={[
@@ -609,6 +590,20 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
         if (logItem.detail.trigger?.job_type === 'flag_dependency_updated') {
             const { flag_id, flag_key } = logItem.detail.trigger.payload ?? {}
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    <>
+                        Changed the definition of linked flag{' '}
+                        {flag_id ? (
+                            <Link to={urls.featureFlag(flag_id)}>{flag_key || `#${flag_id}`}</Link>
+                        ) : (
+                            flag_key || 'unknown'
+                        )}
+                    </>,
+                    nameOrLinkToFlag(logItem.item_id, logItem.detail.name),
+                    undefined,
+                    getActorName(logItem)
+                ),
                 description: (
                     <SentenceList
                         listParts={[
@@ -638,6 +633,13 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
         // products/experiments/backend/experiment_service.py.
         if (logItem.detail.trigger?.job_type === 'experiment_exposure_frozen') {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Restricted the release conditions to the exposure freeze snapshot cohort',
+                    nameOrLinkToFlag(logItem.item_id, logItem.detail.name),
+                    undefined,
+                    getActorName(logItem)
+                ),
                 description: (
                     <SentenceList
                         listParts={['restricted the release conditions to the exposure freeze snapshot cohort']}
@@ -654,6 +656,13 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
         }
         if (logItem.detail.trigger?.job_type === 'experiment_exposure_unfrozen') {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Removed the exposure freeze restriction',
+                    nameOrLinkToFlag(logItem.item_id, logItem.detail.name),
+                    undefined,
+                    getActorName(logItem)
+                ),
                 description: (
                     <SentenceList
                         listParts={['removed the exposure freeze restriction']}
@@ -669,6 +678,8 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
             }
         }
         let changes: Description[] = []
+        let summaryChanges: Description[] = []
+        let preview: string | undefined
         let changeSuffix: Description = (
             <>
                 on {asNotification && ' the flag '}
@@ -688,7 +699,9 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
             }
             const possibleLogItem = fieldHandler ? fieldHandler(change, logItem) : null
             if (possibleLogItem) {
-                const { description, suffix, expandedView: view } = possibleLogItem
+                const { description, suffix, summary, preview: changePreview, expandedView: view } = possibleLogItem
+                summaryChanges = summaryChanges.concat(summary ?? description ?? [])
+                preview = changePreview ?? preview
                 if (description) {
                     changes = changes.concat(description)
                 }
@@ -703,6 +716,13 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
 
         if (changes.length) {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    <SentenceList listParts={summaryChanges} />,
+                    nameOrLinkToFlag(logItem.item_id, logItem.detail.name),
+                    preview,
+                    getActorName(logItem)
+                ),
                 description: <SentenceList listParts={changes} prefix={getActorName(logItem)} suffix={changeSuffix} />,
                 expandedView,
             }

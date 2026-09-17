@@ -7,9 +7,11 @@ import {
     ChangeMapping,
     Description,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
     detectBoolean,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
 import { truncate } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -58,6 +60,8 @@ const surveyActionsMapping: Record<
     },
     description: function onDescription(change) {
         return {
+            summary: [change?.after ? 'Updated the description' : 'Cleared the description'],
+            preview: typeof change?.after === 'string' ? change.after : undefined,
             description: [
                 <>
                     updated the description from {formatDescription(change?.before as string | null | undefined)} to{' '}
@@ -341,6 +345,7 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity === 'created') {
         return {
+            summary: activityLogSummary(logItem, 'Created the survey', surveyLink),
             description: (
                 <>
                     {user} created {surveyLink}
@@ -351,6 +356,7 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity === 'deleted') {
         return {
+            summary: activityLogSummary(logItem, 'Deleted the survey', surveyLink),
             description: (
                 <>
                     {user} deleted {surveyLink}
@@ -361,6 +367,8 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity === 'updated') {
         const changes: { field: string; description: Description }[] = []
+        const summaryChanges: Description[] = []
+        let preview: string | undefined
 
         for (const change of logItem.detail.changes || []) {
             if (!change?.field) {
@@ -369,6 +377,8 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
 
             const possibleLogItem = surveyActionsMapping[change.field]?.(change, logItem)
             if (possibleLogItem?.description) {
+                summaryChanges.push(...(possibleLogItem.summary ?? possibleLogItem.description))
+                preview = possibleLogItem.preview ?? preview
                 if (Array.isArray(possibleLogItem.description) && possibleLogItem.description.length > 1) {
                     // This is for the conditions section, which may have multiple changes.
                     // Probably could be refactored into a separate handler like some of the other fields
@@ -391,6 +401,7 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
             const { field, description } = changes[0]
             const preposition = field === 'conditions' ? 'for' : getPreposition(field)
             return {
+                summary: activityLogSummary(logItem, <SentenceList listParts={summaryChanges} />, surveyLink, preview),
                 description: (
                     <>
                         {user} {description} {preposition} {surveyLink}
@@ -399,6 +410,7 @@ export function surveyActivityDescriber(logItem: ActivityLogItem, asNotification
             }
         } else if (changes.length > 1) {
             return {
+                summary: activityLogSummary(logItem, <SentenceList listParts={summaryChanges} />, surveyLink, preview),
                 description: (
                     <>
                         {user} made multiple changes to {surveyLink}:

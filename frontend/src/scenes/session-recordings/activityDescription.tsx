@@ -2,6 +2,7 @@ import {
     ActivityLogItem,
     ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
@@ -15,6 +16,11 @@ export function replayActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity === 'bulk_deleted') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Bulk deleted session recordings',
+                logItem.detail?.name || 'Session recordings'
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> bulk deleted{' '}
@@ -30,6 +36,13 @@ export function replayActivityDescriber(logItem: ActivityLogItem, asNotification
         const passwordNote = afterData?.password_note || 'unknown password'
 
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Authenticated to the shared recording',
+                logItem.detail?.name || 'Session recording',
+                `From ${clientIp}, using password ${passwordNote}`,
+                <strong>Anonymous user</strong>
+            ),
             description: (
                 <>
                     <strong>Anonymous user</strong> successfully authenticated to shared session recording{' '}
@@ -45,6 +58,13 @@ export function replayActivityDescriber(logItem: ActivityLogItem, asNotification
         const clientIp = afterData?.client_ip || 'unknown IP'
 
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Failed to authenticate to the shared recording',
+                logItem.detail?.name || 'Session recording',
+                `From ${clientIp}`,
+                <strong>Anonymous user</strong>
+            ),
             description: (
                 <>
                     <strong>Anonymous user</strong> failed to authenticate to shared session recording{' '}

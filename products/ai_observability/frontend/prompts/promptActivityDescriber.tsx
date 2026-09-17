@@ -2,6 +2,7 @@ import {
     ActivityLogItem,
     ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
@@ -23,6 +24,11 @@ export function promptActivityDescriber(logItem: ActivityLogItem, asNotification
     if (logItem.activity === 'created') {
         const duplicatedFrom = changeAfter(logItem, 'duplicated_from')
         return {
+            summary: activityLogSummary(
+                logItem,
+                duplicatedFrom ? `Created a copy of ${duplicatedFrom}` : 'Created the prompt',
+                promptName
+            ),
             description: duplicatedFrom ? (
                 <>
                     <ActivityLogUserName logItem={logItem} /> created prompt <b>{promptName}</b> as a copy of{' '}
@@ -42,6 +48,12 @@ export function promptActivityDescriber(logItem: ActivityLogItem, asNotification
         // Config contents are never logged; the change entry only records that it changed.
         const configChanged = logItem.detail?.changes?.some((change) => change.field === 'config')
         return {
+            summary: activityLogSummary(
+                logItem,
+                `Published v${version ?? '?'}${configChanged ? ' (configuration changed)' : ''}`,
+                promptName,
+                versionDescription ?? undefined
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> published <b>v{version ?? '?'}</b> of prompt{' '}
@@ -56,6 +68,11 @@ export function promptActivityDescriber(logItem: ActivityLogItem, asNotification
     if (logItem.activity === 'archived') {
         const versionCount = changeBefore(logItem, 'version_count')
         return {
+            summary: activityLogSummary(
+                logItem,
+                `Archived the prompt${versionCount ? ` (${versionCount} versions)` : ''}`,
+                promptName
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> archived prompt <b>{promptName}</b>
@@ -68,6 +85,11 @@ export function promptActivityDescriber(logItem: ActivityLogItem, asNotification
     if (logItem.activity === 'duplicated') {
         const duplicatedTo = changeAfter(logItem, 'duplicated_to')
         return {
+            summary: activityLogSummary(
+                logItem,
+                duplicatedTo ? `Duplicated the prompt to ${duplicatedTo}` : 'Duplicated the prompt',
+                promptName
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> duplicated prompt <b>{promptName}</b>

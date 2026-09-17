@@ -67,10 +67,12 @@ describe('ActivityLogRow', () => {
         expect(source.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
         expect(screen.queryByText(logItem.description as string)).not.toBeInTheDocument()
         expect(screen.getByText('Review workspace setup').closest('strong, b')).toBeNull()
+        expect(action).toHaveClass('line-clamp-2')
 
         fireEvent.click(screen.getByLabelText('Expand activity details'))
         expect(screen.getByText('Diff').closest('[role="tab"]')).toHaveAttribute('aria-selected', 'true')
         expect(screen.getByText('This item has no changes to compare')).toBeInTheDocument()
+        expect(action).not.toHaveClass('line-clamp-2')
     })
 
     it('keeps a specialized actor sentence when no structured summary is available', () => {
@@ -85,12 +87,17 @@ describe('ActivityLogRow', () => {
                             </>
                         ),
                         created_at: dayjs(),
+                        client: 'mcp',
                     }}
                 />
             </Provider>
         )
 
-        expect(screen.getByText('Anonymous user')).toBeInTheDocument()
+        const actor = screen.getByText('Anonymous user')
+        expect(actor).toBeInTheDocument()
+        expect(
+            actor.compareDocumentPosition(screen.getByText('via MCP')) & Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
         expect(screen.queryByText('A user')).not.toBeInTheDocument()
     })
 

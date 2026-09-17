@@ -93,37 +93,65 @@ snapshots:
     components-activityclienttag--sdk--light:
         hash: v1.k794b7964.9c2107c79242cdf242289e892425279ec458cdd52bd7db647511edc9e201ef82.0RLoWz3N9SJu232VDLYehttumTHmbRhxGd3zOqY311I
     components-activitylog--data-management-activity--dark:
-        hash: v1.k794b7964.c0fd7565eccb2a1b348b4e994751489c4d2922648e7bd2aafed432a72e979e44.D18rmt5xbd-90izaBhP2OrO9uNIGf_4PKa_f2Mogmyk
+        hash: v1.k794b7964.51bcd190a645921a30076aff575bcdc48bc6e12f8ddfefd757a17a572f1cc955.5uBxPvBCvyLTHgnBNUzlo8KKoxEPNPQs1f_vy-EI7P4
     components-activitylog--data-management-activity--light:
-        hash: v1.k794b7964.2de1f2b9f7ac1b902c9e2e0c43867770ae703abc07bf397d62f173171f0f3e97.EcZZDXwHHM4LaBsE1yChqI_9TBtDIflrBdz6OTtFjxE
+        hash: v1.k794b7964.390698bc726f80e26bc050b095c8930faeff706cd0ba758fee5651c4c986bf77.9rm06eBJ8XOZJgtbHSF-zIs0pcRFWDpaD_UUQLYeC-M
     components-activitylog--feature-flag-activity--dark:
-        hash: v1.k794b7964.1dac32db25d6d76a6d02953093f1e0a0368ca8ef009faba9b01250b8da223a95.VyKy0x-jtdoLlv3B-3p4xplcbAU6jyk9HbuRDdZG1Fo
+        hash: v1.k794b7964.ca16df64c83ff18eba1f458e6262133024444ef23d1cf64fae990caaad2f7030.ac5p7UacbC6GF9pd8QuDUlvPyligSFXDHbECQ17E8fc
     components-activitylog--feature-flag-activity--light:
-        hash: v1.k794b7964.4d0ea9b5e240664f5a1bfd696d07d1a4eea152567cd3ee16af963ecd9ab31cb9.XFh5MPIIt4FV_pf16hgPtmBadov5zGa6jA8s1AOfzrU
+        hash: v1.k794b7964.92bd60b30317c238ee304d1cc1a8733ec25a320c49999c5617fe4a15597e9543.tKiW7XZxSQJeObWp934Hi1-Mm-Rvv3Rb7hKPFK1UcH0
     components-activitylog--insight-activity--dark:
-        hash: v1.k794b7964.eeb2e5b54ba0acf05e292aba372702616dc9c6326fd8bcbf4bbf1125fcb7c637.XMwf5MqrlV-FQsYrL-4Db38vN69QQAmBms5tmbFQlSw
+        hash: v1.k794b7964.3eb60b82d1dfe5873d4a621cc306a237483f3e526ed8882a9565b36ab0a3326b.AuS-bvTRyTtqpjEh3JNGVxl0fVh_WUVrHYAaEnGgco0
     components-activitylog--insight-activity--light:
-        hash: v1.k794b7964.94aae0b511d11de8cf139dd502bc7170494be36e74fd517187ce37048c514447.ZOKfzkSSO6DcNPVEP0DWvmeA3hHVd35t1AYL5yrrkPk
+        hash: v1.k794b7964.c63ab4cd1f797f075470aaf7f71737c03dd9b5c3de1b631a9b6ad88fe13043b7.cuw9EUQ9NvOO2si6-wElEfeV0hTufZAYIf5jpNC8qNY
     components-activitylog--persons-activity--dark:
-        hash: v1.k794b7964.432ff34c2d8dd67ca60593d6440de2eb053e4a8ddbfcc6cbfe4a25bce324f0d9.kljasPbvnNb_HfMKLGFlj58Wgh283EQnarNEpOf8J4U
+        hash: v1.k794b7964.7869047b2d8473c7b13d111bd4dd5b555858c9a97e43e71940637fa2b965a1cf.9_lJVnk7KUQtV6uT_Fxv-1hQwdFXCV4SYoSis-xmym0
     components-activitylog--persons-activity--light:
-        hash: v1.k794b7964.b5eb5208d760d4a941552dab6cd2aab1edc92ecfa58926ec264aeef97ff9150f.-tTuCQ_o2m613vcQ4vWUcn3ayr_AaiawCrbsOBHYQys
+        hash: v1.k794b7964.f1350b93b18b74b069e182b554af2b527164c160691c2544fbdf92e271d458c1.M4v_D_EX3-g8bTgRtg4loBYpy2arSxTWZiCJG3ppxN8
     components-activitylog--team-activity--dark:
-        hash: v1.k794b7964.bc25a618afb2de26c3eff106868ab4fbd3e52b19c7ac52d47c4427db32dd732c.bXtU3DwI_WpnlCnHAOu_8lbo2gMt9qQA4zp3UEhjf04
+        hash: v1.k794b7964.b4f3f641dfcab8b74c30fe59e300fc84ddd8415093802b9aecf3443f35b6941c.L0AcRJ4rXbWxoqvixP4BirCJrlvrrTA5e1LHOdxKe3Y
     components-activitylog--team-activity--light:
-        hash: v1.k794b7964.10d5353835f51b3db0c19a80aa9f457523e6d698389a02b72bdf360a636807bd.2Fjfwjkw22VkdyEm_oYP64jgiEZbtSYUV2P_snheeHU
+        hash: v1.k794b7964.a61dbf78e04e1c28bc8e61336753ab0bee6c2ae8b61ac52f6dbbcb844654b45b.O7cNdE8jWTjbMddnD5XbMXm5R7zNPBxaXv5RVPoCwjc
     components-activitylog--with-caption--dark:
-        hash: v1.k794b7964.9188cd8eecfbe14ff000a4daa237858f90d02667c76ae4e40bf902857fb2f407.USkSSkFqRGXtN-wH8cetAwOqFKH0nFnXKh6tjRx5zOc
+        hash: v1.k794b7964.beba3ba19e4bce30a1b0d3b5e8815faf7a0a97d34c12b80801d621ee351f11be.sM201sLL5PurOVO6W-j35-MUF7L76KpiNPDuK-ggWfw
     components-activitylog--with-caption--light:
-        hash: v1.k794b7964.38803a04d4ae34e0901aae419866fd1571d06cba43aa585374450efa5dbbb654.EocQNZd4xc-hKDaksq_LzruooC1nBMisuTV5xL0kTCc
+        hash: v1.k794b7964.7296f93d203c6c225126bff12356d20f502bd0287fca8ca0d5ce09e460956ac7.nm4w9WkJzCjBEzDnrapKbuZEEIw27o22YgJSTHmKspA
     components-activitylog--with-no-data--dark:
-        hash: v1.k794b7964.a639d0f489ca1519634969688cbadae4ebd9e977221b2d85594dfd793e494a57.A1Sl4bZi1PZr56FFNlP4SIy-lCtzRdRgPQOgtyiPdSs
+        hash: v1.k794b7964.0ecabad3d54691d2fefafa9b50c0b88db5e9169a2f0dd43c28986a3ca2a65393.EUqGWCrlfXmeq333qfrbMDQ6JKE_mumU7Ers6OJP4dM
     components-activitylog--with-no-data--light:
-        hash: v1.k794b7964.02fb05a0a574572e30f7c15b6b43000680acb584e556bdaf95f99032346054df.Bm6yBJfwUttSy609Eo1TXXFj0cNk_8YJcot92ZgJD1s
+        hash: v1.k794b7964.0f33c04ce2f5de667b11c84f87d73fef746686d5f54d740fcd73bc8a7606d1f3.zZo_wyZHw0A2FGdZdX-gsNzKZGyGXl0_5sdKE67SGdk
     components-activitylog--without-audit-logs-feaure--dark:
-        hash: v1.k794b7964.6aab6f60f5f5106fd66cf02ad1f62be1e3c7bf08e13b75761f75b1fdff364568.YblDy_cCbcSdCbly1El4Qw3GRwtAFGM11gHIH-dHk9o
+        hash: v1.k794b7964.a1bbe747f3fcdc3c082040c3abd9875466536a09274eb8e325f6d5451a25229b.IKUWU3Xi2gCedlDdCaexrvu7FTJoOhOTIeEG4YM1JKY
     components-activitylog--without-audit-logs-feaure--light:
-        hash: v1.k794b7964.1eed88732da4c326634cb530f95a9abd01a0c58ee567835a43165e77d675b6eb.rB6MYt2DBwRCcUcRIYjwQ629nrgOWhD3uoF8J02EuXU
+        hash: v1.k794b7964.4eef20bf1ecaf303d033bac6c574aca8d32dba6efab91858aec48032585ce951.m8DC6Q3s0giRc3IlHBNr_iYPCaBG3Hd8FRjESoWCr14
+    components-activitylogrow--across-products--dark:
+        hash: v1.k794b7964.0ecc4f8f6eab5ed35a4dc1d7f3a997a74dcc6b2c8ea08e025412a95442cf568e.EASqf__UfRGPtPC7h6ShrSGOTQvGX5gK374AvUxV1Vw
+    components-activitylogrow--across-products--light:
+        hash: v1.k794b7964.4772a84d1d3449b6897878e67153430cee0c577f7ed1f7e7dd8396593dc0835e.NSH7C-98Lbdcpu8HRX4Uxi5vjF03YTvHwwleISrcW_w
+    components-activitylogrow--dashboard-changes--dark:
+        hash: v1.k794b7964.96f7c6fa429d6a8221876d3318337a3e7c6e6b9f107f63792342cd6e4d365a4d.hn51ZQzBNUfhvY5YHtn1YHww7lXasyfSCcyk-BMdPYw
+    components-activitylogrow--dashboard-changes--light:
+        hash: v1.k794b7964.50bf8f3a91f04a5311eae39e1ed5c4e2843e128fed9c3a04796977efbdd0f916.1iEMJtc9WI70AqQOhr6GmHUubxq7LafRlSfs-e1AtYU
+    components-activitylogrow--expanded-view--dark:
+        hash: v1.k794b7964.f9596bca85d244306d21b6a892ab5554cfaef09efa6eace45e7e76a2b8936842.ZkoywlWpeMSEwX7sZVDio_mfhCfo2-R7Xvl8oum_nPs
+    components-activitylogrow--expanded-view--light:
+        hash: v1.k794b7964.fb20830c52b193dc724b7675d2a4bf19f3f76f7554728e1b6470a7b4a9743a80.iXsa5h1q1k1RaZt8Azyj8lFzyu6-oYIBbcErQBg0v74
+    components-activitylogrow--human-change--dark:
+        hash: v1.k794b7964.139a79a458233b51dd5d9f33087b628ae4c7c8004b2f498219f3aeab56455a6e._Z8p8eot-MoqL4r13f7Q8pG4dOIKYqSwzfqW3nHKjBk
+    components-activitylogrow--human-change--light:
+        hash: v1.k794b7964.e498e055beb2ab00b1da412b6f629dc1d4d52be3560c6d2dca2b90a4db8ab634.p8-csA9eUQ9iihRoJDOFI7smezp633lBuJsuBYbEu4c
+    components-activitylogrow--legacy-description--dark:
+        hash: v1.k794b7964.903539a9804a4147c4b492a54b04b251d920352900d4753bd75820e45bed69aa.piwMO-La6cXlE4lAAPK9huyo2-W0SfdGV0A1TkRnRZ0
+    components-activitylogrow--legacy-description--light:
+        hash: v1.k794b7964.a3eb0b7cbb64705754166c38b671b4b84d879356768cba63d20a6bf0ad113a7f.QKBSux_6rSnQ8P2fa8f0vqGDLRxW8UDxMWw0cP9xLrE
+    components-activitylogrow--narrow-across-products--dark:
+        hash: v1.k794b7964.6a698c15a2b55889575cd95c5a9bd83b4d573ec85704d693e38229a37514a089.uBZjKrSmBxVSqrEgzIpM6DudrQw40SK2pjXo-DzIGkU
+    components-activitylogrow--narrow-across-products--light:
+        hash: v1.k794b7964.e4869822676914235fc9eb78611d464ac2ec6513a9ef81a59bde7c74d2c29fc2.2fhY8cqkX7KUaDnq2q1_1HJuOo5G5nWPpyzUr7fDU54
+    components-activitylogrow--narrow-dashboard-changes--dark:
+        hash: v1.k794b7964.4f7b276bd60977800b9ea20ddd221bffb6ccda7814b973e7b07bdaa85467996c.l51S8oLHNfi5ewuK9InQ4F9ixNJfXEeXnVLGXkyxucM
+    components-activitylogrow--narrow-dashboard-changes--light:
+        hash: v1.k794b7964.095ac6cc7ea7e35c94ab04aa2241c01e5ef3fdaa46d4fcde75ac76fae3ff01ad.F9DiID4HmI2V97skUnG3PT25MCLIAGxOda6D-BvVf_k
     components-agentattribution--intent-and-task--dark:
         hash: v1.k794b7964.0d80c815b27006d88f038af4b2d689f510f8bdf583d7fc830eb68942821b56e4.vFLLhu562dwroQu8TA_dLSIrYC3SgtRpKdZTB8ufS84
     components-agentattribution--intent-and-task--light:
@@ -6953,9 +6981,9 @@ snapshots:
     scenes-app-batchexports--history-empty--light:
         hash: v1.k794b7964.6e59b0f0726dd11daf6b7718d9f32d720e336a6753c19131e62098a40931961e.nZDF42SgAaRmgUR6tFKyVXF-M4LgD7Z55mwCTy_UeDM
     scenes-app-batchexports--history-with-activity--dark:
-        hash: v1.k794b7964.047ea02963790378acdd8aee67dbde3a6f8a14558477fd079d049ac54ac016e0.AxL4eaTLOQ7Nk9YNv0NrenX-mBA2LcNfmUZeGQZ8Zz0
+        hash: v1.k794b7964.c4ac886c4397a4c7da4ca7b23893c4dd74b64235306917fd30576025d30a179e.zH3x0zixm2U87fZaZpWmz-VL8XvmGeERiAd7GXGBrvU
     scenes-app-batchexports--history-with-activity--light:
-        hash: v1.k794b7964.258d61da8bfdf1965ca21687fd1e3267e82cbc40f92ff0953df7dd5865eafffb.tbvK_J8jZZr-6jdU-hbv_sYd8CeHmkPjziHPtUGYbzY
+        hash: v1.k794b7964.d5285c5ee3958e569d5d6075a29cbf6dcc10f64007f197312d85ed83701611c9.XlE6H8rUtUxmXDgoP75X1TJk7vyckKaW8OADPH_OND0
     scenes-app-batchexports--logs--dark:
         hash: v1.k794b7964.ba725da206f3bf072c49d556df9b19cea3fbaa8e48a205c036ac94f9c100f047.zRJXSI8W8bULOYj3wJIqyRXNm4hDtlKkOBEFJUV7aNE
     scenes-app-batchexports--logs--light:

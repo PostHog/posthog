@@ -66,6 +66,8 @@ describe('dashboardActivityDescriber', () => {
     it.each([
         [{ user: { first_name: '', last_name: '', email: 'mia@example.com' } }, 'mia@example.com'],
         [{ is_system: true }, 'PostHog'],
+        [{ activity: 'share_login_success' }, 'Anonymous user'],
+        [{ activity: 'share_login_failed' }, 'Anonymous user'],
         [{ was_impersonated: true }, 'PostHog Support (as Mia Chen)'],
     ])('preserves actor attribution in summaries for %p', (overrides, name) => {
         const { summary } = dashboardActivityDescriber({ ...makeLogItem('Review setup.'), ...overrides })

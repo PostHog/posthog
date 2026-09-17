@@ -57,7 +57,17 @@ describe('instanceSettingActivityDescriber', () => {
         ['cleared', '<redacted>', '<unset>'],
         ['updated', '<unset>', '<unset>'],
     ])('renders a secret %s transition without leaking sentinels', (verb, before, after) => {
-        const text = describedText(makeLogItem('EMAIL_HOST_PASSWORD', before, after))
+        const item = makeLogItem('EMAIL_HOST_PASSWORD', before, after)
+        const text = describedText(item)
+        const { summary } = instanceSettingActivityDescriber(item)
+        expect(
+            render(
+                <>
+                    {summary?.action} {summary?.target}
+                </>
+            ).container.textContent
+        ).toMatch(new RegExp(`^${verb} the instance setting EMAIL_HOST_PASSWORD$`, 'i'))
+        expect(summary?.preview).toBeUndefined()
         expect(text).toContain(`${verb} instance setting EMAIL_HOST_PASSWORD`)
         expect(text).not.toContain('<redacted>')
         expect(text).not.toContain('<unset>')

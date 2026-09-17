@@ -2,6 +2,7 @@ import {
     ActivityLogItem,
     ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
@@ -19,6 +20,7 @@ export function personActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity === 'deleted') {
         return {
+            summary: activityLogSummary(logItem, 'Deleted the person', logItem.detail.name),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted the person: {logItem.detail.name}
@@ -33,6 +35,7 @@ export function personActivityDescriber(logItem: ActivityLogItem, asNotification
         // only report here that a certain user has manually edited properties
 
         return {
+            summary: activityLogSummary(logItem, "Edited the person's properties", logItem.detail.name || 'Person'),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> edited this person's properties
@@ -43,6 +46,17 @@ export function personActivityDescriber(logItem: ActivityLogItem, asNotification
     if (logItem.activity === 'people_merged_into') {
         if (logItem.detail.merge?.source) {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    <SentenceList
+                        prefix="Merged"
+                        listParts={logItem.detail.merge.source.map((person, index) => (
+                            <PersonDisplay key={person.id || person.uuid || index} person={person} />
+                        ))}
+                        suffix="into this person"
+                    />,
+                    logItem.detail.name || 'Person'
+                ),
                 description: (
                     <SentenceList
                         prefix={
@@ -69,6 +83,18 @@ export function personActivityDescriber(logItem: ActivityLogItem, asNotification
         if (Array.isArray(distinctIds)) {
             const normalizedDistinctIds = distinctIds.filter((id): id is string => typeof id === 'string')
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    <SentenceList
+                        prefix="Split the person into"
+                        listParts={normalizedDistinctIds.map((distinctId) => (
+                            <Link key={distinctId} to={urls.personByDistinctId(distinctId)}>
+                                {distinctId}
+                            </Link>
+                        ))}
+                    />,
+                    logItem.detail.name || 'Person'
+                ),
                 description: (
                     <SentenceList
                         prefix={
