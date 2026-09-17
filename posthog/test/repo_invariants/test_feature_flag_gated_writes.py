@@ -99,8 +99,13 @@ def _mentions_model(annotation: ast.expr | None, models: set[str]) -> bool:
     for sub in ast.walk(annotation):
         if isinstance(sub, (ast.Name, ast.Attribute)) and _terminal_name(sub) in models:
             return True
-        if isinstance(sub, ast.Constant) and isinstance(sub.value, str) and any(m in sub.value for m in models):
-            return True
+        if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
+            try:
+                forward_reference = ast.parse(sub.value, mode="eval").body
+            except SyntaxError:
+                continue
+            if _mentions_model(forward_reference, models):
+                return True
     return False
 
 
@@ -132,7 +137,7 @@ def _scope_flag_names(scope: ast.AST, models: set[str]) -> set[str]:
             _mentions_model(node.annotation, models) or (node.value is not None and _is_model_query(node.value, models))
         ):
             targets = [node.target]
-        elif isinstance(node, ast.For) and _is_model_query(node.iter, models):
+        elif isinstance(node, (ast.For, ast.AsyncFor)) and _is_model_query(node.iter, models):
             targets = [node.target]
         for target in targets:
             names.update(sub.id for sub in ast.walk(target) if isinstance(sub, ast.Name))
@@ -294,6 +299,8 @@ def test_feature_flag_gated_fields_are_written_through_the_facade() -> None:
         ("from m import FeatureFlagSerializer as S\nS(item, data={})", 1),
         ("def f(feature: FeatureFlag):\n    feature.active = False", 1),
         ("def f(feature: 'FeatureFlag | None'):\n    feature.filters = {}", 1),
+        ("def f(feature: 'ArchivedFeatureFlag'):\n    feature.active = False", 0),
+        ("async def f():\n    async for item in FeatureFlag.objects.all():\n        item.active = False", 1),
         ("item: FeatureFlag = load()\nitem.active = True", 1),
         ("FeatureFlag.objects.filter(pk=1).update(last_called_at=now)", 0),
         ("FeatureFlag.objects.bulk_update(flags, ['last_called_at'])", 0),
