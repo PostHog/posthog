@@ -58,6 +58,7 @@ from posthog.models.activity_logging.activity_log import (
     dict_changes_between,
     load_activity,
     log_activity,
+    model_field_snapshot,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.data_color_theme import DataColorTheme
@@ -2066,7 +2067,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return team
 
     def update(self, instance: Team, validated_data: dict[str, Any]) -> Team:
-        before_update = instance.__dict__.copy()
+        before_update = model_field_snapshot(instance)
 
         # Should be validated already, but let's be extra sure
         if config_data := validated_data.pop("revenue_analytics_config", None):
@@ -2177,7 +2178,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             instance.save(update_fields=[*validated_data.keys(), "updated_at"])
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
-        after_update = instance.__dict__.copy()
+        after_update = model_field_snapshot(instance)
         if validated_data:
             # The in-memory instance may hold stale values for fields a concurrent request
             # changed, and the post-save receiver has already cached that snapshot. Reload

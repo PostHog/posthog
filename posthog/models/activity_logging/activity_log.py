@@ -1100,6 +1100,13 @@ def changes_between(
     return changes
 
 
+def model_field_snapshot(instance: models.Model) -> dict[str, Any]:
+    # `instance.__dict__` also holds every `functools.cached_property` the request touched, and
+    # those values are neither fields nor JSON-serializable, so the diff cannot see them.
+    attnames = {field.attname for field in instance._meta.concrete_fields}
+    return {name: value for name, value in instance.__dict__.items() if name in attnames}
+
+
 def dict_changes_between(
     model_type: AuditableScope,
     previous: dict[Any, Any],

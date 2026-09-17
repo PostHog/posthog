@@ -25,7 +25,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.team import TEAM_CONFIG_ADMIN_FIELDS_SET
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership, User
-from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
+from posthog.models.activity_logging.activity_log import (
+    Detail,
+    dict_changes_between,
+    log_activity,
+    model_field_snapshot,
+)
 from posthog.models.team import Team
 
 # Written only when the team has none set. posthog-js already masks inputs + passwords
@@ -116,7 +121,7 @@ class ProductEnablementViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # field is unset, so a stale read would let this clobber a concurrent admin's stricter config.
         with transaction.atomic():
             team = Team.objects.select_for_update().get(pk=self.team.pk)
-            before = team.__dict__.copy()
+            before = model_field_snapshot(team)
             touched: set[str] = set()
             # dict.fromkeys dedupes while preserving the caller's order.
             results = {
@@ -141,7 +146,9 @@ class ProductEnablementViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 # minted widget token never lands in the activity log.
                 changes = [
                     change
-                    for change in dict_changes_between("Team", before, team.__dict__, use_field_exclusions=True)
+                    for change in dict_changes_between(
+                        "Team", before, model_field_snapshot(team), use_field_exclusions=True
+                    )
                     if change.field != "conversations_settings"
                 ]
                 log_activity(

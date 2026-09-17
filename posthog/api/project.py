@@ -76,6 +76,7 @@ from posthog.models.activity_logging.activity_log import (
     dict_changes_between,
     load_activity,
     log_activity,
+    model_field_snapshot,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.group_type_mapping import cached_group_types_for_project
@@ -1187,8 +1188,8 @@ class ProjectBackwardCompatSerializer(
         tags = validated_data.pop("tags", None)
 
         team = instance.passthrough_team
-        team_before_update = team.__dict__.copy()
-        project_before_update = instance.__dict__.copy()
+        team_before_update = model_field_snapshot(team)
+        project_before_update = model_field_snapshot(instance)
 
         # Analytics configs live on related models, not Team columns — handle them via the shared helpers
         # (the same ones TeamSerializer uses) before the generic passthrough loop, and keep them out of it.
@@ -1313,7 +1314,7 @@ class ProjectBackwardCompatSerializer(
             team.save(update_fields=[*updated_team_fields, "updated_at"])
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
-        team_after_update = team.__dict__.copy()
+        team_after_update = model_field_snapshot(team)
         if updated_team_fields:
             # The in-memory team may hold stale values for fields a concurrent request
             # changed, and the post-save receiver has already cached that snapshot. Reload
@@ -1321,7 +1322,7 @@ class ProjectBackwardCompatSerializer(
             team.refresh_from_db()
             set_team_in_cache(team.api_token, team)
 
-        project_after_update = instance.__dict__.copy()
+        project_after_update = model_field_snapshot(instance)
         team_changes = dict_changes_between("Team", team_before_update, team_after_update, use_field_exclusions=True)
         project_changes = dict_changes_between(
             "Project", project_before_update, project_after_update, use_field_exclusions=True
