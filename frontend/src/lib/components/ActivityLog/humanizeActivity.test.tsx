@@ -1,8 +1,20 @@
 import { render } from '@testing-library/react'
 
-import { ActivityLogItem, ActivityLogUserName, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import {
+    ActivityChange,
+    ActivityLogItem,
+    ActivityLogUserName,
+    Describer,
+    Description,
+    userNameForLogItem,
+} from 'lib/components/ActivityLog/humanizeActivity'
+import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
+import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
+import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
 
 import { ActivityScope } from '~/types'
+
+import { actionActivityDescriber } from 'products/actions/frontend/actionActivityDescriber'
 
 describe('humanizeActivity', () => {
     const makeLogItem = (overrides: Partial<ActivityLogItem>): ActivityLogItem => ({
@@ -11,6 +23,84 @@ describe('humanizeActivity', () => {
         scope: ActivityScope.FEATURE_FLAG,
         detail: { merge: null, trigger: null, changes: null, name: 'my-flag' },
         ...overrides,
+    })
+
+    it.each<{
+        scope: ActivityScope
+        activity?: string
+        describer: Describer
+        changes: Partial<ActivityChange>[]
+        action: string
+        description: string
+        preview?: string
+    }>([
+        {
+            scope: ActivityScope.NOTEBOOK,
+            describer: notebookActivityDescriber,
+            changes: [
+                { field: 'content', after: {} },
+                { field: 'version', after: 2 },
+            ],
+            action: 'changed content',
+            description: 'A user changed content on Example',
+        },
+        {
+            scope: ActivityScope.TEAM,
+            describer: teamActivityDescriber,
+            changes: [
+                { field: 'session_recording_opt_in', after: true },
+                { field: 'effective_membership_level', after: 1 },
+            ],
+            action: 'enabled session recording',
+            description: 'A user enabled session recording on Example',
+        },
+        {
+            scope: ActivityScope.EVENT_DEFINITION,
+            activity: 'changed',
+            describer: dataManagementActivityDescriber,
+            changes: [
+                { field: 'description', after: '' },
+                { field: 'verified', after: true },
+            ],
+            action: 'Cleared the description, and Marked as verified',
+            description: 'A user changed description to "", and marked Example as verified',
+            preview: '',
+        },
+        {
+            scope: ActivityScope.ACTION,
+            describer: actionActivityDescriber,
+            changes: [
+                { field: 'description', before: null, after: 'Match sign-ups' },
+                { field: 'name', before: 'Original', after: 'Example' },
+            ],
+            action: 'Added the description, and changed the name from "Original" to "Example"',
+            description:
+                'A user added description "Match sign-ups", and changed the name from "Original" to "Example" on action Example',
+            preview: 'Match sign-ups',
+        },
+    ])('preserves the summary and notification for mapped $scope changes', (testCase) => {
+        const logItem = makeLogItem({
+            scope: testCase.scope,
+            activity: testCase.activity ?? 'updated',
+            detail: {
+                merge: null,
+                trigger: null,
+                name: 'Example',
+                changes: [...testCase.changes, {}, { field: 'unknown_field' }].map((change) => ({
+                    type: testCase.scope,
+                    action: 'changed',
+                    ...change,
+                })),
+            },
+        })
+        const result = testCase.describer(logItem, true)
+        const text = (value: Description | undefined): string =>
+            (render(<>{value}</>).container.textContent || '').replace(/\s+/g, ' ').trim()
+
+        expect(text(result.description)).toBe(testCase.description)
+        expect(text(result.summary?.action)).toBe(testCase.action)
+        expect(text(result.summary?.target)).toContain('Example')
+        expect(result.summary?.preview).toBe(testCase.preview)
     })
 
     describe('userNameForLogItem', () => {

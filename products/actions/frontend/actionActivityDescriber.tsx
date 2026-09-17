@@ -1,3 +1,4 @@
+import { describeMappedChanges } from 'lib/components/ActivityLog/activityDescriptions/describeMappedChanges'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -9,7 +10,6 @@ import {
     defaultDescriber,
     detectBoolean,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Link } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils/strings'
@@ -192,50 +192,14 @@ export function actionActivityDescriber(logItem: ActivityLogItem, asNotification
     }
 
     if (logItem.activity === 'updated') {
-        let changes: Description[] = []
-        let summaryChanges: Description[] = []
-        let preview: string | undefined
-        let changeSuffix: Description = <>on action {nameAndLink(logItem)}</>
-
-        for (const change of logItem.detail.changes || []) {
-            if (!change?.field || !actionActionsMapping[change.field]) {
-                continue
-            }
-
-            const actionHandler = actionActionsMapping[change.field]
-            const processedChange = actionHandler(change, logItem)
-            if (processedChange === null) {
-                continue
-            }
-
-            const { description, suffix, summary, preview: changePreview } = processedChange
-            summaryChanges = summaryChanges.concat(summary ?? description ?? [])
-            preview = changePreview ?? preview
-            if (description) {
-                changes = changes.concat(description)
-            }
-
-            if (suffix) {
-                changeSuffix = suffix
-            }
-        }
-
-        if (changes.length) {
-            return {
-                summary: activityLogSummary(
-                    logItem,
-                    <SentenceList listParts={summaryChanges} />,
-                    nameAndLink(logItem),
-                    preview
-                ),
-                description: (
-                    <SentenceList
-                        listParts={changes}
-                        prefix={<ActivityLogUserName logItem={logItem} />}
-                        suffix={changeSuffix}
-                    />
-                ),
-            }
+        const changes = describeMappedChanges(
+            logItem,
+            actionActionsMapping,
+            nameAndLink(logItem),
+            <>on action {nameAndLink(logItem)}</>
+        )
+        if (changes) {
+            return changes
         }
     }
 

@@ -1,14 +1,11 @@
+import { describeMappedChanges } from 'lib/components/ActivityLog/activityDescriptions/describeMappedChanges'
 import {
     ActivityChange,
     ActivityLogItem,
-    ActivityLogUserName,
     ChangeMapping,
-    Description,
     HumanizedChange,
-    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -43,41 +40,14 @@ export function notebookActivityDescriber(logItem: ActivityLogItem, asNotificati
     }
 
     if (logItem.activity == 'changed' || logItem.activity == 'updated') {
-        let changes: Description[] = []
-        let changeSuffix: Description = <>on {nameAndLink(logItem)}</>
-
-        for (const change of logItem.detail.changes || []) {
-            if (!change?.field || !notebookActionsMapping[change.field]) {
-                continue //  not all notebook fields are describable
-            }
-
-            const actionHandler = notebookActionsMapping[change.field]
-            const processedChange = actionHandler(change, logItem)
-            if (processedChange === null) {
-                continue // // unexpected log from backend is indescribable
-            }
-
-            const { description, suffix } = processedChange
-            if (description) {
-                changes = changes.concat(description)
-            }
-
-            if (suffix) {
-                changeSuffix = suffix
-            }
-        }
-
-        if (changes.length) {
-            return {
-                summary: activityLogSummary(logItem, <SentenceList listParts={changes} />, nameAndLink(logItem)),
-                description: (
-                    <SentenceList
-                        listParts={changes}
-                        prefix={<ActivityLogUserName logItem={logItem} />}
-                        suffix={changeSuffix}
-                    />
-                ),
-            }
+        const changes = describeMappedChanges(
+            logItem,
+            notebookActionsMapping,
+            nameAndLink(logItem),
+            <>on {nameAndLink(logItem)}</>
+        )
+        if (changes) {
+            return changes
         }
     }
 

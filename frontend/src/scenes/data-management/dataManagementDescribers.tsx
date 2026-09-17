@@ -1,3 +1,4 @@
+import { describeMappedChanges } from 'lib/components/ActivityLog/activityDescriptions/describeMappedChanges'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -9,7 +10,6 @@ import {
     defaultDescriber,
     detectBoolean,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { IconVerifiedEvent } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
@@ -107,56 +107,18 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem, asNoti
     }
 
     if (logItem.activity == 'changed') {
-        let changes: Description[] = []
-        let summaryChanges: Description[] = []
-        let preview: string | undefined
-        let changeSuffix: Description = (
+        const changes = describeMappedChanges(
+            logItem,
+            dataManagementActionsMapping,
+            <>
+                <DescribeType logItem={logItem} />: {nameAndLink(logItem)}
+            </>,
             <>
                 on <DescribeType logItem={logItem} /> {nameAndLink(logItem)}
             </>
         )
-
-        for (const change of logItem.detail.changes || []) {
-            if (!change?.field || !dataManagementActionsMapping[change.field]) {
-                continue //  updates have to have a "field" to be described
-            }
-
-            const actionHandler = dataManagementActionsMapping[change.field]
-            const processedChange = actionHandler(change, logItem)
-            if (processedChange === null) {
-                continue // // unexpected log from backend is indescribable
-            }
-
-            const { description, suffix, summary, preview: changePreview } = processedChange
-            summaryChanges = summaryChanges.concat(summary ?? description ?? [])
-            preview = changePreview ?? preview
-            if (description) {
-                changes = changes.concat(description)
-            }
-
-            if (suffix) {
-                changeSuffix = suffix
-            }
-        }
-
-        if (changes.length) {
-            return {
-                summary: activityLogSummary(
-                    logItem,
-                    <SentenceList listParts={summaryChanges} />,
-                    <>
-                        <DescribeType logItem={logItem} />: {nameAndLink(logItem)}
-                    </>,
-                    preview
-                ),
-                description: (
-                    <SentenceList
-                        listParts={changes}
-                        prefix={<ActivityLogUserName logItem={logItem} />}
-                        suffix={changeSuffix}
-                    />
-                ),
-            }
+        if (changes) {
+            return changes
         }
     }
 

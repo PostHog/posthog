@@ -1,9 +1,9 @@
+import { describeMappedChanges } from 'lib/components/ActivityLog/activityDescriptions/describeMappedChanges'
 import {
     ActivityChange,
     ActivityLogItem,
     ActivityLogUserName,
     ChangeMapping,
-    Description,
     HumanizedChange,
     activityLogSummary,
     defaultDescriber,
@@ -800,41 +800,14 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
     }
 
     if (logItem.activity == 'changed' || logItem.activity == 'updated') {
-        let changes: Description[] = []
-        let changeSuffix: Description = <>on {nameAndLink(logItem)}</>
-
-        for (const change of logItem.detail.changes || []) {
-            if (!change?.field || !(change.field in TEAM_PROPERTIES_MAPPING)) {
-                continue //  not all fields are describable
-            }
-
-            const actionHandler = TEAM_PROPERTIES_MAPPING[change.field as keyof TeamType]
-            const processedChange = actionHandler(change)
-            if (processedChange === null) {
-                continue // some logs are indescribable
-            }
-
-            const { description, suffix } = processedChange
-            if (description) {
-                changes = changes.concat(description)
-            }
-
-            if (suffix) {
-                changeSuffix = suffix
-            }
-        }
-
-        if (changes.length) {
-            return {
-                summary: activityLogSummary(logItem, <SentenceList listParts={changes} />, nameAndLink(logItem)),
-                description: (
-                    <SentenceList
-                        listParts={changes}
-                        prefix={<ActivityLogUserName logItem={logItem} />}
-                        suffix={changeSuffix}
-                    />
-                ),
-            }
+        const changes = describeMappedChanges(
+            logItem,
+            TEAM_PROPERTIES_MAPPING,
+            nameAndLink(logItem),
+            <>on {nameAndLink(logItem)}</>
+        )
+        if (changes) {
+            return changes
         }
     }
 
