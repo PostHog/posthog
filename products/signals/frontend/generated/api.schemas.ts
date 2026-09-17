@@ -432,6 +432,8 @@ export interface SignalReportListApi {
     readonly total_weight: number
     readonly signal_count: number
     readonly signals_at_run: number
+    /** How many scout notes this report received beyond the few its work log keeps as entries. 0 when nothing was dropped. These say the finding still holds, so the count is shown in place of the entries. */
+    readonly collapsed_note_count: number
     readonly created_at: string
     readonly updated_at: string
     readonly artefact_count: number
@@ -616,6 +618,8 @@ export interface SignalReportApi {
     readonly total_weight: number
     readonly signal_count: number
     readonly signals_at_run: number
+    /** How many scout notes this report received beyond the few its work log keeps as entries. 0 when nothing was dropped. These say the finding still holds, so the count is shown in place of the entries. */
+    readonly collapsed_note_count: number
     readonly created_at: string
     readonly updated_at: string
     readonly artefact_count: number
@@ -2110,6 +2114,10 @@ export interface SignalReportStateRequestApi {
  * * `work_release` - Work Release
  * * `pull_request` - Pull Request
  * * `check_result` - Check Result
+ * * `implementation_decision` - Implementation Decision
+ * * `implementation_dispatch` - Implementation Dispatch
+ * * `implementation_replacement` - Implementation Replacement
+ * * `implementation_handover` - Implementation Handover
  */
 export type SignalReportArtefactArtefactTypeEnumApi =
     (typeof SignalReportArtefactArtefactTypeEnumApi)[keyof typeof SignalReportArtefactArtefactTypeEnumApi]
@@ -2136,6 +2144,10 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     WorkRelease: 'work_release',
     PullRequest: 'pull_request',
     CheckResult: 'check_result',
+    ImplementationDecision: 'implementation_decision',
+    ImplementationDispatch: 'implementation_dispatch',
+    ImplementationReplacement: 'implementation_replacement',
+    ImplementationHandover: 'implementation_handover',
 } as const
 
 export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknown[]
@@ -2252,12 +2264,14 @@ export interface CommitDiffResponseApi {
 
 /**
  * * `metric_threshold` - Metric Threshold
+ * * `agent` - Agent
  */
 export type SignalReportCheckKindEnumApi =
     (typeof SignalReportCheckKindEnumApi)[keyof typeof SignalReportCheckKindEnumApi]
 
 export const SignalReportCheckKindEnumApi = {
     MetricThreshold: 'metric_threshold',
+    Agent: 'agent',
 } as const
 
 /**
@@ -2340,7 +2354,38 @@ export interface MetricThresholdConfigApi {
     baseline_value?: number | null
 }
 
-export type SignalReportCheckConfigApi = MetricThresholdConfigApi
+/**
+ * A check a scout run answers: re-probe the report's claim and record one verdict.
+ *
+ * The kind for a claim no single number settles. A resolved error-tracking report is the usual
+ * case: "did the exception stop?" needs the issue looked up, its recent events read, and the
+ * stack compared against what the fix changed, which is a run rather than a comparison.
+ *
+ * Everything here is prompt material a scout reads, so it is untrusted by construction: it renders
+ * in the run block the agent is told to weigh, never in the instructions it is told to follow. The
+ * verdict still comes back through `scout-check-record-result`, so instructions cannot widen what
+ * a check run may write.
+ *
+ * ``skill_name`` names the lane. Most reports are pipeline-authored and have no scout behind them,
+ * so it is optional: a check that names none runs on the fleet's follow-up scout
+ * (see ``report_check_agent.FALLBACK_CHECK_SKILL_NAME``).
+ */
+export interface AgentCheckConfigApi {
+    /**
+     * What the run must establish, in the author's own words.
+     * @maxLength 2000
+     */
+    instructions: string
+    /** Scout skill that runs the check. Omit it to run on the fleet's follow-up scout, which is the right lane for a report no scout authored. */
+    skill_name?: string | null
+    /**
+     * Concrete places to look, such as an issue id, a service name, or a query to repeat.
+     * @maxItems 5
+     */
+    probe_hints?: string[]
+}
+
+export type SignalReportCheckConfigApi = MetricThresholdConfigApi | AgentCheckConfigApi
 
 /**
  * * `passed` - Passed
@@ -2364,7 +2409,8 @@ export interface SignalReportCheckApi {
     readonly rationale: string
     /** How the check is evaluated.
      *
-     * * `metric_threshold` - Metric Threshold */
+     * * `metric_threshold` - Metric Threshold
+     * * `agent` - Agent */
     readonly kind: SignalReportCheckKindEnumApi
     /** `active` while the check still runs; every other value is terminal.
      *
@@ -2433,7 +2479,8 @@ export interface SignalReportCheckWriteApi {
     rationale?: string
     /** How the check is evaluated.
      *
-     * * `metric_threshold` - Metric Threshold */
+     * * `metric_threshold` - Metric Threshold
+     * * `agent` - Agent */
     kind: SignalReportCheckKindEnumApi
     /** What the check measures and what the result must satisfy; the shape depends on `kind`. */
     config: SignalReportCheckConfigApi
@@ -4269,6 +4316,44 @@ export interface SignalScoutRunDetailApi {
 }
 
 /**
+ * Request body for `scout-check-record-result`: the verdict on one dispatched report check.
+ */
+export interface RecordCheckResultRequestApi {
+    /** The check this run was dispatched to answer, as given in the run note. */
+    check_id: string
+    /** `passed` when the expectation still holds, `failed` when it does not, and `errored` when you could not establish either. `failed` retires the check, so use it for a conclusion, not a suspicion.
+     *
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `errored` - Errored */
+    outcome: SignalReportCheckOutcomeEnumApi
+    /**
+     * One or two sentences on what you looked at and what it showed. This is what a person reads on the report, so write it for them, with the numbers or entities you checked.
+     * @maxLength 1000
+     */
+    explanation: string
+    /**
+     * The number you measured, when the check came down to one. Leave it out otherwise.
+     * @nullable
+     */
+    observed_value?: number | null
+}
+
+/**
+ * Outcome of an accepted `scout-check-record-result` call.
+ */
+export interface RecordCheckResultResponseApi {
+    /** The check that was closed. */
+    check_id: string
+    /** The verdict that was recorded. */
+    outcome: string
+    /** The check's status after the verdict. `active` means a recurring check re-armed for its next run; anything else is terminal. */
+    check_status: string
+    /** Evaluations the check still owes after this one. */
+    runs_remaining: number
+}
+
+/**
  * One observation backing an authored report — becomes a bound signal row on the report.
  */
 export interface ReportEvidenceApi {
@@ -4411,6 +4496,8 @@ export interface EditReportRequestApi {
      * @nullable
      */
     append_note?: string | null
+    /** Set only when append_note confirms the finding with no new information. After four confirmations, store only the count. Other notes remain in the work log. */
+    corroboration_only?: boolean
     /**
      * Optional observations to add to the report's evidence rail, each becoming a bound signal attributed to this scout — adds to the report's evidence rather than replacing it. Use this for a new observation a reader should be able to check, and `append_note` for commentary (the owning team knows, a deploy fixed it). The report's signal count and weight move with the appended rows. Emit plus every append share a cap of 50 signals per report.
      * @maxItems 50
@@ -4446,6 +4533,8 @@ export interface EditReportRequestApi {
      * @items.maxLength 200
      */
     suggested_prompts?: string[] | null
+    /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. */
+    supersedes_implementation?: boolean
 }
 
 export interface EditReportResponseApi {
@@ -4453,7 +4542,7 @@ export interface EditReportResponseApi {
     report_id: string
     /** Which presentation fields changed (e.g. `title`, `summary`); empty if only a note was appended. */
     updated_fields: string[]
-    /** Whether a note artefact was appended. */
+    /** Whether the edit included a note. True for a collapsed corroboration too, where the report's count moves and no work-log entry is written. Read `corroboration_collapsed` to tell the two apart. */
     note_appended: boolean
     /** How many observations this edit added to the report's evidence rail; 0 if none. */
     evidence_appended: number
@@ -4481,6 +4570,14 @@ export interface EditReportResponseApi {
      * @nullable
      */
     suggested_prompts_set: number | null
+    /** Whether this edit actually rewrote the report's title or summary. False for a note, a reviewer change, or a re-send of the text the report already had. */
+    is_content_revision: boolean
+    /** How many times a scout has rewritten this report's title or summary, counting this edit. */
+    content_revision_count: number
+    /** Whether the edit recorded that the report's pull request should be replaced. False when you did not ask for it, when the edit changed no content, or when the report has already been rewritten too many times. */
+    supersedes_implementation: boolean
+    /** Whether your note raised the report's corroboration count instead of landing as its own entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log. */
+    corroboration_collapsed: boolean
 }
 
 /**

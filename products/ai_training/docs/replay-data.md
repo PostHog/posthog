@@ -48,19 +48,27 @@ The envelope is JSON with `v`, `context`, `nonce` (12 bytes, base64) and `cipher
 
 Ingestion processes key state in batches:
 
-1. Bulk-read session keys, team blocks, and image keys.
+1. Bulk-read session keys, team blocks, and image keys in one pass. A session's start month names its image key, so the batch knows every row before it reads.
 2. Resolve keys in memory while processing the batch.
 3. Write each new key's month index entry, then the key with a conditional put.
-4. Re-read the batch, adopt a competing writer's keys, drop sessions or teams blocked during the batch, then publish replay blocks or image messages.
+4. Adopt the key a competing writer stored, which the refused put returns, then publish replay blocks or image messages.
 
 A conditional put refuses to recreate a shredded session key.
-A team blocked during a batch is dropped by the batch re-read and refused by every reader, and the deletion worker sweeps the team once more after the reader lease, so a key stored after the block is shredded.
+A team blocked during a batch is refused by every reader at once and by the next batch, which reads the block row live, and the deletion worker sweeps the team once more after the reader lease, so a key stored after the block is shredded.
 Kafka offsets advance only after the required writes and publication succeed.
-Bulk reads use batches of at most 100 keys; each new key is one conditional put, so no commit in the fleet waits on another.
-Reads use strongly consistent `BatchGetItem` requests with bounded retries for unprocessed keys.
+Bulk reads use batches of at most 100 keys. Each new key is one conditional put, so no commit in the fleet waits on another, and the month index entries it needs go in together, at most 25 to a request.
+Reads use strongly consistent `BatchGetItem` requests with bounded retries for unprocessed keys and for a throttled request.
+A retry stops when the caller's deadline expires.
 
-KMS plaintext caches reduce repeated decrypt calls.
-A cache hit does not bypass live key and deletion checks.
+Ingestion holds a usable session key row and image key row in the process, and a KMS plaintext cache reduces repeated decrypt calls.
+A row with no wrapped key is never held, so a repaired row is seen at once.
+A team block row is held once a read finds one, because nothing clears a block. Only a row that exists is ever held, so the cache holds "blocked" and never "not blocked": a team with no block is read from DynamoDB on every batch, and a block takes effect on the next one.
+A tombstone is held, because a shred only ever sets one and a conditional put cannot overwrite a row that exists, so a deleted session stops costing a read and a refused write on every batch.
+A session key deleted out of band stays usable in a process that already read it, until that entry expires.
+`ROW_CACHE_LIFETIME_MS` therefore sets how soon ingestion observes a session deletion.
+A team image key is one row per team per month, so it is held far longer than a session key: it survives eviction, and a short lifetime only buys re-reads.
+Data written under such a key stays unreadable, because the envelope stores no wrapped key and the stored row is a tombstone.
+Training readers do not use this cache.
 Each process limits KMS concurrency and request rate; deployment capacity must account for the sum across replicas.
 Readers check live state before each batch and permit key use for at most five minutes from the start of that read.
 An expired read must obtain permission again.
@@ -188,7 +196,8 @@ Their HMAC key must remain stable while that data is in use.
 New key manager and v2 storage settings use the `AI_RESEARCH_REPLAY_*` prefix:
 
 - `KEY_TABLE`, `KMS_KEY_ARN`, and `AWS_REGION` select the key store and wrapping key.
-- `KEY_CACHE_MAX`, `KEY_CACHE_LIFETIME_MS`, and `KMS_REQUESTS_PER_SECOND` bound ingestion key caching and KMS traffic.
+- `KEY_CACHE_MAX`, `KEY_CACHE_LIFETIME_MS`, and `KMS_REQUESTS_PER_SECOND` bound the KMS plaintext cache and KMS traffic.
+- `ROW_CACHE_MAX` and `ROW_CACHE_LIFETIME_MS` bound the stored key row cache. The lifetime applies to a session key row and is capped; a team image key row is held for up to 48 hours. A value that is not a positive integer stops the consumer at startup and names the setting.
 - `IMAGE_FETCH_V2_DYNAMODB_TABLE` selects the fresh v2 frontier.
 - `S3_PREFIX` selects v2 replay storage and defaults to `rrweb_2`.
 

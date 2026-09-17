@@ -520,7 +520,8 @@
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
               OR "posthog_annotation"."team_id" = 99999))
-  ORDER BY "posthog_annotation"."date_marker" DESC
+  ORDER BY "posthog_annotation"."date_marker" DESC,
+           "posthog_annotation"."id" DESC
   LIMIT 1000
   '''
 # ---
@@ -1187,7 +1188,8 @@
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
               OR "posthog_annotation"."team_id" = 99999))
-  ORDER BY "posthog_annotation"."date_marker" DESC
+  ORDER BY "posthog_annotation"."date_marker" DESC,
+           "posthog_annotation"."id" DESC
   LIMIT 1000
   '''
 # ---
@@ -1727,7 +1729,8 @@
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
               OR "posthog_annotation"."team_id" = 99999))
-  ORDER BY "posthog_annotation"."date_marker" DESC
+  ORDER BY "posthog_annotation"."date_marker" DESC,
+           "posthog_annotation"."id" DESC
   LIMIT 1000
   '''
 # ---

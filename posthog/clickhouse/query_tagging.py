@@ -435,6 +435,10 @@ class QueryTags(BaseModel):
 
     # frontend UI context (from QueryLogTags)
     scene: Optional[str] = None
+    # Saved Web analytics filter preset the query was run under. Client-supplied and
+    # truncated at the boundary; the warming DAG validates it against Postgres before
+    # acting on it, so an invented id buys nothing.
+    preset_id: Optional[str] = None
 
     alert_config_id: Optional[uuid.UUID] = None
     # Cadence and query shape of the alert that triggered this run, tagged at evaluation
@@ -519,6 +523,7 @@ class QueryTags(BaseModel):
     trend_volume_display: Optional[str] = None
     table_id: Optional[uuid.UUID] = None
     warehouse_query: Optional[bool] = None
+    saved_query_ids: Optional[list[str]] = None
 
     trend_volume_type: Optional[str] = None
 

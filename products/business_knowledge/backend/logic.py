@@ -537,7 +537,7 @@ def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
 
 @with_team_scope(canonical=True)
 def get_source_text_for_team(source_id: UUID, team_id: int) -> str | None:
-    """Return concatenated document text for the edit modal."""
+    """Return concatenated document text for the source editor."""
 
     try:
         source = KnowledgeSource.objects.only("is_generated", "source_type").get(id=source_id, team_id=team_id)

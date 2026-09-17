@@ -587,6 +587,7 @@ class TestClerkValidateCredentials:
             (400, "invalid or has been revoked"),
             (401, "invalid or has been revoked"),
             (403, "does not have permission"),
+            (404, "active Clerk instance"),
             (500, "Couldn't validate your Clerk secret key"),
         ],
     )
@@ -608,6 +609,7 @@ class TestClerkValidateCredentials:
         ("status_code", "should_capture"),
         [
             (400, False),  # malformed key is user input, not an error to file
+            (404, False),  # an instance Clerk can't resolve is user input too
             (500, True),  # a genuine server fault still files an issue
         ],
     )
