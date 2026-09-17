@@ -4270,7 +4270,7 @@ def unstage_workflow_proposals(hog_flow: HogFlow) -> None:
         or merge_proposal_content(draft, proposal_changes(proposal, base_content_of(hog_flow, proposal))) != draft
     ]
     if gone:
-        WorkflowProposal.objects.filter(id__in=gone).update(
+        WorkflowProposal.objects.filter(team_id=hog_flow.team_id, id__in=gone).update(
             status=WorkflowProposal.Status.SUGGESTED, resolved_at=None, resolved_by=None
         )
 
