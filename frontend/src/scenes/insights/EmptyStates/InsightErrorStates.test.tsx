@@ -1,4 +1,5 @@
 import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import posthog from 'posthog-js'
 
 import { preflightLogic } from 'lib/logic/preflightLogic'
@@ -7,7 +8,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { DashboardPlacement } from '~/types'
 
-import { InsightErrorState, InsightValidationError, isRawServerErrorTitle } from './EmptyStates'
+import { InsightErrorState, InsightTimeoutState, InsightValidationError, isRawServerErrorTitle } from './EmptyStates'
 
 // Status 513 also covers cluster pressure, whose backend copy says to wait rather than to shrink
 // the query. Verbatim from ClickHouseClusterMemoryLimitExceeded.
@@ -62,6 +63,37 @@ describe('insight error states', () => {
             query_kind: null,
             query_id: 'test-query-id',
         })
+    })
+
+    it('offers a retry when a timeout renders, and reports both the show and the click', async () => {
+        const onRetry = jest.fn()
+        render(
+            <InsightTimeoutState
+                query={{ kind: 'InsightVizNode', source: { kind: 'TrendsQuery' } }}
+                queryId="timed-out-query-id"
+                onRetry={onRetry}
+            />
+        )
+
+        expect(captureSpy.mock.calls.filter((call) => call[0] === 'insight error message shown')[0][1]).toEqual({
+            error_type: 'timeout',
+            query_kind: 'TrendsQuery',
+            query_id: 'timed-out-query-id',
+        })
+
+        await userEvent.click(screen.getByText('Try again'))
+
+        expect(onRetry).toHaveBeenCalledTimes(1)
+        expect(captureSpy.mock.calls.filter((call) => call[0] === 'insight timeout retry clicked')[0][1]).toEqual({
+            query_kind: 'TrendsQuery',
+            query_id: 'timed-out-query-id',
+        })
+    })
+
+    it('leaves out the retry on a timeout nobody can rerun', () => {
+        render(<InsightTimeoutState queryId="timed-out-query-id" />)
+
+        expect(screen.queryByText('Try again')).toBeNull()
     })
 
     it('replaces generic invalid-query detail with a next step', () => {

@@ -535,51 +535,54 @@ export function concatWithPunctuation(phrases: string[]): string {
     return `${phrases.slice(0, phrases.length - 1).join(', ')}, and ${phrases[phrases.length - 1]}`
 }
 
-export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'>): string | undefined {
-    let query: InsightVizNode | undefined
-    if (event.event === '$pageview') {
-        query = {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.TrendsQuery,
-                interval: 'day',
-                series: [
-                    {
-                        event: '$pageview',
-                        name: '$pageview',
-                        kind: NodeKind.EventsNode,
-                        properties: [
-                            {
-                                key: '$current_url',
-                                value: event.properties.$current_url,
-                                type: PropertyFilterType.Event,
-                                operator: PropertyOperator.Exact,
-                            },
-                        ],
-                    },
-                ],
-                trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
-            },
-        }
-    } else if (event.event !== '$autocapture') {
-        query = {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.TrendsQuery,
-                interval: 'day',
-                series: [
-                    {
-                        event: event.event,
-                        name: event.event,
-                        kind: NodeKind.EventsNode,
-                    },
-                ],
-                trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
-            },
-        }
+/** The property that narrows a trend to the occurrence the user was looking at, per event type. */
+const INSIGHT_NARROWING_PROPERTY_FOR_EVENT: Record<string, string> = {
+    $pageview: '$current_url',
+    $exception: '$exception_issue_id',
+}
+
+export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties' | 'timestamp'>): string | undefined {
+    if (event.event === '$autocapture') {
+        return undefined
     }
 
-    return query ? urls.insightNew({ query }) : undefined
+    const narrowingProperty = INSIGHT_NARROWING_PROPERTY_FOR_EVENT[event.event]
+    const narrowingValue = narrowingProperty ? event.properties[narrowingProperty] : undefined
+
+    const query: InsightVizNode = {
+        kind: NodeKind.InsightVizNode,
+        source: {
+            kind: NodeKind.TrendsQuery,
+            interval: 'day',
+            // Anchor the window on the event, so an older session does not open a chart that excludes it
+            dateRange: event.timestamp
+                ? {
+                      date_from: dayjs(event.timestamp).subtract(7, 'day').toISOString(),
+                      date_to: dayjs(event.timestamp).toISOString(),
+                  }
+                : undefined,
+            series: [
+                {
+                    event: event.event,
+                    name: event.event,
+                    kind: NodeKind.EventsNode,
+                    properties: narrowingValue
+                        ? [
+                              {
+                                  key: narrowingProperty,
+                                  value: narrowingValue,
+                                  type: PropertyFilterType.Event,
+                                  operator: PropertyOperator.Exact,
+                              },
+                          ]
+                        : undefined,
+                },
+            ],
+            trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+        },
+    }
+
+    return urls.insightNew({ query })
 }
 
 export function getFunnelDatasetKey(dataset: { breakdown_value?: BreakdownKeyType }): string {

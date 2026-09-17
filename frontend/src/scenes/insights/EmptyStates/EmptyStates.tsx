@@ -556,8 +556,35 @@ export function InsightLoadingState({
     )
 }
 
-export function InsightTimeoutState({ queryId }: { queryId?: string | null }): JSX.Element {
+export function InsightTimeoutState({
+    query,
+    queryId,
+    onRetry,
+}: {
+    query?: Record<string, any> | Node | null
+    queryId?: string | null
+    onRetry?: () => void
+}): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
+
+    // query_id lets staff look the slow query up server-side, which is what the bug report link asks for
+    useOnMountEffect(() => {
+        posthog.capture('insight error message shown', {
+            error_type: 'timeout',
+            query_kind: queryKindForReporting(query),
+            query_id: queryId ?? null,
+        })
+    })
+
+    const retry = onRetry
+        ? (): void => {
+              posthog.capture('insight timeout retry clicked', {
+                  query_kind: queryKindForReporting(query),
+                  query_id: queryId ?? null,
+              })
+              onRetry()
+          }
+        : undefined
 
     return (
         <div data-attr="insight-empty-state" className="rounded px-4 py-6 h-full w-full">
@@ -567,8 +594,8 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
             </h2>
 
             <div className="rounded max-w-120 text-xs">
-                Sometimes this happens. Try refreshing the page, reducing the date range, or removing breakdowns. If
-                you're still having issues,{' '}
+                Sometimes this happens. Run it again, or make it faster with a shorter date range or fewer breakdowns.
+                If you're still having issues,{' '}
                 <Link
                     onClick={() => {
                         openSupportForm({ kind: 'bug' })
@@ -578,6 +605,12 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
                 </Link>
                 .
             </div>
+
+            {retry && (
+                <div className="flex gap-2 mt-4">
+                    <RetryButton onRetry={retry} query={query} />
+                </div>
+            )}
 
             <QueryIdDisplay queryId={queryId} />
         </div>
