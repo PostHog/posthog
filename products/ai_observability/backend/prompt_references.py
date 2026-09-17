@@ -138,7 +138,10 @@ def validate_prompt_references(team_id: int, *, prompt_name: str, prompt_payload
             "referenced_prompt_cannot_reference",
         )
 
-    assembled_bytes = len(text.encode("utf-8"))
+    # True assembled size: the tags are replaced by content at resolution,
+    # so their bytes leave the total.
+    tag_bytes = sum(len(match.group(0).encode("utf-8")) for match in PROMPT_REFERENCE_REGEX.finditer(text))
+    assembled_bytes = len(text.encode("utf-8")) - tag_bytes
     for reference in references:
         if reference.name == prompt_name:
             raise _reference_error(
@@ -284,11 +287,12 @@ def assemble_prompt_payload(team: Team, payload: dict[str, Any]) -> dict[str, An
     # the running size check aborts before a large assembly is materialized,
     # so a fetch never allocates more than the payload cap.
     memoized: dict[tuple[str, str | None, str | None], str] = {}
-    spliced_bytes = 0
-    base_bytes = len(content.encode("utf-8"))
+    # Running total of the true assembled size: each replacement removes the
+    # tag's bytes and adds the spliced content's bytes.
+    assembled_bytes = len(content.encode("utf-8"))
 
     def _splice(match: re.Match[str]) -> str:
-        nonlocal spliced_bytes
+        nonlocal assembled_bytes
         name = match.group("name")
         version = match.group("version")
         label = match.group("label")
@@ -320,8 +324,8 @@ def assemble_prompt_payload(team: Team, payload: dict[str, Any]) -> dict[str, An
                 )
             memoized[key] = child_content
             resolved.append({"name": name, "version": child["version"], "label": label})
-        spliced_bytes += len(child_content.encode("utf-8"))
-        if base_bytes + spliced_bytes > MAX_PROMPT_PAYLOAD_BYTES:
+        assembled_bytes += len(child_content.encode("utf-8")) - len(match.group(0).encode("utf-8"))
+        if assembled_bytes > MAX_PROMPT_PAYLOAD_BYTES:
             raise PromptReferenceResolutionError(
                 reference_name=payload["name"],
                 message=(
