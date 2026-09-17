@@ -3,6 +3,7 @@ from typing import Any
 from uuid import uuid4
 
 from django.conf import settings
+from django.db import IntegrityError, transaction
 from django.utils.timezone import now
 
 import structlog
@@ -139,18 +140,27 @@ async def prepare_observation_thumbnail_activity(inputs: ObservationMediaInputs)
     )
 
 
-def _link_media(inputs: FinalizeObservationThumbnailInputs, asset: ExportedAsset) -> None:
-    ReplayObservationMedia.objects.for_team(inputs.team_id, canonical=True).update_or_create(
-        observation_id=inputs.observation_id,
-        kind=ReplayObservationMedia.Kind.THUMBNAIL,
-        position=0,
-        defaults={
-            "team_id": inputs.team_id,
-            "asset": asset,
-            "video_start_ms": inputs.video_start_ms,
-            "rec_start_ms": inputs.rec_start_ms,
-        },
-    )
+def _link_media(inputs: FinalizeObservationThumbnailInputs, content_location: str) -> None:
+    """Point the asset at the rendered object and link it, as one write.
+
+    One transaction, media row first: an observation deleted before the row exists would leave the asset
+    with nothing pointing at it, and one deleted after cascades the row away, which expires the asset.
+    """
+    with transaction.atomic():
+        media, _ = ReplayObservationMedia.objects.for_team(inputs.team_id, canonical=True).update_or_create(
+            observation_id=inputs.observation_id,
+            kind=ReplayObservationMedia.Kind.THUMBNAIL,
+            position=0,
+            defaults={
+                "team_id": inputs.team_id,
+                "asset_id": inputs.media_asset_id,
+                "video_start_ms": inputs.video_start_ms,
+                "rec_start_ms": inputs.rec_start_ms,
+            },
+        )
+        ExportedAsset.objects.filter(pk=media.asset_id, team_id=inputs.team_id).update(
+            content_location=content_location
+        )
 
 
 @activity.defn
@@ -162,21 +172,19 @@ async def finalize_observation_thumbnail_activity(inputs: FinalizeObservationThu
     except ValueError as error:
         raise ApplicationError(str(error), non_retryable=True) from error
 
-    asset = await ExportedAsset.objects.aget(pk=inputs.media_asset_id, team_id=inputs.team_id)
-    asset.content_location = content_location
-    await asset.asave(update_fields=["content_location"])
-
-    if not await ReplayObservation.objects.filter(pk=inputs.observation_id, team_id=inputs.team_id).aexists():
-        # Deleted while the frame rendered, so nothing will ever point at the object.
-        await ExportedAsset.objects.filter(pk=asset.id).aupdate(expires_after=now())
+    try:
+        # `for_team` resolves the canonical team with a synchronous query of its own.
+        await sync_to_async(_link_media)(inputs, content_location)
+    except IntegrityError:
+        # The observation went away between the render and this write, so nothing will point at the object.
+        await ExportedAsset.objects.filter(pk=inputs.media_asset_id, team_id=inputs.team_id).aupdate(
+            expires_after=now()
+        )
         return
-
-    # `for_team` resolves the canonical team with a synchronous query of its own.
-    await sync_to_async(_link_media)(inputs, asset)
 
     logger.info(
         "replay_vision.thumbnail_ready",
         observation_id=str(inputs.observation_id),
-        asset_id=asset.id,
+        asset_id=inputs.media_asset_id,
         file_size_bytes=inputs.result.file_size_bytes,
     )

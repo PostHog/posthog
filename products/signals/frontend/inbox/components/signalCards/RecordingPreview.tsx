@@ -9,6 +9,9 @@ import { sessionRecordingInfoLogic } from 'lib/components/ViewRecordingButton/se
 import { RecordingPlayerType, useRecordingButton } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { Dayjs } from 'lib/dayjs'
 
+// Long enough for a thumbnail render to land, short enough that a reader still sees the frame appear.
+const THUMBNAIL_RETRY_MS = 45_000
+
 interface RecordingPreviewProps {
     sessionId: string
     /** Instant the player seeks to when the frame is clicked. */
@@ -24,9 +27,24 @@ interface RecordingPreviewProps {
  * empty player, when the recording wasn't captured or has expired.
  */
 export function RecordingPreview({ sessionId, seekTime, thumbnailSrc, alt }: RecordingPreviewProps): JSX.Element {
-    const [thumbnailFailed, setThumbnailFailed] = useState(false)
+    const [attempt, setAttempt] = useState(0)
+    const [gaveUp, setGaveUp] = useState(false)
 
-    const src = thumbnailFailed ? undefined : thumbnailSrc
+    // A replay signal reaches the inbox before its frame finishes rendering, so the first fetch often 404s.
+    // One delayed retry covers that without leaving a card polling a frame that will never exist.
+    useEffect(() => {
+        setAttempt(0)
+        setGaveUp(false)
+    }, [thumbnailSrc])
+    const onError = (): void => {
+        if (attempt === 0) {
+            setTimeout(() => setAttempt(1), THUMBNAIL_RETRY_MS)
+            return
+        }
+        setGaveUp(true)
+    }
+
+    const src = gaveUp || !thumbnailSrc ? undefined : `${thumbnailSrc}?attempt=${attempt}`
 
     const { checkRecordingInfo } = useActions(sessionRecordingInfoLogic)
     const { getRecordingExists, isRecordingExistsLoading } = useValues(sessionRecordingInfoLogic)
@@ -63,7 +81,7 @@ export function RecordingPreview({ sessionId, seekTime, thumbnailSrc, alt }: Rec
                         className="absolute inset-0 size-full object-cover"
                         loading="lazy"
                         decoding="async"
-                        onError={() => setThumbnailFailed(true)}
+                        onError={onError}
                     />
                 )}
                 <div
