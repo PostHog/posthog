@@ -88,6 +88,7 @@ from products.skills.backend.api.skill_serializers import (
     MAX_SKILL_FILE_COUNT,
     SPEC_DESCRIPTION_MAX_LENGTH,
     LLMSkillFileInputSerializer,
+    validate_new_skill_name_value,
     validate_skill_body_size,
     validate_skill_name_value,
 )
@@ -3583,10 +3584,12 @@ class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):
     )
 
     def validate_skill_name(self, value: str) -> str:
-        # The generic skill-name contract first, like the sibling create serializer. Nothing
-        # downstream re-checks it: the model column carries no validator, `create_skill` skips the
-        # pattern, and the view's existence check only proves a row exists. It is also what keeps
-        # scout names and the `pipeline:` note audiences disjoint (see `note_targets`).
+        # The generic skill-name contract first, not the stricter contract the sibling create
+        # serializer applies: this field names a skill the project already holds, and the harness
+        # seeds the canonical scouts under names the bundled fleet also uses. Nothing downstream
+        # re-checks it: the model column carries no validator, `create_skill` skips the pattern,
+        # and the view's existence check only proves a row exists. It is also what keeps scout
+        # names and the `pipeline:` note audiences disjoint (see `note_targets`).
         value = validate_skill_name_value(value)
         if error := reserved_scout_name_error(value):
             raise serializers.ValidationError(error)
@@ -3642,7 +3645,7 @@ class SignalScoutCreateSerializer(serializers.Serializer):
     )
 
     def validate_name(self, value: str) -> str:
-        value = validate_skill_name_value(value)
+        value = validate_new_skill_name_value(value)
         if error := reserved_scout_name_error(value):
             raise serializers.ValidationError(error)
         return value

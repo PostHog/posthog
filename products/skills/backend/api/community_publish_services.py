@@ -32,6 +32,7 @@ from .skill_services import (
     MAX_SKILL_FILE_COUNT,
     RESERVED_SKILL_NAMES,
     SKILL_NAME_PATTERN,
+    bundled_skill_name_error,
     check_allowed_tool_name,
     normalize_skill_file_path,
 )
@@ -148,6 +149,9 @@ def _validate_slug(slug: str) -> str:
         raise CommunitySkillPublishValidationError(
             f"'{slug}' is a reserved name and can't be published to the community."
         )
+    # A catalog entry installs under its slug, so a bundled name would only be refused at install.
+    if error := bundled_skill_name_error(slug):
+        raise CommunitySkillPublishValidationError(error)
     return slug
 
 
