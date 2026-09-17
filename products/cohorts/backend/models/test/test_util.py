@@ -14,6 +14,7 @@ from pydantic import (
 )
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from posthog.hogql.errors import QueryError
 from posthog.hogql.hogql import HogQLContext
 
 from posthog.clickhouse.client import sync_execute
@@ -1224,6 +1225,7 @@ class TestParseErrorCode(BaseTest):
             ("query_size", "QuerySizeExceeded", CohortErrorCode.QUERY_SIZE),
             ("pydantic_validation", "PydanticValidationError", CohortErrorCode.VALIDATION_ERROR),
             ("drf_validation", "DRFValidationError", CohortErrorCode.VALIDATION_ERROR),
+            ("exposed_hogql", "QueryError", CohortErrorCode.INVALID_FILTER),
             ("value_error", "ValueError", CohortErrorCode.UNKNOWN),
             ("clickhouse_regex", "ClickHouseRegexError", CohortErrorCode.INVALID_REGEX),
             ("clickhouse_memory", "ClickHouseMemoryError", CohortErrorCode.MEMORY_LIMIT),
@@ -1246,6 +1248,7 @@ class TestParseErrorCode(BaseTest):
             "ClickHouseQueryMemoryLimitExceeded": ClickHouseQueryMemoryLimitExceeded,
             "QuerySizeExceeded": ClickHouseQuerySizeExceeded,
             "DRFValidationError": DRFValidationError,
+            "QueryError": QueryError,
             "ValueError": ValueError,
             "Exception": Exception,
         }
@@ -1320,6 +1323,15 @@ class TestGetFriendlyErrorMessage(BaseTest):
         # be told to wait for one.
         self.assertNotIn("automatically retry", message.lower())
         self.assertIn("automatically retry", ERROR_CODE_MESSAGES[error_code].lower())
+
+    def test_get_friendly_error_message_names_the_filter_that_could_not_compile(self):
+        # Without the detail an invalid filter reads as the generic "contact support" copy, and the
+        # person never learns which criterion to edit.
+        message = get_friendly_error_message(
+            CohortErrorCode.INVALID_FILTER, detail="Unable to resolve field: slideValue"
+        )
+        assert message is not None
+        self.assertIn("slideValue", message)
 
     def test_get_friendly_error_message_none(self):
         self.assertIsNone(get_friendly_error_message(None))

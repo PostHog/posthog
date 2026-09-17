@@ -532,75 +532,89 @@ def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional
 def calculate_cohort_ch(
     self: Task, cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None
 ) -> None:
+    # new_context() captures every exception that escapes it. A cohort whose saved filters cannot
+    # compile raises ExposedHogQLError, which is the definition owner's to fix and no retry can
+    # help, so it is re-raised outside the context instead: each new unresolvable field name would
+    # otherwise open its own error tracking issue. The static population path skips it the same way.
+    definition_error: ExposedHogQLError | None = None
     with posthoganalytics.new_context():
-        posthoganalytics.tag("feature", Feature.COHORT.value)
-        posthoganalytics.tag("cohort_id", cohort_id)
-
         try:
-            cohort: Cohort = Cohort.objects.get(pk=cohort_id)
+            _calculate_cohort_ch(self, cohort_id, pending_version, initiating_user_id)
+        except ExposedHogQLError as err:
+            definition_error = err
+    if definition_error is not None:
+        raise definition_error
 
-            # Skip calculation if this version is now obsolete (superseded by newer save)
-            if cohort.pending_version and pending_version < cohort.pending_version:
-                logger.info(
-                    "cohort_calculation_skipped_obsolete",
-                    cohort_id=cohort_id,
-                    task_version=pending_version,
-                    current_pending_version=cohort.pending_version,
-                )
-                return
 
-            posthoganalytics.tag("team_id", cohort.team_id)
+def _calculate_cohort_ch(task: Task, cohort_id: int, pending_version: int, initiating_user_id: Optional[int]) -> None:
+    posthoganalytics.tag("feature", Feature.COHORT.value)
+    posthoganalytics.tag("cohort_id", cohort_id)
 
-            staleness_hours = 0.0
-            if cohort.last_calculation is not None:
-                staleness_hours = (timezone.now() - cohort.last_calculation).total_seconds() / 3600
-            COHORT_STALENESS_HOURS_GAUGE.set(staleness_hours)
+    try:
+        cohort: Cohort = Cohort.objects.get(pk=cohort_id)
 
-            tags = QueryTags(cohort_id=cohort_id, feature=query_tagging.Feature.COHORT)
-            if initiating_user_id:
-                tags.user_id = initiating_user_id
-            if self.request.id:
-                tags.celery_task_id = self.request.id
-            update_tags(tags)
-        except Exception as err:
-            # Recalculation never started - calculate_people_ch's own bookkeeping (which handles
-            # is_calculating/errors_calculating for failures during recalculation) never ran either.
-            # When nothing will retry, clear is_calculating here rather than leaving the cohort
-            # stranded "in flight" until the hourly reset_stuck_cohorts job, which would then charge
-            # it an errors_calculating increment for a recalculation that never actually ran.
-            if _is_final_attempt(self, isinstance(err, COHORT_RECALCULATION_TRANSIENT_ERRORS)):
-                # pending_version guard extends _safe_reset_calculating_state with a null leg: never
-                # clear the flag out from under a newer calculation that superseded this one. A null
-                # pending_version means nothing newer is queued, so it clears too.
-                #
-                # errors_calculating and last_error_at are stamped alongside because they are the
-                # only brakes on re-enqueueing: last_error_at drives the exponential backoff and
-                # errors_calculating drives the MAX_ERRORS_CALCULATING cutoff. Clearing
-                # is_calculating without them would make a cohort failing here eligible again every
-                # cycle, forever. A later successful run resets both in calculate_people_ch.
-                save_recovery_bookkeeping(
-                    lambda: Cohort.objects.filter(
-                        Q(pending_version__lte=pending_version) | Q(pending_version__isnull=True),
-                        pk=cohort_id,
-                        is_calculating=True,
-                    ).update(
-                        is_calculating=False,
-                        errors_calculating=F("errors_calculating") + 1,
-                        last_error_at=timezone.now(),
-                    ),
-                    cohort_id=cohort_id,
-                )
-            raise
+        # Skip calculation if this version is now obsolete (superseded by newer save)
+        if cohort.pending_version and pending_version < cohort.pending_version:
+            logger.info(
+                "cohort_calculation_skipped_obsolete",
+                cohort_id=cohort_id,
+                task_version=pending_version,
+                current_pending_version=cohort.pending_version,
+            )
+            return
 
-        cohort.calculate_people_ch(
-            pending_version,
-            initiating_user_id=initiating_user_id,
-            # calculate_people_ch charges errors_calculating in its own except block and cannot see
-            # the retry machinery above it. Without this it would charge one increment per attempt,
-            # so a single fully-failed run would push a cohort most of the way to the
-            # MAX_ERRORS_CALCULATING cutoff that permanently drops it from recalculation.
-            will_retry=lambda err: not _is_final_attempt(self, isinstance(err, COHORT_RECALCULATION_TRANSIENT_ERRORS)),
-        )
+        posthoganalytics.tag("team_id", cohort.team_id)
+
+        staleness_hours = 0.0
+        if cohort.last_calculation is not None:
+            staleness_hours = (timezone.now() - cohort.last_calculation).total_seconds() / 3600
+        COHORT_STALENESS_HOURS_GAUGE.set(staleness_hours)
+
+        tags = QueryTags(cohort_id=cohort_id, feature=query_tagging.Feature.COHORT)
+        if initiating_user_id:
+            tags.user_id = initiating_user_id
+        if task.request.id:
+            tags.celery_task_id = task.request.id
+        update_tags(tags)
+    except Exception as err:
+        # Recalculation never started - calculate_people_ch's own bookkeeping (which handles
+        # is_calculating/errors_calculating for failures during recalculation) never ran either.
+        # When nothing will retry, clear is_calculating here rather than leaving the cohort
+        # stranded "in flight" until the hourly reset_stuck_cohorts job, which would then charge
+        # it an errors_calculating increment for a recalculation that never actually ran.
+        if _is_final_attempt(task, isinstance(err, COHORT_RECALCULATION_TRANSIENT_ERRORS)):
+            # pending_version guard extends _safe_reset_calculating_state with a null leg: never
+            # clear the flag out from under a newer calculation that superseded this one. A null
+            # pending_version means nothing newer is queued, so it clears too.
+            #
+            # errors_calculating and last_error_at are stamped alongside because they are the
+            # only brakes on re-enqueueing: last_error_at drives the exponential backoff and
+            # errors_calculating drives the MAX_ERRORS_CALCULATING cutoff. Clearing
+            # is_calculating without them would make a cohort failing here eligible again every
+            # cycle, forever. A later successful run resets both in calculate_people_ch.
+            save_recovery_bookkeeping(
+                lambda: Cohort.objects.filter(
+                    Q(pending_version__lte=pending_version) | Q(pending_version__isnull=True),
+                    pk=cohort_id,
+                    is_calculating=True,
+                ).update(
+                    is_calculating=False,
+                    errors_calculating=F("errors_calculating") + 1,
+                    last_error_at=timezone.now(),
+                ),
+                cohort_id=cohort_id,
+            )
+        raise
+
+    cohort.calculate_people_ch(
+        pending_version,
+        initiating_user_id=initiating_user_id,
+        # calculate_people_ch charges errors_calculating in its own except block and cannot see
+        # the retry machinery above it. Without this it would charge one increment per attempt,
+        # so a single fully-failed run would push a cohort most of the way to the
+        # MAX_ERRORS_CALCULATING cutoff that permanently drops it from recalculation.
+        will_retry=lambda err: not _is_final_attempt(task, isinstance(err, COHORT_RECALCULATION_TRANSIENT_ERRORS)),
+    )
 
 
 def _is_transient_population_error(err: BaseException) -> bool:
@@ -820,7 +834,10 @@ def _finalize_population_history(
         # history tab renders it verbatim. Raw exception text names the responding ClickHouse host
         # and quotes the failing SQL, so only the friendly message is stored; the exception itself
         # stays in the logs and in error tracking.
-        history.error = get_friendly_error_message(history.error_code, will_retry=will_retry)
+        # An exposed HogQL error names the filter that could not compile and is safe to show, so
+        # the message carries it.
+        detail = str(processing_error) if isinstance(processing_error, ExposedHogQLError) else None
+        history.error = get_friendly_error_message(history.error_code, will_retry=will_retry, detail=detail)
     # A long population can outlive its Postgres connection, so record the outcome resiliently
     # instead of raising "connection is closed" over the error this row exists to report.
     save_recovery_bookkeeping(

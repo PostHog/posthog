@@ -673,6 +673,17 @@ class CohortConditionTypeField(serializers.JSONField):
     pass
 
 
+def _last_error_message(error_code: str | None, stored_message: str | None, *, will_retry: bool) -> Optional[str]:
+    """The message for the last failed calculation.
+
+    An invalid filter is the one failure whose message names what broke, and that text is only on
+    the history row, so it wins over the static per-code copy.
+    """
+    if error_code == CohortErrorCode.INVALID_FILTER and stored_message:
+        return stored_message
+    return get_friendly_error_message(error_code, will_retry=will_retry)
+
+
 class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = earliest_timestamp_func
@@ -768,7 +779,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # Prefer the annotated last_error_code when available
         if hasattr(cohort, "last_error_code"):
             if cohort.last_error_code:
-                return get_friendly_error_message(cohort.last_error_code, will_retry=will_retry)
+                return _last_error_message(
+                    cohort.last_error_code, getattr(cohort, "last_error_detail", None), will_retry=will_retry
+                )
             return None
 
         # Fall back to querying calculation history.
@@ -782,7 +795,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             .first()
         )
         if last_failed_calculation:
-            return get_friendly_error_message(last_failed_calculation.error_code, will_retry=will_retry)
+            return _last_error_message(
+                last_failed_calculation.error_code, last_failed_calculation.error, will_retry=will_retry
+            )
         return None
 
     def validate_cohort_type(self, value):
@@ -1790,16 +1805,24 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         # hot-path fetch would otherwise run a subquery per row for teams with thousands of
         # cohorts.
         if not is_basic_list:
-            last_error_code_subquery = Subquery(
-                CohortCalculationHistory.objects.filter(
-                    cohort=OuterRef("pk"),
-                    error__isnull=False,
+
+            def last_error_subquery(field: str) -> Subquery:
+                return Subquery(
+                    CohortCalculationHistory.objects.filter(
+                        cohort=OuterRef("pk"),
+                        error__isnull=False,
+                    )
+                    .exclude(error="")
+                    .order_by("-started_at")
+                    .values(field)[:1]
                 )
-                .exclude(error="")
-                .order_by("-started_at")
-                .values("error_code")[:1]
+
+            queryset = queryset.prefetch_related("experiment_set").annotate(
+                last_error_code=last_error_subquery("error_code"),
+                # Only the invalid-filter message names what broke, and that text lives on the
+                # history row rather than in the static per-code copy.
+                last_error_detail=last_error_subquery("error"),
             )
-            queryset = queryset.prefetch_related("experiment_set").annotate(last_error_code=last_error_code_subquery)
 
         if not search_ordered:
             queryset = queryset.order_by("-created_at")

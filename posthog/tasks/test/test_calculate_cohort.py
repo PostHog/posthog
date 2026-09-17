@@ -1,4 +1,5 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Optional
 
 import time_machine
@@ -1436,6 +1437,38 @@ class TestCohortCalculationTasks(APIBaseTest):
 
         cohort.refresh_from_db()
         self.assertTrue(cohort.is_calculating)
+
+    @parameterized.expand(
+        [
+            ("system_error", ValueError("boom"), True),
+            ("user_query_error", QueryError("Unable to resolve field: slideValue"), False),
+        ]
+    )
+    def test_calculate_cohort_ch_keeps_invalid_filters_out_of_error_tracking(
+        self, _name: str, raised: Exception, expect_reported: bool
+    ) -> None:
+        # posthoganalytics reports every exception that escapes its context, so a cohort whose
+        # saved filters do not compile used to open a fresh error tracking issue for each new bad
+        # field name. The task still has to fail; only the reporting changes.
+        cohort = Cohort.objects.create(team=self.team, name="test_cohort", is_calculating=True, pending_version=1)
+        reported: list[BaseException] = []
+
+        @contextmanager
+        def recording_context(*args: object, **kwargs: object) -> Iterator[None]:
+            try:
+                yield
+            except Exception as err:
+                reported.append(err)
+                raise
+
+        with (
+            patch("products.cohorts.backend.models.util.recalculate_cohortpeople", side_effect=raised),
+            patch("posthoganalytics.new_context", recording_context),
+            self.assertRaises(type(raised)),
+        ):
+            self._run_calculate_cohort_ch(cohort.id)
+
+        self.assertEqual([type(err) for err in reported], [type(raised)] if expect_reported else [])
 
     def test_insert_cohort_from_query_count_updated_on_exception(self) -> None:
         cohort = Cohort.objects.create(

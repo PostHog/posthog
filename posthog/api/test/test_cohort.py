@@ -5804,6 +5804,30 @@ email@example.org,
         self.assertIsNotNone(response.json()["last_error_message"])
         self.assertIn("taking too long", response.json()["last_error_message"].lower())
 
+    def test_cohort_last_error_message_names_the_filter_that_could_not_compile(self):
+        # Every other failure reads the same for every cohort, so the message comes from the code.
+        # An invalid filter is the one the person can fix, and only the history row knows which
+        # criterion broke, so that message has to reach the cohort itself.
+        from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
+        from products.cohorts.backend.models.util import CohortErrorCode
+
+        cohort = Cohort.objects.create(team=self.team, name="Test Cohort", errors_calculating=1)
+
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+            error="One of this cohort's matching criteria is not valid (Unable to resolve field: slideValue).",
+            error_code=CohortErrorCode.INVALID_FILTER,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("slideValue", response.json()["last_error_message"])
+
     @parameterized.expand(
         [
             ("dynamic", False, True),
