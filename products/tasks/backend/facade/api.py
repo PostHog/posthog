@@ -85,6 +85,7 @@ from products.tasks.backend.feature_flags import get_model_access_error, is_work
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
+from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, pinned_run_allows_model
 from products.tasks.backend.logic.services.image_builder import (
     ensure_image_builder_task,
     is_custom_images_enabled,
@@ -189,6 +190,7 @@ __all__ = [
     "WarmRunActivationUnavailable",
     "append_task_run_log",
     "apply_task_run_model_config",
+    "task_run_model_outside_gateway_pin",
     "ensure_task_run_session",
     "beacon_task_presence",
     "bootstrap_task_run",
@@ -2387,6 +2389,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # is_interactive_signals_run reads it the same way, so forging it would move the run off
         # the interactive budget and out of its per-run spend ceiling.
         "ai_stage",
+        # A removed stamp lets a model change leave the token's pin, and the gateway denies every turn.
+        GATEWAY_PRODUCT_STATE_KEY,
         # Names the agent (scout, custom agent, workflow) the run executes, lifted onto its
         # $ai_generation events. A PATCHable value would bill a caller's spend to another agent.
         "ai_agent_name",
@@ -2411,6 +2415,10 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "rtk_effective",
         "benjamin_effective",
         "usage_metrics_recorded",
+        # get_task_run_actor_user mints the sandbox OAuth token for slack_actor_user_id when
+        # interaction_origin is "slack"; a removed actor falls back to the task creator.
+        "interaction_origin",
+        "slack_actor_user_id",
     }
 )
 
@@ -4512,6 +4520,10 @@ def apply_task_run_model_config(
         # gated model the caller could not have started the run on.
         logger.warning("Model access denied switching task run %s to %s", run.id, model)
         return False
+    if model and not pinned_run_allows_model(run.state, model):
+        # A gateway denial does not fall back, so an off-pin model fails every turn.
+        logger.warning("Model %s is outside the gateway pin of task run %s", model, run.id)
+        return False
 
     auth_token = (
         create_sandbox_connection_token(run, user_id=actor.id, distinct_id=distinct_id)
@@ -4530,6 +4542,13 @@ def apply_task_run_model_config(
     if applied:
         TaskRun.update_state_atomic(run.id, updates=applied)
     return len(applied) == len(requested)
+
+
+def task_run_model_outside_gateway_pin(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, model: str | None
+) -> bool:
+    run = _get_visible_run(run_id, task_id, team_id)
+    return run is not None and not pinned_run_allows_model(run.state, model)
 
 
 def get_task_run_sandbox_connection(
