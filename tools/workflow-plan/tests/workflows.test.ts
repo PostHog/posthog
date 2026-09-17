@@ -77,8 +77,7 @@ const suite = (file: string, selectors: Stubs): ExpectationBuilder => {
 }
 const backend = suite('ci-backend.yml', backendSelectors)
 const frontend = suite('ci-frontend.yml', frontendSelectors)
-// The release workflow builds wheels on a pull request as a check. Only a manual dispatch from
-// master reaches the job that uploads to PyPI.
+// `deltalite-release-needed` comes from a shell script the planner cannot run.
 const deltalite = suite('build-deltalite.yml', {
     'check-version': { version: { outputs: { 'deltalite-release-needed': 'true' } } },
 })
@@ -312,6 +311,10 @@ const EXPECTATIONS: Expectation[] = [
     deltalite(
         { name: 'master dispatch', github: workflowDispatch() },
         { runs: ['check-version', 'build-wheels', 'publish'] }
+    ),
+    deltalite(
+        { name: 'branch dispatch', github: { ...workflowDispatch(), ref: 'refs/heads/feat/example' } },
+        { runs: ['check-version', 'build-wheels'], skipped: ['publish'] }
     ),
 ]
 

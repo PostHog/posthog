@@ -1,18 +1,10 @@
 name: Release deltalite
 
-# Publishes the `deltalite` Python wheel (the streaming Delta upsert, built from
-# rust/deltalite/python via maturin) to PyPI, then auto-pins the new version in
-# pyproject.toml + uv.lock so the app image installs it via `uv sync`. Mirrors
-# build-hogql-parser-rs.yml exactly.
-#
-# ONE-TIME INFRA REQUIRED BEFORE THIS CAN PUBLISH (platform/infra team):
-#   1. Create the `deltalite` project on PyPI.
-#   2. Configure PyPI trusted publishing for it against this repo + workflow, and
-#      create a matching GitHub environment named `pypi-deltalite` (see the
-#      `pypi-hogql-parser-rs` environment for the template).
-# Until that exists the build/version-check jobs still run (and correctly report
-# "release needed"), but the publish job cannot upload. Nothing in the app imports
-# `deltalite` until the pin lands, so this is inert until then.
+# Builds the `deltalite` wheel (the streaming Delta upsert) from rust/deltalite/python
+# and publishes it to PyPI. Bumping the `deltalite==` pin in the root pyproject.toml
+# and uv.lock is a separate pull request after the publish job uploads the version.
+# CI installs with `uv sync --frozen`, so a pin that names a version PyPI does not
+# hold breaks every job that installs Python dependencies.
 
 on:
     pull_request:
@@ -40,7 +32,6 @@ jobs:
             pull-requests: write
         outputs:
             deltalite-release-needed: ${{ steps.version.outputs.deltalite-release-needed }}
-            local-version: ${{ steps.version.outputs.local-version }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
@@ -69,12 +60,10 @@ jobs:
                   WORKFLOW_CHANGED: ${{ steps.changed-files.outputs.workflow_any_changed }}
                   IS_FORK: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' }}
                   IS_PULL_REQUEST: ${{ github.event_name == 'pull_request' }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   deltalite_release_needed='false'
                   # Local version from pyproject.toml — single source of truth, matches Cargo.toml.
                   local=$(grep -m1 '^version = ' rust/deltalite/python/pyproject.toml | sed -E 's/version = "(.*)"/\1/')
-                  echo "local-version=$local" >> $GITHUB_OUTPUT
                   if [[ "$DELTALITE_CHANGED" == 'true' ]]; then
                       # 200 = version already on PyPI, 404 = needs release.
                       http_code=$(curl -o /dev/null -sSL -w '%{http_code}' "https://pypi.org/pypi/deltalite/$local/json")
@@ -189,9 +178,9 @@ jobs:
     publish:
         name: Publish on PyPI
         needs: [check-version, build-wheels]
-        # Only a manual dispatch from master publishes. The environment's deployment branch
-        # policy is the registry-side half of that rule, since PyPI's trusted publisher
-        # for this project accepts only this environment.
+        # The condition below is the branch control for an upload. PyPI's trusted publisher
+        # accepts only this environment, so restricting the environment's deployment branches
+        # to master adds a second control that a change to this file cannot remove.
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && github.repository == 'PostHog/posthog'
         environment: pypi-deltalite
         permissions:
