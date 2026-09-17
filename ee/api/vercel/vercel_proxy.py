@@ -199,10 +199,12 @@ class VercelProxyViewSet(viewsets.ViewSet):
                 status_code=response.status_code,
             )
         else:
-            capture_exception(
-                ValueError("Vercel API request failed"),
-                {"config_id": config_id, "path": path, "status_code": response.status_code},
-            )
+            # A 4xx is how Vercel reports an expected client error, so only a server error is exceptional.
+            if response.status_code >= 500:
+                capture_exception(
+                    ValueError("Vercel API request failed"),
+                    {"config_id": config_id, "path": path, "status_code": response.status_code},
+                )
             logger.error(
                 "Vercel API proxy request failed",
                 config_id=config_id,
