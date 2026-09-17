@@ -1,11 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconArrowLeft, IconExternal, IconRefresh } from '@posthog/icons'
+import { IconArrowLeft, IconExternal, IconRefresh, IconUpload } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { openPublishToCommunityDialog } from 'lib/components/openPublishToCommunityDialog'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
@@ -76,11 +80,23 @@ export function ScoutDetailHeader({
     noteCount: number
     learnedCount: number
 }): JSX.Element {
-    const { updatingScoutIds, manualRunScoutIds } = useValues(scoutFleetLogic)
-    const { updateScoutConfig, runScoutNow } = useActions(scoutFleetLogic)
+    const { updatingScoutIds, manualRunScoutIds, publishingScoutIds } = useValues(scoutFleetLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
+    const { updateScoutConfig, runScoutNow, publishScoutToCommunity } = useActions(scoutFleetLogic)
 
     const updating = updatingScoutIds.includes(config.id)
     const running = manualRunScoutIds.includes(config.id)
+    const publishing = publishingScoutIds.includes(config.id)
+    const communitySkillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS]
+    const isOwner = !!user && (config.owners ?? []).some((owner) => owner.uuid === user.uuid)
+    const publishDisabledReason = publishing
+        ? 'Opening a pull request'
+        : (config.owners ?? []).length === 0
+          ? 'Add an owner before publishing to the community'
+          : !isOwner
+            ? "Only the scout's owners can publish it"
+            : undefined
 
     return (
         <div className="flex flex-col gap-2 border-b border-primary bg-surface-primary px-4 py-3">
@@ -120,6 +136,29 @@ export function ScoutDetailHeader({
                     </LemonButton>
                 </Tooltip>
                 <ScoutSettingsButton config={config} surface="scout_detail" showLabel />
+                {communitySkillsEnabled && config.scout_origin !== 'canonical' && (
+                    <Tooltip title="Share this scout in the community store, so other projects can set it up with the same instructions and schedule.">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconUpload />}
+                            loading={publishing}
+                            disabledReason={publishDisabledReason}
+                            onClick={() =>
+                                openPublishToCommunityDialog({
+                                    skillName: config.skill_name,
+                                    // The scout page doesn't load the skills logic that resolves a
+                                    // linked GitHub identity, so the handle field starts empty here.
+                                    githubLogin: null,
+                                    isScout: true,
+                                    onPublish: (_skillName, options) => publishScoutToCommunity(config.id, options),
+                                })
+                            }
+                        >
+                            Publish
+                        </LemonButton>
+                    </Tooltip>
+                )}
                 {/* Captured on the way down: Link swallows Cmd/Ctrl-clicks before its onClick runs, and
                     those opens count too. */}
                 <span

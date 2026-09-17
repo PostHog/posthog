@@ -23,13 +23,17 @@ from .community_skill_serializers import (
     CommunitySkillInstallSerializer,
     CommunitySkillListQuerySerializer,
     CommunitySkillListSerializer,
+    CommunitySkillRenderResponseSerializer,
+    CommunitySkillRenderSerializer,
     CommunitySkillSerializer,
     CommunitySkillVoteResponseSerializer,
 )
 from .community_skill_services import (
     CommunitySkillInvalidPayloadError,
     CommunitySkillNotFoundError,
+    CommunitySkillNotInstallableError,
     install_community_skill,
+    render_community_skill,
     toggle_community_skill_vote,
 )
 from .skill_serializers import LLMSkillSerializer
@@ -110,7 +114,7 @@ class CommunitySkillViewSet(
     lookup_field = "slug"
 
     def get_throttles(self):
-        if self.action in ("install", "vote"):
+        if self.action in ("install", "vote", "render"):
             return [CommunitySkillBurstThrottle(), CommunitySkillSustainedThrottle()]
         return super().get_throttles()
 
@@ -159,6 +163,9 @@ class CommunitySkillViewSet(
         trust_tier = params.validated_data.get("trust_tier")
         if trust_tier:
             queryset = queryset.filter(trust_tier=trust_tier)
+        kind = params.validated_data.get("kind")
+        if kind:
+            queryset = queryset.filter(kind=kind)
 
         # order_by is a ChoiceField over ALLOWED_LIST_ORDERINGS, so is_valid() already guarantees a
         # valid key. Secondary "-id" keeps pagination stable when the primary key ties.
@@ -212,6 +219,11 @@ class CommunitySkillViewSet(
                 {"detail": f"Community skill '{slug}' not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        except CommunitySkillNotInstallableError as err:
+            # Its own reason code rather than "invalid_payload": the entry is fine, the caller just
+            # took the wrong route in, and the two want different follow-ups on the dashboard.
+            self._report_install_failed(request, slug, "wrong_kind")
+            return Response({"detail": err.detail}, status=status.HTTP_400_BAD_REQUEST)
         except (
             MissingTemplateVariableError,
             TemplateRenderTooLargeError,
@@ -279,6 +291,47 @@ class CommunitySkillViewSet(
             cast(dict[str, Any], LLMSkillSerializer(installed, context=self.get_serializer_context()).data),
             status=status.HTTP_201_CREATED,
         )
+
+    @extend_schema(request=CommunitySkillRenderSerializer, responses={200: CommunitySkillRenderResponseSerializer})
+    @action(methods=["POST"], detail=True)
+    def render(self, request: Request, slug: str = "", **kwargs) -> Response:
+        """Bind a catalog entry's template variables and return the text a create form starts from.
+
+        Persists nothing, so it needs no more access than reading the catalog already does — the
+        result is prefill, and the caller creates the skill or scout through its own product's path.
+        """
+        payload = CommunitySkillRenderSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        try:
+            rendered = render_community_skill(slug=slug, variables=payload.validated_data.get("variables"))
+        except CommunitySkillNotFoundError:
+            return Response(
+                {"detail": f"Community skill '{slug}' not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except (
+            MissingTemplateVariableError,
+            TemplateRenderTooLargeError,
+            TemplateVariableTooLargeError,
+            UnknownSuppliedVariableError,
+        ) as err:
+            raise ValidationError({"variables": str(err)}) from err
+        except UnknownTemplatePlaceholderError as err:
+            # A content-repo bug the caller can't fix, so it is a server-side fault. The hand-built
+            # 500 skips DRF's exception handler, so log it here or a broken entry fails silently.
+            logger.exception(
+                "Community skill template references an undeclared placeholder",
+                slug=slug,
+                placeholder=err.placeholder,
+            )
+            return Response({"detail": str(err)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except CommunitySkillInvalidPayloadError as err:
+            return Response({"detail": err.detail}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Serialized rather than hand-assembled so the wire shape can't drift from the schema the
+        # generated frontend types and MCP tools are built from.
+        return Response(cast(dict[str, Any], CommunitySkillRenderResponseSerializer(rendered).data))
 
     @extend_schema(request=None, responses={200: CommunitySkillVoteResponseSerializer})
     @action(methods=["POST"], detail=True)

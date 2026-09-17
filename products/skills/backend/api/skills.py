@@ -70,7 +70,8 @@ from ..marketplace.packaging import (
     parse_skill_zip,
     render_skill_md,
 )
-from ..models.skills import LLMSkill, LLMSkillFile
+from ..models.community_skills import CommunitySkillKind
+from ..models.skills import SCOUT_SKILL_CATEGORY, LLMSkill, LLMSkillFile
 from .community_publish_services import (
     CommunitySkillPublishError,
     CommunitySkillPublishNotConfiguredError,
@@ -1634,6 +1635,12 @@ class LLMSkillViewSet(
         # The LLMSkill name is the kebab slug; default the community display name to a title-cased form.
         display_name = payload.validated_data.get("display_name") or skill.name.replace("-", " ").title()
 
+        # Derived, not caller-supplied: a scout published as a plain skill is exactly the entry the
+        # catalog can't tell apart, and it lands in another project inert.
+        kind = (
+            CommunitySkillKind.SCOUT.value if skill.category == SCOUT_SKILL_CATEGORY else CommunitySkillKind.SKILL.value
+        )
+
         try:
             result = publish_skill_to_community(
                 slug=skill.name,
@@ -1650,6 +1657,8 @@ class LLMSkillViewSet(
                 compatibility=skill.compatibility or "",
                 author_handle=payload.validated_data.get("author_handle", ""),
                 metadata=skill.metadata,
+                kind=kind,
+                scout_config=payload.validated_data.get("scout_config"),
             )
         except CommunitySkillPublishNotConfiguredError:
             # The fail-safe is otherwise silent, so an instance that meant to have publishing on

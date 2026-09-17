@@ -21,6 +21,7 @@ from .community_publish_services import (
     MAX_TAG_LENGTH,
     OPTIONAL_GITHUB_HANDLE_PATTERN,
 )
+from .community_skill_serializers import CommunitySkillScoutConfigSerializer
 from .skill_services import (
     MAX_SKILL_NAME_LENGTH,
     RESERVED_SKILL_NAMES,
@@ -1040,6 +1041,13 @@ class LLMSkillPublishToCommunitySerializer(serializers.Serializer):
     expected_version = serializers.IntegerField(
         min_value=1,
         help_text="Skill version that the publisher reviewed. The request returns 409 if the latest version changed.",
+    )
+    scout_config = CommunitySkillScoutConfigSerializer(
+        required=False,
+        help_text=(
+            "Schedule, emit posture and tags to publish alongside a scout, so it arrives in another project "
+            "with its cadence intact. Rejected for a skill that is not a scout."
+        ),
     )
     display_name = serializers.RegexField(
         DISPLAY_NAME_PATTERN,

@@ -15,6 +15,9 @@ tools:
     community-skills-list:
         operation: community_skills_list
         enabled: false
+    community-skills-render-create:
+        operation: community_skills_render_create
+        enabled: false
     community-skills-retrieve:
         operation: community_skills_retrieve
         enabled: false

@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { Provider } from 'kea'
 import { Form } from 'kea-forms'
 
+import { openPublishToCommunityDialog } from 'lib/components/openPublishToCommunityDialog'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonFormDialog } from 'lib/lemon-ui/LemonDialog/LemonDialog'
 import { lemonDialogLogic } from 'lib/lemon-ui/LemonDialog/lemonDialogLogic'
@@ -13,7 +14,7 @@ import { initKeaTests } from '~/test/init'
 import { llmSkillsNameRetrieve } from 'products/skills/frontend/generated/api'
 import type { LLMSkillApi } from 'products/skills/frontend/generated/api.schemas'
 
-import { openPublishToCommunityDialog, publishToCommunityDisabledReason } from './skillSceneComponents'
+import { publishToCommunityDisabledReason } from './skillSceneComponents'
 
 jest.mock('products/skills/frontend/generated/api', () => ({
     llmSkillsNameRetrieve: jest.fn(),
