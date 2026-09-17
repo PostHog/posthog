@@ -62,7 +62,9 @@ jobs:
                   echo "local-version=$local" >> "$GITHUB_OUTPUT"
                   if [[ "$DELTALITE_CHANGED" == 'true' ]]; then
                       # 200 = version already on PyPI, 404 = needs release.
-                      http_code=$(curl --retry 3 --retry-all-errors --retry-max-time 90 --connect-timeout 10 --max-time 30 -o /dev/null -sSL -w '%{http_code}' "https://pypi.org/pypi/deltalite/$local/json")
+                      response_file=$(mktemp)
+                      trap 'rm -f "$response_file"' EXIT
+                      http_code=$(curl --retry 3 --retry-all-errors --retry-max-time 90 --connect-timeout 10 --max-time 30 -o "$response_file" -sSL -w '%{http_code}' "https://pypi.org/pypi/deltalite/$local/json")
                       if [[ "$http_code" == '404' ]]; then
                           deltalite_release_needed='true'
                           # Version was bumped — mark any reminder from an earlier push resolved.

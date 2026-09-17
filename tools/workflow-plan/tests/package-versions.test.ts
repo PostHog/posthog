@@ -1,6 +1,6 @@
 import { execFile, execFileSync } from 'node:child_process'
 import { once } from 'node:events'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -16,7 +16,7 @@ async function runVersionCheck(
     file: string,
     responses: (number | 'disconnect')[],
     fork = true
-): Promise<{ code: number; stdout: string; requests: number; outputs: string }> {
+): Promise<{ code: number; stdout: string; stderr: string; requests: number; outputs: string }> {
     const workflow = loadWorkflow(path.join(REPO_ROOT, '.github/workflows', file))
     const script = workflow.jobs['check-version']?.steps?.find((step) => step.id === 'version')?.run
     if (!script) {
@@ -45,13 +45,18 @@ async function runVersionCheck(
         })
         writeFileSync(path.join(directory, 'python'), '#!/bin/sh\necho 1.2.3\n', { mode: 0o755 })
         writeFileSync(path.join(directory, 'node'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+        for (const packagePath of ['common/hogql_parser', 'rust/hogql/parser', 'rust/deltalite/python']) {
+            const packageDirectory = path.join(directory, packagePath)
+            mkdirSync(packageDirectory, { recursive: true })
+            writeFileSync(path.join(packageDirectory, 'pyproject.toml'), 'version = "1.2.3"\n')
+        }
         const output = path.join(directory, 'output')
-        const result = await new Promise<{ code: number; stdout: string }>((resolve) => {
+        const result = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
             execFile(
                 'bash',
                 ['-eo', 'pipefail', '-c', script],
                 {
-                    cwd: REPO_ROOT,
+                    cwd: directory,
                     env: {
                         ...process.env,
                         PATH: `${directory}:${process.env.PATH}`,
@@ -65,7 +70,7 @@ async function runVersionCheck(
                         DELTALITE_CHANGED: 'true',
                     },
                 },
-                (error, stdout) => resolve({ code: error ? 1 : 0, stdout })
+                (error, stdout, stderr) => resolve({ code: error ? 1 : 0, stdout, stderr })
             )
         })
         return { ...result, requests, outputs: existsSync(output) ? readFileSync(output, 'utf8') : '' }
@@ -78,25 +83,25 @@ async function runVersionCheck(
 describe('package version checks', () => {
     it.each(PYTHON_WORKFLOWS)('%s warns forks about an unchanged published version', async (file) => {
         const fork = await runVersionCheck(file, [200])
-        expect(fork.code).toBe(0)
+        expect(fork.code, fork.stderr).toBe(0)
         expect(fork.stdout).toContain('::warning::')
         expect(fork.outputs).toContain('release-needed=false')
 
         const sameRepository = await runVersionCheck(file, [200], false)
-        expect(sameRepository.code).toBe(0)
+        expect(sameRepository.code, sameRepository.stderr).toBe(0)
         expect(sameRepository.stdout).not.toContain('::warning::')
     })
 
     it.each(PYTHON_WORKFLOWS)('%s recovers from a transient registry error', async (file) => {
         const result = await runVersionCheck(file, [503, 404])
-        expect(result.code).toBe(0)
+        expect(result.code, result.stderr).toBe(0)
         expect(result.requests).toBe(2)
         expect(result.outputs).toContain('release-needed=true')
     })
 
     it.each(PYTHON_WORKFLOWS)('%s recovers from a dropped connection', async (file) => {
         const result = await runVersionCheck(file, ['disconnect', 200])
-        expect(result.code).toBe(0)
+        expect(result.code, result.stderr).toBe(0)
         expect(result.requests).toBe(2)
         expect(result.outputs).toContain('release-needed=false')
     })
@@ -104,6 +109,8 @@ describe('package version checks', () => {
     it.each(PYTHON_WORKFLOWS)('%s fails closed on an unexpected registry response', async (file) => {
         const result = await runVersionCheck(file, [400])
         expect(result.code).toBe(1)
+        expect(result.requests).toBe(1)
+        expect(result.stdout).toContain('::error::Unexpected HTTP 400 from PyPI')
         expect(result.outputs).not.toContain('release-needed=true')
     })
 

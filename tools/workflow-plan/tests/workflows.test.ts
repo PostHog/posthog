@@ -421,7 +421,7 @@ describe('.github/workflows run plans', () => {
             evaluateTemplate(expression, { github }, new Map())
 
         expect(group(wf.concurrency.group, first)).not.toBe(group(wf.concurrency.group, second))
-        expect(publish.concurrency?.group).toBeDefined()
+        expect(publish.concurrency?.group).toBeTruthy()
         expect(group(publish.concurrency?.group, first)).toBe(group(publish.concurrency?.group, second))
         expect(group(wf.concurrency.group, { ...pullRequest(), sha: first.sha })).toBe(
             group(wf.concurrency.group, { ...pullRequest(), sha: second.sha })
