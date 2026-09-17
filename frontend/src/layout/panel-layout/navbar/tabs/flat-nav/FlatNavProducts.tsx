@@ -10,6 +10,7 @@ import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/Wrapping
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
+import { getCustomIcon } from '~/layout/panel-layout/ProjectTree/customIconRegistry'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { NavLink } from '../../NavLink'
@@ -59,18 +60,23 @@ export function FlatNavProducts(): JSX.Element {
                                     <span className="text-xs font-semibold text-tertiary">{group.category}</span>
                                 </div>
                             )}
-                            {group.items.map((item) => (
-                                <NavLink
-                                    key={item.path}
-                                    to={item.href}
-                                    label={item.label}
-                                    icon={iconForType(item.iconType, item.iconColor)}
-                                    isCollapsed={false}
-                                    tag={item.tag}
-                                    data-attr={`flat-nav-tool-${slugify(item.path)}`}
-                                    onClick={() => reportNavItemClicked(item.path, 'tools')}
-                                />
-                            ))}
+                            {group.items.map((item) => {
+                                // Products can register an icon that carries dynamic state, such as the
+                                // support unread counter. Fall back to the static icon when none exists.
+                                const CustomIcon = getCustomIcon(item.type)
+                                return (
+                                    <NavLink
+                                        key={item.path}
+                                        to={item.href}
+                                        label={item.label}
+                                        icon={CustomIcon ? <CustomIcon /> : iconForType(item.iconType, item.iconColor)}
+                                        isCollapsed={false}
+                                        tag={item.tag}
+                                        data-attr={`flat-nav-tool-${slugify(item.path)}`}
+                                        onClick={() => reportNavItemClicked(item.path, 'tools')}
+                                    />
+                                )
+                            })}
                         </Fragment>
                     ))
                 )}
