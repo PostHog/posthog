@@ -3,6 +3,7 @@ import { createDecipheriv } from 'node:crypto'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { MlDataKey, TAG_BYTES, canonicalJson, encryptEnvelope, openSessionKey, sealSessionKey } from './crypto'
+import vector from './encryption-vector.json'
 import { TrainingEncryptionVector, decryptEnvelope } from './envelope-testing'
 import { wrappingContext } from './schema'
 import { validateImageOwner } from './transport'
@@ -105,6 +106,14 @@ describe('sealing a session key under its team month key', () => {
     ])('refuses to open under %s', (_label, key, other) => {
         const sealed = sealSessionKey(teamMonthKey, identity, sessionKey)
         expect(() => openSessionKey(key, other, sealed)).toThrow()
+    })
+
+    it('opens the pinned seal, so a reader in another language can check its own bytes', () => {
+        const opened = openSessionKey(Buffer.from(vector.seal.teamMonthKey, 'base64'), vector.seal.identity, {
+            sealed: Buffer.from(vector.seal.sealedKey, 'base64'),
+            nonce: Buffer.from(vector.seal.nonce, 'base64'),
+        })
+        expect(opened.toString('base64')).toBe(vector.seal.sessionKey)
     })
 
     it('does not seal with the stored key itself, which still seals image data', () => {

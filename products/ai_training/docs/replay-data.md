@@ -56,6 +56,7 @@ HKDF-SHA256 makes its 32-byte wrapping key from the stored team image key, with 
 AES-256-GCM then seals the session key under that wrapping key.
 `key_nonce` holds the 12-byte nonce, and `sealed_key` holds the sealed bytes followed by the 16-byte tag.
 Its additional authenticated data is the JSON of `{"purpose": "ai-research-session", "team_id": ..., "session_id": ...}` with sorted keys and no whitespace, so every reader rebuilds the same bytes.
+The `seal` block in `nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector.json` pins one seal, so a reader in another language can check its own bytes.
 
 Ingestion processes key state in batches:
 

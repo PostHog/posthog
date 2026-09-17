@@ -635,6 +635,16 @@ describe('ML session key batches', () => {
         expect(mismatch.mock.calls).toEqual([['month_key_unavailable', 1]])
     })
 
+    it('fails the read when KMS throttles a month key, so the caller retries instead of dropping', async () => {
+        await (await store.prepare([session])).commit()
+        coldCache()
+        encryption.clear()
+        kmsSend.mockImplementation(() => Promise.reject(transientError('ThrottlingException')))
+        await expect(reader.read([sessionKeyId(session.teamId, session.sessionId)])).rejects.toThrow(
+            'ThrottlingException'
+        )
+    })
+
     it('counts an unusable row once however often the batch re-reads it', async () => {
         await (await store.prepare([session])).commit()
         const location = tableKeyString(sessionKeyId(session.teamId, session.sessionId))
