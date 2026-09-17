@@ -527,8 +527,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     )
     @action(methods=["POST"], detail=False, url_path="upgrade")
     def upgrade(self, request: Request, *args, **kwargs) -> Response:
-        upgraded_query = upgrade(self._get_object_body(request))
-        return Response({"query": upgraded_query["query"]}, status=200)
+        query = self._get_object_body(request).get("query")
+        if not isinstance(query, dict):
+            raise ValidationError("Query must be a JSON object.")
+        return Response({"query": upgrade(query)}, status=200)
 
     @extend_schema(
         description="Get query log details from query_log_archive table for a specific query_id, the query must have been issued in last 24 hours.",
