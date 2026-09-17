@@ -168,6 +168,29 @@ RUN cd /code/common/plugin_transpiler && \
 #
 FROM ghcr.io/astral-sh/uv:0.12.13 AS uv
 
+FROM rust:1.91-bookworm AS rust-toolchain
+
+FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f AS hogql-parser-rs-wheel
+COPY --from=uv /uv /uvx /bin/
+COPY --from=rust-toolchain /usr/local/cargo /usr/local/cargo
+COPY --from=rust-toolchain /usr/local/rustup /usr/local/rustup
+ENV CARGO_HOME=/usr/local/cargo \
+    RUSTUP_HOME=/usr/local/rustup \
+    PATH=/usr/local/cargo/bin:$PATH
+WORKDIR /code
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential && \
+    rm -rf /var/lib/apt/lists/*
+COPY rust/Cargo.toml rust/Cargo.lock rust/
+COPY rust/.cargo rust/.cargo/
+COPY rust/hogql/parser rust/hogql/parser/
+RUN sed -i '/^members = \[/,/^]/c\members = ["hogql/parser"]' rust/Cargo.toml
+RUN --mount=type=cache,id=hogql-parser-rs-uv,target=/root/.cache/uv \
+    --mount=type=cache,id=hogql-parser-rs-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=hogql-parser-rs-cargo-git,target=/usr/local/cargo/git \
+    --mount=type=cache,id=hogql-parser-rs-target,target=/code/rust/target \
+    uv build --wheel rust/hogql/parser --out-dir /wheels
+
 # Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
 FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f AS posthog-build
 COPY --from=uv /uv /uvx /bin/
@@ -204,7 +227,10 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     # is a runtime dependency (stamphog's digest reads owners.yaml through it), and --no-editable
     # copies it into the venv so the image never depends on this bind mount's path surviving.
     --mount=type=bind,source=tools/owners,target=tools/owners \
-    uv sync --locked --no-dev --no-editable --no-install-project --no-binary-package lxml --no-binary-package xmlsec
+    uv sync --locked --no-dev --no-editable --no-install-project --no-install-package hogql-parser-rs --no-binary-package lxml --no-binary-package xmlsec
+
+COPY --from=hogql-parser-rs-wheel /wheels /wheels
+RUN uv pip install --python /python-runtime/bin/python --no-deps /wheels/*.whl && rm -rf /wheels
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
@@ -418,6 +444,7 @@ COPY --chown=posthog:posthog services/mcp/schema services/mcp/schema/
 # no browser binary ships in this image).
 RUN /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')"
 RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')"
+RUN /python-runtime/bin/python -c "from hogql_parser_rs import parse_select_py; parse_select_py('select 1')"
 
 # Setup ENV.
 ENV NODE_ENV=production

@@ -3025,12 +3025,6 @@ jobs:
                   git fetch --no-tags --prune --depth=1 origin master
                   changed=$(git diff --quiet HEAD origin/master -- common/hogql_parser/ && echo "false" || echo "true")
                   echo "changed=$changed" >> $GITHUB_OUTPUT
-                  # A branch that predates the crate has nothing to install, so presence gates the diff.
-                  rust_changed=false
-                  if [[ -f rust/hogql/parser/pyproject.toml ]] && ! git diff --quiet HEAD origin/master -- rust/hogql/parser/; then
-                      rust_changed=true
-                  fi
-                  echo "rust_changed=$rust_changed" >> $GITHUB_OUTPUT
 
             # tests would intermittently fail in GH actions
             # with exit code 134 _after passing_ all tests
@@ -3045,10 +3039,29 @@ jobs:
                   packages: libegl1 libdbus-1-3 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xinput0 libxcb-xfixes0 x11-utils libxcb-cursor0 libopengl0
                   version: 1.0
 
+            - name: Restore hogql-parser-rs wheel
+              id: hogql-parser-rs-wheel
+              uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .cache/hogql-parser-rs-wheel
+                  key: hogql-parser-rs-wheel-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust/hogql/parser/**', 'rust/Cargo.toml', 'rust/Cargo.lock', 'rust/.cargo/config.toml') }}-${{ github.event.pull_request.number || github.ref_name }}
+                  restore-keys: |
+                      hogql-parser-rs-wheel-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust/hogql/parser/**', 'rust/Cargo.toml', 'rust/Cargo.lock', 'rust/.cargo/config.toml') }}-master
+
+            - name: Build hogql-parser-rs wheel
+              if: steps.hogql-parser-rs-wheel.outputs.cache-hit != 'true'
+              shell: bash
+              run: |
+                  compgen -G ".cache/hogql-parser-rs-wheel/*.whl" || uv build --wheel rust/hogql/parser --out-dir .cache/hogql-parser-rs-wheel
+
             - name: Install Python dependencies
               shell: bash
               run: |
-                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev --no-install-package hogql-parser-rs
+
+            - name: Install hogql-parser-rs wheel
+              shell: bash
+              run: uv pip install --python "$pythonLocation/bin/python" --no-deps .cache/hogql-parser-rs-wheel/*.whl
 
             - name: Set up Node.js for canvas builder
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && hashFiles('products/canvas/packages/canvas_builder/package.json') != '' }}
@@ -3092,13 +3105,6 @@ jobs:
                   sudo ldconfig
                   cd ..
                   pip install ./common/hogql_parser
-
-            - name: Install the working version of hogql-parser-rs
-              if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.rust_changed == 'true' }}
-              shell: bash
-              # rust-py is the production parser, so its tests must run against this branch's
-              # crate rather than the version pyproject.toml pins.
-              run: pip install ./rust/hogql/parser
 
             - name: Set up needed files
               shell: bash
