@@ -1024,7 +1024,13 @@ class TestEmitActivityTableNameResolution:
 class TestEmitActivitySourceConfigThreading:
     @pytest.mark.asyncio
     async def test_passes_team_source_config_to_pipeline(self):
-        config = _make_config(record_fetcher=lambda team, config, context: [])
+        captured_context: dict[str, Any] = {}
+
+        def capture_fetcher(team, config, context):
+            captured_context.update(context)
+            return []
+
+        config = _make_config(record_fetcher=capture_fetcher)
         team = MagicMock(id=7)
         schema = MagicMock()
         schema.table.name = "test_table"
@@ -1055,3 +1061,5 @@ class TestEmitActivitySourceConfigThreading:
 
         fetch_mock.assert_awaited_once_with(team.id, config.source_product, config.source_type)
         assert run_mock.call_args.kwargs["source_config"] == {"steering": "skip chores"}
+        # The scope filter reads the blob from this context, so the handoff needs its own assertion.
+        assert captured_context["source_config"] == {"steering": "skip chores"}
