@@ -114,7 +114,9 @@ class AWSCredentials:
     A stdlib dataclass rather than a pydantic one: this crosses the Temporal payload
     boundary on every S3 and Redshift export, and callers build it positionally, so it
     stays as plain a dataclass as the rest of the Temporal inputs in ``service.py``.
-    The key and token are kept out of ``repr`` so they cannot reach a log line.
+    The secret key and the session token stay out of ``repr``, so they cannot reach a
+    log line. The access key id identifies the credential rather than authenticating
+    it, so it stays visible for debugging.
     """
 
     aws_access_key_id: str
