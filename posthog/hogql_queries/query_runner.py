@@ -1690,10 +1690,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     limit_context: LimitContext
     # query service means programmatic access and /query endpoint
     is_query_service: bool = False
-    # Set by the query service when it applies a dashboard's filters before a run: the dashboard's
-    # date filter, not the insight's own range, chose All time, so the query scan can name the
-    # dashboard. Not set inside apply_dashboard_filters, which subclasses override without calling
-    # the base.
+    # Whether the dashboard's date filter, not the insight's own range, chose All time, so the query
+    # scan can name the dashboard. The query service sets it, because subclasses override
+    # apply_dashboard_filters without calling the base.
     dashboard_all_time: bool = False
     workload: Workload
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT

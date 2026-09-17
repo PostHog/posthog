@@ -62,7 +62,6 @@ _FIXABLE_CAUSES: dict[QueryScanFindingKind, frozenset[FindingCause | None]] = {
         }
     ),
     QueryScanFindingKind.NO_START_DATE: frozenset({None, FindingCause.START_DATE_NOT_USED_BY_CLICKHOUSE}),
-    QueryScanFindingKind.PERSONS_JOIN: frozenset({None}),
 }
 
 # Fixed on the insight or the dashboard, so the assistant editing the query has nothing to change.

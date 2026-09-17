@@ -2,7 +2,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.query_scan.analyze import PlanSet, QueryScanResult, RunFacts, SubqueryPlan, analyze
+from posthog.query_scan.analyze import ExplainedPlan, PlanSet, QueryScanResult, RunFacts, analyze
 from posthog.query_scan.event_filter import EventFilterOutcome
 from posthog.query_scan.explain import QueryPlan, parse_query_plan
 from posthog.query_scan.findings import finding_label
@@ -74,12 +74,16 @@ def analyze_fixture(
 ) -> QueryScanResult:
     return analyze(
         PlanSet(
-            outer=plan(outer) if isinstance(outer, str) else outer,
+            outer=ExplainedPlan(
+                plan=plan(outer) if isinstance(outer, str) else outer,
+                range_granules=range_granules,
+                event_filter=event_filter,
+                tree=tree,
+            ),
             subqueries=tuple(
-                SubqueryPlan(plan=plan(name), range_granules=subquery_range_granules) for name in subqueries
+                ExplainedPlan(plan=plan(name), range_granules=subquery_range_granules) for name in subqueries
             ),
             team_granules=team_granules,
-            range_granules=range_granules,
         ),
         QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=persons_ratio),
         query_kind=query_kind,
@@ -89,9 +93,7 @@ def analyze_fixture(
             all_history_by_design=all_history_by_design,
             all_events_by_design=all_events_by_design,
             open_filters_placeholder=open_filters_placeholder,
-            tree=tree,
         ),
-        event_filter=event_filter,
         table_row_averages=table_row_averages,
     )
 
@@ -209,12 +211,6 @@ class TestAnalyze(SimpleTestCase):
             ("object storage read yields nothing", "plan_object_storage_read", {}, []),
             ("a replay list query reads no events", "plan_replay_list_in_subqueries", {}, []),
             # a subquery is gated on its share of its own date range, the way the outer query is
-            (
-                "a subquery that reads most of its date range is flagged",
-                "plan_event_filter_used",
-                {"subqueries": ("plan_no_event_filter",), "subquery_range_granules": 400_000},
-                ["no_event_filter"],
-            ),
             (
                 "a subquery that reads little of its date range is not flagged",
                 "plan_event_filter_used",

@@ -282,7 +282,7 @@ def _print_execution(execution: RecordedExecution, subquery_budget: int) -> dict
                     "event_filter": _event_filter_verdict(execution.tree, reads),
                     "tree": _tree_facts_payload(execution.tree, reads),
                 }
-                for subquery, reads in list(zip(stub.subqueries, subquery_reads))[: max(subquery_budget, 0)]
+                for subquery, reads in zip(stub.subqueries[: max(subquery_budget, 0)], subquery_reads)
             ],
             # The parameter values travel as they are: Celery's JSON serializer round-trips the
             # datetimes, dates, UUIDs and decimals among them.

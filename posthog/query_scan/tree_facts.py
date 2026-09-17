@@ -45,10 +45,8 @@ class TreeFacts:
     """Facts about the tree's events reads, for the job to fold into the plan.
 
     The plan's finding is about one read and the tree cannot tell which, so each fact holds only
-    when every read the finding could be about agrees: every read for ``timestamp_bound``, every
-    unbounded read for ``all_history``, every read without an event condition for the rest. A query
-    that mixes a by-design read with a plain one gets the plain wording, and the plan's evidence
-    says which read it means.
+    when every read the finding could be about agrees. A query that mixes a by-design read with a
+    plain one gets the plain wording, and the plan's evidence says which read it means.
     """
 
     # Every events read carries a lower bound on `timestamp`, so an unbounded read in the plan is

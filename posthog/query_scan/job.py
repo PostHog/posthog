@@ -22,7 +22,7 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.ph_client import ph_scoped_capture
-from posthog.query_scan.analyze import PlanSet, QueryScanResult, RunFacts, SubqueryPlan, analyze
+from posthog.query_scan.analyze import ExplainedPlan, PlanSet, QueryScanResult, RunFacts, analyze
 from posthog.query_scan.event_filter import (
     EventFilterClass,
     EventFilterOutcome,
@@ -146,36 +146,44 @@ def _run(job: QueryScanJob, started: float) -> None:
     )
     range_cache: dict[tuple[int | None, int | None], int | None] = {}
 
+    run = RunFacts(
+        all_time=job.all_time,
+        dashboard_all_time=job.dashboard_all_time,
+        all_history_by_design=job.all_history_by_design,
+        all_events_by_design=job.all_events_by_design,
+        open_filters_placeholder=job.open_filters_placeholder,
+    )
+
+    def explained(
+        sql: str, values: dict[str, Any], event_filter: dict[str, Any] | None, tree: dict[str, Any] | None
+    ) -> ExplainedPlan | None:
+        plan = _plan(sql, values, job.team.pk)
+        if plan is None:
+            return None
+        return ExplainedPlan(
+            plan=plan,
+            range_granules=_range_granules(job.team.pk, plan, team_granules, range_cache),
+            event_filter=_combined_event_filter(event_filter, plan),
+            tree=TreeFacts.from_payload(tree),
+        )
+
     results: list[QueryScanResult] = []
     for execution in job.executions:
-        outer = _plan(execution.stubbed_sql, execution.values, job.team.pk)
-        subqueries = tuple(
-            SubqueryPlan(
-                plan=plan,
-                range_granules=_range_granules(job.team.pk, plan, team_granules, range_cache),
-                event_filter=_combined_event_filter(subquery.event_filter, plan),
-                tree=TreeFacts.from_payload(subquery.tree),
-            )
-            for subquery, plan in (
-                (subquery, _plan(subquery.sql, execution.values, job.team.pk)) for subquery in execution.subqueries
-            )
-            if plan is not None
+        outer = explained(execution.stubbed_sql, execution.values, execution.event_filter, execution.tree)
+        subqueries = (
+            explained(subquery.sql, execution.values, subquery.event_filter, subquery.tree)
+            for subquery in execution.subqueries
         )
-        range_granules = _range_granules(job.team.pk, outer, team_granules, range_cache)
         results.append(
             analyze(
-                PlanSet(outer=outer, subqueries=subqueries, team_granules=team_granules, range_granules=range_granules),
+                PlanSet(
+                    outer=outer,
+                    subqueries=tuple(subquery for subquery in subqueries if subquery is not None),
+                    team_granules=team_granules,
+                ),
                 flag,
                 query_kind=job.query_kind or "",
-                run=RunFacts(
-                    all_time=job.all_time,
-                    dashboard_all_time=job.dashboard_all_time,
-                    all_history_by_design=job.all_history_by_design,
-                    all_events_by_design=job.all_events_by_design,
-                    open_filters_placeholder=job.open_filters_placeholder,
-                    tree=TreeFacts.from_payload(execution.tree),
-                ),
-                event_filter=_combined_event_filter(execution.event_filter, outer),
+                run=run,
                 table_row_averages=table_row_averages,
             )
         )
@@ -211,7 +219,7 @@ def _plan(sql: str, values: dict[str, Any], team_id: int) -> QueryPlan | None:
     return parse_query_plan(rows[0][0])
 
 
-def _combined_event_filter(payload: dict[str, Any] | None, plan: QueryPlan | None) -> EventFilterOutcome | None:
+def _combined_event_filter(payload: dict[str, Any] | None, plan: QueryPlan) -> EventFilterOutcome | None:
     """The tree verdict the trigger shipped for a plan, folded with the plan's key use. None when it
     shipped none, so the plan alone decides.
     """
@@ -231,14 +239,14 @@ def _combined_event_filter(payload: dict[str, Any] | None, plan: QueryPlan | Non
 
 def _range_granules(
     team_id: int,
-    plan: QueryPlan | None,
+    plan: QueryPlan,
     team_granules: int | None,
     cache: dict[tuple[int | None, int | None], int | None],
 ) -> int | None:
     """The team's granules over the plan's date range, cached per distinct bounds. With no bound the
     range is all time, so it equals the team denominator.
     """
-    events_read = plan.heaviest_events_read() if plan is not None else None
+    events_read = plan.heaviest_events_read()
     bounds = events_read.timestamp_bounds() if events_read is not None else TimestampBounds(lower=None, upper=None)
     if bounds.lower is None and bounds.upper is None:
         return team_granules
