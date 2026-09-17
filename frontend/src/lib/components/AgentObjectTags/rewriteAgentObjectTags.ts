@@ -249,7 +249,9 @@ function renderHogql(tag: Tag, projectBase: string): string | null {
     const longestRun = Math.max(0, ...Array.from(sql.matchAll(RE_BACKTICK_RUN), (run) => run[0].length))
     const fence = '`'.repeat(Math.max(3, longestRun + 1))
     const lines = [`**${link(title, url)}**`, fence, sql, fence]
-    const caption = (tag.attrs['caption'] || '').split(/\s+/).filter(Boolean).join(' ')
+    // Same treatment as every other agent-authored string here: without it the
+    // caption is the one attribute that could smuggle markdown link/image syntax.
+    const caption = safeLabel(tag.attrs['caption'] || '')
     if (caption) {
         lines.push(`_${caption}_`)
     }

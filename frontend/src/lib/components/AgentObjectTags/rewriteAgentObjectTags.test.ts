@@ -84,6 +84,15 @@ describe('rewriteAgentObjectTags', () => {
         )
     })
 
+    it('keeps markdown link syntax in a caption inert', () => {
+        expect(
+            rewriteAgentObjectTags(
+                '<hogql display="block" title="T" caption="![x](https://evil.test/p)">SELECT 1</hogql>',
+                BASE
+            )
+        ).toBe('**[T](/project/2/sql?open_query=SELECT%201)**\n```\nSELECT 1\n```\n_! x (https://evil.test/p)_')
+    })
+
     it('drops a list marker whose only content is a promoted block', () => {
         expect(rewriteAgentObjectTags('- <hogql display="block" title="T">SELECT 1</hogql>', BASE)).toBe(
             '**[T](/project/2/sql?open_query=SELECT%201)**\n```\nSELECT 1\n```'
