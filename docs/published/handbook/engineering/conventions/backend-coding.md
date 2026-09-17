@@ -68,29 +68,6 @@ Don’t log sensitive information. Make sure you never log:
 - health data
 - PII (Personal Identifiable Information)
 
-### Outbound HTTP requests
-
-Use `posthog.security.pinned_httpx.pinned_client` for synchronous httpx requests to user-supplied MCP URLs after URL validation.
-Direct connections use a validated IP address and keep the original host name for HTTP and TLS certificate verification.
-The transport restores the request URL before cookie storage and redirect handling, including after connection errors.
-Proxy connections preserve the host name and require an explicit operator trust decision.
-
-`SSRF_TRUSTED_PROXY_URLS` is a comma-separated list of complete proxy URLs, such as `http://egress.example.com:3128`.
-The default is empty.
-`HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` select a route but do not grant trust.
-A selected proxy must match a listed URL, including its scheme and port.
-An unlisted proxy blocks the request before it sends credentials; it never causes a fallback to direct egress.
-`NO_PROXY` selects the pinned direct transport.
-Exact team-scoped internal MCP exceptions still use direct routing.
-This setting applies to `pinned_client`, not every HTTP client in PostHog.
-
-Before adding a proxy, verify that it validates the address it actually connects to after DNS resolution.
-It must reject private, loopback, link-local, metadata, and other non-public destinations for HTTP forwarding and HTTPS CONNECT.
-Test a DNS answer that changes from public to private and confirm that the proxy blocks the connection.
-Do not infer trust from a proxy host name, an environment variable, or a deployment type.
-Configure and verify the proxy allowlist before deploying this change; otherwise existing proxied MCP requests fail closed.
-Keep TLS certificate verification enabled on both routes.
-
 ### Testing
 
 A test suite is a shared, permanent liability: every test runs on every PR forever, costs CI time, can flake and block unrelated work, and is code someone has to maintain as the system changes.

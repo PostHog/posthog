@@ -104,14 +104,6 @@ Can't be added:
 - Non-HTTP transports (WebSocket-only) and legacy HTTP+SSE dual-endpoint servers — the probe and proxy speak streamable HTTP only.
 - Any URL that fails the probe (`speaks_mcp: false`) — never ship an unprobed URL.
 
-### Outbound proxy policy
-
-MCP proxy requests, tool sync, and gateway tool calls use the validated destination address for direct connections.
-Environment proxy routes require `SSRF_TRUSTED_PROXY_URLS`; an unlisted proxy blocks the request without a direct fallback.
-Operators must verify that each listed proxy blocks non-public destinations after DNS resolution before deployment.
-See the [outbound HTTP contract](../../docs/published/handbook/engineering/conventions/backend-coding.md#outbound-http-requests) for configuration and rollout checks.
-The separate async MCP client does not use this transport.
-
 ### Internal endpoint escape hatch
 
 Cloud operators can allow a small number of private Streamable HTTP endpoints
