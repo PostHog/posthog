@@ -393,6 +393,7 @@ function InsightCardInternal(
                     <InsightErrorState
                         title={apiError.detail}
                         titleStatus={apiError.status}
+                        titleCode={apiError.code}
                         queryId={apiError.data?.queryId ?? queryId}
                         retryAfter={apiError.formattedRetryAfter}
                         retryLoading={loading}

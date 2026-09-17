@@ -149,15 +149,40 @@ describe('insight error states', () => {
             bugReport: false,
         },
         { status: 503, expectedCopy: 'Try again in a moment.', retry: true, queryDebugger: false, bugReport: true },
+        {
+            status: 503,
+            code: 'clickhouse_at_capacity',
+            expectedCopy: 'Too many queries are running at once. Try again in a few minutes.',
+            retry: true,
+            queryDebugger: false,
+            bugReport: false,
+        },
+        {
+            status: 503,
+            code: 'query_ran_concurrently',
+            expectedCopy: 'The run that was already going left no result to reuse. Try again.',
+            retry: true,
+            queryDebugger: false,
+            bugReport: false,
+        },
     ])(
-        'shows the correct action for HTTP $status errors',
-        ({ status, expectedCopy, retry, title = 'The query failed.', queryDebugger = !retry, bugReport = false }) => {
+        'shows the correct action for HTTP $status errors ($code)',
+        ({
+            status,
+            code,
+            expectedCopy,
+            retry,
+            title = 'The query failed.',
+            queryDebugger = !retry,
+            bugReport = false,
+        }) => {
             preflightLogic.actions.loadPreflightSuccess({ cloud: true } as any)
 
             const { container } = render(
                 <InsightErrorState
                     title={title}
                     titleStatus={status}
+                    titleCode={code}
                     retryAfter={status === 429 ? 'in 2 minutes' : undefined}
                     query={{ kind: 'InsightVizNode' }}
                     onRetry={() => {}}
@@ -189,10 +214,12 @@ describe('insight error states', () => {
 
     it.each([
         { status: 503, expectedTitle: "This query couldn't run right now" },
+        { status: 503, code: 'clickhouse_at_capacity', expectedTitle: 'PostHog is busy right now' },
+        { status: 503, code: 'query_ran_concurrently', expectedTitle: 'This query was already running' },
         { status: 500, expectedTitle: "PostHog couldn't complete this query" },
         { status: 418, expectedTitle: "We couldn't complete this query" },
-    ])('uses clear copy for server error $status', ({ status, expectedTitle }) => {
-        render(<InsightErrorState title="Internal server error" titleStatus={status} />)
+    ])('uses clear copy for server error $status ($code)', ({ status, code, expectedTitle }) => {
+        render(<InsightErrorState title="Internal server error" titleStatus={status} titleCode={code} />)
 
         expect(screen.getByText(expectedTitle)).toBeTruthy()
         expect(screen.queryByText('Internal server error')).toBeNull()
