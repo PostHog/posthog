@@ -2537,35 +2537,6 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                             ),
                         ],
                     },
-                    !conversionGoal && errorTrackingQ
-                        ? {
-                              kind: 'error_tracking',
-                              tileId: TileId.ERROR_TRACKING,
-                              layout: {
-                                  colSpanClassName: 'md:col-span-2 2xl:col-span-1',
-                              },
-                              query: errorTrackingQ,
-                              docs: {
-                                  url: 'https://posthog.com/docs/error-tracking',
-                                  title: 'Error Tracking',
-                                  description: (
-                                      <>
-                                          <div>
-                                              <p>
-                                                  Error tracking allows you to track, investigate, and resolve
-                                                  exceptions your customers face.
-                                              </p>
-                                              <p>
-                                                  Errors are captured as <code>$exception</code> events which means that
-                                                  you can create insights, filter recordings and trigger surveys based
-                                                  on them exactly the same way you can for any other type of event.
-                                              </p>
-                                          </div>
-                                      </>
-                                  ),
-                              },
-                          }
-                        : null,
 
                     {
                         kind: 'tabs',
@@ -2705,7 +2676,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                               tileId: TileId.RETENTION,
                               title: 'Retention',
                               layout: {
-                                  colSpanClassName: 'md:col-span-full',
+                                  colSpanClassName: 'md:col-span-2',
                               },
                               query: {
                                   kind: NodeKind.InsightVizNode,
@@ -2908,7 +2879,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                               tileId: TileId.GOALS,
                               title: 'Goals',
                               layout: {
-                                  colSpanClassName: 'md:col-span-full',
+                                  colSpanClassName: 'md:col-span-2',
                               },
                               query: {
                                   full: true,
@@ -2984,13 +2955,42 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                               },
                           }
                         : null,
+                    !conversionGoal && errorTrackingQ
+                        ? {
+                              kind: 'error_tracking',
+                              tileId: TileId.ERROR_TRACKING,
+                              layout: {
+                                  colSpanClassName: 'md:col-span-1',
+                              },
+                              query: errorTrackingQ,
+                              docs: {
+                                  url: 'https://posthog.com/docs/error-tracking',
+                                  title: 'Error Tracking',
+                                  description: (
+                                      <>
+                                          <div>
+                                              <p>
+                                                  Error tracking allows you to track, investigate, and resolve
+                                                  exceptions your customers face.
+                                              </p>
+                                              <p>
+                                                  Errors are captured as <code>$exception</code> events which means that
+                                                  you can create insights, filter recordings and trigger surveys based
+                                                  on them exactly the same way you can for any other type of event.
+                                              </p>
+                                          </div>
+                                      </>
+                                  ),
+                              },
+                          }
+                        : null,
                     !conversionGoal
                         ? {
                               kind: 'query',
                               title: 'Frustrating Pages',
                               tileId: TileId.FRUSTRATING_PAGES,
                               layout: {
-                                  colSpanClassName: 'md:col-span-full',
+                                  colSpanClassName: 'md:col-span-2',
                               },
                               query: {
                                   full: true,
