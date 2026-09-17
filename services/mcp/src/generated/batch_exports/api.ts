@@ -455,6 +455,12 @@ export const BatchExportsCreateBody = () => zod
                 'How often the batch export should run.\n\n\* `hour` - hour\n\* `day` - day\n\* `week` - week\n\* `every 5 minutes` - every 5 minutes\n\* `every 15 minutes` - every 15 minutes'
             ),
         paused: zod.boolean().optional().describe('Whether the batch export is paused.'),
+        hogql_query: zod
+            .string()
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         timezone: zod
             .string()
             .nullish()
@@ -928,6 +934,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                 'How often the batch export should run.\n\n\* `hour` - hour\n\* `day` - day\n\* `week` - week\n\* `every 5 minutes` - every 5 minutes\n\* `every 15 minutes` - every 15 minutes'
             ),
         paused: zod.boolean().optional().describe('Whether the batch export is paused.'),
+        hogql_query: zod
+            .string()
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         timezone: zod
             .string()
             .nullish()
