@@ -1,10 +1,9 @@
-"""Asks an LLM whether a finished PostHog AI turn is worth turning into a scout.
+"""Asks an LLM which follow-up, if any, a finished PostHog AI turn deserves.
 
 The tool trace alone cannot tell "how many sign-ups this week" from "why did sign-ups spike on
-Tuesday": both run the same query tools. The model reads the question, the resolved tool calls and
-the answer, decides whether the question is about the current state of a metric that stays useful
-when re-asked on a schedule, and drafts the scout prompt in the same call so the offer carries the
-conversation's context.
+Tuesday": both run the same query tools. The model reads the question, the resolved tool calls,
+the answer and the conversation so far, picks one offer from the kinds the project can act on, and
+drafts what that offer needs (a scout prompt, a notebook outline, an alert bound) in the same call.
 """
 
 from datetime import date
@@ -19,7 +18,12 @@ from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import get_llm_client
 from posthog.llm.semantic_enrichment import extract_json_object
 
-from products.posthog_ai.backend.turn_suggestions.transcript import TurnTranscript, truncate_text
+from products.posthog_ai.backend.turn_suggestions.transcript import (
+    ErrorIssueRef,
+    SavedInsightRef,
+    TurnTranscript,
+    truncate_text,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -34,10 +38,6 @@ CLASSIFIER_MAX_TOKENS = 4096
 CLASSIFIER_TIMEOUT_SECONDS = 30.0
 CLASSIFIER_MAX_RETRIES = 1
 MIN_CONFIDENCE = 0.6
-
-# Earlier questions are context for the latest one, so a long investigation sends its recent
-# questions rather than growing the prompt with every turn.
-EARLIER_QUESTIONS_COUNT = 5
 EARLIER_QUESTION_LIMIT = 300
 
 
@@ -49,13 +49,41 @@ class TurnIntent(StrEnum):
     OTHER = "other"
 
 
+class OfferKind(StrEnum):
+    NONE = "none"
+    SCOUT = "scout"
+    NOTEBOOK = "notebook"
+    ALERT = "alert"
+    SUBSCRIPTION = "subscription"
+    ERROR_ALERT = "error_alert"
+
+
+class ScoutMode(StrEnum):
+    REPORT = "report"
+    WATCH = "watch"
+    INVESTIGATE = "investigate"
+    CHECK_BACK = "check_back"
+    DIGEST = "digest"
+
+
 class ScoutCadence(StrEnum):
     DAILY = "daily"
     WEEKLY = "weekly"
 
 
+class NotebookTemplate(StrEnum):
+    CONVERSATION = "conversation"
+    INCIDENT = "incident"
+
+
+class AlertDirection(StrEnum):
+    DECREASE = "decrease"
+    INCREASE = "increase"
+
+
 @frozen
 class ScoutDraft:
+    mode: ScoutMode
     display_name: str
     description: str
     body: str
@@ -63,58 +91,95 @@ class ScoutDraft:
 
 
 @frozen
+class IncidentOutline:
+    timeline: str
+    cause: str
+    fix: str
+
+
+@frozen
 class NotebookDraft:
+    template: NotebookTemplate
     title: str
     summary: str
+    incident: IncidentOutline | None
+
+
+@frozen
+class AlertDraft:
+    insight: SavedInsightRef
+    direction: AlertDirection
+    change_percent: int
+
+
+@frozen
+class SubscriptionDraft:
+    insight: SavedInsightRef
+    cadence: ScoutCadence
+
+
+@frozen
+class ErrorAlertDraft:
+    issue: ErrorIssueRef
 
 
 @frozen
 class TurnVerdict:
     intent: TurnIntent
-    recurring: bool
+    offer: OfferKind
     confidence: float
     title: str
     description: str
     scout: ScoutDraft | None
     notebook: NotebookDraft | None
+    alert: AlertDraft | None
+    subscription: SubscriptionDraft | None
+    error_alert: ErrorAlertDraft | None
 
     @property
-    def offers_scout(self) -> bool:
-        return (
-            self.intent == TurnIntent.METRIC_STATE
-            and self.recurring
-            and self.confidence >= MIN_CONFIDENCE
-            and self.scout is not None
-        )
-
-    @property
-    def offers_notebook(self) -> bool:
-        return self.intent == TurnIntent.DIAGNOSTIC and self.confidence >= MIN_CONFIDENCE and self.notebook is not None
+    def offers(self) -> bool:
+        if self.offer == OfferKind.NONE or self.confidence < MIN_CONFIDENCE:
+            return False
+        drafts = {
+            OfferKind.SCOUT: self.scout,
+            OfferKind.NOTEBOOK: self.notebook,
+            OfferKind.ALERT: self.alert,
+            OfferKind.SUBSCRIPTION: self.subscription,
+            OfferKind.ERROR_ALERT: self.error_alert,
+        }
+        return drafts[self.offer] is not None
 
 
 class _VerdictReply(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     intent: TurnIntent
-    recurring: bool
+    offer: OfferKind
     confidence: float
     title: str
     description: str
+    scout_mode: ScoutMode
     scout_display_name: str
     scout_description: str
     scout_prompt: str
     cadence: ScoutCadence
+    notebook_template: NotebookTemplate
     notebook_title: str
     notebook_summary: str
+    incident_timeline: str
+    incident_cause: str
+    incident_fix: str
+    alert_insight_short_id: str
+    alert_direction: AlertDirection
+    alert_change_percent: float
+    subscription_insight_short_id: str
+    subscription_cadence: ScoutCadence
+    error_issue_id: str
 
 
-SYSTEM_PROMPT = """You review one finished turn of PostHog AI, the in-app analytics agent, and decide whether the user would benefit from turning that turn into a scout.
+SYSTEM_PROMPT = """You review one finished turn of PostHog AI, the in-app analytics agent, and decide which follow-up, if any, to offer the user under the answer. Offer at most one thing, and only when it is clearly useful; "none" is a good answer.
 
-A scout is a scheduled agent. It runs a markdown prompt on a cadence (daily or weekly), has the same PostHog tools the assistant used (trend, funnel, retention and SQL queries over the project's events), and posts a short report to a Slack channel and the project's inbox. A scout is worth offering when the user asked about the current state of a metric that stays useful when re-asked later: a growth rate, a conversion rate for a cohort, weekly active users, top pages, revenue this month. It is not worth offering for one-off work.
-
-A diagnostic turn gets a different offer: saving the conversation to a notebook, with the question, the queries the assistant ran and the findings, so the investigation can be shared and revisited. For those turns you draft the notebook instead of a scout.
-
-Earlier questions from the same conversation are context only; classify the latest turn. When the latest question refines an earlier one, the scout runs the refined analysis.
+Earlier questions from the same conversation are context; classify the latest turn. When the latest question refines an earlier one, any recurring analysis runs the refined version.
 
 Classify the turn into exactly one intent:
 - metric_state: the question asks what a metric or breakdown is right now or over a relative window (last 7 days, this month, week over week).
@@ -123,82 +188,159 @@ Classify the turn into exactly one intent:
 - knowledge: the turn answered a documentation or how-to question, or explained a concept.
 - other: anything else, including chit-chat and failed turns.
 
-Set recurring to true only for metric_state turns whose time window is relative. A question about a fixed past period (Q2 2026, last March) is not recurring even though it is about a metric. Keep confidence honest: 0.9 or higher only when the tool calls clearly back the classification.
+The offers, and when each fits. Pick only from the offers listed as available for this project; the cheapest thing that answers the user's next need wins.
+- alert: a saved insight from this turn is listed and the user would want to know when the number moves. Choose alert_direction (decrease or increase) and alert_change_percent, the size of a period-over-period change worth a message, as a whole number like 20. Prefer this over a watch scout when an insight is available.
+- subscription: a saved insight from this turn is listed and the user wants the chart itself on a cadence, with no analysis needed. Set subscription_cadence.
+- scout: a scheduled agent with the same PostHog tools the assistant used, posting a short report to Slack and the inbox. Set scout_mode:
+  - report: the question is about the current state of a metric that stays useful when re-asked; the scout reruns the analysis and posts the numbers and what moved.
+  - watch: the question carries a concern (is X down, are we ok); the scout reruns the analysis and posts only when the number crosses a bound you state in the prompt, staying silent otherwise.
+  - investigate: the turn was diagnostic and the steps (queries, recordings, comparisons) form a runbook; the scout checks the metric and, when it dips again, reruns those steps and posts the findings.
+  - check_back: the turn found a cause with a fix or a release; the scout checks daily whether the metric recovered, posts once when it has or when a week passed, and stays silent after that.
+  - digest: the conversation asked about several metrics across its turns; one scout covers all of them in one post. Use the earlier questions to draft it.
+  A scout prompt (scout_prompt) is the complete markdown the scout runs on every run. It must stand alone: name the exact events, properties, filters, breakdowns and cohorts, restate the analysis with a relative window matching the cadence, tell the scout to compare with the previous period, and say what to post and when to stay silent. Tell it to say plainly when the project has no matching data instead of guessing. Do not mention the user or this conversation. scout_display_name is at most 60 characters in sentence case; scout_description one sentence, at most 200 characters; cadence weekly for weekly or monthly metrics and daily otherwise.
+- notebook: the turn was an investigation worth keeping with its queries as live cells. Set notebook_template:
+  - conversation: save the conversation as it is.
+  - incident: the investigation found a cause and a time; fill incident_timeline (markdown bullets, one per event with its time), incident_cause (one or two sentences) and incident_fix (what fixed it or what to do next). Leave those three empty for the conversation template.
+  notebook_title is at most 80 characters in sentence case; notebook_summary one or two sentences, at most 300 characters.
+- error_alert: an error tracking issue from this turn is listed and it is the cause the user cares about; the alert posts to Slack when that issue happens again. Set error_issue_id to the listed id.
+- none: nothing above fits.
 
-When recurring is true, draft the scout:
-- scout_display_name: at most 60 characters, sentence case, names the metric. Example: Weekly sign-up growth.
-- scout_description: one sentence, at most 200 characters, what the scout checks.
-- scout_prompt: the complete markdown prompt the scout runs on every run. It must stand alone. Name the exact events, properties, filters, breakdowns and cohorts the turn used, restate the analysis with a relative window that matches the cadence, tell the scout to compare with the previous period, and tell it to report the numbers with a two-sentence summary of what moved. Tell it to say plainly when the project has no matching data instead of guessing. Do not mention the user or this conversation.
-- cadence: weekly for weekly or monthly metrics and anything the user framed as a week; daily otherwise.
-- title: the card headline, at most 60 characters, sentence case. Example: Get this every week in Slack.
-- description: one sentence, at most 140 characters, why a scout helps here.
+Always fill title (the card headline, at most 60 characters, sentence case, for example "Get this every week in Slack" or "Tell me when this drops") and description (one sentence, at most 140 characters, why the offer helps here). Fields that do not apply to the chosen offer stay empty strings, 0, or their first enum value. Keep confidence honest: 0.9 or higher only when the tool calls clearly back the choice. Reply with the JSON object only."""
 
-When the intent is diagnostic, draft the notebook:
-- notebook_title: at most 80 characters, sentence case, names what was investigated. Example: Why checkout conversion dropped last week.
-- notebook_summary: one or two sentences with the finding, at most 300 characters, written so it reads well above the saved conversation.
-- title: the card headline, at most 60 characters, sentence case. Example: Save this investigation to a notebook.
-- description: one sentence, at most 140 characters, why saving helps here.
-
-Fields that do not apply to the intent stay empty strings. When neither offer applies, still fill title and description with a short neutral explanation. Reply with the JSON object only."""
+_OFFER_LABELS = {
+    OfferKind.NONE: "none",
+    OfferKind.SCOUT: "scout (modes: report, watch, investigate, check_back, digest)",
+    OfferKind.NOTEBOOK: "notebook (templates: conversation, incident)",
+    OfferKind.ALERT: "alert (on a saved insight listed below)",
+    OfferKind.SUBSCRIPTION: "subscription (a saved insight listed below, on a cadence)",
+    OfferKind.ERROR_ALERT: "error_alert (on an error tracking issue listed below)",
+}
 
 
 def _response_format() -> ResponseFormatJSONSchema:
     # Strict mode pins the reply to the schema, so a reasoning model cannot answer with its reasoning.
-    # Every field is required, which is why the fields of the offer that does not apply come back empty.
+    # Every field is required, which is why the fields of the offers that do not apply come back empty.
     return {
         "type": "json_schema",
         "json_schema": {"name": "posthog_ai_turn_verdict", "strict": True, "schema": _VerdictReply.model_json_schema()},
     }
 
 
-def render_turn_prompt(transcript: TurnTranscript, *, today: date) -> str:
+def render_turn_prompt(transcript: TurnTranscript, *, today: date, available: frozenset[OfferKind]) -> str:
+    sections = [f"Today is {today.isoformat()}."]
+    sections.append(
+        "<available_offers>\n"
+        + "\n".join(f"- {_OFFER_LABELS[kind]}" for kind in OfferKind if kind in available)
+        + "\n</available_offers>"
+    )
+    if transcript.earlier_turns:
+        lines = []
+        for turn in transcript.earlier_turns:
+            tools = ", ".join(turn.tool_names) if turn.tool_names else "no tools"
+            lines.append(
+                f"- Q: {truncate_text(turn.question, EARLIER_QUESTION_LIMIT)}\n"
+                f"  tools: {tools}\n"
+                f"  A: {turn.answer_excerpt or '(empty)'}"
+            )
+        sections.append("<earlier_turns>\n" + "\n".join(lines) + "\n</earlier_turns>")
+    if transcript.saved_insights:
+        lines = [
+            f"- short_id={ref.short_id} kind={ref.query_kind or 'unknown'} name={ref.name or '(untitled)'}"
+            for ref in transcript.saved_insights
+        ]
+        sections.append("<saved_insights>\n" + "\n".join(lines) + "\n</saved_insights>")
+    if transcript.error_issues:
+        lines = [f"- id={ref.issue_id} name={ref.name or '(unnamed)'}" for ref in transcript.error_issues]
+        sections.append("<error_issues>\n" + "\n".join(lines) + "\n</error_issues>")
     tool_lines = [
         f"- {tool_call.name} [{tool_call.status}]" + (f": {tool_call.args_preview}" if tool_call.args_preview else "")
         for tool_call in transcript.tool_calls
     ]
-    tools_block = "\n".join(tool_lines) if tool_lines else "(no tool calls)"
-    earlier = "\n".join(
-        f"- {truncate_text(question, EARLIER_QUESTION_LIMIT)}"
-        for question in transcript.human_messages[-EARLIER_QUESTIONS_COUNT - 1 : -1]
-    )
-    earlier_block = f"<earlier_questions>\n{earlier}\n</earlier_questions>\n\n" if earlier else ""
-    return (
-        f"Today is {today.isoformat()}.\n\n"
-        f"{earlier_block}"
-        f"<user_question>\n{transcript.last_human_message}\n</user_question>\n\n"
-        f"<tool_calls>\n{tools_block}\n</tool_calls>\n\n"
-        f"<assistant_answer>\n{transcript.assistant_text or '(empty)'}\n</assistant_answer>"
-    )
+    sections.append(f"<user_question>\n{transcript.last_human_message}\n</user_question>")
+    sections.append("<tool_calls>\n" + ("\n".join(tool_lines) if tool_lines else "(no tool calls)") + "\n</tool_calls>")
+    sections.append(f"<assistant_answer>\n{transcript.assistant_text or '(empty)'}\n</assistant_answer>")
+    return "\n\n".join(sections)
 
 
-def _verdict_from_reply(reply: _VerdictReply) -> TurnVerdict:
+def _find_insight(transcript: TurnTranscript, short_id: str) -> SavedInsightRef | None:
+    return next((ref for ref in transcript.saved_insights if ref.short_id == short_id.strip()), None)
+
+
+def _find_issue(transcript: TurnTranscript, issue_id: str) -> ErrorIssueRef | None:
+    return next((ref for ref in transcript.error_issues if ref.issue_id == issue_id.strip()), None)
+
+
+def _verdict_from_reply(
+    reply: _VerdictReply, transcript: TurnTranscript, available: frozenset[OfferKind]
+) -> TurnVerdict:
+    offer = reply.offer if reply.offer in available else OfferKind.NONE
     scout = (
         ScoutDraft(
+            mode=reply.scout_mode,
             display_name=reply.scout_display_name.strip()[:60],
             description=reply.scout_description.strip()[:200],
             body=reply.scout_prompt.strip(),
             cadence=reply.cadence,
         )
-        if reply.recurring and reply.scout_prompt.strip() and reply.scout_display_name.strip()
+        if offer == OfferKind.SCOUT and reply.scout_prompt.strip() and reply.scout_display_name.strip()
+        else None
+    )
+    incident = (
+        IncidentOutline(
+            timeline=reply.incident_timeline.strip(),
+            cause=reply.incident_cause.strip(),
+            fix=reply.incident_fix.strip(),
+        )
+        if reply.notebook_template == NotebookTemplate.INCIDENT and reply.incident_cause.strip()
         else None
     )
     notebook = (
-        NotebookDraft(title=reply.notebook_title.strip()[:80], summary=reply.notebook_summary.strip()[:300])
-        if reply.intent == TurnIntent.DIAGNOSTIC and reply.notebook_title.strip()
+        NotebookDraft(
+            template=NotebookTemplate.INCIDENT if incident else NotebookTemplate.CONVERSATION,
+            title=reply.notebook_title.strip()[:80],
+            summary=reply.notebook_summary.strip()[:300],
+            incident=incident,
+        )
+        if offer == OfferKind.NOTEBOOK and reply.notebook_title.strip()
         else None
     )
+    alert_insight = _find_insight(transcript, reply.alert_insight_short_id) if offer == OfferKind.ALERT else None
+    alert = (
+        AlertDraft(
+            insight=alert_insight,
+            direction=reply.alert_direction,
+            change_percent=max(1, min(int(round(reply.alert_change_percent)), 500)),
+        )
+        if alert_insight is not None
+        else None
+    )
+    subscription_insight = (
+        _find_insight(transcript, reply.subscription_insight_short_id) if offer == OfferKind.SUBSCRIPTION else None
+    )
+    subscription = (
+        SubscriptionDraft(insight=subscription_insight, cadence=reply.subscription_cadence)
+        if subscription_insight is not None
+        else None
+    )
+    issue = _find_issue(transcript, reply.error_issue_id) if offer == OfferKind.ERROR_ALERT else None
+    error_alert = ErrorAlertDraft(issue=issue) if issue is not None else None
     return TurnVerdict(
         intent=reply.intent,
-        recurring=reply.recurring,
+        offer=offer,
         confidence=min(max(reply.confidence, 0.0), 1.0),
         title=reply.title.strip()[:60],
         description=reply.description.strip()[:140],
         scout=scout,
         notebook=notebook,
+        alert=alert,
+        subscription=subscription,
+        error_alert=error_alert,
     )
 
 
-def classify_turn(transcript: TurnTranscript, *, team_id: int, today: date) -> TurnVerdict | None:
+def classify_turn(
+    transcript: TurnTranscript, *, team_id: int, today: date, available: frozenset[OfferKind]
+) -> TurnVerdict | None:
     """One classifier call. ``None`` means the call failed or returned something unusable."""
     client = get_llm_client("posthog_ai", team_id=team_id).with_options(
         timeout=CLASSIFIER_TIMEOUT_SECONDS,
@@ -209,7 +351,7 @@ def classify_turn(transcript: TurnTranscript, *, team_id: int, today: date) -> T
             model=CLASSIFIER_MODEL,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": render_turn_prompt(transcript, today=today)},
+                {"role": "user", "content": render_turn_prompt(transcript, today=today, available=available)},
             ],
             max_tokens=CLASSIFIER_MAX_TOKENS,
             response_format=_response_format(),
@@ -231,4 +373,4 @@ def classify_turn(transcript: TurnTranscript, *, team_id: int, today: date) -> T
     except ValidationError:
         logger.warning("posthog_ai_turn_suggestion_classifier_invalid", team_id=team_id)
         return None
-    return _verdict_from_reply(reply)
+    return _verdict_from_reply(reply, transcript, available)

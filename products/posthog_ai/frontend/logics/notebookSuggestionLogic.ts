@@ -125,6 +125,7 @@ export const notebookSuggestionLogic: LogicWrapper<notebookSuggestionLogicType> 
                         title: notebookTitle,
                         summary: suggestion.notebook.summary,
                         blocks: conversationBlocks.blocks,
+                        incident: suggestion.notebook.incident,
                     })
                     const saved = await notebooksCreate(String(currentProjectId), {
                         title: notebookTitle.trim(),
@@ -134,6 +135,7 @@ export const notebookSuggestionLogic: LogicWrapper<notebookSuggestionLogicType> 
                     posthog.capture('posthog ai turn suggestion notebook saved', {
                         ...turnSuggestionEventProperties(props, suggestion),
                         notebook_short_id: saved.short_id,
+                        template: suggestion.notebook.template,
                         message_count: conversationBlocks.messageCount,
                         query_count: conversationBlocks.queryCount,
                     })

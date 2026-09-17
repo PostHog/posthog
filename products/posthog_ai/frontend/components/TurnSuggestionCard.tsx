@@ -1,12 +1,27 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconNotebook, IconTelescope } from '@posthog/icons'
+import { IconBell, IconCalendar, IconNotebook, IconTelescope, IconWarning } from '@posthog/icons'
 
 import { TurnSuggestionLogicProps, turnSuggestionLogic } from '../logics/turnSuggestionLogic'
+import type { TurnSuggestion } from '../types/streamTypes'
+import { AlertSuggestionCard } from './AlertSuggestionCard'
+import { ErrorAlertSuggestionCard } from './ErrorAlertSuggestionCard'
 import { NotebookSuggestionCard } from './NotebookSuggestionCard'
 import { ScoutSuggestionCard } from './ScoutSuggestionCard'
+import { SubscriptionSuggestionCard } from './SubscriptionSuggestionCard'
 import { SuggestionCardShell } from './SuggestionCardShell'
+
+const CARD_BY_KIND: Record<
+    TurnSuggestion['kind'],
+    { icon: JSX.Element; Body: (props: TurnSuggestionLogicProps) => JSX.Element | null }
+> = {
+    scout: { icon: <IconTelescope />, Body: ScoutSuggestionCard },
+    notebook: { icon: <IconNotebook />, Body: NotebookSuggestionCard },
+    alert: { icon: <IconBell />, Body: AlertSuggestionCard },
+    subscription: { icon: <IconCalendar />, Body: SubscriptionSuggestionCard },
+    error_alert: { icon: <IconWarning />, Body: ErrorAlertSuggestionCard },
+}
 
 export interface TurnSuggestionCardProps extends TurnSuggestionLogicProps {
     isLastTurn: boolean
@@ -35,19 +50,16 @@ function LatestTurnSuggestion(logicProps: TurnSuggestionLogicProps): JSX.Element
         turnIndex: logicProps.turnIndex,
         sessionId: logicProps.sessionId,
     }
+    const { icon, Body } = CARD_BY_KIND[suggestion.kind]
     return (
         <div className="animate-fade-in [animation-duration:600ms] motion-reduce:animate-none">
             <SuggestionCardShell
-                icon={suggestion.kind === 'scout' ? <IconTelescope /> : <IconNotebook />}
+                icon={icon}
                 title={suggestion.title}
                 description={suggestion.description}
                 onDismiss={completed ? undefined : dismiss}
             >
-                {suggestion.kind === 'scout' ? (
-                    <ScoutSuggestionCard {...cardProps} />
-                ) : (
-                    <NotebookSuggestionCard {...cardProps} />
-                )}
+                <Body {...cardProps} />
             </SuggestionCardShell>
         </div>
     )

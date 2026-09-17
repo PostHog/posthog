@@ -38,10 +38,34 @@ class TranscriptToolCall:
 
 
 @frozen
+class EarlierTurn:
+    question: str
+    tool_names: tuple[str, ...]
+    answer_excerpt: str
+
+
+@frozen
+class SavedInsightRef:
+    short_id: str
+    insight_id: int | None
+    name: str
+    query_kind: str
+
+
+@frozen
+class ErrorIssueRef:
+    issue_id: str
+    name: str
+
+
+@frozen
 class TurnTranscript:
     human_messages: tuple[str, ...]
     assistant_text: str
     tool_calls: tuple[TranscriptToolCall, ...]
+    earlier_turns: tuple[EarlierTurn, ...]
+    saved_insights: tuple[SavedInsightRef, ...]
+    error_issues: tuple[ErrorIssueRef, ...]
 
     @property
     def last_human_message(self) -> str:
@@ -55,6 +79,13 @@ class _ToolCallAccumulator:
     status: str
     from_posthog: bool
     discovery: bool
+    output: Any
+
+
+EARLIER_TURN_LIMIT = 5
+ANSWER_EXCERPT_LIMIT = 300
+_INSIGHT_TOOLS = frozenset({"insight-create", "insight-update", "insight-get", "insight-query"})
+_ERROR_ISSUE_TOOLS = frozenset({"query-error-tracking-issues-list", "error-tracking-issue-get"})
 
 
 def _text_from_content(content: Any) -> str:
@@ -150,12 +181,26 @@ def build_turn_transcript(entries: Iterable[dict[str, Any]]) -> TurnTranscript:
     """
     human_messages: list[str] = []
     prompt_fallbacks: list[str] = []
+    earlier_turns: list[EarlierTurn] = []
     # Assistant text by message id, in arrival order. Chunks append; a closing `agent_message`
     # carries the whole text and replaces them, matching how the thread fold finalizes a bubble.
     assistant_messages: dict[str, str] = {}
     tool_calls: dict[str, _ToolCallAccumulator] = {}
 
     def start_turn(text: str) -> None:
+        if human_messages:
+            # The finished turn stays available as context for classifying the one that follows.
+            earlier_turns.append(
+                EarlierTurn(
+                    question=human_messages[-1],
+                    tool_names=tuple(
+                        accumulator.name or "unknown"
+                        for accumulator in tool_calls.values()
+                        if not accumulator.discovery
+                    ),
+                    answer_excerpt=truncate_text(_join_messages(assistant_messages), ANSWER_EXCERPT_LIMIT),
+                )
+            )
         human_messages.append(text)
         assistant_messages.clear()
         tool_calls.clear()
@@ -212,7 +257,7 @@ def build_turn_transcript(entries: Iterable[dict[str, Any]]) -> TurnTranscript:
         accumulator = tool_calls.get(tool_call_id)
         if accumulator is None:
             accumulator = _ToolCallAccumulator(
-                name=None, args_preview="", status="pending", from_posthog=False, discovery=False
+                name=None, args_preview="", status="pending", from_posthog=False, discovery=False, output=None
             )
             tool_calls[tool_call_id] = accumulator
         if accumulator.name is None or (accumulator.from_posthog and not accumulator.args_preview):
@@ -220,16 +265,17 @@ def build_turn_transcript(entries: Iterable[dict[str, Any]]) -> TurnTranscript:
         status = update.get("status")
         if isinstance(status, str) and status:
             accumulator.status = status
+        if "rawOutput" in update:
+            accumulator.output = update.get("rawOutput")
 
     if not human_messages and prompt_fallbacks:
         human_messages = prompt_fallbacks
 
+    active = [accumulator for accumulator in tool_calls.values() if not accumulator.discovery]
     return TurnTranscript(
         human_messages=tuple(human_messages),
         assistant_text=truncate_text(
-            "\n\n".join(text for text in assistant_messages.values() if text),
-            ASSISTANT_TEXT_LIMIT,
-            collapse_whitespace=False,
+            _join_messages(assistant_messages), ASSISTANT_TEXT_LIMIT, collapse_whitespace=False
         ),
         tool_calls=tuple(
             TranscriptToolCall(
@@ -238,7 +284,55 @@ def build_turn_transcript(entries: Iterable[dict[str, Any]]) -> TurnTranscript:
                 status=accumulator.status,
                 from_posthog=accumulator.from_posthog,
             )
-            for accumulator in tool_calls.values()
-            if not accumulator.discovery
+            for accumulator in active
         ),
+        earlier_turns=tuple(earlier_turns[-EARLIER_TURN_LIMIT:]),
+        saved_insights=tuple(_saved_insights(active)),
+        error_issues=tuple(_error_issues(active)),
     )
+
+
+def _join_messages(assistant_messages: dict[str, str]) -> str:
+    return "\n\n".join(text for text in assistant_messages.values() if text)
+
+
+def _saved_insights(tool_calls: list[_ToolCallAccumulator]) -> list[SavedInsightRef]:
+    """Saved insights the turn created or read, from the REST payload the insight tools return."""
+    refs: dict[str, SavedInsightRef] = {}
+    for accumulator in tool_calls:
+        if accumulator.name not in _INSIGHT_TOOLS or not isinstance(accumulator.output, dict):
+            continue
+        short_id = accumulator.output.get("short_id")
+        query = accumulator.output.get("query")
+        if not isinstance(short_id, str) or not short_id or not isinstance(query, dict):
+            continue
+        source = query.get("source") if isinstance(query.get("source"), dict) else query
+        kind = source.get("kind") if isinstance(source, dict) else None
+        insight_id = accumulator.output.get("id")
+        name = accumulator.output.get("name")
+        refs[short_id] = SavedInsightRef(
+            short_id=short_id,
+            insight_id=insight_id if isinstance(insight_id, int) else None,
+            name=name if isinstance(name, str) else "",
+            query_kind=kind if isinstance(kind, str) else "",
+        )
+    return list(refs.values())
+
+
+def _error_issues(tool_calls: list[_ToolCallAccumulator]) -> list[ErrorIssueRef]:
+    """Error tracking issues the turn looked at, from the list and detail tool payloads."""
+    refs: dict[str, ErrorIssueRef] = {}
+    for accumulator in tool_calls:
+        if accumulator.name not in _ERROR_ISSUE_TOOLS or not isinstance(accumulator.output, dict):
+            continue
+        results = accumulator.output.get("results")
+        candidates = results if isinstance(results, list) else [accumulator.output]
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            issue_id = candidate.get("id")
+            if not isinstance(issue_id, str) or not issue_id:
+                continue
+            name = candidate.get("name")
+            refs[issue_id] = ErrorIssueRef(issue_id=issue_id, name=name if isinstance(name, str) else "")
+    return list(refs.values())

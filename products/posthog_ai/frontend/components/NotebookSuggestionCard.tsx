@@ -48,7 +48,10 @@ export function NotebookSuggestionCard(props: TurnSuggestionLogicProps): JSX.Ele
                 />
             </div>
             <span className="text-xs text-secondary">
-                Saves the conversation so far: {pluralize(conversationBlocks.messageCount, 'message')}
+                {suggestion.notebook.template === 'incident'
+                    ? 'Written up as an incident: timeline, cause, evidence and fix. The evidence is the conversation so far: '
+                    : 'Saves the conversation so far: '}
+                {pluralize(conversationBlocks.messageCount, 'message')}
                 {conversationBlocks.queryCount > 0
                     ? ` and ${pluralize(conversationBlocks.queryCount, 'query', 'queries')} as live cells`
                     : ''}
