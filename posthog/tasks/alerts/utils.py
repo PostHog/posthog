@@ -3,7 +3,6 @@ from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from django.db import ProgrammingError
 from django.utils import timezone
 
 import pytz
@@ -79,7 +78,7 @@ PREPARE_ALERT_FIELDS = (
 )
 
 
-def is_schema_lag_error(error: ProgrammingError) -> bool:
+def is_schema_lag_error(error: Exception) -> bool:
     """True when the database lacks a column or table this code already knows about.
 
     A deploy that lands the worker image before its migration produces this, and it clears

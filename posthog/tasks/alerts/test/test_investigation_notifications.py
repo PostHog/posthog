@@ -4,9 +4,10 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.db import connection
+from django.db import ProgrammingError, connection
 from django.test.utils import CaptureQueriesContext
 
+import psycopg
 from parameterized import parameterized
 
 from posthog.schema import AlertState
@@ -180,6 +181,22 @@ class TestInvestigationNotificationSafetyNet(APIBaseTest):
         notified = run_investigation_notification_safety_net()
         assert notified == 0
         mock_dispatch.assert_not_called()  # type: ignore[attr-defined]
+
+    @patch("posthog.tasks.alerts.investigation_notifications.dispatch_alert_notification")
+    def test_schema_lag_while_dispatching_is_not_swallowed(self, mock_dispatch: object) -> None:
+        # Dispatch reaches tables beyond the alert itself. A missing column there must reach the
+        # caller, which counts it, rather than being logged as this one check's failure and
+        # leaving the sweep to report a partial count as if the run had been normal.
+        error = ProgrammingError("column does not exist")
+        error.__cause__ = psycopg.errors.UndefinedColumn("column does not exist")
+        mock_dispatch.side_effect = error  # type: ignore[attr-defined]
+        self._make_check(
+            age_minutes=INVESTIGATION_NOTIFY_GRACE_MINUTES + 60,
+            investigation_status=InvestigationStatus.DONE,
+        )
+
+        with self.assertRaises(ProgrammingError):
+            run_investigation_notification_safety_net()
 
     def test_sweeps_when_an_alert_column_it_does_not_read_is_missing(self) -> None:
         # Stands in for a deploy where the worker image runs ahead of an alerts migration.

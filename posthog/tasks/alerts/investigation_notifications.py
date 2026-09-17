@@ -28,6 +28,7 @@ from posthog.schema import AlertState
 
 from posthog.tasks.alerts.utils import (
     dispatch_alert_notification,
+    is_schema_lag_error,
     prepare_alert_insight_chart_url,
     record_alert_delivery,
 )
@@ -121,7 +122,12 @@ def run_investigation_notification_safety_net() -> int:
                     alert, locked, breaches, extra_properties=extra_properties, render_chart=False
                 )
                 record_alert_delivery(alert, locked, deliveries, stamp_on_empty=True)
-        except Exception:
+        except Exception as error:
+            if is_schema_lag_error(error):
+                # A missing column is sweep-wide, not specific to this check: every later
+                # candidate fails the same way. Let it out so the caller classifies and counts
+                # it once, rather than logging it per check and reporting a partial count.
+                raise
             logger.exception(
                 "alert.investigation_safety_net_failed",
                 alert_id=str(alert.id),
