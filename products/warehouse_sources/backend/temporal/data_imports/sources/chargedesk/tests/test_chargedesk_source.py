@@ -37,6 +37,14 @@ class TestGetSchemas:
         # Customers/subscriptions track the creation timestamp column that the row actually carries.
         assert schemas["customers"].incremental_fields[0]["field"] == "first_seen"
         assert schemas["subscriptions"].incremental_fields[0]["field"] == "first_seen"
+        # Charge items carry no timestamp of their own; the parent charge's dates the row.
+        assert schemas["charge_items"].incremental_fields[0]["field"] == "charge_occurred"
+
+    def test_charge_items_is_not_selected_by_default(self) -> None:
+        # Syncing it costs one request per charge against a 60-requests-a-minute API.
+        schemas = {s.name: s for s in ChargedeskSource().get_schemas(_config(), team_id=1)}
+        assert schemas["charge_items"].should_sync_default is False
+        assert schemas["charges"].should_sync_default is True
 
 
 class TestValidateCredentials:
