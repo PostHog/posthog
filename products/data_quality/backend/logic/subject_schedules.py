@@ -25,10 +25,10 @@ from posthog.temporal.common.schedule import a_create_schedule, a_describe_sched
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY, POSTHOG_TEAM_ID_KEY
 
 from ..facade.contracts import CHECK_SUITE_WORKFLOW_NAME, RunCheckSuiteInputs
-from ..facade.enums import ScheduleInterval, SuiteRunTrigger
+from ..facade.enums import ScheduleInterval, SubjectType, SuiteRunTrigger
 
-SCHEDULE_TYPE = "data-quality-metric"
-SCHEDULE_PREFIX = f"{SCHEDULE_TYPE}:"
+SCHEDULE_TYPES: dict[SubjectType, str] = {SubjectType.METRIC: "data-quality-metric"}
+SCHEDULE_TYPE_SUBJECTS = {schedule_type: kind for kind, schedule_type in SCHEDULE_TYPES.items()}
 CATCHUP_WINDOW = timedelta(minutes=15)
 INTERVALS = {
     ScheduleInterval.ONE_HOUR: timedelta(hours=1),
@@ -40,24 +40,54 @@ INTERVALS = {
 
 
 @frozen
-class MetricScheduleKey:
+class SubjectScheduleKey:
+    """Which subject a Temporal schedule runs the checks of."""
+
     team_id: int
-    metric_id: UUID
+    subject_type: SubjectType
+    subject_uuid: UUID
+
+    @property
+    def schedule_type(self) -> str:
+        schedule_type = SCHEDULE_TYPES.get(self.subject_type)
+        if schedule_type is None:
+            raise ValueError(f"A {self.subject_type} has no recurring check schedule")
+        return schedule_type
 
     @property
     def id(self) -> UUID:
-        return uuid5(NAMESPACE_URL, f"{SCHEDULE_PREFIX}{self.team_id}:{self.metric_id}")
+        return uuid5(NAMESPACE_URL, self.temporal_id)
 
     @property
     def temporal_id(self) -> str:
-        return f"{SCHEDULE_PREFIX}{self.team_id}:{self.metric_id}"
+        return f"{self.schedule_type}:{self.team_id}:{self.subject_uuid}"
 
     @classmethod
-    def parse(cls, schedule_id: str) -> "MetricScheduleKey":
-        prefix, team_id, metric_id = schedule_id.split(":")
-        if prefix != SCHEDULE_TYPE:
-            raise ValueError("Unrecognized metric schedule identifier")
-        return cls(team_id=int(team_id), metric_id=UUID(metric_id))
+    def parse(cls, schedule_id: str) -> "SubjectScheduleKey":
+        schedule_type, team_id, subject_uuid = schedule_id.split(":")
+        subject_type = SCHEDULE_TYPE_SUBJECTS.get(schedule_type)
+        if subject_type is None:
+            raise ValueError("Unrecognized check schedule identifier")
+        return cls(team_id=int(team_id), subject_type=subject_type, subject_uuid=UUID(subject_uuid))
+
+
+def suite_inputs(key: SubjectScheduleKey) -> RunCheckSuiteInputs:
+    """What this schedule hands the workflow, with its subject in the selector that kind uses."""
+    if key.subject_type is SubjectType.METRIC:
+        return RunCheckSuiteInputs(
+            team_id=key.team_id,
+            trigger=SuiteRunTrigger.SCHEDULED,
+            metric_ids=[str(key.subject_uuid)],
+            schedule_id=key.temporal_id,
+        )
+    raise ValueError(f"A {key.subject_type} has no recurring check schedule")
+
+
+def selected_subject_ids(inputs: RunCheckSuiteInputs, subject_type: SubjectType) -> list[str]:
+    """The subjects these inputs name, read out of the selector that kind uses."""
+    if subject_type is SubjectType.METRIC:
+        return inputs.metric_ids
+    raise ValueError(f"A {subject_type} has no recurring check schedule")
 
 
 def interval_from_label(label: str) -> timedelta:
@@ -68,30 +98,25 @@ def label_from_interval(interval: timedelta) -> ScheduleInterval:
     for label, duration in INTERVALS.items():
         if interval == duration:
             return label
-    raise ValueError("Unsupported metric check interval")
+    raise ValueError("Unsupported check interval")
 
 
-class MetricSchedules:
+class SubjectSchedules:
     def __init__(self, client: Client) -> None:
         self.client = client
 
     @staticmethod
-    def spec(key: MetricScheduleKey, interval: str) -> ScheduleSpec:
+    def spec(key: SubjectScheduleKey, interval: str) -> ScheduleSpec:
         duration = interval_from_label(interval)
         offset = timedelta(seconds=key.id.int % int(duration.total_seconds()))
         return ScheduleSpec(intervals=[ScheduleIntervalSpec(every=duration, offset=offset)])
 
     @classmethod
-    def build(cls, key: MetricScheduleKey, interval: str = ScheduleInterval.DAILY) -> Schedule:
+    def build(cls, key: SubjectScheduleKey, interval: str = ScheduleInterval.DAILY) -> Schedule:
         return Schedule(
             action=ScheduleActionStartWorkflow(
                 CHECK_SUITE_WORKFLOW_NAME,
-                RunCheckSuiteInputs(
-                    team_id=key.team_id,
-                    trigger=SuiteRunTrigger.SCHEDULED,
-                    metric_ids=[str(key.metric_id)],
-                    schedule_id=key.temporal_id,
-                ),
+                suite_inputs(key),
                 id=key.temporal_id,
                 task_queue=settings.DATA_MODELING_TASK_QUEUE,
                 execution_timeout=timedelta(hours=1),
@@ -102,7 +127,7 @@ class MetricSchedules:
             ),
         )
 
-    async def ensure(self, key: MetricScheduleKey) -> None:
+    async def ensure(self, key: SubjectScheduleKey) -> None:
         try:
             await a_create_schedule(
                 self.client,
@@ -112,14 +137,14 @@ class MetricSchedules:
                 search_attributes=TypedSearchAttributes(
                     [
                         SearchAttributePair(POSTHOG_TEAM_ID_KEY, key.team_id),
-                        SearchAttributePair(POSTHOG_SCHEDULE_TYPE_KEY, SCHEDULE_TYPE),
+                        SearchAttributePair(POSTHOG_SCHEDULE_TYPE_KEY, key.schedule_type),
                     ]
                 ),
             )
         except ScheduleAlreadyRunningError:
             return
 
-    async def describe(self, key: MetricScheduleKey) -> ScheduleDescription | None:
+    async def describe(self, key: SubjectScheduleKey) -> ScheduleDescription | None:
         try:
             return await a_describe_schedule(self.client, key.temporal_id)
         except RPCError as error:
@@ -127,7 +152,9 @@ class MetricSchedules:
                 return None
             raise
 
-    async def update(self, key: MetricScheduleKey, *, interval: str | None = None, enabled: bool | None = None) -> None:
+    async def update(
+        self, key: SubjectScheduleKey, *, interval: str | None = None, enabled: bool | None = None
+    ) -> None:
         spec = self.spec(key, interval) if interval is not None else None
 
         def updater(inputs: ScheduleUpdateInput) -> ScheduleUpdate:

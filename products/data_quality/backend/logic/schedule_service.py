@@ -4,10 +4,10 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from ..activity_logging import log_metric_schedule_change
+from ..activity_logging import log_schedule_change
 from ..facade.enums import SuiteRunTrigger
 from ..models import DataQualitySuiteRun
-from .schedules import MetricCheckSchedule, get_schedule, update_schedule_with_snapshots
+from .schedules import CheckSchedule, get_schedule, update_schedule_with_snapshots
 from .subject_access import suites_backing_unreadable_runs_q, unreadable_suites_q
 
 if TYPE_CHECKING:
@@ -21,9 +21,9 @@ def schedule_with_history(
     team_id: int,
     subject_type: SubjectType,
     subject_uuid: str | UUID,
-    schedule: MetricCheckSchedule,
+    schedule: CheckSchedule,
     authorization_context: DenialContext | None = None,
-) -> MetricCheckSchedule:
+) -> CheckSchedule:
     suites = DataQualitySuiteRun.objects.for_team(team_id).filter(
         subject_type=subject_type,
         subject_uuid=subject_uuid,
@@ -44,7 +44,7 @@ def get_schedule_with_history(
     subject_type: SubjectType,
     subject_uuid: str | UUID,
     authorization_context: DenialContext | None = None,
-) -> MetricCheckSchedule | None:
+) -> CheckSchedule | None:
     schedule = get_schedule(team_id, subject_type, subject_uuid)
     if schedule is None:
         return None
@@ -60,7 +60,7 @@ def update_schedule(
     authorization_context: DenialContext | None = None,
     interval: str | None = None,
     enabled: bool | None = None,
-) -> MetricCheckSchedule:
+) -> CheckSchedule:
     result = update_schedule_with_snapshots(
         team_id,
         subject_type,
@@ -68,5 +68,5 @@ def update_schedule(
         interval=interval,
         enabled=enabled,
     )
-    log_metric_schedule_change(team_id, str(subject_uuid), result.before, result.after, user)
+    log_schedule_change(team_id, str(subject_type), str(subject_uuid), result.before, result.after, user)
     return schedule_with_history(team_id, subject_type, subject_uuid, result.after, authorization_context)

@@ -29,7 +29,7 @@ describe('dataQualityScheduleLogic', () => {
         initKeaTests()
         silenceKeaLoadersErrors()
         ;(dataQualityChecksScheduleRetrieve as jest.Mock).mockResolvedValue(SCHEDULE)
-        logic = dataQualityScheduleLogic({ metricId: 'metric-1' })
+        logic = dataQualityScheduleLogic({ subjectType: 'metric', subjectId: 'metric-1' })
     })
 
     afterEach(() => {

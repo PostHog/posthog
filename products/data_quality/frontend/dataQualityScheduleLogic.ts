@@ -8,13 +8,7 @@ import type { DataQualityCheckScheduleApi, PatchedDataQualityCheckScheduleUpdate
 
 const SCHEDULE_REFRESH_INTERVAL_MS = 30_000
 
-export interface DataQualityScheduleLogicProps {
-    metricId: string
-}
-
-function subjectRef(props: DataQualityScheduleLogicProps): DataQualitySubjectRef {
-    return { subjectType: 'metric', subjectId: props.metricId }
-}
+export type DataQualityScheduleLogicProps = DataQualitySubjectRef
 
 export interface DataQualityScheduleError {
     message: string
@@ -88,7 +82,7 @@ export type dataQualityScheduleLogicType = MakeLogicType<
 
 export const dataQualityScheduleLogic: LogicWrapper<dataQualityScheduleLogicType> = kea<dataQualityScheduleLogicType>([
     props({} as DataQualityScheduleLogicProps),
-    key((props) => props.metricId),
+    key((props) => `${props.subjectType}:${props.subjectId}`),
     path((key) => ['products', 'data_quality', 'frontend', 'dataQualityScheduleLogic', key]),
     actions({
         refreshSchedule: true,
@@ -98,16 +92,16 @@ export const dataQualityScheduleLogic: LogicWrapper<dataQualityScheduleLogicType
         schedule: [
             null as DataQualityCheckScheduleApi | null,
             {
-                loadSchedule: async () => checksApi.schedule(subjectRef(props)),
+                loadSchedule: async () => checksApi.schedule(props),
                 updateSchedule: async (patch: PatchedDataQualityCheckScheduleUpdateApi) => {
                     try {
-                        return await checksApi.updateSchedule(subjectRef(props), patch)
+                        return await checksApi.updateSchedule(props, patch)
                     } catch (error) {
                         if (isDefinitiveRejection(error)) {
                             throw error
                         }
                         try {
-                            actions.loadScheduleSuccess(await checksApi.schedule(subjectRef(props)))
+                            actions.loadScheduleSuccess(await checksApi.schedule(props))
                         } catch {
                             // The edit can have committed even when neither response reaches us.
                         }
@@ -141,7 +135,7 @@ export const dataQualityScheduleLogic: LogicWrapper<dataQualityScheduleLogicType
             }
             const previousSchedule = values.schedule
             try {
-                const schedule = await checksApi.schedule(subjectRef(props))
+                const schedule = await checksApi.schedule(props)
                 if (!values.scheduleLoading && values.schedule === previousSchedule) {
                     actions.refreshScheduleSuccess(schedule)
                 }

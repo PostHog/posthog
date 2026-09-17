@@ -7,7 +7,7 @@ the AST-bearing ``CheckPlan`` stay inside ``logic``, since they are compiler int
 data. ORM model classes never cross here either -- ``facade/models.py`` is their one channel.
 """
 
-from ..activity_logging import log_metric_schedule_change
+from ..activity_logging import log_schedule_change
 from ..logic.checks import (
     checks_for_subject,
     edit_check,
@@ -33,13 +33,7 @@ from ..logic.permissions import authorized_subject_types, restrict_subject_types
 from ..logic.registry import UnknownCheckTypeError, list_check_types
 from ..logic.run_records import record_check_run
 from ..logic.schedule_service import get_schedule_with_history, schedule_with_history, update_schedule
-from ..logic.schedules import (
-    MetricCheckSchedule,
-    ScheduleUnavailableError,
-    ScheduleUpdateResult,
-    get_schedule,
-    set_schedule,
-)
+from ..logic.schedules import CheckSchedule, ScheduleUnavailableError, ScheduleUpdateResult, get_schedule, set_schedule
 from ..logic.serialization import compute_fingerprint, from_config_entry, to_config_entry
 from ..logic.subject_access import (
     DenialContext,
@@ -62,8 +56,8 @@ from ..logic.triggers import materialization_audit_mode as quality_audit_mode
 from .contracts import CheckTypeInfo, MetricSubject, OutputColumn, SelectableSubject
 
 __all__ = [
-    "log_metric_schedule_change",
-    "MetricCheckSchedule",
+    "log_schedule_change",
+    "CheckSchedule",
     "ScheduleUnavailableError",
     "ScheduleUpdateResult",
     "CheckConfigError",

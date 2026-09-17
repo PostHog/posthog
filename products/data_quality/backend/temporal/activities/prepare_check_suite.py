@@ -13,7 +13,7 @@ from products.data_modeling.backend.facade import api as data_modeling_facade
 from ...facade.enums import SubjectType, SuiteRunTrigger
 from ...logic.checks import live_subject_checks
 from ...logic.flags import get_data_quality_checks_flag_for_team_id
-from ...logic.metric_schedules import MetricScheduleKey, MetricSchedules
+from ...logic.subject_schedules import SubjectScheduleKey, SubjectSchedules, selected_subject_ids
 from ...models import DataQualityCheck, DataQualitySuiteRun
 from ..contracts import PreparedSuite, RunCheckSuiteInputs
 
@@ -28,10 +28,10 @@ async def prepare_check_suite_activity(inputs: RunCheckSuiteInputs) -> PreparedS
     if inputs.trigger == SuiteRunTrigger.SCHEDULED:
         if not inputs.schedule_id:
             raise ValueError("Scheduled suites require a schedule identifier")
-        key = MetricScheduleKey.parse(inputs.schedule_id)
-        if key.team_id != inputs.team_id or inputs.metric_ids != [str(key.metric_id)]:
+        key = SubjectScheduleKey.parse(inputs.schedule_id)
+        if key.team_id != inputs.team_id or selected_subject_ids(inputs, key.subject_type) != [str(key.subject_uuid)]:
             raise ValueError("Schedule subject does not match suite inputs")
-        schedule = await MetricSchedules(await async_connect()).describe(key)
+        schedule = await SubjectSchedules(await async_connect()).describe(key)
         schedule_enabled = schedule is not None and not schedule.schedule.state.paused
     return await sync_to_async(_prepare)(inputs, schedule_enabled=schedule_enabled)
 
