@@ -61,8 +61,9 @@ ENV PATH=/python-runtime/bin:$PATH \
 # --no-editable above leaves an editable install pointing at /code/tools/owners and every Django
 # entrypoint dies on `import posthog_owners` at runtime instead of here. The root Dockerfile asserts
 # the same invariant with `test -d tools/owners/posthog_owners`; this image never copies that source
-# tree, so assert importability instead of presence.
-RUN python -c "import posthog_owners"
+# tree, so assert importability instead of presence. personhog-proto is installed from a bind mount
+# the same way, and posthog/models/person/util.py imports it when Django loads.
+RUN python -c "import posthog_owners, personhog.service.v1.service_pb2_grpc"
 
 # Pre-warm the tiktoken BPE encoding cache into the image so runtime token counting reads the
 # blobs from disk instead of fetching them from OpenAI's blob host on first use, which fails under

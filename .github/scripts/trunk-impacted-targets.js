@@ -609,8 +609,8 @@ const TRIPWIRE_RULES = [
     ['.dockerignore', APP_IMAGE],
     ['proto/**', PROTO],
     // The checked-in python stubs. They sit under packages/, which the
-    // directory rules read as frontend, but their only importer is
-    // posthog/personhog_client.
+    // directory rules read as frontend, but every importer is python under
+    // posthog/.
     ['packages/personhog-proto/**', PYTHON],
     ['frontend/src/queries/schema.json', PRODUCT_SURFACE],
     ['posthog/schema.py', PRODUCT_SURFACE],
