@@ -387,12 +387,19 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
 
     const loading = schemaIncrementalFieldsLoading || !schemaIncrementalFields
 
-    const storedColumns: AvailableColumn[] = (schema.available_columns ?? []).map((column) => ({
-        field: column.name,
-        label: column.name,
-        type: column.data_type ?? '',
-        nullable: column.is_nullable ?? false,
-    }))
+    // Only offer these as merge keys when the source reported them. Without source metadata the API
+    // fills the list from the synced table instead, whose names went through the snake_case naming
+    // convention, so `createdAt` reads back as `created_at` and a key picked from it names a column
+    // the source query cannot resolve. That is also the state where the API accepts a keyless
+    // incremental switch, so there is no refusal left without a remedy.
+    const storedColumns: AvailableColumn[] = schema.source_column_metadata_available
+        ? (schema.available_columns ?? []).map((column) => ({
+              field: column.name,
+              label: column.name,
+              type: column.data_type ?? '',
+              nullable: column.is_nullable ?? false,
+          }))
+        : []
 
     const persistSyncMethod = async (
         syncType: ExternalDataSourceSchema['sync_type'],
