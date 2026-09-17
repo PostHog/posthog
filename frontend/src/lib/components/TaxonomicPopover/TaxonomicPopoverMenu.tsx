@@ -95,6 +95,8 @@ export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValu
     allowNonCapturedEvents?: boolean
     suggestedFiltersLabel?: string
     enableKeywordShortcuts?: boolean
+    /** Called when the lazy menu is first opened. */
+    onOpen?: () => void
     /** Trigger button styling, forwarded so the rebuilt menu's trigger
      *  matches the legacy `TaxonomicPopover` button at the call site. */
     triggerButtonProps?: TriggerButtonProps
@@ -156,7 +158,15 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
     // button variant always resolves its own open state, so this is ignored.
     const [armOpenTo, setArmOpenTo] = useState<'menu' | 'combobox'>('combobox')
 
-    const { value, renderValue, placeholder = 'Select', placeholderClass, triggerButtonProps, triggerVariant } = props
+    const {
+        value,
+        renderValue,
+        placeholder = 'Select',
+        placeholderClass,
+        triggerButtonProps,
+        triggerVariant,
+        onOpen,
+    } = props
     const useInputTrigger = triggerVariant === 'input' && (value == null || value === '')
 
     if (armed) {
@@ -164,6 +174,7 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
     }
 
     const arm = (to: 'menu' | 'combobox'): void => {
+        onOpen?.()
         setArmOpenTo(to)
         setArmed(true)
     }

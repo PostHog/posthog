@@ -160,6 +160,9 @@ export interface dashboardsModelActions {
         error: string
         errorObject?: any
     }
+    loadDashboardsIfNeeded: () => {
+        value: true
+    }
     loadDashboardsSuccess: (
         pagedDashboards:
             | {
