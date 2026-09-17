@@ -118,7 +118,12 @@ experiment.
 - **To force a real recompute**, call `experiment-metrics-recalculation-create { id: <experiment_id> }`
   and keep the run `id` it returns. Poll that run with
   `experiment-metrics-recalculation-retrieve { id: <experiment_id>, recalculation_id: <run_id> }` until
-  its `status` is `completed` or `failed`. **Don't poll
+  its `status` is `completed` or `failed`. **Bound that loop.** Wait two seconds between polls. Stop
+  after 30 minutes, or after five failed requests in a row. Then report the run `id` and call the
+  recalculation unresolved. Only a later `create` call force-fails a stalled run. A run whose workflow
+  stalls holds `pending` or `in_progress`, and never reaches a terminal status. Each poll of an
+  `in_progress` run also reads ClickHouse system tables for live progress, so a tight loop adds load
+  for nothing. The results page polls on the same three limits. **Don't poll
   `experiment-metrics-recalculation-latest-retrieve` for a run you just started.** It answers with the
   last run that already finished, and reports the new one only under `active_run`. So it says
   `completed` on the first poll, and hands back the same stale rows you are trying to explain. No
