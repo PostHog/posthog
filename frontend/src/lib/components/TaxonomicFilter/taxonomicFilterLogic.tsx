@@ -174,6 +174,10 @@ const PROMOTED_SHORTCUT_GROUP_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.EmailAddresses,
 ]
 
+function requestsGroup(props: TaxonomicFilterLogicProps, groupType: TaxonomicFilterGroupType): boolean {
+    return !props.taxonomicGroupTypes || props.taxonomicGroupTypes.includes(groupType)
+}
+
 /** Drop the group types no group serves, and the second half of every mutually exclusive pair. */
 export function resolveAvailableGroupTypes(
     groupTypes: TaxonomicFilterGroupType[],
@@ -852,10 +856,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         actions: [primaryEventPropertiesModel, ['ensureLoadedForEvents']],
         logic: [
-            actionsModel({
-                shouldLoad:
-                    !props.taxonomicGroupTypes || props.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Actions),
-            }),
+            actionsModel({ shouldLoad: requestsGroup(props, TaxonomicFilterGroupType.Actions) }),
+            ...(requestsGroup(props, TaxonomicFilterGroupType.Dashboards) ? [dashboardsModel] : []),
         ],
     })),
     actions(() => ({
@@ -2017,6 +2019,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.Dashboards,
                         logic: dashboardsModel,
                         value: 'nameSortedDashboards',
+                        valueLoading: 'dashboardsLoading',
                         getName: (dashboard: DashboardType) => dashboard.name,
                         getValue: (dashboard: DashboardType) => dashboard.id,
                         getPopoverHeader: () => `Dashboards`,
@@ -2530,6 +2533,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         // Initial fire — the model dedupes against taxonomy defaults and already-loaded names.
         if (props.eventNames?.length) {
             actions.ensureLoadedForEvents(props.eventNames)
+        }
+        if (requestsGroup(props, TaxonomicFilterGroupType.Dashboards)) {
+            dashboardsModel.actions.loadDashboardsIfNeeded()
         }
         // If we land with an initial search query (e.g. deep-linked filter), arm the same
         // 5s reveal-barrier timer as a normal keystroke would — the `setSearchQuery`

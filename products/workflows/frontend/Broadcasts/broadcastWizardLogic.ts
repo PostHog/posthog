@@ -102,7 +102,7 @@ export function isBroadcastReadOnly(broadcast: HogFlowApi | null, batchJobs: Hog
 export const DEFAULT_BROADCAST_CONVERSION: HogFlowConversionApi = {
     events: [],
     filters: [],
-    window_minutes: 10080,
+    window: '7d',
 }
 
 // pinned: action node ids referenced by saved broadcasts — renaming breaks resume of existing drafts
