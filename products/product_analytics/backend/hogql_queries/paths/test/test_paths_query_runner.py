@@ -989,6 +989,38 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(with_trailing_slashes.results, baseline.results)
 
+    def test_paths_strip_query_string(self) -> None:
+        # Query strings must be cut before the trailing slash strip, so that
+        # `/products/?color=red` merges with `/products` and not only with `/products/`.
+        _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person_2"])
+
+        for distinct_id, start_url in (("person_1", "/products/?color=red"), ("person_2", "/products?sort=price")):
+            for url in (start_url, "/checkout"):
+                _create_event(
+                    properties={"$current_url": url},
+                    distinct_id=distinct_id,
+                    event="$pageview",
+                    team=self.team,
+                )
+
+        separate = PathsQueryRunner(
+            query={"kind": "PathsQuery", "pathsFilter": {"startPoint": "/products"}},
+            team=self.team,
+        ).run()
+        assert isinstance(separate, CachedPathsQueryResponse)
+        self.assertEqual(separate.results, [])
+
+        merged = PathsQueryRunner(
+            query={"kind": "PathsQuery", "pathsFilter": {"startPoint": "/products", "stripQueryString": True}},
+            team=self.team,
+        ).run()
+        assert isinstance(merged, CachedPathsQueryResponse)
+        self.assertEqual(len(merged.results), 1)
+        self.assertTrue(
+            merged.results[0].dict().items() >= {"source": "1_/products", "target": "2_/checkout", "value": 2}.items()
+        )
+
     def test_paths_in_window(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
 

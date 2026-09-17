@@ -135,9 +135,12 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
             event_hogql = parse_expr(self.query.pathsFilter.pathsHogQLExpression)
 
         if self._should_query_event(PAGEVIEW_EVENT):
+            url_hogql: ast.Expr = parse_expr("ifNull(properties.$current_url, '')")
+            if self.query.pathsFilter.stripQueryString:
+                url_hogql = ast.Call(name="cutQueryString", args=[url_hogql])
             event_hogql = parse_expr(
-                "if(event = {event}, replaceRegexpAll(ifNull(properties.$current_url, ''), '(.)/$', '\\\\1'), {event_hogql})",
-                {"event": ast.Constant(value=PAGEVIEW_EVENT), "event_hogql": event_hogql},
+                "if(event = {event}, replaceRegexpAll({url}, '(.)/$', '\\\\1'), {event_hogql})",
+                {"event": ast.Constant(value=PAGEVIEW_EVENT), "url": url_hogql, "event_hogql": event_hogql},
             )
 
         if self._should_query_event(SCREEN_EVENT):

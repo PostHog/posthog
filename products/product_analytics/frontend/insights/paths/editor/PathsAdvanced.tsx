@@ -4,7 +4,9 @@ import { useState } from 'react'
 import { LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { AvailableFeature, EditorFilterProps, PathEdgeParameters } from '~/types'
 
@@ -16,7 +18,9 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
     const { pathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    const { edgeLimit, minEdgeWeight, maxEdgeWeight, showFullUrls } = pathsFilter || {}
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const { edgeLimit, minEdgeWeight, maxEdgeWeight, showFullUrls, stripQueryString } = pathsFilter || {}
 
     const [localEdgeParameters, setLocalEdgeParameters] = useState<PathEdgeParameters>({
         edgeLimit,
@@ -130,6 +134,22 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                     Display complete URLs instead of truncated versions. Useful for comparing paths side-by-side.
                 </div>
             </div>
+
+            {featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_STRIP_QUERY_STRING] && (
+                <div>
+                    <LemonSwitch
+                        checked={!!stripQueryString}
+                        onChange={(checked) => updateInsightFilter({ stripQueryString: checked })}
+                        label="Ignore URL query strings"
+                        bordered
+                        fullWidth
+                    />
+                    <div className="text-muted text-xs mt-1">
+                        Treat page views that differ only in the query string as the same step. For example,
+                        /products?color=red and /products both count as /products.
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

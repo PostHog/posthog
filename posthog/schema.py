@@ -6415,6 +6415,13 @@ class PathsFilter(BaseModel):
     showFullUrls: bool | None = None
     startPoint: str | None = None
     stepLimit: int | None = 5
+    stripQueryString: bool | None = Field(
+        default=None,
+        description=(
+            "Remove the query string from page view URLs, so pages that differ only in"
+            " query parameters become one path item"
+        ),
+    )
 
 
 class PathsV2Anchor(BaseModel):
