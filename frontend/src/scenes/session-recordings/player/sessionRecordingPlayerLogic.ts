@@ -696,9 +696,6 @@ export interface sessionRecordingPlayerLogicActions {
     addDeletedRecordings: (ids: string[]) => {
         ids: string[]
     } // deletedRecordingsLogic
-    armBufferingReevaluation: (attempt: number) => {
-        attempt: number
-    }
     startReplayExport: (
         sessionRecordingId: string,
         format?: ExporterFormat | undefined,
@@ -812,6 +809,9 @@ export interface sessionRecordingPlayerLogicActions {
     } // snapshotDataLogic
     allowPlayerChromeToHide: () => {
         value: true
+    }
+    armBufferingReevaluation: (attempt: number) => {
+        attempt: number
     }
     caughtAssetErrorFromIframe: (errorDetails: ResourceErrorDetails) => {
         errorDetails: ResourceErrorDetails
