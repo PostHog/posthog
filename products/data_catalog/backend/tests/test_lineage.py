@@ -34,6 +34,10 @@ _HOGQL_CTE_SHADOWING_A_TABLE = {
     "kind": "HogQLQuery",
     "query": "with events as (select * from persons) select count() from events",
 }
+_HOGQL_NUMBERS_SPINE = {
+    "kind": "HogQLQuery",
+    "query": "select count() from numbers(10) join events on 1",
+}
 _MARKDOWN = {"kind": "MarkdownDefinition", "markdown": "Count the accounts, then divide."}
 _TRENDS_EVENTS = {
     "kind": "TrendsQuery",
@@ -53,6 +57,7 @@ class TestDependencyNames(BaseTest):
             ("system_tables_dropped", _HOGQL_SYSTEM, ["system.information_schema.metrics"], []),
             ("hogql_view_beats_its_resolved_sources", _HOGQL_VIEW, ["events", "persons"], ["accounts_view"]),
             ("hogql_cte_does_not_shadow_a_table", _HOGQL_CTE_SHADOWING_A_TABLE, ["persons"], ["persons"]),
+            ("hogql_table_function_is_not_upstream", _HOGQL_NUMBERS_SPINE, ["events"], ["events"]),
             ("events_node_adds_events", _TRENDS_EVENTS, [], ["events"]),
             ("warehouse_series_keeps_both", _TRENDS_EVENTS, ["stripe_charges"], ["events", "stripe_charges"]),
             ("markdown_reads_nothing", _MARKDOWN, [], []),
