@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -39,6 +40,7 @@ describe('textCardModalLogic', () => {
     beforeEach(() => {
         initKeaTests()
         jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
+        jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
     })
 
     afterEach(() => {
@@ -50,6 +52,7 @@ describe('textCardModalLogic', () => {
             dashboard: makeDashboard('x'.repeat(4001)),
             textTileId: 1,
             onClose: jest.fn(),
+            tileType: 'text',
         })
         logic.mount()
 
@@ -65,8 +68,9 @@ describe('textCardModalLogic', () => {
     it('rejects empty text card body in form validation', async () => {
         const logic = textCardModalLogic({
             dashboard: makeDashboard(''),
-            textTileId: 'new',
+            textTileId: null,
             onClose: jest.fn(),
+            tileType: 'text',
         })
         logic.mount()
 
@@ -79,11 +83,24 @@ describe('textCardModalLogic', () => {
         expect(lemonToast.error).not.toHaveBeenCalled()
     })
 
+    it('defaults new image tiles to a transparent background', () => {
+        const logic = textCardModalLogic({
+            dashboard: makeDashboard(),
+            textTileId: null,
+            onClose: jest.fn(),
+            tileType: 'image',
+        })
+        logic.mount()
+
+        expect(logic.values.textTile.transparent_background).toBe(true)
+    })
+
     it('does not show toast for expected api body validation errors', () => {
         const logic = textCardModalLogic({
             dashboard: makeDashboard('valid'),
             textTileId: 1,
             onClose: jest.fn(),
+            tileType: 'text',
         })
         logic.mount()
 
@@ -103,6 +120,7 @@ describe('textCardModalLogic', () => {
             dashboard: makeDashboard('valid'),
             textTileId: 1,
             onClose: jest.fn(),
+            tileType: 'text',
         })
         logic.mount()
 
@@ -115,5 +133,45 @@ describe('textCardModalLogic', () => {
         )
 
         expect(lemonToast.error).toHaveBeenCalledWith('Could not save text: Network error')
+    })
+
+    it('uses image wording for unexpected image tile save failures', () => {
+        const logic = textCardModalLogic({
+            dashboard: makeDashboard('![Image](https://example.com/image.png)'),
+            textTileId: 1,
+            onClose: jest.fn(),
+            tileType: 'image',
+        })
+        logic.mount()
+
+        logic.actions.submitTextTileFailure(
+            {
+                error: 'Network error',
+                errors: {},
+            } as any,
+            {}
+        )
+
+        expect(lemonToast.error).toHaveBeenCalledWith('Could not save image: Network error')
+    })
+
+    it.each([
+        ['image', '![Diagram](https://example.com/diagram.png)'],
+        ['text', 'Dashboard context'],
+    ])('reports %s content type when a text tile saves', (contentType, body) => {
+        const logic = textCardModalLogic({
+            dashboard: makeDashboard(),
+            textTileId: null,
+            onClose: jest.fn(),
+            tileType: 'text',
+        })
+        logic.mount()
+
+        logic.actions.submitTextTileSuccess({ body, transparent_background: false })
+
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'dashboard text tile saved',
+            expect.objectContaining({ content_type: contentType })
+        )
     })
 })

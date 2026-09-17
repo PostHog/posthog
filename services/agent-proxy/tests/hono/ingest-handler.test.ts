@@ -305,6 +305,7 @@ function makeClaims(overrides?: Partial<SandboxEventIngestTokenPayload>): Sandbo
         taskId: 'task-abc',
         teamId: 42,
         presenceGated: false,
+        thinTail: false,
         originProduct: 'unknown',
         ...overrides,
     }
@@ -1282,6 +1283,27 @@ describe('ingest-handler', () => {
         global.fetch = originalFetch
     })
 
+    it('keeps the command claim when the Django callback answers 400', async () => {
+        const originalFetch = global.fetch
+        global.fetch = vi.fn(async () => new Response('', { status: 400 })) as typeof fetch
+
+        const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
+
+        const commandEvent = {
+            type: 'notification',
+            notification: { method: '_posthog/agent_command_dispatched', params: {} },
+        }
+        const ndjson = JSON.stringify({ seq: 1, event: commandEvent }) + '\n'
+        const ctx = makeContext({ body: makeStringBody(ndjson) })
+        const res = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
+        expect(res.status).toBe(200)
+
+        await new Promise((r) => setTimeout(r, 10))
+
+        expect(await redisStream.claimFirstAgentCommand()).toBe(false)
+        global.fetch = originalFetch
+    })
+
     it('still returns 200 when the Django callback returns a non-2xx status', async () => {
         const originalFetch = global.fetch
         global.fetch = vi.fn(async () => new Response('', { status: 500 })) as typeof fetch
@@ -1325,6 +1347,69 @@ describe('ingest-handler', () => {
 
             global.fetch = originalFetch
         })
+
+        it.each([
+            ['a normal pi turn_completed', { type: 'pi_event', event: { type: 'turn_completed' } }, 'awaiting_input'],
+            [
+                'a pi turn_completed with stopReason "error"',
+                { type: 'pi_event', event: { type: 'turn_completed', stopReason: 'error' } },
+                'turn_failed',
+            ],
+        ])('fires %s as %s', async (_label, event, expectedKind) => {
+            const fired: { kind: string }[] = []
+            const originalFetch = global.fetch
+            global.fetch = vi.fn(async (_, init) => {
+                fired.push(JSON.parse(String((init as RequestInit).body)))
+                return new Response('', { status: 200 })
+            }) as typeof fetch
+
+            const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
+            await heartbeatWorkflowIfNeeded(redisStream, RUN_ID, event, TASK_ID, TEAM_ID, 'tok', config)
+
+            expect(await redisStream.getAgentActive()).toBe(false)
+            await new Promise((r) => setTimeout(r, 0))
+            expect(fired.some((f) => f.kind === expectedKind)).toBe(true)
+
+            global.fetch = originalFetch
+        })
+
+        const turnComplete = { type: 'notification', notification: { method: '_posthog/turn_complete' } }
+        const piTurnError = { type: 'pi_event', event: { type: 'turn_completed', stopReason: 'error' } }
+        const sessionUpdate = { type: 'notification', notification: { method: 'session/update', params: {} } }
+        const networkFailure = Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } })
+
+        it.each([
+            ['awaiting_input', turnComplete, 'network failure', networkFailure, 2],
+            ['awaiting_input', turnComplete, '503', new Response('', { status: 503 }), 2],
+            ['awaiting_input', turnComplete, '400', new Response('', { status: 400 }), 1],
+            ['turn_failed', piTurnError, 'network failure', networkFailure, 2],
+            ['turn_failed', piTurnError, '503', new Response('', { status: 503 }), 2],
+            ['heartbeat', sessionUpdate, 'network failure', networkFailure, 1],
+            ['heartbeat', sessionUpdate, '503', new Response('', { status: 503 }), 1],
+        ])(
+            'a %s callback whose first attempt ends in a %s is sent %i time(s) in total',
+            async (_kind, event, _label, firstOutcome, expectedCalls) => {
+                vi.useFakeTimers()
+                const originalFetch = global.fetch
+                const fetchMock = vi
+                    .fn()
+                    .mockImplementationOnce(() =>
+                        firstOutcome instanceof Error ? Promise.reject(firstOutcome) : Promise.resolve(firstOutcome)
+                    )
+                    .mockResolvedValue(new Response('{"dispatched": true}', { status: 200 }))
+                global.fetch = fetchMock as typeof fetch
+
+                const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
+                await heartbeatWorkflowIfNeeded(redisStream, RUN_ID, event, TASK_ID, TEAM_ID, 'tok', config)
+                await vi.advanceTimersByTimeAsync(2000)
+
+                expect(fetchMock).toHaveBeenCalledTimes(expectedCalls)
+                expect((fetchMock.mock.calls[0]?.[1] as RequestInit).signal).toBeInstanceOf(AbortSignal)
+
+                global.fetch = originalFetch
+                vi.useRealTimers()
+            }
+        )
 
         it('sets agent active and fires heartbeat for a session/update event', async () => {
             const fired: { kind: string }[] = []

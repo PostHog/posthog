@@ -1,17 +1,17 @@
-import { isTerminalStatus } from "@posthog/shared/domain-types";
 import type { TaskData } from "./sidebarData.types";
 
-// Drives the "Archive running task?" confirmation. Persisted run status is only
-// trustworthy for cloud runs; local runs stay "in_progress" forever (nothing
-// writes a terminal status when the agent goes idle), so a local run counts as
-// running only while a prompt is in flight (isGenerating).
+// Drives the "Archive running task?" confirmation. An interactive cloud run can
+// stay in_progress while it waits for input, so its status does not prove work.
 export function isTaskActivelyRunning(
-  task: Pick<TaskData, "isGenerating" | "taskRunEnvironment" | "taskRunStatus">,
+  task: Pick<
+    TaskData,
+    "isGenerating" | "runMode" | "taskRunEnvironment" | "taskRunStatus"
+  >,
 ): boolean {
   if (task.isGenerating) return true;
-  return (
-    task.taskRunEnvironment === "cloud" &&
-    task.taskRunStatus !== undefined &&
-    !isTerminalStatus(task.taskRunStatus)
-  );
+  if (task.taskRunEnvironment !== "cloud") return false;
+  if (task.taskRunStatus === "not_started" || task.taskRunStatus === "queued") {
+    return true;
+  }
+  return task.taskRunStatus === "in_progress" && task.runMode === "background";
 }

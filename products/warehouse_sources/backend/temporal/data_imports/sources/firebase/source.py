@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldFileUploadConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -81,7 +79,7 @@ class FirebaseSource(ResumableSource[FirebaseSourceConfig, FirebaseResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FIREBASE,
+            name=ExternalDataSourceType.FIREBASE,
             category=DataWarehouseSourceCategory.DATABASES,
             label="Firebase",
             caption="""Connect a Firebase project to pull Cloud Firestore collections, Firebase Auth users, and Realtime Database paths into the PostHog Data warehouse.
@@ -150,7 +148,7 @@ Create a service account key in the Firebase console under Project settings, Ser
         # Firestore collections are created by the customer's app, so the table list can only come
         # from the live project.
         credentials = self._credentials(config)
-        tables = get_tables(credentials)
+        tables = get_tables(credentials, force_refresh=force_refresh)
         if names is not None:
             wanted = set(names)
             tables = [table for table in tables if table in wanted]

@@ -1,5 +1,6 @@
 ---
 name: signals-scout-customer-analytics-billing-and-usage
+scout-display-name: 'Customer analytics: billing and usage'
 description: >
   Signals scout for per-account product-mix shifts. Watches each staked account's usage and
   forecasted MRR per product for one product dropping or spiking against its own baseline while
@@ -207,7 +208,7 @@ An unexplained one files with the sweep's negative result stated — "no note, s
 Generic mechanics (edit-vs-author, status, reviewer routing, dedupe discipline) come from the harness prompt.
 The product-mix judgment on top:
 
-- **Edit** when a live report already tracks this account+product shift — a fresh confirming week is an `append_note` re-escalation, not a new report.
+- **Edit** when a live report already tracks this account+product shift — add a fresh confirming week with `append_evidence`, not a new report.
 - **Author** when the move clears every gate: >30% vs the same-weekday 4-week baseline, account total flat (quantify both), staked account, share floor respected, seasonality checked, context sweep done.
   Evidence must carry: product name, direction, current vs baseline volume, the product's share of account MRR, and the total-MRR delta for contrast.
   Attach `charts`: the product's weekly series against the account's total series, window wide enough to show the mask.

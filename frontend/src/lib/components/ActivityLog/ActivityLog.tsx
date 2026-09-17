@@ -7,13 +7,15 @@ import { router } from 'kea-router'
 import { Suspense, useEffect, useRef, useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonTabs, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTabs, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { ActivityClientTag } from 'lib/components/ActivityLog/ActivityClientTag'
 import {
     ACTIVITY_SEARCH_PARAM,
     ActivityLogLogicProps,
     activityLogLogic,
 } from 'lib/components/ActivityLog/activityLogLogic'
+import { AgentAttribution } from 'lib/components/ActivityLog/AgentAttribution'
 import { ActivityChange, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -27,7 +29,6 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { userLogic } from 'scenes/userLogic'
 
-import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
 
 import { AccessDenied } from '../AccessDenied'
@@ -49,8 +50,6 @@ const Empty = ({ scope }: { scope: string | string[] }): JSX.Element => {
 
     return (
         <ProductIntroduction
-            productName={noun.toUpperCase()}
-            productKey={ProductKey.HISTORY}
             thingName="history record"
             description={`History shows any ${noun} changes that have been made. After making changes you'll see them logged here.`}
             isEmpty={true}
@@ -81,7 +80,7 @@ const Loading = (): JSX.Element => {
     )
 }
 
-export type ActivityLogTabs = 'extended description' | 'diff' | 'raw'
+export type ActivityLogTabs = 'details' | 'extended description' | 'diff' | 'raw'
 
 const ActivityLogDiff = ({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element => {
     const changes = logItem.unprocessed?.detail.changes
@@ -146,7 +145,7 @@ export const ActivityLogRow = ({
     highlighted?: boolean
 }): JSX.Element => {
     const [isExpanded, setIsExpanded] = useState(false)
-    const [activeTab, setActiveTab] = useState<ActivityLogTabs>('diff')
+    const [activeTab, setActiveTab] = useState<ActivityLogTabs>(logItem.expandedView ? 'details' : 'diff')
     const rowRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -181,29 +180,36 @@ export const ActivityLogRow = ({
             <div
                 className={clsx('ActivityLogRow flex deprecated-space-x-2', logItem.unread && 'ActivityLogRow--unread')}
             >
-                <ProfilePicture
-                    showName={false}
-                    user={{
-                        first_name: logItem.isSystem || logItem.wasImpersonated ? logItem.name : undefined,
-                        email: logItem.email ?? undefined,
-                    }}
-                    type={logItem.isSystem || logItem.wasImpersonated ? 'system' : 'person'}
-                    size="xl"
-                />
+                {/* Tooltip merges the trigger props onto its child element, and ProfilePicture drops props
+                    it does not declare, so the trigger must land on the span instead of the avatar. */}
+                <Tooltip
+                    title={
+                        logItem.emailToReveal ? (
+                            <span className="ph-no-capture">{logItem.emailToReveal}</span>
+                        ) : undefined
+                    }
+                >
+                    <span className="flex shrink-0">
+                        <ProfilePicture
+                            showName={false}
+                            user={{
+                                first_name: logItem.isSystem || logItem.wasImpersonated ? logItem.name : undefined,
+                                email: logItem.email ?? undefined,
+                            }}
+                            type={logItem.isSystem || logItem.wasImpersonated ? 'system' : 'person'}
+                            size="xl"
+                        />
+                    </span>
+                </Tooltip>
                 <div className="ActivityLogRow__details flex-grow">
                     <div className="ActivityLogRow__description">{logItem.description}</div>
                     {logItem.extendedDescription && (
                         <div className="ActivityLogRow__description__extended">{logItem.extendedDescription}</div>
                     )}
+                    <AgentAttribution logItem={logItem} />
                     <div className="text-secondary flex items-center gap-1.5">
                         <TZLabel time={logItem.created_at} />
-                        {logItem.client && (
-                            <Tooltip title="Self-reported by the API client in the x-posthog-client request header">
-                                <LemonTag size="small" type="muted">
-                                    via {logItem.client === 'mcp' ? 'MCP' : logItem.client}
-                                </LemonTag>
-                            </Tooltip>
-                        )}
+                        {logItem.client && <ActivityClientTag client={logItem.client} />}
                     </div>
                 </div>
                 {logItem.id && (
@@ -228,6 +234,13 @@ export const ActivityLogRow = ({
                         activeKey={activeTab}
                         onChange={(key) => setActiveTab(key as ActivityLogTabs)}
                         tabs={[
+                            logItem.expandedView
+                                ? {
+                                      key: 'details',
+                                      label: logItem.expandedView.label,
+                                      content: logItem.expandedView.content,
+                                  }
+                                : false,
                             logItem.extendedDescription
                                 ? {
                                       key: 'extended description',

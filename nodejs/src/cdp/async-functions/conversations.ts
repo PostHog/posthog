@@ -21,7 +21,7 @@ async function callInternalTicketApi(
     context: AsyncFunctionContext,
     result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
     ticketId: string,
-    options: { method: 'GET' | 'PATCH'; body?: string; extraHeaders?: Record<string, string> }
+    options: { method: 'GET' | 'PATCH'; query?: string; body?: string; extraHeaders?: Record<string, string> }
 ): Promise<void> {
     // The ticket id becomes a URL segment and a token claim, so only a UUID may pass — Hog
     // code controls this value. Lowercased because Django's <uuid:> converter and the claim
@@ -30,11 +30,12 @@ async function callInternalTicketApi(
         throw new Error(`[HogFunction] - ticket_id must be a UUID, got '${ticketId}'`)
     }
     const canonicalTicketId = ticketId.toLowerCase()
+    const { query, ...rest } = options
     await callInternalApi(context, result, {
         jwt: context.conversationsTicketsJwt,
-        path: `/api/projects/${context.invocation.teamId}/internal/conversations/tickets/${canonicalTicketId}`,
+        path: `/api/projects/${context.invocation.teamId}/internal/conversations/tickets/${canonicalTicketId}${query ?? ''}`,
         entityClaims: { ticket_id: canonicalTicketId },
-        ...options,
+        ...rest,
     })
 }
 
@@ -47,10 +48,15 @@ registerAsyncFunction('postHogGetTicket', {
             throw new Error("[HogFunction] - postHogGetTicket call missing 'ticket_id' property")
         }
 
+        // Opt-in preview of the customer's first message. Only appended when the workflow enabled
+        // it, so the default fetch keeps the same URL, response size, and query cost it had.
+        const query =
+            opts?.include_first_customer_message_text === true ? '?include_first_customer_message_text=true' : ''
+
         if (context.conversationsTicketsJwt.enabled) {
             // No team fetch and no secret_api_token requirement: teams that never minted the
             // legacy key can use ticket actions once the JWT secret is provisioned.
-            await callInternalTicketApi(context, result, ticketId, { method: 'GET' })
+            await callInternalTicketApi(context, result, ticketId, { method: 'GET', query })
             return
         }
 
@@ -58,7 +64,7 @@ registerAsyncFunction('postHogGetTicket', {
 
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
             type: 'fetch',
-            url: `${context.siteUrl}/api/conversations/external/ticket/${ticketId}`,
+            url: `${context.siteUrl}/api/conversations/external/ticket/${ticketId}${query}`,
             method: 'GET',
             headers: { Authorization: `Bearer ${team.secret_api_token}` },
         })
@@ -84,15 +90,20 @@ registerAsyncFunction('postHogGetTicket', {
                 status: 'new',
                 priority: null,
                 channel_source: 'widget',
+                channel_detail: null,
                 distinct_id: 'mock-distinct-id',
                 created_at: DateTime.now().toISO(),
                 updated_at: DateTime.now().toISO(),
                 message_count: 0,
                 last_message_at: null,
                 last_message_text: null,
+                // The real ticket API omits this field unless the caller opts in, so only include
+                // it here when the workflow asked for it, keeping a mocked preview true to runtime.
+                ...(args[0]?.include_first_customer_message_text === true ? { first_customer_message_text: null } : {}),
                 unread_team_count: 0,
                 unread_customer_count: 0,
                 sla: null,
+                snoozed_until: null,
                 assignee: null,
                 url: null,
                 slack_channel_id: null,

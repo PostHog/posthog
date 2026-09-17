@@ -25,6 +25,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
 import { MessageChannels } from './Channels/MessageChannels'
+import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
 import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
 import { OptOutScene } from './OptOuts/OptOutScene'
 import { SuppressionScene } from './Suppression/SuppressionScene'
@@ -129,6 +130,7 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
     logic: workflowsSceneLogic,
     paramsToProps: ({ params: { tab } }) => ({ tab }),
     productKey: ProductKey.WORKFLOWS,
+    emptyState: workflowsEmptyState,
 }
 
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
@@ -137,7 +139,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
-    const { showNewWorkflowModal } = useActions(newWorkflowLogic)
+    const { startNewWorkflow } = useActions(newWorkflowLogic)
     const newChannelRestrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -267,7 +269,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                                             product_type: ProductKey.WORKFLOWS,
                                             intent_context: ProductIntentContext.WORKFLOW_CREATED,
                                         })
-                                        showNewWorkflowModal()
+                                        startNewWorkflow()
                                     }}
                                     type="primary"
                                     size="small"

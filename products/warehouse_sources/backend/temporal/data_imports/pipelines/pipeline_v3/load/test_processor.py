@@ -601,9 +601,13 @@ class TestPostImportTrigger:
         [
             # Any start failure (e.g. no Temporal env vars on the load deployment) must
             # not fail the load; it is logged and captured.
-            ("start_failure_is_captured", RuntimeError("no temporal"), True),
+            ("start_failure_is_captured", RuntimeError("no temporal"), True, 1),
             # An id collision means a register is already in flight for this schema.
-            ("already_started_is_benign", WorkflowAlreadyStartedError("wf-id", "wf-type"), False),
+            ("already_started_is_benign", WorkflowAlreadyStartedError("wf-id", "wf-type"), False, 1),
+            # A genuine cancellation must not be mistaken for the client-side timeout that also
+            # reports CANCELLED — only the "Timeout expired" / "operation was canceled" phrases
+            # are transient, so this one is captured on the first attempt, not retried.
+            ("genuine_cancel_is_captured", RPCError("Cancelled by caller", RPCStatusCode.CANCELLED, b""), True, 1),
         ]
     )
     @patch(f"{_PROCESSOR}.capture_exception")
@@ -613,6 +617,7 @@ class TestPostImportTrigger:
         _case: str,
         error: Exception,
         expect_captured: bool,
+        expected_attempts: int,
         mock_connect: AsyncMock,
         mock_capture: MagicMock,
     ) -> None:
@@ -630,6 +635,7 @@ class TestPostImportTrigger:
 
         _trigger_post_import_workflow(signal)
 
+        assert client.start_workflow.call_count == expected_attempts
         assert mock_capture.called is expect_captured
 
     def _signal(self) -> MagicMock:
@@ -642,10 +648,22 @@ class TestPostImportTrigger:
         signal.source_id = "source-1"
         return signal
 
+    @parameterized.expand(
+        [
+            ("deadline_exceeded", RPCError("Timeout expired", RPCStatusCode.DEADLINE_EXCEEDED, b"")),
+            # tonic cancels a call that outruns the client's own RPC deadline and reports it as
+            # CANCELLED with this message, not DEADLINE_EXCEEDED — the status a bare-frontend
+            # timeout produces. Must be ridden out the same way, not dropped on the first blip.
+            ("client_side_cancel", RPCError("Timeout expired", RPCStatusCode.CANCELLED, b"")),
+            ("lost_connection", RPCError("operation was canceled", RPCStatusCode.CANCELLED, b"")),
+        ]
+    )
     @patch(f"{_PROCESSOR}.capture_exception")
     @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
     def test_transient_rpc_timeout_is_retried_and_recovers(
         self,
+        _case: str,
+        error: RPCError,
         mock_connect: AsyncMock,
         mock_capture: MagicMock,
     ) -> None:
@@ -653,14 +671,31 @@ class TestPostImportTrigger:
         # none of the server-side retry a `workflow.start_child_workflow` command would
         # have — a single transient timeout must not drop the trigger permanently.
         client = MagicMock()
-        client.start_workflow = AsyncMock(
-            side_effect=[RPCError("Timeout expired", RPCStatusCode.DEADLINE_EXCEEDED, b""), None]
-        )
+        client.start_workflow = AsyncMock(side_effect=[error, None])
         mock_connect.return_value = client
 
         _trigger_post_import_workflow(self._signal())
 
         assert client.start_workflow.call_count == 2
+        mock_capture.assert_not_called()
+
+    @patch(f"{_PROCESSOR}.capture_exception")
+    @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
+    def test_transient_connect_failure_is_retried_and_recovers(
+        self,
+        mock_connect: AsyncMock,
+        mock_capture: MagicMock,
+    ) -> None:
+        # async_connect() itself can fail transiently (e.g. a DNS blip reaching the Temporal
+        # frontend), raising the Rust bridge's untyped RuntimeError before any client exists —
+        # this must be retried like an RPCError, not drop the trigger on the first blip.
+        client = MagicMock()
+        client.start_workflow = AsyncMock(return_value=None)
+        mock_connect.side_effect = [RuntimeError("Failed client connect: Server connection error: ..."), client]
+
+        _trigger_post_import_workflow(self._signal())
+
+        assert mock_connect.call_count == 2
         mock_capture.assert_not_called()
 
     @patch(f"{_PROCESSOR}.capture_exception")

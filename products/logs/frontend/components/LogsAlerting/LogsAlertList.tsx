@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
-import { IconBell, IconEllipsis, IconPlus } from '@posthog/icons'
+import { IconBell, IconEllipsis } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
@@ -12,17 +11,13 @@ import {
     LemonTag,
 } from '@posthog/lemon-ui'
 
-import { pngHoggie } from 'lib/brand/hoggies'
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
 import type { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
-
-import { ProductKey } from '~/queries/schema/schema-general'
 
 import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
 import IconSlack from 'public/services/slack.png'
@@ -45,8 +40,6 @@ const DESTINATION_TAGS = [
     { type: NotificationDestinationTypeEnumApi.Webhook, label: 'Webhook', icon: IconWebhook },
     { type: NotificationDestinationTypeEnumApi.Teams, label: 'Teams', icon: IconMicrosoftTeams },
 ] as const
-
-const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 function formatThreshold(alert: LogsAlertConfigurationApi): string {
     const operator = alert.threshold_operator === LogsAlertConfigurationThresholdOperatorEnumApi.Below ? '<' : '>'
@@ -268,30 +261,6 @@ export function LogsAlertList(): JSX.Element {
             },
         },
     ]
-
-    if (alerts.length === 0 && !createdByFilter && !alertsLoading) {
-        return (
-            <ProductIntroduction
-                productName="Logs alerts"
-                productKey={ProductKey.ALERTS}
-                thingName="logs alert"
-                description="Logs alerts notify you when matching logs cross a threshold."
-                isEmpty
-                customHog={HedgehogMagnifyingGlass}
-                actionElementOverride={
-                    <LemonButton
-                        type="primary"
-                        icon={<IconPlus />}
-                        onClick={openCreateAlertModal}
-                        data-attr="logs-alerts-new"
-                    >
-                        Create alert
-                    </LemonButton>
-                }
-                docsURL="https://posthog.com/docs/logs/alerts"
-            />
-        )
-    }
 
     return (
         <div className="space-y-2">

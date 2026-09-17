@@ -212,7 +212,7 @@ class TestEvaluationFormatting:
             }
         }
         result = format_evaluation_text_repr(event)
-        assert "EVALUATION: Factual accuracy | Result: PASS | Reasoning: The response is factually correct." in result
+        assert "EVALUATION: Factual accuracy | Result: true | Reasoning: The response is factually correct." in result
 
     def test_evaluation_fail_with_reasoning(self):
         event = {
@@ -224,7 +224,8 @@ class TestEvaluationFormatting:
         }
         result = format_evaluation_text_repr(event)
         assert (
-            "EVALUATION: Relevance check | Result: FAIL | Reasoning: The response does not address the query." in result
+            "EVALUATION: Relevance check | Result: false | Reasoning: The response does not address the query."
+            in result
         )
 
     def test_evaluation_na(self):
@@ -246,7 +247,7 @@ class TestEvaluationFormatting:
             }
         }
         result = format_evaluation_text_repr(event)
-        assert "EVALUATION: Check | Result: PASS" in result
+        assert "EVALUATION: Check | Result: true" in result
 
     def test_evaluation_no_reasoning(self):
         event = {
@@ -256,7 +257,7 @@ class TestEvaluationFormatting:
             }
         }
         result = format_evaluation_text_repr(event)
-        assert "EVALUATION: Quick check | Result: PASS" in result
+        assert "EVALUATION: Quick check | Result: true" in result
         assert "Reasoning:" not in result
 
     def test_evaluation_missing_name(self):
@@ -266,7 +267,7 @@ class TestEvaluationFormatting:
             }
         }
         result = format_evaluation_text_repr(event)
-        assert "EVALUATION: Unknown evaluation | Result: FAIL" in result
+        assert "EVALUATION: Unknown evaluation | Result: false" in result
 
     def test_evaluation_hog_runtime(self):
         event = {
@@ -277,7 +278,7 @@ class TestEvaluationFormatting:
             }
         }
         result = format_evaluation_text_repr(event)
-        assert "EVALUATION: Length check | Result: PASS (hog)" in result
+        assert "EVALUATION: Length check | Result: true (hog)" in result
 
     def test_evaluation_llm_judge_runtime_with_model(self):
         event = {
@@ -290,7 +291,7 @@ class TestEvaluationFormatting:
             }
         }
         result = format_evaluation_text_repr(event)
-        assert "Result: FAIL (llm_judge/gpt-4)" in result
+        assert "Result: false (llm_judge/gpt-4)" in result
         assert "Reasoning: Claim contradicts source." in result
 
     def test_evaluation_llm_judge_runtime_without_model(self):
@@ -302,7 +303,7 @@ class TestEvaluationFormatting:
             }
         }
         result = format_evaluation_text_repr(event)
-        assert "Result: PASS (llm_judge)" in result
+        assert "Result: true (llm_judge)" in result
 
 
 class TestFormatEventTextReprFromAiEventsRow:

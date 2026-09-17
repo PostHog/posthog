@@ -9,14 +9,14 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 import type { Mocks } from '~/mocks/utils'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { LogMessage, LogSeverityLevel, NodeKind } from '~/queries/schema/schema-general'
 
 import { TEST_EVENTS } from '../../__mocks__/events'
 import { results as batchGetResults } from '../../__mocks__/stack_frames/batch_get'
 import { ExceptionTag } from '../../hooks/use-error-tag-renderer'
 import { StyleVariables } from '../StyleVariables'
 import { ExceptionCard } from './ExceptionCard'
-import { exceptionCardLogic } from './exceptionCardLogic'
+import { ExceptionCardTab, exceptionCardLogic } from './exceptionCardLogic'
 
 const meta: Meta = {
     title: 'ErrorTracking/ExceptionCard',
@@ -51,14 +51,14 @@ export function ExceptionCardBase(): JSX.Element {
     return (
         <div className="w-[1000px] h-[700px]">
             <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id', loading: false }}>
-                <OpenTimelineTab>
+                <OpenTab tab="timeline">
                     <ExceptionCard
                         issueId="issue-id"
                         issueName="Test Issue"
                         loading={false}
                         event={TEST_EVENTS['javascript_resolved'] as any}
                     />
-                </OpenTimelineTab>
+                </OpenTab>
             </BindLogic>
         </div>
     )
@@ -240,9 +240,9 @@ function ExceptionCardSessionTimelineStory({
     return (
         <div className={containerClassName}>
             <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id', loading: false }}>
-                <OpenTimelineTab>
+                <OpenTab tab="timeline">
                     <ExceptionCard issueId="issue-id" issueName="Test Issue" loading={false} event={event} />
-                </OpenTimelineTab>
+                </OpenTab>
             </BindLogic>
         </div>
     )
@@ -553,12 +553,20 @@ function buildSessionTimelineEvent(
     }
 }
 
-function OpenTimelineTab({ children, issueId = 'issue-id' }: { children: JSX.Element; issueId?: string }): JSX.Element {
+function OpenTab({
+    tab,
+    children,
+    issueId = 'issue-id',
+}: {
+    tab: ExceptionCardTab
+    children: JSX.Element
+    issueId?: string
+}): JSX.Element {
     const { setCurrentTab } = useActions(exceptionCardLogic({ issueId, loading: false }))
 
     useEffect(() => {
-        setCurrentTab('timeline')
-    }, [setCurrentTab])
+        setCurrentTab(tab)
+    }, [setCurrentTab, tab])
 
     return children
 }
@@ -652,23 +660,23 @@ export function ExceptionCardHeaderWidthsWithAction(): JSX.Element {
     return (
         <HeaderWidthMatrix widths={HEADER_WIDTHS.filter(({ width }) => width <= 576)}>
             {(width) => (
-                <OpenTimelineTab issueId={`header-action-${width}`}>
+                <OpenTab tab="timeline" issueId={`header-action-${width}`}>
                     <ExceptionCard
                         issueId={`header-action-${width}`}
                         issueName="Test Issue"
                         loading={false}
                         event={event}
                     />
-                </OpenTimelineTab>
+                </OpenTab>
             )}
         </HeaderWidthMatrix>
     )
 }
 ExceptionCardHeaderWidthsWithAction.parameters = headerActionParameters()
 
-// The action is a ViewLogsButton: feature-flagged, only rendered on the timeline/recording tabs, and
-// gated on the team's logs config. All three have to be satisfied or the right-hand cell renders empty
-// and the story stops testing the crowded case it exists for.
+// The action is a ViewLogsButton: feature-flagged, and only rendered on the timeline/recording tabs.
+// Both have to be satisfied or the right-hand cell renders empty and the story stops testing the
+// crowded case it exists for.
 function headerActionParameters(): Record<string, unknown> {
     const timeline = sessionTimelineParameters(asErrorEventType(TEST_EVENTS['javascript_resolved']))
     const timelineMocks = (timeline.msw as { mocks: Mocks }).mocks
@@ -689,3 +697,91 @@ function headerActionParameters(): Record<string, unknown> {
         },
     }
 }
+
+//////////////////// Logs tab
+
+const LOGS_STORY_SESSION_ID = 'session-with-logs'
+
+function buildStoryLogs(event: ErrorEventType): LogMessage[] {
+    const center = new Date(event.timestamp).getTime()
+    const at = (deltaMs: number): string => new Date(center + deltaMs).toISOString()
+
+    const lines: { offsetMs: number; level: LogSeverityLevel; body: string }[] = [
+        { offsetMs: -42000, level: 'info', body: 'GET /api/projects/7/dashboards 200 in 84ms' },
+        { offsetMs: -21000, level: 'info', body: 'Loaded dashboard config for project 7' },
+        { offsetMs: -4200, level: 'warn', body: 'Config request took 2841ms, above the 2000ms budget' },
+        { offsetMs: -900, level: 'error', body: 'GET /api/projects/7/config 502 Bad Gateway' },
+        { offsetMs: 0, level: 'error', body: 'Uncaught TypeError: cannot read properties of undefined' },
+        { offsetMs: 3100, level: 'info', body: 'Retrying config request (attempt 1 of 3)' },
+        { offsetMs: 9400, level: 'info', body: 'GET /api/projects/7/config 200 in 131ms' },
+    ]
+
+    return lines.map(({ offsetMs, level, body }, index) => ({
+        uuid: `story-log-${index}`,
+        trace_id: 'story-trace',
+        span_id: `story-span-${index}`,
+        resource_attributes: { 'service.name': 'posthog-web' },
+        attributes: { sessionId: LOGS_STORY_SESSION_ID },
+        body,
+        timestamp: at(offsetMs),
+        observed_timestamp: at(offsetMs),
+        severity_text: level,
+        severity_number: 13,
+        level,
+        instrumentation_scope: 'any',
+        event_name: 'any',
+    }))
+}
+
+function logsTabParameters(event: ErrorEventType): Record<string, unknown> {
+    const logs = buildStoryLogs(event)
+
+    return {
+        featureFlags: [FEATURE_FLAGS.LOGS_IN_ERROR_TRACKING],
+        msw: {
+            mocks: {
+                get: {
+                    'api/projects/:team_id/logs_config/': {
+                        logs_distinct_id_attribute_key: 'posthogDistinctId',
+                        logs_distinct_id_attribute_keys: ['posthogDistinctId'],
+                        logs_session_id_attribute_keys: ['sessionId'],
+                    },
+                },
+                post: {
+                    '/api/environments/:team_id/logs/query': { results: logs, maxExportableLogs: 5000 },
+                    '/api/environments/:team_id/logs/sparkline': logs.map((log) => ({
+                        count: 1,
+                        level: log.severity_text,
+                        time: log.timestamp,
+                    })),
+                    '/api/projects/:team_id/logs/facet_values': { results: [] },
+                    '/api/projects/:team_id/logs/services': { results: [], sparkline: [], totalServices: 0 },
+                },
+            },
+        },
+    }
+}
+
+function logsStory(
+    issueId: string,
+    sessionId: string | null
+): {
+    (): JSX.Element
+    parameters: Record<string, unknown>
+} {
+    const event = buildSessionTimelineEvent(undefined, { sessionId })
+
+    const story = (): JSX.Element => (
+        <div className="w-[1000px] h-[700px]">
+            <OpenTab tab="logs" issueId={issueId}>
+                <ExceptionCard issueId={issueId} issueName="Test Issue" loading={false} event={event} />
+            </OpenTab>
+        </div>
+    )
+    story.parameters = logsTabParameters(event)
+    return story
+}
+
+export const ExceptionCardLogs = logsStory('issue-id', LOGS_STORY_SESSION_ID)
+
+export const ExceptionCardLogsWithoutSession = logsStory('issue-no-session', null)

@@ -47,6 +47,7 @@ from posthog.settings.web import *
 from posthog.settings.web_bot_auth import *
 from posthog.settings.data_warehouse import *
 from posthog.settings.managed_migrations import *
+from posthog.settings.nextgensquash import *
 from posthog.settings.session_replay import *
 from posthog.settings.session_replay_v2 import *
 from posthog.settings.signals import *
@@ -147,8 +148,6 @@ OTEL_SERVICE_NAME: str | None = os.getenv("OTEL_SERVICE_NAME", None)
 PROM_PUSHGATEWAY_ADDRESS: str | None = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
 
 HOGQL_INCREASED_MAX_EXECUTION_TIME: int = get_from_env("HOGQL_INCREASED_MAX_EXECUTION_TIME", 600, type_cast=int)
-
-QUERY_COALESCING_MAX_WAIT_SECONDS: int = get_from_env("QUERY_COALESCING_MAX_WAIT_SECONDS", 300, type_cast=int)
 
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:

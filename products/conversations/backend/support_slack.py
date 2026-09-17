@@ -58,12 +58,18 @@ def get_support_slack_workspace_id(team: "Team") -> str | None:
     return config.slack_team_id or None
 
 
-def team_exists_for_slack_workspace(slack_team_id: str) -> bool:
-    """Whether any team has SupportHog connected to this Slack workspace.
+def team_for_slack_workspace(slack_team_id: str) -> "Team | None":
+    """Return the team that owns this Slack workspace, if SupportHog is connected."""
+    config = (
+        TeamConversationsSlackConfig.objects.filter(slack_team_id=slack_team_id, slack_bot_token__isnull=False)
+        .select_related("team")
+        .first()
+    )
+    return config.team if config else None
 
-    Used by the webhook endpoints for region routing — the Celery task re-resolves
-    the full config, so only existence matters here.
-    """
+
+def team_exists_for_slack_workspace(slack_team_id: str) -> bool:
+    """Whether any team has SupportHog connected to this Slack workspace."""
     return TeamConversationsSlackConfig.objects.filter(
         slack_team_id=slack_team_id, slack_bot_token__isnull=False
     ).exists()

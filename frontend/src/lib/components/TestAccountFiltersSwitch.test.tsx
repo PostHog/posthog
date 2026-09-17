@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -26,6 +27,21 @@ describe('TestAccountFilterSwitch', () => {
             // The router prepends a `/project/<id>` prefix to the href, so match the suffix.
             const gear = screen.getByRole('link')
             expect(gear.getAttribute('href')).toMatch(/\/settings\/environment-customization#internal-user-filtering$/)
+        })
+
+        it('calls onConfigure instead of navigating, and leaves the switch alone', async () => {
+            const onConfigure = jest.fn()
+            const onChange = jest.fn()
+            render(<TestAccountFilterSwitch checked={false} onChange={onChange} onConfigure={onConfigure} />)
+
+            // No link at all: callers that hold unsaved state must not be navigated away from it.
+            expect(screen.queryByRole('link')).not.toBeInTheDocument()
+
+            await userEvent.click(screen.getByRole('button'))
+
+            expect(onConfigure).toHaveBeenCalledTimes(1)
+            // Opening settings must never double as flipping the filter.
+            expect(onChange).not.toHaveBeenCalled()
         })
     })
 

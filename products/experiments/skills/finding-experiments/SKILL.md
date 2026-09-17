@@ -22,7 +22,11 @@ experiment matching the user's reference:
 - **By name**: scan the `name` field for matches
 - **By recency**: results are ordered newest first by default
 - **By status**: match the `status` field (draft, running, paused, exposure_frozen, stopped)
-- **By flag key**: match the `feature_flag_key` field
+- **By flag key**: skip the list and call `experiment-get-by-flag-key` with the key. It returns the
+  full experiment, or `found: false` with a `reason`. `no_flag` and `no_experiment` mean the key is
+  free, so this is also the existence check to run before `experiment-create`. `ambiguous` means
+  several experiments share the flag and none is the single live one: show the `candidates` and
+  pick one with `experiment-get` rather than creating another.
 
 ## After finding matches
 

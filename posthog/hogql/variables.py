@@ -1,6 +1,6 @@
 import re
 from difflib import get_close_matches
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from posthog.schema import HogQLVariable
 
@@ -33,54 +33,53 @@ class ReplaceVariables(CloningVisitor):
         self.team = team
 
     def visit_placeholder(self, node):
-        if node.chain and node.chain[0] == "variables":
-            variable_code_name = node.chain[1]
-            if not self.variables:
-                raise self._missing_variable_error(variable_code_name)
+        if not (node.chain and node.chain[0] == "variables"):
+            return super().visit_placeholder(node)
+        return self._resolve_variable(node.chain[1])
 
-            matching_variables = [variable for variable in self.variables if variable.code_name == variable_code_name]
-            if not matching_variables:
-                raise self._missing_variable_error(variable_code_name)
+    def _resolve_variable(self, variable_code_name: str) -> ast.Expr:
+        if not self.variables:
+            raise self._missing_variable_error(variable_code_name)
 
-            matching_variable = matching_variables[0]
+        matching_variables = [variable for variable in self.variables if variable.code_name == variable_code_name]
+        if not matching_variables:
+            raise self._missing_variable_error(variable_code_name)
 
-            matching_insight_variable = [
-                variable for variable in self.insight_variables if variable.code_name == variable_code_name
-            ]
-            if not matching_insight_variable:
-                raise QueryError(f"Variable {variable_code_name} does not exist")
+        matching_variable = matching_variables[0]
 
-            variable_definition = matching_insight_variable[0]
-            if matching_variable.isNull:
-                if variable_definition.type == InsightVariableType.LIST and variable_definition.is_multi:
-                    return ast.Array(exprs=[])
-                return ast.Constant(value=None)
+        matching_insight_variable = [
+            variable for variable in self.insight_variables if variable.code_name == variable_code_name
+        ]
+        if not matching_insight_variable:
+            raise QueryError(f"Variable {variable_code_name} does not exist")
 
-            value = (
-                matching_variable.value
-                if matching_variable.value is not None
-                else matching_insight_variable[0].default_value
-            )
+        variable_definition = matching_insight_variable[0]
+        if matching_variable.isNull:
+            if variable_definition.type == InsightVariableType.LIST and variable_definition.is_multi:
+                return ast.Array(exprs=[])
+            return ast.Constant(value=None)
 
-            if variable_definition.type == InsightVariableType.LIST:
-                if variable_definition.is_multi:
-                    # Saved insights keep the scalar value from before a variable was
-                    # toggled to multi — wrap it so {variables.x} is always an array.
-                    items = value if isinstance(value, list) else ([] if value is None else [value])
-                    return ast.Array(exprs=[ast.Constant(value=item) for item in items])
-                if not variable_definition.is_multi and isinstance(value, list):
-                    value = value[0] if value else None
+        value = matching_variable.value if matching_variable.value is not None else variable_definition.default_value
+        return self._coerce_value(variable_definition, value)
 
-            if (
-                variable_definition.type == InsightVariableType.DATE
-                and isinstance(value, str)
-                and is_relative_date_value(value)
-            ):
-                value = relative_date_parse(value, self.team.timezone_info)
+    def _coerce_value(self, variable_definition: InsightVariableDefinition, value: Any) -> ast.Expr:
+        if variable_definition.type == InsightVariableType.LIST:
+            if variable_definition.is_multi:
+                # Saved insights keep the scalar value from before a variable was
+                # toggled to multi — wrap it so {variables.x} is always an array.
+                items = value if isinstance(value, list) else ([] if value is None else [value])
+                return ast.Array(exprs=[ast.Constant(value=item) for item in items])
+            if isinstance(value, list):
+                value = value[0] if value else None
 
-            return ast.Constant(value=value)
+        if (
+            variable_definition.type == InsightVariableType.DATE
+            and isinstance(value, str)
+            and is_relative_date_value(value)
+        ):
+            value = relative_date_parse(value, self.team.timezone_info)
 
-        return super().visit_placeholder(node)
+        return ast.Constant(value=value)
 
     def _missing_variable_error(self, variable_code_name: str) -> QueryError:
         suggestions = self._get_variable_suggestions(variable_code_name)

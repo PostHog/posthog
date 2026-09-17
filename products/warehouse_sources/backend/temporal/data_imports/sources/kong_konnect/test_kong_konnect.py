@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -52,7 +52,7 @@ class TestBuildBody:
 
 
 class TestResolveWindow:
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_incremental_starts_at_watermark(self) -> None:
         start, end = _resolve_window(
             should_use_incremental_field=True,
@@ -62,7 +62,7 @@ class TestResolveWindow:
         assert start == "2026-06-10T08:00:00Z"
         assert end == "2026-06-15T12:00:00Z"
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_full_refresh_walks_back_lookback_days(self) -> None:
         start, end = _resolve_window(
             should_use_incremental_field=False,
@@ -72,7 +72,7 @@ class TestResolveWindow:
         assert start == "2026-06-08T12:00:00Z"
         assert end == "2026-06-15T12:00:00Z"
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_watermark_clamped_to_now(self) -> None:
         # A future-dated cursor would otherwise produce start > end, wedging every later sync.
         start, _ = _resolve_window(
@@ -90,7 +90,7 @@ class TestClampFutureValue:
             ("future_datetime_clamped", datetime(2027, 1, 1, tzinfo=UTC), True),
         ]
     )
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_clamp(self, _name: str, value: datetime, should_clamp: bool) -> None:
         result = _clamp_future_value_to_now(value)
         if should_clamp:
@@ -146,7 +146,7 @@ class TestGetRowsPagination:
         saved = manager.save_state.call_args.args[0]
         assert saved.offset == MAX_PAGE_SIZE
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     @patch.object(kong_konnect, "make_tracked_session")
     @patch.object(kong_konnect, "_fetch_page")
     def test_resume_reuses_saved_window_not_recomputed(self, mock_fetch: MagicMock, _mock_session: MagicMock) -> None:

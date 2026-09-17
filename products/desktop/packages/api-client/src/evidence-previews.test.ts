@@ -303,7 +303,6 @@ describe("evidence preview shaping", () => {
       title: "Configuration",
       fields: expect.arrayContaining([
         { label: "Type", value: "Multivariate" },
-        { label: "Release conditions", value: "1 condition" },
       ]),
     });
   });
@@ -330,15 +329,19 @@ describe("evidence preview shaping", () => {
       },
     } as unknown as Schemas.FeatureFlag);
 
-    expect(preview.sections).toContainEqual({
-      title: "Release conditions",
-      fields: [
-        {
-          label: "Set 1",
-          value: "plan exact pro · 25% rollout · Variant: test",
-        },
-      ],
-    });
+    expect(preview.flagAudience?.rules).toEqual([
+      expect.objectContaining({
+        conditions: [
+          {
+            subject: "plan",
+            operator: "is",
+            values: [{ label: "pro" }],
+          },
+        ],
+        share: 25,
+        result: { kind: "variant", key: "test" },
+      }),
+    ]);
   });
 
   it("shows a disabled flag without a name as just the state", () => {
@@ -405,7 +408,7 @@ describe("evidence preview shaping", () => {
       name: "TypeError in CouponValidator",
       status: "pending_release",
       first_seen: "2024-01-03T10:00:00Z",
-    } as Schemas.ErrorTrackingIssueFull);
+    } as Schemas.ErrorTrackingIssueRead);
     expect(preview.detail).toMatch(/^First seen Jan 3/);
     expect(preview.status).toEqual({
       label: "Pending release",
@@ -608,37 +611,41 @@ describe("evidence preview shaping", () => {
     ]);
   });
 
-  it("renders negated criteria as their negative meaning", () => {
-    const sections = cohortCriteriaSection({
-      properties: {
-        type: "AND",
-        values: [
-          {
-            type: "AND",
-            values: [
-              {
-                type: "behavioral",
-                value: "performed_event",
-                key: "checkout",
-                negation: true,
-              },
-              {
-                type: "cohort",
-                value: "Power users",
-                negation: true,
-              },
-              {
-                type: "person",
-                key: "email",
-                operator: "icontains",
-                value: "@example.com",
-                negation: true,
-              },
-            ],
-          },
-        ],
+  it("renders negated criteria and resolved cohort names", () => {
+    const sections = cohortCriteriaSection(
+      {
+        properties: {
+          type: "AND",
+          values: [
+            {
+              type: "AND",
+              values: [
+                {
+                  type: "behavioral",
+                  value: "performed_event",
+                  key: "checkout",
+                  negation: true,
+                },
+                {
+                  type: "cohort",
+                  value: 42,
+                  negation: true,
+                },
+                { type: "cohort", value: 77 },
+                {
+                  type: "person",
+                  key: "email",
+                  operator: "icontains",
+                  value: "@example.com",
+                  negation: true,
+                },
+              ],
+            },
+          ],
+        },
       },
-    });
+      new Map([["42", "Power users"]]),
+    );
     expect(sections).toEqual([
       {
         title: "Membership criteria",
@@ -646,7 +653,7 @@ describe("evidence preview shaping", () => {
           {
             label: "Criteria",
             value:
-              "Did not complete checkout and Is not in cohort Power users and email does not contain @example.com",
+              "Did not complete checkout and Is not in cohort Power users and Is in cohort 77 and email does not contain @example.com",
           },
         ],
       },
@@ -899,7 +906,17 @@ describe("evidence preview shaping", () => {
         detail: "Enabled · Old rollout",
         facts: ["100% rollout"],
       },
-      { status: "stale", reason: "Rolled out to 100% for at least 30 days" },
+      {
+        status: "stale",
+        reason: "Rolled out to 100% for at least 30 days",
+        reason_states_rollout: false,
+        rollout: {
+          effectively_full_rollout: true,
+          has_targeting_conditions: false,
+          max_rollout_percentage: 100,
+          is_multivariate: false,
+        },
+      },
       [
         ["2024-01-01", 900000],
         ["2024-01-02", 1200000],
@@ -967,6 +984,37 @@ describe("evidence preview shaping", () => {
     ]);
   });
 
+  it("describes who sees a running survey from its targeting flag and display conditions", () => {
+    const preview = shapeSurveyPreview({
+      id: "srv-12",
+      name: "Checkout survey",
+      start_date: "2026-08-01T00:00:00Z",
+      targeting_flag: {
+        key: "survey-targeting-checkout",
+        filters: {
+          groups: [
+            {
+              properties: [{ key: "plan", operator: "exact", value: "pro" }],
+              rollout_percentage: 25,
+            },
+          ],
+        },
+      },
+      conditions: { url: "/checkout", urlMatchType: "icontains" },
+    } as unknown as Schemas.Survey);
+
+    expect(preview.flagAudience?.headline).toBe(
+      "Shown to 25% of people matching one condition.",
+    );
+    expect(preview.displayConditions).toEqual([
+      {
+        subject: "URL",
+        operator: "contains",
+        values: [{ label: "/checkout" }],
+      },
+    ]);
+  });
+
   it("describes a survey that has not started as a draft", () => {
     const preview = shapeSurveyPreview({
       id: "srv-11",
@@ -975,6 +1023,7 @@ describe("evidence preview shaping", () => {
     expect(preview).toMatchObject({
       title: "Checkout survey",
       status: { label: "Draft", tone: "neutral" },
+      flagAudience: { headline: "Not shown to anyone." },
     });
   });
 });

@@ -21,6 +21,7 @@
  *     and `taxonomicFilterPinnedPropertiesLogic`; the orchestrator only reads
  *     them via the bridge, doesn't write)
  */
+import { useValues } from 'kea'
 import { useCallback, useMemo, useRef, useState } from 'react'
 
 import {
@@ -44,6 +45,8 @@ import {
 import { isQuickFilterItem } from 'lib/components/TaxonomicFilter/types'
 import { buildTaxonomicGroups } from 'lib/components/TaxonomicFilter/utils/buildTaxonomicGroups'
 import { isContainsShortcutItem } from 'lib/components/TaxonomicFilter/utils/collapsedContainsRow'
+import { withHiddenEventsExcluded } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -76,6 +79,8 @@ export interface UseTaxonomicFilterOptions {
     metadataSource?: AnyDataNode
     suggestedFiltersLabel?: string
     excludedProperties?: ExcludedProperties
+    /** Keep offering events whose data is moving out of the `events` table. See `TaxonomicFilterProps`. */
+    includeHiddenEvents?: boolean
     selectedProperties?: SelectedProperties
     propertyAllowList?: AllowedProperties
     maxContextOptions?: MaxContextTaxonomicFilterOption[]
@@ -278,7 +283,8 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         schemaColumnsLoading,
         metadataSource,
         suggestedFiltersLabel,
-        excludedProperties,
+        excludedProperties: callerExcludedProperties,
+        includeHiddenEvents,
         selectedProperties,
         propertyAllowList,
         maxContextOptions,
@@ -297,6 +303,14 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         excludedOperators,
     } = opts
 
+    const { featureFlags } = useValues(featureFlagLogic)
+    // Every surface below reads exclusions from this one record: the group builder, the Recent and
+    // Pinned tabs, and the menu's shortcut rows. Folding the hidden names in here reaches all of them.
+    const excludedProperties = useMemo(
+        () => withHiddenEventsExcluded(callerExcludedProperties, featureFlags, includeHiddenEvents),
+        [callerExcludedProperties, featureFlags, includeHiddenEvents]
+    )
+
     const ctx = useTaxonomicGroupsContext({
         eventNames,
         taxonomicGroupTypes,
@@ -305,6 +319,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         metadataSource,
         suggestedFiltersLabel,
         excludedProperties,
+        includeHiddenEvents,
         propertyAllowList,
         selectedProperties,
         maxContextOptions,

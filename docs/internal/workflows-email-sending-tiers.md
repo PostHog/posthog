@@ -41,6 +41,9 @@ In order: staff suspension or an AWS-paused tenant drops to tier 0; a dirty 7-da
 Rates only count on a meaningful denominator; below the complaint floor, the absolute complaint backstop still applies, including in windows with no sends.
 Pinned teams never move automatically.
 
+While the tier is enforced, the sweep notifies teams it moved: a rate demotion sends an in-app notification plus an email to project admins, and an earned promotion sends an in-app notification only.
+Decay, suspension drops, admin recomputes, and the backfill stay silent.
+
 ## Rollout order
 
 1. Merge and deploy with both modes `off`. The daily sweep starts computing and storing tiers immediately.
@@ -55,5 +58,11 @@ Pinned teams never move automatically.
 - The batch audience cap is decided when the batch is dispatched. Adding an email step to the workflow while a batch is queued does not re-cap it; the send-time buckets still cap every email at execution. This is why enforcement requires the worker caps to be deployed (see the rollout order).
 - Test-panel sends bypass the team buckets on purpose, matching the per-workflow rate limit.
 - The buckets are token buckets: a full idle bucket plus refill allows up to roughly twice the stated cap in the very first period. The bucket TTLs exceed the refill periods so this does not recur from idling.
+- A denied send parks until every short bucket has refilled enough to cover it, instead of retrying on a fixed few-minute cadence.
+  The computed wait is capped at one hour and then jittered 1x to 2x, so a parked send can wait just under two hours between attempts.
+  The wait reserves nothing: a competing send can take the tokens first, and the send parks again.
+  Capacity that arrives early is only noticed when the send wakes.
+  After a manual tier raise, a capped team's backlog can sit still for up to two hours.
+  A send denied because the limiter itself failed keeps the shorter token bucket cadence, at most 5 to 10 minutes.
 - Gmail provides no per-message feedback loop, so complaint rates (ours and AWS's) cannot see Gmail complaints at all.
 - The `HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS` allowlist elevates a team to the top tier in Django only: the UI, the admin, and the batch audience cap show top-tier numbers, but the worker's send-time buckets read the stored tier. An allowlisted team below the top tier is therefore throttled at its stored tier while being told otherwise, and its shadow-mode delay counts overstate real impact. Before enforcing, pin each allowlisted team at the top tier from the Django admin and empty the allowlist, rather than plumbing the list into the worker.

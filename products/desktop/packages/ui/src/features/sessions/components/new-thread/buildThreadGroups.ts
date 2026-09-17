@@ -111,7 +111,12 @@ function subagentCount(item: ConversationItem): number {
 function isMcpToolItem(item: ConversationItem): boolean {
   if (item.type !== "session_update") return false;
   if (item.update.sessionUpdate !== "tool_call") return false;
-  return readMcpToolDescriptor(item.update._meta) !== undefined;
+  const resolved = item.update.toolCallId
+    ? item.turnContext.toolCalls.get(item.update.toolCallId)
+    : undefined;
+  return (
+    readMcpToolDescriptor(resolved?._meta ?? item.update._meta) !== undefined
+  );
 }
 
 function isAlwaysVisibleItem(item: ConversationItem): boolean {

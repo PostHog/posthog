@@ -10,6 +10,7 @@ from posthog.schema import (
     DateRange,
     HogQLFilters,
     HogQLQuery,
+    HogQLQueryModifiers,
     HogQLQueryResponse,
     QueryStatusResponse,
 )
@@ -47,6 +48,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     query: HogQLQuery
     cached_response: CachedHogQLQueryResponse
     settings: Optional[HogQLGlobalSettings]
+    # p95 duration of a query service HogQL query is 2.78sec
+    QUERY_SERVICE_MAX_EXECUTION_TIME = 10
 
     def __init__(
         self,
@@ -56,6 +59,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     ):
         self.settings = settings or HogQLGlobalSettings()
         self._direct_connection_validated = False
+        self._direct_engine: str | None = None
         self._managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
         super().__init__(*args, **kwargs)
 
@@ -69,6 +73,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if self._direct_connection_validated and not force:
             return
         managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
+        direct_engine: str | None = None
         if self.query.connectionId:
             source = get_direct_connection_source(
                 self.team,
@@ -77,11 +82,13 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             )
             if source is None:
                 raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
+            direct_engine = source.direct_engine
             if source.has_managed_warehouse_prefix:
                 managed_warehouse_sql_mode = source.managed_warehouse_sql_mode
                 if managed_warehouse_sql_mode == ManagedWarehouseSQLMode.UNAVAILABLE:
                     raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
         self._managed_warehouse_sql_mode = managed_warehouse_sql_mode
+        self._direct_engine = direct_engine
         self._direct_connection_validated = True
 
     def get_cache_payload(self) -> dict:
@@ -176,7 +183,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         except Exception:
             return set()
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+    def _parse_query(self) -> tuple[ast.SelectQuery | ast.SelectSetQuery, Optional[dict[str, ast.Expr]]]:
         values: Optional[dict[str, ast.Expr]] = (
             {key: ast.Constant(value=value) for key, value in self.query.values.items()} if self.query.values else None
         )
@@ -187,6 +194,10 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 placeholders=values,
                 cache_origin=CacheOrigin.USER,
             )
+        return parsed_select, values
+
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        parsed_select, values = self._parse_query()
 
         finder = find_placeholders(parsed_select)
         with self.timings.measure("filters"):
@@ -213,18 +224,29 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self.to_query()
 
-    def _calculate(self) -> HogQLQueryResponse:
-        tag_contains_user_hogql()
-        if (
+    def single_flight_variant(self) -> str:
+        # The query service cap and custom settings change the execution time without reaching the cache key.
+        max_execution_time: Optional[int] = (
+            self.QUERY_SERVICE_MAX_EXECUTION_TIME
+            if self._capped_for_query_service()
+            else (self.settings.max_execution_time if self.settings else None)
+        )
+        return f"{super().single_flight_variant()}:max_execution_time={max_execution_time}"
+
+    def _capped_for_query_service(self) -> bool:
+        return bool(
             self.is_query_service
             and app_settings.API_QUERIES_LEGACY_TEAM_LIST
             and self.team.pk not in app_settings.API_QUERIES_LEGACY_TEAM_LIST
-        ):
+        )
+
+    def _calculate(self) -> HogQLQueryResponse:
+        tag_contains_user_hogql()
+        if self._capped_for_query_service():
             assert self.settings is not None
             # p95 threads is 102, limiting to 60 (below global max_threads of 64)
             self.settings.max_threads = 60
-            # p95 duration of HogQL query is 2.78sec
-            self.settings.max_execution_time = 10
+            self.settings.max_execution_time = self.QUERY_SERVICE_MAX_EXECUTION_TIME
 
         self._validate_direct_connection()
 
@@ -247,7 +269,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 send_raw_query=True,
             )
 
-        query = self.to_query()
+        query = self._parse_query()[0] if self._direct_engine == "trino" else self.to_query()
 
         if self.is_query_service:
             validate_user_query(query, team=self.team)
@@ -265,14 +287,17 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             # With a connection id the executor builds its own connection-scoped database,
             # so the shared one would be built for nothing.
             context_kwargs["context"] = self.build_hogql_context()
+        # Non-direct queries must print with the same effective modifiers that built the shared database.
+        execution_modifiers: Optional[HogQLQueryModifiers] = self.modifiers
+        if self._direct_engine == "trino":
+            # Pure compilation validates only the modifiers the caller supplied. Team defaults
+            # contain Django-only settings and must not make an otherwise pure query fail.
+            execution_modifiers = self.query.modifiers
         response = func(
             query_type="HogQLQuery",
             query=query,
             filters=self.query.filters,
-            # Print with the same modifiers the shared database was built from (self.modifiers).
-            # The shared database uses self.modifiers, so passing self.query.modifiers here would let
-            # a caller that sets both build the schema from one modifier set and print SQL for another.
-            modifiers=self.modifiers,
+            modifiers=execution_modifiers,
             team=self.team,
             user=self.user,
             user_access_control=self.user_access_control,

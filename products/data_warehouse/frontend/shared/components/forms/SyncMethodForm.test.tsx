@@ -1,7 +1,7 @@
 import { ExternalDataSourceSyncSchema } from '~/types'
 
 import { SyncTypeLabelMap } from '../../../utils'
-import { shouldOfferXmin } from './SyncMethodForm'
+import { getInitialRadioState, getSaveDisabledReason, shouldOfferXmin } from './SyncMethodForm'
 
 const baseSchema: ExternalDataSourceSyncSchema = {
     table: 'orders',
@@ -32,5 +32,20 @@ describe('SyncMethodForm', () => {
 
     it('exposes a label for the xmin sync type', () => {
         expect(SyncTypeLabelMap.xmin).toBe('xmin')
+    })
+
+    it.each([
+        ['no key, key required', null, true, 'Select primary key columns, or use full table replication instead'],
+        ['no key, source declares its own key', null, false, undefined],
+        ['key picked, key required', ['id'], true, undefined],
+    ])('requires a merge key for incremental: %s', (_, mergeKey, keyRequired, expected) => {
+        expect(getSaveDisabledReason('incremental', 'updated_at', null, mergeKey, keyRequired)).toBe(expected)
+    })
+
+    it.each([
+        ['key resolvable', true, 'incremental'],
+        ['keyless with columns known', false, 'append'],
+    ])('preselects incremental only when the key resolves: %s', (_, keyResolvable, expected) => {
+        expect(getInitialRadioState({ ...baseSchema, xmin_available: false }, true, true, keyResolvable)).toBe(expected)
     })
 })

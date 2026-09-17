@@ -16,14 +16,14 @@ function nextId(): string {
 }
 
 export function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
+    const id = overrides.id ?? nextId()
     return {
-        id: nextId(),
+        id,
         title: 'Untitled report',
         summary: null,
         status: SignalReportStatus.READY,
         total_weight: 1.0,
         signal_count: 1,
-        relevant_user_count: null,
         created_at: BASE_DATE,
         updated_at: BASE_DATE,
         artefact_count: 0,
@@ -33,6 +33,27 @@ export function makeReport(overrides: Partial<SignalReport> = {}): SignalReport 
         already_addressed: null,
         source_products: [],
         implementation_pr_url: null,
+        assignee: null,
+        pull_requests: overrides.implementation_pr_url
+            ? [
+                  {
+                      id: nextId(),
+                      url: overrides.implementation_pr_url,
+                      state:
+                          overrides.implementation_pr_state ??
+                          (overrides.implementation_pr_merged ? 'merged' : 'unknown'),
+                      merged: overrides.implementation_pr_merged ?? false,
+                      claim_id: null,
+                      attached_at: BASE_DATE,
+                      attached_by: {
+                          kind: 'task',
+                          user: null,
+                          agent: null,
+                          task_id: `${id}-task-impl`,
+                      },
+                  },
+              ]
+            : [],
         ...overrides,
     }
 }
@@ -49,7 +70,6 @@ export const reportTabReports: SignalReport[] = [
         actionability: 'immediately_actionable',
         total_weight: 3.4,
         signal_count: 12,
-        relevant_user_count: 47,
         source_products: ['error_tracking'],
         is_suggested_reviewer: true,
     }),
@@ -62,7 +82,6 @@ export const reportTabReports: SignalReport[] = [
         actionability: 'immediately_actionable',
         total_weight: 5.8,
         signal_count: 31,
-        relevant_user_count: 118,
         source_products: ['error_tracking', 'session_replay'],
     }),
     makeReport({
@@ -74,7 +93,6 @@ export const reportTabReports: SignalReport[] = [
         actionability: 'requires_human_input',
         total_weight: 2.1,
         signal_count: 8,
-        relevant_user_count: 23,
         source_products: ['session_replay'],
         is_suggested_reviewer: true,
     }),
@@ -87,7 +105,6 @@ export const reportTabReports: SignalReport[] = [
         actionability: 'requires_human_input',
         total_weight: 1.6,
         signal_count: 5,
-        relevant_user_count: 210,
         source_products: ['session_replay', 'llm_analytics'],
     }),
     makeReport({
@@ -99,7 +116,6 @@ export const reportTabReports: SignalReport[] = [
         actionability: null,
         total_weight: 0.9,
         signal_count: 3,
-        relevant_user_count: 14,
         source_products: ['session_replay'],
     }),
     makeReport({
@@ -110,7 +126,6 @@ export const reportTabReports: SignalReport[] = [
         actionability: 'not_actionable',
         total_weight: 1.2,
         signal_count: 6,
-        relevant_user_count: 9,
         source_products: ['zendesk'],
     }),
 ]
@@ -128,6 +143,7 @@ export const pullRequestReports: SignalReport[] = [
         signal_count: 12,
         source_products: ['error_tracking'],
         implementation_pr_url: 'https://github.com/PostHog/posthog/pull/12001',
+        implementation_pr_state: 'draft',
         is_suggested_reviewer: true,
     }),
     makeReport({
@@ -140,6 +156,7 @@ export const pullRequestReports: SignalReport[] = [
         signal_count: 31,
         source_products: ['error_tracking'],
         implementation_pr_url: 'https://github.com/PostHog/posthog/pull/12002',
+        implementation_pr_state: 'open',
     }),
     makeReport({
         title: 'perf(dashboards): paginate cohort filter resolution',
@@ -218,6 +235,7 @@ const finishedRuns: SignalReport[] = [
         signal_count: 12,
         source_products: ['error_tracking'],
         implementation_pr_url: 'https://github.com/PostHog/posthog/pull/12001',
+        implementation_pr_state: 'draft',
     }),
     makeReport({
         title: 'Investigate webhook delivery failures',

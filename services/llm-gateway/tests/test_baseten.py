@@ -58,7 +58,7 @@ def test_inject_baseten_params_maps_model_and_pins_api_key(
     assert MODEL_COST_OVERRIDES[metric_model]["input_cost_per_token"] == input_cost
     assert MODEL_COST_OVERRIDES[metric_model]["cache_read_input_token_cost"] == cache_read_cost
     assert MODEL_COST_OVERRIDES[metric_model]["output_cost_per_token"] == output_cost
-    assert normalize_metric_labels(litellm_model, "openai") == ("baseten", metric_model)
+    assert normalize_metric_labels(litellm_model, "openai") == ("baseten", public_model)
 
 
 @pytest.mark.parametrize("public_model", sorted(BASETEN_MODELS))
@@ -67,8 +67,9 @@ def test_every_baseten_model_is_priced_and_labeled(public_model: str) -> None:
     # billing nothing: the usage reporter drops any generation whose $ai_total_cost_usd is 0.
     litellm_key = f"openai/{BASETEN_MODELS[public_model]}"
     assert litellm_key in COST_ALIASES or litellm_key in MODEL_COST_OVERRIDES
-    provider, _ = ALIAS_METRIC_LABELS[litellm_key]
+    provider, metric_model = ALIAS_METRIC_LABELS[litellm_key]
     assert provider == "baseten"
+    assert metric_model == public_model
 
 
 def test_inject_baseten_params_forces_streaming_usage() -> None:

@@ -234,4 +234,31 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "Timestamp when the audit was last updated.",
         },
     },
+    "activity": {
+        "description": "Activity log entries in BlueTally: the create, update, delete, check-in, check-out, schedule, complete and recover events recorded against assets, accessories, components, consumables, licenses, maintenances and audits.",
+        "docs_url": f"{_DOCS}/list-activity",
+        "columns": {
+            "timestamp": "Timestamp when the logged action happened.",
+            "user_id": "ID of the user who performed the action.",
+            "user_name": "Name of the user who performed the action.",
+            "user_email": "Email address of the user who performed the action.",
+            "type": "Type of item the entry refers to, such as Asset, Accessory, Component, Consumable, License, Maintenance or Audit.",
+            "event": "Action that was recorded, such as Create, Update, Delete, Checkin, Checkout, Complete, Schedule or Recover.",
+            "item_id": "ID of the item the action was performed on.",
+            "item_name": "Name of the item the action was performed on.",
+            "checked_out_to_from_type": "Type of the party the item was checked out to or in from, such as Employee or Location.",
+            "checked_out_to_from_id": "ID of the party the item was checked out to or in from.",
+            "checked_out_to_from_name": "Name of the party the item was checked out to or in from.",
+            "checked_out_to_from_email": "Email address of the party the item was checked out to or in from.",
+            "notes": "Description of what changed, or the note left on the action.",
+        },
+    },
+    "tenants": {
+        "description": "Tenants the API key can act on. Only populated for BlueTally accounts with multi-tenancy enabled; the tenant ID scopes every other table.",
+        "docs_url": f"{_DOCS}/list-tenants-for-multi-tenant-users",
+        "columns": {
+            "tenant_id": "Unique identifier for the tenant.",
+            "tenant_name": "Name of the tenant.",
+        },
+    },
 }

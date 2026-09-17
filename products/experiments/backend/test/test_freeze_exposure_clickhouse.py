@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
@@ -143,7 +143,7 @@ class TestFreezeExposureClickhouse(ClickhouseTestMixin, APIBaseTest):
             ("before_cutoff", True, -7, "$feature_flag_called"),
         ]
     )
-    @freeze_time(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10))
+    @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10), tick=False)
     def test_fetch_exposed_person_uuids_reads_the_resolved_exposure_event(
         self, _name: str, flag_enabled: bool, start_offset_days: int, expected_event: str
     ) -> None:

@@ -8,6 +8,8 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuItem,
     DropdownMenuItemIndicator,
     DropdownMenuLabel,
     DropdownMenuRadioGroup,
@@ -35,6 +37,8 @@ export interface AgentPromptAction {
     buildPrompt: () => string
 }
 
+export type AgentPromptDestination = 'posthog-ai' | 'posthog-code' | 'claude-code' | 'cursor' | 'codex' | 'clipboard'
+
 /** Quill button sizes, minus the icon-only variants (the dropdown trigger derives those automatically). */
 type AgentPromptButtonSize = Exclude<NonNullable<QuillButtonProps['size']>, 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg'>
 
@@ -51,7 +55,9 @@ export interface AgentPromptButtonProps {
     /** Content selected when nothing is stored yet. Falls back to the first action. */
     defaultActionKey?: string
     /** Destination selected when nothing is stored yet. Falls back to the first agent. */
-    defaultAgentKey?: string
+    defaultAgentKey?: AgentPromptDestination
+    agentKeys?: AgentPromptDestination[]
+    agentSelectionMode?: 'select' | 'run'
     size?: AgentPromptButtonSize
     variant?: NonNullable<QuillButtonProps['variant']>
     /** Renders the dropdown open on first paint. Useful for visual regression snapshots. */
@@ -69,7 +75,7 @@ interface RememberedCombo {
 }
 
 interface AgentDef {
-    key: string
+    key: AgentPromptDestination
     name: string
     /** Either a brand SVG URL (string from `import foo from './logos/foo.svg'`) or a React node */
     logo: string | React.ReactElement
@@ -105,6 +111,24 @@ export function buildPostHogCodeDeepLink(prompt: string, repository?: string): s
     return `posthog-code://new?prompt=${encodeURIComponent(prompt)}${repoParam}`
 }
 
+export function buildClaudeCodeDeepLink(prompt: string, repository?: string): string {
+    const query = withLimit(prompt, LIMIT_CLAUDE, (text) => encodeURIComponent(text))
+    const repoParam = repository ? `repo=${encodeURIComponent(repository)}&` : ''
+    return `claude-cli://open?${repoParam}q=${query}`
+}
+
+export function buildCursorDeepLink(prompt: string): string {
+    return withLimit(
+        prompt,
+        LIMIT_LONG,
+        (text) => `cursor://anysphere.cursor-deeplink/prompt?text=${encodeURIComponent(encodeURIComponent(text))}`
+    )
+}
+
+export function buildCodexDeepLink(prompt: string): string {
+    return withLimit(prompt, LIMIT_SHORT, (text) => `codex://new?prompt=${encodeURIComponent(text)}`)
+}
+
 const AGENTS: AgentDef[] = [
     {
         key: 'posthog-ai',
@@ -125,11 +149,7 @@ const AGENTS: AgentDef[] = [
         name: 'Claude Code',
         logo: claudeLogo,
         verb: 'Open',
-        open: (prompt, { repository }) => {
-            const query = withLimit(prompt, LIMIT_CLAUDE, (t) => encodeURIComponent(t))
-            const repoParam = repository ? `repo=${encodeURIComponent(repository)}&` : ''
-            window.open(`claude-cli://open?${repoParam}q=${query}`, '_blank')
-        },
+        open: (prompt, { repository }) => window.open(buildClaudeCodeDeepLink(prompt, repository), '_blank'),
     },
     {
         key: 'cursor',
@@ -138,21 +158,15 @@ const AGENTS: AgentDef[] = [
         // Cursor wordmark is solid black; invert in dark mode so it stays visible
         logoClassName: 'dark:invert',
         verb: 'Open',
-        open: openDeepLink((p) =>
-            // Cursor decodes the full deeplink before parsing query params, so reserved chars need an extra escape layer.
-            withLimit(
-                p,
-                LIMIT_LONG,
-                (t) => `cursor://anysphere.cursor-deeplink/prompt?text=${encodeURIComponent(encodeURIComponent(t))}`
-            )
-        ),
+        // Cursor decodes the full deeplink before parsing query params, so reserved chars need an extra escape layer.
+        open: openDeepLink(buildCursorDeepLink),
     },
     {
         key: 'codex',
         name: 'Codex',
         logo: openaiLogo,
         verb: 'Open',
-        open: openDeepLink((p) => withLimit(p, LIMIT_SHORT, (t) => `codex://new?prompt=${encodeURIComponent(t)}`)),
+        open: openDeepLink(buildCodexDeepLink),
     },
     {
         key: 'clipboard',
@@ -170,6 +184,8 @@ export function AgentPromptButton({
     storageKey,
     defaultActionKey,
     defaultAgentKey,
+    agentKeys,
+    agentSelectionMode = 'select',
     size = 'default',
     variant = 'default',
     defaultOpen = false,
@@ -186,8 +202,9 @@ export function AgentPromptButton({
     const [remembered, setRemembered] = useLocalStorage<RememberedCombo | null>(`${resolvedStorageKey}:combo`, null)
     const [open, setOpen] = useState(defaultOpen)
     const { askSidePanelMax } = useActions(maxGlobalLogic)
+    const availableAgents = agentKeys ? AGENTS.filter((agent) => agentKeys.includes(agent.key)) : AGENTS
 
-    if (actions.length === 0) {
+    if (actions.length === 0 || availableAgents.length === 0) {
         return null
     }
 
@@ -195,10 +212,12 @@ export function AgentPromptButton({
         (remembered ? actions.find((a) => a.key === remembered.actionKey) : null) ??
         actions.find((a) => a.key === defaultActionKey) ??
         actions[0]
+    const defaultAgent = availableAgents.find((a) => a.key === defaultAgentKey) ?? availableAgents[0]
     const activeAgent =
-        (remembered?.agentKey ? AGENTS.find((a) => a.key === remembered.agentKey) : null) ??
-        AGENTS.find((a) => a.key === defaultAgentKey) ??
-        AGENTS[0]
+        agentSelectionMode === 'run'
+            ? defaultAgent
+            : ((remembered?.agentKey ? availableAgents.find((a) => a.key === remembered.agentKey) : null) ??
+              defaultAgent)
     const buttonLabel = `${activeAgent.verb} ${activeAction.label}`
 
     const selectAction = (actionKey: string): void => {
@@ -209,7 +228,7 @@ export function AgentPromptButton({
         const action = actions.find((a) => a.key === actionKey) ?? actions[0]
         const prompt = action.buildPrompt()
         onRun?.({ actionKey, agentKey })
-        const agent = AGENTS.find((a) => a.key === agentKey)
+        const agent = availableAgents.find((a) => a.key === agentKey)
         if (!agent) {
             return
         }
@@ -218,6 +237,11 @@ export function AgentPromptButton({
 
     const selectAgent = (agentKey: string): void => {
         const actionKey = remembered?.actionKey ?? actions[0].key
+        if (agentSelectionMode === 'run') {
+            runCombo(actionKey, agentKey)
+            setOpen(false)
+            return
+        }
         setRemembered({ actionKey, agentKey })
         setOpen(false)
     }
@@ -246,6 +270,9 @@ export function AgentPromptButton({
                         variant={variant}
                         size={size === 'default' ? 'icon' : `icon-${size}`}
                         className="border-0"
+                        aria-label={
+                            agentSelectionMode === 'run' ? 'Open prompt in an agent' : 'Choose prompt and destination'
+                        }
                     >
                         <IconChevronDown className="size-4 text-current" />
                     </QuillButton>
@@ -277,18 +304,33 @@ export function AgentPromptButton({
                         <DropdownMenuSeparator className="mx-0" />
                     </>
                 )}
-                <DropdownMenuLabel>Destination</DropdownMenuLabel>
-                <DropdownMenuRadioGroup value={activeAgent.key} onValueChange={selectAgent}>
-                    {AGENTS.map((agent) => (
-                        <DropdownMenuRadioItem key={agent.key} value={agent.key} asChild>
-                            <ButtonPrimitive menuItem className="gap-1.5">
-                                <AgentLogo logo={agent.logo} logoClassName={agent.logoClassName} />
-                                <span className="truncate flex-1">{agent.name}</span>
-                                <DropdownMenuItemIndicator intent="radio" />
-                            </ButtonPrimitive>
-                        </DropdownMenuRadioItem>
-                    ))}
-                </DropdownMenuRadioGroup>
+                <DropdownMenuLabel>{agentSelectionMode === 'run' ? 'Open in' : 'Destination'}</DropdownMenuLabel>
+                {agentSelectionMode === 'run' ? (
+                    <DropdownMenuGroup>
+                        {availableAgents
+                            .filter((agent) => agent.key !== activeAgent.key)
+                            .map((agent) => (
+                                <DropdownMenuItem key={agent.key} asChild onSelect={() => selectAgent(agent.key)}>
+                                    <ButtonPrimitive menuItem className="gap-1.5">
+                                        <AgentLogo logo={agent.logo} logoClassName={agent.logoClassName} />
+                                        <span className="truncate flex-1">{agent.name}</span>
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ))}
+                    </DropdownMenuGroup>
+                ) : (
+                    <DropdownMenuRadioGroup value={activeAgent.key} onValueChange={selectAgent}>
+                        {availableAgents.map((agent) => (
+                            <DropdownMenuRadioItem key={agent.key} value={agent.key} asChild>
+                                <ButtonPrimitive menuItem className="gap-1.5">
+                                    <AgentLogo logo={agent.logo} logoClassName={agent.logoClassName} />
+                                    <span className="truncate flex-1">{agent.name}</span>
+                                    <DropdownMenuItemIndicator intent="radio" />
+                                </ButtonPrimitive>
+                            </DropdownMenuRadioItem>
+                        ))}
+                    </DropdownMenuRadioGroup>
+                )}
             </DropdownMenuContent>
         </DropdownMenu>
     )

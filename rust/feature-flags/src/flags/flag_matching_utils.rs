@@ -603,6 +603,14 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         )?;
 
         apply_person_cohort_to_state(flag_evaluation_state, person_cohort);
+        // Mark every requested index as fetched, not just the ones the query returned a
+        // row for. The group query is authoritative for all requested (index, key) pairs,
+        // so "no row" means the group genuinely has no properties. Recording that keeps it
+        // distinguishable from "prep never ran", which is what
+        // `FlagEvaluationState::group_properties_pending` keys on.
+        for &idx in group_type_to_key.keys() {
+            flag_evaluation_state.mark_group_properties_fetched(idx);
+        }
         for (idx, props) in group.group_properties {
             flag_evaluation_state.set_group_properties(idx, props);
         }

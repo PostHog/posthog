@@ -54,6 +54,7 @@ from products.engineering_analytics.backend.logic.sources import (
     DEPLOYMENTS_SCHEMA,
     ISSUE_EVENTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
+    REVIEWS_SCHEMA,
     TEAM_MEMBERS_SCHEMA,
     TRUNK_QUARANTINED_TESTS_SCHEMA,
     WORKFLOW_JOBS_SCHEMA,
@@ -65,6 +66,7 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     DEPLOYMENTS_COLUMNS,
     ISSUE_EVENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
+    REVIEWS_COLUMNS,
     TEAM_MEMBERS_COLUMNS,
     TRUNK_QUARANTINED_TESTS_COLUMNS,
     WORKFLOW_JOBS_COLUMNS,
@@ -505,6 +507,54 @@ def _issue_event_rows(prs: list[dict[str, Any]], anchor: datetime) -> list[dict[
     return rows
 
 
+# Open PRs get a mix of verdicts so both open groups of the day view ("the author's move", "waiting on others") have rows.
+_MERGED_REVIEW_PLANS: tuple[tuple[tuple[str, float], ...], ...] = (
+    (("CHANGES_REQUESTED", 0.35), ("APPROVED", 0.7)),
+    (("APPROVED", 0.5),),
+    (("COMMENTED", 0.3), ("APPROVED", 0.85)),
+    (("APPROVED", 0.9),),
+)
+_OPEN_REVIEW_PLANS: tuple[tuple[tuple[str, float], ...], ...] = (
+    (("CHANGES_REQUESTED", 0.6),),
+    (("COMMENTED", 0.5),),
+    (),
+)
+
+
+def _review_rows(prs: list[dict[str, Any]], anchor: datetime) -> list[dict[str, Any]]:
+    logins = sorted({(pr.get("user") or {}).get("login") or "" for pr in prs} - {""})
+    reviewers = [login for login in logins if not login.endswith("[bot]") and login not in KNOWN_BOT_HANDLES]
+    rows: list[dict[str, Any]] = []
+    for index, pr in enumerate(prs):
+        if not pr.get("created_at") or not reviewers:
+            continue
+        created = datetime.fromisoformat(pr["created_at"])
+        if pr.get("merged_at"):
+            end = datetime.fromisoformat(pr["merged_at"])
+            plan = _MERGED_REVIEW_PLANS[index % len(_MERGED_REVIEW_PLANS)]
+        elif pr.get("state") == "open" and not pr.get("draft"):
+            end = anchor
+            plan = _OPEN_REVIEW_PLANS[index % len(_OPEN_REVIEW_PLANS)]
+        else:
+            continue
+        author = (pr.get("user") or {}).get("login") or ""
+        reviewer = reviewers[index % len(reviewers)]
+        if reviewer == author:
+            reviewer = reviewers[(index + 1) % len(reviewers)]
+        for step, (state, fraction) in enumerate(plan):
+            rows.append(
+                {
+                    "id": 6_000_000_000 + index * 10 + step,
+                    "pr_number": pr["number"],
+                    "user": json.dumps({"login": reviewer, "avatar_url": ""}),
+                    "state": state,
+                    "commit_id": "",
+                    "submitted_at": (created + (end - created) * fraction).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                }
+            )
+    return rows
+
+
 def _demo_multi_push(
     prs: list[dict[str, Any]], runs: list[dict[str, Any]]
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -895,15 +945,45 @@ def _selector(module_dir: str, test_class: str, test_name: str) -> str:
     return f"{module_dir}/{test_name}.py::{test_class}::{test_name}"
 
 
+# (file, test_class, name, parent, age_days). `parent` is what the uploader reports: 'pytest', the
+# test file for jest, the crate for Rust.
+_QUARANTINED_TESTS: list[tuple[str, str, str, str, int]] = [
+    ("products/replay_vision/backend/tests/test_api.py", "TestAPI", "test_tag_listing_pagination", "pytest", 41),
+    (
+        "products/batch_exports/backend/tests/test_service.py",
+        "TestService",
+        "test_backfill_window_overlap",
+        "pytest",
+        30,
+    ),
+    ("posthog/api/test/test_person.py", "TestPerson", "test_person_merge_ordering", "pytest", 23),
+    ("posthog/hogql/test/test_query.py", "TestQuery", "test_property_type_coercion", "pytest", 16),
+    # Reported relative to the directory its suite ran from, which is how Trunk records them.
+    ("tests/utils.test.ts", "", "parses a malformed header", "tests/utils.test.ts", 9),
+    (
+        "src/scenes/experiments/utils.test.ts",
+        "",
+        "rounds a bayesian interval",
+        "src/scenes/experiments/utils.test.ts",
+        5,
+    ),
+    ("", "", "remote_resolution_hardening", "cymbal::remote_resolution_hardening", 19),
+    ("", "", "flag evaluation stays stable", "feature-flags", 2),
+]
+
+
 def _trunk_quarantined_rows() -> list[dict[str, Any]]:
-    """Trunk-quarantined rows for the debt scoreboard, reusing the span roster so owner attribution
-    resolves through the seeded spans. Ages are staggered on both sides of the TTL, and two rows
-    (one of them jest) name tests outside the roster so the 'unowned' bucket renders."""
+    """Trunk-quarantined rows for the debt scoreboard.
+
+    The board resolves owners from the real repository, so these name real test files, one per team,
+    and two of them arrive relative to their suite's directory (as Trunk reports them) to exercise
+    placement. Ages straddle the TTL, and the last row names no file so the 'unowned' bucket renders.
+    """
     anchor = timezone.now().replace(microsecond=0)
     rows: list[dict[str, Any]] = []
-
-    def add(*, file: str, name: str, classname: str, parent: str, age_days: int) -> None:
-        quarantined_at = (anchor - timedelta(days=age_days, hours=len(rows))).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    for index, (file, test_class, name, parent, age_days) in enumerate(_QUARANTINED_TESTS):
+        quarantined_at = (anchor - timedelta(days=age_days, hours=index)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        module = file[:-3].replace("/", ".") if file.endswith(".py") else ""
         rows.append(
             {
                 "file": file,
@@ -912,43 +992,14 @@ def _trunk_quarantined_rows() -> list[dict[str, Any]]:
                 "parent": parent,
                 "status": "FLAKY",
                 "variant": "",
-                "classname": classname,
+                "classname": f"{module}.{test_class}" if test_class else "",
                 "codeowners": "[]",
-                "test_case_id": f"engseed-trunk-{len(rows):03d}",
+                "test_case_id": f"engseed-trunk-{index:03d}",
                 "quarantined_at": quarantined_at,
                 "quarantine_setting": "AUTO_QUARANTINE",
                 "status_last_updated_at": quarantined_at,
             }
         )
-
-    age = 2
-    for _owner_team, module_dir, tests in _SPAN_TEAMS:
-        # Quarantine the first two roster tests per team; module = test_name (the span seed's rule).
-        for test_class, test_name, _prior, _current in tests[:2]:
-            module_path = f"{module_dir}/{test_name}.py"
-            add(
-                file=module_path,
-                name=test_name,
-                classname=f"{module_path[:-3].replace('/', '.')}.{test_class}",
-                parent="pytest",
-                age_days=age,
-            )
-            # Walks 2..44 in 7-day steps across the roster, landing rows on both sides of the TTL.
-            age = (age + 7) % 45
-    add(
-        file="posthog/api/test/test_signup.py",
-        name="test_social_signup_ratelimit",
-        classname="posthog.api.test.test_signup.TestSignup",
-        parent="pytest",
-        age_days=41,
-    )
-    add(
-        file="frontend/src/lib/components/ActivityLog/activityLogLogic.test.tsx",
-        name="the activity log logic humanizes flag changes",
-        classname="",
-        parent="frontend/src/lib/components/ActivityLog/activityLogLogic.test.tsx",
-        age_days=9,
-    )
     return rows
 
 
@@ -1177,6 +1228,7 @@ class Command(BaseCommand):
         # Synthetic draft/ready transitions + merged events for ready_to_merge_seconds, windowed
         # like a real capped issue-events sync (see _issue_event_rows).
         issue_events = _issue_event_rows(prs, _fixture_anchor(prs, runs))
+        reviews = _review_rows(prs, _fixture_anchor(prs, runs))
         deploy_rows = _deployment_rows(prs)
 
         # Always normalize timestamps to a ClickHouse-friendly format; rebasing is optional.
@@ -1184,6 +1236,7 @@ class Command(BaseCommand):
         prs = [self._shift_dates(pr, PR_DATE_FIELDS, shift) for pr in prs]
         runs = [self._shift_dates(run, RUN_DATE_FIELDS, shift) for run in runs]
         issue_events = [self._shift_dates(event, ("created_at",), shift) for event in issue_events]
+        reviews = [self._shift_dates(review, ("submitted_at",), shift) for review in reviews]
         deployments = [self._shift_dates(row, ("created_at",), shift) for row in deploy_rows.deployments]
         deployment_statuses = [self._shift_dates(row, ("created_at",), shift) for row in deploy_rows.statuses]
         if shift:
@@ -1220,6 +1273,7 @@ class Command(BaseCommand):
             self._upsert_schema_table(
                 team, source, credential, prefix, ISSUE_EVENTS_SCHEMA, ISSUE_EVENTS_COLUMNS, issue_events
             )
+            self._upsert_schema_table(team, source, credential, prefix, REVIEWS_SCHEMA, REVIEWS_COLUMNS, reviews)
             # A TrunkIo sibling source backs the Trunk quarantine debt scoreboard.
             trunk_source = self._get_or_create_seed_source(
                 team,

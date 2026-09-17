@@ -31,19 +31,25 @@ describe('real-time usage logic', () => {
         expect(logic.values.selectedProjectIds).toEqual([])
     })
 
+    it('returns raw UTC labels and the chart interval', () => {
+        const { timeSeries } = parseUsageData([], '1d', '5m', false)
+
+        expect(timeSeries.interval).toBe('minute')
+        expect(timeSeries.timezone).toBe('UTC')
+        expect(timeSeries.labels.every((label) => label.endsWith('Z'))).toBe(true)
+    })
+
     it('keeps projects separate when the project breakdown is enabled', () => {
         const bucket = Math.floor(Date.now() / 1000 / 3600) * 3600
         const usageData = parseUsageData(
             [
                 {
                     project: { id: 1, name: 'First project' },
-                    rows: response([['ingestion', 'events', 'events', 2]]),
-                    timeSeries: response([[bucket, 'ingestion: events (events)', 2]]),
+                    usage: response([[bucket, 'ingestion', 'events', 'events', 2]]),
                 },
                 {
                     project: { id: 2, name: 'Second project' },
-                    rows: response([['ingestion', 'events', 'events', 3]]),
-                    timeSeries: response([[bucket, 'ingestion: events (events)', 3]]),
+                    usage: response([[bucket, 'ingestion', 'events', 'events', 3]]),
                 },
             ],
             '1d',

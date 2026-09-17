@@ -71,6 +71,11 @@ text-card-foreground`; borders `border-border`. Never a hardcoded hex or light-o
   always use the `-foreground` utility; a filled pill pairs `bg-success text-success-foreground`.
   Prefer the Quill `Badge` (`variant="success"`/`"destructive"`) for deltas so you don't hand-pick.
 - `bg-secondary`, `text-secondary`, `bg-accent`, and `bg-popover` are not defined in the canvas — avoid them.
+- Never declare a CSS variable with a platform token name (`--background`, `--border`, `--card`,
+  `--chrome`, `--input`, `--muted`, `--primary`, `--fill-*`), in a stylesheet or a `<style>` block.
+  Quill sets those on every element, so your value never applies and text can turn unreadable.
+  Prefix your own variables (`--doc-muted`); validation rejects the collision with
+  `platform_token_redeclared`.
 - recharts strokes/fills use token CSS variables (`stroke="var(--primary)"`, grid/axes in
   `var(--border)`/`var(--muted-foreground)`).
 - Write Unicode glyphs (curly quotes, ellipsis, arrows, emoji) as literal characters in JSX —

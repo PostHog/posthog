@@ -1,9 +1,11 @@
+import asyncio
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
 from django.db import transaction
-from django.db.models import Case, F, IntegerField, Q, Value, When
+from django.db.models import Case, Count, F, IntegerField, Min, Q, Value, When, Window
+from django.db.models.functions import Coalesce, RowNumber
 
 import structlog
 import temporalio.activity
@@ -14,11 +16,12 @@ from posthog.schema import AlertState
 from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.email import is_email_available
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
-from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
 from posthog.tasks.alerts.metrics_investigation import run_metrics_alert_investigation, should_investigate_metrics_alert
@@ -34,7 +37,8 @@ from posthog.tasks.alerts.utils import (
     record_alert_delivery,
     skip_because_of_weekend,
 )
-from posthog.temporal.alerts.investigation import claim_investigation_slot, should_trigger_investigation
+from posthog.temporal.alerts.investigation import claim_investigation_slot, decide_investigation
+from posthog.temporal.alerts.metrics import record_due_insight_alert_metrics
 from posthog.temporal.alerts.types import (
     AlertInfo,
     EvaluateAlertActivityInputs,
@@ -45,14 +49,16 @@ from posthog.temporal.alerts.types import (
     PrepareAlertResult,
     RecordFailedEvaluationActivityInputs,
     RecordFailedEvaluationResult,
+    ScheduleDueAlertChecksWorkflowInputs,
     SkipReason,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.metrics import get_metric_meter
 
-from products.alerts.backend.destinations import count_active_alert_destinations
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import validate_alert_config
+from products.alerts.backend.facade.destinations import count_active_alert_destinations
 from products.alerts.backend.insight_alert_state_machine import apply_unsnooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.notifications.backend.facade.api import (
@@ -69,11 +75,22 @@ logger = structlog.get_logger(__name__)
 _NOTIFICATION_DELIVERY_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="insight-alert-delivery")
 
 
+@frozen
+class _RetrievedAlerts:
+    alerts: list[AlertInfo]
+    due_count: int
+    oldest_due_at: datetime | None
+    polled_at: datetime
+
+
 @temporalio.activity.defn
-async def retrieve_due_alerts() -> list[AlertInfo]:
+async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | None = None) -> list[AlertInfo]:
+    if inputs is None:
+        inputs = ScheduleDueAlertChecksWorkflowInputs()
+
     @database_sync_to_async(thread_sensitive=False)
-    def get_alerts() -> list[AlertInfo]:
-        now = datetime.now(UTC)
+    def get_alerts() -> _RetrievedAlerts:
+        polled_at = datetime.now(UTC)
 
         calculation_interval_order = Case(
             *(
@@ -84,18 +101,37 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
             output_field=IntegerField(),
         )
 
-        alerts = (
+        due_alerts_query = (
             AlertConfiguration.objects.filter(
-                Q(enabled=True, next_check_at__lte=now) | Q(enabled=True, next_check_at__isnull=True)
+                Q(enabled=True, next_check_at__lte=polled_at) | Q(enabled=True, next_check_at__isnull=True)
             )
-            .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=now))
+            .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=polled_at))
             .filter(insight__deleted=False)
-            .annotate(_interval_order=calculation_interval_order)
-            .order_by("_interval_order", F("next_check_at").asc(nulls_first=True))
-            .only("id", "team_id", "calculation_interval", "insight_id")
+        )
+        alerts_query = (
+            due_alerts_query.annotate(_interval_order=calculation_interval_order)
+            .annotate(
+                _team_rank=Window(
+                    expression=RowNumber(),
+                    partition_by=[F("team_id")],
+                    order_by=[
+                        F("_interval_order").asc(),
+                        F("next_check_at").asc(nulls_first=True),
+                        F("id").asc(),
+                    ],
+                ),
+            )
+            .order_by(
+                "_team_rank",
+                "_interval_order",
+                F("next_check_at").asc(nulls_first=True),
+                "team_id",
+                "id",
+            )
+            .only("id", "team_id", "calculation_interval", "insight_id")[: inputs.max_alerts_per_run]
         )
 
-        return [
+        alerts = [
             AlertInfo(
                 alert_id=str(a.id),
                 team_id=a.team_id,
@@ -103,11 +139,43 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
                 calculation_interval=a.calculation_interval,
                 insight_id=a.insight_id,
             )
-            for a in alerts
+            for a in alerts_query
         ]
 
-    async with Heartbeater():
-        return await get_alerts()
+        due_alert_metrics = due_alerts_query.aggregate(
+            due_count=Count("id"), oldest_due_at=Min(Coalesce("next_check_at", "created_at"))
+        )
+        return _RetrievedAlerts(
+            alerts=alerts,
+            due_count=due_alert_metrics["due_count"],
+            oldest_due_at=due_alert_metrics["oldest_due_at"],
+            polled_at=polled_at,
+        )
+
+    retrieved = await get_alerts()
+    try:
+        await asyncio.to_thread(
+            record_due_insight_alert_metrics,
+            retrieved.due_count,
+            retrieved.oldest_due_at,
+            retrieved.polled_at,
+        )
+    except Exception:
+        logger.exception("Failed to record due insight alert metrics")
+
+    try:
+        meter = get_metric_meter()
+        meter.create_counter(
+            "insight_alert_scheduler_capacity",
+            "Alert scheduling capacity made available across successful retrieval runs",
+        ).add(inputs.max_alerts_per_run)
+        meter.create_counter(
+            "insight_alert_scheduler_alerts_selected",
+            "Due alerts selected across successful alert scheduler retrieval runs",
+        ).add(len(retrieved.alerts))
+    except Exception:
+        logger.exception("Failed to record alert scheduler capacity metrics")
+    return retrieved.alerts
 
 
 def _has_active_destinations(alert: AlertConfiguration) -> bool:
@@ -199,7 +267,7 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
 
         try:
             insight = alert.insight
-            with upgrade_query(insight):
+            with upgrade_insight(insight):
                 if insight.query is None:
                     raise ValueError("Alert's insight has no valid query")
                 threshold_config = alert.threshold.configuration if alert.threshold else None
@@ -321,7 +389,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
 
         # A non-transient failure: write the errored check and return. Transient errors were
         # re-raised above for the retry policy, and the investigation gating below only fires on a
-        # FIRING transition, so the errored path skips it.
+        # FIRING check, so the errored path skips it.
         if error is not None:
             with transaction.atomic():
                 alert = (
@@ -348,14 +416,12 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             previous_state = alert.state
             alert_check, should_notify = add_alert_check(alert, alert_evaluation_result, error)
 
-            if should_trigger_investigation(
-                alert,
-                previous_state=previous_state,
-                new_state=alert_check.state,
-            ):
-                if claim_investigation_slot(alert, alert_check):
-                    should_start_investigation = True
-                    should_gate_notification = bool(alert.investigation_gates_notifications)
+            investigation = decide_investigation(alert, alert_check)
+            if investigation.should_investigate and claim_investigation_slot(alert, alert_check):
+                should_start_investigation = True
+                should_gate_notification = investigation.is_first_of_episode and bool(
+                    alert.investigation_gates_notifications
+                )
 
             # Claim the cooldown slot inside the transaction so a flapping or
             # concurrently-retried alert can't pile up investigations.

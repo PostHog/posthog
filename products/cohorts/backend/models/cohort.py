@@ -36,6 +36,7 @@ from posthog.schema_enums import ProductKey
 from posthog.settings.base_variables import TEST
 
 from products.cohorts.backend.models.leaf_shape import (
+    FilterShapeHashes,
     extract_behavioral_leaf_shape_hash,
     extract_leaf_shape_hash,
     extract_person_leaf_shape_hash,
@@ -184,6 +185,8 @@ def is_cohort_recalculation_only_save(kwargs: dict) -> bool:
 class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.CharField(max_length=1000, blank=True)
+    # Not sealed: the feature flag list endpoint prefetches team__cohort_set
+    # into available_cohorts.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     deleted = models.BooleanField(default=False)
     filters = models.JSONField(
@@ -250,12 +253,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         }""",
     )
     query = models.JSONField(null=True, blank=True)
-    people = models.ManyToManyField("posthog.Person", through="CohortPeople")  # type: models.ManyToManyField
+    people = models.ManyToManyField("posthog.Person", through="CohortPeople", related_name="+")  # type: models.ManyToManyField
     version = models.IntegerField(blank=True, null=True)
     pending_version = models.IntegerField(blank=True, null=True)
     count = models.IntegerField(blank=True, null=True)
 
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, blank=True, null=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, blank=True, null=True, related_name="+")
     created_at = models.DateTimeField(default=timezone.now, blank=True, null=True)
 
     is_calculating = models.BooleanField(default=False)
@@ -380,37 +383,54 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             stored_person_shape_hash = self.__dict__.get("person_filters_shape_hash")
             previous_behavioral_shape_hash = stored_behavioral_shape_hash
             previous_person_shape_hash = stored_person_shape_hash
+            previous_shape_hash = None
 
-            if not self._state.adding and (
-                stored_shape_hash is None or stored_behavioral_shape_hash is None or stored_person_shape_hash is None
-            ):
-                persisted = (
-                    Cohort.objects.filter(id=self.pk, team_id=self.team_id)
-                    .values(
-                        "filters",
-                        "filters_shape_hash",
-                        "behavioral_filters_shape_hash",
-                        "person_filters_shape_hash",
-                    )
-                    .first()
-                )
+            if not self._state.adding:
+                persisted_query = Cohort.objects.filter(id=self.pk, team_id=self.team_id)
+                if (
+                    stored_shape_hash is not None
+                    and stored_behavioral_shape_hash is not None
+                    and stored_person_shape_hash is not None
+                ):
+                    # Check equality in Postgres: a stale instance can overwrite a concurrent edit.
+                    # Matching rows need no JSONB transfer or rehash; legacy hashes still fall through.
+                    persisted_query = persisted_query.exclude(filters_shape_hash=new_shape_hash)
+                persisted = persisted_query.values(
+                    "filters",
+                    "filters_shape_hash",
+                    "behavioral_filters_shape_hash",
+                    "person_filters_shape_hash",
+                ).first()
                 if persisted is not None:
+                    # Kind hashes retain edits made while the cohort was outside realtime tracking.
+                    # Recomputing those baselines from filters would lose that invalidation signal.
+                    try:
+                        previous_shape_hash = extract_leaf_shape_hash(persisted["filters"])
+                    except Exception:
+                        # A malformed baseline must not disable invalidation for a valid replacement.
+                        previous_shape_hash = None
                     if stored_shape_hash is None:
                         stored_shape_hash = persisted["filters_shape_hash"]
                     if stored_behavioral_shape_hash is None:
                         stored_behavioral_shape_hash = persisted["behavioral_filters_shape_hash"]
-                        previous_behavioral_shape_hash = (
-                            stored_behavioral_shape_hash
-                            if stored_behavioral_shape_hash is not None
-                            else extract_behavioral_leaf_shape_hash(persisted["filters"])
-                        )
+                        try:
+                            previous_behavioral_shape_hash = (
+                                stored_behavioral_shape_hash
+                                if stored_behavioral_shape_hash is not None
+                                else extract_behavioral_leaf_shape_hash(persisted["filters"])
+                            )
+                        except Exception:
+                            previous_behavioral_shape_hash = None
                     if stored_person_shape_hash is None:
                         stored_person_shape_hash = persisted["person_filters_shape_hash"]
-                        previous_person_shape_hash = (
-                            stored_person_shape_hash
-                            if stored_person_shape_hash is not None
-                            else extract_person_leaf_shape_hash(persisted["filters"])
-                        )
+                        try:
+                            previous_person_shape_hash = (
+                                stored_person_shape_hash
+                                if stored_person_shape_hash is not None
+                                else extract_person_leaf_shape_hash(persisted["filters"])
+                            )
+                        except Exception:
+                            previous_person_shape_hash = None
 
             shape_hash_needs_update = stored_shape_hash != new_shape_hash
             behavioral_shape_hash_needs_update = stored_behavioral_shape_hash != new_behavioral_shape_hash
@@ -419,6 +439,18 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 not self._state.adding and previous_behavioral_shape_hash != new_behavioral_shape_hash
             )
             person_shape_changed = not self._state.adding and previous_person_shape_hash != new_person_shape_hash
+
+            current_shape = FilterShapeHashes(
+                definition=new_shape_hash, behavioral=new_behavioral_shape_hash, person=new_person_shape_hash
+            )
+            previous_shape = FilterShapeHashes(
+                definition=previous_shape_hash,
+                behavioral=previous_behavioral_shape_hash,
+                person=previous_person_shape_hash,
+            )
+            repair_kind = current_shape.composition_repair_kind(previous_shape, self.filters)
+            behavioral_shape_changed |= repair_kind == "behavioral"
+            person_shape_changed |= repair_kind == "person_property"
 
             self.filters_shape_hash = new_shape_hash
             self.behavioral_filters_shape_hash = new_behavioral_shape_hash
@@ -1389,7 +1421,7 @@ def get_or_create_internal_test_users_cohort(
 class CohortPeople(models.Model):
     id = models.BigAutoField(primary_key=True)
     cohort = models.ForeignKey("Cohort", on_delete=models.DO_NOTHING, db_constraint=False)
-    person = models.ForeignKey("posthog.Person", on_delete=models.DO_NOTHING, db_constraint=False)
+    person = models.ForeignKey("posthog.Person", on_delete=models.DO_NOTHING, db_constraint=False, related_name="+")
     version = models.IntegerField(blank=True, null=True)
 
     class Meta:

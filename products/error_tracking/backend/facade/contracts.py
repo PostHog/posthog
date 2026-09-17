@@ -23,6 +23,14 @@ SOURCE_MAPS_DOCS_URL = "https://posthog.com/docs/error-tracking/upload-source-ma
 
 
 @dataclass(frozen=True)
+class DocumentEmbeddingTable:
+    """One per-model embeddings table: the sharded storage table and the Distributed table that reads it."""
+
+    sharded_table: str
+    distributed_table: str
+
+
+@dataclass(frozen=True)
 class ExceptionSummary:
     exception_count: int
     ingestion_failure_count: int
@@ -272,5 +280,28 @@ class ErrorTrackingRecommendation:
     status: str
     computed_at: datetime | None
     dismissed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingAlertDestination:
+    id: UUID
+    channel_type: str
+    integration_id: int | None
+    config: dict
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingAlert:
+    id: UUID
+    name: str
+    enabled: bool
+    triggers: list[str]
+    filters: dict
+    throttle_seconds: int
+    destinations: list[ErrorTrackingAlertDestination]
     created_at: datetime
     updated_at: datetime

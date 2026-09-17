@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.brevo.brevo import (
     BrevoResumeConfig,
     brevo_source,
@@ -64,11 +62,11 @@ class BrevoSource(ResumableSource[BrevoSourceConfig, BrevoResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BREVO,
+            name=ExternalDataSourceType.BREVO,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             keywords=["sendinblue"],
             label="Brevo",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Brevo API key to automatically pull your Brevo (formerly Sendinblue) data into the PostHog Data warehouse.
 
 You can create an API key in your [Brevo account settings](https://app.brevo.com/settings/keys/api).""",

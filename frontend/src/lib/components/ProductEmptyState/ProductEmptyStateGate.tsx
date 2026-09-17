@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import type { ReactNode } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -14,7 +14,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductEmptyState } from './ProductEmptyState'
 import { productSetupStatusLogic } from './productSetupStatusLogic'
 import { SetupReminderContext } from './setupReminderContext'
-import type { ProductEmptyStateConfig, ProductEmptyStateMode, SceneProductEmptyState } from './types'
+import type { GatedScene, ProductEmptyStateConfig, ProductEmptyStateMode, SceneProductEmptyState } from './types'
 
 /**
  * Search param that puts the setup screen on a scene that already has data, so anyone can
@@ -37,8 +37,21 @@ function forcedModeFromParam(value: unknown): ProductEmptyStateMode | null {
     return null
 }
 
+function coversCurrentSurface(
+    gated: GatedScene,
+    activeSceneId: string | null,
+    params: Record<string, string | undefined>
+): boolean {
+    if (typeof gated === 'string') {
+        return gated === activeSceneId
+    }
+    return gated.scene === activeSceneId && gated.tabs.includes(params.tab)
+}
+
 export interface ProductEmptyStateGateProps {
     emptyState: SceneProductEmptyState
+    /** The scene's route params, as passed to the scene component. Read by `scenes`. */
+    params?: Record<string, string | undefined>
     children: ReactNode
 }
 
@@ -55,16 +68,31 @@ export interface ProductEmptyStateGateProps {
  * `?empty_state=1` on any gated scene forces the setup screen regardless of status,
  * so the screen can be reviewed on a project that already has data.
  */
-export function ProductEmptyStateGate({ emptyState, children }: ProductEmptyStateGateProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
+export function ProductEmptyStateGate({ emptyState, params, children }: ProductEmptyStateGateProps): JSX.Element {
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const { searchParams } = useValues(router)
+    const forcedMode = forcedModeFromParam(searchParams[EMPTY_STATE_PARAM])
     const { activeSceneId } = useValues(sceneLogic)
 
-    // When the empty state is flag-gated or scoped to specific scenes, stay a strict
+    // When the empty state is flag-gated or scoped to specific scenes or tabs, stay a strict
     // no-op otherwise — don't even mount detection (the inner component mounts it).
     if (emptyState.featureFlag && !featureFlags[emptyState.featureFlag]) {
         return <>{children}</>
     }
-    if (emptyState.scenes && (!activeSceneId || !emptyState.scenes.includes(activeSceneId))) {
+    if (
+        emptyState.scenes &&
+        !emptyState.scenes.some((gated) => coversCurrentSurface(gated, activeSceneId, params ?? {}))
+    ) {
+        return <>{children}</>
+    }
+    if (emptyState.bypassFeatureFlag && !receivedFeatureFlags && !forcedMode) {
+        return (
+            <ProductSceneFrame config={emptyState.config} SceneNav={emptyState.SceneNav}>
+                <SpinnerOverlay sceneLevel />
+            </ProductSceneFrame>
+        )
+    }
+    if (emptyState.bypassFeatureFlag && featureFlags[emptyState.bypassFeatureFlag] && !forcedMode) {
         return <>{children}</>
     }
     return <ProductEmptyStateGateInner emptyState={emptyState}>{children}</ProductEmptyStateGateInner>
@@ -91,8 +119,8 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
     // The whole point is to see the screen on a project that would never show it on its own.
     if (forcedMode) {
         return (
-            <ProductSceneFrame config={config}>
-                <ProductEmptyState config={config} mode={forcedMode} />
+            <ProductSceneFrame config={config} SceneNav={emptyState.SceneNav}>
+                <ProductEmptyState config={config} mode={forcedMode} preview />
             </ProductSceneFrame>
         )
     }
@@ -133,14 +161,14 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
         // signal. Entity-count products have none, so for them the spinner is the normal path
         // on every entry, including every trip back from a detail page.
         return (
-            <ProductSceneFrame config={config}>
+            <ProductSceneFrame config={config} SceneNav={emptyState.SceneNav}>
                 <SpinnerOverlay sceneLevel />
             </ProductSceneFrame>
         )
     }
     if (!skipHonored && (status === 'needs-setup' || status === 'waiting-for-data')) {
         return (
-            <ProductSceneFrame config={config}>
+            <ProductSceneFrame config={config} SceneNav={emptyState.SceneNav}>
                 <ProductEmptyState config={config} mode={mode} />
             </ProductSceneFrame>
         )
@@ -154,9 +182,11 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
  */
 function ProductSceneFrame({
     config,
+    SceneNav,
     children,
 }: {
     config: ProductEmptyStateConfig
+    SceneNav?: ComponentType
     children: ReactNode
 }): JSX.Element {
     const { sceneConfig } = useValues(sceneLogic)
@@ -171,6 +201,7 @@ function ProductSceneFrame({
                         : { type: String(config.productKey), forceIcon: config.icon }
                 }
             />
+            {SceneNav ? <SceneNav /> : null}
             {children}
         </SceneContent>
     )

@@ -334,7 +334,13 @@ export function ChannelItemPreview({
     <ItemGroup className="gap-0!">
       <Item size="xs" className="flex-nowrap p-2">
         <ItemContent className="min-w-0 gap-2">
-          <ItemTitle className="wrap-break-word flex items-start gap-2">
+          {/* `wrap-anywhere` rather than `wrap-break-word`: quill sizes a
+              title to `width: fit-content`, so the box is as wide as the
+              longest thing that cannot be broken, and only
+              `overflow-wrap: anywhere` takes a long token out of that
+              measurement. A title that is one pasted url otherwise makes the
+              box wider than the card and runs off its right edge. */}
+          <ItemTitle className="wrap-anywhere flex items-start gap-2">
             <span className="flex h-[1lh] w-4 shrink-0 items-center justify-center">
               {previewGlyph(item, dot)}
             </span>

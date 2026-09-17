@@ -16,6 +16,11 @@ import { botAnalyticsLogic } from './botAnalyticsLogic'
 import { GraphsTab, ProductTab, TileId } from './common'
 import { FOCUS_MODE_TILE_IDS } from './focus-mode/focusModeMapping'
 import { WebAnalyticsConcern, getFocusModeOnboardingSeenKey } from './focus-mode/types'
+import { pagePerformanceLogic } from './pagePerformanceLogic'
+import {
+    MarketingAnalyticsTab,
+    marketingAnalyticsLogic,
+} from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 describe('webAnalyticsLogic focus mode', () => {
@@ -429,6 +434,28 @@ describe('webAnalyticsLogic URL restoration', () => {
         expect(logic.values.dateFilter).toMatchObject({ dateFrom: '-30d', dateTo: '-1d', interval: 'week' })
     })
 
+    it('keeps a date range and interval that equal the defaults when another filter changes', async () => {
+        // Arrive off the defaults, so the URL carries all three date params.
+        router.actions.push('/web', { date_from: '-30d', date_to: '-1d', interval: 'hour' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        // Back onto the defaults: '-7d' with no end date, grouped by day. Every date param must drop
+        // out of the URL instead of keeping its previous value.
+        logic.actions.setDates('-7d', null)
+        logic.actions.setDateInterval('day')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.searchParams.date_from).toBeUndefined()
+        expect(router.values.searchParams.date_to).toBeUndefined()
+        expect(router.values.searchParams.interval).toBeUndefined()
+
+        // Any later URL write runs urlToAction again. A param left behind is restored here and
+        // silently undoes what the user picked.
+        logic.actions.setCompareFilter({ compare: false })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.dateFilter).toMatchObject({ dateFrom: '-7d', dateTo: null, interval: 'day' })
+    })
+
     it.each<[string, Record<string, string>]>([
         ['tab params', { device_tab: 'BROWSER', source_tab: 'REFERRING_DOMAIN', path_tab: 'INITIAL_PATH' }],
         ['cross-logic filter params', { domain: 'example.com', device_type: 'Desktop', percentile: 'p99' }],
@@ -448,6 +475,17 @@ describe('webAnalyticsLogic URL restoration', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         // The pathname is project-prefixed in tests (e.g. /project/997/web); assert we left the bots route.
+        expect(router.values.location.pathname.endsWith('/web')).toBe(true)
+    })
+
+    it('redirects off content autopilot when either alpha flag is disabled', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
+        })
+
+        router.actions.push('/web/content-autopilot')
+        await expectLogic(logic).toFinishAllListeners()
+
         expect(router.values.location.pathname.endsWith('/web')).toBe(true)
     })
 
@@ -477,6 +515,28 @@ describe('webAnalyticsLogic URL restoration', () => {
         expect(router.values.searchParams[key]).toBe(expected)
     })
 
+    it('opens content autopilot without carrying dashboard filters', async () => {
+        featureFlagLogic.actions.setFeatureFlags(
+            [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE, FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT],
+            {
+                [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
+                [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]: true,
+            }
+        )
+        logic.actions.setWebAnalyticsFilters([
+            {
+                type: PropertyFilterType.Session,
+                key: '$entry_utm_source',
+                operator: PropertyOperator.Exact,
+                value: ['google'],
+            },
+        ])
+        logic.actions.setProductTab(ProductTab.CONTENT_AUTOPILOT)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname.endsWith('/web/content-autopilot')).toBe(true)
+        expect(router.values.searchParams).toEqual({})
+    })
     const FILTER_A = {
         type: PropertyFilterType.Session as const,
         key: '$entry_utm_source',
@@ -490,11 +550,18 @@ describe('webAnalyticsLogic URL restoration', () => {
         value: ['cpc'],
     }
 
-    it('keeps all page performance controls in the shareable URL', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE], {
-            [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
-        })
-        logic.actions.setProductTab(ProductTab.PAGE_PERFORMANCE)
+    it.each([
+        ['/web/page-performance', {}, FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE],
+        ['/marketing', { tab: 'page-visibility' }, FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD],
+    ])('keeps all page performance controls in the shareable URL at %s', async (pathname, searchParams, flag) => {
+        if (pathname === '/marketing') {
+            logic.unmount()
+            logic = webAnalyticsLogic({ context: 'page-visibility' })
+            logic.mount()
+        }
+        featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
+        router.actions.push(pathname, searchParams)
+        await expectLogic(logic).toFinishAllListeners()
         logic.actions.setDates('-30d', '2026-08-05')
         logic.actions.setConversionGoal({ actionId: 42 })
         logic.actions.setCompareFilter({ compare: true, compare_to: '-1y' })
@@ -509,7 +576,8 @@ describe('webAnalyticsLogic URL restoration', () => {
         logic.actions.setReferrerFilter('google.com')
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(router.values.location.pathname.endsWith('/web/page-performance')).toBe(true)
+        expect(router.values.location.pathname.endsWith(pathname)).toBe(true)
+        expect(router.values.searchParams).toMatchObject(searchParams)
         expect(router.values.searchParams).toMatchObject({
             date_from: '-30d',
             date_to: '2026-08-05',
@@ -589,16 +657,107 @@ describe('webAnalyticsLogic URL restoration', () => {
         }
     })
 
-    it('applies property filters from a shared page performance URL', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE], {
-            [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
-        })
-
-        router.actions.push('/web/page-performance', { filters: [FILTER_A] })
+    it.each([
+        ['/web/page-performance', {}, FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE],
+        ['/marketing', { tab: 'page-visibility' }, FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD],
+    ])('applies property filters from a shared page performance URL at %s', async (pathname, searchParams, flag) => {
+        if (pathname === '/marketing') {
+            logic.unmount()
+            logic = webAnalyticsLogic({ context: 'page-visibility' })
+            logic.mount()
+        }
+        featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
+        router.actions.push(pathname, { ...searchParams, filters: [FILTER_A] })
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.productTab).toBe(ProductTab.PAGE_PERFORMANCE)
         expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
+        if (pathname === '/marketing') {
+            const marketingLogic = marketingAnalyticsLogic()
+            marketingLogic.mount()
+            try {
+                expect(marketingLogic.values.activeTab).toBe(MarketingAnalyticsTab.PAGE_VISIBILITY)
+                expect(router.values.location.pathname.endsWith('/marketing')).toBe(true)
+                expect(router.values.searchParams.filters).toEqual([FILTER_A])
+            } finally {
+                marketingLogic.unmount()
+            }
+        }
+    })
+
+    it('isolates page visibility state, URLs and persistence from Web Analytics in both directions', async () => {
+        featureFlagLogic.actions.setFeatureFlags(
+            [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD, FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE],
+            {
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
+            }
+        )
+        const marketing = webAnalyticsLogic({ context: 'page-visibility' })
+        let unmountMarketing = marketing.mount()
+        try {
+            router.actions.push('/web/page-performance')
+            logic.actions.setDates('-30d', null)
+            logic.actions.setWebAnalyticsFilters([FILTER_A])
+            logic.actions.setCountryFilter('US')
+            logic.actions.setConversionGoal({ actionId: 42 })
+            logic.actions.setCompareFilter({ compare: false })
+            await expectLogic(logic).toFinishAllListeners()
+
+            router.actions.push('/marketing', {
+                tab: 'page-visibility',
+                date_from: '-14d',
+                interval: 'week',
+                filters: [FILTER_B],
+                country: 'CL',
+                'conversionGoal.actionId': 43,
+                compare_filter: { compare: true },
+            })
+            await expectLogic(marketing).toFinishAllListeners()
+            expect(marketing.values.dateFilter).toMatchObject({ dateFrom: '-14d', interval: 'week' })
+            expect(marketing.values.rawWebAnalyticsFilters).toEqual([FILTER_B])
+            expect(logic.values.dateFilter.dateFrom).toBe('-30d')
+            expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
+            expect(logic.values.countryFilter).toBe('US')
+            expect(logic.values.conversionGoal).toEqual({ actionId: 42 })
+            expect(logic.values.rawCompareFilter).toEqual({ compare: false })
+
+            const report = pagePerformanceLogic.build({ context: 'page-visibility' })
+            expect(report.values.pageCandidateQuery.dateRange?.date_from).toBe('-14d')
+            expect(report.values.pageCandidateQuery.properties).toEqual(marketing.values.webAnalyticsFilters)
+            expect(report.values.conversionGoal).toEqual({ actionId: 43 })
+
+            marketing.actions.setCountryFilter(null)
+            marketing.actions.setDates('-7d', null)
+            await expectLogic(marketing).toFinishAllListeners()
+            expect(router.values.location.pathname.endsWith('/marketing')).toBe(true)
+            expect(router.values.searchParams.country).toBeUndefined()
+            expect(logic.values.countryFilter).toBe('US')
+
+            unmountMarketing()
+            unmountMarketing = marketing.mount()
+            expect(marketing.values.dateFilter.dateFrom).toBe('-7d')
+            expect(marketing.values.countryFilter).toBeNull()
+
+            router.actions.push('/web/page-performance', { date_from: '-90d', filters: [FILTER_A] })
+            logic.actions.setCountryFilter('CA')
+            logic.actions.setWebAnalyticsFilters([FILTER_A, FILTER_B])
+            await expectLogic(logic).toFinishAllListeners()
+            expect(marketing.values.dateFilter.dateFrom).toBe('-7d')
+            expect(marketing.values.rawWebAnalyticsFilters).toEqual([FILTER_B])
+            expect(marketing.values.countryFilter).toBeNull()
+            expect(marketing.values.conversionGoal).toEqual({ actionId: 43 })
+            expect(marketing.values.rawCompareFilter).toEqual({ compare: true })
+            expect(router.values.location.pathname.endsWith('/web/page-performance')).toBe(true)
+
+            logic.unmount()
+            logic = webAnalyticsLogic()
+            logic.mount()
+            expect(logic.values.dateFilter.dateFrom).toBe('-90d')
+            expect(logic.values.countryFilter).toBe('CA')
+        } finally {
+            unmountMarketing()
+        }
     })
 
     const enableBackNavReset = (): void => {
