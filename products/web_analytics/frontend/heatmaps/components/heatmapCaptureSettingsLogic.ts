@@ -36,6 +36,7 @@ export interface heatmapCaptureSettingsLogicValues {
     hasChanges: boolean
     loadError: boolean
     pages: HeatmapCapturePageApi[]
+    pagesError: boolean
     pagesLoading: boolean
     saveError: string | null
     settings: HeatmapCaptureSettingsApi | null
@@ -171,6 +172,7 @@ export const heatmapCaptureSettingsLogic = kea<heatmapCaptureSettingsLogicType>(
             false,
             { loadSettings: () => false, loadSettingsFailure: () => true, loadSettingsSuccess: () => false },
         ],
+        pagesError: [false, { loadPages: () => false, loadPagesFailure: () => true, loadPagesSuccess: () => false }],
         saveError: [
             null as string | null,
             {
