@@ -104,9 +104,7 @@ def _redacted_github_event(event_type: str, payload: dict[str, Any]) -> dict[str
     A push always gets ``actor_access: "write"``, because pushing needs write access. But a
     commit message is free text an external contributor can author (e.g. a squash-merged PR
     title), so a trusted pusher merging one would otherwise carry attacker-controlled text into a
-    privileged step such as create-task. Mirrors the same redaction loops applies for the same
-    reason (see ``products/tasks/backend/loop_github_events.py``), keeping only the non-free-text
-    commit id.
+    privileged step such as create-task. Only the non-free-text commit id is kept.
     """
     if event_type != "push":
         return payload

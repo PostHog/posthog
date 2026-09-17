@@ -295,9 +295,8 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
         raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
 
     # Reject the marker written by user-initiated cancel, and the bare CANCELLED status that
-    # loop overlap and lifecycle cancellation set without that marker (loop_runs.py,
-    # loop_lifecycle.py). Either means the run is winding down, so no follow-up should rebind
-    # credentials or reach the sandbox.
+    # lifecycle cancellation sets without that marker. Either means the run is winding down, so
+    # no follow-up should rebind credentials or reach the sandbox.
     if (task_run.state or {}).get("cancel_requested_at") or task_run.status == TaskRun.Status.CANCELLED:
         if peer_message_id is not None:
             _mark_peer_delivery_outcome(

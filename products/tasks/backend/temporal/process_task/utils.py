@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import transaction
 
 from pydantic import BaseModel
 
@@ -45,7 +44,6 @@ from products.tasks.backend.logic.services.run_actor import (
     get_task_run_actor_user as get_task_run_actor_user,
     get_task_run_credential_user as get_task_run_credential_user,
     is_slack_interaction_state as is_slack_interaction_state,
-    loop_owner_eligible_for_credentials,
 )
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
@@ -1079,46 +1077,6 @@ def get_sandbox_github_token(
     github_user_integration_id: str | None = None,
     repository: str | None = None,
 ) -> str | None:
-    """Resolve a loop run's GitHub token, then re-check owner eligibility before handing it back.
-
-    Resolving the token can make an external round-trip (user-integration refresh, installation
-    token), so the eligibility lock in `_resolve_sandbox_github_token` can't be held across it. This
-    outer gate re-verifies eligibility once resolution is done — the tightest safe boundary — so a
-    deactivation or team-access revocation that commits during the round-trip still stops the token
-    reaching the sandbox. Non-loop runs are unaffected."""
-    token = _resolve_sandbox_github_token(
-        github_integration_id,
-        run_id=run_id,
-        state=state,
-        created_by=created_by,
-        actor_user=actor_user,
-        task=task,
-        github_user_integration_id=github_user_integration_id,
-        repository=repository,
-    )
-    loop_id = (state or {}).get("loop_id")
-    if token is not None and loop_id is not None and task is not None:
-        with transaction.atomic():
-            if not loop_owner_eligible_for_credentials(task.created_by_id, task.team):
-                logger.warning(
-                    "loop_github_token_owner_ineligible_post_resolution",
-                    extra={"run_id": run_id, "task_id": str(task.id)},
-                )
-                return None
-    return token
-
-
-def _resolve_sandbox_github_token(
-    github_integration_id: int | None,
-    *,
-    run_id: str,
-    state: dict[str, Any] | None = None,
-    created_by: User | None = None,
-    actor_user: User | None = None,
-    task: Task | None = None,
-    github_user_integration_id: str | None = None,
-    repository: str | None = None,
-) -> str | None:
     """Resolve the GitHub token used inside a task sandbox.
 
     Resolution order for ``USER`` authorship:
@@ -1145,18 +1103,6 @@ def _resolve_sandbox_github_token(
     else:
         run_state = parse_run_state(state)
         pr_authorship_mode = run_state.pr_authorship_mode
-
-    # Loop runs mint credentials as the owner, so gate every GitHub token resolution (initial
-    # provisioning, snapshot resume, and refresh all reach here) on current owner eligibility. A
-    # deactivated or team-access-revoked owner must not get a fresh team GitHub token handed to their
-    # still-running loop while the async cancellation is in flight.
-    loop_id = (state or {}).get("loop_id")
-    if loop_id is not None and task is not None:
-        owner_id = created_by.id if created_by is not None else task.created_by_id
-        with transaction.atomic():
-            if not loop_owner_eligible_for_credentials(owner_id, task.team):
-                logger.warning("loop_github_token_owner_ineligible", extra={"run_id": run_id, "task_id": str(task.id)})
-                return None
 
     if pr_authorship_mode == PrAuthorshipMode.USER:
         if task is not None and slack_interaction and created_by is None:

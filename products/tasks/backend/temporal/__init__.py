@@ -11,7 +11,6 @@ from .create_snapshot.activities import (
     setup_repository as snapshot_setup_repository,
 )
 from .create_snapshot.workflow import CreateSnapshotForRepositoryWorkflow
-from .loops import RunLoopWorkflow, run_loop_trigger_activity
 from .process_task.activities import (
     await_agent_server_ready,
     checkout_branch_in_sandbox,
@@ -69,7 +68,6 @@ WORKFLOWS = [
     SlackAgentDesignRelayWorkflow,
     CreateSnapshotForRepositoryWorkflow,
     PostHogCodeAgentRelayWorkflow,
-    RunLoopWorkflow,
     BuildSandboxImageWorkflow,
     BakeDevStackImageWorkflow,
 ]
@@ -121,7 +119,6 @@ ACTIVITIES = [
     start_slack_agent_design_stream,
     append_slack_agent_design_steps,
     stop_slack_agent_design_stream,
-    run_loop_trigger_activity,
     # create_snapshot activities
     get_snapshot_context,
     snapshot_create_sandbox,

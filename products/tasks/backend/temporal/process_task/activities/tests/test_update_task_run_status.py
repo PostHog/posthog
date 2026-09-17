@@ -7,7 +7,7 @@ from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
-from products.tasks.backend.models import Loop, Task, TaskRun
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
@@ -490,33 +490,6 @@ class TestUpdateTaskRunStatusActivity:
         assert not [e for e in events if str(e).startswith("chat with ai")]
         # Only the chat reading is suppressed — the run still completed, and still reports it.
         assert "task_run_completed" in events
-
-    @pytest.mark.django_db(transaction=True)
-    def test_terminal_retry_completes_loop_bookkeeping_exactly_once(self, activity_environment, test_task_run):
-        loop = Loop(
-            team=test_task_run.team,
-            created_by=test_task_run.task.created_by,
-            name="Nightly digest",
-            instructions="Summarize",
-            runtime_adapter="claude",
-        )
-        loop.save()
-        test_task_run.state = {**(test_task_run.state or {}), "loop_id": str(loop.id)}
-        test_task_run.status = TaskRun.Status.FAILED
-        test_task_run.error_message = "sandbox crashed"
-        test_task_run.save(update_fields=["state", "status", "error_message"])
-
-        input_data = UpdateTaskRunStatusInput(
-            run_id=str(test_task_run.id), status=TaskRun.Status.FAILED, error_message="sandbox crashed"
-        )
-        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
-        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
-
-        loop.refresh_from_db()
-        assert loop.last_run_status == TaskRun.Status.FAILED
-        assert loop.last_error == "sandbox crashed"
-        assert loop.consecutive_failures == 1
-        assert loop.last_run_at is not None
 
     @pytest.mark.django_db(transaction=True)
     def test_missing_task_run_raises_non_retryable(self, activity_environment):

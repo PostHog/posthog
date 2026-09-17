@@ -1027,11 +1027,6 @@ describe('Tool Filtering - Feature Flags', () => {
             'task:write',
             'loop_context_internal:write',
         ])
-        expect(definitions['loop-channel-instructions-update']!.required_scopes).toEqual([
-            'task:write',
-            'loop_context_internal:write',
-        ])
-        expect(definitions['loop-channel-instructions-update']!.feature_flag).toBeUndefined()
     })
 
     it('shows task context writes only to write-enabled task credentials', async () => {

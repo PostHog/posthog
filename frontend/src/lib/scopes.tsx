@@ -150,7 +150,6 @@ export const API_SCOPES: APIScope[] = [
     { key: 'llm_provider_key', objectName: 'LLM provider key', objectPlural: 'LLM provider keys' },
     { key: 'llm_skill', objectName: 'LLM skill', objectPlural: 'LLM skills' },
     { key: 'logs', objectName: 'Logs', objectPlural: 'logs' },
-    { key: 'loop', objectName: 'Loop', objectPlural: 'loops' },
     { key: 'marketing_analytics', objectName: 'Marketing analytics', objectPlural: 'marketing analytics' },
     { key: 'mcp_analytics', objectName: 'MCP analytics', objectPlural: 'MCP analytics' },
     { key: 'metrics', objectName: 'Metrics', objectPlural: 'metrics' },
@@ -281,6 +280,7 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     // Remove from posthog/scopes.py once no PAK/OAuth grant references them.
     batch_import: 'Pending removal: no endpoint enforces it (its viewset is INTERNAL).',
     external_data_schema: 'Pending removal: covered by external_data_source; no viewset uses it.',
+    loop: 'Pending removal: the loops API was retired, so no endpoint enforces it.',
 }
 
 // Keep in sync with PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION in posthog/scopes.py.
@@ -289,7 +289,6 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'endpoint:read',
     'feature_flag:read',
     'account:read',
-    'loop:write',
     'experiment:read',
 ] as const
 

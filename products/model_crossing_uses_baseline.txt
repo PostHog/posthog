@@ -54,7 +54,6 @@ billing_alerts.BillingAlertConfiguration products.billing_alerts.backend.facade.
 billing_alerts.BillingAlertEvent products.billing_alerts.backend.facade.api.BillingAlertDispatchResult.__init__ facade-accepts(event) 1
 billing_alerts.BillingAlertEvent products.billing_alerts.backend.facade.api.visible_events_for_alert facade-returns 1
 canvas.Canvas products.canvas.backend.facade.api.seed_home_canvas facade-accepts(canvas) 1
-canvas.Canvas products.tasks.backend.logic.services.loop_runs get_model 1
 cohorts.Cohort experiments.Experiment.exposure_cohort reverse-accessor(experiment_set) 1
 context_layer.ContextLayerConfig products.context_layer.backend.facade.api.enable_context_layer facade-returns 1
 context_layer.ContextLayerConfig products.context_layer.backend.facade.api.get_config facade-returns 1
@@ -258,7 +257,6 @@ django.QuerySet products.product_analytics.backend.facade.api.with_last_viewed_a
 django.QuerySet products.product_analytics.backend.facade.models.resolve_insight_by_id_or_short_id facade-accepts(queryset) 1
 django.QuerySet products.stamphog.backend.facade.api.LazyDTOList.__init__ facade-accepts(queryset) 1
 django.QuerySet products.tasks.backend.facade.api.task_ids_with_pr_url_subquery facade-returns 1
-django.QuerySet products.tasks.backend.facade.loops.sandbox_environment_queryset facade-returns 1
 django.Subquery products.tasks.backend.facade.api.latest_task_run_pr_merged_subquery facade-returns 1
 django.Subquery products.tasks.backend.facade.api.latest_task_run_pr_url_subquery facade-returns 1
 endpoints.Endpoint posthog.TaggedItem.endpoint reverse-accessor(tagged_items) 1
@@ -704,7 +702,6 @@ stamphog:backend/facade/tasks.py products.stamphog.backend.facade.tasks facade-l
 surveys.Survey product_tours.ProductTour.linked_surveys reverse-accessor(product_tours) 1
 surveys.Survey products.early_access_features.backend.management.commands.migrate_enrollments_to_waitlist_surveys get_model 1
 tasks.Channel products.tasks.backend.facade.api.create_task_without_run facade-accepts(channel) 1
-tasks.SandboxEnvironment products.tasks.backend.facade.loops.sandbox_environment_queryset facade-returns 1
 tasks.Task signals.SignalReportTask.task reverse-accessor(signal_report_tasks) 1
 tasks.Task slack_app.SlackThreadTaskMapping.task reverse-accessor(slack_thread_mappings) 1
 tasks.TaskRun products.review_hog.backend.receivers get_model 1
@@ -719,7 +716,7 @@ tasks.TaskRun signals.SignalScoutRun.task_run reverse-accessor(signal_scout_run)
 tasks.TaskRun slack_app.SlackThreadTaskMapping.task_run reverse-accessor(slack_thread_mappings) 1
 tasks.TaskThreadMessage products.tasks.backend.facade.api.project_thread_message_activity facade-accepts(message) 1
 tasks:backend/facade/repo_selection.py products.tasks.backend.facade.repo_selection facade-logic 2
-tasks:backend/facade/tasks.py products.tasks.backend.facade.tasks facade-logic 4
+tasks:backend/facade/tasks.py products.tasks.backend.facade.tasks facade-logic 3
 typing.Any products.billing_alerts.backend.facade.api.apply_destination_changes facade-accepts(request) 1
 typing.Any products.billing_alerts.backend.facade.api.create_destination facade-accepts(request) 1
 typing.Any products.data_modeling.backend.facade.api.deserialize_watermark facade-returns 1

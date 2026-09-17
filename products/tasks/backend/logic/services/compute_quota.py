@@ -24,28 +24,12 @@ def task_creator_is_staff(task: Task) -> bool:
 
 
 def is_task_billable_compute(task: Task) -> bool:
-    source_loop = task.loop if task.loop_id is not None else None
-    return is_billable_compute(
-        origin_product=task.origin_product,
-        client_provenance=task.client_provenance,
-        source_loop_id=task.loop_id,
-        source_loop_internal=source_loop.internal if source_loop is not None else None,
-    )
+    return is_billable_compute(origin_product=task.origin_product, client_provenance=task.client_provenance)
 
 
-def is_billable_compute(
-    *,
-    origin_product: str | None,
-    client_provenance: str | None,
-    source_loop_id: object | None,
-    source_loop_internal: bool | None,
-) -> bool:
-    if client_provenance != TaskClientProvenance.POSTHOG_DESKTOP:
-        return False
-    if origin_product == Task.OriginProduct.USER_CREATED:
-        return True
-    return bool(
-        origin_product == Task.OriginProduct.LOOP and source_loop_id is not None and source_loop_internal is False
+def is_billable_compute(*, origin_product: str | None, client_provenance: str | None) -> bool:
+    return (
+        client_provenance == TaskClientProvenance.POSTHOG_DESKTOP and origin_product == Task.OriginProduct.USER_CREATED
     )
 
 

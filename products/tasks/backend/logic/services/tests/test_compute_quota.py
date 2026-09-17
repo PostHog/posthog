@@ -12,7 +12,7 @@ from products.tasks.backend.logic.services.compute_quota import (
     is_compute_quota_exhausted,
     is_task_billable_compute,
 )
-from products.tasks.backend.models import Loop, Task, TaskClientProvenance
+from products.tasks.backend.models import Task, TaskClientProvenance
 
 
 @pytest.mark.django_db
@@ -97,18 +97,4 @@ class TestComputeQuota:
         assert not is_task_billable_compute(self.task(origin_product=origin, client_provenance=provenance))
 
     def test_unknown_origin_is_ineligible(self):
-        assert not is_billable_compute(
-            origin_product=None,
-            client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
-            source_loop_id=None,
-            source_loop_internal=None,
-        )
-
-    def test_only_direct_non_internal_desktop_loop_is_eligible(self):
-        loop_defaults = {"team": self.team, "instructions": "run", "runtime_adapter": "agent"}
-        user_loop = Loop.objects.unscoped().create(**loop_defaults, name="user", internal=False)
-        internal_loop = Loop.objects.unscoped().create(**loop_defaults, name="internal", internal=True)
-
-        assert is_task_billable_compute(self.task(origin_product=Task.OriginProduct.LOOP, loop=user_loop))
-        assert not is_task_billable_compute(self.task(origin_product=Task.OriginProduct.LOOP, loop=internal_loop))
-        assert not is_task_billable_compute(self.task(origin_product=Task.OriginProduct.LOOP))
+        assert not is_billable_compute(origin_product=None, client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)

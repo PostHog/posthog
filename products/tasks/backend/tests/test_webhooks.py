@@ -2358,20 +2358,20 @@ class TestGitHubWebhookFanout(TestCase):
             "installation": {"id": 77777},
             "repository": {"full_name": "myorg/myrepo"},
         }
-        loops_handler = "products.tasks.backend.loop_github_events.handle_github_event_for_loops"
+        push_handler = "products.workflows.backend.facade.api.accept_github_event"
 
-        with patch(loops_handler, side_effect=RuntimeError("boom")):
+        with patch(push_handler, side_effect=RuntimeError("boom")):
             first = self._make_request(payload, event_type="push", url="/webhooks/github/", delivery_id="del-retry")
         self.assertEqual(first.status_code, 202)
 
-        with patch(loops_handler) as mock_loops:
+        with patch(push_handler) as mock_handler:
             second = self._make_request(payload, event_type="push", url="/webhooks/github/", delivery_id="del-retry")
             self.assertEqual(second.status_code, 202)
-            mock_loops.assert_called_once()
+            mock_handler.assert_called_once()
 
             third = self._make_request(payload, event_type="push", url="/webhooks/github/", delivery_id="del-retry")
             self.assertEqual(third.status_code, 202)
-            mock_loops.assert_called_once()
+            mock_handler.assert_called_once()
 
     @patch("posthog.ingress.github.provider.get_instance_setting")
     def test_unified_url_bad_signature_returns_403(self, mock_secret):

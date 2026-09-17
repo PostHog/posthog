@@ -1,29 +1,18 @@
 """
 Celery-task wiring for the tasks product.
 
-Re-exports the beat-scheduled loop sweeps that core's scheduler registers.
+Re-exports the beat-scheduled sweeps that core's scheduler registers.
 """
 
 import logging
 
 from celery import shared_task
 
-from products.tasks.backend.loop_reconciliation import reconcile_loop_trigger_schedules_task
-from products.tasks.backend.loop_retention import sweep_loop_task_retention_task
 from products.tasks.backend.task_auto_archive import sweep_inactive_tasks_task
 
-__all__ = ["reconcile_loop_trigger_schedules_task", "sweep_inactive_tasks_task", "sweep_loop_task_retention_task"]
+__all__ = ["sweep_inactive_tasks_task"]
 
 logger = logging.getLogger(__name__)
-
-
-@shared_task(ignore_result=True)
-def dispatch_loop_run_terminal_notification_task(loop_id: str, team_id: int, event: str, payload: dict) -> None:
-    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 (keep temporalio off the celery import path)
-        dispatch_loop_run_terminal_notification,
-    )
-
-    dispatch_loop_run_terminal_notification(loop_id, team_id, event, payload)
 
 
 @shared_task(ignore_result=True)

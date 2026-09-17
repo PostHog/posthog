@@ -146,16 +146,6 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             else ("released" if input.status == TaskRun.Status.CANCELLED else "other"),
         )
 
-    if input.status in _TERMINAL_STATUSES:
-        from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 — breaks the loop_runs -> process_task -> activities import cycle
-            handle_loop_run_terminal,
-        )
-
-        try:
-            handle_loop_run_terminal(task_run, error_type=input.error_type)
-        except Exception:
-            activity.logger.warning(f"Failed loop terminal bookkeeping for run {task_run.id}", exc_info=True)
-
     log_with_activity_context(
         "Task run status updated",
         run_id=input.run_id,

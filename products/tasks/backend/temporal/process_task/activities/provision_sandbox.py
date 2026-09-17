@@ -427,9 +427,9 @@ def _resolve_sandbox_github_token(
 
 def _load_task(ctx: TaskProcessingContext) -> Task:
     try:
-        task = Task.objects.select_related(
-            "created_by", "github_integration", "github_user_integration", "team", "loop"
-        ).get(id=ctx.task_id)
+        task = Task.objects.select_related("created_by", "github_integration", "github_user_integration", "team").get(
+            id=ctx.task_id
+        )
     except Task.DoesNotExist as e:
         raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
     context_ownership_version = (ctx.state or {}).get(TASK_OWNERSHIP_VERSION_STATE_KEY)

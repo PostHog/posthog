@@ -93,17 +93,6 @@ def _terminalize_unstarted_task_run(run_id: str, error_message: str) -> bool:
         },
     )
 
-    # A run that never starts its workflow never reaches the update_task_run_status activity, so
-    # loop bookkeeping (consecutive_failures, auto-pause, notifications) must hook in here too.
-    # Swallowed so a bookkeeping failure never masks the start failure being reported.
-    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 — breaks the loop_runs -> temporal.client import cycle
-        handle_loop_run_terminal,
-    )
-
-    try:
-        handle_loop_run_terminal(task_run)
-    except Exception:
-        logger.warning("task_processing_start_failure_loop_bookkeeping_failed", extra={"run_id": run_id}, exc_info=True)
     resume_workflow_step_for_run(task_run)
     return True
 
@@ -421,12 +410,6 @@ def _resolve_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
     if task_run.task.origin_product == Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS:
         return "read_only"
 
-    # Loop-fired runs persist their real scopes in pending_dispatch; a row missing it must
-    # degrade to read_only, never escalate to the full write surface the generic fallback
-    # below grants (loop runs carry no run_source).
-    if task_run.task.origin_product == Task.OriginProduct.LOOP:
-        return "read_only"
-
     run_source = parse_run_state(task_run.state).run_source
     return "full" if run_source in (None, RunSource.MANUAL, RunSource.SIGNAL_REPORT) else "read_only"
 
@@ -477,27 +460,12 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
     workflow_id = TaskRun.get_workflow_id(task_id, run_id, workflow_id_prefix)
     if workflow_id_prefix:
         _record_prefixed_workflow_id(run_id, workflow_id)
-    # Loop-fired runs are report-only unless their pending_dispatch says otherwise; every
-    # other run keeps the historical True default.
-    default_create_pr = task.origin_product != Task.OriginProduct.LOOP
     workflow_input = ProcessTaskInput(
         run_id=run_id,
-        create_pr=dispatch_params.get("create_pr", default_create_pr),
+        create_pr=dispatch_params.get("create_pr", True),
         slack_thread_context=dispatch_params.get("slack_thread_context"),
         posthog_mcp_scopes=dispatch_params.get("posthog_mcp_scopes") or _resolve_mcp_scopes(task_run),
     )
-
-    # A loop run's skill bundles are seeded by the same on_commit callback whose loss
-    # this sweep recovers from, so dispatching without re-seeding would silently start
-    # the run with its skills missing. Idempotent for already-seeded runs. A failed seed
-    # is treated like any other transient recovery error: retried next sweep, with the
-    # 24h killer as the terminal backstop.
-    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 — breaks the loop_runs -> temporal.client import cycle
-        ensure_loop_skill_bundles_seeded,
-    )
-
-    if not ensure_loop_skill_bundles_seeded(task_run):
-        return "error"
 
     observe_task_run_workflow_start(task_run, outcome="attempted", reason="reconcile")
     _capture_run_feature_flags(run_id)

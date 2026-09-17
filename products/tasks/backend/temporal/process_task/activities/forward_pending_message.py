@@ -66,7 +66,7 @@ def forward_pending_user_message(run_id: str) -> None:
     from products.tasks.backend.models import TaskRun, stamp_pending_user_message_id
 
     try:
-        task_run = TaskRun.objects.select_related("task__created_by", "task__team", "task__loop").get(id=run_id)
+        task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=run_id)
     except TaskRun.DoesNotExist:
         # The run existed when this workflow started, so a missing row means it was
         # hard-deleted mid-run (team/org deletion cascade). Fail the workflow rather

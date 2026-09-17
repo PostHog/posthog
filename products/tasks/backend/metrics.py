@@ -371,25 +371,12 @@ PUSH_DISPATCHER_OUTCOMES_TOTAL = Counter(
     labelnames=["kind", "outcome"],
 )
 
-# reason is one of: created, deduped, overlap_skipped, rate_capped, disabled, gate_blocked
-# (LoopFireResult.reason), a fixed, code-defined set, safe as a label.
-LOOP_FIRE_TOTAL = Counter(
-    "posthog_tasks_loop_fire_total",
-    "Loop trigger fire outcomes",
-    labelnames=["reason"],
-)
-
 # reason is one of: created, replayed, gate_blocked, rate_capped, team_rate_capped,
 # limit_reached, owner_ineligible, a fixed, code-defined set, safe as a label.
 WORKFLOW_TASK_CREATE_TOTAL = Counter(
     "posthog_tasks_workflow_task_create_total",
     'Workflow "Create AI task" action outcomes',
     labelnames=["reason"],
-)
-
-LOOP_AUTO_PAUSED_TOTAL = Counter(
-    "posthog_tasks_loop_auto_paused_total",
-    "Loops auto-paused after exceeding the consecutive-failure threshold",
 )
 
 CodeUsageGateOutcome = Literal["checked_allowed", "checked_blocked", "fail_open", "org_deactivated"]
@@ -737,16 +724,8 @@ def observe_followup_denied_permission_stop(task_run: "TaskRun | None") -> None:
     FOLLOWUP_DENIED_PERMISSION_STOP_TOTAL.labels(origin_product=origin_product_label(task_run)).inc()
 
 
-def observe_loop_fire(*, reason: str) -> None:
-    LOOP_FIRE_TOTAL.labels(reason=reason).inc()
-
-
 def observe_workflow_task_create(*, reason: str) -> None:
     WORKFLOW_TASK_CREATE_TOTAL.labels(reason=reason).inc()
-
-
-def observe_loop_auto_paused() -> None:
-    LOOP_AUTO_PAUSED_TOTAL.inc()
 
 
 def observe_code_usage_gate_check(*, outcome: CodeUsageGateOutcome) -> None:

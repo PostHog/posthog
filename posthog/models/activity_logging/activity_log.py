@@ -466,12 +466,6 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "consecutive_failures",
         "state",
     ],
-    "Loop": [
-        "last_run_at",
-        "last_run_status",
-        "last_error",
-        "consecutive_failures",
-    ],
     "PersonalAPIKey": [
         "last_used_at",
     ],
@@ -605,21 +599,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "metric",
         "saved_query",
         "table",
-    ],
-    "Loop": [
-        # FK relations are not JSON-serializable for the change detail (same reason
-        # FeatureFlag/Subscription exclude theirs).
-        "team",
-        "sandbox_environment",
-        # Reverse FKs (LoopTrigger, LoopFire): reading them goes through those models' own
-        # fail-closed TeamScopedManagers with no ambient team scope at signal-handling time.
-        "triggers",
-        "fires",
-        # Run bookkeeping, not user-meaningful config.
-        "last_run_at",
-        "last_run_status",
-        "last_error",
-        "consecutive_failures",
     ],
     "OrganizationDomain": [
         "organization",

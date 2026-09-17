@@ -305,27 +305,19 @@ def get_billable_sandbox_compute_usage_by_team(
     cards = validate_compute_rate_cards(rate_cards)
     sessions = (
         SandboxSession.objects.unscoped()
-        .select_related("task_run__task__loop")
         .filter(
             client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
             user_attributed_at__isnull=False,
             user_attributed_at__lt=end,
         )
-        .filter(Q(origin_product=Task.OriginProduct.USER_CREATED) | Q(origin_product=Task.OriginProduct.LOOP))
+        .filter(origin_product=Task.OriginProduct.USER_CREATED)
         .filter(Q(ended_at__isnull=True, ttl_expires_at__gt=begin) | Q(ended_at__gt=begin))
     )
 
     usage: dict[int, list[Decimal]] = {}
     calculated_at = timezone.now()
     for session in sessions.iterator():
-        task = session.task_run.task
-        source_loop = task.loop if task.loop_id is not None else None
-        if not is_billable_compute(
-            origin_product=session.origin_product,
-            client_provenance=session.client_provenance,
-            source_loop_id=task.loop_id,
-            source_loop_internal=source_loop.internal if source_loop is not None else None,
-        ):
+        if not is_billable_compute(origin_product=session.origin_product, client_provenance=session.client_provenance):
             continue
         cost = calculate_sandbox_compute_cost(session, begin, end, calculated_at=calculated_at, rate_cards=cards)
         totals = usage.setdefault(session.team_id, [Decimal(0) for _ in range(3)])

@@ -738,7 +738,6 @@ SPECTACULAR_SETTINGS = {
             "OtelMetricTypeEnum": ["gauge", "sum", "histogram", "exponential_histogram", "summary"],
             "VerdictEnum": ["yes", "no", "inconclusive"],
             "AIObservabilityInstrumentationCheckEnum": ["sessions", "tool_calls", "user_identity", "trace_structure"],
-            "LoopTriggerTypeEnum": ["schedule", "github", "api"],
             "CustomPropertyOptionColorEnum": [f"preset-{i}" for i in range(1, 11)],
             "SavedQuerySyncFrequencyEnum": [
                 "never",

@@ -4,7 +4,6 @@ from typing import cast
 
 from django import forms
 from django.contrib import admin, messages
-from django.db.models import QuerySet
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import redirect
 from django.urls import path, reverse
@@ -14,10 +13,8 @@ from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.storage import object_storage
 
-from . import loop_service
 from .logic.services.ai_run_defaults import validate_ai_run_preferences_payload
-from .loop_lifecycle import DISABLED_REASON_ADMIN_PAUSED, pause_loop
-from .models import Loop, LoopTrigger, SandboxSnapshot, Task, TaskRun, TeamTasksConfig, UserTasksConfig
+from .models import SandboxSnapshot, Task, TaskRun, TeamTasksConfig, UserTasksConfig
 from .visibility import task_run_visibility_q, task_visibility_q
 
 logger = logging.getLogger(__name__)
@@ -130,110 +127,6 @@ class SandboxSnapshotAdmin(admin.ModelAdmin):
         ("Metadata", {"fields": ("metadata",)}),
         ("Dates", {"fields": ("created_at", "updated_at")}),
     )
-
-
-@admin.register(Loop)
-class LoopAdmin(admin.ModelAdmin):
-    list_display = (
-        "name",
-        "visibility",
-        "enabled",
-        "team",
-        "created_by",
-        "last_run_at",
-        "last_run_status",
-        "consecutive_failures",
-        "deleted",
-    )
-    list_filter = ("visibility", "enabled", "deleted", "overlap_policy", "runtime_adapter")
-    search_fields = ("name", "description")
-    readonly_fields = (
-        "id",
-        "enabled",
-        "last_run_at",
-        "last_run_status",
-        "last_error",
-        "consecutive_failures",
-        "created_at",
-        "updated_at",
-    )
-    autocomplete_fields = ("team", "created_by", "creator")
-    raw_id_fields = ("sandbox_environment",)
-    actions = ["pause_loops"]
-
-    def get_queryset(self, request: HttpRequest):
-        # Admin has no team context; Loop's default manager is fail-closed.
-        return Loop.objects.unscoped().select_related("team", "created_by")
-
-    @admin.action(description="Pause selected loops")
-    def pause_loops(self, request: HttpRequest, queryset: QuerySet[Loop]) -> None:
-        selected = queryset.count()
-        paused = 0
-        failed: list[Loop] = []
-        for loop in queryset.filter(enabled=True, deleted=False):
-            try:
-                pause_loop(loop, DISABLED_REASON_ADMIN_PAUSED, cancel_runs=False)
-                paused += 1
-            except Exception:
-                # Temporal never lands here: `pause_loop_schedules` swallows and logs its own
-                # failures, and a schedule left running can't start anything because `fire_loop`
-                # refuses a disabled loop. What reaches this is a failed row save (loop still
-                # enabled) or a failed notification dispatch (loop paused, owner not told).
-                logger.exception("loop_admin.pause_failed", extra={"loop_id": str(loop.id)})
-                failed.append(loop)
-
-        message = f"Paused {paused} of {selected} selected loop(s)."
-        if paused + len(failed) < selected:
-            message += " Loops that were already paused or deleted were left unchanged."
-        self.message_user(request, message)
-        if failed:
-            failed_ids = ", ".join(str(loop.id) for loop in failed)
-            self.message_user(
-                request,
-                f"Could not pause {len(failed)} loop(s): {failed_ids}. Check the logs and confirm their "
-                "state in the list.",
-                level=messages.ERROR,
-            )
-
-    def delete_model(self, request: HttpRequest, obj: Loop) -> None:
-        # Tear down Temporal Schedules before the row is gone; CASCADE never talks to Temporal, so
-        # a raw admin delete would otherwise leave the schedules firing forever.
-        loop_service.delete_loop_schedules(obj)
-        super().delete_model(request, obj)
-
-    def delete_queryset(self, request: HttpRequest, queryset) -> None:
-        for loop in queryset:
-            loop_service.delete_loop_schedules(loop)
-        super().delete_queryset(request, queryset)
-
-
-@admin.register(LoopTrigger)
-class LoopTriggerAdmin(admin.ModelAdmin):
-    list_display = ("id", "loop", "type", "enabled", "schedule_sync_status", "last_fired_at")
-    list_filter = ("type", "enabled", "schedule_sync_status")
-    search_fields = ("loop__name",)
-    readonly_fields = ("id", "loop", "enabled", "schedule_sync_status", "last_fired_at", "created_at", "updated_at")
-    autocomplete_fields = ("team",)
-
-    def get_queryset(self, request: HttpRequest):
-        # Admin has no team context; select_related("loop") also keeps readonly
-        # rendering off Loop's fail-closed base manager.
-        return LoopTrigger.objects.unscoped().select_related("loop", "team")
-
-    def has_add_permission(self, request: HttpRequest) -> bool:
-        # Triggers are created through the loops API; their Temporal Schedule
-        # identity hangs off the row id, so hand-created rows would drift.
-        return False
-
-    def delete_model(self, request: HttpRequest, obj: LoopTrigger) -> None:
-        # Tear down the Temporal Schedule before the row is gone (CASCADE won't).
-        loop_service.delete_loop_trigger_schedule(obj)
-        super().delete_model(request, obj)
-
-    def delete_queryset(self, request: HttpRequest, queryset) -> None:
-        for trigger in queryset:
-            loop_service.delete_loop_trigger_schedule(trigger)
-        super().delete_queryset(request, queryset)
 
 
 class _TasksConfigAdminForm(forms.ModelForm):

@@ -10,7 +10,6 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Q
 from django.utils import timezone
 
 import requests
@@ -279,14 +278,7 @@ def _get_task_compute_cost(*, team_id: int, task_id: UUID) -> Decimal:
             client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
             user_attributed_at__isnull=False,
         )
-        .filter(
-            Q(origin_product=Task.OriginProduct.USER_CREATED)
-            | Q(
-                origin_product=Task.OriginProduct.LOOP,
-                task_run__task__loop__isnull=False,
-                task_run__task__loop__internal=False,
-            )
-        )
+        .filter(origin_product=Task.OriginProduct.USER_CREATED)
     )
     return sum(
         (

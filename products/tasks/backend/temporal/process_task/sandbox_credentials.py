@@ -7,8 +7,6 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple, Protocol
 
-from django.db import transaction
-
 import redis
 
 from posthog.models.integration import Integration
@@ -17,7 +15,6 @@ from posthog.redis import get_client
 
 from products.tasks.backend.exceptions import CredentialUnavailableError, SandboxExecutionError
 from products.tasks.backend.logic.services.agentsh import GITHUB_ENV_FILE, OAUTH_ENV_FILE
-from products.tasks.backend.logic.services.run_actor import loop_owner_eligible_for_credentials
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.process_task.utils import (
     PrAuthorshipMode,
@@ -156,30 +153,11 @@ def clear_github_credentials_from_sandbox(sandbox: "SandboxBase", repositories: 
     return remote_cleared and env_cleared
 
 
-def _loop_owner_credentials_revoked(task: Task, state: dict | None) -> bool:
-    """Post-resolution eligibility gate for every path that injects a GitHub token into a LOOP
-    sandbox, mirroring `get_sandbox_github_token`: a loop run alive during or after its owner's
-    deactivation or team-access revocation must not receive a fresh token, whichever refresh path
-    resolved it (user-integration refresh, installation fallback, read-only re-mint, or sibling
-    propagation). Non-loop runs are unaffected."""
-    if (state or {}).get("loop_id") is None:
-        return False
-    with transaction.atomic():
-        eligible = loop_owner_eligible_for_credentials(task.created_by_id, task.team)
-    if not eligible:
-        logger.warning(
-            "loop_github_refresh_owner_ineligible",
-            extra={"task_id": str(task.id)},
-        )
-    return not eligible
-
-
 def _actor_rebound_away_from_owner(run_id: str, state: dict | None, owner_id: int | None) -> int | None:
     """The actor a per-message transition rebound (or logged out) this sandbox to, when that differs
     from the run owner (else ``None``). Owner-scoped refresh paths (scheduled refresh, sibling
     propagation) carry the owner's token, so re-applying it would resurrect the owner's identity
-    over the current actor's session — callers skip when this returns a value. Distinct from
-    `_loop_owner_credentials_revoked`, which gates on owner *eligibility* rather than session rebind."""
+    over the current actor's session — callers skip when this returns a value."""
     bound_actor = get_sandbox_github_identity_user(sandbox_identity_scope(run_id, state))
     return bound_actor if bound_actor is not None and bound_actor != owner_id else None
 
@@ -298,8 +276,6 @@ def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[LiveS
             continue
         if is_caller_token_run(str(run.id), run.state):
             continue
-        if _loop_owner_credentials_revoked(run.task, run.state):
-            continue
         # This loop carries the owner's token; skip a sandbox a per-message transition rebound to
         # a different actor, or re-applying it would resurrect the owner's identity for that actor.
         if _actor_rebound_away_from_owner(str(run.id), run.state, run.task.created_by_id) is not None:
@@ -399,8 +375,6 @@ class GitHubSandboxCredential:
         # read-only grant instead; best-effort like the original.
         if ctx.github_read_access:
             token = get_readonly_github_token(ctx.team_id)
-            if token and _loop_owner_credentials_revoked(task, ctx.state):
-                token = None
             if token:
                 # Pass the run's repositories so that every cloned checkout's `origin` is
                 # rewritten with the fresh token, not just the credential file. A repo-less run has
@@ -503,8 +477,6 @@ class GitHubSandboxCredential:
             token = resolve_coordinated_user_token(integration)
         except (ReauthorizationRequired, UserIntegration.DoesNotExist) as e:
             fallback = self._installation_token_fallback(ctx, task, cause=e)
-            if fallback and _loop_owner_credentials_revoked(task, ctx.state):
-                fallback = None
             if not fallback:
                 return CredentialRefreshOutcome(
                     self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
@@ -515,8 +487,6 @@ class GitHubSandboxCredential:
             return CredentialRefreshOutcome(
                 self.kind, refreshed=applied, next_refresh_seconds=github_refresh_interval_seconds(fallback)
             )
-        if token and _loop_owner_credentials_revoked(task, ctx.state):
-            token = None
         applied = (
             _apply_owner_token_locked(sandbox, ctx.repositories, token, ctx.run_id, ctx.state, task.created_by_id)
             if token

@@ -2295,10 +2295,6 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         *SERVER_OWNED_RESUME_STATE_KEYS,
         "workflow_id",
         "pending_dispatch",
-        # Written once at loop fire time; seeding copies these storage paths into the
-        # run's artifact prefix, so a PATCHable value would be an arbitrary
-        # object-storage read (and write-location) primitive.
-        "skill_bundle_seeds",
         "cancel_requested_at",
         "cancel_requested_by_user_id",
         "cancel_source",
@@ -2325,14 +2321,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # runner); a PATCHable key would let any task controller mint a GitHub token onto a
         # queued repo-less run.
         "github_read_access",
-        # Loop provenance is stamped once at run creation (see loop_runs._create_loop_task_and_run)
-        # and drives loop bookkeeping in handle_loop_run_terminal. The completion marker prevents
-        # terminal bookkeeping from running twice. A caller must not be able to forge either.
-        "loop_id",
-        "loop_trigger_id",
-        "trigger_context",
+        # A workflow run's connector and scope snapshot: forging it would widen the run's scopes.
         "config_snapshot",
-        "loop_terminal_bookkeeping_complete",
         # Stamped once at run creation. The review carve-outs read ai_stage="implementation" as proof
         # a run is self-driving, so a PATCHable value would forge that and unlock the bot/draft bypass.
         # is_interactive_signals_run reads it the same way, so forging it would move the run off
@@ -2792,9 +2782,6 @@ def update_task_run(
     output/state merges take a row lock, terminal transitions signal Temporal + dispatch
     push/Slack updates after commit, and a cloud→local transition cancels the workflow.
     """
-    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 (keep temporalio off the api import path)
-        handle_loop_run_terminal,
-    )
     from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
         observe_agent_turn_failed,
         observe_prewarmed_unused_if_never_activated,
@@ -2920,13 +2907,6 @@ def update_task_run(
         update_fields.add("updated_at")
         run.save(update_fields=list(update_fields))
         run.publish_stream_state_event()
-
-    # Only on the actual transition: a repeat PATCH with the same terminal status, or an
-    # output-only PATCH on an already-terminal run, must not re-run loop bookkeeping
-    # (consecutive_failures would double-count). The workflow's status-update activity
-    # applies the same guard on its side.
-    if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
-        handle_loop_run_terminal(run)
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
         if new_status == TaskRun.Status.FAILED:
@@ -10175,11 +10155,3 @@ def accept_github_pull_request_review(delivery: WebhookDelivery) -> None:
     from products.tasks.backend.webhooks import handle_pull_request_review_event  # noqa: PLC0415
 
     handle_pull_request_review_event(dict(delivery.payload))
-
-
-def accept_github_event_for_loops(delivery: WebhookDelivery) -> None:
-    """Every event type a loop trigger can match on, which fires the loops whose filters accept it."""
-    # Deferred to keep the Redis client off the facade import path.
-    from products.tasks.backend.loop_github_events import handle_github_event_for_loops  # noqa: PLC0415
-
-    handle_github_event_for_loops(delivery.event_type, dict(delivery.payload), delivery.delivery_id or "")
