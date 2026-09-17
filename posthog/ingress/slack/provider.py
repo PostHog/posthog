@@ -18,6 +18,7 @@ from posthog.ingress.verify.schemes import HmacSha256, SignatureScheme
 SLACK_EVENT_TYPES = frozenset(
     {
         "app_mention",
+        "link_shared",
         "message",
         "reaction_added",
         "member_joined_channel",
@@ -30,6 +31,10 @@ SPECS = (ProviderSpec(provider="slack", app="supporthog", event_types=SLACK_EVEN
 
 class SlackProvider(WebhookProvider):
     provider = "slack"
+    # Slack redelivers on a non-2xx, so a delivery ingress cannot vouch for must not be receipted:
+    # a workspace ownership lookup that raised or hit its timeout, a forward to the owning region
+    # that never landed, and a receipt write that raised all lose the 202.
+    retry_status = 502
 
     def __init__(self, *, app: str = "supporthog", secret_getter: Callable[[], str | None]) -> None:
         self.app = app
