@@ -9,8 +9,21 @@ import {
     getIssueReplayFilterGroup,
     issueVisionScannerHandoff,
     mergeIssues,
+    serviceNameFromErrorEvent,
     sourceDisplay,
 } from './utils'
+
+describe('serviceNameFromErrorEvent', () => {
+    it('reads the service name from event properties', () => {
+        expect(serviceNameFromErrorEvent({ service_name: 'billing-worker' })).toBe('billing-worker')
+        expect(serviceNameFromErrorEvent({ 'service.name': 'api' })).toBe('api')
+    })
+
+    it('returns null when the event carries no service name', () => {
+        expect(serviceNameFromErrorEvent({})).toBeNull()
+        expect(serviceNameFromErrorEvent({ service_name: '  ' })).toBeNull()
+    })
+})
 
 function wrapVolumeBuckets(
     initialDate: Dayjs,

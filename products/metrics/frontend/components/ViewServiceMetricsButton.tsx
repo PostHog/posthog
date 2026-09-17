@@ -29,6 +29,29 @@ export function useCanViewServiceMetrics(): boolean {
 }
 
 /**
+ * The hook form of the pivot, for surfaces that render their own menu item rather than a
+ * LemonButton (e.g. error tracking's event actions). Mirrors logs' `useViewLogsButton`: the
+ * flag/RBAC gate and the URL encoding stay here so each caller doesn't rebuild them.
+ */
+export function useViewServiceMetricsButton({
+    serviceName,
+    dateFrom,
+    dateTo,
+}: Pick<ViewServiceMetricsButtonProps, 'serviceName' | 'dateFrom' | 'dateTo'>): {
+    enabled: boolean
+    to: string | undefined
+    disabledReason: string | undefined
+} {
+    const enabled = useCanViewServiceMetrics()
+
+    return {
+        enabled,
+        to: serviceName ? metricsUrlForService(serviceName, { dateFrom, dateTo }) : undefined,
+        disabledReason: serviceName ? undefined : 'No service associated with this event',
+    }
+}
+
+/**
  * "Show me this service's metrics", for Logs and Tracing to drop into a service row or a span.
  *
  * Metrics owns this gate rather than each caller, because the product is in alpha behind a

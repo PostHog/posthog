@@ -1,6 +1,6 @@
 import { router } from 'kea-router'
 
-import { IconAI, IconEllipsis, IconLive } from '@posthog/icons'
+import { IconAI, IconEllipsis, IconGraph, IconLive } from '@posthog/icons'
 
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { getRecordingStatus, getSessionId } from 'lib/components/Errors/utils'
@@ -11,8 +11,10 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import { useViewLogsButton } from 'products/logs/frontend/components/ViewLogsButton'
+import { useViewServiceMetricsButton } from 'products/metrics/frontend/components/ViewServiceMetricsButton'
+import { traceLookupDateRange } from 'products/tracing/frontend/traceLinks'
 
-import { cancelEvent } from '../../utils'
+import { cancelEvent, serviceNameFromErrorEvent } from '../../utils'
 
 export function EventActions({ record }: { record: ErrorEventType }): JSX.Element {
     const sessionId = getSessionId(record.properties)
@@ -29,6 +31,12 @@ export function EventActions({ record }: { record: ErrorEventType }): JSX.Elemen
         timestamp: record.timestamp,
     })
     const logs = useViewLogsButton({ sessionId, timestamp: record.timestamp })
+    const serviceMetricsWindow = traceLookupDateRange(record.timestamp)
+    const serviceMetrics = useViewServiceMetricsButton({
+        serviceName: serviceNameFromErrorEvent(record.properties),
+        dateFrom: serviceMetricsWindow.date_from,
+        dateTo: serviceMetricsWindow.date_to,
+    })
     const recordingTooltip =
         typeof recordingDisabledReason === 'string' ? recordingDisabledReason : recordingWarningReason
 
@@ -57,6 +65,17 @@ export function EventActions({ record }: { record: ErrorEventType }): JSX.Elemen
                         >
                             <IconLive />
                             View logs
+                        </DropdownMenuItem>
+                    )}
+                    {serviceMetrics.enabled && (
+                        <DropdownMenuItem
+                            disabled={!serviceMetrics.to}
+                            onClick={() => serviceMetrics.to && router.actions.push(serviceMetrics.to)}
+                            title={serviceMetrics.disabledReason}
+                            data-attr="error-tracking-view-service-metrics"
+                        >
+                            <IconGraph />
+                            View service metrics
                         </DropdownMenuItem>
                     )}
                     {record.properties.$ai_trace_id && (
