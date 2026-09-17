@@ -252,8 +252,8 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .mypy_cache
-                  key: ${{ steps.mypy-cache-key.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
-                  restore-keys: ${{ steps.mypy-cache-key.outputs.prefix }}-
+                  key: validation-${{ github.event.pull_request.number }}-${{ steps.mypy-cache-key.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
+                  restore-keys: validation-${{ github.event.pull_request.number }}-${{ steps.mypy-cache-key.outputs.prefix }}-
 
             - name: Check static typing
               shell: bash -e {0}
@@ -267,6 +267,13 @@ jobs:
               with:
                   path: .mypy_cache
                   key: ${{ steps.mypy-cache.outputs.cache-primary-key }}
+
+            - name: Save validation mypy cache
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .mypy_cache
+                  key: validation-${{ github.event.pull_request.number }}-${{ steps.mypy-cache-key.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
 
             - name: Check if "schema.py" is up to date
               shell: bash
