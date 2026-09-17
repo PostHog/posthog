@@ -118,7 +118,6 @@ export function GoalComposer({
       return {
         value: firstNumericCell(grid.results),
         rows: grid.results.length,
-        hogql: grid.hogql,
       };
     },
   });
@@ -282,7 +281,6 @@ export function GoalComposer({
                 onRun={(sql) => runMutate(sql)}
                 value={run.data?.value ?? null}
                 rows={run.data?.rows ?? null}
-                formatted={run.data?.hogql ?? null}
                 unit={goalValueSuffix(name)}
                 running={run.isPending}
                 error={run.error?.message ?? null}
@@ -447,7 +445,6 @@ function MeasureReview({
   onRun,
   value,
   rows,
-  formatted,
   unit,
   running,
   error,
@@ -457,16 +454,11 @@ function MeasureReview({
   onRun: (sql: string) => void;
   value: number | null;
   rows: number | null;
-  /** The query as the server printed it after the last run. */
-  formatted: string | null;
   unit: string;
   running: boolean;
   error: string | null;
 }) {
   const editorRef = useRef<SqlEditorHandle>(null);
-  useEffect(() => {
-    if (formatted) editorRef.current?.setValue(formatted);
-  }, [formatted]);
 
   if (measure?.kind === "insight") {
     return (
@@ -503,7 +495,10 @@ function MeasureReview({
           variant="link-muted"
           size="xs"
           disabled={running || !sql.trim()}
-          onClick={() => onRun(sql)}
+          onClick={() => {
+            editorRef.current?.format();
+            onRun(sql);
+          }}
         >
           Run
           <Kbd className="ml-1">⌘↵</Kbd>
