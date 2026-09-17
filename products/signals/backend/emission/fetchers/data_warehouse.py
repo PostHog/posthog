@@ -10,6 +10,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
 
+from products.signals.backend.contracts import SCOPE_ID_MAX_LENGTH
 from products.signals.backend.emission.registry import SignalSourceTableConfig
 
 logger = structlog.get_logger(__name__)
@@ -34,7 +35,9 @@ def scope_ids_from_source_config(config: SignalSourceTableConfig, source_config:
     raw = source_config.get(config.scope_config_key)
     if not isinstance(raw, list):
         return []
-    return [value for value in raw if isinstance(value, str) and value]
+    # Truncated rather than dropped: no real scope id is this long, so a bounded entry still
+    # matches no record, while dropping every entry would widen the read to every scope.
+    return [value[:SCOPE_ID_MAX_LENGTH] for value in raw if isinstance(value, str) and value]
 
 
 def data_warehouse_record_fetcher(

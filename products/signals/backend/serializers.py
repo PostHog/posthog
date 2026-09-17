@@ -24,6 +24,7 @@ from products.signals.backend.contracts import (
     DEFAULT_NOT_ACTIONABLE_KEY,
     LINEAR_TEAM_IDS_KEY,
     LINEAR_TEAM_IDS_MAX_COUNT,
+    SCOPE_ID_MAX_LENGTH,
     STEERING_KEY,
     STEERING_MAX_LENGTH,
 )
@@ -268,6 +269,10 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                 if len(team_ids) > LINEAR_TEAM_IDS_MAX_COUNT:
                     raise serializers.ValidationError(
                         {"config": f"{LINEAR_TEAM_IDS_KEY} must have at most {LINEAR_TEAM_IDS_MAX_COUNT} entries"}
+                    )
+                if any(len(team_id) > SCOPE_ID_MAX_LENGTH for team_id in team_ids):
+                    raise serializers.ValidationError(
+                        {"config": f"each {LINEAR_TEAM_IDS_KEY} entry must be at most {SCOPE_ID_MAX_LENGTH} characters"}
                     )
         if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")

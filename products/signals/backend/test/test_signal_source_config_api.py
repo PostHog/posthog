@@ -428,6 +428,8 @@ class TestSignalSourceConfigSerializerValidation(SimpleTestCase):
             ("empty_list_means_all_teams", {"linear_team_ids": []}, True),
             ("at_cap", {"linear_team_ids": [f"team-{i}" for i in range(100)]}, True),
             ("over_cap", {"linear_team_ids": [f"team-{i}" for i in range(101)]}, False),
+            ("at_id_length_cap", {"linear_team_ids": ["t" * 255]}, True),
+            ("over_id_length_cap", {"linear_team_ids": ["t" * 256]}, False),
             ("not_a_list", {"linear_team_ids": "team-1"}, False),
             ("null", {"linear_team_ids": None}, False),
             ("non_string_entry", {"linear_team_ids": ["team-1", 2]}, False),

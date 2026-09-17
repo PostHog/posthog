@@ -25,6 +25,9 @@ STEERING_MAX_LENGTH = 2000
 # Linear team ids whose issues the Linear source reads; absent or empty means every team.
 LINEAR_TEAM_IDS_KEY = "linear_team_ids"
 LINEAR_TEAM_IDS_MAX_COUNT = 100
+# Per-id cap on a scope allowlist. The serializer rejects longer ids; reads truncate defensively
+# so a row written by another path cannot bloat the emission query past ClickHouse's size limit.
+SCOPE_ID_MAX_LENGTH = 255
 
 # The sources that emit straight through `emit_signal` and still honor steering, via the gate in
 # `emission/direct_gate.py`. Every other direct source skips the gate, so writing steering onto its
