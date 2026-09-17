@@ -326,10 +326,7 @@ jobs:
                   key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
 
             - name: Build agent dependencies
-              run: |
-                  pnpm --filter @posthog/shared run build
-                  pnpm --filter @posthog/git run build
-                  pnpm --filter @posthog/enricher run build
+              run: pnpm exec turbo build --filter=@posthog/agent^...
 
             - name: Download native codex binary
               # Non-fatal at the STEP so a failure surfaces as the fail-loud binary guard
