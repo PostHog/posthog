@@ -107,8 +107,10 @@ from products.feature_flags.backend.api.filters_schema import (
 from products.feature_flags.backend.api.remote_config_shadow import shadow_compare_remote_config
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
+    apply_approved_encrypted_payloads,
     encrypt_flag_payloads,
     get_decrypted_flag_payloads_protected,
+    restore_redacted_flag_payloads,
 )
 from products.feature_flags.backend.facade.config import detect_config_format
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
@@ -2113,7 +2115,11 @@ class FeatureFlagSerializer(
         # any path that reaches create() without it (e.g. approved-CR re-apply builds a fresh payload).
         self._apply_remote_config_default_filters(validated_data, filters_key="filters")
 
-        encrypt_flag_payloads(validated_data)
+        approved_payloads = self.context.get("approval_encrypted_payloads")
+        if approved_payloads:
+            apply_approved_encrypted_payloads(validated_data, approved_payloads)
+        else:
+            encrypt_flag_payloads(validated_data)
 
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
 
@@ -2241,8 +2247,18 @@ class FeatureFlagSerializer(
             validated_data["has_encrypted_payloads"] = True
             filters = validated_data.get("filters")
             new_true_payload = ((filters or {}).get("payloads") or {}).get("true")
+            approved_payloads = self.context.get("approval_encrypted_payloads")
 
-            if not new_true_payload or new_true_payload == REDACTED_PAYLOAD_VALUE:
+            if approved_payloads:
+                # The approved change request holds its payload as ciphertext, separate from the
+                # change being replayed, which carries only the sentinel. Restore the stored
+                # ciphertext for the keys the approval does not carry, then swap the approved
+                # ciphertext in over the keys it does.
+                if filters is not None:
+                    stored_payloads = (instance.filters or {}).get("payloads") or {}
+                    filters["payloads"] = restore_redacted_flag_payloads(filters.get("payloads") or {}, stored_payloads)
+                apply_approved_encrypted_payloads(validated_data, approved_payloads)
+            elif not new_true_payload or new_true_payload == REDACTED_PAYLOAD_VALUE:
                 # Preserve the existing encrypted payload when the request didn't
                 # supply a fresh one — either because `filters.payloads` was
                 # omitted (partial PATCH from the V2 form), the redacted
@@ -2257,12 +2273,7 @@ class FeatureFlagSerializer(
                         raise exceptions.ValidationError(
                             "An encrypted payload is required when has_encrypted_payloads is true."
                         )
-                    payloads = filters.get("payloads") or {}
-                    # validate_filters substitutes the sentinel for every stored key, so restoring
-                    # only "true" would persist the placeholder over the other keys' ciphertext.
-                    for key, value in payloads.items():
-                        if value == REDACTED_PAYLOAD_VALUE and key in stored_payloads:
-                            payloads[key] = stored_payloads[key]
+                    payloads = restore_redacted_flag_payloads(filters.get("payloads") or {}, stored_payloads)
                     payloads["true"] = stored_payloads["true"]
                     filters["payloads"] = payloads
             else:
