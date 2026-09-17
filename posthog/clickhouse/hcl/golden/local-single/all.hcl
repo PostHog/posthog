@@ -6091,6 +6091,9 @@ SQL
     column "entry_pathname" {
       type = "String"
     }
+    column "pageview_count" {
+      type = "UInt64"
+    }
     column "computed_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "now()"
@@ -12135,6 +12138,9 @@ SQL
     }
     column "entry_pathname" {
       type = "String"
+    }
+    column "pageview_count" {
+      type = "UInt64"
     }
     column "computed_at" {
       type    = "DateTime64(6, 'UTC')"

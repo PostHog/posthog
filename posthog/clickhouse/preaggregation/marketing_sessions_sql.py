@@ -55,6 +55,9 @@ CREATE TABLE IF NOT EXISTS {table_name}
     referring_domain String,
     entry_pathname String,
 
+    -- Pageviews in the session, so a read can report views next to visitors and sessions.
+    pageview_count UInt64,
+
     computed_at DateTime64(6, 'UTC') DEFAULT now(),
     expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
 ) ENGINE = {engine}
