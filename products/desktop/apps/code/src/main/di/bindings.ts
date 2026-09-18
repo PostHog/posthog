@@ -129,6 +129,7 @@ import type { DEEP_LINK_SERVICE } from "@posthog/platform/deep-link";
 import type { DEV_HOST_ACTIONS_SERVICE } from "@posthog/platform/dev-host-actions";
 import type { DIALOG_SERVICE } from "@posthog/platform/dialog";
 import type { DISK_CACHE_SERVICE } from "@posthog/platform/disk-cache";
+import type { FEEDBACK_CONTEXT_SERVICE } from "@posthog/platform/feedback-context";
 import type { FILE_ICON_SERVICE } from "@posthog/platform/file-icon";
 import type { IMAGE_PROCESSOR_SERVICE } from "@posthog/platform/image-processor";
 import type { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
@@ -246,6 +247,7 @@ import type { ElectronContextMenu } from "../platform-adapters/electron-context-
 import type { ElectronCrypto } from "../platform-adapters/electron-crypto";
 import type { ElectronDevHostActions } from "../platform-adapters/electron-dev-host-actions";
 import type { ElectronDialog } from "../platform-adapters/electron-dialog";
+import type { ElectronFeedbackContext } from "../platform-adapters/electron-feedback-context";
 import type { ElectronFileIcon } from "../platform-adapters/electron-file-icon";
 import type { ElectronImageProcessor } from "../platform-adapters/electron-image-processor";
 import type { ElectronMainWindow } from "../platform-adapters/electron-main-window";
@@ -337,6 +339,7 @@ export interface MainBindings {
   [CLIPBOARD_SERVICE]: ElectronClipboard;
   [CRYPTO_SERVICE]: ElectronCrypto;
   [ANALYTICS_SERVICE]: IAnalytics;
+  [FEEDBACK_CONTEXT_SERVICE]: ElectronFeedbackContext;
   [FILE_ICON_SERVICE]: ElectronFileIcon;
   [SECURE_STORAGE_SERVICE]: ElectronSecureStorage;
   [MAIN_WINDOW_SERVICE]: ElectronMainWindow;

@@ -882,15 +882,21 @@ tools:
         description: >
             Schedule a re-measurement of a report's claim, so "did the fix hold?" becomes a stored fact instead of
             something a future run has to remember to look for. Write one when this run surfaces something whose fix
-            would show up in data later. Use `metric_threshold` when a bounded query and a baseline exist: pass a
-            `config` with a `metric_id` naming one of the report's own metrics (or your own bounded Trends `query`), a
-            `comparison` (`lte` / `gte` / `between`) saying what the value must satisfy, and the `baseline_value` you
-            measured now. Use `agent` for a claim no single number settles: pass `instructions` saying what a later run
-            must establish and `probe_hints` naming the issue ids, services, or queries to look at; it runs on the scout
-            you name in `skill_name`, or on the fleet's follow-up scout when you name none. `next_run_at` is when to
-            first look, so allow deploy and soak time. The verdict lands on the report as a `check_result` entry people
-            read in the inbox. Check `scout-report-check-list` first: a report holds at most five open checks, and a
-            second check for the same claim is noise.
+            would show up in data later. Pass the `run_id` of your own in-progress run and the `report_id` of the report
+            the check belongs to. Use `metric_threshold` when a bounded query and a baseline exist: pass a `config` with
+            a `metric_id` naming one of the report's own metrics (or your own bounded Trends `query`), a `comparison`
+            (`lte` / `gte` / `between`) saying what the value must satisfy, and the `baseline_value` you measured now. A
+            `query` you supply must keep `dateRange.date_from` relative (`-13d`) and `date_to` empty, so each run
+            measures the days before it rather than the days before the check was written — absolute dates are refused.
+            The query must produce exactly one output series: use one event or action series, or combine up to ten of
+            them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric`
+            turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`,
+            which keeps compare mode off already. Use `agent` for a claim no single number settles: pass `instructions`
+            saying what a later run must establish and `probe_hints` naming the issue ids, services, or queries to look
+            at; it runs on the scout you name in `skill_name`, or on the fleet's follow-up scout when you name none.
+            `next_run_at` is when to first look, so allow deploy and soak time. The verdict lands on the report as a
+            `check_result` entry people read in the inbox. Check `scout-report-check-list` first: a report holds at most
+            five open checks, and a second check for the same claim is noise.
     scout-report-check-list:
         operation: signals_scout_report_checks_list
         enabled: true
@@ -902,7 +908,8 @@ tools:
             idempotent: true
         title: List a report's follow-up checks
         description: >
-            Every follow-up check on one report, newest first, with its kind, status, next run and last verdict. Read
+            Every follow-up check on one report, newest first, with its kind, status, next run and last verdict. Pass
+            the `run_id` of your own in-progress run and the `report_id` of the report to read; both are required. Read
             this before writing a check: a report already carrying one for the same claim needs no second, and a report
             holds at most five open checks at a time. A `pending` check is waiting for the report to resolve before its
             clock starts; every status other than `pending` and `active` is terminal.

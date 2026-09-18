@@ -79,3 +79,15 @@ ADD_URLS = """
 ALTER TABLE {table_name}
 ADD COLUMN IF NOT EXISTS urls SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)) AFTER max_inserted_at
 """
+
+
+ADD_FLAG_KEY_VALUES = """
+ALTER TABLE {table_name}
+ADD COLUMN IF NOT EXISTS flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)) AFTER has_autocapture
+"""
+
+
+ADD_FLAG_KEY_VALUES_BLOOM_FILTER = """
+ALTER TABLE {table_name}
+ADD INDEX IF NOT EXISTS flag_key_values_bloom_filter flag_key_values TYPE bloom_filter() GRANULARITY 1
+"""

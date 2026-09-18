@@ -860,6 +860,9 @@ class TestPromptBuilder(BaseTest):
         # scout would otherwise pay on a fresh team.
         assert "Then: orient on this project" in prompt
         assert "scout-project-profile-get" in prompt
+        assert "summary.emit_eligibility.can_emit" in prompt
+        assert "For `scout_emit_disabled`, continue the investigation without emitting findings or reports." in prompt
+        assert "Do not close out early because of this dry-run setting." in prompt
         # The base prompt teaches the agent to call the harness MCP tools by name.
         assert "scout-emit-signal" in prompt
         assert "scout-scratchpad-search" in prompt
