@@ -291,7 +291,8 @@ Local and debug environments may use the service directly. Production integratio
 feature flag and should progress through shadow comparison before serving editor results.
 The Go consumer accepts alias metadata, and Django always publishes resolver-confirmed warehouse aliases.
 Django refreshes cached catalogs with numeric or `legacy-v1` revisions before it uses their responses.
-Each request attempts at most one publication and one retry, and the retry must return the exact revision that Django published.
+Each request attempts at most one publication and one retry.
+The retry must return an alias-capable revision, but a concurrent publication for the same team and user can supersede the requested revision.
 If publication fails or a catalog cannot represent the resolver result, Django uses the Python autocomplete or validation path.
 
 The initial rollout keeps ClickHouse execution in Django:

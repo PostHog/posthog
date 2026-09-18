@@ -273,12 +273,22 @@ class TestLanguageServiceRouting(SimpleTestCase):
         assert result is None
         client_class.return_value.publish.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("warehouse-aliases-v1:concurrent", True),
+            ("legacy-v1:other", False),
+            (None, False),
+            (123, False),
+        ]
+    )
     @patch("posthog.api.services.query.build_catalog", return_value={"tables": {}, "properties": {}})
     @patch("posthog.api.services.query._build_database_schema_query")
     @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
     @patch("posthog.api.services.query.LanguageServiceClient")
-    def test_falls_back_when_the_retry_uses_a_different_revision(
+    def test_classifies_the_retry_catalog_revision(
         self,
+        retry_revision: object,
+        expected_success: bool,
         client_class: MagicMock,
         _enabled: MagicMock,
         build_schema: MagicMock,
@@ -291,7 +301,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
                 response_size_bytes=0,
             ),
             LanguageServiceResult(
-                body={"valid": True, "catalogRevision": "warehouse-aliases-v1:other"},
+                body={"valid": True, "catalogRevision": retry_revision},
                 duration_seconds=0,
                 response_size_bytes=0,
             ),
@@ -304,7 +314,8 @@ class TestLanguageServiceRouting(SimpleTestCase):
             HogQLMetadata(query="SELECT 1", language=HogLanguage.HOG_QL),
         )
 
-        assert result is None
+        assert (result is not None) is expected_success
+        client_class.return_value.publish.assert_called_once()
         assert client_class.return_value.validate.call_count == 2
 
 
