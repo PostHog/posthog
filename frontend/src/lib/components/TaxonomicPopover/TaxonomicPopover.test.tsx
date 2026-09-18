@@ -5,12 +5,15 @@ import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
 import { mockGetEventDefinitions } from '~/test/mocks'
 
+import { taxonomicMenuPreferenceLogic } from './taxonomicMenuPreferenceLogic'
 import { TaxonomicPopover, TaxonomicStringPopover } from './TaxonomicPopover'
 
 jest.mock('lib/components/AutoSizer', () => ({
@@ -40,6 +43,8 @@ describe('TaxonomicPopover', () => {
     })
 
     afterEach(() => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        taxonomicMenuPreferenceLogic.actions.setUseNewMenu(true)
         cleanup()
     })
 
@@ -72,6 +77,25 @@ describe('TaxonomicPopover', () => {
 
         await waitFor(() => {
             expect(actionRequestCount).toBe(1)
+        })
+    })
+
+    it('opens the rebuilt actions picker', async () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]: true })
+        taxonomicMenuPreferenceLogic.mount()
+        taxonomicMenuPreferenceLogic.actions.setUseNewMenu(true)
+
+        renderPopover({
+            groupType: TaxonomicFilterGroupType.Actions,
+            groupTypes: [TaxonomicFilterGroupType.Actions],
+        })
+
+        await userEvent.click(screen.getByTestId('taxonomic-popover-menu-trigger'))
+        await userEvent.click(screen.getByTestId('taxonomic-filter-menu-new'))
+
+        await waitFor(() => {
+            expect(screen.getByTestId('menu-filter-search')).toBeInTheDocument()
         })
     })
 
