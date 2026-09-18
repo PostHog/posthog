@@ -10,9 +10,17 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from botocore.exceptions import ClientError
 
+from posthog import settings
+
 from products.signals.dags.inbox_ranking.common import partition_object_key
 from products.signals.dags.inbox_ranking.dataset.queries import region_app_host
-from products.signals.dags.inbox_ranking.shadow.dag import GRADE_SCHEMA, grade_rows, impression_frame, load_scores
+from products.signals.dags.inbox_ranking.shadow.dag import (
+    GRADE_SCHEMA,
+    grade_rows,
+    impression_frame,
+    load_scores,
+    score_lookback_dates,
+)
 from products.signals.dags.inbox_ranking.shadow.metrics import (
     ALL_ROWS_SCOPE,
     ATTRIBUTION_WINDOW,
@@ -497,6 +505,16 @@ def _scores_object(frame: pd.DataFrame) -> bytes:
     sink = io.BytesIO()
     pq.write_table(pa.Table.from_pandas(frame, preserve_index=False), sink)
     return sink.getvalue()
+
+
+def test_the_score_window_reaches_the_partition_day_a_birth_day_score_lands_in():
+    dates = score_lookback_dates(DAY)
+
+    # dt=D holds the scores of the reports born on D, so a window stopping at D-1 sees no score at
+    # all for a report impressed on its birth day and reads it as one the pool never held.
+    assert dates[-1] == DAY
+    assert dates[0] == DAY - datetime.timedelta(days=settings.INBOX_RANKING_SHADOW_SCORE_LOOKBACK_DAYS)
+    assert len(dates) == len(set(dates)) == settings.INBOX_RANKING_SHADOW_SCORE_LOOKBACK_DAYS + 1
 
 
 def test_load_scores_reads_the_window_and_names_the_family_of_older_objects():

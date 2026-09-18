@@ -104,9 +104,9 @@ GRADE_SCHEMA = pa.schema(_GRADE_FIELDS)
 # exist. Partitions before the label epoch have no upstream to map to.
 _SCORE_LOOKBACK_MAPPING = dagster.TimeWindowPartitionMapping(
     start_offset=-settings.INBOX_RANKING_SHADOW_SCORE_LOOKBACK_DAYS,
-    # dt=D's own scores are written the next morning, after every list of D was served, so they can
-    # never be part of this read.
-    end_offset=-1,
+    # dt=D's own scores are written the next morning, so they can never rank a list D served. The
+    # window still reaches them, for the reason `score_lookback_dates` gives.
+    end_offset=0,
     allow_nonexistent_upstream_partitions=True,
 )
 
@@ -134,6 +134,21 @@ def outcome_frame(rows: list[tuple[object, ...]]) -> pd.DataFrame:
     frame = pd.DataFrame(rows, columns=list(OUTCOME_COLUMNS))
     frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True)
     return frame
+
+
+def score_lookback_dates(day: datetime.date) -> list[datetime.date]:
+    """The scores partitions a dt=`day` read covers, oldest first.
+
+    `day` itself is in the window although its scores are written the next morning and so can
+    never be available to a list it served. It is the only partition holding the score of a report
+    born on `day`, and `join_scores` needs that row to be present to call an impression of it
+    pending rather than never scored. The availability filter is what keeps the score itself out
+    of the ranking.
+    """
+    return [
+        day - datetime.timedelta(days=offset)
+        for offset in range(settings.INBOX_RANKING_SHADOW_SCORE_LOOKBACK_DAYS, -1, -1)
+    ]
 
 
 def load_scores(client, bucket: str, prefix: str, dates: list[datetime.date]) -> pd.DataFrame:
@@ -260,15 +275,7 @@ def inbox_ranking_shadow_eval(context: dagster.AssetExecutionContext) -> None:
     )
 
     lists = deduplicate_lists(with_outcomes(impressions, outcomes))
-    scores = load_scores(
-        client,
-        bucket,
-        prefix,
-        [
-            day - datetime.timedelta(days=offset)
-            for offset in range(settings.INBOX_RANKING_SHADOW_SCORE_LOOKBACK_DAYS, 0, -1)
-        ],
-    )
+    scores = load_scores(client, bucket, prefix, score_lookback_dates(day))
     joined = join_scores(lists, scores)
     served_rows = len(lists)
     coverage = score_coverage(served_rows, joined)
@@ -326,7 +333,8 @@ inbox_ranking_shadow_job = dagster.define_asset_job(
 
 
 # Runs after the training job's own budget, so dt=D-1's scores are written before the day that
-# needs them next; this read itself only ever uses scores from before its own partition.
+# needs them next and dt=D's own object exists for the pending check; only the partitions before
+# dt=D can rank a list.
 @dagster.schedule(
     cron_schedule="30 9 * * *",
     job=inbox_ranking_shadow_job,
