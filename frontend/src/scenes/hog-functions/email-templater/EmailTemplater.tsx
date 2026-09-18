@@ -127,7 +127,7 @@ function DestinationEmailTemplaterForm({
     mode: EmailEditorMode
     fieldsHidden?: boolean
 }): JSX.Element {
-    const { logicProps, mergeTags, activeContentTab, emailTemplate } = useValues(emailTemplaterLogic)
+    const { logicProps, mergeTags, activeContentTab } = useValues(emailTemplaterLogic)
     const { setEmailEditorRef, onEmailEditorReady } = useActions(emailTemplaterLogic)
 
     return (
@@ -227,10 +227,7 @@ function DestinationEmailTemplaterForm({
                                     )}
                                 >
                                     <div className="absolute inset-0 opacity-50 bg-surface-primary" />
-                                    {/* A plain-text-only email has no html, so content is judged on every shape */}
-                                    <EmailPreviewOverlayButtons
-                                        hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
-                                    />
+                                    <EmailPreviewOverlayButtons />
                                 </div>
 
                                 {/* The floor keeps the preview readable where the host gives it no
@@ -474,29 +471,37 @@ function LiquidSupportedText({
 }
 
 export function TemplatePickerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
-    const { templates } = useValues(emailTemplaterLogic)
-    const { applyTemplate } = useActions(emailTemplaterLogic)
+    const { templates, hasEmailContent } = useValues(emailTemplaterLogic)
+    const { applyTemplateWithConfirmation } = useActions(emailTemplaterLogic)
 
     return (
-        <LemonModal isOpen={isOpen} onClose={onClose} title="Choose a starting point" width={880}>
+        <LemonModal
+            isOpen={isOpen}
+            onClose={onClose}
+            title={hasEmailContent ? 'Choose a template' : 'Choose a starting point'}
+            width={880}
+        >
             <div className="flex flex-wrap gap-3">
-                <LemonCard
-                    className="w-48 h-56 flex flex-col gap-2 items-center justify-center cursor-pointer"
-                    onClick={onClose}
-                    data-attr="template-picker-blank"
-                >
-                    <IconPlus className="text-2xl" />
-                    <span>Blank template</span>
-                </LemonCard>
+                {/* On an email that already has content, keeping the current content is what closing
+                    the picker does, so the blank card would be a no-op. */}
+                {!hasEmailContent && (
+                    <LemonCard
+                        className="w-48 h-56 flex flex-col gap-2 items-center justify-center cursor-pointer"
+                        onClick={onClose}
+                        data-attr="template-picker-blank"
+                    >
+                        <IconPlus className="text-2xl" />
+                        <span>Blank template</span>
+                    </LemonCard>
+                )}
                 {templates.map((template, index) => (
                     <div key={template.id} className="w-48 h-56">
+                        {/* The picker stays open until the replacement is confirmed, so a canceled
+                            confirmation returns to the list rather than to the editor. */}
                         <MessageTemplateCard
                             template={template}
                             index={index}
-                            onClick={() => {
-                                applyTemplate(template)
-                                onClose()
-                            }}
+                            onClick={() => applyTemplateWithConfirmation(template)}
                         />
                     </div>
                 ))}
@@ -512,7 +517,7 @@ function NativeEmailTemplaterForm({
     mode: EmailEditorMode
     fieldsHidden?: boolean
 }): JSX.Element {
-    const { unlayerEditorProjectId, logicProps, templates, mergeTags, activeContentTab, visibleFields, emailTemplate } =
+    const { unlayerEditorProjectId, logicProps, templates, mergeTags, activeContentTab, visibleFields } =
         useValues(emailTemplaterLogic)
     const { setEmailEditorRef, onEmailEditorReady, setActiveContentTab, hideAdvancedField, revealAdvancedField } =
         useActions(emailTemplaterLogic)
@@ -753,10 +758,7 @@ function NativeEmailTemplaterForm({
                                     )}
                                 >
                                     <div className="absolute inset-0 opacity-50 bg-surface-primary" />
-                                    {/* A plain-text-only email has no html, so content is judged on every shape */}
-                                    <EmailPreviewOverlayButtons
-                                        hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
-                                    />
+                                    <EmailPreviewOverlayButtons />
                                 </div>
 
                                 {/* The floor keeps the preview readable where the host gives it no
@@ -779,11 +781,11 @@ function NativeEmailTemplaterForm({
     )
 }
 
-function EmailPreviewOverlayButtons({ hasContent }: { hasContent: boolean }): JSX.Element {
-    const { templates } = useValues(emailTemplaterLogic)
+function EmailPreviewOverlayButtons(): JSX.Element {
+    const { templates, hasEmailContent } = useValues(emailTemplaterLogic)
     const { setIsModalOpen, setIsTemplatePickerOpen } = useActions(emailTemplaterLogic)
 
-    if (hasContent) {
+    if (hasEmailContent) {
         return (
             <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
                 Click to modify content
@@ -901,9 +903,15 @@ function EmailTemplaterEditorPanel({
     // The takeover has no LemonModal chrome, so it asks for an explicit close button here.
     onClose?: () => void
 }): JSX.Element {
-    const { isModalOpen, isEmailEditorReady, activeContentTab } = useValues(emailTemplaterLogic)
-    const { closeWithConfirmation, submitEmailTemplate, setIsSaveTemplateModalOpen, setActiveContentTab } =
-        useActions(emailTemplaterLogic)
+    const { isModalOpen, isEmailEditorReady, activeContentTab, templates, templatesLoading } =
+        useValues(emailTemplaterLogic)
+    const {
+        closeWithConfirmation,
+        submitEmailTemplate,
+        setIsSaveTemplateModalOpen,
+        setIsTemplatePickerOpen,
+        setActiveContentTab,
+    } = useActions(emailTemplaterLogic)
     // Fields start collapsed: in embedded contexts they duplicate the surrounding form.
     const [fieldsHidden, setFieldsHidden] = useState(true)
 
@@ -944,7 +952,17 @@ function EmailTemplaterEditorPanel({
                 )}
             </div>
             <EmailTemplaterForm mode="full" fieldsHidden={fieldsHidden} />
-            <div className="flex gap-2 items-center shrink-0">
+            <div className="flex flex-wrap gap-2 items-center shrink-0">
+                {(templatesLoading || templates.length > 0) && (
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => setIsTemplatePickerOpen(true)}
+                        loading={templatesLoading}
+                        data-attr="email-templater-use-template"
+                    >
+                        Use a template
+                    </LemonButton>
+                )}
                 <LemonButton type="secondary" onClick={() => setIsSaveTemplateModalOpen(true)}>
                     Save as new template
                 </LemonButton>

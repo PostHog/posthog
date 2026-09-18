@@ -170,6 +170,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                             onChangeTemplating={(templating) =>
                                 setTemplateValue('content.email.templating', templating)
                             }
+                            onTemplateApplied={() => setTemplatePickerOpen(false)}
                             type="native_email_template"
                             layout="inline"
                         />
