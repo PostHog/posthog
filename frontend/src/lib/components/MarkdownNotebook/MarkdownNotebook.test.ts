@@ -913,7 +913,7 @@ Following paragraph`,
         expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeInstanceOf(HTMLElement)
     })
 
-    it('opens links on a plain click while editing, but not when the click reaches for the text', () => {
+    it('opens links on modifier-click while editing but not on plain click', () => {
         const windowOpen = jest.spyOn(window, 'open').mockImplementation(() => null)
         const { container } = render(
             createElement(MarkdownNotebook, { value: withNotebookTitle('See [docs](https://posthog.com/docs)') })
@@ -922,17 +922,10 @@ Following paragraph`,
         expect(link).toBeInstanceOf(HTMLAnchorElement)
 
         fireEvent.click(link)
-        expect(windowOpen).toHaveBeenCalledWith('https://posthog.com/docs', '_blank', 'noopener')
+        expect(windowOpen).not.toHaveBeenCalled()
 
-        windowOpen.mockClear()
         fireEvent.click(link, { metaKey: true })
         expect(windowOpen).toHaveBeenCalledWith('https://posthog.com/docs', '_blank', 'noopener')
-
-        // Alt-click and the second click of a double-click only place the caret
-        windowOpen.mockClear()
-        fireEvent.click(link, { altKey: true })
-        fireEvent.click(link, { detail: 2 })
-        expect(windowOpen).not.toHaveBeenCalled()
 
         // View mode keeps native navigation: the handler must not add a second open
         windowOpen.mockClear()
@@ -948,6 +941,42 @@ Following paragraph`,
         expect(windowOpen).not.toHaveBeenCalled()
 
         windowOpen.mockRestore()
+    })
+
+    it('hints Ctrl-click on a hovered link while editing, but not in view mode', () => {
+        jest.useFakeTimers()
+        try {
+            const hoverLink = (mode: 'edit' | 'view'): HTMLAnchorElement => {
+                const { container } = render(
+                    createElement(MarkdownNotebook, {
+                        value: withNotebookTitle('See [docs](https://posthog.com/docs)'),
+                        mode,
+                    })
+                )
+                const link = container.querySelector('.MarkdownNotebook__text-block a[href]') as HTMLAnchorElement
+                fireEvent.mouseOver(link)
+                act(() => {
+                    jest.advanceTimersByTime(1000)
+                })
+                return link
+            }
+
+            const link = hoverLink('edit')
+            expect(document.body.textContent).toContain('Ctrl + click to open link')
+
+            // Moving onto the surrounding text clears the hint
+            fireEvent.mouseOver(link.parentElement as HTMLElement)
+            act(() => {
+                jest.advanceTimersByTime(1000)
+            })
+            expect(document.body.textContent).not.toContain('click to open link')
+
+            // A plain click already opens links in view mode, so the hint would be wrong there
+            hoverLink('view')
+            expect(document.body.textContent).not.toContain('click to open link')
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('opens the link editor automatically when the selection is inside a link, without stealing focus', () => {
