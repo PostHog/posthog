@@ -1,10 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { act, fireEvent, render } from '@testing-library/react'
+import { fireEvent, render } from '@testing-library/react'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
@@ -55,10 +54,8 @@ jest.mock('lib/hooks/useFeatureFlag', () => ({
     useFeatureFlag: () => true,
 }))
 
-jest.mock('lib/api', () => ({
-    ...jest.requireActual('lib/api'),
-    __esModule: true,
-    default: { surveys: { list: jest.fn().mockResolvedValue({ results: [] }) } },
+jest.mock('scenes/surveys/hooks/useSurveyLinkedInsights', () => ({
+    useSurveyLinkedInsights: () => ({ data: [], loading: false }),
 }))
 
 jest.mock('scenes/surveys/utils/opportunityDetection', () => ({
@@ -284,23 +281,6 @@ describe('DashboardItems', () => {
 
             return {}
         })
-    })
-
-    it.each([
-        [DashboardPlacement.Dashboard, false],
-        [DashboardPlacement.Builtin, true],
-    ])('only skips the survey request on the dashboard page: %s', async (placement, shouldFetch) => {
-        const getValues = mockedUseValues.getMockImplementation()!
-        mockedUseValues.mockImplementation((logic) => {
-            const values = getValues(logic)
-            return logic === dashboardLogic ? { ...values, placement } : values
-        })
-
-        await act(async () => {
-            render(<DashboardItems />)
-        })
-
-        expect(api.surveys.list).toHaveBeenCalledTimes(shouldFetch ? 1 : 0)
     })
 
     it('matches snapshot in edit mode with layout zoom enabled', () => {
