@@ -135,8 +135,11 @@ class HmacSha256:
             return True
         if self.signature_pattern is not None and not self.signature_pattern.match(provided):
             return True
-        # Freshness needs the clock rather than the headers, so it stays in `_outcome`.
-        return self.timestamp_header is not None and not header_value(headers, self.timestamp_header)
+        if self.timestamp_header is None:
+            return False
+        # Freshness needs only the clock, so a malformed or stale timestamp costs no body read either.
+        timestamp = header_value(headers, self.timestamp_header)
+        return not timestamp or not self._timestamp_is_fresh(timestamp)
 
     def rejects_headers(self, headers: Mapping[str, str]) -> bool:
         # An unconfigured endpoint keeps answering NOT_CONFIGURED, whatever the headers carry.
@@ -154,11 +157,7 @@ class HmacSha256:
         # Present and well-shaped, because `rejects_headers` just said so.
         provided = header_value(headers, self.signature_header) or ""
 
-        timestamp: str | None = None
-        if self.timestamp_header is not None:
-            timestamp = header_value(headers, self.timestamp_header)
-            if not timestamp or not self._timestamp_is_fresh(timestamp):
-                return VerificationOutcome.INVALID
+        timestamp = header_value(headers, self.timestamp_header) if self.timestamp_header is not None else None
 
         expected = self._expected_signature(secret, self._signed_bytes(body, timestamp))
         if signatures_match(expected, provided):
