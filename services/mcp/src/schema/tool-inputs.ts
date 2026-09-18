@@ -674,8 +674,10 @@ export const ProjectSetActiveSchema = z.object({
 })
 
 const taskAgentRunOptions = {
-    scheduled_at: z.iso
-        .datetime({ offset: true, local: true })
+    // Use a pattern because JSON Schema's date-time format requires a timezone offset.
+    scheduled_at: z
+        .string()
+        .regex(z.regexes.datetime({ offset: true, local: true }))
         .nullish()
         .describe(
             'Earliest start time for a one-off run. Use a future ISO 8601 timestamp within 90 days. Times without an offset use UTC. Omit to start immediately.'
