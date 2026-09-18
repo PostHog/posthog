@@ -16,7 +16,9 @@ const (
 	completionModeComparison
 	completionModeBetweenSeparator
 	completionModePredicateContinuation
+	completionModeJoinPredicateContinuation
 	completionModePostExpression
+	completionModeJoinPostExpression
 	completionModeStatementStart
 )
 
@@ -55,8 +57,20 @@ func analyzeCursorContext(input string) completionMode {
 		}
 	case "SELECT", "GROUP BY", "ORDER BY":
 		return completionModeExpression
-	case "WHERE", "PREWHERE", "HAVING", "ON":
+	case "WHERE", "PREWHERE", "HAVING":
 		return predicateMode(tokens[clauseIndex+1:], depth)
+	case "ON":
+		mode := predicateMode(tokens[clauseIndex+1:], depth)
+		if tokens[clauseIndex].depth != depth {
+			return mode
+		}
+		if mode == completionModePredicateContinuation {
+			return completionModeJoinPredicateContinuation
+		}
+		if mode == completionModePostExpression {
+			return completionModeJoinPostExpression
+		}
+		return mode
 	}
 	return completionModeGeneral
 }

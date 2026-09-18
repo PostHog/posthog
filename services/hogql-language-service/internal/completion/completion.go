@@ -46,6 +46,7 @@ var keywords = []string{"SELECT", "FROM", "WHERE", "GROUP BY", "ORDER BY", "LIMI
 var queryStarters = []catalog.Entry{{Name: "SELECT"}, {Name: "WITH"}}
 var betweenSeparator = []string{"AND"}
 var predicateContinuations = []string{"AND", "OR", "GROUP BY", "ORDER BY", "LIMIT"}
+var joinPredicateContinuations = []string{"AND", "OR", "WHERE", "GROUP BY", "ORDER BY", "LIMIT"}
 var comparisonOperators = []string{"=", "!=", "<", "<=", ">", ">=", "LIKE", "ILIKE", "IN", "NOT IN", "IS NULL", "IS NOT NULL", "BETWEEN", "NOT BETWEEN"}
 var commonFunctions = []string{"avg", "coalesce", "count", "countDistinct", "countIf", "if", "max", "min", "now", "sum", "sumIf", "toDate", "toDateTime", "uniq", "uniqExact"}
 var simpleHogQLIdentifier = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
@@ -140,9 +141,14 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 		suggestions = appendNamed(suggestions, betweenSeparator, lowerPrefix, "keyword", "")
 	} else if mode == completionModePredicateContinuation {
 		suggestions = appendNamed(suggestions, predicateContinuations, lowerPrefix, "keyword", "")
+	} else if mode == completionModeJoinPredicateContinuation {
+		suggestions = appendNamed(suggestions, joinPredicateContinuations, lowerPrefix, "keyword", "")
 	} else if mode == completionModePostExpression {
 		suggestions = appendNamed(suggestions, comparisonOperators, lowerPrefix, "operator", "")
 		suggestions = appendNamed(suggestions, predicateContinuations, lowerPrefix, "keyword", "")
+	} else if mode == completionModeJoinPostExpression {
+		suggestions = appendNamed(suggestions, comparisonOperators, lowerPrefix, "operator", "")
+		suggestions = appendNamed(suggestions, joinPredicateContinuations, lowerPrefix, "keyword", "")
 	} else {
 		suggestions = fieldSuggestions(bindings, lowerPrefix)
 		if document != nil && document.LimitError() != nil {
