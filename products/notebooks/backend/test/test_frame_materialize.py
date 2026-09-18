@@ -18,7 +18,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.schema import QueryStatus
 
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import PostgresLinkUnavailableError
+from posthog.hogql.errors import POSTGRES_LINK_UNAVAILABLE_MESSAGE, PostgresLinkUnavailableError
 from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.client.execute import _KILL_SWITCH_SETTINGS, KillSwitchLevel
@@ -158,7 +158,11 @@ class TestFrameMaterializeEnqueue(APIBaseTest):
 
         with (
             patch.object(frame_materialize, "_materialize_slots"),
-            patch.object(frame_materialize, "_print_clickhouse_sql", side_effect=PostgresLinkUnavailableError()),
+            patch.object(
+                frame_materialize,
+                "_print_clickhouse_sql",
+                side_effect=PostgresLinkUnavailableError(POSTGRES_LINK_UNAVAILABLE_MESSAGE),
+            ),
         ):
             with self.assertRaises(exceptions.ApplicationError) as caught:
                 frame_materialize.materialize_frame(inputs)

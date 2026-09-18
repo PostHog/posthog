@@ -10,7 +10,7 @@ from psycopg.conninfo import conninfo_to_dict
 from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable
-from posthog.hogql.errors import PostgresLinkUnavailableError
+from posthog.hogql.errors import POSTGRES_LINK_UNAVAILABLE_MESSAGE, PostgresLinkUnavailableError
 from posthog.hogql.escape_sql import escape_hogql_identifier
 
 from posthog.person_db_router import PERSONS_DB_MODELS
@@ -101,7 +101,7 @@ def build_function_call(postgres_table_name: str, context: Optional[HogQLContext
                     if not value
                 ],
             )
-            raise PostgresLinkUnavailableError()
+            raise PostgresLinkUnavailableError(POSTGRES_LINK_UNAVAILABLE_MESSAGE)
 
         address = add_param(f"{host_var}:{port_var}")
         db = add_param(database_var)
