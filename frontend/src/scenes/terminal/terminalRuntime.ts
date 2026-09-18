@@ -49,8 +49,9 @@ export class TerminalRuntime {
                 signal
             ),
             verifiedImage(
-                'https://i.copy.sh/buildroot-bzimage68.bin',
-                '507a759c70ab7a490a233be454d0b5b88bc667956a410b531cb4edc091e2eb1c',
+                // This image's uncached 9P reads work before API file sizes are known; Linux 6.8 clamps them to zero.
+                'https://i.copy.sh/buildroot-bzimage.bin',
+                '7befbaea31e249d9a518c4b95fa42b2a193d0e3de46250d617cbdeb866ee28b0',
                 signal
             ),
             verifiedImage(jqUrl, 'ba996e8ce436973e2f39e2639405a37e8c81ba8c722b71c83996278ad0af16dd', signal),
