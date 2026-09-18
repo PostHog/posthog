@@ -10,13 +10,14 @@ import { StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { AnalyzeResponsesButton } from 'scenes/surveys/components/AnalyzeResponsesButton'
 import { MultipleChoiceQuestionViz } from 'scenes/surveys/components/question-visualizations/MultipleChoiceQuestionViz'
 import { OpenQuestionViz } from 'scenes/surveys/components/question-visualizations/OpenQuestionViz'
-import { resolveQuestionVizState } from 'scenes/surveys/components/question-visualizations/questionVizState'
 import { SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { QuestionProcessedResponses, SurveyEventProperties, SurveyQuestion, SurveyQuestionType } from '~/types'
+
+import { resolveQuestionVizState } from 'products/surveys/frontend/components/question-visualizations/questionVizState'
 
 import { SCALE_LABELS } from '../../constants'
 import { isThumbQuestion } from '../../utils'
