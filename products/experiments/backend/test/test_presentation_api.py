@@ -337,8 +337,6 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         [
             ("primary_metrics", "metrics", "purchase"),
             ("secondary_metrics", "metrics_secondary", "purchase"),
-            # The event name is interpolated into a jsonpath literal, so a name carrying a quote or a
-            # backslash must be escaped rather than terminating or altering the expression.
             ("quoted_event_name", "metrics", 'clicked "buy now"'),
             ("backslash_event_name", "metrics", "path\\to\\event"),
         ]
@@ -353,7 +351,6 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            # An action id is normally stored as a number, but some metric payloads hold it as a string.
             ("numeric_id", False),
             ("string_id", True),
         ]
@@ -411,8 +408,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(self._event_filter_results("checkout"), [])
 
     def test_matching_ids_filters_by_event(self) -> None:
-        # matching_ids reruns the list filters over a queryset narrowed to `only("id", "created_by")`,
-        # so the event predicate has to survive that narrowing.
+        # The event predicate has to survive the `only()` narrowing that matching_ids applies.
         matching = self._create_experiment_with_metric_event("Matching", "matching-ids-flag", "purchase")
         self._create_experiment_with_metric_event("Other", "matching-ids-other-flag", "signup")
 

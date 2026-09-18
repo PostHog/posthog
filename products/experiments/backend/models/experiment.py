@@ -161,15 +161,10 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     class Meta:
         db_table = "posthog_experiment"
         indexes = [
-            # The `?event=` list filter matches an event reference anywhere in the metric JSON with
-            # a jsonpath `@?` predicate. Only a jsonb_ops GIN index can answer that predicate, and
-            # without one Postgres reads and decompresses the metric columns of every experiment in
-            # the project. A jsonb_path_ops index is not a substitute, because it cannot serve a
-            # `$.**` path.
-            #
-            # `fastupdate` is off because a read must scan the whole pending list, and the planner
-            # prices that scan high enough to fall back to a sequential scan. An experiment is read
-            # far more often than it is written, so the direct index insert is the cheaper trade.
+            # The `?event=` list filter matches a jsonpath `@?` predicate against these columns, and
+            # only jsonb_ops can answer it, because jsonb_path_ops cannot serve a `$.**` path.
+            # `fastupdate` is off so a read skips the pending-list scan, which the planner prices
+            # high enough to choose a sequential scan instead.
             GinIndex(fields=["metrics"], name="exp_metrics_gin", fastupdate=False),
             GinIndex(fields=["metrics_secondary"], name="exp_metrics_secondary_gin", fastupdate=False),
         ]

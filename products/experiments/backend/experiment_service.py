@@ -4416,11 +4416,8 @@ class ExperimentService:
         match an action-based metric without a second pass.
         """
         jsonpath = metric_event_reference_jsonpath(event, actions_firing_event(event, self.team))
-        # The saved-metric branch is read as a list of ids, not left as a nested queryset, for two
-        # reasons. Django renames the outer table of a nested queryset, which breaks the
-        # table-qualified column reference in the predicate. And a subquery inside the OR leaves
-        # the planner no bitmap path for the other two branches, so it falls back to a sequential
-        # scan that decompresses the metric columns of every experiment in the project.
+        # The saved-metric branch resolves to ids because Django renames the outer table of a nested
+        # queryset, and a subquery inside the OR leaves the planner no bitmap path.
         saved_metric_ids = list(
             ExperimentSavedMetric.objects.filter(team__project_id=self.team.project_id)
             .annotate(_references_event=jsonb_matches_jsonpath("posthog_experimentsavedmetric", "query", jsonpath))
