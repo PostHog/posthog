@@ -5596,11 +5596,11 @@ export interface ExperimentApiMetric {
     /** For funnel metrics: array of EventsNode/ActionsNode steps. */
     series?: ExperimentApiEventSource[]
     /** For funnel metrics: how the steps must occur. 'ordered' (default): in order, with other events
-     *  allowed in between. 'unordered': in any order. Experiment metrics do not support the 'strict'
-     *  order of product-analytics funnels: the metric query reads only the step events and the
-     *  exposure events, so 'strict' misses unrelated events between steps and instead drops users
-     *  who are exposed again between two steps. */
-    funnel_order_type?: 'ordered' | 'unordered'
+     *  allowed in between. 'unordered': in any order. Do not set 'strict' on an experiment metric:
+     *  the metric query reads only the step events and the exposure events, so 'strict' misses
+     *  unrelated events between steps and instead drops users who are exposed again between two
+     *  steps. It stays in this schema so that a metric which already has it survives a round trip. */
+    funnel_order_type?: StepOrderValue
     /** For ratio metrics: numerator source. */
     numerator?: ExperimentApiEventSource
     /** For ratio metrics: denominator source. */

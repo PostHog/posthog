@@ -1254,11 +1254,6 @@ class Kind1(StrEnum):
     ACTIONS_NODE = "ActionsNode"
 
 
-class FunnelOrderType(StrEnum):
-    ORDERED = "ordered"
-    UNORDERED = "unordered"
-
-
 class StartHandling(StrEnum):
     FIRST_SEEN = "first_seen"
     LAST_SEEN = "last_seen"

@@ -124,7 +124,6 @@ from posthog.schema_enums import (
     FunnelCorrelationResultsType as FunnelCorrelationResultsType,
     FunnelLayout as FunnelLayout,
     FunnelMathType as FunnelMathType,
-    FunnelOrderType as FunnelOrderType,
     FunnelPathType as FunnelPathType,
     FunnelStepReference as FunnelStepReference,
     FunnelVizType as FunnelVizType,
@@ -5244,15 +5243,16 @@ class ExperimentApiMetric(BaseModel):
             " Leave unset for a binomial-style denominator, which is never clamped."
         ),
     )
-    funnel_order_type: FunnelOrderType | None = Field(
+    funnel_order_type: StepOrderValue | None = Field(
         default=None,
         description=(
             "For funnel metrics: how the steps must occur. 'ordered' (default): in"
             " order, with other events allowed in between. 'unordered': in any order."
-            " Experiment metrics do not support the 'strict' order of product-analytics"
-            " funnels: the metric query reads only the step events and the exposure"
-            " events, so 'strict' misses unrelated events between steps and instead"
-            " drops users who are exposed again between two steps."
+            " Do not set 'strict' on an experiment metric: the metric query reads only"
+            " the step events and the exposure events, so 'strict' misses unrelated"
+            " events between steps and instead drops users who are exposed again"
+            " between two steps. It stays in this schema so that a metric which already"
+            " has it survives a round trip."
         ),
     )
     goal: ExperimentMetricGoal | None = Field(
