@@ -27,14 +27,22 @@ function savedFilterUrl(savedFilterId: string): string {
 
 export function FlatNavSessionReplayMenuItems(): JSX.Element {
     const { savedFilters, savedFiltersLoading, loadSavedFiltersFailed } = useValues(sessionRecordingSavedFiltersLogic)
-    const { loadSavedFiltersIfNeeded } = useActions(sessionRecordingSavedFiltersLogic)
+    const { loadSavedFilters, loadSavedFiltersIfNeeded } = useActions(sessionRecordingSavedFiltersLogic)
     const { playlists, playlistsLoading, loadPlaylistsFailed } = useValues(sessionRecordingCollectionsLogic)
+    const { loadPlaylists } = useActions(sessionRecordingCollectionsLogic)
 
     return (
         <>
             <DropdownMenuSub
                 onOpenChange={(open) => {
-                    if (open) {
+                    if (!open || savedFiltersLoading) {
+                        return
+                    }
+                    // loadSavedFiltersIfNeeded refuses to load again once one load has succeeded,
+                    // so a later failure needs the load forced or the submenu never recovers
+                    if (loadSavedFiltersFailed) {
+                        loadSavedFilters()
+                    } else {
                         loadSavedFiltersIfNeeded()
                     }
                 }}
@@ -43,10 +51,12 @@ export function FlatNavSessionReplayMenuItems(): JSX.Element {
                 <DropdownMenuSubContent data-lemon-skin className="min-w-48">
                     {savedFiltersLoading ? (
                         <Skeleton className="mx-2 my-1 h-4 w-32" />
-                    ) : loadSavedFiltersFailed ? (
-                        <DropdownMenuItem disabled>Couldn't load saved filters</DropdownMenuItem>
                     ) : savedFilters.results.length === 0 ? (
-                        <DropdownMenuItem disabled>No saved filters</DropdownMenuItem>
+                        loadSavedFiltersFailed ? (
+                            <DropdownMenuItem disabled>Couldn't load saved filters</DropdownMenuItem>
+                        ) : (
+                            <DropdownMenuItem disabled>No saved filters</DropdownMenuItem>
+                        )
                     ) : (
                         savedFilters.results.map((savedFilter) => (
                             <FlatNavMenuLinkItem key={savedFilter.short_id} to={savedFilterUrl(savedFilter.short_id)}>
@@ -54,7 +64,7 @@ export function FlatNavSessionReplayMenuItems(): JSX.Element {
                             </FlatNavMenuLinkItem>
                         ))
                     )}
-                    {!savedFiltersLoading && !loadSavedFiltersFailed && savedFilters.next && (
+                    {!savedFiltersLoading && savedFilters.next && (
                         <>
                             <DropdownMenuSeparator />
                             <FlatNavMenuLinkItem
@@ -68,13 +78,23 @@ export function FlatNavSessionReplayMenuItems(): JSX.Element {
             </DropdownMenuSub>
 
             {playlistsLoading || loadPlaylistsFailed || playlists.count > 0 ? (
-                <DropdownMenuSub>
+                <DropdownMenuSub
+                    onOpenChange={(open) => {
+                        if (open && loadPlaylistsFailed && !playlistsLoading) {
+                            loadPlaylists()
+                        }
+                    }}
+                >
                     <DropdownMenuSubTrigger>Collections</DropdownMenuSubTrigger>
                     <DropdownMenuSubContent data-lemon-skin className="min-w-48">
                         {playlistsLoading ? (
                             <Skeleton className="mx-2 my-1 h-4 w-32" />
-                        ) : loadPlaylistsFailed ? (
-                            <DropdownMenuItem disabled>Couldn't load collections</DropdownMenuItem>
+                        ) : playlists.results.length === 0 ? (
+                            loadPlaylistsFailed ? (
+                                <DropdownMenuItem disabled>Couldn't load collections</DropdownMenuItem>
+                            ) : (
+                                <DropdownMenuItem disabled>No collections</DropdownMenuItem>
+                            )
                         ) : (
                             playlists.results.map((playlist) => (
                                 <FlatNavMenuLinkItem
@@ -85,7 +105,7 @@ export function FlatNavSessionReplayMenuItems(): JSX.Element {
                                 </FlatNavMenuLinkItem>
                             ))
                         )}
-                        {!playlistsLoading && !loadPlaylistsFailed && playlists.next && (
+                        {!playlistsLoading && playlists.next && (
                             <>
                                 <DropdownMenuSeparator />
                                 <FlatNavMenuLinkItem to={urls.replay(ReplayTabs.Playlists)}>
