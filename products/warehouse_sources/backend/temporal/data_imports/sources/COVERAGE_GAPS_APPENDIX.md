@@ -1490,14 +1490,16 @@ Diffed against: <https://circleci.com/api/v2/openapi.json>
 
 - [ ] `organizations/{org_id}/usage_export_job` — credit/usage export per project and job - CircleCI's headline cost metric, absent today (high)
 - [ ] `deploy/environments` — deploy environment registry that resolves environment IDs on deploy markers (medium)
-- [ ] `deploy/components` — deployed component inventory, the join key for deploy tracking (medium)
-- [ ] `deploy/components/{component_id}/versions` — version history per component - deploy frequency and lead-time analysis (medium)
-- [ ] `user/{id}` — lookup resolving the actor/trigger user IDs carried on pipelines and workflows (medium)
+- [x] `deploy/components` — deployed component inventory, the join key for deploy tracking (medium) — added as `components`; the org UUID it requires is resolved from the configured org slug via `/me/collaborations`
+- [x] `deploy/components/{component_id}/versions` — version history per component - deploy frequency and lead-time analysis (medium) — added as `component_versions`, fanned out per component
+- [x] `user/{id}` — lookup resolving the actor/trigger user IDs carried on pipelines and workflows (medium) — added as `users`, resolved from the `started_by`/`canceled_by`/`errored_by` ids on workflows (pipeline trigger actors carry only a login, no id)
 - [ ] `organizations/{org_id}/groups` — org user groups for grouping build activity by team (low)
 - [ ] `me/collaborations` — org/slug lookup that enumerates the orgs a token can see (low)
 - [ ] `projects/{project_id}/pipeline-definitions` — resolves the pipeline definition IDs attached to synced pipelines (low)
 
-Note: The current v2 spec has no artifacts or test-metadata endpoints (those lived in v1.1), so no gap there. Insights paths exist in the same spec but belong to the separate CircleciInsights source. Source is fully static (CIRCLECI_ENDPOINTS), no dynamic discovery.
+Note: `organizations/{org_id}/usage_export_job` is POST-only job creation plus a separate polling GET that
+returns presigned CSV URLs, not a readable list endpoint, so it is not a warehouse table in this source's shape.
+The current v2 spec has no artifacts or test-metadata endpoints (those lived in v1.1), so no gap there. Insights paths exist in the same spec but belong to the separate CircleciInsights source. Source is fully static (CIRCLECI_ENDPOINTS), no dynamic discovery.
 
 ## CircleciInsights — gaps
 
@@ -1536,12 +1538,12 @@ Note: Static endpoint config, no dynamic table discovery. Excluded settings, bra
 
 ## Clari — gaps
 
-Today (2): `audit_events`, `forecast`
+Today (3): `activity`, `audit_events`, `forecast`
 
 Diffed against: <https://developer.clari.com/default/documentation/external_spec>
 
-- [ ] `/opportunity` — opportunity-level revenue records - the core analytical object behind every forecast number (high)
-- [ ] `/export/activity` — rep activity export (calls, emails, meetings) driving engagement-vs-outcome analysis (high)
+- [ ] `/opportunity` — skipped: `oppId` is a required query parameter (max 100 per call) and the API publishes no endpoint that lists opportunity IDs, so there is nothing to enumerate into a table. It is a point lookup for IDs a caller already holds, not a collection. The only place the API surfaces opportunity IDs is the `opportunities[]` array on activity export rows, which covers just the opportunities touched by an activity in the exported window.
+- [x] `/export/activity` — rep activity export (meetings, emails, attachments) driving engagement-vs-outcome analysis (high) — added as `activity`, incremental on the epoch-millisecond `date` field via the export's `startDate`.
 
 Note: The public Clari API v5 spec is small: forecast export, export jobs, audit events, opportunity, activity export, admin limits, plus write-only ingest endpoints. /admin/limits was excluded as quota config and /ingest/\* as write plumbing, so opportunity and activity are the only real gaps. Clari Copilot (formerly Wingman) has a separate API host not covered by this spec.
 
@@ -1645,10 +1647,10 @@ Today (6): `guests`, `hotels`, `reservations`, `room_types`, `rooms`, `transacti
 
 Diffed against: <https://hotels.cloudbeds.com/api/docs/index.html>
 
-- [ ] `getRatePlans` — Rate plan lookup resolving the rate IDs carried on every reservation - required for any ADR/rate-mix analysis (high)
-- [ ] `getReservationsWithRateDetails (or getReservationRoomDetails)` — Per-room, per-night rate line items behind a reservation; reservations today are header-only (high)
-- [ ] `getDashboard` — Cloudbeds' headline property metrics (occupancy, ADR, RevPAR) precomputed per date (high)
-- [ ] `getUsers` — Staff lookup resolving the user IDs stamped on transactions and reservation changes (high)
+- [x] `getRatePlans` — Rate plan lookup resolving the rate IDs carried on every reservation - required for any ADR/rate-mix analysis (high) — added as `rate_plans`. The method prices a stay rather than listing a catalog: `startDate`/`endDate` are required, so the request covers a rolling one-month forward window.
+- [x] `getReservationsWithRateDetails (or getReservationRoomDetails)` — Per-room, per-night rate line items behind a reservation; reservations today are header-only (high) — added as `reservations_with_rate_details`. `getReservationRoomDetails` is a single-record lookup keyed by `subReservationID` and returns a subset of the `rooms` array the list method already carries, so it was not added.
+- [ ] `getDashboard` — Cloudbeds' headline property metrics (occupancy, ADR, RevPAR) precomputed per date (high). Not added: the method returns a single unkeyed object of current-day counters (`roomsOccupied`, `percentageOccupied`, `arrivals`, `departures`, `inHouse`) with no ADR or RevPAR, and neither a date nor a property ID in the payload, so there is nothing to key a table on.
+- [x] `getUsers` — Staff lookup resolving the user IDs stamped on transactions and reservation changes (high) — added as `users`. `data` is an object keyed by property ID, so rows are exploded out of the map with the property ID copied in.
 - [ ] `getSources` — Booking source / channel lookup that resolves the source ID on reservations - the key channel-mix dimension (medium)
 - [ ] `getItems and getItemCategories` — Sellable item catalog behind transaction line items, so ancillary revenue can be categorized (medium)
 - [ ] `getTaxesAndFees and getRoomsFeesAndTaxes` — Tax and fee definitions needed to split gross transaction amounts into net revenue vs tax (medium)
@@ -1662,14 +1664,14 @@ Note: The source targets the PMS API v1.2 (base https://api.cloudbeds.com/api/v1
 
 ## Cloudzero — gaps
 
-Today (2): `Costs`, `Dimensions`
+Today (6): `Budgets`, `Costs`, `Dimensions`, `Insights`, `RecommendationTypes`, `Recommendations`
 
 Diffed against: <https://docs.cloudzero.com/reference/getbillingcosts>
 
-- [ ] `/v2/optimize/recommendations (+ /v2/optimize/recommendation_types)` — Savings recommendations with estimated dollar impact - CloudZero's headline actionable output, and recommendation_types is the lookup that resolves their type IDs (high)
-- [ ] `/v2/insights` — The cost insights backlog (owner, status, estimated savings) - the workflow layer users join back to costs (high)
-- [ ] `/v2/budgets` — Budget definitions needed for any budget-vs-actual analysis against the Costs table already synced (high)
-- [ ] `/unit-cost/v1/telemetry/{stream}/records (and the sum variant, summetrictelemetry)` — Unit metric telemetry supplies the denominators for cost-per-unit economics, the product's core promise; costs alone cannot produce a unit metric (high)
+- [x] `/v2/optimize/recommendations (+ /v2/optimize/recommendation_types)` — Savings recommendations with estimated dollar impact - CloudZero's headline actionable output, and recommendation_types is the lookup that resolves their type IDs (high)
+- [x] `/v2/insights` — The cost insights backlog (owner, status, estimated savings) - the workflow layer users join back to costs (high)
+- [x] `/v2/budgets` — Budget definitions needed for any budget-vs-actual analysis against the Costs table already synced (high)
+- [ ] `/unit-cost/v1/telemetry/{stream}/records (and the sum variant, summetrictelemetry)` — Unit metric telemetry supplies the denominators for cost-per-unit economics, the product's core promise; costs alone cannot produce a unit metric (high). Skipped: the sum variant (`summetrictelemetry`) is a POST that sends telemetry to CloudZero rather than reading it. The records GET is real but not table material: it needs a `telemetry_stream_name` that no endpoint lists, returns only the most recent records capped at 1000 with no pagination, and documents no response schema. It also sits on the separate `/unit-cost/v1` Telemetry API, not the v2 API this source pins.
 - [ ] `sumallocationtelemetry / allocation telemetry records` — Allocation drivers used to split shared cost across tenants or teams - needed to reconcile allocated costs (medium)
 - [ ] `/v2/views` — Saved cost views define the grouping/filter dimensions the org actually reports on, a lookup for the Dimensions table (medium)
 - [ ] `/v2/insights/{insight_id}/comments` — Discussion trail on insights, useful for measuring time-to-action on cost work (low)
