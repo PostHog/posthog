@@ -328,16 +328,18 @@ def get_dependent_saved_queries(saved_query: "DataWarehouseSavedQuery") -> list[
     Get SavedQueries that depend on this one (immediate dependents only).
 
     Returns a list of DataWarehouseSavedQuery objects that have edges pointing
-    from this saved query's node (i.e., they reference this view in their query).
+    from any of this saved query's nodes (i.e., they reference this view in their query).
     """
-    node = Node.objects.filter(team=saved_query.team, saved_query=saved_query).first()
-    if not node:
-        return []
-    deps = Node.objects.filter(
-        team=saved_query.team,
-        incoming_edges__source=node,
-        saved_query__isnull=False,
-    ).select_related("saved_query")
+    nodes = Node.objects.filter(team=saved_query.team, saved_query=saved_query)
+    deps = (
+        Node.objects.filter(
+            team=saved_query.team,
+            incoming_edges__source__in=nodes,
+            saved_query__isnull=False,
+        )
+        .select_related("saved_query")
+        .distinct()
+    )
     return [d.saved_query for d in deps if d.saved_query and not d.saved_query.deleted]
 
 
@@ -349,7 +351,8 @@ def delete_node_from_dag(saved_query: "DataWarehouseSavedQuery") -> None:
     """
     deps = get_dependent_saved_queries(saved_query)
     if deps:
-        raise HasDependentsError("Node cannot be deleted because it has dependents")
+        names = ", ".join(d.name for d in deps)
+        raise HasDependentsError(f"Node cannot be deleted because it has dependents: {names}")
     nodes = Node.objects.filter(team=saved_query.team, saved_query=saved_query).select_related("dag", "dag__team")
     dags = {node.dag for node in nodes if node.dag is not None}
     nodes.delete()
