@@ -52,17 +52,11 @@ _TRANSIENT_SQLSTATE_PREFIXES = ("57P",)
 _TRANSIENT_SQLSTATES = ("25006",)
 
 
-# EMFILE (this worker process's file-descriptor table is full) and ENFILE (the host's table is full),
-# as an `OSError` renders them. A connect attempt that cannot open a socket says nothing about the
-# database: a descriptor frees the moment another connection or file in the worker closes, so the
-# activity's own retry resolves it. The data-imports source-connect path already classifies the same
-# condition this way, in `sources/postgres/postgres.py::_is_too_many_open_files_error`.
-#
-# Matched on the rendered errno rather than an `errno` attribute, because no attribute survives the
-# trip: psycopg re-raises the original `OSError` as `OperationalError(str(error))` with no exception
-# chaining (see `psycopg/_conninfo_attempts.py`), and Django wraps that message again, so
-# "[Errno 24] Too many open files" is all that reaches here. A bare `OSError` renders identically,
-# so the same match covers one that arrives unwrapped.
+# EMFILE (this worker process's descriptor table is full) or ENFILE (the host's), as an `OSError`
+# renders them. A descriptor frees as soon as another connection in this worker closes, so the
+# activity's own retry resolves it. Matched on the rendered errno because no `errno` attribute
+# survives: psycopg re-raises the `OSError` as `OperationalError(str(error))` (see
+# `psycopg/_conninfo_attempts.py`), and Django wraps that message again.
 _FD_EXHAUSTION_MARKERS = (f"[Errno {errno.EMFILE}]", f"[Errno {errno.ENFILE}]")
 
 
