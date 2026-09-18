@@ -505,8 +505,12 @@ class _RowWalk:
         self._saw_rows = self._saw_rows or bool(fresh)
         pagination = data if rows.parent is data else {**data, **rows.parent}
         # Recorded here rather than in the walk, so the contract check sees the reported
-        # total whichever mode read the response.
-        self._reported_total = pagination.get(self._config.total_key) if self._config.total_key else None
+        # total whichever mode read the response. A later page that omits the total keeps
+        # the one an earlier page reported: dropping it falls the walk back to short-page
+        # termination, which a server-capped page then ends before the total is reached.
+        reported = pagination.get(self._config.total_key) if self._config.total_key else None
+        if _usable_total(reported) is not None or _usable_total(self._reported_total) is None:
+            self._reported_total = reported
         return _Batch(data=data, pagination=pagination, items=rows.items, fresh=fresh)
 
     def _short_page(self, batch: _Batch) -> bool:
@@ -663,13 +667,13 @@ class _RowWalk:
                 params["limit"] = str(config.page_size)
 
             batch = self._read(params)
-            total = self._reported_total
+            total = _usable_total(self._reported_total)
 
             # Advance by the rows actually received rather than by page_size, so a server that
             # caps `limit` below what we asked still walks every row. The offset itself is the
             # cumulative row count, so the total check needs no separate counter.
             next_offset = offset + len(batch.items)
-            if isinstance(total, int | float):
+            if total is not None:
                 exhausted = not batch.items or next_offset >= total
             else:
                 exhausted = self._short_page(batch)

@@ -431,6 +431,36 @@ class TestPaginationModes:
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [DecagonResumeConfig(offset=2)]
 
+    def test_offset_mode_ignores_a_total_that_cannot_bound_the_walk(self) -> None:
+        # Python counts True as 1, so a boolean total made the first row satisfy the bound
+        # and the walk reported success on a partial table. An unusable total has to fall
+        # back to short-page termination, as the page walk already does.
+        cfg = _synthetic_endpoint(pagination="offset", page_size=2, total_key="total")
+        with patch.dict(DECAGON_ENDPOINTS, {"synthetic": cfg}):
+            manager = _fresh_manager()
+            responses = [
+                _make_response({"rows": [_row("r1"), _row("r2")], "total": True}),
+                _make_response({"rows": [_row("r3")], "total": True}),
+            ]
+            _, batches = _drive_rows(manager, responses, endpoint="synthetic")
+
+        assert [[r["id"] for r in b] for b in batches] == [["r1", "r2"], ["r3"]]
+
+    def test_a_page_that_omits_the_total_keeps_the_one_already_reported(self) -> None:
+        # Falling back to short-page termination here ends the walk on a server-capped
+        # page, so the rows past it never sync and the job still reports success.
+        cfg = _synthetic_endpoint(pagination="page", page_size=2, total_key="total")
+        with patch.dict(DECAGON_ENDPOINTS, {"synthetic": cfg}):
+            manager = _fresh_manager()
+            responses = [
+                _make_response({"rows": [_row("r1"), _row("r2")], "total": 4}),
+                _make_response({"rows": [_row("r3")]}),
+                _make_response({"rows": [_row("r4")], "total": 4}),
+            ]
+            _, batches = _drive_rows(manager, responses, endpoint="synthetic")
+
+        assert [[r["id"] for r in b] for b in batches] == [["r1", "r2"], ["r3"], ["r4"]]
+
     def test_cursor_mode_has_more_false_ends_the_walk_even_with_a_cursor_present(self) -> None:
         # On endpoints that send has_more the flag is authoritative; following a leftover
         # cursor would re-fetch or spin on the final page.
