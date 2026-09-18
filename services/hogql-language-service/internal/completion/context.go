@@ -19,6 +19,7 @@ const (
 	completionModeJoinPredicateContinuation
 	completionModePostExpression
 	completionModeJoinPostExpression
+	completionModeCaseExpression
 	completionModeStatementStart
 )
 
@@ -97,7 +98,19 @@ func predicateMode(tokens []sqlToken, depth int) completionMode {
 	start := 0
 	betweenPending := false
 	caseDepth := 0
+	openExpressionCases := 0
+	closedCase := false
 	for index, token := range tokens {
+		if token.kind == sqlTokenWord {
+			switch token.text {
+			case "CASE":
+				openExpressionCases++
+			case "END":
+				if openExpressionCases > 0 {
+					openExpressionCases--
+				}
+			}
+		}
 		if token.kind == sqlTokenLeftParen && token.depth == depth-1 {
 			start = index + 1
 			betweenPending = false
@@ -113,6 +126,7 @@ func predicateMode(tokens []sqlToken, depth int) completionMode {
 		case "END":
 			if caseDepth > 0 {
 				caseDepth--
+				closedCase = true
 			}
 		case "BETWEEN":
 			if caseDepth == 0 {
@@ -136,6 +150,9 @@ func predicateMode(tokens []sqlToken, depth int) completionMode {
 	}
 	segment := tokens[start:]
 	last := lastTokenAtDepth(segment, depth)
+	if openExpressionCases > 0 || caseDepth > 0 {
+		return completionModeCaseExpression
+	}
 	if last.text == "" || last.text == "AND" || last.text == "OR" || last.kind == sqlTokenComma || last.kind == sqlTokenLeftParen {
 		return completionModeExpression
 	}
@@ -163,10 +180,55 @@ func predicateMode(tokens []sqlToken, depth int) completionMode {
 		}
 		return completionModeExpression
 	}
-	if last.kind == sqlTokenRightParen || last.kind == sqlTokenValue {
+	if last.kind == sqlTokenRightParen || last.kind == sqlTokenValue || closedCase && last.text == "END" || isUnqualifiedBooleanToken(segment, depth) {
 		return completionModePostExpression
 	}
 	return completionModeComparison
+}
+
+func isUnqualifiedBooleanToken(tokens []sqlToken, depth int) bool {
+	lastIndex := -1
+	for index := len(tokens) - 1; index >= 0; index-- {
+		if tokens[index].depth <= depth {
+			lastIndex = index
+			break
+		}
+	}
+	if lastIndex < 0 {
+		return false
+	}
+	last := tokens[lastIndex]
+	if last.kind != sqlTokenWord || !strings.EqualFold(last.raw, "TRUE") && !strings.EqualFold(last.raw, "FALSE") {
+		return false
+	}
+	for index := lastIndex - 1; index >= 0; index-- {
+		if tokens[index].depth < depth {
+			break
+		}
+		if tokens[index].depth == depth {
+			return tokens[index].text != "."
+		}
+	}
+	return true
+}
+
+func hasLaterJoinAtDepth(input string, depth int) bool {
+	tokens, _, _ := scanSQLTokensAtDepth(input, depth)
+	for _, token := range tokens {
+		if token.depth < depth || token.depth == depth && token.text == ";" {
+			return false
+		}
+		if token.depth != depth || token.kind != sqlTokenWord {
+			continue
+		}
+		switch token.text {
+		case "JOIN":
+			return true
+		case "WHERE", "PREWHERE", "GROUP", "ORDER", "HAVING", "QUALIFY", "LIMIT", "UNION", "EXCEPT", "INTERSECT":
+			return false
+		}
+	}
+	return false
 }
 
 func betweenLowerBoundComplete(tokens []sqlToken, depth int) bool {
@@ -256,8 +318,12 @@ func isComparisonToken(token sqlToken) bool {
 }
 
 func scanSQLTokens(input string) ([]sqlToken, int, bool) {
+	return scanSQLTokensAtDepth(input, 0)
+}
+
+func scanSQLTokensAtDepth(input string, initialDepth int) ([]sqlToken, int, bool) {
 	var tokens []sqlToken
-	depth := 0
+	depth := initialDepth
 	for index := 0; index < len(input); {
 		character := input[index]
 		r, size := utf8.DecodeRuneInString(input[index:])

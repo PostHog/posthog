@@ -46,7 +46,9 @@ These suggestions do not carry a parser error for the unfinished statement.
 After a completed JOIN ON condition, completion includes WHERE, including before an existing ORDER BY clause.
 For example, `SELECT * FROM events AS e JOIN events AS other ON e.uuid = other.uuid |` offers WHERE at `|`.
 Completion does not offer WHERE inside unfinished ON parentheses or between the bounds of BETWEEN.
-Clause suggestions use the text before the cursor; filtering clauses already present later in the query remains follow-up work.
+Completion also keeps query clauses out of unfinished CASE expressions and suppresses WHERE when another JOIN follows at the same query scope.
+Nested JOINs, comments, strings, and later statements do not suppress a valid WHERE suggestion.
+Other clauses already present after the cursor are not globally filtered from suggestions.
 An incomplete cursor placeholder can still produce a `parseError` alongside these keyword suggestions.
 Unquoted TRUE and FALSE are boolean literals, regardless of case, and validation does not look them up as fields.
 For example, `SELECT uuid FROM events WHERE TRUE AND NOT FALSE` validates without unknown-field errors.
