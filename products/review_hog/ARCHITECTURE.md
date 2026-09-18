@@ -427,8 +427,8 @@ of all of this: **Flash mode** (`review_mode` on the workflow input, `REVIEW_MOD
 one cheap arm, `FLASH_ARM` (`gpt-5.6-luna` @ medium, Codex with `full-access`), for that turn only. The report's tier and arm are
 untouched, so the PR's next normal trigger reviews normally; `review_arm_for_mode` / `validation_arm_for_mode`
 are the two helpers the activities and the analytics events both read, so a flash turn's events name the flash
-arm in both seats. A flash turn never chains the resolution stage, and its review and validation prompts carry
-the pinned skill bodies inline instead of the MCP pull (see [Prompts](#prompts)). See [DECISIONS.md](./DECISIONS.md)
+arm in both seats. A flash turn never chains the resolution stage. Both modes instruct the agent to fetch pinned
+review and validation skills over MCP (see [Prompts](#prompts)). See [DECISIONS.md](./DECISIONS.md)
 for the Sonnet-vs-Sol production A/B that picked Sol (and the `full-access` permission-mode gotcha headless Codex
 needs) and for the tier decision, and [Selecting the sandbox model & reasoning
 effort](#selecting-the-sandbox-model--reasoning-effort) below for the path that applies these knobs.
@@ -548,11 +548,9 @@ content". Most begin with `{{ CLAUDE_CODE_CONTEXT | safe }}` (the `@path#L…` r
 - `chunking/prompt.jinja` — group changed files into logical, independently reviewable chunks by cohesion /
   imports / layer boundaries; order by review priority. → `ChunksList`.
 - `issues_review/prompt.jinja` — the core review prompt, run once per perspective per chunk; 10-step process
-  with mandatory codebase investigation. The per-perspective focus is **no longer spliced in** — the
-  `<your_review_perspective>` block instructs the agent to `skill-get(PERSPECTIVE_SKILL_NAME, version=N)` over
-  MCP and apply that perspective's focus (pull delivery). A **flash** turn embeds the instructions without a tool lookup:
-  the activity loads the same pinned body (`load_skill_body`) and the
-  template embeds it (`PERSPECTIVE_SKILL_BODY`); the validation prompt does the same (`VALIDATION_SKILL_BODY`).
+  with mandatory codebase investigation. In both full and Flash mode, the `<your_review_perspective>` block
+  instructs the agent to `skill-get(PERSPECTIVE_SKILL_NAME, version=N)` over MCP and apply that perspective's focus.
+  Validation uses the same delivery path for its pinned criteria.
   → `IssuesReview`. The perspective focuses themselves
   live as **DB-synced LLMA skills** at
   `products/review_hog/skills/review-hog-perspective-{logic-correctness,contracts-security,performance-reliability}/SKILL.md`.

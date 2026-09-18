@@ -95,7 +95,6 @@ from products.review_hog.backend.reviewer.sandbox.executor import (
 from products.review_hog.backend.reviewer.skill_loader import (
     load_blind_spots_skill_for_run,
     load_perspectives_for_run,
-    load_skill_body,
     load_validation_skill_for_run,
 )
 from products.review_hog.backend.reviewer.status_comment import (
@@ -477,13 +476,6 @@ def _sandbox_workflow_id_prefix(step_name: str) -> str:
     review, its children, and every sandbox run; a failed sandbox workflow is self-describing.
     """
     return f"{activity.info().workflow_id}:{step_name}".lower()
-
-
-async def _inline_skill_body(review_mode: str, team_id: int, skill_name: str, skill_version: int) -> str | None:
-    """The pinned skill body a flash turn embeds in its prompt; None for a full turn (MCP pull)."""
-    if review_mode != REVIEW_MODE_FLASH:
-        return None
-    return await database_sync_to_async(load_skill_body, thread_sensitive=False)(team_id, skill_name, skill_version)
 
 
 async def _refresh_status_comment(team_id: int, report_id: str, review_mode: str) -> None:
@@ -945,7 +937,6 @@ def _prepare_review_prompt(
     blind_spot_check: bool,
     wave_perspectives: list[LoadedPerspectiveDTO],
     review_model: str,
-    skill_body: str | None,
 ) -> str | None:
     """Build the review prompt for one (perspective, chunk), or None if already reviewed this turn."""
     done = load_perspective_results(team_id=team_id, report_id=report_id, head_sha=head_sha, review_model=review_model)
@@ -978,7 +969,6 @@ def _prepare_review_prompt(
         dig_deeper=bool(same_turn_findings),
         blind_spot_check=blind_spot_check,
         wave_perspectives={p.skill_name: p.description for p in wave_perspectives} if blind_spot_check else None,
-        skill_body=skill_body,
     )
 
 
@@ -995,8 +985,6 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         team_id=input.team_id, report_id=input.report_id
     )
     arm = review_arm_for_mode(input.review_mode, persisted_arm)
-    # Inline the pinned skill for Flash so its instructions do not depend on a tool lookup.
-    skill_body = await _inline_skill_body(input.review_mode, input.team_id, input.skill_name, input.skill_version)
     prompt = await database_sync_to_async(_prepare_review_prompt, thread_sensitive=False)(
         input.team_id,
         input.report_id,
@@ -1009,7 +997,6 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         input.blind_spot_check,
         input.wave_perspectives,
         arm.model,
-        skill_body,
     )
     if prompt is None:
         return True
@@ -1183,7 +1170,6 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
     validated = len(done)
     final_attempt = activity.info().attempt >= VALIDATION_MAX_ATTEMPTS
     validator = validation_arm_for_mode(input.review_mode)
-    skill_body = await _inline_skill_body(input.review_mode, input.team_id, input.skill_name, input.skill_version)
     session: MultiTurnSession | None = None
     chunk_ok = False
     try:
@@ -1204,7 +1190,6 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
                                 skill_version=input.skill_version,
                                 pr_metadata=pr_metadata,
                                 pr_files=issue_files,
-                                skill_body=skill_body,
                             ),
                             system_prompt=VALIDATION_SYSTEM_PROMPT,
                             model_to_validate=IssueValidation,

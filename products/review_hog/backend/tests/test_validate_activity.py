@@ -201,12 +201,9 @@ async def test_validation_session_opens_on_the_modes_arm(review_mode: str, expec
     # kwarg would silently run the agent server's default with every other assertion green.
     issue = _issue(1)
     mock_start = AsyncMock(return_value=(object(), _verdict()))
-    mock_prompt = MagicMock(return_value="validation-prompt")
     with (
         _chunk_context(issues=[issue], done={}),
         patch(f"{_MODULE}.persist_verdict", MagicMock(return_value=True)),
-        patch(f"{_MODULE}.load_skill_body", return_value="INLINE CRITERIA"),
-        patch(f"{_MODULE}.build_validation_prompt", mock_prompt),
         patch(f"{_MODULE}.start_sandbox_session", mock_start),
         patch(f"{_MODULE}.end_sandbox_session", AsyncMock()),
     ):
@@ -220,6 +217,4 @@ async def test_validation_session_opens_on_the_modes_arm(review_mode: str, expec
         kwargs["reasoning_effort"],
         kwargs["initial_permission_mode"],
     ) == (expected.runtime_adapter, expected.model, expected.reasoning_effort, expected.initial_permission_mode)
-    # The criteria ride inline only for flash (its model cannot reach `skill-get`); full keeps the pull.
-    expected_body = "INLINE CRITERIA" if review_mode == REVIEW_MODE_FLASH else None
-    assert mock_prompt.call_args.kwargs["skill_body"] == expected_body
+    assert 'skill-get(skill_name="s-val", version=1)' in kwargs["prompt"]

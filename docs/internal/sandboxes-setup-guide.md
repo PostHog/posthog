@@ -198,8 +198,9 @@ product from the task run it fetches at boot, which is the path that fails quiet
 
 ReviewHog Flash uses `gpt-5.6-luna` at `medium` reasoning effort for review, blind-spot checks, and validation.
 The shared `FLASH_ARM` in `products/review_hog/backend/reviewer/constants.py` pins the Codex runtime and `full-access` permission mode.
-Flash uses the existing `review_hog` model allowance and inlines the pinned review skills into its prompts.
-Custom skills with bundled files include a file manifest so the agent can fetch each file at the pinned skill version.
+Flash uses the existing `review_hog` model allowance.
+Both review modes instruct the agent to fetch pinned review and validation skills through the PostHog MCP with `skill-get`.
+The agent can fetch referenced bundled files with `skill-file-get`.
 Choose **Review in Flash mode** from the Code review page's review menu to run it for one turn without changing the PR's full-review configuration.
 Flash requests preserve an existing report's review tier, including when they join a running review.
 Flash labels its GitHub messages with `FLASH MODE` and never starts comment resolution.

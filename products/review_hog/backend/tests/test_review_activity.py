@@ -149,13 +149,11 @@ async def test_review_chunk_activity_flash_turn_runs_on_the_flash_arm_and_stamps
     mock_review = AsyncMock(return_value=IssuesReview(issues=[]))
     mock_persist = MagicMock()
     mock_prepare = MagicMock(return_value="review-prompt")
-    mock_skill_body = MagicMock(return_value="INLINE SKILL BODY")
     env = ActivityEnvironment()
     with (
         patch(f"{_MODULE}.Heartbeater"),
         patch(f"{_MODULE}._prepare_review_prompt", mock_prepare),
         patch(f"{_MODULE}.load_review_arm", return_value=DEFAULT_REVIEW_ARM),
-        patch(f"{_MODULE}.load_skill_body", mock_skill_body),
         patch(f"{_MODULE}.persist_perspective_results", mock_persist),
         patch(f"{_MODULE}.run_sandbox_review", mock_review),
     ):
@@ -173,8 +171,7 @@ async def test_review_chunk_activity_flash_turn_runs_on_the_flash_arm_and_stamps
         FLASH_ARM.reasoning_effort,
         FLASH_ARM.initial_permission_mode,
     )
-    assert mock_prepare.call_args.args[-2:] == (FLASH_ARM.model, "INLINE SKILL BODY")
-    mock_skill_body.assert_called_once_with(1, "s-logic", 1)
+    assert mock_prepare.call_args.args[-1] == FLASH_ARM.model
     assert mock_persist.call_args.kwargs["review_model"] == FLASH_ARM.model
 
 
@@ -194,21 +191,17 @@ async def test_review_chunk_activity_runs_on_the_reports_persisted_arm() -> None
     )
     mock_review = AsyncMock(return_value=IssuesReview(issues=[]))
     mock_prepare = MagicMock(return_value="review-prompt")
-    mock_skill_body = MagicMock(return_value="INLINE SKILL BODY")
     env = ActivityEnvironment()
     with (
         patch(f"{_MODULE}.Heartbeater"),
         patch(f"{_MODULE}._prepare_review_prompt", mock_prepare),
         patch(f"{_MODULE}.load_review_arm", return_value=arm),
-        patch(f"{_MODULE}.load_skill_body", mock_skill_body),
         patch(f"{_MODULE}.persist_perspective_results"),
         patch(f"{_MODULE}.run_sandbox_review", mock_review),
     ):
         assert await env.run(review_chunk_activity, _review_input()) is True
 
-    # A full turn keeps the MCP pull: no body is loaded or embedded.
-    mock_skill_body.assert_not_called()
-    assert mock_prepare.call_args.args[-1] is None
+    assert mock_prepare.call_args.args[-1] == arm.model
 
     kwargs = mock_review.call_args.kwargs
     assert (

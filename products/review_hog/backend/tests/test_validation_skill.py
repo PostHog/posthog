@@ -1,8 +1,6 @@
 import pytest
 from posthog.test.base import BaseTest
 
-from parameterized import parameterized
-
 from posthog.models import User
 
 from products.review_hog.backend.models import ReviewSkillConfig
@@ -15,15 +13,13 @@ from products.review_hog.backend.reviewer.skill_loader import (
     CANONICAL_VALIDATION_SKILL_NAMES,
     REVIEW_HOG_VALIDATION_PREFIX,
     REVIEW_HOG_VALIDATION_SKILL_NAME,
-    SkillBodyNotFoundError,
     ValidationSkillNotFoundError,
-    load_skill_body,
     load_validation_skill_for_run,
     register_missing_validation_config,
 )
 from products.review_hog.backend.temporal.activities import _sync_review_skills
 from products.skills.backend.api.skill_services import publish_skill_version
-from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
+from products.skills.backend.models.skills import LLMSkill
 
 _CUSTOM_VALIDATOR = f"{REVIEW_HOG_VALIDATION_PREFIX}strict"
 
@@ -209,56 +205,3 @@ class TestColdStartSyncSeedsValidation(BaseTest):
         # Guards that the run path's syncer list includes validation, not only perspectives.
         _sync_review_skills(self.team.id)
         assert LLMSkill.objects.filter(team=self.team, name=REVIEW_HOG_VALIDATION_SKILL_NAME, is_latest=True).exists()
-
-
-class TestLoadSkillBody(BaseTest):
-    @parameterized.expand([("body_only", False), ("bundled_files", True)])
-    def test_returns_the_pinned_version_not_the_latest(self, _name: str, with_files: bool) -> None:
-        # A flash prompt embeds the version the turn was planned against; returning the latest body
-        # would let a mid-run publish change a turn's criteria, the race the version pin exists for.
-        if with_files:
-            skill_name = _CUSTOM_VALIDATOR
-            v1 = _author_validator_skill(self.team, skill_name, created_by=self.user)
-            LLMSkillFile.objects.bulk_create(
-                [
-                    LLMSkillFile(skill=v1, path="references/z-last.md", content="old bundled criteria"),
-                    LLMSkillFile(skill=v1, path="references/a-first.md", content="other old bundled criteria"),
-                ]
-            )
-        else:
-            skill_name = REVIEW_HOG_VALIDATION_SKILL_NAME
-            sync_canonical_validation(self.team)
-            v1 = LLMSkill.objects.get(team=self.team, name=skill_name, is_latest=True)
-        publish_skill_version(
-            self.team,
-            user=self.user,
-            skill_name=skill_name,
-            body="v2 criteria body",
-            base_version=1,
-            files=[{"path": "references/new-only.md", "content": "new bundled criteria"}] if with_files else None,
-        )
-
-        old_body = load_skill_body(self.team.id, skill_name, 1)
-        new_body = load_skill_body(self.team.id, skill_name, 2)
-        if with_files:
-            assert old_body.startswith(v1.body + "\n\n")
-            assert new_body.startswith("v2 criteria body\n\n")
-            first_call = f'call skill-file-get {{"skill_name": "{skill_name}", "file_path": "references/a-first.md", "version": 1}}'
-            last_call = f'call skill-file-get {{"skill_name": "{skill_name}", "file_path": "references/z-last.md", "version": 1}}'
-            assert first_call in old_body
-            assert last_call in old_body
-            assert old_body.index(first_call) < old_body.index(last_call)
-            assert (
-                f'call skill-file-get {{"skill_name": "{skill_name}", "file_path": "references/new-only.md", "version": 2}}'
-                in new_body
-            )
-            assert "references/new-only.md" not in old_body
-            assert "references/a-first.md" not in new_body
-            assert "references/z-last.md" not in new_body
-            assert "old bundled criteria" not in old_body
-            assert "new bundled criteria" not in new_body
-        else:
-            assert old_body == v1.body
-            assert new_body == "v2 criteria body"
-        with pytest.raises(SkillBodyNotFoundError):
-            load_skill_body(self.team.id, skill_name, 3)
