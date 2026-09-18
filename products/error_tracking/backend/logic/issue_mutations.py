@@ -322,6 +322,7 @@ def bulk_update_issues(
                             user=user,
                             status=new_status,
                             extra_properties={"previous_status": status_label(issue.status)},
+                            opener_allowed=False,
                         )
                     )
             produce_issue_lifecycle_events_on_commit(transitions)
@@ -332,7 +333,9 @@ def bulk_update_issues(
         elif action == "assign":
             transitions = []
             for issue in issues:
-                transition = _assign_one(issue, assignee, issue.team.organization, user, team_id, was_impersonated)
+                transition = _assign_one(
+                    issue, assignee, issue.team.organization, user, team_id, was_impersonated, opener_allowed=False
+                )
                 if transition is not None:
                     transitions.append(transition)
                     changed_issue_ids.append(issue.id)
@@ -358,6 +361,8 @@ def _assign_one(
     user: User,
     team_id: int,
     was_impersonated: bool,
+    *,
+    opener_allowed: bool = True,
 ) -> PendingLifecycleEvent | None:
     """Apply one assignment change; returns its lifecycle transition for the caller to queue, or None if nothing changed."""
     assignment_before = ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id).first()
@@ -401,6 +406,7 @@ def _assign_one(
             issue=issue,
             user=user,
             extra_properties={"assignee": assignee_property(assignee)},
+            opener_allowed=opener_allowed,
         )
     else:
         if assignment_before is None:
@@ -416,6 +422,7 @@ def _assign_one(
             issue=issue,
             user=user,
             extra_properties=extra_properties,
+            opener_allowed=opener_allowed,
         )
 
     log_activity(
