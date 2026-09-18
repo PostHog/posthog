@@ -1687,10 +1687,12 @@ class FeatureFlagSerializer(
             raise serializers.ValidationError(
                 "Approved changes cannot be applied to this flag.", code="unsupported_config_version"
             )
+        # Derived the way the approval gate derives it, including its instance fallback: a
+        # caller that builds no get_team context (internal service paths, organization copy)
+        # must not skip this check, or an enabled policy would be bypassed rather than denied.
         get_team = self.context.get("get_team")
-        team = get_team() if get_team else None
-        if team is None:
-            return
+        assert isinstance(self.instance, FeatureFlag)
+        team = (get_team() if get_team else None) or self.instance.team
         engine = PolicyEngine()
         # Deliberately broader than the gate's own detect(): any enabled flag-write policy on
         # this team denies the write, because a v2 change that needs approval has nowhere to go.

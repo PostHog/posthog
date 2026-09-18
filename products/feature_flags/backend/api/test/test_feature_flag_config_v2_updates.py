@@ -433,6 +433,24 @@ class TestV2AdmissionBoundary(V2UpdateTestCase):
         flag.refresh_from_db()
         assert flag.version == 3
 
+    def test_a_context_less_caller_cannot_skip_the_approval_check(self) -> None:
+        # A serializer built without a get_team context must still see the policy: the
+        # approval gate derives the team from the instance for exactly these callers, so
+        # returning early here would bypass an enabled policy rather than deny it.
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.update",
+            approver_config={},
+            enabled=True,
+        )
+        flag = self.flag()
+        serializer = FeatureFlagSerializer(flag, data={"version": 3, "name": "Renamed"}, partial=True)
+        assert not serializer.is_valid()
+        assert "unsupported_config_version" in str(serializer.errors)
+        flag.refresh_from_db()
+        assert flag.version == 3
+
     def test_approval_replay_is_rejected_even_when_admitted(self) -> None:
         flag = self.flag()
         serializer = FeatureFlagSerializer(
