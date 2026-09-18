@@ -7,7 +7,7 @@ from posthog.models.scoping import team_scope
 
 from products.canvas.backend.models import Canvas
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.models import Channel, Task, TaskActivity, TaskCommentActivity, TaskRun
+from products.tasks.backend.models import Channel, ChannelMembership, Task, TaskActivity, TaskCommentActivity, TaskRun
 
 
 class CommentActivityTestCase(TestCase):
@@ -68,10 +68,37 @@ class TestCommentActivity(CommentActivityTestCase):
 
         assert TaskCommentActivity.objects.filter(team=self.team, user=self.author, task=self.task).exists()
 
-    def test_canvas_comment_uses_its_generation_task(self):
+    @parameterized.expand(
+        [
+            ("public", Channel.ChannelType.PUBLIC, False, False, True),
+            ("private_member", Channel.ChannelType.PRIVATE, True, False, True),
+            ("private_non_member", Channel.ChannelType.PRIVATE, False, False, False),
+            ("personal_owner", Channel.ChannelType.PERSONAL, False, True, True),
+            ("personal_non_owner", Channel.ChannelType.PERSONAL, False, False, False),
+        ]
+    )
+    def test_canvas_comment_activity_follows_canvas_visibility(
+        self, _name: str, channel_type: str, invite_author: bool, author_owns_channel: bool, expected: bool
+    ) -> None:
+        generation_channel = Channel.objects.create(
+            team=self.team,
+            name="generation",
+            channel_type=Channel.ChannelType.PRIVATE,
+            created_by=self.peer,
+        )
+        self.task.channel = generation_channel
+        self.task.save(update_fields=["channel"])
+        channel = Channel.objects.create(
+            team=self.team,
+            name="canvas-space",
+            channel_type=channel_type,
+            created_by=self.author if author_owns_channel else self.peer,
+        )
+        if invite_author:
+            ChannelMembership.objects.create(team=self.team, channel=channel, user=self.author)
         canvas = Canvas.objects.create(
             team=self.team,
-            channel=self.channel,
+            channel=channel,
             name="Launch canvas",
             created_by=self.peer,
             generation_task_id=self.task.id,
@@ -80,7 +107,15 @@ class TestCommentActivity(CommentActivityTestCase):
 
         self._record_activity(comment, [self.author.id])
 
-        assert TaskCommentActivity.objects.filter(team=self.team, user=self.author, task=self.task).exists()
+        activity = TaskCommentActivity.objects.filter(team=self.team, user=self.author, comment=comment).first()
+        assert (activity is not None) is expected
+        if expected:
+            assert activity is not None
+            page = tasks_facade.list_task_activity(self.team.id, self.author.id)
+            row = next(row for row in page.results if row.id == activity.id)
+            assert row.task_title == canvas.name
+            assert row.channel_id == canvas.channel_id
+            assert row.channel_name == channel.name
 
     def test_feed_renders_the_comment_author_and_text(self):
         comment = self._comment()
