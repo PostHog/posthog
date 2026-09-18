@@ -3,8 +3,9 @@ name: signals-scout-inbox-validation
 scout-display-name: Inbox validation
 description: >
   Follow-up Signals scout for the inbox itself. Attaches a check to each newly resolved
-  report, answers the checks it is dispatched for, and reports when a fix didn't hold, plus
-  a gated escalation check on dismissed reports.
+  report, spot-checks a couple of settled fixes with fresh probes, answers the checks it is
+  dispatched for, and reports when a fix didn't hold, plus a gated escalation check on
+  dismissed reports.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus inbox-reports-list /
@@ -56,7 +57,7 @@ If no report's `updated_at` falls in the last 14 days, there is nothing to do. I
 
 ## How a run works
 
-A scheduled run attaches checks. A dispatched run answers one. The two never mix: the section above says which one this is.
+A scheduled run attaches checks, then spot-checks a couple of settled fixes. A dispatched run answers one check and nothing else. The two never mix: the section above says which one this is.
 
 ### Get oriented
 
@@ -108,9 +109,17 @@ If the report is plainly non-measurable (a docs change, a process recommendation
 
 One more sweep: a fix can fail before the check you just attached ever runs. A recurrence never reopens the resolved report — the pipeline files a fresh report and links the two with a symmetric `related_to` artefact — so the tell is a `related_to` entry on the resolved report (read its log with `inbox-report-artefacts-list`) naming a report filed after the merge. When you see one the recurrence is already in the inbox: cite it in the check's rationale and let the check settle the question, rather than authoring a report the pipeline has already filed.
 
+### Spot-check a couple of settled fixes
+
+The checks are the main layer. This is the second, independent one, and it is cheap because several fit in one run. A check tests the expectation its author wrote down when the report was fresh; a spot check re-derives the probes today, with the sibling reports and fresh signals in view, so the two fail differently. It is also the only thing that measures the checks: a spot check that fails on a report whose check passed is a false pass, and nothing else can find one.
+
+**Cap 2 per run**, after the checks are attached, and only when budget remains. Pick from resolved reports whose merge is past its soak and that carry **no active check**: either every check on the report has finished (`scout-report-check-list` shows `passed`, `failed`, `errored`, or `expired`), or it never got one. Prefer a report whose check `passed`, since agreement there is what you are testing, and vary the pick across runs rather than taking the newest each time. Never spot-check a report with a check still `active` or `pending`: that verdict is on its way. Never spot-check one with a fresh `failed` verdict either, or one covered by a `dedupe:` / `report:` / `noise:` / `spotcheck:` entry: the failure is already on the report, or you already looked.
+
+Re-derive the probes from the report's signals and metrics as the attach steps describe, measure the baseline and the post-soak window yourself, and do not read the check's own numbers first. Then run the probe ladder below and land on a row of the verdict table. A spot check records nothing on the check: it writes a `spotcheck:` entry, authors a report only for a failed verdict by the rules in Decide, and writes `spotcheck-disagree:` when its verdict contradicts a passed check, saying what the check measured and what you measured. Run the sibling-report and `related_to` sweep before authoring, the same as for a dispatched check.
+
 ### Answering a check you were dispatched for
 
-The dispatch section at the top of this file says when you are in this mode. Run the probe ladder, strongest first, then record one verdict with `scout-check-record-result`.
+The dispatch section at the top of this file says when you are in this mode. Run the probe ladder, strongest first, then record one verdict with `scout-check-record-result`. A spot check runs the same ladder and reads the same table, but records its verdict in memory instead.
 
 1. **Direct entity re-probe.** Re-measure the exact entities the check names, with the same window length before and after. Error tracking: the issue's occurrence count and distinct users post-soak against the baseline in the check (`query-error-tracking-issue`, or `execute-sql` over `events` filtering `$exception` by the issue id) — also check whether the issue's status flipped back to active or a regression was detected. Logs: re-run the pattern via `logs-count` / `query-logs` (always severity/service-filtered). Experiments / flags / replay / revenue: the matching surface tool. Compare **rates, not totals**, and use `toDateTime('<ts>', 'UTC')` for timestamp literals — bare strings parse in the project timezone and can shift the window by hours.
 2. **Fresh-signal recurrence.** Re-run the signals SQL above without the `report_id` filter, restricted to `signal_ts > '<resolved_at>' + soak`, filtering on the same `source_id` values. For fuzzier matches, add `argMax(embedding, inserted_at) AS embedding` to the dedup subquery (the default query omits it — the vectors are big), then order ascending by
@@ -138,6 +147,8 @@ Tiny baselines are common on auto-generated fix reports — a single transient e
 
 An `errored` verdict re-arms the same check about six hours out and costs it one of its three retries, so use it for a look that could settle later (deploy lag, no denominator yet) and not for one that never will. Attaching a second check to buy more soak only doubles the runs, because the original is still active.
 
+On a spot check the same rows map to memory instead of a check verdict: **Held** and **Held (weak)** are a `spotcheck:` entry; **Failed** and **Failed (moved)** are a `spotcheck:` entry plus a report by the rules in Decide; **Deploy lag** and **Inconclusive** are a `spotcheck:` entry saying why, with no second pass, because the report's own check is the one that looks again.
+
 ### Save memory as you go
 
 The checks are the queue now, so memory is only for what a check cannot hold: what you ruled out, what you filed, and who to route to. Encode the category in the key prefix; rewrite a key to update in place:
@@ -146,6 +157,8 @@ The checks are the queue now, so memory is only for what a check cannot hold: wh
 - key `report:inbox_validation:report-019e1a2b` — the `report_id` of the failed-validation report you authored, so a still-failing re-check edits it (`append_evidence` with the fresh window) instead of duplicating.
 - key `reviewer:inbox_validation:<area>` — a resolved owner (bare lowercase GitHub login) for a fix author / report reviewer, so a failed-validation report routes to a human faster.
 - key `noise:inbox_validation:report-019e77c1` — _"Unverifiable: report recommended a docs clarification; no measurable data stream. No check attached."_
+- key `spotcheck:inbox_validation:report-019e1a2b` — _"Spot-checked 2026-06-14: issue 0d4c... at 3 occ/day over the 48h after the merge (was 310 before). Held. Report's check also passed. Done — don't revisit."_
+- key `spotcheck-disagree:inbox_validation:report-019e1a2b` — _"Check passed on the rolled-up issue count; spot check found the child fingerprint still at 40 occ/day. Filed report <id>."_ Keep these; they are the record of where the checks are wrong.
 
 Keep the working set under the 100-row search cap: when entries pile up, `scratchpad-forget` ones whose reports are older than ~30 days — they're cold backlog by then.
 
@@ -166,7 +179,7 @@ Dismissal rationale isn't readable here (the DISMISSAL artefact has no MCP surfa
 
 ### Close out
 
-Summarize the run in one paragraph: what you enqueued, validated (with verdicts), extended, authored or edited, and skipped. The harness saves it as the run summary; future runs read it via `scout-runs-list`. Don't write a separate "run metadata" scratchpad entry. "Three fixes validated as held, queue empty" is a great outcome — say it plainly.
+Summarize the run in one paragraph: what you attached checks to, spot-checked (with verdicts, and any disagreement with a passed check), authored or edited, and skipped. The harness saves it as the run summary; future runs read it via `scout-runs-list`. Don't write a separate "run metadata" scratchpad entry. "Three fixes validated as held, queue empty" is a great outcome — say it plainly.
 
 ## Disqualifiers (skip these)
 
@@ -176,7 +189,7 @@ Summarize the run in one paragraph: what you enqueued, validated (with verdicts)
 - **Partial improvements** — rate down materially but nonzero is shipped value plus remaining work, not a broken promise. Memory, not a report; mention it in the close-out.
 - **Cold backlog** — reports resolved > 14 days before you first saw them, or whose PR merged > 30 days ago (backfill sweeps flip old reports resolved in batches). Follow-up has a freshness window; don't generate archaeology.
 - **Dismissed reports below the escalation gate** — the team decided; honor it.
-- **Re-covering a report that already has a verdict** — a finished check and a `dedupe:` / `noise:` entry are both terminal for that report. The only re-open is a _new_ fix PR merging (the report flips resolved again with a fresh `updated_at`) — then attach a fresh check.
+- **Re-covering a report that already has a verdict** — a finished check and a `dedupe:` / `noise:` entry are both terminal for attaching another check, and a `spotcheck:` entry is terminal for spot-checking. The only re-open is a _new_ fix PR merging (the report flips resolved again with a fresh `updated_at`) — then attach a fresh check.
 
 When in doubt, write a memory entry instead of filing a report.
 
@@ -210,7 +223,8 @@ Harness-level:
 ## When to stop
 
 - No recently resolved reports, or every one already covered by a check → close out empty.
-- This run's cap of new checks attached → close out; the rest keeps until the next run.
+- This run's cap of new checks attached and up to 2 spot checks done → close out; the rest keeps until the next run.
+- Every settled fix already spot-checked, or none past its soak → skip the spot check; do not stretch the pick to make one.
 - Dispatched for a check → record the verdict and close out. That check is the whole run.
 - You've authored what's solid → close out. One quantified failed-validation beats a pile of speculative recurrence guesses.
 
