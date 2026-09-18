@@ -131,6 +131,9 @@ def _apply_create(validated_intent: dict[str, Any], context: Optional[dict[str, 
         "project_id": context.get("project_id"),
         # Already approved — keep the gate from re-firing on this serializer.
         "approval_apply": True,
+        # A change request can hold its flag payload as ciphertext, separate from the
+        # change being replayed. The serializer swaps it in after validation.
+        "approval_encrypted_payloads": validated_intent.get("encrypted_payloads") or {},
     }
     if "request" in context:
         serializer_context["request"] = context["request"]
@@ -295,6 +298,9 @@ class FeatureFlagActionBase(BaseAction):
                 "project_id": context.get("project_id") if context else flag.team.project_id,
                 # Already approved — keep the gate from re-firing on this serializer.
                 "approval_apply": True,
+                # A change request can hold its flag payload as ciphertext, separate from the
+                # change being replayed. The serializer swaps it in after validation.
+                "approval_encrypted_payloads": validated_intent.get("encrypted_payloads") or {},
             }
 
             if context and "request" in context:
@@ -599,6 +605,9 @@ class UpdateFeatureFlagAction(BaseAction):
                 "project_id": context.get("project_id") if context else flag.team.project_id,
                 # Already approved — keep the gate from re-firing on this serializer.
                 "approval_apply": True,
+                # A change request can hold its flag payload as ciphertext, separate from the
+                # change being replayed. The serializer swaps it in after validation.
+                "approval_encrypted_payloads": validated_intent.get("encrypted_payloads") or {},
             }
 
             if context and "request" in context:

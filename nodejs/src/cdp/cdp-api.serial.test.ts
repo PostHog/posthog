@@ -1269,6 +1269,7 @@ describe('CDP API', () => {
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
+                resumeParkedSteps: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1328,6 +1329,7 @@ describe('CDP API', () => {
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
+                resumeParkedSteps: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1379,6 +1381,7 @@ describe('CDP API', () => {
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
+                resumeParkedSteps: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1438,6 +1441,7 @@ describe('CDP API', () => {
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
+                resumeParkedSteps: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1501,6 +1505,7 @@ describe('CDP API', () => {
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
+                resumeParkedSteps: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1674,6 +1679,7 @@ describe('CDP API', () => {
                 countInFlightJobs: mockCountInFlightJobs,
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
+                resumeParkedSteps: jest.fn(),
             }
 
             countHogFlow = await insertHogFlow({
@@ -1767,6 +1773,7 @@ describe('CDP API', () => {
                 countInFlightJobs: jest.fn(),
                 rescheduleParkedJobs: mockRescheduleParkedJobs,
                 cancelJobs: jest.fn(),
+                resumeParkedSteps: jest.fn(),
             }
 
             rescheduleHogFlow = await insertHogFlow({
@@ -1917,6 +1924,118 @@ describe('CDP API', () => {
         })
     })
 
+    describe('workflow step resume', () => {
+        let mockResumeParkedSteps: jest.Mock
+        const jobId = new UUIDT().toString().toLowerCase()
+        const originKey = `${jobId}:task_node:3`
+        const body = { origin_key: originKey, status: 'completed', result: { final_message: 'done' } }
+
+        // Raw audience literal and Python claim names: the wire contract with Django's
+        // WORKFLOWS_STEP_RESUME_JWT_PURPOSE, so drift on either side breaks here.
+        const mintResumeToken = (
+            teamId: number,
+            key: string,
+            { secret = 'local-dev-workflows-step-resume-jwt', audience = 'posthog:workflows:step_resume' } = {}
+        ) => jwt.sign({ team_id: teamId, origin_key: key }, secret, { audience, expiresIn: '2m' })
+        const resumeAuth = (teamId: number, key: string) => ({
+            Authorization: `Bearer ${mintResumeToken(teamId, key)}`,
+        })
+
+        beforeEach(() => {
+            mockResumeParkedSteps = jest.fn().mockResolvedValue(new Map([[jobId, 'delivered']]))
+            api['batchResolverProducer'] = {
+                createJob: jest.fn(),
+                disconnect: jest.fn(),
+                countInFlightJobs: jest.fn(),
+                rescheduleParkedJobs: jest.fn(),
+                cancelJobs: jest.fn(),
+                resumeParkedSteps: mockResumeParkedSteps,
+            }
+        })
+
+        afterEach(() => {
+            api['batchResolverProducer'] = null
+        })
+
+        it('accepts a Django-minted token and wakes the parked step', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/workflow_steps/resume`)
+                .set(resumeAuth(team.id, originKey))
+                .send(body)
+
+            expect(res.status).toEqual(200)
+            expect(res.body).toEqual({ outcome: 'delivered' })
+            expect(mockResumeParkedSteps).toHaveBeenCalledWith(team.id, [{ ...body, jobId, actionId: 'task_node' }])
+        })
+
+        it('asks the caller to retry while the worker still holds the job', async () => {
+            mockResumeParkedSteps.mockResolvedValue(new Map([[jobId, 'job_running']]))
+
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/workflow_steps/resume`)
+                .set(resumeAuth(team.id, originKey))
+                .send(body)
+
+            expect(res.status).toEqual(409)
+            expect(res.body).toEqual({ outcome: 'job_running' })
+        })
+
+        it.each([
+            ['no token', () => ({})],
+            [
+                'a token signed with the wrong key',
+                () => ({ Authorization: `Bearer ${mintResumeToken(team.id, originKey, { secret: 'wrong-key' })}` }),
+            ],
+            [
+                "another step's token",
+                () => ({ Authorization: `Bearer ${mintResumeToken(team.id, `${jobId}:task_node:2`)}` }),
+            ],
+            ["another team's token", () => ({ Authorization: `Bearer ${mintResumeToken(team.id + 1, originKey)}` })],
+            [
+                'a cancel-audience token',
+                () => ({
+                    Authorization: `Bearer ${mintResumeToken(team.id, originKey, {
+                        audience: 'posthog:workflows:cancel_invocations',
+                    })}`,
+                }),
+            ],
+        ])('rejects a request with %s', async (_desc, headers) => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/workflow_steps/resume`)
+                .set(headers())
+                .send(body)
+
+            expect(res.status).toEqual(401)
+            expect(mockResumeParkedSteps).not.toHaveBeenCalled()
+        })
+
+        it('rejects a body whose origin key is not a dispatch key', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/workflow_steps/resume`)
+                .set(resumeAuth(team.id, 'nope'))
+                .send({ ...body, origin_key: 'nope' })
+
+            expect(res.status).toEqual(400)
+            expect(mockResumeParkedSteps).not.toHaveBeenCalled()
+        })
+
+        it('fails closed when the step resume JWT key is not provisioned', async () => {
+            const savedJwt = api['stepResumeJwt']
+            api['stepResumeJwt'] = new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_STEP_RESUME, '')
+            try {
+                const res = await supertest(app)
+                    .post(`/api/projects/${team.id}/workflow_steps/resume`)
+                    .set(resumeAuth(team.id, originKey))
+                    .send(body)
+
+                expect(res.status).toEqual(503)
+                expect(mockResumeParkedSteps).not.toHaveBeenCalled()
+            } finally {
+                api['stepResumeJwt'] = savedJwt
+            }
+        })
+    })
+
     describe('hogflow cancel invocations auth', () => {
         let mockCancelJobs: jest.Mock
 
@@ -1943,6 +2062,7 @@ describe('CDP API', () => {
                 countInFlightJobs: jest.fn(),
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: mockCancelJobs,
+                resumeParkedSteps: jest.fn(),
             }
         })
 
@@ -2058,6 +2178,7 @@ describe('CDP API', () => {
                 countInFlightJobs: jest.fn(),
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: mockCancelJobs,
+                resumeParkedSteps: jest.fn(),
             }
         })
 

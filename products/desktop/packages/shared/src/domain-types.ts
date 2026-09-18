@@ -593,6 +593,7 @@ export interface CloudTaskSnapshotUpdate extends CloudTaskUpdateBase {
    *  than the full history; older entries page in on demand. Absent means
    *  the snapshot starts at the head of the chain. */
   windowStart?: number;
+  rebuilt?: boolean;
   status?: TaskRunStatus;
   stage?: string | null;
   output?: Record<string, unknown> | null;
@@ -753,6 +754,7 @@ export interface SignalReport {
   created_at: string;
   updated_at: string;
   artefact_count: number;
+  collapsed_note_count?: number;
   /** P0–P4 from priority judgment when the report is researched */
   priority?: SignalReportPriority | null;
   /** Actionability choice from the actionability judgment artefact. */
@@ -769,6 +771,11 @@ export interface SignalReport {
   source_products?: string[];
   /** PR URL from the latest implementation task run, if available. */
   implementation_pr_url?: string | null;
+  work_state?: "unclaimed" | "working" | "in_review" | "done";
+  assignee?: {
+    kind: "user" | "task" | "agent" | "system";
+    task_id: string | null;
+  } | null;
   /**
    * Whether that PR merged (GitHub webhook). A merged PR is history, not work
    * in flight: a report can outlive its fix when evidence keeps arriving, and

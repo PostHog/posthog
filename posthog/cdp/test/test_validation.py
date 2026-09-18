@@ -573,6 +573,28 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             validate_inputs(inputs_schema, {"email": {"value": value}})
         assert "At most 10 email senders are allowed." in str(ctx.value.detail)
 
+    @parameterized.expand(
+        [
+            ("single_slack", "integration", "slack"),
+            ("multi_slack", "integration_multi", "slack"),
+            ("single_posthog_connection", "integration", "posthog"),
+            ("multi_posthog_connection", "integration_multi", "posthog"),
+        ]
+    )
+    def test_integration_input_rejects_a_posthog_connection(self, _name, item_type, kind):
+        integration = Integration.objects.create(team=self.team, kind=kind, created_by=self.user)
+        value = integration.id if item_type == "integration" else [integration.id]
+        inputs_schema = [{"key": "connection", "type": item_type, "integration": "slack", "required": True}]
+        inputs = {"connection": {"value": value}}
+        context_extra = {"get_team": lambda: self.team}
+
+        if kind == "slack":
+            assert validate_inputs(inputs_schema, inputs, context_extra=context_extra)["connection"]["value"] == value
+        else:
+            with pytest.raises(ValidationError) as ctx:
+                validate_inputs(inputs_schema, inputs, context_extra=context_extra)
+            assert "PostHog connection" in str(ctx.value.detail)
+
     def _create_email_integration(self, domain="posthog.com"):
         return Integration.objects.create(
             team=self.team,

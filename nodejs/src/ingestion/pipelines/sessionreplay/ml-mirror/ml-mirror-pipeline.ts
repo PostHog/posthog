@@ -1,40 +1,42 @@
-/** The primary session replay pipeline plus an AI-training opt-in filter and an anonymize step. */
+/** The primary session replay pipeline plus an AI-training opt-in filter and an anonymize step, split into the stages the staged batch runner overlaps. */
 import { OverflowOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { BatchingContext, BatchingPipeline } from '~/ingestion/framework/batching-pipeline'
 import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { createTopHogWrapper, timer } from '~/ingestion/framework/extensions/tophog'
 import { aggregateKafkaDebugContexts } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import {
-    SessionReplayPipeline,
-    SessionReplayPipelineConfig,
-    SessionReplayPipelineInput,
-    SessionReplayPipelineOutput,
-} from '~/ingestion/pipelines/sessionreplay'
+import { SessionReplayPipelineConfig, SessionReplayPipelineOutput } from '~/ingestion/pipelines/sessionreplay'
 import { createAiTrainingOptInFilterStep } from '~/ingestion/pipelines/sessionreplay/ai-training-optin-filter-step'
 import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
 import { createProduceCollectedImagesStep } from '~/ingestion/pipelines/sessionreplay/ml-mirror/produce-collected-images-step'
 import { createProduceCollectedUrlsStep } from '~/ingestion/pipelines/sessionreplay/ml-mirror/produce-collected-urls-step'
 import { MessageContext, SessionReplayHeaders } from '~/ingestion/pipelines/sessionreplay/pipeline-types'
 import { createRecordSessionEventStep } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
-import { RecordSessionEventStepInput } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
+import { SessionBatchContext } from '~/ingestion/pipelines/sessionreplay/session-batch-context'
 import {
+    SessionReplayPreprocessingInput,
     addSessionReplayPreprocessing,
     addSessionReplaySessionResolution,
     withSessionReplayRecordingMetrics,
 } from '~/ingestion/pipelines/sessionreplay/session-replay-pipeline-stages'
+import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { MlImageFetchOutput, MlImageScrubOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
+import { SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
+import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
+import { MlBatchHandle, MlDeferrableInput } from './batch-handle'
+import { MlKeyBatchController } from './keys/batch-controller'
+import { MlSessionKeys } from './keys/key-store'
 import { createParseAndAnonymizeMessageStep } from './parse-and-anonymize-step'
-import { MlPrivacyBatchController } from './privacy/batch-controller'
 import { mlSessionIdDropReason } from './session-identifier-format'
 
 export interface MlMirrorPipelineOptions {
     /** Cap on sessions scrubbed concurrently; each in-flight scrub occupies a libuv threadpool thread. */
     anonymizeMaxConcurrency: number
-    privacy?: MlPrivacyBatchController
+    keyManager?: MlKeyBatchController
     nowMs?: () => number
 }
 
@@ -69,6 +71,44 @@ export interface MlMirrorCollection {
     collectUrls: boolean
 }
 
+/** What the prepare stage is fed: the message and a retention lookup, never the recorder, which a flush replaces while the batch is in flight. */
+export type MlPrepareInput = SessionReplayPreprocessingInput
+
+/** What the prepare stage hands the anonymize stage: a validated, key-resolved message with its batch handle. */
+export interface MlPreparedMessage extends MlPrepareInput {
+    headers: SessionReplayHeaders
+    team: TeamForReplay
+    retentionPeriod: RetentionPeriod
+    isNewSession: boolean
+    status: 'allowed'
+    sessionKey: SessionKey
+    mlBatch: MlBatchHandle
+    mlKeys?: MlSessionKeys
+}
+
+/** The batch handle also rides on the batch context, so the commit stage reaches it when no message survived. */
+export interface MlBatchContext {
+    mlBatch: MlBatchHandle
+}
+
+export type MlPreparePipeline = BatchingPipeline<
+    MlPrepareInput,
+    MlPreparedMessage,
+    MessageContext,
+    MlBatchContext,
+    MessageContext & BatchingContext,
+    OverflowOutput
+>
+
+export type MlAnonymizePipeline = BatchingPipeline<
+    MlPreparedMessage,
+    SessionReplayPipelineOutput,
+    MessageContext,
+    Record<never, object>,
+    MessageContext & BatchingContext,
+    OverflowOutput
+>
+
 function createMlSessionIdFilterStep<T extends { headers: SessionReplayHeaders }>(
     nowMs: () => number
 ): ProcessingStep<T, T> {
@@ -78,35 +118,33 @@ function createMlSessionIdFilterStep<T extends { headers: SessionReplayHeaders }
     }
 }
 
-export function createMlMirrorReplayPipeline(
+/**
+ * The I/O-bound front of the lane: header parsing, the opt-in and session ID filters, the key bulk
+ * read, retention, session tracking and key resolution. Nothing here needs the CPU for long, so the
+ * runner lets it work on the next batch while the anonymize stage scrubs the current one.
+ */
+export function createMlMirrorPreparePipeline(
     config: SessionReplayPipelineConfig,
-    mlOptions: MlMirrorPipelineOptions,
-    imageScrub?: MlMirrorImageScrubProducer,
-    collection?: MlMirrorCollection,
-    urlFetch?: MlMirrorUrlFetchProducer
-): SessionReplayPipeline {
-    const { outputs, promiseScheduler, topHog, isDebugLoggingEnabled } = config
-
+    mlOptions: MlMirrorPipelineOptions
+): MlPreparePipeline {
+    const { outputs, promiseScheduler } = config
     const pipelineConfig: PipelineConfig<OverflowOutput> = { outputs, promiseScheduler }
-    const topHogWrapper = createTopHogWrapper(topHog)
-    function deferPublication<T extends RecordSessionEventStepInput & { headers: { session_id: string } }>(
-        step: ProcessingStep<T, T>
-    ): ProcessingStep<T, T> {
-        return mlOptions.privacy ? (input) => mlOptions.privacy!.defer(input, step) : step
-    }
 
     return newBatchingPipeline<
-        SessionReplayPipelineInput,
-        SessionReplayPipelineOutput,
+        MlPrepareInput,
+        MlPreparedMessage,
         MessageContext,
-        Record<never, object>,
+        MlBatchContext,
         MessageContext,
         OverflowOutput
     >(
         (beforeBatch) =>
-            beforeBatch.pipe(function passThroughBeforeBatch(input) {
-                mlOptions.privacy?.reset()
-                return Promise.resolve(ok(input))
+            beforeBatch.pipe(function openMlBatch(input) {
+                const batchContext: MlBatchContext & typeof input.batchContext = {
+                    ...input.batchContext,
+                    mlBatch: new MlBatchHandle(mlOptions.keyManager),
+                }
+                return Promise.resolve(ok({ ...input, batchContext }))
             }),
         (batch) =>
             batch
@@ -120,25 +158,92 @@ export function createMlMirrorReplayPipeline(
                                     .pipe(createAiTrainingOptInFilterStep())
                             )
                             .gather()
-                            .pipeChunk(async function readMlPrivacyBatch(values) {
-                                if (mlOptions.privacy) {
-                                    await mlOptions.privacy.prepare(
-                                        values.map((value) => {
-                                            if (!value.team.organizationId) {
-                                                throw new Error('ML privacy requires organization ownership')
-                                            }
-                                            return {
-                                                teamId: value.team.teamId,
-                                                organizationId: value.team.organizationId,
-                                                sessionId: value.headers.session_id,
-                                            }
-                                        })
+                            .pipeChunk(async function readMlKeyBatch(values) {
+                                if (!values.length) {
+                                    return []
+                                }
+                                // The batching pipeline merges the batch context into every element, which the preprocessing types do not carry.
+                                const { mlBatch } = values[0] as unknown as MlBatchContext
+                                if (mlOptions.keyManager) {
+                                    mlBatch.keys = await mlOptions.keyManager.prepare(
+                                        values.map((value) => ({
+                                            teamId: value.team.teamId,
+                                            sessionId: value.headers.session_id,
+                                        }))
                                     )
                                 }
-                                return values.map((value) => ok(value))
+                                return values.map((value) => ok({ ...value, mlBatch }))
                             }),
                         config
-                    ).filterMap(
+                    ).pipeChunk(function attachMlKeys(values) {
+                        return Promise.resolve(
+                            values.map((value) => {
+                                const prepared: MlPreparedMessage = {
+                                    ...value,
+                                    mlKeys: value.mlBatch.keys?.get(value.team.teamId, value.headers.session_id),
+                                }
+                                return ok(prepared)
+                            })
+                        )
+                    })
+                )
+                .handleResults(pipelineConfig)
+                .handleSideEffects(promiseScheduler, { await: false })
+                .gather(),
+        (afterBatch) =>
+            afterBatch.pipe(function passThroughAfterBatch(input) {
+                return Promise.resolve(ok(input))
+            }),
+        { concurrentBatches: 1 },
+        { aggregateDebugContexts: aggregateKafkaDebugContexts }
+    )
+}
+
+/**
+ * The CPU-bound middle of the lane: the fused parse and scrub in the Rust addon. The record and
+ * produce steps that follow it are deferred onto the batch handle, so this stage touches neither the
+ * recorder nor Kafka and the runner can hold it to one batch at a time without holding anything else.
+ */
+export function createMlMirrorAnonymizePipeline(
+    config: SessionReplayPipelineConfig,
+    mlOptions: MlMirrorPipelineOptions,
+    imageScrub?: MlMirrorImageScrubProducer,
+    collection?: MlMirrorCollection,
+    urlFetch?: MlMirrorUrlFetchProducer
+): MlAnonymizePipeline {
+    const { outputs, promiseScheduler, topHog, isDebugLoggingEnabled } = config
+
+    const pipelineConfig: PipelineConfig<OverflowOutput> = { outputs, promiseScheduler }
+    const topHogWrapper = createTopHogWrapper(topHog)
+    // The deferred step runs at commit time with the recorder current then, so it is typed on the full recorder while the element it is queued from only carries the retention lookup.
+    function deferPublication<T extends MlDeferrableInput & { mlBatch: MlBatchHandle }>(
+        step: ProcessingStep<T & SessionBatchContext, T & SessionBatchContext>
+    ): ProcessingStep<T, T> {
+        return (input) => input.mlBatch.defer(input, step)
+    }
+    // Only the recording step answers with its message, so the lane reports lag once per message and not once per deferred step.
+    function deferRecording<T extends MlDeferrableInput & { mlBatch: MlBatchHandle }>(
+        step: ProcessingStep<T & SessionBatchContext, T & SessionBatchContext>
+    ): ProcessingStep<T, T> {
+        return (input) => input.mlBatch.defer(input, step, true)
+    }
+
+    return newBatchingPipeline<
+        MlPreparedMessage,
+        SessionReplayPipelineOutput,
+        MessageContext,
+        Record<never, object>,
+        MessageContext,
+        OverflowOutput
+    >(
+        (beforeBatch) =>
+            beforeBatch.pipe(function passThroughBeforeBatch(input) {
+                return Promise.resolve(ok(input))
+            }),
+        (batch) =>
+            batch
+                .messageAware((b) =>
+                    b.filterMap(
                         (element) => ({
                             result: element.result,
                             context: {
@@ -160,8 +265,7 @@ export function createMlMirrorReplayPipeline(
                                                         createParseAndAnonymizeMessageStep(
                                                             collection?.collectImages || collection?.collectUrls
                                                                 ? collection
-                                                                : undefined,
-                                                            mlOptions.privacy
+                                                                : undefined
                                                         ),
                                                         [
                                                             timer('parse_time_ms_by_session_id', (input) => ({
@@ -176,8 +280,7 @@ export function createMlMirrorReplayPipeline(
                                                           deferPublication(
                                                               createProduceCollectedImagesStep(
                                                                   imageScrub.outputs,
-                                                                  imageScrub.producedRefCacheMax,
-                                                                  mlOptions.privacy
+                                                                  imageScrub.producedRefCacheMax
                                                               )
                                                           )
                                                       )
@@ -190,15 +293,14 @@ export function createMlMirrorReplayPipeline(
                                                                   producedRefCacheWindowMs:
                                                                       urlFetch.producedRefCacheWindowMs,
                                                                   crawlHistory: urlFetch.crawlHistory,
-                                                                  privacy: mlOptions.privacy,
                                                               })
                                                           )
                                                       )
                                                     : withImagesProduced
                                                 return withUrlsProduced.pipe(
-                                                    withSessionReplayRecordingMetrics(
-                                                        topHog,
-                                                        deferPublication(
+                                                    deferRecording(
+                                                        withSessionReplayRecordingMetrics(
+                                                            topHog,
                                                             createRecordSessionEventStep({
                                                                 isDebugLoggingEnabled,
                                                             })
@@ -217,12 +319,9 @@ export function createMlMirrorReplayPipeline(
                 .handleSideEffects(promiseScheduler, { await: false })
                 .gather(),
         (afterBatch) =>
-            afterBatch.pipe(async function passThroughAfterBatch(input) {
-                await mlOptions.privacy?.commit()
-                return ok(input)
+            afterBatch.pipe(function passThroughAfterBatch(input) {
+                return Promise.resolve(ok(input))
             }),
-        // One batch in flight at a time (also the framework default): each feed tags the manager's
-        // current recorder, so a concurrent batch could span a flush and record into a stale recorder.
         { concurrentBatches: 1 },
         { aggregateDebugContexts: aggregateKafkaDebugContexts }
     )

@@ -69,6 +69,7 @@ export interface ProjectTreeLogicProps {
     root?: string
     includeRoot?: boolean
     hideFolders?: string[]
+    isActiveInPanel?: boolean
 }
 
 const FOLDER_LOADING = [
@@ -94,6 +95,8 @@ export interface projectTreeLogicValues {
     loadingPaths: Record<string, boolean> // projectTreeDataLogic
     shortcutData: FileSystemEntry[] // projectTreeDataLogic
     sortedItems: FileSystemEntry[] // projectTreeDataLogic
+    unfiledItems: boolean // projectTreeDataLogic
+    unfiledItemsLoading: boolean // projectTreeDataLogic
     users: Record<string, UserBasicType> // projectTreeDataLogic
     viableItems: FileSystemEntry[] // projectTreeDataLogic
     viableItemsById: Record<string, FileSystemEntry> // projectTreeDataLogic
@@ -205,6 +208,9 @@ export interface projectTreeLogicActions {
         hasMore: boolean
         offsetIncrease: number
     } // projectTreeDataLogic
+    loadUnfiledItems: () => {
+        value: true
+    } // projectTreeDataLogic
     moveItem: (
         item: FileSystemEntry,
         newPath: string,
@@ -217,12 +223,18 @@ export interface projectTreeLogicActions {
         projectTreeLogicKey: string
     } // projectTreeDataLogic
     moveItems: (
-        moves: { item: FileSystemEntry; newPath: string }[],
+        moves: {
+            item: FileSystemEntry
+            newPath: string
+        }[],
         force: boolean,
         projectTreeLogicKey: string
     ) => {
         force: boolean
-        moves: { item: FileSystemEntry; newPath: string }[]
+        moves: {
+            item: FileSystemEntry
+            newPath: string
+        }[]
         projectTreeLogicKey: string
     } // projectTreeDataLogic
     movedItem: (
@@ -469,8 +481,8 @@ export interface projectTreeLogicMeta {
             recentResultsLoading: boolean,
             sortMethod: ProjectTreeSortMethod,
             onlyFolders: boolean,
-            getStaticTreeItems: (searchTerm: string, onlyFolders: boolean) => TreeDataItem[],
-            getCustomProductTreeItems: (searchTerm: string) => TreeDataItem[],
+            getStaticTreeItems: (searchTerm: string, onlyFolders: boolean) => TreeDataItem[], // projectTreeDataLogic
+            getCustomProductTreeItems: (searchTerm: string) => TreeDataItem[], // projectTreeDataLogic
             arg: any
         ) => TreeDataItem[]
         fullFileSystemFiltered: (
@@ -500,6 +512,15 @@ export type projectTreeLogicType = MakeLogicType<
     projectTreeLogicMeta
 >
 
+const shouldLoadUnfiledItems = (
+    props: ProjectTreeLogicProps,
+    values: Pick<projectTreeLogicValues, 'unfiledItems' | 'unfiledItemsLoading'>
+): boolean =>
+    props.root?.startsWith('project://') === true &&
+    props.isActiveInPanel !== false &&
+    !values.unfiledItems &&
+    !values.unfiledItemsLoading
+
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
     props({} as ProjectTreeLogicProps),
@@ -522,6 +543,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'getStaticTreeItems',
                 'getCustomProductTreeItems',
                 'shortcutData',
+                'unfiledItems',
+                'unfiledItemsLoading',
             ],
         ],
         actions: [
@@ -545,6 +568,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'moveItems',
                 'linkItem',
                 'pruneClosedFolders',
+                'loadUnfiledItems',
             ],
         ],
     })),
@@ -1208,7 +1232,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             actions.pruneClosedFolders(values.expandedFolders)
         },
         loadFolderSuccess: ({ folder }) => {
-            if (folder === '') {
+            if (props.root?.startsWith('project://') && props.isActiveInPanel === true && folder === '') {
                 const rootItems = values.folders['']
                 if (rootItems.length < 5) {
                     actions.toggleFolderOpen('project://Unfiled', true)
@@ -1632,8 +1656,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         } else {
             actions.loadFolder('')
         }
-        // Same gate as the subscription: only project:// trees handle breadcrumb-driven visibility.
         const isProjectRoot = props.root === undefined || props.root.startsWith('project://')
+        if (shouldLoadUnfiledItems(props, values)) {
+            actions.loadUnfiledItems()
+        }
         if (values.projectTreeRef && isProjectRoot) {
             actions.assureVisibility(values.projectTreeRef)
         }
@@ -1654,6 +1680,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             if (props.root) {
                 actions.loadFolderIfNotLoaded(props.root)
             }
+        }
+        const projectPanelStateChanged =
+            props.root !== oldProps.root || props.isActiveInPanel !== oldProps.isActiveInPanel
+        if (projectPanelStateChanged && shouldLoadUnfiledItems(props, values)) {
+            actions.loadUnfiledItems()
         }
     }),
 ])

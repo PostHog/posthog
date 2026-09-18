@@ -15,6 +15,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from posthog_owners.schema import TeamEntry
 from slack_sdk.errors import SlackApiError
+from structlog.testing import capture_logs
 
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
@@ -413,19 +414,23 @@ def test_a_repo_with_no_registry_inherits_one(team) -> None:
 
 
 @pytest.mark.parametrize(
-    "context_kwargs,reason",
+    "context_kwargs,logged",
     [
-        ({"registry_by_repo": {REPO: {AUDIENCE: TeamEntry(notifications=False)}}}, "silenced_by_config"),
+        (
+            {"registry_by_repo": {REPO: {AUDIENCE: TeamEntry(notifications=False)}}},
+            ("stamphog_digest_opted_out", "info"),
+        ),
         # A team that silences this digest alone keeps its channel for every other bot.
         (
             {"registry_by_repo": {REPO: {AUDIENCE: TeamEntry(slack="#team-apm", notifications={"stamphog": False})}}},
-            "silenced_by_config",
+            ("stamphog_digest_opted_out", "info"),
         ),
-        ({"channels_by_name": {}}, "no_channel_of_that_name"),
+        ({"channels_by_name": {}}, ("stamphog_digest_no_destination", "warning")),
     ],
+    ids=["silenced_everywhere", "silenced_for_this_digest_only", "no_channel_of_that_name"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_unroutable_merges_stay_unclaimed(team, context_kwargs: dict, reason: str) -> None:
+def test_unroutable_merges_stay_unclaimed(team, context_kwargs: dict, logged: tuple[str, str]) -> None:
     # Claiming marks a PR as handled forever, so a merge that routes nowhere must not be claimed.
     # A team that silences its digest today and declares a channel next week has to receive the
     # merges in between, and a channel created after the declaration has to pick up the backlog.
@@ -434,10 +439,17 @@ def test_unroutable_merges_stay_unclaimed(team, context_kwargs: dict, reason: st
     with (
         patch("products.stamphog.backend.logic.digest_runs.post_digest_lead") as post,
         patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
+        capture_logs() as logs,
     ):
         _run_digests(team.id, _routing_context(**context_kwargs))
 
     assert not post.called
+    routing_events = [
+        (entry["event"], entry["log_level"])
+        for entry in logs
+        if entry["event"] in {"stamphog_digest_opted_out", "stamphog_digest_no_destination"}
+    ]
+    assert routing_events == [logged]
     with team_scope(team.id):
         assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 2
         assert not DigestRun.objects.exists()
@@ -790,7 +802,7 @@ def test_the_digest_call_names_its_product_team_and_source() -> None:
         distinct_id=f"team-{team_id}",
     )
     (selection_call,) = client.calls[:1]
-    assert selection_call["model"] == "claude-haiku-4-5"
+    assert selection_call["model"] == "claude-sonnet-5"
     assert selection_call["max_tokens"] > 0
     assert selection_call["metadata"] == {"user_id": f"team-{team_id}"}
     assert "extra_headers" not in selection_call and "user" not in selection_call
@@ -841,14 +853,14 @@ def test_a_merge_that_only_grazed_the_team_never_reaches_the_model(
 
 
 @pytest.mark.parametrize(
-    "audience,claim,kept",
+    "audience,claim,kept,headline_reads_title",
     [
-        (_audience(3), {"scope": "whole_pr"}, False),
-        (_audience(3), {}, False),
-        (_audience(3), {"scope": 42}, False),
-        (_audience(3), {"scope": SCOPE_YOUR_FILES}, True),
-        (_audience(8), {}, True),
-        (_audience(0, AudienceReason.REPO_DECLARED), {}, True),
+        (_audience(3), {"scope": "whole_pr"}, False, False),
+        (_audience(3), {}, False, False),
+        (_audience(3), {"scope": 42}, False, False),
+        (_audience(3), {"scope": SCOPE_YOUR_FILES}, True, False),
+        (_audience(8), {}, True, True),
+        (_audience(0, AudienceReason.REPO_DECLARED), {}, True, True),
     ],
     ids=[
         "a_line_about_the_whole_pr_is_not_this_teams_news",
@@ -860,7 +872,7 @@ def test_a_merge_that_only_grazed_the_team_never_reaches_the_model(
     ],
 )
 def test_a_line_about_another_teams_half_of_a_merge_is_dropped(
-    audience: PullRequestAudience, claim: dict[str, Any], kept: bool
+    audience: PullRequestAudience, claim: dict[str, Any], kept: bool, headline_reads_title: bool
 ) -> None:
     # The model names the perspective in its answer, so the code can check it here.
     #
@@ -887,6 +899,11 @@ def test_a_line_about_another_teams_half_of_a_merge_is_dropped(
     ours_line = (2, "Our own area changed.")
     expected = [(1, "The other team's feature ships."), ours_line] if kept else [ours_line]
     assert [(pr.pr_number, pr.summary) for pr in summary.prs] == expected
+    # The title describes the whole pull request. A headline shown it for a merge the team owns only
+    # part of wrote about the other team's half while the team's own line was about its files.
+    headline_prompt = client.prompts[1]
+    assert ("Adds a facade the other product calls" in headline_prompt) is headline_reads_title
+    assert "Our own area changed." in headline_prompt
 
 
 _WHOLE_CHANGE = "Uploads pause when a workspace spends the daily quota."
@@ -1015,7 +1032,7 @@ def test_the_headline_prompt_asks_for_a_paragraph_every_time() -> None:
         )
     ]
 
-    prompt = _build_headline_prompt(picked, {}, AUDIENCE)
+    prompt = _build_headline_prompt(picked, {}, AUDIENCE, frozenset())
 
     assert "empty string" not in prompt
     assert "do not restate its line" in prompt
