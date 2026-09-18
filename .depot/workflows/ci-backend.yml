@@ -26,9 +26,9 @@
 #   not github-actions[bot]. It posts only when the checkout's
 #   frontend/bin/ci-report/update-ci-report.mjs adopts that login, because an older writer
 #   would add a new report comment on every write. The job sets up Node from .nvmrc, which
-#   canonical takes from the GitHub-hosted image. The comment's patch-coverage link is built
-#   from GITHUB_RUN_ID, which on Depot is not a GitHub run id, so that link and its
-#   `gh run download` hint do not resolve for a Depot run.
+#   canonical takes from the GitHub-hosted image. The report step blanks GITHUB_RUN_ID, which
+#   on Depot is not a GitHub run id, so the comment omits the patch-coverage run link and its
+#   `gh run download` hint instead of printing ones that do not resolve.
 # - Stripped side effects: the other CI report section posters (canonical
 #   additionally skips these on trunk-merge/** branches to save GITHUB_TOKEN budget;
 #   the shadow strips them entirely, so that gating has nothing to mirror), snapshot
@@ -3399,7 +3399,8 @@ jobs:
               run: |
                   mkdir -p cov-artifacts core-artifacts
                   git fetch --no-tags --filter=blob:none --quiet origin master
-                  uv run --script .github/scripts/coverage_report.py \
+                  # A Depot run id is not a GitHub run id, so a link built from it would 404.
+                  GITHUB_RUN_ID='' uv run --script .github/scripts/coverage_report.py \
                       --artifacts cov-artifacts \
                       --core-artifacts core-artifacts \
                       --combined-out combined-coverage.xml \
