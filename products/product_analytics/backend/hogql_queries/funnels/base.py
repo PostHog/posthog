@@ -61,14 +61,17 @@ class FunnelBase(ABC):
             SELECT
                 *,
                 if(
-                    capture_ms > 0 AND isNotNull(device_offset_ms) AND ifNull(capture_device, '') != '',
+                    capture_ms > 0
+                    AND stored_ms != capture_ms
+                    AND isNotNull(device_offset_ms)
+                    AND ifNull(capture_device, '') != '',
                     (capture_ms + device_offset_ms) / 1000,
                     stored_ms / 1000
                 ) AS capture_order_key
             FROM (
                 SELECT
                     *,
-                    min(if(capture_ms > 0, stored_ms - capture_ms, NULL)) OVER (
+                    min(if(capture_ms > 0 AND stored_ms != capture_ms, stored_ms - capture_ms, NULL)) OVER (
                         PARTITION BY aggregation_target, capture_device
                     ) AS device_offset_ms
                 FROM (
