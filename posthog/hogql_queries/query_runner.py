@@ -2257,10 +2257,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.user = user
             self._on_user_changed()
         start_time = perf_counter()
-        cache_payload = self.get_cache_payload()
-        cache_key = self._cache_key_for(cache_payload)
-        # Taken with the cache key, before the fresh path adds user modifiers, so a hit and a fresh run agree.
-        self._query_identity: QueryIdentity = self._query_identity_for(cache_payload)
+        # Through the overridable method: some runners add state to the key or gate the query first.
+        cache_key = self.get_cache_key()
         self._phase = RunPhase(name="prepare")
         self._timings_before_run: dict[str, float] = self.timings.to_dict()
         # Resolve per-call state before observability so SLO + analytics agree on the values.
@@ -3228,7 +3226,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         ]
 
     def get_cache_key(self) -> str:
-        return self._cache_key_for(self.get_cache_payload())
+        payload = self.get_cache_payload()
+        # Taken from the payload the key hashes, before the fresh path adds user modifiers, so a hit
+        # and a fresh run agree, and the payload is built once per run.
+        self._query_identity = self._query_identity_for(payload)
+        return self._cache_key_for(payload)
 
     def _cache_key_for(self, payload: dict) -> str:
         return generate_cache_key(self.team.pk, f"query_{bytes.decode(to_json(payload))}")

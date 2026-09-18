@@ -926,6 +926,20 @@ class TestQueryRunner(BaseTest):
         else:
             assert isinstance(props["query_duration_ms"], float)
 
+    def test_run_keys_the_cache_with_a_subclass_cache_key(self) -> None:
+        TestQueryRunner = self.setup_test_query_runner_class()
+
+        class VariantQueryRunner(TestQueryRunner):  # type: ignore[valid-type,misc]
+            def get_cache_key(self) -> str:
+                return f"{super().get_cache_key()}_variant"
+
+        runner = VariantQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        with mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report:
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        assert response.cache_key.endswith("_variant")
+        assert report.call_args.args[1]["query_hash"] == runner.get_query_identity().query_hash
+
     def test_cache_payload_omits_object_restrictions_when_unrestricted(self):
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
