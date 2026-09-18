@@ -462,8 +462,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             timings_matrix[0] = self.timings.to_list(back_out_stack=False)
             self.timings.clear_timings()
 
-            # This exists so that we're not spawning threads during unit tests. We can't do
-            # this right now due to the lack of multithreaded support of Django
+            # A single query needs no thread. IN_UNIT_TESTING stays off unless a test class opts
+            # in with override_settings, so a suite that does not opt in runs the parallel path.
             if len(queries) == 1 or settings.IN_UNIT_TESTING:
                 for index, query in enumerate(queries):
                     run(index, query, self.timings.clone_for_subquery(index), False)
