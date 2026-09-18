@@ -414,6 +414,7 @@ describe("CloudTaskEngine", () => {
         status: "in_progress",
         stage: "build",
         output: null,
+        taskSummary: null,
         errorMessage: null,
         branch: "main",
       },
@@ -1077,6 +1078,80 @@ describe("CloudTaskEngine", () => {
     );
   });
 
+  it.each(["Updated private summary", null])(
+    "refreshes a redacted summary through the authorized API: %s",
+    async (authorizedSummary) => {
+      const updates: Array<{ kind?: string; taskSummary?: string | null }> = [];
+      service.on(CloudTaskEvent.Update, (payload) => updates.push(payload));
+      let summary: string | null = "Previous private summary";
+      let updatedAt = "2026-01-01T00:00:00Z";
+      mockNetFetch.mockImplementation(async (url: string) =>
+        createJsonResponse(
+          url.includes("/logs/")
+            ? []
+            : {
+                id: "run-1",
+                status: "in_progress",
+                task_summary: summary,
+                updated_at: updatedAt,
+              },
+          200,
+          { "X-Has-More": "false" },
+        ),
+      );
+      let streamController:
+        | ReadableStreamDefaultController<Uint8Array>
+        | undefined;
+      mockStreamFetch.mockResolvedValue(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              streamController = controller;
+            },
+          }),
+          { headers: { "Content-Type": "text/event-stream" } },
+        ),
+      );
+      service.watch({
+        taskId: "task-1",
+        runId: "run-1",
+        apiHost: "https://app.example.com",
+        teamId: 2,
+      });
+      await waitFor(
+        () =>
+          updates.some((update) => update.kind === "snapshot") &&
+          !!streamController,
+      );
+      await waitFor(() => mockNetFetch.mock.calls.length >= 3);
+      summary = authorizedSummary;
+      updatedAt = "2026-01-01T00:00:01Z";
+      streamController?.enqueue(
+        new TextEncoder().encode(
+          `data: ${JSON.stringify({
+            type: "task_run_state",
+            status: "in_progress",
+            task_summary: null,
+            task_summary_redacted: true,
+            updated_at: updatedAt,
+          })}\n\n`,
+        ),
+      );
+      await waitFor(() =>
+        updates.some(
+          (update) =>
+            update.kind === "status" &&
+            update.taskSummary === authorizedSummary,
+        ),
+      );
+      if (authorizedSummary !== null) {
+        expect(updates.every((update) => update.taskSummary !== null)).toBe(
+          true,
+        );
+      }
+    },
+  );
+
   it("replays a current snapshot when a subscriber attaches to an existing watcher", async () => {
     const updates: unknown[] = [];
     service.on(CloudTaskEvent.Update, (payload) => updates.push(payload));
@@ -1113,6 +1188,7 @@ describe("CloudTaskEngine", () => {
       status: "in_progress",
       stage: "build",
       output: null,
+      task_summary: "Fixing the funnel",
       error_message: null,
       branch: "main",
       updated_at: "2026-01-01T00:00:00Z",
@@ -1177,6 +1253,7 @@ describe("CloudTaskEngine", () => {
       status: "in_progress",
       stage: "build",
       output: null,
+      taskSummary: "Fixing the funnel",
       errorMessage: null,
       branch: "main",
     });
@@ -1319,6 +1396,7 @@ describe("CloudTaskEngine", () => {
         status: "in_progress",
         stage: "build",
         output: null,
+        taskSummary: null,
         errorMessage: null,
         branch: "main",
       },
@@ -4166,6 +4244,7 @@ describe("CloudTaskEngine", () => {
         status: "completed",
         stage: "build",
         output: null,
+        taskSummary: null,
         errorMessage: null,
         branch: "main",
       },

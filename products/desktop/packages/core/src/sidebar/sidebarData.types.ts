@@ -28,6 +28,7 @@ export interface TaskData {
   slackThreadUrl?: string;
   folderPath: string | null;
   cloudPrUrl: string | null;
+  summary?: string | null;
   branchName: string | null;
   linkedBranch: string | null;
 }

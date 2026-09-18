@@ -39,6 +39,7 @@ import {
   type RpcExtensionUIResponse,
 } from "../pi/types";
 import { PostHogAPIClient } from "../posthog-api";
+import { buildPriorTaskSummaryContext } from "../task-summary";
 import { createEventIdSource } from "../utils/event-id";
 import { resolveLlmGatewayUrl } from "../utils/gateway";
 import { Logger } from "../utils/logger";
@@ -49,6 +50,7 @@ import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
 import { jsonRpcRequestSchema } from "./schemas";
 import { buildStoreSkillsInstructions, syncStoreSkills } from "./store-skills";
 import type { AgentServerConfig } from "./types";
+import { retry } from "./utils/retry";
 
 const MODEL_CHANGING_RPC_COMMANDS: ReadonlySet<string> = new Set([
   "set_model",
@@ -566,6 +568,25 @@ export class PiAgentServer {
     this.lastSyncedSessionContent = persistedSessionContent;
     this.sessionContentSha256 = sessionStorage.content_sha256;
 
+    const [task, taskRun, mcpConfiguration] = await Promise.all([
+      this.posthogAPI.getTask(payload.task_id).catch((error) => {
+        this.logger.debug("Failed to fetch task attribution", error);
+        return null;
+      }),
+      retry(() => this.posthogAPI.getTaskRun(payload.task_id, payload.run_id), {
+        maxAttempts: 3,
+        baseDelayMs: 250,
+        maxDelayMs: 1000,
+        shouldRetry: () => true,
+      }).catch((error) => {
+        this.logger.debug("Failed to fetch task run attribution", error);
+        return null;
+      }),
+      this.posthogAPI.getMcpRuntimeConfiguration(this.config.mcpServers ?? []),
+    ]);
+    const taskSummarySupported = taskRun
+      ? Object.hasOwn(taskRun, "task_summary")
+      : false;
     const localTools = buildLocalToolsServer(
       { cwd },
       {
@@ -574,28 +595,13 @@ export class PiAgentServer {
         taskRunId: this.config.runId,
         baseBranch: this.config.baseBranch,
         peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
+        taskSummarySupported,
       },
-    );
-    const mcpConfiguration = await this.posthogAPI.getMcpRuntimeConfiguration(
-      this.config.mcpServers ?? [],
     );
     const runtimeMcpServers = {
       ...createRuntimeMcpServers(mcpConfiguration.servers),
       ...createRuntimeMcpStdioServers(localTools ? [localTools] : []),
     };
-
-    const [task, taskRun] = await Promise.all([
-      this.posthogAPI.getTask(payload.task_id).catch((error) => {
-        this.logger.debug("Failed to fetch task attribution", error);
-        return null;
-      }),
-      this.posthogAPI
-        .getTaskRun(payload.task_id, payload.run_id)
-        .catch((error) => {
-          this.logger.debug("Failed to fetch task run attribution", error);
-          return null;
-        }),
-    ]);
     const runState = taskRun?.state;
     seedRunUsage(this.runUsage, runState?.token_usage);
     // Before the prompt: its skills-store section counts the stubs on disk.
@@ -616,8 +622,16 @@ export class PiAgentServer {
     const storeSkillsInstructions = buildStoreSkillsInstructions(
       storeSkillsInstalledCount,
     );
+    const priorSummaryContext = taskRun?.task_summary
+      ? buildPriorTaskSummaryContext(taskRun.task_summary)
+      : "";
     const additionalInstructions =
-      `${configuredSystemPrompt ?? ""}${storeSkillsInstructions}` || undefined;
+      [
+        `${configuredSystemPrompt ?? ""}${storeSkillsInstructions}`,
+        priorSummaryContext,
+      ]
+        .filter(Boolean)
+        .join("\n\n") || undefined;
     // A repo-less run gets the tools to discover and clone a repository, and the
     // channel prompt that names them. Derive both from one condition so the tools
     // and the prompt that describes them can never disagree.
@@ -630,6 +644,7 @@ export class PiAgentServer {
       environment: "cloud",
       channelMode,
       additionalInstructions,
+      taskSummarySupported,
     };
     const attributionHeaders = buildPosthogPropertyHeaderRecord({
       task_id: payload.task_id,
@@ -915,14 +930,13 @@ export class PiAgentServer {
       typeof params.content === "string" ? params.content : "",
       artifacts,
     );
-    const result = await this.dispatchUserMessage(
+    return this.dispatchUserMessage(
       runtime,
       message.content,
       message.images,
       typeof params.messageId === "string" ? params.messageId : randomUUID(),
       params.steer === true,
     );
-    return result;
   }
 
   private async prepareUserMessage(

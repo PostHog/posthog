@@ -1,6 +1,12 @@
 import { Archive, GitPullRequest, PushPin } from "@phosphor-icons/react";
 import type { RunMode } from "@posthog/core/sidebar/buildSidebarData";
 import { parseGithubUrl } from "@posthog/git/utils";
+import {
+  Tooltip as QuillTooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@posthog/quill";
 import type { WorkspaceMode } from "@posthog/shared";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import type { TaskRunStatus } from "@posthog/shared/domain-types";
@@ -55,6 +61,7 @@ interface TaskItemProps {
   prState?: SidebarPrState;
   hasDiff?: boolean;
   prUrl?: string | null;
+  summary?: string | null;
   timestamp?: number;
   isEditing?: boolean;
   onClick: (e: React.MouseEvent) => void;
@@ -131,6 +138,7 @@ export function TaskItem({
   prState,
   hasDiff,
   prUrl,
+  summary,
   timestamp,
   isEditing = false,
   onClick,
@@ -222,11 +230,30 @@ export function TaskItem({
     );
   }
 
+  const summaryLabel = summary ? (
+    <TooltipProvider delay={700}>
+      <QuillTooltip>
+        <TooltipTrigger render={<span />}>{label}</TooltipTrigger>
+        <TooltipContent
+          side="right"
+          align="start"
+          className="min-w-0 max-w-[min(320px,calc(100vw-32px))] text-left"
+        >
+          <div className="max-h-[min(380px,calc(100dvh-48px))] min-w-0 overflow-y-auto whitespace-pre-wrap break-words">
+            {summary}
+          </div>
+        </TooltipContent>
+      </QuillTooltip>
+    </TooltipProvider>
+  ) : (
+    label
+  );
+
   return (
     <SidebarItem
       depth={depth}
       icon={icon}
-      label={label}
+      label={summaryLabel}
       subtitle={subtitle}
       isActive={isActive}
       isSelected={isSelected}

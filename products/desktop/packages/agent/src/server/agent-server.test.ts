@@ -415,6 +415,60 @@ async function startInitialTaskMessage(
   await startup.sendInitialTaskMessage(payload, prepared);
 }
 
+describe("AgentServer summary context", () => {
+  it("hides the prior summary and keeps the user command visible", async () => {
+    const server = new AgentServer({
+      port: 0,
+      jwtPublicKey: TEST_PUBLIC_KEY,
+      apiUrl: "http://localhost:8000",
+      apiKey: "test-token",
+      projectId: 1,
+      mode: "interactive",
+      taskId: "test-task-id",
+      runId: "test-run-id",
+    }) as unknown as StartupTestServer & {
+      priorRunSummary: string;
+      session: unknown;
+      posthogAPI: { getTask: ReturnType<typeof vi.fn> };
+      promptWithUpstreamRetry: ReturnType<typeof vi.fn>;
+      clearPendingInitialPromptState: ReturnType<typeof vi.fn>;
+      broadcastTurnComplete: ReturnType<typeof vi.fn>;
+      finalizeRunTelemetry: ReturnType<typeof vi.fn>;
+    };
+    server.priorRunSummary = "Review <changes>";
+    server.session = {
+      acpSessionId: "session-1",
+      logWriter: { resetTurnMessages: vi.fn() },
+    };
+    server.posthogAPI = {
+      getTask: vi.fn(async () => ({ description: "/clear" })),
+    };
+    server.promptWithUpstreamRetry = vi.fn(async () => ({
+      stopReason: "cancelled",
+    }));
+    server.clearPendingInitialPromptState = vi.fn(async () => {});
+    server.broadcastTurnComplete = vi.fn();
+    server.finalizeRunTelemetry = vi.fn(async () => {});
+    const taskRun = createTaskRun({ state: {} });
+    await server.sendInitialTaskMessage(
+      { task_id: "test-task-id", run_id: "test-run-id" } as JwtPayload,
+      { taskRun, action: "initial" },
+    );
+    expect(server.promptWithUpstreamRetry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: [
+          expect.objectContaining({
+            type: "text",
+            text: expect.stringContaining("Review &lt;changes&gt;"),
+            _meta: { ui: { hidden: true } },
+          }),
+          { type: "text", text: "/clear" },
+        ],
+      }),
+    );
+  });
+});
+
 describe("AgentServer HTTP Mode", () => {
   let repo: TestRepo;
   let server: AgentServer | undefined;

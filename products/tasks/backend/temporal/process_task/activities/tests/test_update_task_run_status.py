@@ -3,6 +3,8 @@ from datetime import timedelta
 import pytest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
@@ -376,12 +378,22 @@ class TestUpdateTaskRunStatusActivity:
     def test_repeated_terminal_update_does_not_double_capture(self, mock_capture, activity_environment, test_task_run):
         test_task_run.task.origin_product = Task.OriginProduct.POSTHOG_AI
         test_task_run.task.save(update_fields=["origin_product"])
+        test_task_run.state = {
+            "task_summary": "Opening the pull request",
+            "task_summary_update_count": 3,
+            "task_summary_updated_at": (timezone.now() - timedelta(hours=1)).isoformat(),
+        }
+        test_task_run.save(update_fields=["state"])
         input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
         async_to_sync(activity_environment.run)(update_task_run_status, input_data)
         async_to_sync(activity_environment.run)(update_task_run_status, input_data)
 
         completed = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_completed"]
         assert len(completed) == 1
+        properties = completed[0].kwargs["properties"]
+        assert properties["has_summary"] is True
+        assert properties["summary_update_count"] == 3
+        assert 3600 <= properties["seconds_since_summary_update"] < 3700
         chats = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "chat with ai"]
         assert len(chats) == 1
 

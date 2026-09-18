@@ -41,7 +41,11 @@ const pinnedTasks = [
 ];
 
 const flatTasks = [
-  createTask("task-1", "Add keyboard shortcuts", 1_730_000_000_000, false),
+  {
+    ...createTask("task-1", "Add keyboard shortcuts", 1_730_000_000_000, false),
+    summary:
+      "Adding keyboard shortcuts to the sidebar in posthog/posthog (desktop app). Why: moving between tasks needs the mouse today. State: the shortcut map lands in packages/ui/src/features/sidebar, the conflict with the editor's own bindings is unresolved. Branch posthog/sidebar-shortcuts, no PR yet.",
+  },
   createTask("task-2", "Improve dashboard loading", 1_720_000_000_000, false),
   createTask("task-3", "Update empty states", 1_710_000_000_000, false),
 ];
@@ -171,6 +175,25 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
+
+export const LongSummary: Story = {
+  render: (args) => <TaskListView {...args} />,
+  args: {
+    pinnedTasks: [],
+    flatTasks: [
+      createTask(
+        "long-summary",
+        "Review the changes",
+        1_730_000_000_000,
+        false,
+        {
+          summary: `First summary line.\n${"Review the next change.\n".repeat(58)}Last summary line.`,
+          cloudPrUrl: "https://github.com/PostHog/posthog/pull/1",
+        },
+      ),
+    ],
+  },
+};
 
 export const Archiving: Story = {
   render: (args) => <ArchivingTaskList {...args} />,
