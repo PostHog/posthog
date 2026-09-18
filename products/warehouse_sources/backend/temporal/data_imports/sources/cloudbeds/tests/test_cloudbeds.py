@@ -244,12 +244,15 @@ class TestPagination:
         session = MockSession.return_value
         params = _wire(session, [_response([{"rateID": "r1"}])])
 
+        before = datetime.now(UTC).date()
         _rows(_source("rate_plans", manager=_make_manager(), property_id="12345"))
+        after = datetime.now(UTC).date()
 
         start = date.fromisoformat(params[0]["startDate"])
         end = date.fromisoformat(params[0]["endDate"])
-        # getRatePlans rejects a request without a stay window, so the window has to be built for it.
-        assert start <= datetime.now(UTC).date() <= end
+        # getRatePlans rejects a request without a stay window, so the window has to be built for it,
+        # and it has to start on the sync date rather than drift into the past.
+        assert before <= start <= after
         assert end - start == timedelta(days=RATE_PLAN_WINDOW_DAYS)
 
     @parameterized.expand([("rate_plans", "propertyIDs"), ("users", "property_ids")])
