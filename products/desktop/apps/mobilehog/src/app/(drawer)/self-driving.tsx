@@ -123,7 +123,7 @@ export default function SelfDrivingScreen() {
       <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
         {showDeck ? (
           <GlassCircleButton onPress={() => setDeck([])}>
-            <Text style={styles.headerGlyph}>×</Text>
+            <Text style={styles.headerChevron}>›</Text>
           </GlassCircleButton>
         ) : (
           <GlassCircleButton onPress={() => navigation.openDrawer()}>
@@ -137,7 +137,6 @@ export default function SelfDrivingScreen() {
       {showDeck ? (
         <Animated.View
           key="deck"
-          entering={FadeInDown.duration(280)}
           exiting={FadeOutDown.duration(200)}
           style={StyleSheet.absoluteFill}
           pointerEvents="box-none"
@@ -226,11 +225,13 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
   },
   title: { fontFamily: fonts.sansBold, fontSize: 22, color: colors.ink },
-  headerGlyph: {
-    fontSize: 26,
-    lineHeight: 28,
+  // A down chevron: triage sits over the list like a sheet.
+  headerChevron: {
+    fontSize: 30,
+    lineHeight: 32,
     color: colors.ink,
-    marginTop: -2,
+    marginTop: -4,
+    transform: [{ rotate: "90deg" }],
   },
   list: { paddingHorizontal: 18, paddingTop: 8, gap: 10 },
   notice: {
