@@ -20,6 +20,11 @@ person-on-events any anonymous event satisfies `email is not set`, so a recordin
 to remove is returned instead. Under the OR operand the contract applies only when
 `is_exclusions_under_or_enabled` is true for the team. With the flag off, the OR path keeps its
 old behavior.
+
+The contract covers the filters this subquery reads. `session_recording_list_from_query.py`
+resolves some filters on its own, and under OR a negative one of those is still a way to match:
+a session property, a console log filter, and a person or cohort filter that keeps its own
+sub-query. The flag does not change those paths.
 """
 
 from collections.abc import Iterable
