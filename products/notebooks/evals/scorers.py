@@ -9,6 +9,11 @@ Reading the ORM means running async: the engine dispatches every scorer through
 ``eval_async``, and the base class's sync branch would execute Django ORM calls on the
 event loop, which Django's async-safety guard rejects.
 
+``NotebookRunCompleted`` reads the whole-notebook run row, which only the run endpoints
+create — per-cell runs look the same whether the agent walked the cells or ran them in one
+call, so that row is the only evidence of the single-call path, and its frozen variables say
+which run finished.
+
 ``NotebookApproachQuality`` is the qualitative layer. It reads the cells the agent authored
 from the tool-call transcript rather than the database, because the question it asks is about
 the *approach* the agent took — the SQL it wrote, the Python it wrote, the story it told —
@@ -25,7 +30,7 @@ from typing import Any
 from posthog.dataclasses import frozen
 
 from products.notebooks.backend.markdown_conversion import MARKDOWN_NOTEBOOK_NODE_TYPE
-from products.notebooks.backend.models import Notebook, NotebookNodeRun
+from products.notebooks.backend.models import Notebook, NotebookNodeRun, NotebookRun
 from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall
 from products.posthog_ai.eval_harness.scorers import (
     GRADED_ALIGNMENT_CHOICE_SCORES,
@@ -35,7 +40,13 @@ from products.posthog_ai.eval_harness.scorers import (
 )
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
-__all__ = ["CellRunsCompleted", "ChurnCohortSurfaced", "NotebookApproachQuality", "NotebookCreated"]
+__all__ = [
+    "CellRunsCompleted",
+    "ChurnCohortSurfaced",
+    "NotebookApproachQuality",
+    "NotebookCreated",
+    "NotebookRunCompleted",
+]
 
 
 def _seeded_team_id(output: dict | None) -> int | None:
@@ -211,6 +222,79 @@ class CellRunsCompleted(AsyncOnlyScorerMixin, Scorer):
             .filter(notebook__deleted=False)
             .order_by("created_at")
             .values_list("notebook__short_id", "node_type", "status", "error")
+        ]
+
+
+def _variables_match(variables: Any, required: dict[str, Any]) -> bool:
+    """Whether a run's frozen variable snapshot carries every required name and value.
+
+    Values are compared as text: a variable the agent set through the tool arrives as the
+    JSON it sent, so 7 and "7" are the same answer to "which window did this run use".
+    """
+    if not isinstance(variables, list):
+        return False
+    by_name = {entry.get("name"): entry.get("value") for entry in variables if isinstance(entry, dict)}
+    return all(str(by_name.get(name)) == str(value) for name, value in required.items())
+
+
+class NotebookRunCompleted(AsyncOnlyScorerMixin, Scorer):
+    """Binary: did a whole-notebook run finish, carrying the variables the case asked for?
+
+    ``expected = {"notebook_run_completed": {"variables": {"days_back": 7}}}``
+
+    Reads ``NotebookRun``, which only the whole-notebook run endpoints create. Walking the
+    cells one at a time leaves the same per-cell run rows behind, so ``CellRunsCompleted``
+    cannot tell the two apart — this row is what proves the agent took the single-call path.
+    Its frozen variable snapshot then proves *which* run finished, so a case that asks for a
+    re-run under a new window is not satisfied by the first pass.
+
+    Self-skips (``None``) when the case does not opt in.
+    """
+
+    def _name(self) -> str:
+        return "notebook_run_completed"
+
+    async def _run_eval_async(self, output: Any, expected: Any = None, **kwargs: Any) -> Score:
+        spec = _spec(expected, self._name())
+        if spec is None:
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} spec on case"})
+        team_id = _seeded_team_id(output)
+        if team_id is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No seed.team_id — case needs a seeder"})
+
+        runs = await asyncio.to_thread(self._read_runs, team_id)
+        finished = [run for run in runs if run["status"] == NotebookRun.Status.DONE]
+        if not finished:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"reason": "No whole-notebook run finished", "runs": runs},
+            )
+
+        required = spec.get("variables")
+        if not isinstance(required, dict) or not required:
+            return Score(name=self._name(), score=1.0, metadata={"runs": finished})
+        matching = [run for run in finished if _variables_match(run["variables"], required)]
+        if not matching:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={
+                    "reason": "A run finished, but none with the expected variables",
+                    "expected_variables": required,
+                    "runs": finished,
+                },
+            )
+        return Score(name=self._name(), score=1.0, metadata={"runs": matching})
+
+    @staticmethod
+    def _read_runs(team_id: int) -> list[dict[str, Any]]:
+        return [
+            {"notebook_short_id": short_id, "status": status, "variables": variables, "cell_count": len(plan or [])}
+            for short_id, status, variables, plan in NotebookRun.objects.for_team(team_id)
+            .filter(notebook__deleted=False)
+            .order_by("created_at")
+            .values_list("notebook__short_id", "status", "variables", "cell_plan")
         ]
 
 
