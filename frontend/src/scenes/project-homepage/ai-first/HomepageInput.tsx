@@ -41,8 +41,9 @@ import { HOMEPAGE_TAB_ID } from './constants'
 import { SUGGESTIONS_LIMIT } from './homepageSuggestions'
 
 function IdleInput(): JSX.Element {
-    const { query, fillInHint } = useValues(aiFirstHomepageLogic)
-    const { setQuery, submitQuery, enterAiMode, startHandsFreeChat, setFillInHint } = useActions(aiFirstHomepageLogic)
+    const { fullQuery, fillInHint, fillInPrefix } = useValues(aiFirstHomepageLogic)
+    const { setQuery, setFullQuery, submitQuery, enterAiMode, startHandsFreeChat, setFillInHint, setFillInPrefix } =
+        useActions(aiFirstHomepageLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const handsFreeFlag = useFeatureFlag('MAX_HANDS_FREE')
     const { canUseHandsFree } = useValues(handsFreeLogic({ panelId: HOMEPAGE_TAB_ID }))
@@ -58,11 +59,16 @@ function IdleInput(): JSX.Element {
     }, [])
 
     const submitAi = (): void => {
-        if (!query.trim()) {
+        if (!fullQuery.trim()) {
             return
         }
-        posthog.capture('homepage query submitted', { mode: 'ai' })
+        posthog.capture('homepage query submitted', { mode: 'ai', from_fill_in: !!fillInPrefix })
         submitQuery('ai')
+    }
+
+    const submitSearch = (): void => {
+        posthog.capture('homepage query submitted', { mode: 'search', from_fill_in: !!fillInPrefix })
+        submitQuery('search')
     }
 
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
@@ -78,7 +84,7 @@ function IdleInput(): JSX.Element {
                 className="min-h-[40px] group input-like flex flex-col items-start relative w-full bg-fill-input border border-primary focus-within:ring-primary rounded-lg justify-stretch overflow-hidden"
             >
                 <div className="flex w-full py-1 px-1 max-h-[300px] items-end gap-1">
-                    {!query && !fillInHint && (
+                    {!fullQuery && !fillInHint && (
                         <span className="text-tertiary pointer-events-none absolute left-2.5 top-2 flex items-center gap-1">
                             <span className="text-tertiary">What can I help you with?</span>
                             <span className="text-tertiary opacity-50 contrast-more:opacity-100 hidden @xl/main-content:inline">
@@ -89,7 +95,7 @@ function IdleInput(): JSX.Element {
                     {/* Postfix cue after the typed-in prefix (aligned to the textarea text origin). */}
                     {fillInHint && (
                         <span className="pointer-events-none absolute left-2 top-2 right-2 overflow-hidden">
-                            <FillInHint text={query} hint={fillInHint} />
+                            <FillInHint text={fullQuery} hint={fillInHint} />
                         </span>
                     )}
                     <TextareaPrimitive
@@ -97,7 +103,7 @@ function IdleInput(): JSX.Element {
                         id="homepage-input"
                         data-attr="homepage-input"
                         wrapperClassName="flex-1 min-w-0"
-                        value={query}
+                        value={fullQuery}
                         onChange={(e) => {
                             const value = e.target.value
                             // Typing / or @ as the first character enters AI mode without sending
@@ -110,13 +116,12 @@ function IdleInput(): JSX.Element {
                             if (fillInHint) {
                                 setFillInHint(null)
                             }
-                            setQuery(value)
+                            setFullQuery(value)
                         }}
                         onKeyDown={(e) => {
-                            if (e.key === 'Tab' && query.trim()) {
+                            if (e.key === 'Tab' && fullQuery.trim()) {
                                 e.preventDefault()
-                                posthog.capture('homepage query submitted', { mode: 'search' })
-                                submitQuery('search')
+                                submitSearch()
                             }
                             if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
                                 if (e.shiftKey) {
@@ -127,13 +132,14 @@ function IdleInput(): JSX.Element {
                                 e.preventDefault()
                                 submitAi()
                             }
-                            if (e.key === 'Escape' && (query.trim() || fillInHint)) {
+                            if (e.key === 'Escape' && (fullQuery.trim() || fillInHint)) {
                                 e.preventDefault()
                                 setQuery('')
+                                setFillInPrefix('')
                                 setFillInHint(null)
                             }
                             // When input is empty, ArrowDown moves focus to the grid
-                            if (e.key === 'ArrowDown' && !query.trim()) {
+                            if (e.key === 'ArrowDown' && !fullQuery.trim()) {
                                 const grid = document.querySelector<HTMLElement>('[data-attr="homepage-grid"]')
                                 if (grid) {
                                     e.preventDefault()
@@ -155,10 +161,7 @@ function IdleInput(): JSX.Element {
                             <ButtonPrimitive
                                 size="xs"
                                 className="text-tertiary hover:text-primary shrink-0"
-                                onClick={() => {
-                                    posthog.capture('homepage query submitted', { mode: 'search' })
-                                    submitQuery('search')
-                                }}
+                                onClick={submitSearch}
                             >
                                 <span className="text-xxs">Tab to search</span>
                             </ButtonPrimitive>
@@ -174,15 +177,12 @@ function IdleInput(): JSX.Element {
                                     </ButtonPrimitive>
                                 </Tooltip>
                             )}
-                            <Tooltip title={!query.trim() ? 'Try asking a question' : undefined}>
+                            <Tooltip title={!fullQuery.trim() ? 'Try asking a question' : undefined}>
                                 <ButtonPrimitive
-                                    onClick={() => {
-                                        posthog.capture('homepage query submitted', { mode: 'ai' })
-                                        submitQuery('ai')
-                                    }}
+                                    onClick={submitAi}
                                     iconOnly
                                     className="-mr-0.5 shrink-0"
-                                    disabled={!query.trim()}
+                                    disabled={!fullQuery.trim()}
                                 >
                                     <IconArrowRight className="size-4" />
                                 </ButtonPrimitive>
@@ -412,7 +412,7 @@ function IdleGrid(): JSX.Element {
     const {
         gridItems,
         displayedSuggestionItems,
-        query,
+        fullQuery,
         dashboardsLoading,
         recentItemsLoading,
         suggestionItemsLoading,
@@ -460,10 +460,10 @@ function IdleGrid(): JSX.Element {
 
     // Clear highlight when user starts typing
     useEffect(() => {
-        if (query.trim()) {
+        if (fullQuery.trim()) {
             setHighlight(null)
         }
-    }, [query])
+    }, [fullQuery])
 
     const handleGridKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
@@ -663,7 +663,7 @@ function IdleGrid(): JSX.Element {
 }
 
 export function HomepageInput(): JSX.Element {
-    const { mode, query, selectedTopic } = useValues(aiFirstHomepageLogic)
+    const { mode, fullQuery, selectedTopic } = useValues(aiFirstHomepageLogic)
     const { setSelectedTopic } = useActions(aiFirstHomepageLogic)
     const { user } = useValues(userLogic)
 
@@ -679,8 +679,8 @@ export function HomepageInput(): JSX.Element {
                         and the rail sit side by side. */}
                     <div
                         className="w-full hidden @xl/main-content:grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:duration-0"
-                        style={{ gridTemplateRows: query.trim() ? '0fr' : '1fr' }}
-                        aria-hidden={!!query.trim()}
+                        style={{ gridTemplateRows: fullQuery.trim() ? '0fr' : '1fr' }}
+                        aria-hidden={!!fullQuery.trim()}
                     >
                         {/* shrink-0 on the children so collapsing just clips them away (top-down) rather
                             than squeezing their heights, which would reflow the grid mid-animation.

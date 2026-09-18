@@ -118,6 +118,8 @@ export interface aiFirstHomepageLogicValues {
     animationPhase: AnimationPhase
     displayedSuggestionItems: HomepageGridItem[]
     fillInHint: string | null
+    fillInPrefix: string
+    fullQuery: string
     gridItems: HomepageGridItem[]
     lastConversation: Conversation | null
     layoutState: LayoutState
@@ -178,6 +180,12 @@ export interface aiFirstHomepageLogicActions {
     setFillInHint: (hint: string | null) => {
         hint: string | null
     }
+    setFillInPrefix: (prefix: string) => {
+        prefix: string
+    }
+    setFullQuery: (value: string) => {
+        value: string
+    }
     setPreviousHomepage: (tab: SceneTab | null) => {
         tab: SceneTab | null
     }
@@ -215,6 +223,7 @@ export interface aiFirstHomepageLogicMeta {
             conversationHistory: ConversationDetail[],
             recentItemsLoading: boolean
         ) => boolean
+        fullQuery: (fillInPrefix: string, query: string) => string
         mode: (layoutState: LayoutState) => HomepageMode
         animationPhase: (layoutState: LayoutState) => AnimationPhase
         pinnedDashboardItems: (pinnedDashboards: DashboardBasicApi[]) => HomepageGridItem[]
@@ -277,6 +286,10 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         setSelectedTopic: (key: string | null) => ({ key }),
         // Postfix hint shown after a fill-in suggestion's typed-in prefix (e.g. "insert feature name").
         setFillInHint: (hint: string | null) => ({ hint }),
+        // The fill-in suggestion's own prefix, kept apart from what the user types after it.
+        setFillInPrefix: (prefix: string) => ({ prefix }),
+        // What the input now holds, prefix included. Split back into prefix and user text.
+        setFullQuery: (value: string) => ({ value }),
         // Capture-only, for grid links whose navigation the Link component already handles.
         gridItemClicked: (item: HomepageGridItem) => ({ item }),
         // Capture plus perform: submit a suggestion prompt, continue a conversation, or navigate.
@@ -345,6 +358,17 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                 returnToIdle: () => null,
             },
         ],
+        // A fill-in suggestion writes its prefix here rather than into `query`, so `query` stays
+        // the user's own words and search mode never submits the suggestion's wording with them.
+        // Unlike the hint cue, it survives the first keystroke: the user completes the prefix.
+        fillInPrefix: [
+            '',
+            {
+                setFillInPrefix: (_, { prefix }) => prefix,
+                setSelectedTopic: () => '',
+                returnToIdle: () => '',
+            },
+        ],
     }),
 
     selectors({
@@ -395,6 +419,12 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                 conversationHistory: ConversationDetail[],
                 recentItemsLoading: boolean
             ): boolean => (conversationHistoryLoading && conversationHistory.length === 0) || recentItemsLoading,
+        ],
+        // What the input shows and what AI mode sends: the fill-in prefix plus the user's own
+        // text. Search mode uses `query` on its own, so the prefix never reaches a search.
+        fullQuery: [
+            (s) => [s.fillInPrefix, s.query],
+            (fillInPrefix: string, query: string): string => fillInPrefix + query,
         ],
         mode: [(s) => [s.layoutState], (layoutState: LayoutState): HomepageMode => layoutState.mode],
         animationPhase: [
@@ -487,8 +517,11 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                     const finish = (): void => {
                         if (fillInHint) {
                             // A fill-in prompt is a prefix: leave it in the input with the hint
-                            // cue and let the user complete it instead of submitting.
-                            typeQuery(`${content} `)
+                            // cue and let the user complete it instead of submitting. It moves out
+                            // of `query` so only the user's own completion reaches search mode.
+                            cache.suggestionTypingText = null
+                            actions.setFillInPrefix(`${content} `)
+                            actions.setQuery('')
                             actions.setFillInHint(fillInHint)
                             document.querySelector<HTMLElement>('#homepage-input')?.focus()
                         } else {
@@ -518,6 +551,16 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                 navigateToHref(item.href)
             }
         },
+        setFullQuery: ({ value }) => {
+            // The textarea holds one string, so a value that no longer starts with the prefix means
+            // the user edited into the prefix: all of it becomes their own text from here on.
+            if (values.fillInPrefix && !value.startsWith(values.fillInPrefix)) {
+                actions.setFillInPrefix('')
+                actions.setQuery(value)
+                return
+            }
+            actions.setQuery(value.slice(values.fillInPrefix.length))
+        },
         setQuery: ({ query }) => {
             // A query that isn't what the typewriter just wrote means the user typed or cleared
             // the input mid-animation: their input wins, so stop the animation and its submit
@@ -545,8 +588,8 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             // submitted here would start a LangGraph conversation that surface never shows. Hand it to
             // /ai instead, which seeds its composer from `ask` and submits it. An AI submit with no
             // prompt is a chat being restored from `?mode=ai&chat=…` — that still opens here.
-            if (mode === 'ai' && values.effectivePhaiView === 'new' && values.query.trim()) {
-                router.actions.push(urls.ai(undefined, values.query))
+            if (mode === 'ai' && values.effectivePhaiView === 'new' && values.fullQuery.trim()) {
+                router.actions.push(urls.ai(undefined, values.fullQuery))
                 // Undo the mode flip the reducers just made, so the legacy homepage thread never mounts
                 // and fires a second, competing send while the route change lands.
                 actions.returnToIdle()

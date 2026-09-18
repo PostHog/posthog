@@ -106,6 +106,15 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("No recordings found", result_text)
         self.assertIsNone(artifact)
 
+    async def test_diagnoses_an_eventless_search_with_the_range_it_used(self):
+        self.team.session_recording_opt_in = True
+        tool = await self._create_tool()
+
+        result_text, _ = await tool._arun_impl(recordings_filters=self._create_empty_filters())
+
+        self.assertIn("this search named no event", result_text)
+        self.assertIn("-7d to now", result_text)
+
     def _event_filters(self, event: str, properties: list[dict] | None = None) -> MaxRecordingUniversalFilters:
         return MaxRecordingUniversalFilters(
             filter_group=MaxOuterUniversalFiltersGroup(
