@@ -86,6 +86,13 @@ export const getExperimentHoldoutsListUrl = (projectId: string, params?: Experim
         : `/api/projects/${projectId}/experiment_holdouts/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const experimentHoldoutsList = async (
     projectId: string,
     params?: ExperimentHoldoutsListParams,
@@ -101,6 +108,13 @@ export const getExperimentHoldoutsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiment_holdouts/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const experimentHoldoutsCreate = async (
     projectId: string,
     experimentHoldoutApi: NonReadonly<ExperimentHoldoutApi>,
@@ -118,6 +132,13 @@ export const getExperimentHoldoutsRetrieveUrl = (projectId: string, id: number) 
     return `/api/projects/${projectId}/experiment_holdouts/${id}/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const experimentHoldoutsRetrieve = async (
     projectId: string,
     id: number,
@@ -133,6 +154,13 @@ export const getExperimentHoldoutsUpdateUrl = (projectId: string, id: number) =>
     return `/api/projects/${projectId}/experiment_holdouts/${id}/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const experimentHoldoutsUpdate = async (
     projectId: string,
     id: number,
@@ -151,6 +179,13 @@ export const getExperimentHoldoutsPartialUpdateUrl = (projectId: string, id: num
     return `/api/projects/${projectId}/experiment_holdouts/${id}/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const experimentHoldoutsPartialUpdate = async (
     projectId: string,
     id: number,
@@ -169,6 +204,13 @@ export const getExperimentHoldoutsDestroyUrl = (projectId: string, id: number) =
     return `/api/projects/${projectId}/experiment_holdouts/${id}/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const experimentHoldoutsDestroy = async (
     projectId: string,
     id: number,
