@@ -284,7 +284,7 @@ def _reusable_runs(
     )
 
 
-def _resolve_notebook(team_id: int, notebook_short_id: str) -> Notebook:
+def resolve_team_notebook(team_id: int, notebook_short_id: str) -> Notebook:
     """The team's notebook, or `NodeRunInvalid` when it has none by that id.
 
     Resolving here rather than taking the object is what keeps the team and the notebook from
@@ -300,7 +300,7 @@ def _resolve_notebook(team_id: int, notebook_short_id: str) -> Notebook:
     return notebook
 
 
-def _resolve_user(user_id: int | None) -> User | None:
+def resolve_user(user_id: int | None) -> User | None:
     return User.objects.filter(id=user_id).first() if user_id is not None else None
 
 
@@ -312,8 +312,8 @@ def dispatch_cell_run(
     The entry point for callers outside this module: it takes ids and a contract, so nobody
     holds a Django object across the boundary, and resolves the models here instead.
     """
-    notebook = _resolve_notebook(team_id, notebook_short_id)
-    return dispatch_node_run(notebook, _resolve_user(user_id), notebook.team, request)
+    notebook = resolve_team_notebook(team_id, notebook_short_id)
+    return dispatch_node_run(notebook, resolve_user(user_id), notebook.team, request)
 
 
 def kernel_sandbox_is_live(*, team_id: int, notebook_short_id: str, user_id: int | None, runtime_id: UUID) -> bool:
@@ -326,8 +326,8 @@ def kernel_sandbox_is_live(*, team_id: int, notebook_short_id: str, user_id: int
     resolves the kernel service for this one: another user's row would answer about their
     sandbox. A token user owns no runtime, so `user=None` matches only the unowned rows.
     """
-    notebook = _resolve_notebook(team_id, notebook_short_id)
-    user = _resolve_user(user_id)
+    notebook = resolve_team_notebook(team_id, notebook_short_id)
+    user = resolve_user(user_id)
     if user_id is not None and user is None:
         # The user is gone, so none of their runtimes are theirs to report on. Without this,
         # the filter below would quietly widen to the unowned rows.
@@ -482,6 +482,8 @@ __all__ = [
     "dispatch_cell_run",
     "dispatch_node_run",
     "kernel_sandbox_is_live",
+    "resolve_team_notebook",
+    "resolve_user",
     "live_kernel_runtime",
     "sandbox_disclosure",
     "sandbox_is_running",
