@@ -59,7 +59,7 @@ describe("McpToolView", () => {
     {
       toolName: "mcp__posthog__exec",
       rawInput: { command: "call feature-flag-get-all" },
-      expected: "posthog - feature-flag-get-all",
+      expected: "posthog - Get feature flags",
     },
   ])(
     "shows the relevant MCP tool name",

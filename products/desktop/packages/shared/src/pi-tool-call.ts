@@ -69,20 +69,68 @@ function formatMcpPart(value: string): string {
   return value.replace(/[_-]+/g, " ").replace(/([a-z\d])([A-Z])/g, "$1 $2");
 }
 
+function pluralizeMcpPart(value: string): string {
+  if (value.endsWith("y")) return `${value.slice(0, -1)}ies`;
+  if (value.endsWith("s")) return value;
+  return `${value}s`;
+}
+
+export function formatMcpToolLabel(value: string): string {
+  const parts = value.split(/[_-]+/).filter(Boolean);
+  if (parts.length === 0) return value;
+
+  const verbs = new Set([
+    "check",
+    "create",
+    "delete",
+    "get",
+    "inspect",
+    "list",
+    "query",
+    "read",
+    "remove",
+    "run",
+    "search",
+    "send",
+    "update",
+  ]);
+  const hasAllSuffix = parts.at(-1) === "all";
+  let verbIndex = -1;
+  if (hasAllSuffix) {
+    verbIndex = parts.length - 2;
+  } else if (verbs.has(parts.at(-1) ?? "")) {
+    verbIndex = parts.length - 1;
+  } else if (verbs.has(parts[0] ?? "")) {
+    verbIndex = 0;
+  }
+
+  if (verbIndex >= 0) {
+    const verb = parts[verbIndex];
+    const resource = parts.slice(0, verbIndex);
+    if (verb && resource.length > 0) {
+      const resourceLabel = formatMcpPart(resource.join(" "));
+      return `${verb.charAt(0).toUpperCase()}${verb.slice(1)} ${hasAllSuffix ? pluralizeMcpPart(resourceLabel) : resourceLabel}`;
+    }
+  }
+
+  const label = formatMcpPart(value);
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 export function formatPiMcpToolName(name: string, toolLabel?: string): string {
   const withoutPrefix = name.replace(/^mcp_+/, "");
   const separator = withoutPrefix.indexOf("__");
   if (separator > 0) {
     const server = withoutPrefix.slice(0, separator);
     const tool = withoutPrefix.slice(separator + 2);
-    return `${formatMcpPart(server)} - ${toolLabel ?? formatMcpPart(tool)}`;
+    return `${formatMcpPart(server)} - ${toolLabel ?? formatMcpToolLabel(tool)}`;
   }
 
   const [server, ...toolParts] = withoutPrefix.split("_");
   if (server && toolParts.length > 0) {
-    return `${formatMcpPart(server)} - ${toolLabel ?? formatMcpPart(toolParts.join("_"))}`;
+    return `${formatMcpPart(server)} - ${toolLabel ?? formatMcpToolLabel(toolParts.join("_"))}`;
   }
-  return formatMcpPart(withoutPrefix);
+  return formatMcpToolLabel(withoutPrefix);
 }
 
 export const piToolCallRecordSchema = z.object({

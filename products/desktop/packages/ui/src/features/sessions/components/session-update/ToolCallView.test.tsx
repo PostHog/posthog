@@ -53,7 +53,7 @@ describe("ToolCallView", () => {
         name: "mcp_posthog_exec",
         args: JSON.stringify({ command: "call feature-flag-get-all" }),
       },
-      expected: "posthog - feature-flag-get-all",
+      expected: "posthog - Get feature flags",
     },
     {
       title: "mcp__posthog__project-get",
