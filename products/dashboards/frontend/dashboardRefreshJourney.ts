@@ -6,6 +6,7 @@ import type {
     CustomerJourneyTileResult,
 } from 'lib/customerJourneys/createCustomerJourney'
 import { CUSTOMER_JOURNEY_TILE_RESULTS_LIMIT } from 'lib/customerJourneys/createCustomerJourney'
+import { CustomerJourneyScope } from 'lib/customerJourneys/CustomerJourneyScope'
 import { startCustomerJourney } from 'lib/customerJourneys/startCustomerJourney'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -57,6 +58,7 @@ interface ActiveDashboardJourney extends DashboardJourneySnapshot {
 }
 
 interface InitialDashboardJourney {
+    kind: 'initial'
     attemptId: string
     handle: CustomerJourney
     startedAt: number
@@ -85,8 +87,19 @@ export function isDashboardJourneyResultCommitted(actualResult: unknown, expecte
 export class DashboardRefreshJourneyController {
     private visibleTiles = new Map<number, DashboardJourneyTileContext>()
     private observedTileIds = new Set<number>()
-    private initial: InitialDashboardJourney | null = null
-    private active: ActiveDashboardJourney | null = null
+    private readonly scope = new CustomerJourneyScope<InitialDashboardJourney | ActiveDashboardJourney>((attempt) =>
+        attempt.kind === 'initial' ? {} : this.summary(attempt)
+    )
+
+    private get initial(): InitialDashboardJourney | null {
+        const attempt = this.scope.current
+        return attempt?.kind === 'initial' ? attempt : null
+    }
+
+    private get active(): ActiveDashboardJourney | null {
+        const attempt = this.scope.current
+        return attempt && attempt.kind !== 'initial' ? attempt : null
+    }
 
     public setTileVisibility(tile: DashboardJourneyTileContext, visible: boolean): DashboardJourneyActivation | null {
         this.observedTileIds.add(tile.tileId)
@@ -99,28 +112,30 @@ export class DashboardRefreshJourneyController {
     }
 
     public beginInitialLoad(dashboardId: number, loadId: string): void {
-        this.dispose('superseded')
-        const handle = startCustomerJourney({
-            journey_name: 'dashboard_open',
-            resource_type: 'dashboard',
-            resource_id: dashboardId,
-            trigger: 'initial_load',
-            readiness_contract_version: 1,
-            readiness_scope: 'visible_product_analytics_tiles',
-            attempt_id: loadId,
+        this.scope.replace(() => {
+            const handle = startCustomerJourney({
+                journey_name: 'dashboard_open',
+                resource_type: 'dashboard',
+                resource_id: dashboardId,
+                trigger: 'initial_load',
+                readiness_contract_version: 1,
+                readiness_scope: 'visible_product_analytics_tiles',
+                attempt_id: loadId,
+            })
+            return handle
+                ? {
+                      kind: 'initial',
+                      attemptId: loadId,
+                      handle,
+                      startedAt: performance.now(),
+                      manifest: null,
+                      refreshTileIds: new Set(),
+                      currentResultsByTileId: {},
+                      bufferedResults: new Map(),
+                      bufferedFailures: new Map(),
+                  }
+                : null
         })
-        this.initial = handle
-            ? {
-                  attemptId: loadId,
-                  handle,
-                  startedAt: performance.now(),
-                  manifest: null,
-                  refreshTileIds: new Set(),
-                  currentResultsByTileId: {},
-                  bufferedResults: new Map(),
-                  bufferedFailures: new Map(),
-              }
-            : null
     }
 
     public planInitialLoad(
@@ -144,39 +159,37 @@ export class DashboardRefreshJourneyController {
         dashboardTiles: readonly DashboardJourneyTileManifestEntry[],
         trigger: 'manual_refresh' | 'automatic_refresh' = 'manual_refresh'
     ): DashboardJourneySnapshot | null {
-        this.dispose('superseded')
-
-        const visible = [...this.visibleTiles.values()]
-        const required = this.requiredTiles(visible, dashboardTiles)
-        if (required.length === 0) {
-            return null
-        }
-
-        const handle = startCustomerJourney({
-            journey_name: 'dashboard_refresh',
-            resource_type: 'dashboard',
-            resource_id: dashboardId,
-            trigger,
-            readiness_contract_version: 1,
-            readiness_scope: 'visible_product_analytics_tiles',
-            attempt_id: refreshId,
+        const attempt = this.scope.replace(() => {
+            const visible = [...this.visibleTiles.values()]
+            const required = this.requiredTiles(visible, dashboardTiles)
+            if (required.length === 0) {
+                return null
+            }
+            const handle = startCustomerJourney({
+                journey_name: 'dashboard_refresh',
+                resource_type: 'dashboard',
+                resource_id: dashboardId,
+                trigger,
+                readiness_contract_version: 1,
+                readiness_scope: 'visible_product_analytics_tiles',
+                attempt_id: refreshId,
+            })
+            return handle
+                ? {
+                      attemptId: handle.attemptId,
+                      handle,
+                      kind: 'refresh',
+                      requiredTiles: Object.fromEntries(required.map((tile) => [tile.tileId, tile])),
+                      excludedCount: visible.length - required.length,
+                      startedAt: performance.now(),
+                      ready: {},
+                      failed: {},
+                  }
+                : null
         })
-        if (!handle) {
-            return null
-        }
-
-        const requiredTiles = Object.fromEntries(required.map((tile) => [tile.tileId, tile]))
-        this.active = {
-            attemptId: handle.attemptId,
-            handle,
-            kind: 'refresh',
-            requiredTiles,
-            excludedCount: visible.length - required.length,
-            startedAt: performance.now(),
-            ready: {},
-            failed: {},
-        }
-        return { attemptId: handle.attemptId, requiredTiles }
+        return attempt?.kind === 'refresh'
+            ? { attemptId: attempt.attemptId, requiredTiles: attempt.requiredTiles }
+            : null
     }
 
     public dataReady(
@@ -207,11 +220,10 @@ export class DashboardRefreshJourneyController {
 
         active.ready[tileId] = Math.max(0, Math.round(performance.now() - active.startedAt))
         if (Object.keys(active.ready).length === 1) {
-            active.handle.firstUseful()
+            this.scope.firstUseful()
         }
         if (Object.keys(active.ready).length === Object.keys(active.requiredTiles).length) {
-            active.handle.finish('usable', this.summary(active))
-            this.active = null
+            this.scope.finish('usable')
         }
         return true
     }
@@ -226,38 +238,23 @@ export class DashboardRefreshJourneyController {
             return false
         }
         active.failed[tileId] = true
-        active.handle.finish('failed', { ...this.summary(active), error_type: errorType })
-        this.active = null
+        this.scope.finish('failed', { error_type: errorType })
         return true
     }
 
     public failLoad(attemptId: string, errorType: DashboardJourneyErrorType): void {
-        if (this.initial?.attemptId === attemptId) {
-            this.initial.handle.finish('failed', { error_type: errorType })
-            this.initial = null
-            return
-        }
-        if (this.active && this.active.attemptId === attemptId) {
-            this.active.handle.finish('failed', { ...this.summary(this.active), error_type: errorType })
-            this.active = null
+        if (this.scope.current?.attemptId === attemptId) {
+            this.scope.finish('failed', { error_type: errorType })
         }
     }
 
     public dispose(reason: CustomerJourneyEndReason): void {
-        if (this.initial) {
-            const initialReason = reason === 'observation_stopped' ? 'exited' : reason
-            this.initial.handle.finish(initialReason, { end_reason: initialReason })
-            this.initial = null
-        }
-        if (this.active) {
-            const activeReason = this.active.kind === 'open' && reason === 'observation_stopped' ? 'exited' : reason
-            this.active.handle.finish(activeReason, { ...this.summary(this.active), end_reason: activeReason })
-            this.active = null
-        }
+        const attempt = this.scope.current
+        this.scope.dispose(attempt?.kind !== 'refresh' && reason === 'observation_stopped' ? 'exited' : reason)
     }
 
     public get activeAttemptId(): string | null {
-        return this.initial?.attemptId ?? this.active?.attemptId ?? null
+        return this.scope.current?.attemptId ?? null
     }
 
     private requiredTiles(
@@ -296,31 +293,23 @@ export class DashboardRefreshJourneyController {
             ready: {},
             failed: {},
         }
-        this.initial = null
+        this.scope.current = active
 
         if (required.length === 0) {
-            active.handle.finish('observation_stopped', {
-                ...this.summary(active),
-                end_reason: 'observation_stopped',
-            })
+            this.scope.dispose('observation_stopped')
             return null
         }
 
-        this.active = active
         for (const tile of required) {
             const errorType = initial.bufferedFailures.get(tile.tileId)
             if (errorType) {
-                active.failed[tile.tileId] = true
-                active.handle.finish('failed', { ...this.summary(active), error_type: errorType })
-                this.active = null
+                this.failed(active.attemptId, tile.tileId, errorType)
                 return null
             }
             if (!initial.refreshTileIds.has(tile.tileId)) {
                 const currentResult = initial.currentResultsByTileId[tile.tileId]
                 if (currentResult === null || currentResult === undefined) {
-                    active.failed[tile.tileId] = true
-                    active.handle.finish('failed', { ...this.summary(active), error_type: 'load_error' })
-                    this.active = null
+                    this.failed(active.attemptId, tile.tileId, 'load_error')
                     return null
                 }
             }

@@ -1,4 +1,10 @@
-import { createCustomerJourney, CustomerJourneyContext, CustomerJourneyDependencies } from './createCustomerJourney'
+import {
+    createCustomerJourney,
+    CustomerJourney,
+    CustomerJourneyContext,
+    CustomerJourneyDependencies,
+} from './createCustomerJourney'
+import { CustomerJourneyScope } from './CustomerJourneyScope'
 
 const context: CustomerJourneyContext = {
     journey_name: 'dashboard_refresh',
@@ -49,6 +55,53 @@ function boundary(): {
 }
 
 describe('customer journey lifecycle', () => {
+    it.each(['summary', 'cleanup'])('closes scoped telemetry when %s reporting throws', (failure) => {
+        const b = boundary()
+        const scope = new CustomerJourneyScope<{ handle: CustomerJourney }>(
+            () => {
+                if (failure === 'summary') {
+                    throw new Error('synthetic summary failure')
+                }
+                return { pending_count: 2 }
+            },
+            () => {
+                if (failure === 'cleanup') {
+                    throw new Error('synthetic cleanup failure')
+                }
+            }
+        )
+        scope.replace(() => ({ handle: createCustomerJourney(context, b.dependencies)! }))
+        expect(() => scope.dispose('exited')).not.toThrow()
+        expect(b.capture.mock.calls.at(-1)).toEqual([
+            'customer_journey_finished',
+            expect.objectContaining({ outcome: 'exited', end_reason: 'exited' }),
+        ])
+        expect(b.listeners.size).toBe(0)
+        scope.finish('usable')
+        expect(b.capture).toHaveBeenCalledTimes(2)
+    })
+
+    it.each(['disabled', 'throws'])('closes the old scoped attempt when its replacement %s', (replacement) => {
+        const b = boundary()
+        const scope = new CustomerJourneyScope<{ handle: CustomerJourney; pending: number }>(({ pending }) => ({
+            pending_count: pending,
+        }))
+        scope.replace(() => ({ handle: createCustomerJourney(context, b.dependencies)!, pending: 2 }))
+        expect(
+            scope.replace(() => {
+                if (replacement === 'throws') {
+                    throw new Error('synthetic start failure')
+                }
+                return null
+            })
+        ).toBeNull()
+        scope.finish('usable')
+        expect(b.capture.mock.calls).toHaveLength(2)
+        expect(b.capture.mock.calls[1][1]).toMatchObject({ outcome: 'superseded', pending_count: 2 })
+        expect(b.capture.mock.calls[1][1]).not.toHaveProperty('first_useful_ms')
+        expect(b.listeners.size).toBe(0)
+    })
+
     it('emits start synchronously, snapshots context and finishes once with the first useful milestone', () => {
         const b = boundary()
         const mutableContext = { ...context }

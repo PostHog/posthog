@@ -1,4 +1,5 @@
 import type { CustomerJourney, CustomerJourneySummary } from 'lib/customerJourneys/createCustomerJourney'
+import { CustomerJourneyScope } from 'lib/customerJourneys/CustomerJourneyScope'
 import { startCustomerJourney } from 'lib/customerJourneys/startCustomerJourney'
 
 import type { ExperimentMetricsRecalculationApi } from './generated/api.schemas'
@@ -52,7 +53,10 @@ export function isExperimentRefreshCommitted(
 
 export class ExperimentRefreshJourneyController {
     private observed = false
-    private attempt: Attempt | null = null
+    private readonly scope = new CustomerJourneyScope<Attempt>(
+        (attempt) => this.summary(attempt),
+        () => this.onReady(null)
+    )
     public constructor(private readonly onReady: (ready: ExperimentRefreshReady | null) => void) {}
 
     public observe(observed: boolean): void {
@@ -68,41 +72,43 @@ export class ExperimentRefreshJourneyController {
         groups: ExperimentMetricGroups,
         mode: ExperimentRefreshMode
     ): ExperimentRefreshObservation | null {
-        this.dispose('superseded')
-        if (!this.observed || [...groups.primary, ...groups.secondary].some((uuid) => !uuid)) {
-            return null
-        }
-        const handle = startCustomerJourney({
-            journey_name: 'experiment_refresh',
-            resource_type: 'experiment',
-            resource_id: experimentId,
-            attempt_id: refreshId,
-            trigger: 'manual_refresh',
-            readiness_contract_version: 1,
-            readiness_scope: 'modern_experiment_results',
+        const attempt = this.scope.replace(() => {
+            if (!this.observed || [...groups.primary, ...groups.secondary].some((uuid) => !uuid)) {
+                return null
+            }
+            const handle = startCustomerJourney({
+                journey_name: 'experiment_refresh',
+                resource_type: 'experiment',
+                resource_id: experimentId,
+                attempt_id: refreshId,
+                trigger: 'manual_refresh',
+                readiness_contract_version: 1,
+                readiness_scope: 'modern_experiment_results',
+            })
+            return handle
+                ? {
+                      id: refreshId,
+                      handle,
+                      groups: { primary: [...groups.primary], secondary: [...groups.secondary] },
+                      mode,
+                      primary: groups.primary.length === 0 ? [] : undefined,
+                      secondary: groups.secondary.length === 0 ? [] : undefined,
+                  }
+                : null
         })
-        if (!handle) {
+        if (!attempt) {
             return null
         }
-        const attempt: Attempt = {
-            id: refreshId,
-            handle,
-            groups: { primary: [...groups.primary], secondary: [...groups.secondary] },
-            mode,
-            primary: groups.primary.length === 0 ? [] : undefined,
-            secondary: groups.secondary.length === 0 ? [] : undefined,
-        }
-        this.attempt = attempt
         return {
             attemptId: refreshId,
             bindRun: (id) => {
-                if (this.attempt === attempt) {
+                if (this.scope.current === attempt) {
                     attempt.runId = id
                 }
             },
             results: (run) => {
                 if (
-                    this.attempt !== attempt ||
+                    this.scope.current !== attempt ||
                     attempt.runId !== run.id ||
                     !['completed', 'failed'].includes(run.status)
                 ) {
@@ -130,7 +136,7 @@ export class ExperimentRefreshJourneyController {
     }
 
     public group(id: string, group: 'primary' | 'secondary', results: unknown[], errors: unknown[]): void {
-        const attempt = this.attempt
+        const attempt = this.scope.current
         if (!attempt || attempt.id !== id) {
             return
         }
@@ -143,7 +149,7 @@ export class ExperimentRefreshJourneyController {
     }
 
     public exposures(id: string, response: unknown): void {
-        const attempt = this.attempt
+        const attempt = this.scope.current
         if (!attempt || attempt.id !== id) {
             return
         }
@@ -164,29 +170,21 @@ export class ExperimentRefreshJourneyController {
     }
 
     public fail(id: string, outcome: 'failed' | 'timed_out', error: 'query_error' | 'load_error' | 'timeout'): void {
-        if (this.attempt?.id === id) {
-            this.attempt.handle.finish(outcome, { ...this.summary(this.attempt), error_type: error })
-            this.attempt = null
-            this.onReady(null)
+        if (this.scope.current?.id === id) {
+            this.scope.finish(outcome, { error_type: error })
         }
     }
 
     public committed(id: string): void {
-        const attempt = this.attempt
+        const attempt = this.scope.current
         if (this.observed && attempt?.id === id && attempt.ready) {
-            attempt.handle.firstUseful()
-            attempt.handle.finish('usable', this.summary(attempt, true))
-            this.attempt = null
-            this.onReady(null)
+            this.scope.firstUseful()
+            this.scope.finish('usable', this.summary(attempt, true))
         }
     }
 
     public dispose(reason: 'superseded' | 'observation_stopped'): void {
-        if (this.attempt) {
-            this.attempt.handle.finish(reason, { ...this.summary(this.attempt), end_reason: reason })
-            this.attempt = null
-            this.onReady(null)
-        }
+        this.scope.dispose(reason)
     }
 
     private publish(attempt: Attempt): void {

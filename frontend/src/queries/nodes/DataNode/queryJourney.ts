@@ -1,4 +1,5 @@
 import type { CustomerJourney, CustomerJourneyEndReason } from 'lib/customerJourneys/createCustomerJourney'
+import { CustomerJourneyScope } from 'lib/customerJourneys/CustomerJourneyScope'
 
 export interface QueryJourneyDescriptor {
     startRequest: (queryId: string) => CustomerJourney | null
@@ -11,18 +12,12 @@ export interface QueryJourneyReceipt {
     response: unknown
 }
 
-function safely(callback: () => void): void {
-    try {
-        callback()
-    } catch {
-        // Observation must never change query execution or rendering.
-    }
-}
-
 export class QueryJourneyObserver {
     private generation = 0
-    private journey: CustomerJourney | null = null
-    private receipt: QueryJourneyReceipt | null = null
+    private readonly scope = new CustomerJourneyScope<{
+        handle: CustomerJourney
+        receipt: QueryJourneyReceipt | null
+    }>()
     private owner: symbol | null = null
 
     replace(): number {
@@ -32,8 +27,9 @@ export class QueryJourneyObserver {
 
     start(descriptor: QueryJourneyDescriptor | undefined, queryId: string): void {
         if (descriptor && (!descriptor.requireObservedSurface || this.owner)) {
-            safely(() => {
-                this.journey = descriptor.startRequest(queryId)
+            this.scope.replace(() => {
+                const handle = descriptor.startRequest(queryId)
+                return handle ? { handle, receipt: null } : null
             })
         }
     }
@@ -50,37 +46,27 @@ export class QueryJourneyObserver {
     }
 
     received(generation: number, queryId: string, response: unknown): QueryJourneyReceipt | null {
-        if (this.journey && generation === this.generation) {
-            return (this.receipt = { generation, queryId, response })
+        if (this.scope.current && generation === this.generation) {
+            return (this.scope.current.receipt = { generation, queryId, response })
         }
         return null
     }
 
     acknowledge(generation: number, response: unknown): void {
-        if (this.journey && this.receipt?.generation === generation && this.receipt.response === response) {
-            const journey = this.journey
-            this.journey = null
-            this.receipt = null
-            safely(() => journey.firstUseful())
-            safely(() => journey.finish('usable'))
+        const receipt = this.scope.current?.receipt
+        if (receipt?.generation === generation && receipt.response === response) {
+            this.scope.firstUseful()
+            this.scope.finish('usable')
         }
     }
 
     fail(generation: number): void {
-        if (this.journey && generation === this.generation) {
-            const journey = this.journey
-            this.journey = null
-            this.receipt = null
-            safely(() => journey.finish('failed', { error_type: 'query_error' }))
+        if (generation === this.generation) {
+            this.scope.finish('failed', { error_type: 'query_error' })
         }
     }
 
     stop(reason: CustomerJourneyEndReason): void {
-        const journey = this.journey
-        this.journey = null
-        this.receipt = null
-        if (journey) {
-            safely(() => journey.dispose(reason))
-        }
+        this.scope.dispose(reason)
     }
 }
