@@ -141,7 +141,6 @@ class SessionRecordingQueryResult(NamedTuple):
 
 class UnexpectedQueryProperties(Exception):
     def __init__(self, remaining_properties: list[AnyPropertyFilter] | None):
-        self.remaining_properties = remaining_properties
         # Drop the raw value from each filter so that user-supplied data (e.g. a domain or URL)
         # doesn't end up in the exception message — otherwise every distinct value produces a
         # brand-new error-tracking fingerprint. A hogql filter carries the whole user-written
