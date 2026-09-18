@@ -633,11 +633,8 @@ pub async fn lock_waits(
          GROUP BY 1, 2, 3, 4, 5 ORDER BY waited_s DESC LIMIT $4", &[&server, &from, &to, &limit]).await?;
     // Consecutive samples of one (waiter, blocker) pair are one episode; a gap over 30 s (three
     // missed samples) starts a new one, which is what a waiter that timed out and retried looks like.
-    // A backend is its pid plus backend_start, so a reused pid is a different backend. The two
-    // backend_start columns arrive with a newer collector, and pgapi can deploy first, so they are
-    // read through to_jsonb rather than named, which parses whether or not the columns exist. Rows
-    // without them fall back to a transaction age or wait time that went backwards as the sign of
-    // a new transaction or a new backend.
+    // A backend is its pid plus backend_start. The backend_start columns arrive with a newer collector
+    // and pgapi can deploy first, so they are read through to_jsonb, which parses without them.
     let episodes = opt(db, "WITH w AS (
             SELECT l.*, (to_jsonb(l) ->> 'waiter_backend_start') AS waiter_backend_start, (to_jsonb(l) ->> 'blocker_backend_start') AS blocker_backend_start,
                    CASE WHEN lag(collected_at) OVER pair IS NULL OR collected_at - lag(collected_at) OVER pair > interval '30 seconds'
@@ -662,9 +659,7 @@ pub async fn lock_waits(
 }
 
 /// Backends are only sampled once active for 5 s or idle in transaction for 60 s, so a short
-/// transaction leaves no rows. The newest rows win when the window holds more than the limit.
-/// A pid can be reused inside the window, so rows are kept only for the backend that started at
-/// `backend_start`; when the caller has no start time, the backend sampled nearest to `at` is used.
+/// transaction leaves no rows. Without `backend_start`, the backend sampled nearest to `at` is used.
 pub struct SessionWindow {
     pub from: Ts,
     pub to: Ts,
