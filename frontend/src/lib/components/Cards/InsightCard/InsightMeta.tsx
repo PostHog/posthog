@@ -15,7 +15,6 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -488,21 +487,28 @@ export function InsightMeta({
                     <>
                         {/* Insight related */}
                         {canViewInsight && (
-                            <LemonButton
-                                to={insightViewUrl}
-                                fullWidth
-                                sideAction={{
-                                    icon: <IconLink />,
-                                    tooltip: 'Copy link to insight',
-                                    'aria-label': 'Copy link to insight',
-                                    'data-attr': dashboardId
-                                        ? 'copy-insight-link-from-dashboard'
-                                        : 'copy-insight-link-from-card-list-view',
-                                    onClick: copyInsightLink,
-                                }}
-                            >
-                                View
-                            </LemonButton>
+                            <>
+                                <LemonButton
+                                    to={insightViewUrl}
+                                    fullWidth
+                                    data-attr={
+                                        dashboardId ? 'view-insight-from-dashboard' : 'view-insight-from-card-list-view'
+                                    }
+                                >
+                                    View
+                                </LemonButton>
+                                <LemonButton
+                                    onClick={copyInsightLink}
+                                    fullWidth
+                                    data-attr={
+                                        dashboardId
+                                            ? 'copy-insight-link-from-dashboard'
+                                            : 'copy-insight-link-from-card-list-view'
+                                    }
+                                >
+                                    Copy link
+                                </LemonButton>
+                            </>
                         )}
                         {canEditInsight && (
                             <>
