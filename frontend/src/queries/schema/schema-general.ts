@@ -4763,6 +4763,9 @@ export type CachedMetricsQueryResponse = CachedQueryResponse<MetricsQueryRespons
 export interface MetricsHistogramQuery extends DataNode<MetricsHistogramQueryResponse> {
     kind: NodeKind.MetricsHistogramQuery
     metricName: string
+    /** Pins the OTel type, as on a MetricsQuery clause: one name can exist as more than one
+     * type, and the heatmap must grid only the distribution series. */
+    metricType?: MetricsOtelType
     filters?: MetricsQueryFilter[]
     /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
     dateRange?: DateRange

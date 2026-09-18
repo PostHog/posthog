@@ -137,6 +137,9 @@ export const MetricsViewer = (): JSX.Element => {
     // Gate on the result shape, not the clause edits: a formula result is ungrouped even
     // when its input clauses group, and a clause without a metric name never runs.
     const resultIsGrouped = chartSeries.some((s) => Object.keys(s.labels).length > 0)
+    // The heatmap saves a MetricsHistogramQuery, but insight alerts only support MetricsQuery,
+    // so alert creation would save a query the alerts page cannot validate.
+    const isHeatmap = displayType === 'heatmap' && histogramQueryNode !== null
     const displayTypeOptions = useMemo(() => {
         const types = dashboardPanelsEnabled ? [...BASE_DISPLAY_TYPES, ...PANEL_DISPLAY_TYPES] : BASE_DISPLAY_TYPES
         return types.map((value) => {
@@ -340,7 +343,12 @@ export const MetricsViewer = (): JSX.Element => {
                             loading={savedInsightLoading}
                             tooltip="Get notified when this metric crosses a threshold (uses insight alerts)"
                             disabledReason={
-                                insightEditorDisabledReason ?? (!hasMetricName ? 'Pick a metric first' : undefined)
+                                insightEditorDisabledReason ??
+                                (!hasMetricName
+                                    ? 'Pick a metric first'
+                                    : isHeatmap
+                                      ? 'Alerts are not supported for the heatmap display'
+                                      : undefined)
                             }
                             data-attr="metrics-viewer-create-alert"
                         >
@@ -393,16 +401,19 @@ export const MetricsViewer = (): JSX.Element => {
                             <div className="h-full flex items-center justify-center text-secondary text-sm">
                                 Pick a metric to see its time series.
                             </div>
+                        ) : isHeatmap && histogramQueryNode ? (
+                            // The heatmap runs its own histogram query, so it mounts the histogram
+                            // node rather than consuming the time-series result the other panels share.
+                            // It comes before the error/loading branches: the shared time-series
+                            // request still runs for the samples panel, and its failure must not
+                            // mask an independently loaded histogram.
+                            <MetricsHistogramQueryNode query={histogramQueryNode} context={{}} />
                         ) : queryError ? (
                             <div className="h-full flex items-center justify-center">
                                 <LemonBanner type="error" className="max-w-md">
                                     {queryError}
                                 </LemonBanner>
                             </div>
-                        ) : displayType === 'heatmap' && histogramQueryNode ? (
-                            // The heatmap runs its own histogram query, so it mounts the histogram
-                            // node rather than consuming the time-series result the other panels share.
-                            <MetricsHistogramQueryNode query={histogramQueryNode} context={{}} />
                         ) : hasResults ? (
                             <MetricsPanel
                                 series={chartSeries}
@@ -415,7 +426,7 @@ export const MetricsViewer = (): JSX.Element => {
                                 No data for this metric in the selected range.
                             </div>
                         ) : null}
-                        {queryLoading && <SpinnerOverlay />}
+                        {queryLoading && !isHeatmap && <SpinnerOverlay />}
                     </div>
                 </div>
                 {hasMetricName && (

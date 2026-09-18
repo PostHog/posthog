@@ -37287,6 +37287,10 @@
                 "metricName": {
                     "type": "string"
                 },
+                "metricType": {
+                    "$ref": "#/definitions/MetricsOtelType",
+                    "description": "Pins the OTel type, as on a MetricsQuery clause: one name can exist as more than one type, and the heatmap must grid only the distribution series."
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"

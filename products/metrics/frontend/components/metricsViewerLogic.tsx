@@ -993,6 +993,15 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 actions.setServices(values.selectedServices)
             }
         }
+        // The heatmap display is valid only while the query stays eligible. Every change
+        // that can end eligibility (a formula, a second clause, a group-by, a URL restore)
+        // must fall back, or "heatmap" stays selected while the viewer renders a time
+        // series and saving silently does nothing (savedQueryNode is null).
+        const resetHeatmapIfIneligible = (): void => {
+            if (values.displayType === 'heatmap' && !values.heatmapEligible) {
+                actions.setDisplayType(DEFAULT_DISPLAY_TYPE)
+            }
+        }
         return {
             // A panel whose registry entry needs grouped data cannot stay selected once nothing
             // is grouped anymore — fall back rather than render it against a result shape it
@@ -1005,14 +1014,25 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 ) {
                     actions.setDisplayType(DEFAULT_DISPLAY_TYPE)
                 }
+                resetHeatmapIfIneligible()
             },
+            setFormula: resetHeatmapIfIneligible,
             // `setFilterGroup` changes the active clause's chips; the clause-navigation
             // actions change which clause's chips are the scope.
             setFilterGroup: syncPickerServices,
             setActiveClauseIndex: syncPickerServices,
-            addClause: syncPickerServices,
-            removeClause: syncPickerServices,
-            duplicateClause: syncPickerServices,
+            addClause: () => {
+                syncPickerServices()
+                resetHeatmapIfIneligible()
+            },
+            removeClause: () => {
+                syncPickerServices()
+                resetHeatmapIfIneligible()
+            },
+            duplicateClause: () => {
+                syncPickerServices()
+                resetHeatmapIfIneligible()
+            },
             addAttributeFilter: ({ key, value }) => {
                 const inner = values.filterGroup.values[0] as UniversalFiltersGroup
                 const existingIndex = inner.values.findIndex(
@@ -1072,6 +1092,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             setClauses: () => {
                 backfillClauseTypes()
                 syncPickerServices()
+                resetHeatmapIfIneligible()
             },
             saveAsInsightFailure: ({ error }) => {
                 lemonToast.error(`Failed to save insight: ${error}`)
@@ -1403,6 +1424,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             (namedClauses: MetricsViewerClause[], formula: string): boolean =>
                 namedClauses.length === 1 &&
                 !formula &&
+                namedClauses[0].groupByKeys.length === 0 &&
                 namedClauses[0].selectedMetricType !== null &&
                 HISTOGRAM_METRIC_TYPES.includes(namedClauses[0].selectedMetricType),
         ],

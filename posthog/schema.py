@@ -28146,6 +28146,14 @@ class MetricsHistogramQuery(BaseModel):
     interval: str | None = Field(default=None, description="Bucket size; auto-picked from the range when omitted")
     kind: Literal["MetricsHistogramQuery"] = "MetricsHistogramQuery"
     metricName: str
+    metricType: MetricsOtelType | None = Field(
+        default=None,
+        description=(
+            "Pins the OTel type, as on a MetricsQuery clause: one name can exist as"
+            " more than one type, and the heatmap must grid only the distribution"
+            " series."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: MetricsHistogramQueryResponse | None = None
     tags: QueryLogTags | None = None
