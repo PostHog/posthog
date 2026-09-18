@@ -127,6 +127,38 @@ class TestSlackIntegration:
         assert channels[3]["name"] == "d_private_channel"
 
     @patch("posthog.models.integration.slack.WebClient")
+    def test_list_channels_keeps_only_the_fields_the_api_serves(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.conversations_list.return_value = {
+            "channels": [
+                {
+                    "id": "C123",
+                    "name": "a_channel",
+                    "is_private": False,
+                    "is_ext_shared": False,
+                    "topic": {"value": "x" * 200, "creator": "U1", "last_set": 1},
+                    "purpose": {"value": "y" * 400, "creator": "U1", "last_set": 1},
+                    "shared_team_ids": ["T1"],
+                    "previous_names": ["old_name"],
+                }
+            ],
+            "response_metadata": {"next_cursor": ""},
+        }
+        mock_client.users_conversations.return_value = {"channels": [], "response_metadata": {"next_cursor": ""}}
+
+        channels = SlackIntegration(self.integration).list_channels(True, "test_user_id")
+
+        assert set(channels[0]) == {
+            "id",
+            "name",
+            "is_private",
+            "is_member",
+            "is_ext_shared",
+            "is_private_without_access",
+        }
+
+    @patch("posthog.models.integration.slack.WebClient")
     def test_list_channels_follows_the_cursor_past_ten_pages(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client

@@ -69,7 +69,9 @@ SLACK_CHANNELS_PAGE_SIZE = 1000
 # inside a request a person waits on, where a few hundred sequential calls to a rate-limited Slack
 # endpoint fail on latency before they finish. _record_truncation logs the items collected and the
 # requests made, so the log says which cap stopped the listing.
-SLACK_LISTING_MAX_ITEMS = 50000
+# The item cap also bounds memory: a listing holds every channel it has collected, and both
+# listings run inside one request.
+SLACK_LISTING_MAX_ITEMS = 20000
 
 SLACK_LISTING_MAX_REQUESTS = 100
 
@@ -201,6 +203,31 @@ class SlackIntegration:
                 return None
             raise
 
+    @staticmethod
+    def _trim_channel(channel: dict) -> dict:
+        # A Slack channel payload carries topic, purpose, shared team ids and more, about five times
+        # the size of what the API serves. A listing holds every channel at once, so keep only the
+        # fields the caller reads.
+        return {
+            "id": channel["id"],
+            "name": channel["name"],
+            "is_private": channel["is_private"],
+            "is_member": channel.get("is_member", True),
+            "is_ext_shared": channel["is_ext_shared"],
+            "is_private_without_access": channel.get("is_private_without_access", False),
+        }
+
+    @staticmethod
+    def _trim_user(member: dict) -> dict:
+        # Same reason as _trim_channel. Runs after the workspace and DM checks, which read fields
+        # this drops.
+        return {
+            "id": member["id"],
+            "name": member.get("name", ""),
+            "real_name": member.get("real_name"),
+            "profile": {"display_name": (member.get("profile") or {}).get("display_name")},
+        }
+
     def list_users(self) -> list[dict]:
         """Human workspace members the bot can DM, as raw Slack member payloads."""
         users: list[dict] = []
@@ -219,7 +246,7 @@ class SlackIntegration:
                 return users
             fetched += len(res["members"])
             users.extend(
-                member
+                self._trim_user(member)
                 for member in res["members"]
                 if self._belongs_to_workspace(member) and self._is_dmable_user(member)
             )
@@ -315,7 +342,7 @@ class SlackIntegration:
                         channel["name"] = PRIVATE_CHANNEL_WITHOUT_ACCESS
                         channel["is_private_without_access"] = True
 
-            channels.extend(res["channels"])
+            channels.extend(self._trim_channel(channel) for channel in res["channels"])
             cursor = (res.get("response_metadata") or {}).get("next_cursor")
             if not cursor or len(channels) >= SLACK_LISTING_MAX_ITEMS:
                 break
