@@ -548,6 +548,29 @@ describe('mcpDashboardOverviewLogic', () => {
                 reloads.every((call) => JSON.stringify(filtersOf(call).properties) === JSON.stringify([EVENT_FILTER]))
             ).toBe(true)
         })
+        it('reloads tiles once when the URL changes the date and shared filters together', async () => {
+            router.actions.push(urls.mcpAnalyticsDashboard())
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.mcpAnalyticsDashboard(), {
+                    date_from: '-30d',
+                    properties: [EVENT_FILTER],
+                    filter_test_accounts: true,
+                })
+            }).toFinishAllListeners()
+
+            const reloads = reloadCallsSince(callsBefore)
+            expect(reloads).toHaveLength(8)
+            expect(reloads.every((call) => filtersOf(call).filterTestAccounts === true)).toBe(true)
+            expect(
+                reloads.every((call) => JSON.stringify(filtersOf(call).properties) === JSON.stringify([EVENT_FILTER]))
+            ).toBe(true)
+            expect(reloads.filter((call) => filtersOf(call).dateRange?.date_from === '-30d')).toHaveLength(6)
+        })
         // Feature-flag filters arrive as ordinary $feature/<key> event-property filters.
         const FLAG_FILTER: AnyPropertyFilter = {
             key: '$feature/mcp-new-thing',

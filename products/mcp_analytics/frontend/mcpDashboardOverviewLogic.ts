@@ -896,7 +896,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             }),
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setDateFilter: () => {
             actions.reloadAll()
         },
@@ -907,7 +907,13 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             actions.reloadAll()
         },
         hydrateFilters: () => {
-            actions.reloadAll()
+            const { searchParams } = router.values.currentLocation
+            const dateFrom =
+                typeof searchParams.date_from === 'string' ? searchParams.date_from : DEFAULT_DATE_FILTER.dateFrom
+            const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : null
+            if (dateFrom === values.dateFilter.dateFrom && dateTo === values.dateFilter.dateTo) {
+                actions.reloadAll()
+            }
         },
         reloadAll: () => {
             actions.loadKPIs()
