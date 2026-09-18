@@ -49,7 +49,7 @@ from hogli_commands.change_detection import changed_files, matches_globs
 from hogli_commands.complexity_lint import PYTHON_SCOPE, TEST_WARN_AT, TYPESCRIPT_SCOPE, WARN_AT
 from hogli_commands.depot_mirrors import mirror_violations
 from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
-from hogli_commands.lockfile_merge import missing_resolutions
+from hogli_commands.lockfile_merge import LOCKFILE_GLOBS, missing_resolutions
 from hogli_commands.size_lint import SCOPE as SIZE_SCOPE
 
 Requirement = Literal["node", "desktop-node", "stack", "clickhouse", "python-env"]
@@ -481,7 +481,6 @@ def _run_diff_check(chk: DiffCheck, do_fix: bool, against: str | None, strict: b
 # start — master moves fast and we'd rather over-warn and tune down from
 # telemetry than under-warn. Advisory only (never auto-merged). Env-tunable.
 _MASTER_REF = "origin/master"
-_LOCKFILE = "pnpm-lock.yaml"
 _STALE_COMMITS_DEFAULT = 5
 _STALE_DAYS_DEFAULT = 2
 _FETCH_TTL_SECONDS = 600  # skip re-fetching origin/master if refreshed this recently
@@ -544,7 +543,15 @@ def _commit_age_days(ref: str) -> int | None:
     return max(0, (datetime.now(when.tzinfo) - when).days)
 
 
-def _merge_preview() -> tuple[str, list[str]] | None:
+@dataclass(frozen=True, kw_only=True, slots=True)
+class MergePreview:
+    """The tree merging master would produce, and the files that would conflict."""
+
+    tree_oid: str
+    conflicts: list[str]
+
+
+def _merge_preview() -> MergePreview | None:
     """The tree merging master would produce, and the files that would conflict.
 
     Computed without touching the working tree (``git merge-tree``, git >= 2.38).
@@ -563,21 +570,28 @@ def _merge_preview() -> tuple[str, list[str]] | None:
         return None
     # returncode 1 = conflicts; first output line is the merged tree OID.
     conflicts = [line for line in lines[1:] if line] if result.returncode == 1 else []
-    return lines[0].strip(), conflicts
+    return MergePreview(tree_oid=lines[0].strip(), conflicts=conflicts)
 
 
-def _lockfile_breakage(
-    tree_oid: str, branch_files: list[str], master_files: list[str], conflicts: list[str]
-) -> list[str]:
-    """Dependencies the merged lockfile names but no longer resolves.
+def _lockfile_breakage(preview: MergePreview, branch_files: list[str], master_files: list[str]) -> list[str]:
+    """Dependencies the merged lockfiles name but no longer resolve.
 
-    Only both sides editing the lockfile can produce this, and a side that git
-    reports as conflicted is already covered by the conflict risk.
+    Only a lockfile both sides edited can break this way, and one git already
+    reports as conflicted is covered by the conflict risk. The repo keeps a
+    lockfile per pnpm workspace, so every path that matches is checked.
     """
-    if _LOCKFILE not in branch_files or _LOCKFILE not in master_files or _LOCKFILE in conflicts:
-        return []
-    merged = _git("show", f"{tree_oid}:{_LOCKFILE}", timeout=20.0)
-    return missing_resolutions(merged) if merged else []
+    breakage: list[str] = []
+    for path in sorted(set(_matching_lockfiles(branch_files)) & set(_matching_lockfiles(master_files))):
+        if path in preview.conflicts:
+            continue
+        merged = _git("show", f"{preview.tree_oid}:{path}", timeout=20.0)
+        if merged:
+            breakage.extend(missing_resolutions(merged))
+    return breakage
+
+
+def _matching_lockfiles(files: list[str]) -> list[str]:
+    return [f for f in files if matches_globs(f, list(LOCKFILE_GLOBS))]
 
 
 def _changed_on_master(merge_base: str) -> list[str]:
@@ -594,7 +608,7 @@ def _staleness_risks(
     branch_files: list[str],
     master_files: list[str],
     conflicts: list[str] | None,
-    lockfile_breakage: list[str] | None = None,
+    lockfile_breakage: list[str],
 ) -> list[str]:
     """Concrete ways merging master late will break this branch — each a failure
     class that recurs on unrebased PRs: textual conflicts, migration collisions,
@@ -603,12 +617,10 @@ def _staleness_risks(
     if conflicts:
         risks.append(f"merging master conflicts in {len(conflicts)} file(s) (e.g. {conflicts[0]})")
     if lockfile_breakage:
-        example = lockfile_breakage[0]
-        if len(example) > 60:
-            example = example[:57] + "..."
-        count = len(lockfile_breakage)
-        what = example if count == 1 else f"{count} dependencies (e.g. {example})"
-        risks.append(f"merging master leaves {what} unresolved in {_LOCKFILE} — regenerate with pnpm install")
+        risks.append(
+            f"merging master leaves {len(lockfile_breakage)} dependency(s) unresolved in pnpm-lock.yaml "
+            f"(e.g. {lockfile_breakage[0][:60]}) — regenerate with pnpm install --no-frozen-lockfile"
+        )
     branch_apps = {str(Path(f).parent) for f in branch_files if matches_globs(f, _MIGRATION_GLOB)}
     master_apps = {str(Path(f).parent) for f in master_files if matches_globs(f, _MIGRATION_GLOB)}
     collisions = sorted(branch_apps & master_apps)
@@ -643,9 +655,9 @@ def _staleness(branch_files: list[str]) -> tuple[Status, str, dict[str, Any]]:
 
     age_days = _commit_age_days(merge_base)  # merge-base age ≈ time since the branch last synced with master
     preview = _merge_preview()
-    conflicts = None if preview is None else preview[1]
+    conflicts = None if preview is None else preview.conflicts
     master_files = _changed_on_master(merge_base)
-    breakage = _lockfile_breakage(preview[0], branch_files, master_files, preview[1]) if preview else []
+    breakage = _lockfile_breakage(preview, branch_files, master_files) if preview else []
     risks = _staleness_risks(branch_files, master_files, conflicts, breakage)
     if behind >= _env_int("HOGLI_PREFLIGHT_STALE_COMMITS", _STALE_COMMITS_DEFAULT):
         risks.append(f"{behind} commits (≈ PRs) behind")
@@ -694,6 +706,7 @@ def _emit_telemetry(summary: dict[str, Any]) -> None:
         "branch_age_days",
         "merge_conflict_files",
         "staleness_risks",
+        "lockfile_unresolved",
     )
     props: dict[str, Any] = {k: summary[k] for k in keys if k in summary}
     props["results"] = {r["check"]: r["status"] for r in summary["results"]}

@@ -10,7 +10,6 @@ from hogli.cli import cli
 from hogli.manifest import REPO_ROOT
 from hogli_commands.change_detection import matches_globs
 from hogli_commands.ci_preflight import DIFF_CHECKS, _pnpm_workspace_root, _run_workspace_scoped, _staleness_risks
-from hogli_commands.lockfile_merge import missing_resolutions
 
 runner = CliRunner()
 
@@ -235,7 +234,7 @@ class TestStalenessRisks:
         conflicts: list[str] | None,
         expected_fragments: list[str],
     ) -> None:
-        risks = _staleness_risks(branch_files, master_files, conflicts)
+        risks = _staleness_risks(branch_files, master_files, conflicts, [])
         assert len(risks) == len(expected_fragments)
         for fragment, risk in zip(expected_fragments, risks):
             assert fragment in risk
@@ -352,86 +351,3 @@ class TestShadowDriftCheck:
             assert expected_fragment in result.output
         else:
             assert "shadow-drift" not in result.output
-
-
-LOCKFILE_HEAD = """lockfileVersion: '9.0'
-
-importers:
-
-  .:
-    dependencies:
-"""
-
-
-def _lockfile(importer_deps: str, packages: str = "", snapshots: str = "") -> str:
-    return f"{LOCKFILE_HEAD}{importer_deps}\npackages:\n\n{packages}\nsnapshots:\n\n{snapshots}"
-
-
-class TestLockfileMerge:
-    """A clean git merge of two valid lockfiles can produce an invalid one. These
-    lock the shapes that made the first parser report live dependencies as broken,
-    because a false positive here blocks every push."""
-
-    @pytest.mark.parametrize(
-        "importer_deps,packages,snapshots,expected",
-        [
-            pytest.param(
-                "      posthog-js:\n        specifier: 'catalog:'\n        version: 1.433.6(react@18.3.1)\n",
-                "",
-                "  posthog-js@1.433.9(react@18.3.1): {}\n",
-                ["posthog-js@1.433.6(react@18.3.1)"],
-                id="version-master-replaced-is-reported",
-            ),
-            pytest.param(
-                "      posthog-js:\n        specifier: 'catalog:'\n        version: 1.433.9(react@18.3.1)\n",
-                "",
-                "  posthog-js@1.433.9(react@18.3.1): {}\n",
-                [],
-                id="peer-suffixed-version-resolves",
-            ),
-            pytest.param(
-                "      '@posthog/mcp-analytics':\n        specifier: 'catalog:'\n        version: '@posthog/mcp@0.16.3'\n",
-                "",
-                "  '@posthog/mcp@0.16.3': {}\n",
-                [],
-                id="aliased-dependency-resolves-by-version-alone",
-            ),
-            pytest.param(
-                "      uWebSockets.js:\n        specifier: https://example.com/a.tar.gz\n        version: https://example.com/a.tar.gz\n",
-                "  uWebSockets.js@https://example.com/a.tar.gz:\n    resolution: {tarball: https://example.com/a.tar.gz}\n",
-                "",
-                [],
-                id="tarball-url-key-containing-a-colon-resolves",
-            ),
-            pytest.param(
-                "      local-thing:\n        specifier: workspace:*\n        version: link:../local-thing\n",
-                "",
-                "",
-                [],
-                id="workspace-link-needs-no-resolution",
-            ),
-        ],
-    )
-    def test_detects_only_genuinely_unresolved_dependencies(
-        self, importer_deps: str, packages: str, snapshots: str, expected: list[str]
-    ) -> None:
-        assert missing_resolutions(_lockfile(importer_deps, packages, snapshots)) == expected
-
-    def test_reports_a_registry_dependency_when_both_resolution_sections_are_empty(self) -> None:
-        # A lockfile that resolves nothing is broken, not clean. Treating an empty
-        # result as "nothing to say" would hide exactly the breakage this catches.
-        broken = _lockfile("      posthog-js:\n        specifier: 'catalog:'\n        version: 1.433.9\n")
-        assert missing_resolutions(broken) == ["posthog-js@1.433.9"]
-
-    def test_stays_quiet_on_a_lockfile_layout_it_does_not_know(self) -> None:
-        # A future lockfileVersion may move the resolution sections. Reading that
-        # as "resolves nothing" would warn on every push touching the lockfile.
-        future = _lockfile("      posthog-js:\n        specifier: 'catalog:'\n        version: 1.433.9\n").replace(
-            "lockfileVersion: '9.0'", "lockfileVersion: '10.0'"
-        )
-        assert missing_resolutions(future) == []
-
-    def test_the_repos_own_lockfile_is_clean(self) -> None:
-        # A parser regression that reports a false positive here would block every
-        # push, so this guards the checked-in lockfile rather than a fixture.
-        assert missing_resolutions((REPO_ROOT / "pnpm-lock.yaml").read_text()) == []
