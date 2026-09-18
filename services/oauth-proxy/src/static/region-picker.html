@@ -473,12 +473,12 @@
                 <a class="btn" id="btn-us" href="#">
                     <span aria-hidden="true" class="flag">&#x1F1FA;&#x1F1F8;</span>
                     US Cloud
-                    <span class="last-used" hidden>Last authenticated</span>
+                    <span class="last-used" hidden>Last used</span>
                 </a>
                 <a class="btn" id="btn-eu" href="#">
                     <span aria-hidden="true" class="flag">&#x1F1EA;&#x1F1FA;</span>
                     EU Cloud
-                    <span class="last-used" hidden>Last authenticated</span>
+                    <span class="last-used" hidden>Last used</span>
                 </a>
             </nav>
 
@@ -494,7 +494,7 @@
             </p>
 
             <div aria-live="polite" hidden id="redirect-banner">
-                <span>You last logged in on <span id="redirect-region-name"></span>. Redirecting
+                <span>You're logged in to <span id="redirect-region-name"></span>. Redirecting
                     in <span id="redirect-countdown">7</span>s...</span>
                 <div aria-label="Redirect countdown" aria-valuemax="100" aria-valuemin="0" aria-valuenow="0"
                     id="progress-bar" role="progressbar">
@@ -546,21 +546,35 @@
             }, 42);
         })();
 
-        // Auto-redirect if user has previously logged in to a region
         (function () {
             var REDIRECT_SECONDS = 7;
-            var cookie = document.cookie.split('; ').find(function (c) { return c.startsWith('ph_current_instance='); });
-            if (!cookie) return;
 
-            var value = decodeURIComponent(cookie.substring(cookie.indexOf('=') + 1)).replace(/"/g, '');
-            var region = null;
+            function readCookie(name) {
+                var row = document.cookie.split('; ').find(function (c) { return c.startsWith(name + '='); });
+                return row ? decodeURIComponent(row.substring(row.indexOf('=') + 1)).replace(/"/g, '') : null;
+            }
+
+            // Two cookies means two live accounts, and neither is the obvious one to pick. Zero
+            // means we have nothing to go on. Both cases hand the choice back to the visitor.
+            var liveRegions = ['us', 'eu'].filter(function (r) { return readCookie('ph_authenticated_' + r); });
+
+            // One slot shared by both regions, so this only ever names the most recent one.
+            // Enough to label a button, not to redirect on.
+            var lastUsedRegion = null;
             try {
-                var hostname = new URL(value).hostname;
-                if (hostname === 'us.posthog.com') region = 'us';
-                else if (hostname === 'eu.posthog.com') region = 'eu';
-            } catch (e) { return; }
-            if (!region) return;
+                var hostname = new URL(readCookie('ph_current_instance')).hostname;
+                if (hostname === 'us.posthog.com') lastUsedRegion = 'us';
+                else if (hostname === 'eu.posthog.com') lastUsedRegion = 'eu';
+            } catch (e) { /* no cookie, or not a region we know */ }
 
+            if (liveRegions.length !== 1) {
+                if (lastUsedRegion) {
+                    document.querySelector('#btn-' + lastUsedRegion + ' .last-used').hidden = false;
+                }
+                return;
+            }
+
+            var region = liveRegions[0];
             var regionLabel = region === 'us' ? 'US Cloud' : 'EU Cloud';
             var redirectUrl = buildUrl(region);
 
