@@ -839,6 +839,8 @@ depends_on = [
     # Facade-only: the scout harness pre-resolves the external MCP servers a run's sandbox will
     # mount so the run prompt can name them.
     "products.mcp_store",
+    # Facade-only: the quota gate tells the org its self-driving credits limit paused scout runs.
+    "products.notifications",
     "products.notebooks",
     "products.product_analytics",
     # Facade-only: Replay Vision authorizes signal emission per scanner rather than through a

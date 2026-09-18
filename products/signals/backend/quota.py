@@ -136,13 +136,14 @@ def notify_scout_quota_paused(team: "Team") -> None:
 
     The quota gate skips runs with no run row and no visible state, so without this a team's
     scouts read as silently dead until the next billing period. Idempotent per limiting episode:
-    the key carries the org's `quota_limited_until`, so a new episode (period rollover, a raised
-    limit) notifies again. Best-effort: a failed send must never fail the gate that called it.
-    Requires `team.organization` to be loaded.
+    the key carries the org's `quota_limited_until` and limit, so a new episode (period rollover,
+    or a raised limit that the org then exceeds again) notifies again. Best-effort: a failed send
+    must never fail the gate that called it. Requires `team.organization` to be loaded.
     """
     try:
         usage = (team.organization.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value) or {}
         quota_limited_until = usage.get("quota_limited_until") or 0
+        limit = usage.get("limit") or 0
         from products.notifications.backend.facade.api import (  # noqa: PLC0415 (keeps the heavy dep off the import path)
             NotificationData,
             NotificationType,
@@ -162,7 +163,7 @@ def notify_scout_quota_paused(team: "Team") -> None:
                 target_type=TargetType.TEAM,
                 target_id=str(team.id),
                 source_url="/organization/billing",
-                idempotency_key=f"signals_scout_quota_paused:{team.organization_id}:{quota_limited_until}",
+                idempotency_key=f"signals_scout_quota_paused:{team.organization_id}:{quota_limited_until}:{limit}",
             )
         )
     except Exception:
