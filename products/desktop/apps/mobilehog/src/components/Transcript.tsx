@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   type ColorValue,
@@ -16,11 +16,7 @@ import { colors, fonts, radius } from "@/lib/theme";
 import type { Block, PermissionRequest, ToolStatus } from "@/lib/transcript";
 
 interface TranscriptProps {
-  session: TaskSession;
   onPermission: (toolCallId: string, optionId: string) => void;
-  // Fires with each user bubble's y offset inside the transcript, for scrolling.
-  onUserLayout?: (blockId: string, y: number) => void;
-  workingLabel?: string;
 }
 
 type ToolBlock = Block & { kind: "tool" };
@@ -31,6 +27,7 @@ interface Activity {
   id: string;
   items: Array<ToolBlock | ThoughtBlock>;
   children: Map<string, ToolBlock[]>;
+  permissions: TaskSession["permissions"];
   toolCount: number;
   start: number;
   end: number;
@@ -40,7 +37,10 @@ type Row = { kind: "block"; block: Block } | Activity;
 
 // Consecutive tool calls and thoughts collapse into one activity row, so the
 // transcript reads as messages with a "Working" line between them.
-function arrange(blocks: Block[]): Row[] {
+function arrange(
+  blocks: Block[],
+  permissions: TaskSession["permissions"],
+): Row[] {
   const children = new Map<string, ToolBlock[]>();
   for (const block of blocks) {
     if (block.kind === "tool" && block.parentId) {
@@ -60,6 +60,7 @@ function arrange(blocks: Block[]): Row[] {
           id: `activity-${block.id}`,
           items: [],
           children,
+          permissions,
           toolCount: 0,
           start: block.at,
           end: block.at,
@@ -83,68 +84,94 @@ function arrange(blocks: Block[]): Row[] {
   return rows;
 }
 
-export function Transcript({
-  session,
-  onPermission,
-  onUserLayout,
+export type TranscriptRow =
+  | { kind: "block"; id: string; block: Block }
+  | (Activity & { active: boolean })
+  | { kind: "permission"; id: string; request: PermissionRequest }
+  | { kind: "status"; id: string; label: string };
+
+// Flattens a session into list rows: messages, collapsed activity, any
+// permission cards with no tool block yet, and the trailing status line.
+export function buildTranscriptRows(
+  session: TaskSession,
   workingLabel = "Working",
-}: TranscriptProps) {
-  const rows = useMemo(() => arrange(session.blocks), [session.blocks]);
-  const lastRow = rows[rows.length - 1];
-  const orphanPermissions = Object.values(session.permissions).filter(
-    (request) =>
-      !session.blocks.some((block) => block.id === request.toolCallId),
+): TranscriptRow[] {
+  const arranged = arrange(session.blocks, session.permissions);
+  const last = arranged[arranged.length - 1];
+  const rows: TranscriptRow[] = arranged.map((row) =>
+    row.kind === "activity"
+      ? { ...row, active: session.turnActive && row === last }
+      : { kind: "block", id: row.block.id, block: row.block },
   );
-  return (
-    <View style={styles.list}>
-      {rows.map((row) =>
-        row.kind === "activity" ? (
-          <ActivityRow
-            key={row.id}
-            activity={row}
-            active={session.turnActive && row === lastRow}
-            permissions={session.permissions}
-            onPermission={onPermission}
-          />
-        ) : (
-          <BlockView
-            key={row.block.id}
-            block={row.block}
-            onUserLayout={onUserLayout}
-          />
-        ),
-      )}
-      {orphanPermissions.map((request) => (
-        <PermissionCard
-          key={request.requestId}
-          request={request}
-          onPermission={onPermission}
-        />
-      ))}
-      {(session.turnActive || !session.connected) &&
-      lastRow?.kind !== "activity" ? (
-        <StatusLine label={workingLabel} active />
-      ) : null}
-    </View>
-  );
+  for (const request of Object.values(session.permissions)) {
+    if (!session.blocks.some((block) => block.id === request.toolCallId)) {
+      rows.push({ kind: "permission", id: request.requestId, request });
+    }
+  }
+  if ((session.turnActive || !session.connected) && last?.kind !== "activity") {
+    rows.push({ kind: "status", id: "status", label: workingLabel });
+  }
+  return rows;
 }
 
-function BlockView({
-  block,
-  onUserLayout,
-}: {
-  block: Block;
-  onUserLayout?: TranscriptProps["onUserLayout"];
-}) {
+export const TranscriptRowView = memo(
+  function TranscriptRowView({
+    row,
+    onPermission,
+  }: {
+    row: TranscriptRow;
+    onPermission: TranscriptProps["onPermission"];
+  }) {
+    switch (row.kind) {
+      case "block":
+        return <BlockView block={row.block} />;
+      case "activity":
+        return (
+          <ActivityRow
+            activity={row}
+            active={row.active}
+            permissions={row.permissions}
+            onPermission={onPermission}
+          />
+        );
+      case "permission":
+        return (
+          <PermissionCard request={row.request} onPermission={onPermission} />
+        );
+      case "status":
+        return <StatusLine label={row.label} active />;
+    }
+  },
+  // Rows are rebuilt on every fold; only re-render when their content moved.
+  (prev, next) => {
+    if (prev.row.kind !== next.row.kind || prev.row.id !== next.row.id) {
+      return false;
+    }
+    if (prev.row.kind === "block" && next.row.kind === "block") {
+      return prev.row.block === next.row.block;
+    }
+    if (prev.row.kind === "activity" && next.row.kind === "activity") {
+      return (
+        prev.row.active === next.row.active &&
+        prev.row.end === next.row.end &&
+        prev.row.items.length === next.row.items.length &&
+        prev.row.permissions === next.row.permissions
+      );
+    }
+    if (prev.row.kind === "status" && next.row.kind === "status") {
+      return prev.row.label === next.row.label;
+    }
+    return prev.row.kind === "permission" && next.row.kind === "permission"
+      ? prev.row.request === next.row.request
+      : false;
+  },
+);
+
+function BlockView({ block }: { block: Block }) {
   switch (block.kind) {
     case "user":
       return (
-        <View
-          style={styles.userRow}
-          onLayout={(event) =>
-            onUserLayout?.(block.id, event.nativeEvent.layout.y)
-          }
-        >
+        <View style={styles.userRow}>
           <View style={styles.userBubble}>
             <Text style={styles.userText} selectable>
               {block.text}
@@ -486,7 +513,6 @@ function PermissionCard({
 }
 
 const styles = StyleSheet.create({
-  list: { gap: 16, paddingHorizontal: 18 },
   userRow: {
     flexDirection: "row",
     justifyContent: "flex-end",
