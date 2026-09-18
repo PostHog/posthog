@@ -164,7 +164,7 @@ export function CyclotronJobInputs({
                 }}
             >
                 <SortableContext disabled={!showSource} items={inputSchemaIds} strategy={verticalListSortingStrategy}>
-                    <div className="flex flex-col gap-3">
+                    <div className="flex flex-1 flex-col gap-3">
                         {configuration.inputs_schema
                             ?.filter((i: CyclotronJobInputSchemaType) => !i.hidden)
                             .map((schema: CyclotronJobInputSchemaType) => {
@@ -974,9 +974,14 @@ function CyclotronJobInputWithSchema({
         })
     }
 
+    // The email preview is an iframe that only grows through a flex chain, so the email input is
+    // the one that claims the height its host leaves over.
+    const fillsAvailableHeight = schema.type === 'email' || schema.type === 'native_email'
+
     return (
         <div
             ref={setNodeRef}
+            className={clsx(fillsAvailableHeight && 'flex flex-1 flex-col')}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 transform: CSS.Transform.toString(transform),
@@ -985,7 +990,7 @@ function CyclotronJobInputWithSchema({
         >
             {!editing ? (
                 <LemonField.Pure
-                    className="gap-1"
+                    className={clsx('gap-1', fillsAvailableHeight && 'flex-1')}
                     error={error}
                     help={
                         <>

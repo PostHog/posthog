@@ -216,7 +216,7 @@ function DestinationEmailTemplaterForm({
                         </div>
                     </>
                 ) : (
-                    <LemonField name="html" className="flex relative flex-col">
+                    <LemonField name="html" className="flex relative flex-1 flex-col">
                         {({ value }: ChildFunctionProps) => (
                             <>
                                 <div
@@ -735,7 +735,7 @@ function NativeEmailTemplaterForm({
                         </div>
                     </>
                 ) : (
-                    <LemonField name="html" className="flex relative flex-col">
+                    <LemonField name="html" className="flex relative flex-1 flex-col">
                         {({ value }: ChildFunctionProps) => (
                             <>
                                 <div
