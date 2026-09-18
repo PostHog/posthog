@@ -1,3 +1,4 @@
+import { DISPLAY_TYPES_TO_CATEGORIES } from 'lib/constants'
 import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils/objects'
 import { isValidRE2 } from 'lib/utils/regexp'
 
@@ -20,18 +21,18 @@ import {
     isEventsNode,
     isFunnelsQuery,
     isHogQLQuery,
-    isLifecycleQuery,
     isInsightQueryNode,
     isInsightQueryWithDisplay,
     isInsightQueryWithSeries,
     isInsightVizNode,
+    isLifecycleQuery,
     isPathsQuery,
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
     isWebAnalyticsInsightQuery,
 } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType } from '~/types'
+import { BaseMathType, ChartDisplayCategory, ChartDisplayType } from '~/types'
 
 import {
     isFunnelWithEnoughSteps,
@@ -385,4 +386,19 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
     }
 
     return cleanedQuery
+}
+
+// A result computed under a different display category renders as a blank or zeroed chart.
+export const trendsResultsMatchQuery = (results: unknown[], query: TrendsQuery): boolean => {
+    const first = results[0] as { data?: unknown[]; aggregated_value?: unknown } | undefined
+    const isTotalValue =
+        DISPLAY_TYPES_TO_CATEGORIES[query.trendsFilter?.display ?? ChartDisplayType.ActionsLineGraph] ===
+        ChartDisplayCategory.TotalValue
+    if (first?.data?.length) {
+        return !isTotalValue
+    }
+    if (first?.aggregated_value != null) {
+        return isTotalValue
+    }
+    return true
 }
