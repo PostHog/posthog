@@ -22,7 +22,9 @@ const meta: Meta<typeof WizardSyncLauncher> = {
     title: 'Scenes-Other/Onboarding/Shared/Wizard Sync Launcher',
     component: WizardSyncLauncher,
     tags: ['autodocs'],
-    parameters: { layout: 'centered' },
+    // A running run renders a spinner by design, which never resolves — skip the test runner's
+    // default "wait for loaders to hide" check, the same way the sync card's stories do.
+    parameters: { layout: 'centered', testOptions: { waitForLoadersToDisappear: false } },
 }
 export default meta
 
