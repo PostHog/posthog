@@ -9,7 +9,13 @@ from parameterized import parameterized
 
 from posthog.models.person import Person
 from posthog.models.person.bulk_delete import PersonDeletionFailure, PersonDeletionStep, PersonProfileDeletionResult
-from posthog.tasks.delete_persons import PersonDeletionIncomplete, delete_persons_async, queue_person_deletion
+from posthog.tasks.delete_persons import (
+    MAX_DELETION_RETRIES,
+    PersonDeletionIncomplete,
+    _retry_countdown,
+    delete_persons_async,
+    queue_person_deletion,
+)
 
 
 def _person() -> Person:
@@ -118,7 +124,7 @@ class TestDeletePersonsAsync(SimpleTestCase):
         assert kwargs["organization_id"] == "00000000-0000-0000-0000-00000000000a"
         assert kwargs["was_impersonated"] is True
         assert kwargs["unmatched_distinct_ids"] == []
-        assert retry.call_args.kwargs["countdown"] == 60
+        assert 45 <= retry.call_args.kwargs["countdown"] <= 75
         assert isinstance(retry.call_args.kwargs["exc"], PersonDeletionIncomplete)
         assert "queue_training_deletion=1" in str(retry.call_args.kwargs["exc"])
 
@@ -145,6 +151,13 @@ class TestDeletePersonsAsync(SimpleTestCase):
                 self._run(crash)
         assert retry.call_args.kwargs["exc"] is crash
         assert "kwargs" not in retry.call_args.kwargs
+
+    @parameterized.expand(
+        [(0, 45, 75), (1, 270, 450), (2, 675, 1125), (3, 1350, 2250), (MAX_DELETION_RETRIES, 1350, 2250)]
+    )
+    def test_retry_countdown_stays_within_its_band(self, retries: int, low: int, high: int) -> None:
+        for _ in range(50):
+            assert low <= _retry_countdown(retries) <= high
 
     def test_completes_quietly_when_all_deleted(self) -> None:
         with patch.object(delete_persons_async, "retry") as retry:

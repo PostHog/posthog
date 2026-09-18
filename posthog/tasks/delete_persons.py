@@ -1,4 +1,5 @@
 import uuid as uuid_lib
+import random
 from collections import Counter
 from collections.abc import Iterator
 
@@ -32,13 +33,19 @@ class PersonDeletionIncomplete(Exception):
 # narrowed to them, never by re-running the original chunk: with the person kept, every person
 # still resolves on a retry, so a chunk-wide re-run would start new recording workflows and
 # training deletion for persons that already succeeded.
-MAX_DELETION_RETRIES = 3
-RETRY_BACKOFF_SECONDS = 60
-RETRY_BACKOFF_MAX_SECONDS = 600
+# One entry per retry, in order. The first is short, for a blip. The second waits out the window in
+# which a personhog replica can still hand out pooled connections that a pgbouncer restart killed:
+# its idle reaper only drops them after five minutes, and the rarely used bulk pool is where they
+# linger. The last two wait out a longer dependency outage before the chunk gives up.
+RETRY_COUNTDOWNS_SECONDS = (60, 360, 900, 1800)
+MAX_DELETION_RETRIES = len(RETRY_COUNTDOWNS_SECONDS)
+# Spread the retries of chunks that failed together so they do not all hit the dependency at once.
+RETRY_JITTER = 0.25
 
 
 def _retry_countdown(retries: int) -> int:
-    return min(RETRY_BACKOFF_SECONDS * 2**retries, RETRY_BACKOFF_MAX_SECONDS)
+    base = RETRY_COUNTDOWNS_SECONDS[min(retries, MAX_DELETION_RETRIES - 1)]
+    return round(base * random.uniform(1 - RETRY_JITTER, 1 + RETRY_JITTER))
 
 
 def _chunks(items: list[str], size: int) -> Iterator[list[str]]:
