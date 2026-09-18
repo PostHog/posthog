@@ -1,3 +1,6 @@
+import { useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
+
 import { Link } from '@posthog/lemon-ui'
 import { type ChartTheme } from '@posthog/quill-charts'
 
@@ -91,12 +94,17 @@ export function KpiTiles({
     // silently renders the partial bucket as settled data.
     incompleteTail: boolean
 }): JSX.Element {
+    const { landing: _landing, search: _search, ...sharedParams } = useValues(router).searchParams
+    const sessionsHref = combineUrl(urls.mcpAnalyticsSessions(), sharedParams).url
+    const toolQualityHref = combineUrl(urls.mcpAnalyticsToolQuality(), sharedParams).url
+    const intentClusteringHref = combineUrl(urls.mcpAnalyticsIntentClustering(), sharedParams).url
+
     const tiles: TileSpec[] = [
         {
             label: 'Users',
             metric: users,
             // Person identity (email/name) is resolved on the Sessions tab, so that's the drill-down for "who".
-            href: urls.mcpAnalyticsSessions(),
+            href: sessionsHref,
             format: formatNumber,
             color: theme.colors[2],
             loading: usersLoading,
@@ -105,7 +113,7 @@ export function KpiTiles({
         {
             label: 'Sessions',
             metric: kpis.sessions,
-            href: urls.mcpAnalyticsSessions(),
+            href: sessionsHref,
             format: formatNumber,
             color: theme.colors[0],
             loading: kpisLoading,
@@ -114,7 +122,7 @@ export function KpiTiles({
         {
             label: 'Tool calls',
             metric: kpis.toolCalls,
-            href: urls.mcpAnalyticsToolQuality(),
+            href: toolQualityHref,
             format: formatNumber,
             color: theme.colors[0],
             loading: kpisLoading,
@@ -123,7 +131,7 @@ export function KpiTiles({
         {
             label: 'Error rate',
             metric: kpis.errorRatePct,
-            href: urls.mcpAnalyticsSessions(),
+            href: sessionsHref,
             format: (n) => formatPercentage(n, { compact: true }),
             color: theme.colors[4],
             loading: kpisLoading,
@@ -132,7 +140,7 @@ export function KpiTiles({
         {
             label: 'p95 latency',
             metric: kpis.p95LatencyMs,
-            href: urls.mcpAnalyticsToolQuality(),
+            href: toolQualityHref,
             format: formatMs,
             color: theme.colors[0],
             loading: kpisLoading,
@@ -143,7 +151,7 @@ export function KpiTiles({
                   {
                       label: 'Intent clusters',
                       metric: intentClusterCount,
-                      href: urls.mcpAnalyticsIntentClustering(),
+                      href: intentClusteringHref,
                       format: formatNumber,
                       color: theme.colors[6],
                       loading: false,

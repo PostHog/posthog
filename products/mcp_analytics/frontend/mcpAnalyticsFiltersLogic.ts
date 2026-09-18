@@ -31,7 +31,12 @@ interface UrlFilters {
 function parseUrlFilters(searchParams: Record<string, any>): UrlFilters {
     const rawFilter = searchParams.filter_test_accounts
     return {
-        filterTestAccountsOverride: rawFilter === undefined ? null : rawFilter === true || rawFilter === 'true',
+        filterTestAccountsOverride:
+            rawFilter === true || rawFilter === 'true'
+                ? true
+                : rawFilter === false || rawFilter === 'false'
+                  ? false
+                  : null,
         propertyFilters: Array.isArray(searchParams.properties) ? searchParams.properties : [],
     }
 }
