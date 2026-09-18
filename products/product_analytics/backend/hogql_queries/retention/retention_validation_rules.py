@@ -4,6 +4,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import AggregationType, EntityType, RetentionQuery
 
+from posthog.hogql.constants import LimitContext, get_breakdown_limit_for_context
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, DateTimeDatabaseField
 
@@ -19,9 +20,14 @@ MAX_RETENTION_INTERVALS = 100
 # has collected events for years, which is the widest shape a saved insight reaches.
 MAX_RETENTION_COHORTS = 10_000
 
-# Both axes at their own limit would still be a million cells, and a breakdown repeats the whole matrix once
-# per breakdown value, so the product carries the limit that decides how much memory one query can take.
+# Both axes at their own limit would still be a million cells, so the product carries the limit that decides
+# how much memory one matrix can take.
 MAX_RETENTION_CELLS = 100_000
+
+# A breakdown builds the whole matrix once per breakdown value, and `breakdown_limit` comes from the request,
+# so the response needs its own limit. Set above a CSV export of a breakdown chart, which asks for the widest
+# response the product itself produces.
+MAX_RETENTION_RESPONSE_CELLS = 1_000_000
 
 
 class SupportsRetentionMatrixSize(Protocol):
@@ -30,6 +36,9 @@ class SupportsRetentionMatrixSize(Protocol):
 
     @property
     def lookahead_period_count(self) -> int: ...
+
+    @property
+    def limit_context(self) -> LimitContext: ...
 
 
 class DisallowCumulativeWith24HourWindows:
@@ -206,3 +215,25 @@ class DisallowExcessiveIntervals:
                 "Shorten the date range, or ask for fewer intervals.",
                 code=self.code,
             )
+
+        response_cells = cells * self._matrix_count(context, runner)
+        if response_cells > MAX_RETENTION_RESPONSE_CELLS:
+            raise ValidationError(
+                f"Retention supports up to {MAX_RETENTION_RESPONSE_CELLS:,} cells across a breakdown, and this "
+                f"query asks for {response_cells:,}. Break down by fewer values, shorten the date range, "
+                "or ask for fewer intervals.",
+                code=self.code,
+            )
+
+    def _matrix_count(
+        self, context: QueryValidationContext[RetentionQuery], runner: SupportsRetentionMatrixSize
+    ) -> int:
+        breakdown_filter = context.query.breakdownFilter
+        if not has_breakdown_filter(breakdown_filter):
+            return 1
+        assert breakdown_filter is not None
+        requested = breakdown_filter.breakdown_limit
+        if requested is None:
+            requested = get_breakdown_limit_for_context(runner.limit_context)
+        # The values past the limit fold into one more matrix, labelled "Other".
+        return max(requested, 0) + 1

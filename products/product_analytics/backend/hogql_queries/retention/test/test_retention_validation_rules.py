@@ -23,6 +23,7 @@ from products.product_analytics.backend.hogql_queries.retention.retention_valida
     MAX_RETENTION_CELLS,
     MAX_RETENTION_COHORTS,
     MAX_RETENTION_INTERVALS,
+    MAX_RETENTION_RESPONSE_CELLS,
     DisallowBreakdownsWithDataWarehouse24HourWindows,
     DisallowCumulativeWith24HourWindows,
     DisallowGroupAggregationWithDataWarehouse24HourWindows,
@@ -353,6 +354,39 @@ class TestRetentionValidationRules(BaseTest):
             ),
         )
         # Through the runner, so the rule reads a real date range and its place in `validators()` is covered.
+        runner = self._runner(query)
+
+        if expected_message is None:
+            runner.validate()
+            return
+
+        with self.assertRaises(ValidationError) as error:
+            runner.validate()
+
+        self.assertIn(expected_message, str(error.exception))
+        self.assertEqual(error.exception.get_codes(), ["retention_too_many_intervals"])
+
+    @parameterized.expand(
+        [
+            ("server_chosen_breakdown_limit", None, None),
+            ("explicit_breakdown_limit", 100, None),
+            (
+                "explicit_breakdown_limit_over_limit",
+                10_000_000,
+                f"Retention supports up to {MAX_RETENTION_RESPONSE_CELLS:,} cells across a breakdown",
+            ),
+        ]
+    )
+    def test_disallow_excessive_breakdown_matrices(
+        self, _name: str, breakdown_limit: int | None, expected_message: str | None
+    ) -> None:
+        query = RetentionQuery(
+            dateRange=DateRange(date_from="-90d"),
+            retentionFilter=RetentionFilter(period=RetentionPeriod.WEEK),
+            breakdownFilter=BreakdownFilter(
+                breakdown="$browser", breakdown_type="event", breakdown_limit=breakdown_limit
+            ),
+        )
         runner = self._runner(query)
 
         if expected_message is None:
