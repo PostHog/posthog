@@ -48,6 +48,7 @@ from products.tasks.backend.feature_flags import (
     is_task_run_stream_thin_tail,
     run_stream_presence_gated,
 )
+from products.tasks.backend.github_repository_access import select_integration_for_repository
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
 from products.tasks.backend.pr_urls import read_pr_urls
@@ -1053,11 +1054,12 @@ class Task(DeletedMetaFields, models.Model):
         )
         github_integration = None
         if github_resolution_allowed:
-            github_integration = (
+            github_integration = select_integration_for_repository(
                 Integration.objects.filter(team=team, kind="github")
                 .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
                 .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
-                .first()
+                .order_by("created_at", "id"),
+                repository,
             )
         github_user_integration = None
         task_stub = Task(
