@@ -61,6 +61,11 @@ class TicketPatternViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="List the ticket spikes reported for this project in the last day, newest first.",
     )
     def list(self, request: Request, **kwargs) -> Response:
+        # Reported spikes outlive the setting by up to a day, so a team that switched detection
+        # off must stop seeing them rather than wait for the cache to expire.
+        settings_dict = self.team.conversations_settings or {}
+        if not settings_dict.get("ticket_patterns_enabled"):
+            return Response([])
         spikes = recent_spikes(self.team_id)
         return Response(TicketPatternSerializer(spikes, many=True).data)
 

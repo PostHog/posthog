@@ -20,6 +20,8 @@ class TestTicketPatternsAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         cache.clear()
+        self.team.conversations_settings = {"ticket_patterns_enabled": True}
+        self.team.save()
 
     def test_lists_this_projects_spikes(self):
         record_spike(self.team.id, SPIKE)
@@ -62,3 +64,13 @@ class TestTicketPatternsAPI(APIBaseTest):
         )
 
         assert response.status_code == 404, response.content
+
+    def test_turning_detection_off_stops_serving_spikes(self):
+        record_spike(self.team.id, SPIKE)
+        self.team.conversations_settings = {"ticket_patterns_enabled": False}
+        self.team.save()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/ticket_patterns/")
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == []

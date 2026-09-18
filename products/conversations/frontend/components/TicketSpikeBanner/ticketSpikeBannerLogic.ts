@@ -107,6 +107,7 @@ export const ticketSpikeBannerLogic = kea<ticketSpikeBannerLogicType>([
         bannerEnabled: [
             (s) => [s.currentTeam],
             (currentTeam: TeamPublicType | TeamType | null): boolean =>
+                !!currentTeam?.conversations_settings?.ticket_patterns_enabled &&
                 !!currentTeam?.conversations_settings?.ticket_patterns_banner_enabled,
         ],
         visibleSpikes: [
