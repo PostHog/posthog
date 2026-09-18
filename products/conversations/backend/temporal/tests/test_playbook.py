@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from uuid import uuid4
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.business_knowledge.backend.logic import KnowledgeSearchResult
 from products.conversations.backend.playbook import (
     DEFAULT_SUPPORT_REPLY_INSTRUCTIONS,
     DOCS_SEARCH_TOOL_NAME,
@@ -16,6 +19,7 @@ from products.conversations.backend.playbook import (
     WARNING_CUSTOM_OVERSIZED,
     compose_support_playbook,
 )
+from products.conversations.backend.temporal.ai_reply.activities.build_context import _format_always_on_context
 from products.conversations.backend.temporal.ai_reply.activities.draft import (
     format_knowledge_chunks,
     tools_you_have_block,
@@ -141,6 +145,32 @@ class TestDraftPlaybookHelpers(SimpleTestCase):
         )
         assert "Treat them as team practice" not in team_only
         assert "[team docs]" in team_only
+
+    def test_always_on_context_labels_learned_chunks(self):
+        def _chunk(content: str, *, is_generated: bool) -> KnowledgeSearchResult:
+            return KnowledgeSearchResult(
+                chunk_id=uuid4(),
+                source_id=uuid4(),
+                source_name="Policy",
+                source_type="text",
+                document_id=uuid4(),
+                document_title="Policy",
+                heading_path="",
+                ordinal=0,
+                content=content,
+                is_generated=is_generated,
+            )
+
+        mixed = _format_always_on_context(
+            [_chunk("Refunds need approval.", is_generated=False), _chunk("We refunded that one.", is_generated=True)]
+        )
+        assert "[learned from support] We refunded that one." in mixed
+        assert "[learned from support] Refunds need approval." not in mixed
+        assert "Treat them as team practice" in mixed
+
+        team_only = _format_always_on_context([_chunk("Refunds need approval.", is_generated=False)])
+        assert team_only == "Refunds need approval."
+        assert _format_always_on_context([]) == ""
 
     @parameterized.expand(
         [

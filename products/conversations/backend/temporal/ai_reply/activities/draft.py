@@ -22,6 +22,8 @@ from products.conversations.backend.temporal.ai_reply.constants import (
     DRAFT_POLL_SECONDS,
     DRAFT_RUNTIME_ADAPTER,
     DRAFT_VERDICTS,
+    LEARNED_CHUNK_LABEL,
+    LEARNED_CHUNK_NOTE,
     MAX_CHUNK_CONTENT_CHARS,
     MAX_CLARIFYING_QUESTIONS,
     MAX_EXCERPT_CHARS,
@@ -70,7 +72,7 @@ def _hydrate_chunks(team_id: int, chunk_ids: list[str]) -> list[dict[str, Any]]:
 
 def _chunk_label(chunk: dict[str, Any]) -> str:
     if chunk.get("is_generated"):
-        return "[learned from support]"
+        return LEARNED_CHUNK_LABEL
     if chunk.get("source_type") in _TEAM_DOCS_SOURCE_TYPES:
         return "[team docs]"
     return "[text]"
@@ -85,10 +87,7 @@ def format_knowledge_chunks(chunks: list[dict[str, Any]]) -> str:
         for c in visible
     )
     if any(c.get("is_generated") for c in visible):
-        return (
-            "Learned chunks ([learned from support]) reflect how the team resolved a past ticket. "
-            "Treat them as team practice.\n\n" + rendered
-        )
+        return f"{LEARNED_CHUNK_NOTE}\n\n{rendered}"
     return rendered
 
 
