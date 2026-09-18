@@ -325,7 +325,7 @@ export interface PersonBulkDeleteResponseApi {
     events_queued_for_deletion: boolean
     /** Whether recording deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
     recordings_queued_for_deletion: boolean
-    /** Persons whose deletion did not fully complete in this request. Each entry contains 'person_uuid' and 'step', the deletion step that failed for that person. A failed database delete is reported here rather than as an error response, so a 202 with entries means some or all persons were not deleted. A 'log_activity' step means the person was deleted but the activity log entry was not written. Always empty when the deletion was queued (see persons_queued_for_deletion). Contact support if this persists. */
+    /** Persons whose deletion did not fully complete in this request. Each entry contains 'person_uuid' and 'step', the deletion step that failed for that person. When at least one person was deleted the response is a 202 and the persons listed here were not; when no matched person could be deleted the same body is returned with a 503. A 'log_activity' step means the person was deleted but the activity log entry was not written. Always empty when the deletion was queued (see persons_queued_for_deletion). Contact support if this persists. */
     deletion_errors?: PersonBulkDeleteResponseApiDeletionErrorsItem[]
 }
 
