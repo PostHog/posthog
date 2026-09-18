@@ -76,7 +76,7 @@ Responses include `scheduled_at` in UTC. This time is not an exact execution gua
 Omit model fields to use saved defaults. A resumed run inherits the previous run's model.
 For an explicit choice, call `tasks-models-retrieve`, then send `model` and an optional supported `reasoning_effort`.
 The server derives `runtime_adapter` when omitted and stores the resolved selection when it creates the run.
-Scheduling supports background ACP runs. It does not support Pi runs, Desktop-relayed MCP servers, supplied GitHub tokens, or Claude subscriptions.
+Scheduling supports background ACP runs. It does not support Pi runs, Desktop-imported or relayed MCP servers, supplied GitHub tokens, or Claude subscriptions.
 Use server-managed GitHub credentials and the PostHog gateway.
 Cancel a scheduled run through `POST /tasks/{task_id}/runs/{run_id}/cancel/`.
 Check existing tasks and runs before a retry: repeated creation calls can create duplicate runs.

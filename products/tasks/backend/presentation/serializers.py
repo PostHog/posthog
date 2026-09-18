@@ -1019,8 +1019,13 @@ class TaskWriteSerializer(serializers.Serializer):
         return attrs
 
 
+@extend_schema_field(OpenApiTypes.STR)
+class TaskRunScheduledAtField(serializers.DateTimeField):
+    pass
+
+
 class TaskRunScheduleSerializer(serializers.Serializer):
-    scheduled_at = serializers.DateTimeField(
+    scheduled_at = TaskRunScheduledAtField(
         required=False,
         allow_null=True,
         default_timezone=UTC,
@@ -3398,7 +3403,7 @@ class TaskRunCreateRequestSerializer(
         if attrs.get("scheduled_at") is not None:
             if is_pi_task or attrs.get("mode") != "background":
                 errors["scheduled_at"] = "Scheduling requires a background ACP run."
-            for field in ("github_user_token", "relayed_mcp_servers"):
+            for field in ("github_user_token", "imported_mcp_servers", "relayed_mcp_servers"):
                 if attrs.get(field):
                     errors[field] = "Scheduled runs cannot use credentials or connections from a connected desktop."
             if attrs.get("claude_model_access") == "own-subscription":
@@ -3972,7 +3977,12 @@ class CodexTaskRunCreateSchemaSerializer(TaskRunCreateRequestSerializer):
     )
 
 
-class TaskRunResumeRequestSchemaSerializer(serializers.Serializer):
+class TaskRunResumeRequestSchemaSerializer(TaskRunScheduleSerializer):
+    model = serializers.CharField(required=False, allow_blank=False)
+    reasoning_effort = serializers.ChoiceField(
+        choices=TaskRunCreateRequestSerializer.REASONING_EFFORT_CHOICES, required=False
+    )
+
     mode = serializers.ChoiceField(
         choices=TaskExecutionMode.choices,
         required=False,

@@ -1590,7 +1590,7 @@ class TestTaskAPI(BaseTaskAPITest):
         update_team_ai_run_preferences(self.team.id, runtime_adapter="codex", model="gpt-5.5", reasoning_effort="high")
         task = self.create_task()
         url = "/api/projects/@current/tasks/" if combined_create else f"/api/projects/@current/tasks/{task.id}/run/"
-        payload = {
+        payload: dict[str, str | bool] = {
             "scheduled_at": "2026-09-19T12:00:00",
             "branch": "main",
             "pending_user_message": "Check the result after more data arrives.",

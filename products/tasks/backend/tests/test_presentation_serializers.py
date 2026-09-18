@@ -132,10 +132,16 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
             ("interactive", {"mode": "interactive"}, "scheduled_at"),
             ("pi", {}, "scheduled_at"),
             ("token", {"github_user_token": "test-token"}, "github_user_token"),
+            (
+                "imported",
+                {"imported_mcp_servers": [{"type": "http", "name": "example", "url": "https://example.com"}]},
+                "imported_mcp_servers",
+            ),
         ]
     )
     @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
-    def test_schedule_rejects_connected_runtime(self, name: str, payload: dict, field: str) -> None:
+    @patch("posthog.security.url_validation.resolve_host_ips", return_value={ipaddress.ip_address("93.184.216.34")})
+    def test_schedule_rejects_connected_runtime(self, name: str, payload: dict, field: str, _resolve_host_ips) -> None:
         serializer = TaskRunCreateRequestSerializer(data={"scheduled_at": "2026-09-19T12:00:00", **payload})
         with patch(
             "products.tasks.backend.presentation.serializers._is_pi_task_run_request", return_value=name == "pi"
@@ -153,7 +159,7 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
     )
     @patch(
         "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
-        return_value=(GatewayModel(id="gpt-5.3-codex", owned_by="openai", context_window=None),),
+        return_value=(GatewayModel(id="gpt-5.3-codex", owned_by="openai", context_window=200_000),),
     )
     def test_model_only_selection(self, model: str, effort: str, adapter: str | None, _models) -> None:
         serializer = TaskRunCreateRequestSerializer(data={"model": model, "reasoning_effort": effort})

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { TasksCreateBody, TasksRunCreateBody } from '@/generated/tasks/api'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import type { Context } from '@/tools/types'
 
@@ -97,6 +98,17 @@ describe('Generated task tools', () => {
         (scheduled_at) => {
             const schema = GENERATED_TOOL_MAP['tasks-create-and-run']!().schema
             expect(schema.parse({ description: 'Check the result', scheduled_at })).toMatchObject({ scheduled_at })
+            expect(TasksCreateBody().parse({ description: 'Check the result', scheduled_at })).toMatchObject({
+                scheduled_at,
+            })
+            expect(TasksRunCreateBody().parse({ scheduled_at })).toMatchObject({ scheduled_at })
+            const resume = {
+                scheduled_at,
+                resume_from_run_id: '00000000-0000-4000-8000-000000000001',
+                model: 'claude-sonnet-4-6',
+                reasoning_effort: 'medium',
+            }
+            expect(TasksRunCreateBody().parse(resume)).toMatchObject(resume)
             expect(() => schema.parse({ description: 'Check the result', scheduled_at: 'tomorrow' })).toThrow()
         }
     )

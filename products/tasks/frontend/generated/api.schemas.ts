@@ -2985,6 +2985,13 @@ export interface CodexTaskRunCreateSchemaApi {
 }
 
 export interface TaskRunResumeRequestSchemaApi {
+    /**
+     * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 90 days. Times without an offset use UTC. Omit or send null to start immediately.
+     * @nullable
+     */
+    scheduled_at?: string | null
+    model?: string
+    reasoning_effort?: ReasoningEffortEnumApi
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
      *
      * * `interactive` - interactive

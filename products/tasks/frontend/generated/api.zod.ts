@@ -1306,8 +1306,8 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
             'When true, the agent pushes its work and opens a draft pull request on completion without an explicit request. Applies when start_run is true or creation reuses a pre-warmed run. Resumed runs keep this setting. Ignored if creation does not start a run. Write-only and not persisted on the task.'
         ),
     channel: zod.uuid().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
-    scheduled_at: zod.iso
-        .datetime({ offset: true })
+    scheduled_at: zod
+        .string()
         .nullish()
         .describe(
             'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 90 days. Times without an offset use UTC. Omit or send null to start immediately.'
@@ -1796,8 +1796,8 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .describe(
                     "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
                 ),
-            scheduled_at: zod.iso
-                .datetime({ offset: true })
+            scheduled_at: zod
+                .string()
                 .nullish()
                 .describe(
                     'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 90 days. Times without an offset use UTC. Omit or send null to start immediately.'
@@ -1966,8 +1966,8 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .describe(
                     "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
                 ),
-            scheduled_at: zod.iso
-                .datetime({ offset: true })
+            scheduled_at: zod
+                .string()
                 .nullish()
                 .describe(
                     'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 90 days. Times without an offset use UTC. Omit or send null to start immediately.'
@@ -2072,6 +2072,19 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
         })
         .describe('Request body for creating a new task run'),
     zod.object({
+        scheduled_at: zod
+            .string()
+            .nullish()
+            .describe(
+                'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 90 days. Times without an offset use UTC. Omit or send null to start immediately.'
+            ),
+        model: zod.string().optional(),
+        reasoning_effort: zod
+            .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+            .optional()
+            .describe(
+                '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            ),
         mode: zod
             .enum(['interactive', 'background'])
             .describe('\* `interactive` - interactive\n\* `background` - background')
