@@ -56,7 +56,11 @@ def find_linked_posthog_user(
     **most-recently-linked** one — they just authenticated, presumably with
     intent — and emit a warn-log so the rare collision is visible in prod.
 
-    Returns ``None`` when no link exists or none of the linked users are
+    Deactivated accounts are dropped before that pick, so an offboarded person
+    can't be reached through a Slack identity that still points at them, and a
+    stale link of theirs can't hide a colleague's older active one.
+
+    Returns ``None`` when no link exists or none of the linked users are active
     members of a connected org. Caller still owns the access-level
     (``effective_membership_level``) check on the resolved user.
     """
@@ -74,6 +78,7 @@ def find_linked_posthog_user(
                 kind=UserIntegration.IntegrationKind.SLACK,
                 integration_id=slack_user_id,
                 config__slack_team_id=slack_team_id,
+                user__is_active=True,
             )
             .select_related("user")
             .order_by("-created_at")

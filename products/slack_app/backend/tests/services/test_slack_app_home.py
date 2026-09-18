@@ -38,6 +38,7 @@ from products.slack_app.backend.services.slack_app_home import (
     ACTION_EDIT_PERSONAL,
     ACTION_RESET_PERSONAL,
     ACTION_RESET_PROJECT_PERSONAL,
+    ACTION_SET_PROJECT_WORKSPACE,
     ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
     ACTION_TASKS_FILTER_REPO,
     ACTION_TASKS_PAGE_NEXT,
@@ -331,14 +332,18 @@ def _block_action_payload(
     slack_user_id: str,
     trigger_id: str | None = None,
     channel: str | None = None,
+    selected_value: str | None = None,
 ) -> dict:
+    action: dict[str, Any] = {"action_id": action_id}
+    if selected_value is not None:
+        action["selected_option"] = {"value": selected_value}
     return {
         "type": "block_actions",
         "team": {"id": SLACK_WORKSPACE_ID},
         "user": {"id": slack_user_id},
         "trigger_id": trigger_id,
         "channel": {"id": channel} if channel else None,
-        "actions": [{"action_id": action_id}],
+        "actions": [action],
     }
 
 
@@ -1298,6 +1303,63 @@ class TestResetProjectPersonal:
         assert mock_slack_client.views_publish.called
 
 
+class TestSetProjectWorkspace:
+    """The workspace default is one setting for everyone in the Slack workspace.
+
+    Slack's admin flag gates the control upstream and says nothing about PostHog, so
+    these cover the second gate: the clicker must reach the project they picked. Every
+    case arrives as a `block_actions` payload, which is what a view Slack published
+    before access was removed replays.
+    """
+
+    def _click(self, slack_user_id: str, team_id: int) -> dict:
+        return _block_action_payload(
+            action_id=ACTION_SET_PROJECT_WORKSPACE,
+            slack_user_id=slack_user_id,
+            selected_value=str(team_id),
+        )
+
+    def test_slack_admin_with_no_posthog_account_cannot_set_the_default(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        payload = self._click("U001", slack_integration.team_id)
+
+        handle_ai_preferences_block_action(payload, payload["actions"][0])
+
+        assert not SlackSettings.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id=None).exists()
+
+    def test_slack_admin_who_is_an_organization_member_sets_the_default(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        member = User.objects.create_and_join(slack_integration.team.organization, "admin@posthog.com", None)
+        SlackUserProfileCache.objects.create(integration=slack_integration, slack_user_id="U001", email=member.email)
+        payload = self._click("U001", slack_integration.team_id)
+
+        handle_ai_preferences_block_action(payload, payload["actions"][0])
+
+        row = SlackSettings.objects.get(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id=None)
+        assert row.default_integration_id == slack_integration.id
+
+    def test_member_of_one_connected_organization_cannot_pick_another_ones_project(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        other_integration = Integration.objects.create(
+            team=other_team,
+            kind="slack",
+            integration_id=SLACK_WORKSPACE_ID,
+            sensitive_config={"access_token": "xoxb"},
+        )
+        member = User.objects.create_and_join(slack_integration.team.organization, "admin@posthog.com", None)
+        SlackUserProfileCache.objects.create(integration=slack_integration, slack_user_id="U001", email=member.email)
+        payload = self._click("U001", other_integration.team_id)
+
+        handle_ai_preferences_block_action(payload, payload["actions"][0])
+
+        assert not SlackSettings.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id=None).exists()
+
+
 # ---------------------------------------------------------------------------
 # Handler tests — view_submission
 # ---------------------------------------------------------------------------
@@ -1571,18 +1633,34 @@ class TestNoProjectAccessCard:
         kwargs.update(overrides)
         return render_home_view(**kwargs)
 
-    def test_explains_the_dead_end_and_links_to_the_settings_page(self):
-        text = _all_text(self._view())
-
-        assert "No project to show yet" in text
-        assert "ask an admin" in text
-        urls = [
+    @staticmethod
+    def _urls(view: dict) -> list[str]:
+        return [
             element["url"]
-            for block in self._view()["blocks"]
+            for block in view["blocks"]
             for element in block.get("elements", []) or []
             if "url" in element
         ]
-        assert urls == ["http://localhost:8010/settings/project-integrations"]
+
+    def test_explains_the_dead_end_and_links_to_the_settings_page(self):
+        view = self._view()
+
+        assert "No project to show yet" in _all_text(view)
+        assert "ask an admin" in _all_text(view)
+        assert self._urls(view) == ["http://localhost:8010/settings/project-integrations"]
+
+    def test_names_the_address_mismatch_and_routes_it_to_personal_integrations(self):
+        personal = "http://localhost:8010/project/7/settings/user-personal-integrations"
+        view = self._view(account_settings_url=personal)
+
+        assert "same email address as your Slack profile" in _all_text(view)
+        assert personal in self._urls(view)
+
+    def test_withholds_the_signed_account_link_from_a_viewer_who_was_not_identified(self):
+        # The URL is in `account_state` on this path, so its absence has to be asserted.
+        view = self._view(account_settings_url="http://localhost:8010/project/7/settings/user-personal-integrations")
+
+        assert "https://app/link" not in json.dumps(view)
 
     def test_suppresses_every_card_that_needs_a_project(self):
         # Each of these would otherwise render from the states passed above.
