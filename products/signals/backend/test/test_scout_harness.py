@@ -807,10 +807,14 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         # from the prompt, not from a refused call.
         assert "Scanners spend credits" not in granted
         assert "Scanners spend credits" in _prompt(write_scopes=["replay_scanner:write"])
-        # The flag grant is the one the API bounds no further than the scope does, so the prompt
-        # is where the care it needs comes from.
         assert "this is the grant to use least" not in granted
-        assert "this is the grant to use least" in _prompt(write_scopes=["feature_flag:write"])
+        flag_granted = _prompt(write_scopes=["feature_flag:write"])
+        assert "this is the grant to use least" in flag_granted
+        assert "scheduled-changes-list" not in granted
+        assert 'model_name="FeatureFlag"' in flag_granted
+        assert "Read all pages" in flag_granted
+        assert "leave the flag and its schedules unchanged" in flag_granted
+        assert "wait for any required approval" in flag_granted
 
         ungranted = _prompt(write_scopes=[])
         assert "# Write access" not in ungranted

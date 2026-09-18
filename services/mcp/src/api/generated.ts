@@ -42620,6 +42620,11 @@ export namespace Schemas {
       is_running: boolean;
     }
 
+    export interface FeatureFlagLinkedProductTour {
+      readonly id: string;
+      readonly name: string;
+    }
+
     /**
      * * `feature_flags` - feature_flags
      * * `experiments` - experiments
@@ -42666,6 +42671,7 @@ export namespace Schemas {
       readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadata[];
       readonly surveys: FeatureFlagSurveys;
       readonly features: FeatureFlagFeatures;
+      readonly product_tours: readonly FeatureFlagLinkedProductTour[];
       readonly can_edit: boolean;
       tags?: unknown[];
       evaluation_contexts?: unknown[];

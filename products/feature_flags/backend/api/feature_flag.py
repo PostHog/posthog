@@ -70,7 +70,12 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
-from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
+from posthog.permissions import (
+    TeamSecretTokenPermission,
+    get_authenticator_scopes,
+    is_scout_sandbox_request,
+    is_service_auth,
+)
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -1203,6 +1208,16 @@ class FeatureFlagUsageDashboardErrorSerializer(FeatureFlagUsageDashboardSuccessS
     error = serializers.CharField(help_text="Why the usage dashboard operation failed.")
 
 
+class FeatureFlagLinkedProductTourSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProductTour
+        fields = ["id", "name"]
+        read_only_fields = fields
+
+
+SCOUT_ACTIVE_FLAG_DELETE_ERROR = "Disable the flag and wait for any required approval before a scout deletes it."
+
+
 class FeatureFlagSerializer(
     TaggedItemSerializerMixin,
     EvaluationContextSerializerMixin,
@@ -1229,6 +1244,9 @@ class FeatureFlagSerializer(
     experiment_set_metadata = serializers.SerializerMethodField()
     surveys: serializers.SerializerMethodField = serializers.SerializerMethodField()
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
+    product_tours = FeatureFlagLinkedProductTourSerializer(
+        source="product_tours_linked_flag", many=True, read_only=True
+    )
     usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(  # ty: ignore[invalid-assignment]
         read_only=True,
         allow_null=True,
@@ -1285,6 +1303,7 @@ class FeatureFlagSerializer(
             "experiment_set_metadata",
             "surveys",
             "features",
+            "product_tours",
             "can_edit",
             "tags",
             "evaluation_contexts",
@@ -1394,6 +1413,13 @@ class FeatureFlagSerializer(
         request = self.context.get("request")
         if not request:
             return attrs
+
+        if (
+            attrs.get("deleted")
+            and is_scout_sandbox_request(request)
+            and (attrs.get("active", True) if self.instance is None else self.instance.active or attrs.get("active"))
+        ):
+            raise serializers.ValidationError({"deleted": SCOUT_ACTIVE_FLAG_DELETE_ERROR})
 
         # Note: for creation_context, we use initial_data since it's metadata not part of the model
         creation_context = self.initial_data.get("creation_context") if hasattr(self, "initial_data") else None
@@ -3446,7 +3472,11 @@ class FeatureFlagViewSet(
             Prefetch(
                 "features",
                 queryset=EarlyAccessFeature.objects.select_related("assigned_user", "assigned_role"),
-            )
+            ),
+            Prefetch(
+                "product_tours_linked_flag",
+                queryset=ProductTour.objects.only("id", "name", "linked_flag_id"),
+            ),
         )
 
         # Prefetch evaluation contexts to avoid N+1 queries when serializing.
@@ -4404,6 +4434,10 @@ class FeatureFlagViewSet(
 
         for flag in flags_list:
             flag_id = flag.id
+
+            if flag.active and is_scout_sandbox_request(request):
+                errors.append({"id": flag_id, "key": flag.key, "reason": SCOUT_ACTIVE_FLAG_DELETE_ERROR})
+                continue
 
             # Check for linked early access features
             if len(list(flag.features.all())) > 0:

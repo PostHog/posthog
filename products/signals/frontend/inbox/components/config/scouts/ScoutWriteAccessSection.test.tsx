@@ -70,9 +70,7 @@ describe('ScoutWriteAccessSection', () => {
 
     it.each([
         ['a read-only scout', []],
-        // A stored scope the allowlist dropped has no switch, so the save must not resend it or the
-        // API rejects the whole update and the person has no way to clear it.
-        ['a scout holding a scope the picker no longer offers', ['cohort:write']],
+        ['a scout holding a scope this client does not recognize', ['future:write']],
     ])('stages a toggle and saves only on the save button, for %s', (_name, stored) => {
         // The whole reason this section has a save button: a stray click must not widen what an
         // unattended agent can change in the project.
@@ -82,6 +80,9 @@ describe('ScoutWriteAccessSection', () => {
         expect(onUpdate).not.toHaveBeenCalled()
 
         fireEvent.click(screen.getByText('Save write access'))
-        expect(onUpdate).toHaveBeenCalledWith('config-1', { write_scopes: ['dashboard:write'] })
+        expect(onUpdate).toHaveBeenCalledWith('config-1', { write_scopes: [...stored, 'dashboard:write'] })
+        if (stored.length > 0) {
+            expect(screen.getByText('future:write')).toBeInTheDocument()
+        }
     })
 })

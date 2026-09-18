@@ -9,9 +9,7 @@ export interface ScoutWriteScopeRow {
 
 /**
  * The scopes a person may grant one scout, mirroring `SCOUT_GRANTABLE_WRITE_SCOPES` in
- * `posthog/temporal/oauth.py`. A scope the backend drops from the allowlist may still be stored on
- * old configs: the picker shows nothing for it and drops it from the next save, since the API would
- * reject it. A scope added there needs a row added here to be offered. Descriptions say what the
+ * `posthog/temporal/oauth.py`. A scope added there needs a row added here to be offered. Descriptions say what the
  * scope reaches, because each one covers update and delete of every object of its kind in the
  * project, not only the ones the scout made.
  *
@@ -91,7 +89,6 @@ export function scoutWriteScopeLabels(scopes: readonly string[] | undefined): st
     return SCOUT_WRITE_SCOPE_ROWS.filter((row) => scopes?.includes(row.scope)).map((row) => row.label)
 }
 
-/** The scopes the picker offers a row for, in row order. Anything else stored on a config is stale. */
-export function offeredScoutWriteScopes(scopes: readonly string[]): string[] {
-    return SCOUT_WRITE_SCOPE_ROWS.filter((row) => scopes.includes(row.scope)).map((row) => row.scope)
+export function toggleScoutWriteScope(scopes: readonly string[], scope: string, granted: boolean): string[] {
+    return granted ? [...new Set([...scopes, scope])] : scopes.filter((held) => held !== scope)
 }

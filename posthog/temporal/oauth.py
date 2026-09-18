@@ -253,9 +253,7 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 # holding it can rewrite the skill body it runs from. That is accepted while the grant is a
 # deliberate per-scout choice a person makes, and the surfaces that offer it say so. So does
 # `feature_flag:write`, further than any of them: it is the only grant that reaches what end users
-# see. #101988 settled on accepting that stated rather than narrowed, so the scope is granted whole
-# and every surface offering it says what it can do. Restricting it the way the scanner scope is
-# restricted stays a later decision.
+# see.
 SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
     {
         "dashboard:write",

@@ -1,7 +1,7 @@
 import { IconCheck } from '@posthog/icons'
 import { LemonSwitch } from '@posthog/lemon-ui'
 
-import { offeredScoutWriteScopes, SCOUT_ALWAYS_GRANTED_ROWS, SCOUT_WRITE_SCOPE_ROWS } from './scoutWriteScopes'
+import { SCOUT_ALWAYS_GRANTED_ROWS, SCOUT_WRITE_SCOPE_ROWS, toggleScoutWriteScope } from './scoutWriteScopes'
 
 interface ScoutWriteScopesPickerProps {
     /** Scopes this scout currently holds (`write_scopes`). */
@@ -24,11 +24,9 @@ export function ScoutWriteScopesPicker({
     disabledReason,
 }: ScoutWriteScopesPickerProps): JSX.Element {
     const groups = [...new Set(SCOUT_WRITE_SCOPE_ROWS.map((row) => row.group))]
+    const unknownScopes = selectedScopes.filter((scope) => !SCOUT_WRITE_SCOPE_ROWS.some((row) => row.scope === scope))
     const toggleScope = (scope: string, granted: boolean): void => {
-        // A stored scope with no row here would ride along into the save and get the whole update
-        // rejected by the API, with no switch to clear it. The token already drops it at mint time.
-        const held = offeredScoutWriteScopes(selectedScopes)
-        onChange(granted ? [...held, scope] : held.filter((offered) => offered !== scope))
+        onChange(toggleScoutWriteScope(selectedScopes, scope, granted))
     }
 
     return (
@@ -74,8 +72,14 @@ export function ScoutWriteScopesPicker({
             {selectedScopes.includes('feature_flag:write') && (
                 <p className="text-[11.5px] text-warning mb-0">
                     Feature flags are the one grant here that changes what your users see. This scout can enable,
-                    disable, retarget, or delete any flag in the project. Every change it makes shows in that flag's
-                    activity log.
+                    disable, or retarget any flag in the project. It must disable a flag before it can delete it.
+                    Changes to scheduled actions do not appear in the flag's activity log.
+                </p>
+            )}
+            {unknownScopes.length > 0 && (
+                <p className="text-[11.5px] text-warning mb-0">
+                    Other saved scopes: <span translate="no">{unknownScopes.join(', ')}</span>. These stay unchanged.
+                    Reload the page to check for updated controls.
                 </p>
             )}
             {selectedScopes.length > 0 && (

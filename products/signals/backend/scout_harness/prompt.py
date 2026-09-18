@@ -851,10 +851,10 @@ def _write_access_section(write_scopes: Sequence[str]) -> str:
         if "replay_scanner:write" in write_scopes
         else ""
     )
-    # The only grant that reaches what end users see rather than an artifact. The API bounds it no
-    # further than the scope does, so the care it needs has to come from here.
     flag_reach = (
         "\n- **A flag change reaches your end users, so this is the grant to use least.** It covers every flag in this project, not only stale ones and not only flags you made, so you can move a rollout, rewrite targeting, or turn off a flag that shipped code still evaluates. Read the whole definition first with `feature-flag-get-definition`, and check what the flag is linked to: an experiment, a survey, an early access feature, a product tour, or a session replay setting all break when their flag changes. Take the reversible step. Disable or archive rather than delete, one flag at a time rather than `feature-flags-bulk-delete-create`, and say in your report what each change does to what users see."
+        '\n- **Check scheduled changes before every flag mutation.** Call `scheduled-changes-list` with `model_name="FeatureFlag"` and `record_id` set to the flag ID. Read all pages. If a pending or recurring schedule can still run, leave the flag and its schedules unchanged. Report the conflict for human review. If you cannot check schedules, do not change the flag. Scheduled-change creation, edits, and deletion do not appear in the flag activity log.'
+        "\n- **Disable before deletion.** The API refuses scout deletion of an active flag, including bulk deletion. Disable it first and wait for any required approval. A pending approval is not an applied change."
         if "feature_flag:write" in write_scopes
         else ""
     )
