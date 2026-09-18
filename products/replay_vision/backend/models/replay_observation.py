@@ -6,6 +6,7 @@ from django.db.models.functions import Cast
 from posthog.models.utils import UUIDModel
 
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
+from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
 from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 
 
@@ -202,7 +203,19 @@ def hydrate_for_serialization(
         if viewer_id is not None
         else Value(False, output_field=models.BooleanField())
     )
-    return qs.select_related("triggered_by_user", "label").annotate(scanner_origin=F("scanner__origin"), viewed=viewed)
+    return (
+        qs.select_related("triggered_by_user", "label")
+        # Explicit queryset, because the serializer reads `media` off each row and the reverse manager is
+        # fail-closed: without one it raises unless the caller happens to sit inside a team scope. The rows
+        # are reachable only through an observation the caller already passed team filtering on.
+        .prefetch_related(
+            models.Prefetch(
+                "media",
+                queryset=ReplayObservationMedia.objects.unscoped().select_related("asset").order_by("kind", "position"),
+            )
+        )
+        .annotate(scanner_origin=F("scanner__origin"), viewed=viewed)
+    )
 
 
 def annotate_output_number(

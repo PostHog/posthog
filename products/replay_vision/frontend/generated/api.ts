@@ -453,6 +453,24 @@ export const visionObservationsSignalReportsList = async (
     })
 }
 
+export const getVisionObservationsThumbnailRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/thumbnail/`
+}
+
+/**
+ * Redirect to the frame that illustrates this observation, so a caller with only the observation id can show it.
+ */
+export const visionObservationsThumbnailRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<unknown> => {
+    return apiMutator<unknown>(getVisionObservationsThumbnailRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getVisionObservationsViewedCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/vision/observations/${id}/viewed/`
 }
@@ -1182,6 +1200,25 @@ export const visionScannersObservationsSignalReportsList = async (
             method: 'GET',
         }
     )
+}
+
+export const getVisionScannersObservationsThumbnailRetrieveUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/thumbnail/`
+}
+
+/**
+ * Redirect to the frame that illustrates this observation, so a caller with only the observation id can show it.
+ */
+export const visionScannersObservationsThumbnailRetrieve = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<unknown> => {
+    return apiMutator<unknown>(getVisionScannersObservationsThumbnailRetrieveUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getVisionScannersObservationsViewedCreateUrl = (projectId: string, scannerId: string, id: string) => {

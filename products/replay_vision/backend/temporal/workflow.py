@@ -11,6 +11,7 @@ from temporalio.exceptions import (
     ChildWorkflowError,
     TimeoutError as TemporalTimeoutError,
 )
+from temporalio.workflow import ParentClosePolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, truncate_for_temporal_payload, unwrap_temporal_cause
@@ -54,6 +55,7 @@ from products.replay_vision.backend.temporal.errors import (
     IneligibleSessionKind,
     ScannerFailureError,
 )
+from products.replay_vision.backend.temporal.media_types import ObservationMediaInputs
 from products.replay_vision.backend.temporal.scanners.base import BaseScannerOutput
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
 from products.replay_vision.backend.temporal.types import (
@@ -394,6 +396,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 )
             except Exception:
                 wf.logger.exception("Event emission failed for succeeded observation %s", observation_id)
+            await self._render_media(inputs, observation_id, asset_result.asset_id, call_output)
             await self._apply_scanner_side_effects(inputs, observation_id, call_output.model_output)
         except Exception as e:
             ineligible_kind = _extract_kind_for_type(e, INELIGIBLE_SESSION_ERROR_TYPE)
@@ -536,6 +539,40 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     wf.logger.warning("replay_vision.stuck_counter_bump_failed", extra={"error": str(exc)})
             # Re-classify the rasterizer's failure so the user sees a rasterizer label, not a generic "internal error".
             raise ScannerFailureError(_root_cause_message(e), kind=FailureKind.RASTERIZATION_FAILED) from e
+
+    async def _render_media(
+        self,
+        inputs: ApplyScannerInputs,
+        observation_id: UUID,
+        analysis_asset_id: int,
+        call_output: ScannerCallOutput,
+    ) -> None:
+        """Render the observation's thumbnail. Fail-soft: a missing poster must never fail a paid-for scan."""
+        if not wf.patched("replay-vision-media-2026-09"):
+            return
+        try:
+            # Started, not awaited: the poster is delivery, and the scan has no reason to hold a workflow
+            # slot open while one frame is cut. ABANDON keeps the child alive past the parent's close.
+            await wf.start_child_workflow(
+                "replay-vision-media",
+                ObservationMediaInputs(
+                    team_id=inputs.team_id,
+                    observation_id=observation_id,
+                    session_id=inputs.session_id,
+                    analysis_asset_id=analysis_asset_id,
+                    signal_video_times=call_output.signal_video_spans,
+                    thumbnail_video_s=call_output.thumbnail_video_s,
+                ),
+                id=f"replay-vision-media-{observation_id}",
+                task_queue=settings.REPLAY_VISION_TASK_QUEUE,
+                # A retried observation reuses its id, and the run it supersedes has long closed.
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                parent_close_policy=ParentClosePolicy.ABANDON,
+                retry_policy=common.RetryPolicy(maximum_attempts=2),
+                execution_timeout=dt.timedelta(minutes=20),
+            )
+        except Exception:
+            wf.logger.exception("Media rendering could not be started for observation %s", observation_id)
 
     async def _mark_failed(self, observation_id: UUID, scanner_type: ScannerType, kind: str, message: str) -> None:
         await wf.execute_activity(

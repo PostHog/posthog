@@ -413,6 +413,9 @@ const meta: Meta = {
                     pngResponse(
                         ['103', '104'].includes(String(req.params.exportId)) ? ATTACHMENT_PNG : RECORDING_PREVIEW_PNG
                     ),
+                // A scanner finding takes its frame from Replay Vision, addressed by observation.
+                '/api/projects/:id/vision/observations/:observationId/thumbnail/': () =>
+                    pngResponse(RECORDING_PREVIEW_PNG),
             },
             post: {
                 '/api/environments/:id/session_recordings/batch_check_exists': () => [

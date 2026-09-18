@@ -1,9 +1,11 @@
-import { S3Client } from '@aws-sdk/client-s3'
+import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { defaultProvider } from '@aws-sdk/credential-provider-node'
 import { Upload } from '@aws-sdk/lib-storage'
 import { NodeHttpHandler } from '@smithy/node-http-handler'
 import * as fs from 'fs'
 import { HttpsProxyAgent } from 'https-proxy-agent'
+import { Readable } from 'stream'
+import { pipeline } from 'stream/promises'
 
 import { config } from './config'
 import { resolveEgressProxyUrl } from './egress-proxy'
@@ -56,6 +58,7 @@ const FORMAT_META: Record<string, { ext: string; contentType: string }> = {
     mp4: { ext: 'mp4', contentType: 'video/mp4' },
     webm: { ext: 'webm', contentType: 'video/webm' },
     gif: { ext: 'gif', contentType: 'image/gif' },
+    png: { ext: 'png', contentType: 'image/png' },
 }
 
 export async function uploadToS3(
@@ -63,7 +66,7 @@ export async function uploadToS3(
     bucket: string,
     keyPrefix: string,
     id: string,
-    format: 'mp4' | 'webm' | 'gif' = 'mp4',
+    format: 'mp4' | 'webm' | 'gif' | 'png' = 'mp4',
     onProgress?: () => void
 ): Promise<string> {
     const { ext, contentType } = FORMAT_META[format] || FORMAT_META.mp4
@@ -119,4 +122,30 @@ export async function uploadToS3(
     }
 
     return target
+}
+
+/** Fetch one object to a local path. The thumbnail activity reads the analysis MP4 this way. */
+export async function downloadFromS3(bucket: string, key: string, localPath: string): Promise<void> {
+    try {
+        const res = await getS3Client().send(new GetObjectCommand({ Bucket: bucket, Key: key }))
+        if (!res.Body) {
+            throw new RasterizationError(`S3 object is empty: s3://${bucket}/${key}`, false, 'S3_DOWNLOAD_EMPTY')
+        }
+        // Streamed, not buffered: the media worker reads several tens-of-megabytes MP4s at once.
+        await pipeline(res.Body as Readable, fs.createWriteStream(localPath))
+    } catch (err) {
+        if (err instanceof RasterizationError) {
+            throw err
+        }
+        const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode
+        log.warn({ bucket, key, status, err: (err as Error)?.message }, 'S3 download failed')
+        // Only a missing object is permanent; a 403 is the credential-refresh race the upload path allows for.
+        const retryable = status !== 404
+        throw new RasterizationError(
+            `S3 download failed${status ? ` (status ${status})` : ''}: ${(err as Error)?.message ?? String(err)}`,
+            retryable,
+            'S3_DOWNLOAD_FAILED',
+            err
+        )
+    }
 }
