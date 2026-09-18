@@ -2036,7 +2036,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
     )
     @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
-    def test_retention_anchored_on_exposure_event(self, name, use_precomputation):
+    def test_retention_anchored_on_exposure_event(self, name: str, use_precomputation: bool) -> None:
         # The precomputed variant reads exposures from the preaggregated table;
         # metric events always take the direct scan for an exposure start.
         self._setup_precomputation_test(use_precomputation)
@@ -2125,7 +2125,9 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
     )
     @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
-    def test_retention_exposure_start_excludes_exposure_as_its_own_completion(self, name, use_precomputation):
+    def test_retention_exposure_start_excludes_exposure_as_its_own_completion(
+        self, name: str, use_precomputation: bool
+    ) -> None:
         # Guards the exposure_event_uuid exclusion: with a day-0 window and the
         # completion event equal to the exposure event, the exposure occurrence
         # itself must not count as a return.
@@ -2199,7 +2201,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
     @time_machine.travel("2020-01-25T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
-    def test_only_count_matured_users_with_exposure_start(self):
+    def test_only_count_matured_users_with_exposure_start(self) -> None:
         # Direct path only: the maturity predicate is identical on both
         # exposure paths.
         feature_flag = self.create_feature_flag()
