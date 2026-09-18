@@ -146,6 +146,7 @@ export class HogTransformerService implements HogTransformer {
     }
 
     private async transformEventAndProduceMessagesImpl(event: PluginEvent): Promise<TransformationResult> {
+        // Fast path that skips the team function lookup. transformEventImpl guards direct callers.
         if (isProtectedInternalEvent(event.event)) {
             hogTransformationProtectedEventSkips.inc()
             return { event, invocationResults: [] }
@@ -178,6 +179,11 @@ export class HogTransformerService implements HogTransformer {
         event: PluginEvent,
         teamHogFunctions: HogFunctionType[]
     ): Promise<TransformationResult> {
+        if (isProtectedInternalEvent(event.event)) {
+            hogTransformationProtectedEventSkips.inc()
+            return { event, invocationResults: [] }
+        }
+
         hogTransformationInvocations.inc()
 
         // Early return if no transformations to run

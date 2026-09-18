@@ -815,10 +815,28 @@ describe('HogTransformer', () => {
             {
                 name: 'skips every transformation for protected internal events',
                 eventName: '$recording_observed',
+                direct: false,
                 dropped: false,
             },
-            { name: 'still runs transformations for other events', eventName: 'purchase', dropped: true },
-        ])('$name', async ({ eventName, dropped }) => {
+            {
+                name: 'still runs transformations for other events',
+                eventName: 'purchase',
+                direct: false,
+                dropped: true,
+            },
+            {
+                name: 'skips every transformation for protected internal events invoked directly',
+                eventName: '$recording_observed',
+                direct: true,
+                dropped: false,
+            },
+            {
+                name: 'still runs transformations for other events invoked directly',
+                eventName: 'purchase',
+                direct: true,
+                dropped: true,
+            },
+        ])('$name', async ({ eventName, direct, dropped }) => {
             const dropEverything = createHogFunction({
                 type: 'transformation',
                 name: 'Drop everything',
@@ -831,7 +849,9 @@ describe('HogTransformer', () => {
 
             const event = createPluginEvent({ event: eventName, properties: { original: true } }, teamId)
 
-            const result = await hogTransformer.transformEventAndProduceMessages(event)
+            const result = direct
+                ? await hogTransformer.transformEvent(event, [dropEverything])
+                : await hogTransformer.transformEventAndProduceMessages(event)
 
             if (dropped) {
                 expect(result.event).toBeNull()
