@@ -108,6 +108,7 @@ patchedDependencies:
     dayjs@1.11.11: patches/dayjs@1.11.11.patch
     html-to-image@1.11.13: patches/html-to-image@1.11.13.patch
     kea@4.0.0-pre.6: patches/kea@4.0.0-pre.6.patch
+    reselect@5.2.0: patches/reselect@5.2.0.patch
 
 # Dependencies that require preinstall scripts. Add entries with caution.
 onlyBuiltDependencies:

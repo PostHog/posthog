@@ -207,6 +207,9 @@ patchedDependencies:
   kea@4.0.0-pre.6:
     hash: 139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5
     path: patches/kea@4.0.0-pre.6.patch
+  reselect@5.2.0:
+    hash: 7ff07e7753e50a5f593b951d297c78a66c388345f46df310230552d9cccaa8ce
+    path: patches/reselect@5.2.0.patch
 
 importers:
 
@@ -26026,7 +26029,7 @@ snapshots:
       '@floating-ui/utils': 0.2.12
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
-      reselect: 5.2.0
+      reselect: 5.2.0(patch_hash=7ff07e7753e50a5f593b951d297c78a66c388345f46df310230552d9cccaa8ce)
       use-sync-external-store: 1.6.0(react@18.3.1)
     optionalDependencies:
       '@types/react': 18.3.27
@@ -40081,7 +40084,7 @@ snapshots:
     dependencies:
       react: 18.3.1
       redux: 5.0.1
-      reselect: 5.2.0
+      reselect: 5.2.0(patch_hash=7ff07e7753e50a5f593b951d297c78a66c388345f46df310230552d9cccaa8ce)
       use-sync-external-store: 1.6.0(react@18.3.1)
 
   keyv@4.5.4:
@@ -43841,7 +43844,7 @@ snapshots:
 
   requires-port@1.0.0: {}
 
-  reselect@5.2.0: {}
+  reselect@5.2.0(patch_hash=7ff07e7753e50a5f593b951d297c78a66c388345f46df310230552d9cccaa8ce): {}
 
   resize-observer-polyfill@1.5.1: {}
 
