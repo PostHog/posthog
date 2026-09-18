@@ -88,11 +88,15 @@ class TestBuildEndpointSchemas:
             descriptions={"charges": "A charge"},
             should_sync_default={"events": False},
             supports_webhooks={"invoices"},
+            primary_keys={"charges": ("id",), "invoices": ["account_id", "number"]},
         )
         by_name = {s.name: s for s in schemas}
         assert by_name["charges"].description == "A charge"
         assert by_name["events"].should_sync_default is False
         assert by_name["invoices"].supports_webhooks is True
+        assert by_name["charges"].detected_primary_keys == ["id"]
+        assert by_name["invoices"].detected_primary_keys == ["account_id", "number"]
+        assert by_name["events"].detected_primary_keys is None
         # unspecified endpoints keep the defaults
         assert by_name["charges"].should_sync_default is True
         assert by_name["charges"].supports_webhooks is False
