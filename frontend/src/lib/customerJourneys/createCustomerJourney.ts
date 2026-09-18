@@ -28,6 +28,8 @@ export interface CustomerJourneyOptions {
         | 'persons_list_query_to_table_commit'
         | 'sql_query_to_results_commit'
     attempt_id?: string
+    client_query_id?: string
+    execution_path?: 'per_metric' | 'recalculation'
     workload_class?: 'unknown'
 }
 
@@ -50,6 +52,8 @@ export interface CustomerJourneyTileResult {
     insight_type: CustomerJourneyInsightType
     state: CustomerJourneyTileState
     duration_ms?: number
+    client_query_id?: string
+    response_cached?: boolean
 }
 
 export interface CustomerJourneyInsightTypeSummary {
@@ -60,6 +64,8 @@ export interface CustomerJourneyInsightTypeSummary {
 }
 
 export interface CustomerJourneySummary {
+    response_cached?: boolean
+    experiment_run_id?: string
     exposures_response_cached?: boolean
     excluded_count?: number
     insight_type_summary?: Partial<Record<CustomerJourneyInsightType, CustomerJourneyInsightTypeSummary>>
@@ -193,6 +199,10 @@ function projectTileResult(value: unknown, seenTileIds: Set<number>): CustomerJo
         insight_type: insightType,
         state,
         ...(state === 'ready' ? { duration_ms: duration as number } : {}),
+        ...(typeof row.client_query_id === 'string' && row.client_query_id.length <= 128
+            ? { client_query_id: row.client_query_id }
+            : {}),
+        ...(typeof row.response_cached === 'boolean' ? { response_cached: row.response_cached } : {}),
     }
 }
 
@@ -227,6 +237,10 @@ function projectCustomerJourneySummary(summary: CustomerJourneySummary): Record<
         ...(summary.error_type !== undefined ? { error_type: summary.error_type } : {}),
         ...(summary.end_reason !== undefined ? { end_reason: summary.end_reason } : {}),
         ...projectSummaryCounts(summary),
+        ...(typeof summary.response_cached === 'boolean' ? { response_cached: summary.response_cached } : {}),
+        ...(typeof summary.experiment_run_id === 'string' && summary.experiment_run_id.length <= 128
+            ? { experiment_run_id: summary.experiment_run_id }
+            : {}),
         ...(typeof summary.exposures_response_cached === 'boolean'
             ? { exposures_response_cached: summary.exposures_response_cached }
             : {}),
@@ -254,6 +268,8 @@ export function createCustomerJourney(
         readiness_contract_version: context.readiness_contract_version,
         registry_version: context.registry_version,
         readiness_scope: context.readiness_scope,
+        ...(context.client_query_id !== undefined ? { client_query_id: context.client_query_id } : {}),
+        ...(context.execution_path !== undefined ? { execution_path: context.execution_path } : {}),
         ...(context.workload_class !== undefined ? { workload_class: context.workload_class } : {}),
     }
     try {

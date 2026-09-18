@@ -55,6 +55,7 @@ interface ActiveDashboardJourney extends DashboardJourneySnapshot {
     excludedCount: number
     ready: Record<number, number>
     failed: Record<number, true>
+    queryContext: Record<number, { client_query_id?: string; response_cached?: boolean }>
 }
 
 interface InitialDashboardJourney {
@@ -67,6 +68,7 @@ interface InitialDashboardJourney {
     currentResultsByTileId: Record<number, unknown>
     bufferedResults: Map<number, unknown>
     bufferedFailures: Map<number, DashboardJourneyErrorType>
+    queryContext: ActiveDashboardJourney['queryContext']
 }
 
 type DashboardJourneyErrorType = NonNullable<CustomerJourneySummary['error_type']>
@@ -133,6 +135,7 @@ export class DashboardRefreshJourneyController {
                       currentResultsByTileId: {},
                       bufferedResults: new Map(),
                       bufferedFailures: new Map(),
+                      queryContext: {},
                   }
                 : null
         })
@@ -184,6 +187,7 @@ export class DashboardRefreshJourneyController {
                       startedAt: performance.now(),
                       ready: {},
                       failed: {},
+                      queryContext: {},
                   }
                 : null
         })
@@ -192,11 +196,23 @@ export class DashboardRefreshJourneyController {
             : null
     }
 
+    public queryStarted(attemptId: string, tileId: number, clientQueryId: string): void {
+        const attempt = this.scope.current
+        if (attempt?.attemptId === attemptId && (attempt.kind === 'initial' || attempt.requiredTiles[tileId])) {
+            attempt.queryContext[tileId] = { client_query_id: clientQueryId }
+        }
+    }
+
     public dataReady(
         attemptId: string,
         tileId: number,
-        expectedResult: unknown
+        expectedResult: unknown,
+        responseCached?: boolean
     ): DashboardJourneyRenderReadiness | null {
+        const attempt = this.scope.current
+        if (attempt?.attemptId === attemptId && typeof responseCached === 'boolean') {
+            attempt.queryContext[tileId] = { ...attempt.queryContext[tileId], response_cached: responseCached }
+        }
         if (this.initial && this.initial.attemptId === attemptId) {
             if (expectedResult !== null && expectedResult !== undefined) {
                 this.initial.bufferedResults.set(tileId, expectedResult)
@@ -292,6 +308,7 @@ export class DashboardRefreshJourneyController {
             startedAt: initial.startedAt,
             ready: {},
             failed: {},
+            queryContext: initial.queryContext,
         }
         if (!this.scope.transition(initial, active)) {
             return null
@@ -359,6 +376,7 @@ export class DashboardRefreshJourneyController {
                     insight_type: tile.insightType,
                     state: duration !== undefined ? 'ready' : active.failed[tile.tileId] ? 'failed' : 'pending',
                     ...(duration !== undefined ? { duration_ms: duration } : {}),
+                    ...active.queryContext[tile.tileId],
                 }
             })
         return {

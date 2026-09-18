@@ -6,6 +6,10 @@ const JOURNEY_FIELDS = [
     'schema_version',
     'journey_name',
     'attempt_id',
+    'client_query_id',
+    'execution_path',
+    'experiment_run_id',
+    'response_cached',
     'region',
     'project_id',
     'organization_id',
@@ -168,7 +172,15 @@ export function projectCustomerJourneyCapture(event: CaptureResult | null): Capt
                 return null
             }
             properties.tile_results = source.tile_results.map((tile) =>
-                projectScalars(record(tile), ['tile_id', 'insight_short_id', 'insight_type', 'state', 'duration_ms'])
+                projectScalars(record(tile), [
+                    'tile_id',
+                    'insight_short_id',
+                    'insight_type',
+                    'state',
+                    'duration_ms',
+                    'client_query_id',
+                    'response_cached',
+                ])
             )
         }
         if (event.timestamp !== undefined && !(event.timestamp instanceof Date)) {

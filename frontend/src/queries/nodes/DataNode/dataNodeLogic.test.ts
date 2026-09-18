@@ -67,7 +67,7 @@ describe('dataNodeLogic', () => {
     afterEach(() => logic?.unmount())
 
     describe('query journey ownership', () => {
-        const response = { results: [['synthetic-person@example.com']] }
+        const response = { results: [['synthetic-person@example.com']], is_cached: true }
         let capture: jest.Mock
         let startRequest: jest.Mock
 
@@ -121,7 +121,11 @@ describe('dataNodeLogic', () => {
             logic.actions.acknowledgeQueryJourney(receipt.generation, response)
             logic.actions.acknowledgeQueryJourney(receipt.generation, response)
             expect(capture).toHaveBeenCalledTimes(2)
-            expect(capture.mock.calls[1][1]).toMatchObject({ outcome: 'usable', first_useful_ms: 0 })
+            expect(capture.mock.calls[1][1]).toMatchObject({
+                outcome: 'usable',
+                first_useful_ms: 0,
+                response_cached: true,
+            })
             expect(JSON.stringify(capture.mock.calls)).not.toMatch(/synthetic-search-secret|synthetic-person/)
         })
 

@@ -4469,6 +4469,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     const dashboardId: number = props.id
 
                     const isJourneyTile = !!journeyAttemptId && (isInitialLoad || !!journeyTileIds?.includes(tile.id))
+                    if (isJourneyTile) {
+                        journeyController.queryStarted(journeyAttemptId, tile.id, queryId)
+                    }
 
                     // Set insight as refreshing
                     actions.setRefreshStatus(insight.short_id, true, true)
@@ -4512,7 +4515,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                     const readiness = journeyController.dataReady(
                                         journeyAttemptId,
                                         tile.id,
-                                        refreshedInsight.result
+                                        refreshedInsight.result,
+                                        refreshedInsight.is_cached
                                     )
                                     if (readiness) {
                                         actions.setDashboardJourneyRenderReadiness(readiness)

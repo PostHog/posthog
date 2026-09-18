@@ -21,6 +21,7 @@ describe('experiment refresh journey', () => {
         expect(startCustomerJourney).not.toHaveBeenCalled()
         controller.observe(true)
         controller.start(12, 'refresh-a', groups, 'per_metric')
+        expect(startCustomerJourney).toHaveBeenCalledWith(expect.objectContaining({ execution_path: 'per_metric' }))
         const exposures = { is_cached: true, timeseries: [] }
         const primary = { variant_results: [] }
         const secondary = { variant_results: [] }
@@ -43,11 +44,15 @@ describe('experiment refresh journey', () => {
         const controller = new ExperimentRefreshJourneyController(jest.fn())
         controller.observe(true)
         const observation = controller.start(12, 'refresh-a', groups, 'recalculation')!
+        expect(startCustomerJourney).toHaveBeenCalledWith(expect.objectContaining({ execution_path: 'recalculation' }))
         observation.bindRun('run-a')
         observation.results({ id: 'old-run', status: 'completed', failed_metrics: 0, metric_errors: {}, results: [] })
         expect(handle.finish).not.toHaveBeenCalled()
         observation.results({ id: 'run-a', status: 'completed', failed_metrics: 0, metric_errors: {}, results: [] })
-        expect(handle.finish).toHaveBeenCalledWith('failed', expect.objectContaining({ error_type: 'query_error' }))
+        expect(handle.finish).toHaveBeenCalledWith(
+            'failed',
+            expect.objectContaining({ error_type: 'query_error', experiment_run_id: 'run-a' })
+        )
     })
 
     it('freezes required identities and waits for the complete matching recalculation before commit', () => {
@@ -82,6 +87,7 @@ describe('experiment refresh journey', () => {
             failed_count: 0,
             pending_count: 0,
             exposures_response_cached: false,
+            experiment_run_id: 'run-a',
         })
     })
 

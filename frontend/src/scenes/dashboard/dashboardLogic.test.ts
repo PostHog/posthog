@@ -3277,7 +3277,7 @@ describe('dashboardLogic', () => {
                         expect(journey.finish).not.toHaveBeenCalled()
 
                         const uniqueResult: unknown[] = []
-                        requests[0].resolve({ ...uniqueInsight, result: uniqueResult })
+                        requests[0].resolve({ ...uniqueInsight, result: uniqueResult, is_cached: false })
                         await poll(
                             () => !!logic.values.dashboardJourneyRenderReadiness[uniqueTile.id],
                             'unique tile did not become render-ready'
@@ -3294,6 +3294,18 @@ describe('dashboardLogic', () => {
                         ).toBe(uniqueResult)
 
                         logic.actions.dashboardJourneyTileRenderCommitted('unique-attempt', uniqueTile.id)
+                        expect(journey.finish).toHaveBeenCalledWith(
+                            'usable',
+                            expect.objectContaining({
+                                tile_results: [
+                                    expect.objectContaining({
+                                        tile_id: uniqueTile.id,
+                                        client_query_id: getInsightWithRetrySpy.mock.calls[0][3],
+                                        response_cached: false,
+                                    }),
+                                ],
+                            })
+                        )
                         expect(journey.firstUseful).toHaveBeenCalledTimes(1)
                         expect(journey.finish).toHaveBeenCalledTimes(1)
                         expect(journey.finish).toHaveBeenCalledWith(
