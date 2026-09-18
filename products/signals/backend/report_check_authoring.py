@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta
+from functools import partial
 
 from django.db import transaction
 from django.utils import timezone
@@ -25,6 +26,7 @@ import structlog
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReport, SignalReportCheck
 from products.signals.backend.report_check_execution import resolve_check_query
+from products.signals.backend.report_check_telemetry import capture_report_check_created
 from products.signals.backend.report_checks import (
     DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
     MAX_ACTIVE_CHECKS_PER_REPORT,
@@ -112,7 +114,7 @@ def create_check(
         )
         if open_checks.count() >= MAX_ACTIVE_CHECKS_PER_REPORT:
             raise CheckCreationError(f"A report may carry at most {MAX_ACTIVE_CHECKS_PER_REPORT} active checks.")
-        return SignalReportCheck.objects.for_team(locked_report.team_id).create(
+        check = SignalReportCheck.objects.for_team(locked_report.team_id).create(
             # The report's own environment team, never a canonicalized one: the report's reads and
             # its artefact log filter by it.
             team_id=locked_report.team_id,
@@ -132,6 +134,11 @@ def create_check(
             created_by_id=attribution.user_id,
             task_id=attribution.task_id,
         )
+        # Reported from the shared write so every author is counted: the REST endpoint, the scout
+        # tool and the research pipeline. Post-commit, so a check the cap or a rollback rejected is
+        # never counted as written.
+        transaction.on_commit(partial(capture_report_check_created, report.team, check))
+        return check
 
 
 def create_checks_from_specs(
@@ -142,10 +149,21 @@ def create_checks_from_specs(
 ) -> list[SignalReportCheck]:
     """Write a research run's check specs on the report it just finished.
 
+    The specs replace the report's pending checks rather than joining them. Only research writes a
+    pending check, so every pending row came from an earlier pass over an older version of this
+    report. Left in place, those rows would fill the per-report cap, and the resolve would arm them
+    against prose they were not written for. A pass that returns no specs leaves them alone, because
+    the verification turn is best-effort and an empty result can be a failed turn.
+
     A spec the report cannot carry is dropped with a log rather than failing the run, the way an
     unvalidatable chart is: the prose is the report's point, and a check that names a metric the
     presentation turn did not keep is the model over-reaching, not a broken pipeline.
     """
+    if not specs:
+        return []
+    SignalReportCheck.objects.for_team(report.team_id).filter(
+        report_id=report.id, status=SignalReportCheck.Status.PENDING
+    ).update(status=SignalReportCheck.Status.CANCELLED, updated_at=timezone.now())
     written: list[SignalReportCheck] = []
     for spec in specs:
         try:

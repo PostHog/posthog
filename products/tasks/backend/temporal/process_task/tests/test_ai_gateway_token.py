@@ -532,6 +532,37 @@ class TestProvisioningBoundaries:
             utils.run_gateway_env_vars(ctx, self._task())
         update.assert_called_once_with("run-1", remove_keys=["ai_gateway_product"])
 
+    def test_routing_failure_leaves_the_run_on_the_python_gateway(self, mint_settings):
+        with patch.object(utils, "ai_gateway_env_vars", side_effect=RuntimeError("billing is down")):
+            assert utils.run_gateway_env_vars(self._ctx(), self._task()) == {}
+
+    def test_a_pinned_token_the_stamp_could_not_record_is_dropped(self, mint_settings):
+        env = {"AI_GATEWAY_URL": "url", "AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "slack_app"}
+        with (
+            patch.object(utils, "ai_gateway_env_vars", return_value=env),
+            patch(
+                "products.tasks.backend.models.TaskRun.update_state_atomic",
+                side_effect=RuntimeError("postgres is down"),
+            ),
+        ):
+            out = utils.run_gateway_env_vars(self._ctx(), self._task())
+        assert "AI_GATEWAY_TOKEN" not in out
+        assert out["AI_GATEWAY_URL"] == "url"
+
+    def test_an_unpinned_token_survives_a_failed_stamp_removal(self, mint_settings):
+        ctx = self._ctx()
+        ctx.state = {"ai_stage": "scout:logs", "ai_gateway_product": "slack_app"}
+        env = {"AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "signals_scout"}
+        with (
+            patch.object(utils, "ai_gateway_env_vars", return_value=env),
+            patch(
+                "products.tasks.backend.models.TaskRun.update_state_atomic",
+                side_effect=RuntimeError("postgres is down"),
+            ),
+        ):
+            out = utils.run_gateway_env_vars(ctx, self._task())
+        assert out["AI_GATEWAY_TOKEN"] == "phe"
+
 
 class TestUserPinAndCapOverride:
     def _response(self, body):
@@ -675,6 +706,35 @@ class TestSlackAppMint:
         env, mint = self._env(mint_settings, over_quota=True)
         assert "AI_GATEWAY_TOKEN" not in env
         mint.assert_not_called()
+
+    def test_credit_lookup_failure_does_not_mint(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "slack_app"
+        with (
+            patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint,
+            patch(
+                "products.tasks.backend.temporal.process_task.ai_gateway_token._team_over_ai_credit_budget",
+                side_effect=RuntimeError("billing is down"),
+            ),
+        ):
+            env = ai_gateway_env_vars(
+                team_id=123,
+                origin_product="slack",
+                state={"interaction_origin": "slack"},
+                model="claude-opus-5",
+                runtime="acp",
+            )
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
+    def test_credit_lookup_failure_names_its_own_refusal(self):
+        with patch(
+            "products.tasks.backend.temporal.process_task.ai_gateway_token._team_over_ai_credit_budget",
+            side_effect=RuntimeError("billing is down"),
+        ):
+            refusal = mint_refusal(
+                "slack_app", team_id=123, state={"interaction_origin": "slack"}, model=None, runtime="acp"
+            )
+        assert refusal == "ai_credits_unknown"
 
     # The provenance gate is only as strong as PATCH protection on the key it reads.
     def test_provenance_key_is_patch_protected(self):

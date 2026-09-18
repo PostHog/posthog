@@ -133,7 +133,7 @@ Planned Tier B collectors:
 | 60s | replica status (Aurora) | A | `aurora_replica_status()` — lag, replay latency, oldest read view |
 | 60s | memory contexts (Aurora) | A | `aurora_stat_memctx_usage()` — backends > 64 MB |
 | 60s | system cpu / memory / disk | A | `pg_proctab`: `pg_cputime`, `pg_memusage`, `pg_loadavg`, `pg_diskusage` |
-| 60s | backend cpu | A | `pg_proctab()` per pid joined to `pg_stat_activity` |
+| 60s | backend cpu | A | `pg_proctab()` per pid joined to `pg_stat_activity`, with the active statement's `query_id` and query tags sampled at the tick |
 | 30s | logs | B | CloudWatch Logs (RDS) or files: `ts_query_latency` (per-minute latency histograms, the source of quantiles), `ts_query_durations` (slow statements over `sample_rows_over_ms`), `ts_log_plans` (auto_explain), `ts_autovacuum_runs`, `ts_checkpoints`, `ts_temp_files`, `ts_log_errors`, `ts_logs` counts, deadlock/lock-wait/cancel events |
 
 On Aurora, `query_stats` reads `aurora_stat_statements` (adds Aurora-storage I/O

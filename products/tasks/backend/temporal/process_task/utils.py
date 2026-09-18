@@ -1327,26 +1327,39 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
     """
     if ctx.claude_model_access == "own-subscription":
         return {}
-    env_vars = ai_gateway_env_vars(
-        team_id=ctx.team_id,
-        origin_product=ctx.origin_product,
-        ai_stage=(ctx.state or {}).get("ai_stage"),
-        internal=task.internal,
-        distinct_id=ctx.distinct_id,
-        state=ctx.state,
-        model=ctx.model,
-        runtime=ctx.task_runtime,
-    )
-    _record_pinned_gateway_product(ctx.run_id, ctx.state, env_vars.get("AI_GATEWAY_PRODUCT"))
+    try:
+        env_vars = ai_gateway_env_vars(
+            team_id=ctx.team_id,
+            origin_product=ctx.origin_product,
+            ai_stage=(ctx.state or {}).get("ai_stage"),
+            internal=task.internal,
+            distinct_id=ctx.distinct_id,
+            state=ctx.state,
+            model=ctx.model,
+            runtime=ctx.task_runtime,
+        )
+    except Exception:
+        # Degrading to the Python gateway beats failing the provisioning activity and the run.
+        AI_GATEWAY_TOKEN_MINTS.labels(result="error").inc()
+        logger.warning(
+            "ai_gateway_token: routing failed, run stays on the Python gateway",
+            extra={"run_id": ctx.run_id},
+            exc_info=True,
+        )
+        return {}
+    if not _record_pinned_gateway_product(ctx.run_id, ctx.state, env_vars.get("AI_GATEWAY_PRODUCT")):
+        # The model-change guard reads that stamp; unstamped, a run can move off its pin with no fallback.
+        env_vars.pop("AI_GATEWAY_TOKEN", None)
     return env_vars
 
 
-def _record_pinned_gateway_product(run_id: str, state: dict | None, minted_product: str | None) -> None:
+def _record_pinned_gateway_product(run_id: str, state: dict | None, minted_product: str | None) -> bool:
+    """Stamp the run with the pinned product of its token. False leaves a pinned run unstamped."""
     from products.tasks.backend.models import TaskRun  # noqa: PLC0415
 
     pinned = minted_product if minted_product in PRODUCT_ALLOWED_MODELS else None
     if pinned == (state or {}).get(GATEWAY_PRODUCT_STATE_KEY):
-        return
+        return True
     try:
         if pinned:
             TaskRun.update_state_atomic(run_id, updates={GATEWAY_PRODUCT_STATE_KEY: pinned})
@@ -1354,6 +1367,8 @@ def _record_pinned_gateway_product(run_id: str, state: dict | None, minted_produ
             TaskRun.update_state_atomic(run_id, remove_keys=[GATEWAY_PRODUCT_STATE_KEY])
     except Exception:
         logger.warning("ai_gateway_token: failed to record the pinned product", extra={"run_id": run_id}, exc_info=True)
+        return pinned is None
+    return True
 
 
 def ai_gateway_env_vars(

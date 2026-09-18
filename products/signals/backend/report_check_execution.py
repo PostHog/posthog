@@ -16,7 +16,9 @@ a breach the same way and there is one place where "is this value out of bounds?
 from __future__ import annotations
 
 import time
+import uuid
 from datetime import datetime, timedelta
+from functools import partial
 
 from django.db import transaction
 from django.db.models import F, Window
@@ -35,6 +37,7 @@ from posthog.schema import (
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
+from posthog.models import Team
 
 from products.alerts.backend.facade.evaluation import (
     ComparableSeries,
@@ -46,6 +49,10 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CheckResult
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck
+from products.signals.backend.report_check_telemetry import (
+    capture_report_check_evaluated,
+    capture_report_checks_expired,
+)
 from products.signals.backend.report_checks import (
     MAX_CONSECUTIVE_CHECK_ERRORS,
     CheckComparison,
@@ -333,6 +340,12 @@ def record_check_verdict(
             baseline = config.baseline_value if config is not None else None
             threshold = _describe_comparison(config.comparison) if config is not None else None
             transaction.on_commit(lambda: resurface_failed_check(current, verdict, baseline, threshold))
+        # Post-commit, so a rolled-back verdict is never counted as one, and after the artefact so
+        # the event describes a result a reader can already see on the report. The team comes off
+        # the caller's row, where both call paths already select it with its organization; the
+        # locked row selects neither, and widening the lock to reach them would take `FOR UPDATE`
+        # on `Team`.
+        transaction.on_commit(partial(capture_report_check_evaluated, check.team, current, run_id=run_id))
 
 
 def _should_resurface(check: SignalReportCheck, verdict: CheckVerdict) -> bool:
@@ -410,14 +423,44 @@ def expire_overdue_checks(now: datetime) -> int:
 
     overdue = list(
         SignalReportCheck.all_teams.filter(status__in=SignalReportCheck.OPEN_STATUSES, expires_at__lte=now).values_list(
-            "id", flat=True
+            "id", "team_id", "last_run_at"
         )[:MAX_CHECK_EXPIRIES_PER_TICK]
     )
     if not overdue:
         return 0
-    return SignalReportCheck.all_teams.filter(id__in=overdue, status__in=SignalReportCheck.OPEN_STATUSES).update(
-        status=SignalReportCheck.Status.EXPIRED, updated_at=now
-    )
+    # The horizon is re-checked in the write. A report can resolve between the read and the write,
+    # which arms its pending checks and moves `expires_at` forward, and an update filtered on id and
+    # status alone would retire a check that has just been given a clock.
+    expired = SignalReportCheck.all_teams.filter(
+        id__in=[check_id for check_id, _, _ in overdue],
+        status__in=SignalReportCheck.OPEN_STATUSES,
+        expires_at__lte=now,
+    ).update(status=SignalReportCheck.Status.EXPIRED, updated_at=now)
+    if expired:
+        _report_expired_checks(overdue)
+    return expired
+
+
+def _report_expired_checks(overdue: list[tuple[uuid.UUID, int, datetime | None]]) -> None:
+    """Emit one expiry event per project for the rows a sweep selected.
+
+    Counted from the selection rather than the write, so a row armed in between is over-counted by
+    one. That is acceptable for telemetry and saves a second read of every retired row.
+    """
+    per_team: dict[int, list[datetime | None]] = {}
+    for _, team_id, last_run_at in overdue:
+        per_team.setdefault(team_id, []).append(last_run_at)
+    try:
+        teams = Team.objects.filter(id__in=per_team.keys()).select_related("organization")
+        for team in teams:
+            last_runs = per_team[team.id]
+            capture_report_checks_expired(
+                team,
+                expired_count=len(last_runs),
+                never_ran_count=sum(1 for last_run_at in last_runs if last_run_at is None),
+            )
+    except Exception:
+        logger.exception("signals.report_check.expired_report_failed")
 
 
 def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -> list[SignalReportCheck]:
@@ -435,7 +478,7 @@ def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -
             expires_at__gt=now,
             report__status__in=CHECKABLE_REPORT_STATUSES,
         )
-        .select_related("report", "report__team")
+        .select_related("report", "report__team", "team__organization")
         # Rank each team's rows against its own, then read those ranks in order, so every team's
         # oldest check sorts ahead of any team's second. Ordering by `next_run_at` alone would let
         # one team's backlog fill the whole prefix and starve every other team behind it.

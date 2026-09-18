@@ -1092,8 +1092,8 @@ Generated MCP tool names:
 - **`SignalReportArtefactSerializer`**
   - Exposes `id`, `type`, `content`, `created_at`
   - Parses JSON text into structured content
-  - For `suggested_reviewers`, enriches the stored payload with fresh PostHog org-member data, a source label, and a concise explanation
-  - The inbox groups reviewers only when their displayed explanations match exactly, then shows the explanation once below the grouped people
+- For `suggested_reviewers`, enriches the stored payload with fresh PostHog org-member data, the source skill, a source label, and a concise explanation. Scout labels use the current team config display name when set. Reasons are limited to 500 characters on write, and older oversized reasons are omitted from the explanation on read. Inbox and scout reviewer edits discard oversized legacy reason text while keeping the reviewer and valid commit evidence. The inbox marks reviewers without a linked PostHog member.
+  - The inbox groups reviewers only when their displayed explanations and source categories match, then shows the explanation once below the grouped people. Scouts with different display names share one category and one badge; code history and other sources remain separate.
 
 ---
 
@@ -1296,16 +1296,26 @@ An irreversible end closes the tracker issue: a resolve asked for through the st
 
 **One DRI per pull request** (`backend/reviewer_pr_assignment.py`).
 
-Every self-driving pull request opens with no assignee, so it never reaches a GitHub "Assigned to me" view. `schedule_reviewer_pr_assignment` runs when a pull request first reaches a report and applies two rules on a worker:
+Every self-driving pull request opens with no assignee, so it never reaches a GitHub "Assigned to me" view. `schedule_reviewer_pr_assignment` runs when a pull request first reaches a report, and assigns on a worker.
 
-- A suggested reviewer who turned on `SignalUserAutonomyConfig.github_assign_on_pull_request` is always added.
-- A pull request that nobody assigned by hand gets exactly one directly responsible individual (DRI), unless an opted-in reviewer already owns it. An opted-in reviewer owns it only as the claimant or as a member of the owning team, because a reviewer who opted in is often suggested for other teams' code too. The claimant of the report comes first (for a task claim, the user who started the task). The next candidates come from one of two sources:
-  - When the repository declares its ownership in `owners.yaml` files, the candidates are the members of the GitHub team that owns most of the changed files, in random order (`backend/pr_owning_team.py`). The engineering analytics facade (`resolve_path_owners`) resolves the team. GitHub teams are the canonical team identity, so the team members come from GitHub's team members API. That call needs the organization members read permission on the GitHub app.
-  - Otherwise, or when that team has no candidate, the candidates are the suggested reviewers in rank order.
+> **At assignment time, select exactly one human responsible for the pull request. Explicit human intent wins; otherwise derive a DRI. Machine-generated claims never participate in that decision.**
 
-  A candidate must be an organization member with a connected GitHub account. Each candidate is checked with GitHub's read-only assignee check first, because the add-assignees call drops a login without push access instead of failing. A candidate GitHub cannot assign moves the walk to the next one, for up to four checks, and a failed check stops it.
+This governs what the rule adds. Nobody is ever unassigned, so a person can still assign three people by hand.
 
-The DRI rule is involuntary on purpose. A pull request that several people could pick up diffuses responsibility, and a wrong owner costs one reassignment. It rolls out per organization behind the `signals-pr-dri-assignee` flag. Assignment is additive: nobody is unassigned, and a pull request somebody already assigned gets no DRI. A pull request that somebody ever unassigned by hand gets no DRI either, because a later report event must not undo that decision. When the result of the opted-in assignment call is unknown (a request that failed in transit), no DRI is added on top of it.
+"Assignee" here means GitHub's assignee, the person responsible. GitHub's other field, the requested reviewer, is never written by this code — a separate app requests the owning team for review, which is why both appear on these pull requests.
+
+Under the `signals-pr-dri-assignee` flag, the candidates are, most responsible first:
+
+1. **The person who chose the work.** A claim a person made, or one their agent made for them, since an agent claim records the person it ran as. A task claim does not count: an auto-started report is claimed by its own implementation task, and that task runs as the report's top suggested reviewer, so it names a commit-history guess rather than a decision.
+2. **Somebody who asked to be assigned** through `SignalUserAutonomyConfig.github_assign_on_pull_request`. Where several did, the one who owns the changed code wins, else the highest-ranked suggested reviewer among them.
+3. **A member of the team that owns the changed files**, when the repository declares ownership in `owners.yaml` (`backend/pr_owning_team.py`). A member the report already suggests comes first, because they touched this code; the rest follow in random order. The engineering analytics facade (`resolve_path_owners`) resolves the team. GitHub teams are the canonical team identity, so the members come from GitHub's team members API, which needs the organization members read permission on the GitHub app.
+4. **The suggested reviewers in rank order**, when no ownership source names a team.
+
+A candidate must be an organization member with a connected GitHub account. Each is checked with GitHub's read-only assignee check first, because the add-assignees call drops a login without push access instead of failing. A candidate GitHub cannot assign moves the walk to the next one, for up to four checks, and a failed check stops it. A report with no candidate at all gets no DRI.
+
+A pull request that already has an assignee is left alone, and so is one that somebody ever unassigned by hand, because a later report event must not undo that decision.
+
+Without the flag the older rule stands: every suggested reviewer who opted in is added as an assignee, and there is no DRI.
 
 > [!WARNING]
 > Keep the `signals-pr-dri-assignee` flag on the PostHog organization only until a team-level off switch exists in the inbox settings. Assigning people on a customer's GitHub is that team's decision, and today a team cannot turn the rule off: removing `owners.yaml` only changes who gets picked.
