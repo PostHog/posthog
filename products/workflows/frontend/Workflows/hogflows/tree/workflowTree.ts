@@ -48,7 +48,9 @@ export function getWorkflowBranchLabel(action: HogFlowAction | undefined, edge: 
         return hasConditionFilters ? 'Condition or event matched' : 'Event received'
     }
     if (edge.type === 'continue') {
-        return 'No match'
+        // A random cohort split scales its weights to their total and always picks a cohort, so this
+        // edge carries the leftover of an unusable split rather than a share of the traffic.
+        return action?.type === 'random_cohort_branch' ? 'Fallback if no cohort has traffic' : 'No match'
     }
 
     if (!action) {

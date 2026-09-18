@@ -192,6 +192,20 @@ describe('buildWorkflowTree', () => {
         }
     )
 
+    it.each([
+        ['branch', 'Loyal users'],
+        ['continue', 'Fallback if no cohort has traffic'],
+    ] as const)('labels random cohort outcomes for edge=%s', (edgeType, label) => {
+        const cohortAction: HogFlowAction = {
+            id: 'split',
+            type: 'random_cohort_branch',
+            name: 'Split traffic',
+            description: '',
+            config: { cohorts: [{ name: 'Loyal users', percentage: 30 }] },
+        }
+        expect(getWorkflowBranchLabel(cohortAction, edge('split', 'next', edgeType, 0))).toBe(label)
+    })
+
     it('moves a branching action with all of its paths', () => {
         const workflowWithJoin = workflow(
             [

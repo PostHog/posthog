@@ -181,9 +181,11 @@ export function HogFlowTreeNode({
                                               ? branchIndex === null
                                                   ? 'Timeout'
                                                   : 'Match'
-                                              : percentage !== undefined
-                                                ? `${percentage}%`
-                                                : 'Other'
+                                              : branchIndex === null
+                                                ? 'Fallback'
+                                                : percentage !== undefined
+                                                  ? `${percentage}%`
+                                                  : `${branchIndex + 1}`
 
                                     return (
                                         <div
