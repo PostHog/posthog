@@ -14,6 +14,7 @@ from products.mcp_store.backend.models import MCPServerInstallation, MCPServerIn
 from products.mcp_store.backend.tools import (
     CALL_TIMEOUT,
     HANDSHAKE_TIMEOUT,
+    MAX_SYNC_ERROR_LENGTH,
     ToolCallError,
     ToolsFetchError,
     call_upstream_tool,
@@ -359,6 +360,37 @@ class TestSyncInstallationTools(ClickhouseTestMixin, APIBaseTest):
         assert tool.approval_state == "needs_approval"
         assert tool.description == "Search something"
         assert tool.removed_at is None
+
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
+    def test_sync_records_the_failure_then_clears_it_on_the_next_success(self, mock_fetch):
+        installation = self._installation()
+        mock_fetch.side_effect = ToolsFetchError("Upstream MCP server unreachable")
+
+        with pytest.raises(ToolsFetchError):
+            sync_installation_tools(installation)
+
+        installation.refresh_from_db()
+        assert installation.last_sync_error == "Upstream MCP server unreachable"
+        assert installation.last_synced_at is None
+
+        mock_fetch.side_effect = None
+        mock_fetch.return_value = [{"name": "search"}]
+        sync_installation_tools(installation)
+
+        installation.refresh_from_db()
+        assert installation.last_sync_error == ""
+        assert installation.last_synced_at is not None
+
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
+    def test_sync_truncates_an_oversized_upstream_error(self, mock_fetch):
+        installation = self._installation()
+        mock_fetch.side_effect = ToolsFetchError("x" * (MAX_SYNC_ERROR_LENGTH + 100))
+
+        with pytest.raises(ToolsFetchError):
+            sync_installation_tools(installation)
+
+        installation.refresh_from_db()
+        assert len(installation.last_sync_error) == MAX_SYNC_ERROR_LENGTH
 
     @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
     def test_sync_persists_upstream_annotations(self, mock_fetch):

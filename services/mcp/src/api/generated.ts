@@ -54429,6 +54429,13 @@ export namespace Schemas {
       readonly proxy_url: string;
       /** Number of live (non-removed) tools exposed by this installation. */
       readonly tool_count: number;
+      /**
+         * When this installation's tool list was last loaded from the upstream server. Null if it has never succeeded.
+         * @nullable
+         */
+      readonly last_synced_at: string | null;
+      /** Why the last attempt to load the tool list failed. Empty when the last attempt succeeded. A connection can be authorized and still fail here, so check this before treating an empty tool list as 'this server has no tools'. */
+      readonly last_sync_error: string;
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;

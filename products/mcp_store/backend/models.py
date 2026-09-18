@@ -215,6 +215,8 @@ class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         "MCPGatewayServer", on_delete=models.SET_NULL, related_name="installations", null=True, blank=True
     )
     last_used_at = models.DateTimeField(null=True, blank=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    last_sync_error = models.TextField(blank=True, default="", db_default="")
 
     class Meta:
         db_table = "mcp_store_mcpserverinstallation"

@@ -33,6 +33,9 @@ _TOOLS_CALL_ID = 3
 _PROTOCOL_VERSION = "2024-11-05"
 _CLIENT_INFO: dict[str, Any] = {"name": "posthog-mcp-store", "version": "1.0"}
 
+# Some upstreams answer a failed handshake with a whole HTML error page.
+MAX_SYNC_ERROR_LENGTH = 500
+
 # Each handshake step should return in well under a second.
 # We cap it aggressively (separate from the proxy's 180s, which
 # covers real tool execution) so a hung upstream can't pin a Django worker.
@@ -361,6 +364,16 @@ def _parse_jsonrpc_response(
         ) from exc
 
 
+def _record_sync_outcome(installation: MCPServerInstallation, error: str) -> None:
+    """An UPDATE rather than a save, so a concurrent write to another field survives."""
+    installation.last_sync_error = error[:MAX_SYNC_ERROR_LENGTH]
+    updates: dict[str, Any] = {"last_sync_error": installation.last_sync_error}
+    if not error:
+        installation.last_synced_at = timezone.now()
+        updates["last_synced_at"] = installation.last_synced_at
+    MCPServerInstallation.objects.filter(pk=installation.pk).update(**updates)
+
+
 def sync_installation_tools(installation: MCPServerInstallation) -> list[MCPServerInstallationTool]:
     """Upsert tool rows for an installation against the latest upstream ``tools/list``.
 
@@ -368,8 +381,15 @@ def sync_installation_tools(installation: MCPServerInstallation) -> list[MCPServ
     - Existing tools keep their approval state; name/description/schema/annotations/last_seen_at are updated.
     - Tools that disappear upstream get ``removed_at`` set (approval state preserved for later).
     - Tools that reappear get ``removed_at`` cleared.
+
+    Every path that refreshes tools funnels through here, so this is also where the
+    outcome is recorded for the connection's status.
     """
-    upstream_tools = fetch_upstream_tools(installation)
+    try:
+        upstream_tools = fetch_upstream_tools(installation)
+    except ToolsFetchError as exc:
+        _record_sync_outcome(installation, str(exc))
+        raise
     now = timezone.now()
 
     existing_by_name = {t.tool_name: t for t in installation.tools.all()}
@@ -428,4 +448,5 @@ def sync_installation_tools(installation: MCPServerInstallation) -> list[MCPServ
         row.removed_at = now
         row.save(update_fields=["removed_at", "updated_at"])
 
+    _record_sync_outcome(installation, "")
     return list(installation.tools.all())

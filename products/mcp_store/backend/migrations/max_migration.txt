@@ -1,1 +1,1 @@
-0032_drop_orphaned_mcpserver_fks
+0033_add_mcp_installation_sync_state

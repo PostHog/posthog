@@ -54,8 +54,9 @@ def sync_installation_tools_task(installation_id: str) -> None:
     try:
         sync_installation_tools(installation)
     except ToolsFetchError as exc:
-        logger.info(
+        logger.warning(
             "sync_installation_tools_task: upstream fetch failed",
             installation_id=installation_id,
+            url=installation.url,
             error=str(exc),
         )
