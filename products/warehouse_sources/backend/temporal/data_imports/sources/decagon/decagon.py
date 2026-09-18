@@ -464,14 +464,13 @@ class _RowWalk:
         params: dict[str, str] = {**self._config.extra_params, **position_params, **self._window_params}
         data = self._fetcher.fetch(params)
         self._envelope_shape = _describe_shape(data)
+        # Recorded here rather than in the walk, so the contract check sees the reported
+        # total whichever mode read the response.
+        self._reported_total = data.get(self._config.total_key) if self._config.total_key else None
         items = _resolve_items(data, self._config, self._endpoint, self._logger)
         fresh = self._deduplicator.fresh(items)
         self._saw_rows = self._saw_rows or bool(fresh)
         return _Batch(data=data, items=items, fresh=fresh)
-
-    def _record_total(self, batch: _Batch) -> Any:
-        self._reported_total = batch.data.get(self._config.total_key) if self._config.total_key else None
-        return self._reported_total
 
     def _short_page(self, batch: _Batch) -> bool:
         """Termination signal left when the response carries no usable total."""
@@ -563,7 +562,7 @@ class _RowWalk:
                 params["page_size"] = str(config.page_size)
 
             batch = self._read(params)
-            total = self._record_total(batch)
+            total = self._reported_total
             rows_walked += len(batch.fresh)
             page_rows = max(page_rows, len(batch.items))
             exhausted = self._page_walk_exhausted(page, rows_walked, page_rows, total, batch)
@@ -627,7 +626,7 @@ class _RowWalk:
                 params["limit"] = str(config.page_size)
 
             batch = self._read(params)
-            total = self._record_total(batch)
+            total = self._reported_total
 
             # Advance by the rows actually received rather than by page_size, so a server that
             # caps `limit` below what we asked still walks every row. The offset itself is the

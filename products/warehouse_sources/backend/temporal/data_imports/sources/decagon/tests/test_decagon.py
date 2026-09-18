@@ -723,6 +723,18 @@ class TestArticleTables:
         with pytest.raises(DecagonContractError):
             _drive_rows(manager, [_make_response(body)], endpoint="articles")
 
+    def test_an_unreadable_envelope_fails_a_cursor_walk_too(self) -> None:
+        # The contract guard has to hold for every pagination mode. Reading the total only
+        # in the paged modes left it inert everywhere else, so an unreadable envelope
+        # completed as an empty sync.
+        cfg = dataclasses.replace(DECAGON_ENDPOINTS["conversations"], total_key="total")
+        with patch.dict(DECAGON_ENDPOINTS, {"conversations": cfg}):
+            manager = _fresh_manager()
+            responses = [_make_response({"unexpected": {"conversation_id": "c1"}, "total": 12})]
+
+            with pytest.raises(DecagonContractError):
+                _drive_rows(manager, responses, endpoint="conversations")
+
     @parameterized.expand(
         [
             ("two_lists", {"data": [{"article_id": 1}], "meta": [{"page": 1}]}),
