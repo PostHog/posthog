@@ -28,6 +28,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, changes
 from posthog.rbac.query_access import assert_user_can_read_query
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
+from products.data_modeling.backend.facade.modeling import ResolutionCycleError, get_parents_from_model_query
 from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
@@ -382,6 +383,12 @@ class DataWarehouseSavedQuerySerializer(
                 query=validated_data["query"],
             )
             try:
+                get_parents_from_model_query(
+                    instance.team,
+                    probe.name,
+                    validated_data["query"]["query"],
+                    database=self.context["database"],
+                )
                 client_types = self.context["request"].data.get("types", [])
                 if len(client_types) == 0:
                     inferred_columns = probe.get_columns(user=self.context["request"].user)
@@ -395,7 +402,7 @@ class DataWarehouseSavedQuerySerializer(
                         for item in client_types
                     }
                 inferred_external_tables = probe.get_s3_tables(database=self.context["database"])
-            except RecursionError:
+            except (RecursionError, ResolutionCycleError):
                 raise serializers.ValidationError("Model contains a cycle")
             except Exception as e:
                 capture_exception(e)
