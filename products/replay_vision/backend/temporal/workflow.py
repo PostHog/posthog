@@ -35,7 +35,6 @@ from products.replay_vision.backend.temporal.activities import (
     embed_observation_activity,
     emit_classifier_tags_activity,
     emit_observation_event_activity,
-    emit_observation_signal_activity,
     ensure_session_asset_activity,
     fetch_session_events_activity,
     fetch_session_network_activity,
@@ -362,21 +361,21 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     "heartbeat_timeout": dt.timedelta(seconds=30),
                     "retry_policy": common.RetryPolicy(maximum_attempts=3),
                 }
-                # The activity fails soft (returns [] on any error), so there's nothing to retry. The local
-                # catch covers Temporal-level failures (timeout, worker loss) — emission is advisory and
-                # must never demote an otherwise-successful observation to FAILED.
+                # Scheduled by name so `result_type` can decode each branch: the activity now returns the
+                # problem type of each signal it actually emitted, and the count derives from that list.
+                # Pre-patch histories recorded a bare int count, so the else branch keeps decoding an int
+                # and in-flight scans replay cleanly. The activity fails soft (returns [] on any error), so
+                # there is nothing to retry; the local catch covers Temporal-level failures (timeout, worker
+                # loss) — emission is advisory and must never demote an otherwise-successful observation.
                 try:
                     if wf.patched("replay-vision-emitted-signal-problem-types"):
-                        # The activity returns the problem type of each signal it actually emitted, so the
-                        # count and the types agree. Pre-patch histories recorded a bare int count here;
-                        # the else branch keeps decoding those as int so in-flight scans replay cleanly.
                         signal_problem_types = await wf.execute_activity(
-                            emit_observation_signal_activity, emit_inputs, result_type=list, **emit_kwargs
+                            "emit_observation_signal_activity", emit_inputs, result_type=list, **emit_kwargs
                         )
                         signals_count = len(signal_problem_types)
                     else:
                         signals_count = await wf.execute_activity(
-                            emit_observation_signal_activity, emit_inputs, result_type=int, **emit_kwargs
+                            "emit_observation_signal_activity", emit_inputs, result_type=int, **emit_kwargs
                         )
                 except Exception:
                     wf.logger.exception("Signal emission activity failed for observation %s", observation_id)

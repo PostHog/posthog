@@ -3831,17 +3831,17 @@ async def test_apply_scanner_workflow_emits_the_signal_finding() -> None:
                     )
                 ],
             ),
-            emit_observation_signal_activity: ["bug"],
+            "emit_observation_signal_activity": ["bug"],
         },
     )
 
     await _run_workflow(_build_inputs(session_id="sess-sig", team_id=99), mocks)
 
     order = [fn for fn, _ in mocks.activity_calls]
-    assert order.index(call_scanner_provider_activity) < order.index(emit_observation_signal_activity)
-    assert order.index(emit_observation_signal_activity) < order.index(emit_observation_event_activity)
+    assert order.index(call_scanner_provider_activity) < order.index("emit_observation_signal_activity")
+    assert order.index("emit_observation_signal_activity") < order.index(emit_observation_event_activity)
 
-    signal_input = next(arg for fn, arg in mocks.activity_calls if fn is emit_observation_signal_activity)
+    signal_input = next(arg for fn, arg in mocks.activity_calls if fn == "emit_observation_signal_activity")
     assert signal_input.observation_id == new_observation_id
     assert signal_input.exported_asset_id == 42  # threaded from ensure_session_asset_activity
     assert signal_input.signals[0].description == "Checkout CTA is broken on /cart"
@@ -3880,7 +3880,7 @@ async def test_apply_scanner_workflow_succeeds_when_the_signal_activity_fails() 
                 ],
             ),
         },
-        activity_errors={emit_observation_signal_activity: TimeoutError("start-to-close exceeded")},
+        activity_errors={"emit_observation_signal_activity": TimeoutError("start-to-close exceeded")},
     )
 
     await _run_workflow(_build_inputs(session_id="sess-sig-fail", team_id=99), mocks)
