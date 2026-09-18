@@ -191,16 +191,19 @@
     if (typeof uPlot === 'undefined') return el('div', { class: 'empty' }, 'Charts need cdn.jsdelivr.net, which this browser could not load. The tables below still work.');
     if (!series.some(s => s.points.some(p => p[1] != null))) return el('div', { class: 'empty' }, 'no data points');
     const sec = t => Math.floor(+t / 1000);
-    const xs = [...new Set(series.flatMap(s => s.points.map(p => sec(p[0]))))].sort((a, b) => a - b);
+    const xs = padGaps([...new Set(series.flatMap(s => s.points.map(p => sec(p[0]))))].sort((a, b) => a - b));
     const at = new Map(xs.map((x, i) => [x, i]));
     const raw = series.map(s => { const col = Array(xs.length).fill(stacked ? 0 : missing); for (const [t, v] of s.points) if (v != null) col[at.get(sec(t))] = v; return col; });
-    let data = raw, bands = [];
-    if (stacked) {
+    // Band [upper, lower] clips the upper series' fill to its own layer; the lowest visible series fills down to zero on its own.
+    // Hidden series are left out of the running total, so toggling one in the legend restacks the rest.
+    const stack = show => {
       const acc = Array(xs.length).fill(0);
-      data = raw.map(col => col.map((v, i) => (acc[i] += v)));
-      // Band [upper, lower] clips the upper series' fill to its own layer; the bottom series fills down to zero on its own.
-      bands = raw.slice(1).map((_, i) => ({ series: [i + 2, i + 1] }));
-    }
+      const data = raw.map((col, i) => show(i) ? col.map((v, j) => (acc[j] += v)) : col);
+      const vis = raw.map((_, i) => i).filter(show);
+      return { data, bands: vis.slice(1).map((si, k) => ({ series: [si + 1, vis[k] + 1] })) };
+    };
+    let { data, bands } = stacked ? stack(() => true) : { data: raw, bands: [] };
+    const restack = u => { const { data, bands } = stack(i => u.series[i + 1].show); u.delBand(null); bands.forEach(b => u.addBand(b)); u.setData([xs, ...data]); };
     const opts = {
       width: 600, height, bands,
       cursor: { y: false, sync: { key: 'page', setSeries: false }, drag: { x: true, y: false, setScale: false, dist: 4 }, points: { size: 6 }, bind: { dblclick: () => () => zoomOut() } },
@@ -211,7 +214,7 @@
         { value: (u, v) => v == null ? '' : fmt.ts(new Date(v * 1000)) },
         ...series.map(s => ({ label: s.name, stroke: s.color, width: 1.5, points: { show: false }, fill: stacked ? s.color + '59' : null, spanGaps: false, value: (u, v, si, di) => di == null || raw[si - 1][di] == null ? '–' : yfmt(raw[si - 1][di]) })),
       ],
-      hooks: { setSelect: [u => {
+      hooks: { setSeries: stacked ? [restack] : [], setSelect: [u => {
         if (u.select.width < 4) return;
         const from = u.posToVal(u.select.left, 'x'), to = u.posToVal(u.select.left + u.select.width, 'x');
         u.setSelect({ width: 0, height: 0 }, false);
@@ -228,6 +231,20 @@
     });
     ro.observe(wrap);
     return wrap;
+  }
+  // A bucket that no series has a point for is absent from the x values, and the line would bridge it as if
+  // nothing happened. Gaps wider than 2.5 times the typical spacing get synthetic x values, which take the
+  // chart's missing value like any other absent bucket.
+  function padGaps(xs) {
+    if (xs.length < 3) return xs;
+    const steps = xs.slice(1).map((x, i) => x - xs[i]).sort((a, b) => a - b), step = steps[steps.length >> 1];
+    const out = [xs[0]];
+    for (const x of xs.slice(1)) {
+      let prev = out[out.length - 1];
+      if (x - prev > step * 2.5) for (prev += step; prev < x - step / 2 && out.length < 5000; prev += step) out.push(prev);
+      out.push(x);
+    }
+    return out;
   }
   function destroyCharts() { for (const c of charts.splice(0)) { c.ro.disconnect(); c.u.destroy(); } }
   const COLORS = ['#7aa2f7', '#6cc38b', '#e0af68', '#f7768e', '#bb9af7', '#7dcfff', '#ff9e64', '#9ece6a'];
