@@ -620,6 +620,34 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         assert reopened.started_at == _dt(_ago(4))
         assert reopened.segments != []
 
+    def test_a_never_ready_pr_starts_at_its_own_created_at(self) -> None:
+        # PR 32 has an issue event, but never a ready_for_review one. ready_by_pr_cte's per-pr
+        # aggregate must read as "no ready event" here, not fall back to ClickHouse's zero-value
+        # DateTime default, which would read as truthy and pin the timeline to run_from instead.
+        created_at = _ago(6)
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(32, "alice", "closed", 0, created_at, closed_at=_ago(5))],
+        )
+        self._create_table(
+            "github_issue_events",
+            ISSUE_EVENTS_COLUMNS,
+            [_issue_event_row(1, "convert_to_draft", 32, _ago(5))],
+        )
+        self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [])
+        curated = CuratedGitHubSource.for_team(self.team)
+        scope = DeliveryScope(
+            kind=DeliveryScopeKind.PULL_REQUEST, pr_number=32, repo_owner="PostHog", repo_name="posthog"
+        )
+
+        timelines = query_pull_request_timelines(
+            curated=curated, scope=scope, date_from=datetime.now(tz=UTC) - timedelta(days=7), date_to=None
+        )
+
+        never_ready = next(item for item in timelines.items if item.number == 32)
+        assert never_ready.started_at == _dt(created_at)
+
 
 _ISSUE_EVENTS_WITHOUT_TEAM_REQUESTS = {
     column: types for column, types in ISSUE_EVENTS_COLUMNS.items() if column != "requested_team"

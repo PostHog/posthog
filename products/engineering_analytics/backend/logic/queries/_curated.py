@@ -322,7 +322,10 @@ class CuratedGitHubSource:
                     pr_number,
                     argMax(event, tuple(created_at, id)) = '{issue_events.READY_FOR_REVIEW_EVENT}' AS last_is_ready,
                     max(created_at) AS last_transition_at,
-                    maxIf(created_at, event = '{issue_events.READY_FOR_REVIEW_EVENT}') AS last_ready_at
+                    -- OrNull, not maxIf: a plain maxIf falls back to the epoch default when no row
+                    -- matches, and that default would pass the caller's last_ready_at IS NOT NULL
+                    -- filter as if it were a real event (see dora.py's deploys CTE for the same hazard).
+                    maxOrNullIf(created_at, event = '{issue_events.READY_FOR_REVIEW_EVENT}') AS last_ready_at
                 FROM {source} AS se
                 GROUP BY pr_number
             )
