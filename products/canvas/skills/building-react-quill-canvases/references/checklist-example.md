@@ -21,7 +21,7 @@ Capabilities for this project: the full `capabilities.posthog` shape with `state
   - `Entry`, `PREFIX`, `RESET_KEY`: the shape of one persisted step and the `step:<id>` key prefix.
   - `CommandBlock`: the copy button, with its success and failure states.
   - The first `useEffect`: reads saved progress with `ph.state.list`, and sets the loading and load-failure states.
-  - The second `useEffect`: clears pending debounce timers when the canvas unmounts.
+  - The second `useEffect`: on unmount, clears the debounce timers it captured when it mounted.
   - `persist`: one shared-state write per step, and a null write when the entry returns to blank.
   - `update`: the single save path. It reads the ref, debounces note saves, and saves a checkbox at once.
   - `resetAll`: the two-click reset. It cancels pending timers first, then deletes the keys.
