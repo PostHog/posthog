@@ -134,6 +134,7 @@ The workflow logs each step with `notebook_run_id`, the cell index, and the `nod
 Read these four things from them: adoption by `trigger`; the share of runs that end `done`; where runs stop, from `failed_node_id`'s position and the cell's type; and the duration spread by `cell_count`, which says whether the MCP tool's 45 second budget covers a typical notebook or whether the status tool is the common path.
 
 Each cell of a whole-notebook run also reports its own `notebook node run completed` event, so the per-cell view above still applies inside a run.
+
 ## Temporal queue health
 
 Every notebook workflow runs on `general-purpose-task-queue`: `notebook-sandbox-cmd-run`, `notebook-frame-materialize`, and `notebook-widget-generate` (`temporal/client.py`).
