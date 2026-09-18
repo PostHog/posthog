@@ -7,7 +7,6 @@ import { useStorybookMocks } from '~/mocks/browser'
 import type { UserCustomerAnalyticsConfigApi } from '../../generated/api.schemas'
 import { CustomerAnalyticsNotifications } from './CustomerAnalyticsNotifications'
 import { CustomerAnalyticsTaskDigest } from './CustomerAnalyticsTaskDigest'
-import { TaskDigestButton } from './TaskDigestButton'
 import { TaskDigestModal } from './TaskDigestModal'
 
 const CONFIG_URL = '/api/projects/:team_id/user_customer_analytics_config/@me/'
@@ -27,7 +26,6 @@ interface TaskDigestStoryProps {
     loading?: boolean
     failing?: boolean
     notifications?: boolean
-    tasks?: boolean
     modal?: boolean
     saving?: boolean
     saveFails?: boolean
@@ -40,7 +38,6 @@ function TaskDigestStory({
     failing,
     width,
     notifications,
-    tasks,
     modal,
     saving,
     saveFails,
@@ -76,8 +73,6 @@ function TaskDigestStory({
         <div className={width === 'narrow' ? 'w-[520px] p-4' : 'w-[900px] p-4'}>
             {modal ? (
                 <TaskDigestModal onClose={() => {}} />
-            ) : tasks ? (
-                <TaskDigestButton />
             ) : notifications ? (
                 <CustomerAnalyticsNotifications />
             ) : (
@@ -128,6 +123,7 @@ export const NotificationsNarrow: Story = { ...Notifications, args: { notificati
 export const Saving: Story = { args: { saving: true } }
 export const SaveFailed: Story = { args: { saveFails: true } }
 
-export const TasksButton: Story = { args: { tasks: true } }
-
-export const TasksModal: Story = { args: { modal: true } }
+export const TasksModal: Story = {
+    args: { modal: true },
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonModal', waitForSelector: '.LemonModal' } },
+}
