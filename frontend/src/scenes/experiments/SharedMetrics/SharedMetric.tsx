@@ -234,9 +234,6 @@ export function SharedMetric(): JSX.Element {
                         tagsAvailable={allExistingTags}
                         dataAttrKey="shared-metric"
                     />
-                    {action === 'update' && (
-                        <SharedMetricLinkedExperiments experiments={sharedMetric.linked_experiments || []} />
-                    )}
                 </ScenePanelInfoSection>
                 <ScenePanelDivider />
                 <ScenePanelActionsSection>
@@ -324,23 +321,32 @@ export function SharedMetric(): JSX.Element {
                 }
             />
 
-            {sharedMetric.query.kind === NodeKind.ExperimentMetric ? (
-                <ExperimentMetricForm
-                    metric={sharedMetric.query as ExperimentMetric}
-                    isSharedMetric={true}
-                    handleSetMetric={(newMetric) => {
-                        setSharedMetric({
-                            ...sharedMetric,
-                            query: newMetric,
-                        })
-                    }}
-                    filterTestAccounts={currentTeam?.test_account_filters?.length ? true : false}
-                />
-            ) : sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery ? (
-                <LegacySharedTrendsMetricForm />
-            ) : (
-                <LegacySharedFunnelsMetricForm />
-            )}
+            <div className="flex flex-col gap-4 @min-[64rem]/main-content:flex-row @min-[64rem]/main-content:items-start">
+                <div className="min-w-0 flex-1 order-2 @min-[64rem]/main-content:order-1">
+                    {sharedMetric.query.kind === NodeKind.ExperimentMetric ? (
+                        <ExperimentMetricForm
+                            metric={sharedMetric.query as ExperimentMetric}
+                            isSharedMetric={true}
+                            handleSetMetric={(newMetric) => {
+                                setSharedMetric({
+                                    ...sharedMetric,
+                                    query: newMetric,
+                                })
+                            }}
+                            filterTestAccounts={currentTeam?.test_account_filters?.length ? true : false}
+                        />
+                    ) : sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery ? (
+                        <LegacySharedTrendsMetricForm />
+                    ) : (
+                        <LegacySharedFunnelsMetricForm />
+                    )}
+                </div>
+                {action === 'update' && (sharedMetric.linked_experiments || []).length > 0 && (
+                    <div className="order-1 @min-[64rem]/main-content:order-2 @min-[64rem]/main-content:w-80 shrink-0 @min-[64rem]/main-content:sticky @min-[64rem]/main-content:top-4">
+                        <SharedMetricLinkedExperiments experiments={sharedMetric.linked_experiments || []} />
+                    </div>
+                )}
+            </div>
             <div className="flex justify-between">
                 <AccessControlAction
                     resourceType={AccessControlResourceType.ExperimentSavedMetric}
