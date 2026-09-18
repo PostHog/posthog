@@ -428,7 +428,7 @@ class EventDefinitionViewSet(
 
     def dangerously_get_queryset(self):
         # Only `event_custom` and `event_posthog` change the rows, in `_event_definitions_source_sql`.
-        event_type = EventDefinitionType(self.request.GET.get("event_type", EventDefinitionType.EVENT))
+        event_type = self._requested_event_type()
 
         event_definition_object_manager: Manager = event_definition_model(EE_AVAILABLE).objects
 
@@ -558,6 +558,15 @@ class EventDefinitionViewSet(
         if not isinstance(decoded, list):
             return []
         return [tag for tag in decoded if isinstance(tag, str)]
+
+    def _requested_event_type(self) -> EventDefinitionType:
+        """The `?event_type=` filter. The enum conversion raises on an unknown value, which reads as a 500."""
+        try:
+            return EventDefinitionType(self.request.GET.get("event_type", EventDefinitionType.EVENT))
+        except ValueError:
+            raise serializers.ValidationError(
+                {"event_type": f"Not a valid event type. Use one of: {', '.join(EVENT_DEFINITION_LIST_EVENT_TYPES)}."}
+            )
 
     def _requested_ordering(self) -> list[tuple[str, Literal["ASC", "DESC"]]]:
         """The `?ordering=` fields this endpoint can serve, in request order. Unknown fields are dropped."""
