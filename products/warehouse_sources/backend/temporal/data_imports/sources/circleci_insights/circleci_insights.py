@@ -136,6 +136,16 @@ def _format_start_date(value: Any) -> str | None:
     return None
 
 
+def _format_start_date_param(value: Any, needs_timestamp: bool) -> str | None:
+    """Format the incremental cursor for the `start-date` query param. Midnight UTC of the cursor
+    day re-reads the same watermark day as the date-only form, so the overlap the primary-key
+    merge dedupes is unchanged."""
+    start_date = _format_start_date(value)
+    if start_date is None or not needs_timestamp:
+        return start_date
+    return f"{start_date}T00:00:00Z"
+
+
 def validate_credentials(api_token: str, project_slugs_raw: str) -> tuple[bool, str | None]:
     """Confirm the token with /me, then confirm each configured project slug resolves against
     the Insights API."""
@@ -418,8 +428,15 @@ def _project_workflow_fan_out_rows(
     workflow_names = _discover_workflow_names(fetch_page, project_slug, all_branches, logger)
 
     params: dict[str, Any] = _endpoint_params(config, window, all_branches)
+    if all_branches and not config.takes_branch_params:
+        # The endpoint takes a single `branch` name but no `all-branches`, and CircleCI scopes an
+        # omitted branch to the default one, so the branch setting cannot reach these rows.
+        logger.warning(
+            f"CircleCI Insights: {endpoint} has no all-branches param, so its rows cover the "
+            f"default branch only. project={project_slug}"
+        )
     if config.takes_start_date and should_use_incremental_field:
-        start_date = _format_start_date(db_incremental_field_last_value)
+        start_date = _format_start_date_param(db_incremental_field_last_value, config.start_date_needs_timestamp)
         if start_date:
             # Server-side filter: every page only returns rows dated on or after this date
             # (the filter rides along with the page token on later pages).

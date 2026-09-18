@@ -54,7 +54,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "job_timeseries": {
-        "description": "Daily timeseries of metrics for each job in a workflow, giving point-in-time job trends rather than a single window aggregate. Daily buckets are retained for roughly 90 days.",
+        "description": "Daily timeseries of metrics for each job in a workflow, giving point-in-time job trends rather than a single window aggregate. Daily buckets are retained for roughly 90 days. The endpoint has no all-branches option, so these rows cover the project's default branch even when the source is set to all branches.",
         "docs_url": "https://circleci.com/docs/api/v2/index.html#operation/getJobTimeseries",
         "columns": {
             "name": "The name of the job the bucket describes.",

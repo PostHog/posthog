@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
@@ -16,7 +18,7 @@ REPORTING_WINDOWS = (
 DEFAULT_REPORTING_WINDOW = "last-90-days"
 
 
-@dataclass
+@frozen
 class CircleciInsightsEndpointConfig:
     name: str
     # Path template relative to the API base; {slug} is the project slug (or org slug for
@@ -42,6 +44,9 @@ class CircleciInsightsEndpointConfig:
     takes_branch_params: bool = False
     # Whether the endpoint accepts the server-side `start-date` filter used for incremental sync.
     takes_start_date: bool = False
+    # Whether `start-date` needs the full RFC 3339 timestamp. The runs endpoint accepts the
+    # date-only form; the time-series endpoint is only documented for a timestamp.
+    start_date_needs_timestamp: bool = False
     # Fixed query params the endpoint always needs.
     extra_params: dict[str, str] = field(default_factory=dict)
     # Row order the API returns. The row-level listings declare desc, which defers the
@@ -113,6 +118,7 @@ CIRCLECI_INSIGHTS_ENDPOINTS: dict[str, CircleciInsightsEndpointConfig] = {
         ],
         fan_out_workflows=True,
         takes_start_date=True,
+        start_date_needs_timestamp=True,
         # Hourly buckets are only retained for 48 hours, which a scheduled sync cannot rely on;
         # daily buckets match the ~90-day retention the rest of the source works against.
         extra_params={"granularity": "daily"},

@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_i
     CircleciInsightsResumeConfig,
     CircleciInsightsRetryableError,
     _format_start_date,
+    _format_start_date_param,
     circleci_insights_source,
     get_rows,
     org_slugs_from_projects,
@@ -100,6 +101,16 @@ class TestFormatStartDate:
     )
     def test_formats_as_date_only(self, value, expected):
         assert _format_start_date(value) == expected
+
+    @parameterized.expand(
+        [
+            (datetime(2026, 7, 1, 13, 30, tzinfo=UTC), False, "2026-07-01"),
+            (datetime(2026, 7, 1, 13, 30, tzinfo=UTC), True, "2026-07-01T00:00:00Z"),
+            (None, True, None),
+        ]
+    )
+    def test_timestamp_form_keeps_the_same_watermark_day(self, value, needs_timestamp, expected):
+        assert _format_start_date_param(value, needs_timestamp) == expected
 
 
 class TestValidateCredentials:
@@ -463,13 +474,16 @@ class TestJobTimeseriesFanOut:
             },
         )
 
-        list(get_rows("token", "gh/a/one", "job_timeseries", mock.MagicMock(), _make_manager(), all_branches=True))
+        logger = mock.MagicMock()
+        list(get_rows("token", "gh/a/one", "job_timeseries", logger, _make_manager(), all_branches=True))
 
         urls = _requested_urls(mock_session)
         assert parse_qs(urlparse(urls[0]).query)["all-branches"] == ["true"]
         assert "all-branches" not in parse_qs(urlparse(urls[1]).query)
+        # The setting silently cannot reach these rows, so the sync log has to say so.
+        assert "default branch only" in logger.warning.call_args.args[0]
 
-    @parameterized.expand([(True, ["2026-07-01"]), (False, None)])
+    @parameterized.expand([(True, ["2026-07-01T00:00:00Z"]), (False, None)])
     @mock.patch(PATCH_SESSION)
     def test_start_date_sent_only_on_incremental(self, incremental, expected, mock_session):
         _route_session(
