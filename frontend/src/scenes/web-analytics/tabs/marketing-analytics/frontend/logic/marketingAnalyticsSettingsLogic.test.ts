@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -8,8 +9,40 @@ import { TeamType } from '~/types'
 
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 
+jest.mock('posthog-js')
+
 describe('marketing settings project changes', () => {
-    beforeEach(() => initKeaTests())
+    beforeEach(() => {
+        jest.mocked(posthog.capture).mockClear()
+        initKeaTests()
+    })
+
+    it('reports manual goal saves with the surface they came from', async () => {
+        const logic = marketingAnalyticsSettingsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const goal: ConversionGoalFilter = {
+            kind: NodeKind.EventsNode,
+            event: 'purchase',
+            conversion_goal_id: 'purchases',
+            conversion_goal_name: 'Purchases',
+            schema_map: {},
+        }
+
+        await expectLogic(logic, () => logic.actions.addOrUpdateConversionGoal(goal)).toFinishAllListeners()
+        expect(posthog.capture).toHaveBeenCalledWith('marketing analytics settings updated', {
+            field: 'conversion_goals',
+            entry_point: 'project_settings',
+        })
+
+        logic.actions.setSetupEntryPoint('dashboard_goal_suggestions')
+        await expectLogic(logic, () => logic.actions.removeConversionGoal('purchases')).toFinishAllListeners()
+        expect(posthog.capture).toHaveBeenCalledWith('marketing analytics settings updated', {
+            field: 'conversion_goals',
+            entry_point: 'dashboard_goal_suggestions',
+        })
+        logic.unmount()
+    })
 
     it('does not submit goals when changing the test-account filter', async () => {
         const logic = marketingAnalyticsSettingsLogic()
