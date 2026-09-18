@@ -225,7 +225,7 @@ class TestBabysitFollowUpDecision:
             (True, False, False, {"ci_status": "none"}, False),
             (True, False, False, {"failing_checks": [BABYSIT_CHECK]}, False),
             (True, False, False, {"unresolved_threads": [BABYSIT_THREAD]}, False),
-            (True, False, False, {"feedback_complete": False}, False),
+            (True, False, False, {"review_threads_complete": False}, False),
             (True, False, False, {"review_decision": "CHANGES_REQUESTED"}, False),
             (True, False, False, {"mergeable": False}, False),
         ],
@@ -240,7 +240,7 @@ class TestBabysitFollowUpDecision:
         if queued:
             wf._pending_followups.append(PendingFollowup(message="More work", artifact_ids=[]))
         snapshot = _babysit_snapshot(
-            **{"pr_state": "draft", "ci_status": "passing", "mergeable": True, "feedback_complete": True, **overrides}
+            **{"pr_state": "draft", "ci_status": "passing", "mergeable": True, "review_threads_complete": True, **overrides}
         )
         executed = []
 

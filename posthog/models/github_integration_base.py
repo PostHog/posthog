@@ -2242,17 +2242,19 @@ class GitHubIntegrationBase:
         failing_checks = self._extract_failing_checks(rollup)
         if not failing_checks and (rollup or {}).get("state") in self._FAILING_ROLLUP_STATES:
             failing_checks.append({"key": self._ROLLUP_FAILING_CHECK_KEY, "details_url": f"{html_url}/checks"})
+        mergeable = self._map_mergeable(pr.get("mergeable"))
 
         return {
             "success": True,
             "url": html_url,
             "state": self._map_pr_state(pr.get("state"), bool(pr.get("isDraft"))),
             "head_sha": pr.get("headRefOid") or "",
-            "has_conflict": self._map_mergeable(pr.get("mergeable")) is False,
-            "mergeable": self._map_mergeable(pr.get("mergeable")) is True,
+            "has_conflict": mergeable is False,
+            "mergeable": mergeable is True,
             "ci_status": self._map_ci_status((rollup or {}).get("state")),
             "review_decision": pr.get("reviewDecision"),
-            "feedback_complete": ((pr.get("reviewThreads") or {}).get("pageInfo") or {}).get("hasNextPage") is False,
+            "review_threads_complete": ((pr.get("reviewThreads") or {}).get("pageInfo") or {}).get("hasNextPage")
+            is False,
             "head_ref": pr.get("headRefName"),
             "author_login": author_login,
             "failing_checks": failing_checks,
