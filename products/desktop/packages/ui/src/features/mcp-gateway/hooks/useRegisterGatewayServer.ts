@@ -63,10 +63,9 @@ export function useRegisterGatewayServer() {
         client,
         { serverId: created?.id, url: vars.request.url },
         { servers },
-      ).catch((error: Error) => {
+      ).catch(() => {
         toast.warning(
-          error.message ||
-            "Added, but listing the server's tools failed. Open the server to try again.",
+          "Added, but listing the server's tools failed. Open the server to try again.",
         );
         return null;
       });

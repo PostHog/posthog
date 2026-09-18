@@ -142,7 +142,11 @@ describe("useRegisterGatewayServer", () => {
 
     expect(outcome.created?.id).toBe("srv-1");
     expect(outcome.discoveredTools).toBe(false);
-    expect(mocks.toastWarning).toHaveBeenCalledWith("upstream down");
+    // The upstream reason can carry a fragment of the server's response body,
+    // so the toast stays a fixed recovery message.
+    expect(mocks.toastWarning).toHaveBeenCalledWith(
+      "Added, but listing the server's tools failed. Open the server to try again.",
+    );
   });
 
   it("skips the listing when the credential is still mid-OAuth", async () => {

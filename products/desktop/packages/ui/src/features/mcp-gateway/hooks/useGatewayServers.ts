@@ -84,10 +84,9 @@ export function useGatewayServers() {
       // A failed listing must not read as a failed connect, but it must not
       // pass silently either: the server then sits at "Connected" with no
       // tools and nothing says why.
-      onError: (error: Error) =>
+      onError: () =>
         toast.warning(
-          error.message ||
-            "Connected, but listing the server's tools failed. Open the server to try again.",
+          "Connected, but listing the server's tools failed. Open the server to try again.",
         ),
     },
   );
