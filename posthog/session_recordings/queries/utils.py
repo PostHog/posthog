@@ -106,6 +106,11 @@ def is_recording_property(p: AnyPropertyFilter) -> bool:
     return p_type == "recording"
 
 
+def is_hogql_property(p: AnyPropertyFilter) -> bool:
+    p_type = getattr(p, "type", None)
+    return p_type == "hogql"
+
+
 def expand_test_account_filters(team: Team) -> list[AnyPropertyFilter]:
     prop_filters: list[AnyPropertyFilter] = []
     for prop in team.test_account_filters:
@@ -139,9 +144,14 @@ class UnexpectedQueryProperties(Exception):
         self.remaining_properties = remaining_properties
         # Drop the raw value from each filter so that user-supplied data (e.g. a domain or URL)
         # doesn't end up in the exception message — otherwise every distinct value produces a
-        # brand-new error-tracking fingerprint.
+        # brand-new error-tracking fingerprint. A hogql filter carries the whole user-written
+        # expression in its key, so the key goes the same way.
         summary = [
-            {"type": getattr(p, "type", None), "key": getattr(p, "key", None), "operator": getattr(p, "operator", None)}
+            {
+                "type": getattr(p, "type", None),
+                "key": None if is_hogql_property(p) else getattr(p, "key", None),
+                "operator": getattr(p, "operator", None),
+            }
             for p in (remaining_properties or [])
         ]
         super().__init__(f"Unexpected properties in query: {summary}")
@@ -165,6 +175,15 @@ def _strip_person_and_event_and_cohort_properties(
     ]
 
     return properties_to_keep
+
+
+def unexpected_properties(properties: list[AnyPropertyFilter] | None) -> list[AnyPropertyFilter]:
+    """The replay-scope leftovers that are worth reporting.
+
+    A hogql filter is user-written SQL the filter UI offers on purpose, so it is expected here.
+    The classifiers above claim one only when its text names a person, event, or session property.
+    """
+    return [p for p in (properties or []) if not is_hogql_property(p)]
 
 
 def poe_is_active(team: Team) -> bool:

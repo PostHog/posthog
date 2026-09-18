@@ -3,6 +3,7 @@ from parameterized import parameterized
 from posthog.schema import (
     CohortPropertyFilter,
     EventPropertyFilter,
+    FeaturePropertyFilter,
     GroupPropertyFilter,
     HogQLPropertyFilter,
     PersonPropertyFilter,
@@ -16,6 +17,7 @@ from posthog.session_recordings.queries.utils import (
     _strip_person_and_event_and_cohort_properties,
     is_recording_property,
     is_session_property,
+    unexpected_properties,
 )
 from posthog.types import AnyPropertyFilter
 
@@ -99,3 +101,29 @@ class TestStripProperties:
         assert offending_value not in str(exc)
         assert "event" in str(exc)
         assert "$entry_referring_domain" in str(exc)
+
+    @parameterized.expand(
+        [
+            ("event property reference", "properties.$current_url = '/home'"),
+            ("subscript property reference", "properties['Amount (USD)'] > 100"),
+            ("json extract on the properties column", "JSONExtractRaw(properties, 'Amount (USD)') > 100"),
+            ("bare column reference", "distinct_id = 'abc'"),
+            ("subquery", "session_id in (select session_id from events)"),
+        ]
+    )
+    def test_hogql_filters_are_never_reported_as_unexpected(self, _name: str, expression: str) -> None:
+        # The filter UI offers a SQL expression row, so every one of these is supported input.
+        assert unexpected_properties([HogQLPropertyFilter(key=expression)]) == []
+
+    def test_unexpected_properties_keeps_filters_no_classifier_handles(self) -> None:
+        feature_filter = FeaturePropertyFilter(key="$feature/my-flag", operator=PropertyOperator.EXACT, value="control")
+        result = unexpected_properties([feature_filter, HogQLPropertyFilter(key="distinct_id = 'abc'")])
+        assert result == [feature_filter]
+
+    def test_unexpected_query_properties_message_does_not_contain_hogql_expression(self) -> None:
+        # A hogql filter stores the user's whole expression in its key, so keeping the key would
+        # put customer event and property names into error tracking, one fingerprint per filter.
+        expression = "JSONExtractRaw(properties, 'Amount (USD)') > 100"
+        exc = UnexpectedQueryProperties([HogQLPropertyFilter(key=expression)])
+        assert expression not in str(exc)
+        assert "hogql" in str(exc)
