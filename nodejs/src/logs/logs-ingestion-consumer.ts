@@ -84,7 +84,7 @@ export interface LogsIngestionConsumerDeps {
     dependencyRetry?: { retryCount: number; initialRetryDelayMs: number }
 }
 
-/** Ingestion default when `logs_settings.retention_days` is unset; must be in `TeamSerializer.VALID_RETENTION_DAYS`. */
+/** Ingestion default when `logs_settings.retention_days` is unset; must match `DEFAULT_LOGS_RETENTION_DAYS` in `posthog/models/team/logs_retention.py`. */
 export const DEFAULT_LOGS_RETENTION_DAYS = 14
 
 /** Retention day counts that get their own per-tier usage metric. */

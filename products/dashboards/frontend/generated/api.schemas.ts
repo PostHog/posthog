@@ -3095,7 +3095,10 @@ export interface TrendsQueryApi {
     response?: TrendsQueryResponseApi | null
     /** Sampling rate */
     samplingFactor?: number | null
-    /** Events and actions to include */
+    /**
+     * Events and actions to include
+     * @maxItems 200
+     */
     series: (EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi | GroupNodeApi)[]
     /** Tags that will be added to the Query log comment */
     tags?: QueryLogTagsApi | null
@@ -4243,7 +4246,10 @@ export interface StickinessQueryApi {
     response?: StickinessQueryResponseApi | null
     /** Sampling rate */
     samplingFactor?: number | null
-    /** Events and actions to include */
+    /**
+     * Events and actions to include
+     * @maxItems 200
+     */
     series: (EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi)[]
     /** Properties specific to the stickiness insight */
     stickinessFilter?: StickinessFilterApi | null

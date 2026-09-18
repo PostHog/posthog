@@ -87,6 +87,7 @@ import {
 } from '../utils'
 import { viewRecordingsLinkabilityLogic } from '../viewRecordingsLinkabilityLogic'
 import {
+    type ExperimentMetricUnselectableCode,
     type ExperimentRecordingsDeepLink,
     type ExperimentRecordingsEntryPoint,
     type ExperimentReplayMetricFilterMode,
@@ -370,6 +371,7 @@ export interface experimentReplayTabLogicValues {
     behaviorComparisonOpen: boolean
     behaviorComparisonUnavailableReason: ExperimentBehaviorComparisonUnavailableReason | null
     bucketSessionIds: string[] | undefined
+    droppedMetricReason: ExperimentMetricUnselectableCode | null
     durationFilterActive: boolean
     durationFilterCustomized: boolean
     effectiveExposureScope: ExperimentReplayExposureScope
@@ -723,6 +725,7 @@ export interface experimentReplayTabLogicMeta {
             bucketSessionIds: string[] | undefined,
             selectedWatchCard: ExperimentWatchCardApi | null,
             entryPoint: 'results_button' | 'results_menu' | null,
+            droppedMetricReason: 'data_warehouse' | 'no_uuid' | 'retention' | 'server_side_events' | null,
             filtersCustomized: boolean
         ) => ExperimentRecordingsFilterContext
         tabViewContext: (
@@ -732,7 +735,8 @@ export interface experimentReplayTabLogicMeta {
             inSessionExposure: ExperimentInSessionExposureApi | null,
             behaviorComparisonAvailable: boolean,
             behaviorComparisonUnavailableReason: 'group_aggregated' | null,
-            entryPoint: 'results_button' | 'results_menu' | null
+            entryPoint: 'results_button' | 'results_menu' | null,
+            droppedMetricReason: 'data_warehouse' | 'no_uuid' | 'retention' | 'server_side_events' | null
         ) => ExperimentRecordingsTabContext
         metricOptions: (
             linkabilityLoaded: boolean,
@@ -1170,6 +1174,21 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 selectWatchCard: () => null,
             },
         ],
+        // Why the link that opened this visit carried no metric. Not persisted, and cleared by the
+        // same actions that clear the entry point: once the viewer moves a facet themselves, the
+        // list no longer answers the results row's question and the explanation would describe
+        // something they left behind.
+        droppedMetricReason: [
+            null as ExperimentMetricUnselectableCode | null,
+            {
+                applyDeepLink: (_, { link }) => link.metricUnavailable,
+                setSelectedVariantKey: () => null,
+                setExposureScope: () => null,
+                setMetricSelected: () => null,
+                setMetricFilterMode: () => null,
+                selectWatchCard: () => null,
+            },
+        ],
     }),
     selectors({
         loadedRecordingsById: [
@@ -1446,6 +1465,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 s.bucketSessionIds,
                 s.selectedWatchCard,
                 s.entryPoint,
+                s.droppedMetricReason,
                 s.filtersCustomized,
             ],
             (
@@ -1456,6 +1476,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 bucketSessionIds: string[] | undefined,
                 selectedWatchCard: ExperimentWatchCardApi | null,
                 entryPoint: ExperimentRecordingsEntryPoint | null,
+                droppedMetricReason: ExperimentMetricUnselectableCode | null,
                 filtersCustomized: boolean
             ): ExperimentRecordingsFilterContext => ({
                 variant: effectiveVariantKey,
@@ -1468,6 +1489,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 // asked for, the same as moving one of the tab's own facets. Read off the playlist
                 // rather than its change action, which also fires on the tab's own pushes.
                 entry_point: filtersCustomized ? null : entryPoint,
+                metric_unavailable_reason: filtersCustomized ? null : droppedMetricReason,
             }),
         ],
         // The `experiment recordings tab viewed` payload, in a selector so the settled-checks
@@ -1481,6 +1503,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 s.behaviorComparisonAvailable,
                 s.behaviorComparisonUnavailableReason,
                 s.entryPoint,
+                s.droppedMetricReason,
             ],
             (
                 variantKeys: string[],
@@ -1489,9 +1512,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 inSessionExposure: ExperimentInSessionExposureApi | null,
                 behaviorComparisonAvailable: boolean,
                 behaviorComparisonUnavailableReason: ExperimentBehaviorComparisonUnavailableReason | null,
-                entryPoint: ExperimentRecordingsEntryPoint | null
+                entryPoint: ExperimentRecordingsEntryPoint | null,
+                droppedMetricReason: ExperimentMetricUnselectableCode | null
             ): ExperimentRecordingsTabContext => ({
                 entry_point: entryPoint,
+                metric_unavailable_reason: droppedMetricReason,
                 variant_count: variantKeys.length,
                 metric_count: metricOptions.length,
                 linkable_metric_count: metricOptions.filter((option) => !option.unlinkable).length,
