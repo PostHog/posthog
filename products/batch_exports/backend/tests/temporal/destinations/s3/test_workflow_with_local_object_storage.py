@@ -101,6 +101,44 @@ async def test_s3_export_workflow_with_local_object_storage_with_various_compres
 
 
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
+@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("exclude_events", [None], indirect=True)
+@pytest.mark.parametrize("file_format", ["Parquet"], indirect=True)
+@pytest.mark.parametrize("compression", ["zstd"], indirect=True)
+@pytest.mark.parametrize("legacy_parquet_extension", [True, False], indirect=True)
+async def test_s3_export_workflow_names_parquet_files_by_the_extension_setting(
+    clickhouse_client,
+    object_storage_client,
+    ateam,
+    s3_compatible_batch_export,
+    bucket_name,
+    interval,
+    compression,
+    exclude_events,
+    s3_key_prefix,
+    file_format,
+    legacy_parquet_extension,
+    data_interval_start,
+    data_interval_end,
+    model: BatchExportModel | BatchExportSchema | None,
+    generate_test_data,
+):
+    await run_s3_batch_export_workflow(
+        model=model,
+        ateam=ateam,
+        batch_export_id=str(s3_compatible_batch_export.id),
+        integration_id=s3_compatible_batch_export.destination.integration_id,
+        s3_destination_config=s3_compatible_batch_export.destination.config,
+        interval=interval,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        clickhouse_client=clickhouse_client,
+        s3_client=object_storage_client,
+        destination_type="S3Compatible",
+    )
+
+
+@pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("compression", [None], indirect=True)
 @pytest.mark.parametrize("file_format", ["JSONLines"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [["test-exclude"]], indirect=True)

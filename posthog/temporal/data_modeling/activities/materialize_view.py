@@ -4,6 +4,7 @@ import asyncio
 import dataclasses
 
 from django.conf import settings
+from django.db import transaction
 
 import pyarrow as pa
 import deltalake
@@ -184,6 +185,17 @@ _clickhouse_query_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CLICKHOUSE_QUERIE
 class EmptyHogQLResponseColumnsError(Exception):
     def __init__(self):
         super().__init__("After running a HogQL query, no columns were returned")
+
+
+class UnstorableIntegerError(NonReportableError):
+    """A column holds a whole number too large for the signed integer types Delta Lake has."""
+
+    def __init__(self, column: str) -> None:
+        super().__init__(
+            f'Column "{column}" has whole numbers larger than {2**63 - 1}, which is the largest a '
+            f"materialized table can store. Wrap the column in toString() to store it as text."
+        )
+        self.column = column
 
 
 class DuplicateOutputColumnError(NonReportableError):
@@ -543,6 +555,53 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
+_SIGNED_EQUIVALENT_BY_BIT_WIDTH = {8: pa.int16(), 16: pa.int32(), 32: pa.int64(), 64: pa.int64()}
+
+
+def _signed_equivalent(arrow_type: pa.DataType) -> pa.DataType:
+    """The type Delta Lake stores this as. Unchanged unless an unsigned integer is in it."""
+    if pa.types.is_unsigned_integer(arrow_type):
+        return _SIGNED_EQUIVALENT_BY_BIT_WIDTH[arrow_type.bit_width]
+
+    if pa.types.is_large_list(arrow_type):
+        return pa.large_list(_signed_equivalent_field(arrow_type.value_field))
+
+    if pa.types.is_list(arrow_type):
+        return pa.list_(_signed_equivalent_field(arrow_type.value_field))
+
+    if pa.types.is_struct(arrow_type):
+        return pa.struct([_signed_equivalent_field(field) for field in arrow_type])
+
+    if pa.types.is_map(arrow_type):
+        return pa.map_(_signed_equivalent(arrow_type.key_type), _signed_equivalent(arrow_type.item_type))
+
+    return arrow_type
+
+
+def _signed_equivalent_field(field: pa.Field) -> pa.Field:
+    return field.with_type(_signed_equivalent(field.type))
+
+
+def _transform_unsigned_integers(batch: pa.RecordBatch) -> pa.RecordBatch:
+    """Cast unsigned integer columns to the signed types Delta Lake stores them as."""
+    signed_fields = [_signed_equivalent_field(field) for field in batch.schema]
+    if all(signed.type.equals(field.type) for signed, field in zip(signed_fields, batch.schema)):
+        return batch
+
+    columns: list[pa.Array] = []
+    for field in signed_fields:
+        try:
+            columns.append(pc.cast(batch.column(field.name), field.type))
+        except pa.ArrowInvalid as err:
+            raise UnstorableIntegerError(field.name) from err
+
+    signed_schema = pa.schema(
+        signed_fields,
+        metadata=typing.cast("dict[bytes | str, bytes | str] | None", batch.schema.metadata),
+    )
+    return pa.RecordBatch.from_arrays(columns, schema=signed_schema)
+
+
 async def _write_empty_parquet_for_zero_rows(table_uri: str, schema: pa.Schema, logger: FilteringBoundLogger) -> str:
     """Write a single empty parquet file under ``table_uri`` so a zero-row materialization
     is still queryable.
@@ -870,6 +929,37 @@ async def _stage_person_property_batch(
         capture_exception(e)
 
 
+FAILED_UPDATE_REASON_PREFIX = "incremental update failed: "
+
+
+def _failed_update_reason(error: Exception) -> str:
+    """Why a rebuild is happening, short enough for ``DataModelingJob.full_refresh_reason``."""
+    limit = DataModelingJob._meta.get_field("full_refresh_reason").max_length
+    assert limit is not None
+    return f"{FAILED_UPDATE_REASON_PREFIX}{error}"[:limit]
+
+
+@database_sync_to_async_pool
+def _drop_watermark_and_say_why(saved_query: DataWarehouseSavedQuery, job: DataModelingJob, reason: str) -> None:
+    """Clear the watermark and record the reason together, so a retry cannot find one without it."""
+    with transaction.atomic():
+        clear_incremental_state(saved_query)
+        job.full_refresh_reason = reason
+        job.save()
+
+
+def _reason_to_record(job: DataModelingJob, plan: WritePlan) -> str | None:
+    """The reason this run rebuilt, keeping the one a failed attempt of the same job wrote."""
+    if plan.incremental:
+        return None
+
+    recorded = job.full_refresh_reason
+    if recorded is not None and recorded.startswith(FAILED_UPDATE_REASON_PREFIX):
+        return recorded
+
+    return plan.reason
+
+
 async def _materialize_fully(
     objects: MatviewInputObjects,
     plan: WritePlan,
@@ -913,6 +1003,7 @@ async def _materialize_fully(
     async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
         batch = _transform_unsupported_decimals(batch)
         batch = _transform_date_and_datetimes(batch, ch_types)
+        batch = _transform_unsigned_integers(batch)
         batch = _force_nullable(batch)
         if tracker is not None:
             await asyncio.to_thread(tracker.check, batch)
@@ -1008,6 +1099,7 @@ async def _materialize_incrementally(
         async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, window=window):
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
+            batch = _transform_unsigned_integers(batch)
             batch = _force_nullable(batch)
 
             if batch.num_rows == 0:
@@ -1040,7 +1132,7 @@ async def _materialize_incrementally(
         # Every one of these means the table and the query have diverged in a way an upsert can't
         # reconcile. Dropping the watermark makes the retry rebuild instead of writing rows that
         # would be wrong, so the failure costs a full refresh rather than silent corruption.
-        await database_sync_to_async_pool(clear_incremental_state)(objects.saved_query)
+        await _drop_watermark_and_say_why(objects.saved_query, objects.job, _failed_update_reason(err))
         if isinstance(err, SchemaDriftError):
             await logger.awarning(f"Rebuilding after schema drift: {err}")
         raise
@@ -1144,7 +1236,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     objects.job.run_mode = (
         DataModelingJob.RunMode.INCREMENTAL if plan.incremental else DataModelingJob.RunMode.FULL_REFRESH
     )
-    objects.job.full_refresh_reason = None if plan.incremental else plan.reason
+    objects.job.full_refresh_reason = _reason_to_record(objects.job, plan)
     await database_sync_to_async_pool(objects.job.save)()
 
     person_property_sink = await _build_person_property_sink(

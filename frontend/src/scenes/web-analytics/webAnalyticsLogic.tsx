@@ -227,7 +227,6 @@ export interface webAnalyticsLogicValues {
     isGreaterThanMd: boolean
     isPathCleaningEnabled: boolean
     pathTab: string
-    preAggregatedEnabled: boolean | undefined
     preZoomDateFilter: {
         dateFrom: string | null
         dateTo: string | null
@@ -235,6 +234,7 @@ export interface webAnalyticsLogicValues {
     } | null
     productTab: ProductTab
     replayFilters: RecordingUniversalFilters
+    restrictedUiEnabled: boolean
     shouldAutoOpenFocusModeOnboarding: boolean
     shouldFilterTestAccounts: boolean
     shouldShowGeoIPQueries: any
@@ -535,13 +535,10 @@ export interface webAnalyticsLogicMeta {
     key: 'page-visibility' | 'web-analytics'
     __keaTypeGenInternalSelectorTypes: {
         compareFilter: (rawCompareFilter: CompareFilter, dateFilter: DateFilterState) => CompareFilter
-        preAggregatedEnabled: (
-            featureFlags: FeatureFlagsSet,
-            currentTeam: TeamPublicType | TeamType | null
-        ) => boolean | undefined
+        restrictedUiEnabled: (featureFlags: FeatureFlagsSet, currentTeam: TeamPublicType | TeamType | null) => boolean
         incompatibleFilters: (
             rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
-            preAggregatedEnabled: boolean | undefined
+            restrictedUiEnabled: boolean
         ) => WebAnalyticsPropertyFilters
         hasIncompatibleFilters: (incompatibleFilters: WebAnalyticsPropertyFilters) => boolean
         graphsTab: (_graphsTab: string | null) => string
@@ -567,16 +564,16 @@ export interface webAnalyticsLogicMeta {
             shouldFilterTestAccounts: boolean
         ) => WebAnalyticsFiltersConfig
         warmablePresetShortId: (
-            appliedPresetShortId: string | null, // webAnalyticsFilterLogic
-            appliedPresetFilters: WebAnalyticsFiltersConfig | null, // webAnalyticsFilterLogic
+            appliedPresetShortId: string | null,
+            appliedPresetFilters: WebAnalyticsFiltersConfig | null,
             currentFiltersConfig: WebAnalyticsFiltersConfig
         ) => string | null
         hasNonDefaultFilters: (
-            rawWebAnalyticsFilters: WebAnalyticsPropertyFilters, // webAnalyticsFilterLogic
-            domainFilter: string | null, // webAnalyticsFilterLogic
-            deviceTypeFilter: DeviceType | null, // webAnalyticsFilterLogic
-            countryFilter: string | null, // webAnalyticsFilterLogic
-            referrerFilter: string | null, // webAnalyticsFilterLogic
+            rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
+            domainFilter: string | null,
+            deviceTypeFilter: DeviceType | null,
+            countryFilter: string | null,
+            referrerFilter: string | null,
             conversionGoal: WebAnalyticsConversionGoal | null
         ) => boolean
         webAnalyticsFilters: (
@@ -697,7 +694,7 @@ export interface webAnalyticsLogicMeta {
             featureFlags: FeatureFlagsSet,
             isGreaterThanMd: boolean,
             tileVisualizations: Record<TileId, TileVisualizationOption>,
-            preAggregatedEnabled: boolean | undefined,
+            restrictedUiEnabled: boolean,
             hiddenTiles: TileId[],
             warmablePresetShortId: string | null
         ) => WebAnalyticsTile[]
@@ -1185,22 +1182,31 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 // again as soon as the range becomes a bounded one.
                 dateFilter.dateFrom === 'all' ? { compare: false } : rawCompareFilter,
         ],
-        preAggregatedEnabled: [
+        restrictedUiEnabled: [
             (s) => [s.featureFlags, s.currentTeam],
             (featureFlags: Record<string, boolean>, currentTeam: TeamPublicType | TeamType | null) => {
+                // Two independent levers restrict the UI to the precompute-servable
+                // vocabulary (tile allowlist, filter pruning, property allowlist):
+                // the standalone restricted-UI flag, which implies nothing about the
+                // query engine and exists so heavy teams stay restricted while the
+                // legacy pre-aggregated tables retire, and the legacy pair (settings
+                // flag + team modifier) that also switches the engine.
                 return (
-                    featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
-                    currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
+                    !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_RESTRICTED_UI] ||
+                    !!(
+                        featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
+                        currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
+                    )
                 )
             },
         ],
         incompatibleFilters: [
-            (s) => [s.rawWebAnalyticsFilters, s.preAggregatedEnabled],
+            (s) => [s.rawWebAnalyticsFilters, s.restrictedUiEnabled],
             (
                 rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
-                preAggregatedEnabled: boolean
+                restrictedUiEnabled: boolean
             ): WebAnalyticsPropertyFilters => {
-                if (!preAggregatedEnabled) {
+                if (!restrictedUiEnabled) {
                     return []
                 }
 
@@ -1693,7 +1699,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 s.featureFlags,
                 s.isGreaterThanMd,
                 s.tileVisualizations,
-                s.preAggregatedEnabled,
+                s.restrictedUiEnabled,
                 s.hiddenTiles,
                 s.warmablePresetShortId,
             ],
@@ -1720,7 +1726,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 isGreaterThanMd: boolean,
                 tileVisualizations: Record<TileId, TileVisualizationOption>,
-                preAggregatedEnabled: boolean | undefined,
+                restrictedUiEnabled: boolean | undefined,
                 hiddenTiles: TileId[],
                 warmablePresetShortId: string | null
             ): WebAnalyticsTile[] => {
@@ -3153,7 +3159,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                     allTiles
                         .filter(isNotNil)
                         .filter((tile) =>
-                            preAggregatedEnabled ? TILES_ALLOWED_ON_PRE_AGGREGATED.includes(tile.tileId) : true
+                            restrictedUiEnabled ? TILES_ALLOWED_ON_PRE_AGGREGATED.includes(tile.tileId) : true
                         )
                         .filter((tile) => !hiddenTiles.includes(tile.tileId)),
                     warmablePresetShortId

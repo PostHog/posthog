@@ -210,6 +210,7 @@ rules:
                               |FeatureRequest
                               |FeatureRequestAccountLink
                               |FeatureRequestEvidence
+                              |FeatureRequestGitHubLink
                               |FeatureRequestHistory
                               |FeatureRequestProductArea
                               |FeatureRequestProductAreaLink
@@ -313,6 +314,7 @@ rules:
                               |QuickFilterContext
                               |ReplayObservation
                               |ReplayObservationLabel
+                              |ReplayObservationMedia
                               |ReplayObservationUsage
                               |ReplayObservationView
                               |ReplayScanner
@@ -625,6 +627,7 @@ rules:
                         |FeatureRequest
                         |FeatureRequestAccountLink
                         |FeatureRequestEvidence
+                        |FeatureRequestGitHubLink
                         |FeatureRequestHistory
                         |FeatureRequestProductArea
                         |FeatureRequestProductAreaLink
@@ -721,6 +724,7 @@ rules:
                         |QuickFilterContext
                         |ReplayObservation
                         |ReplayObservationLabel
+                        |ReplayObservationMedia
                         |ReplayObservationUsage
                         |ReplayObservationView
                         |ReplayScanner
