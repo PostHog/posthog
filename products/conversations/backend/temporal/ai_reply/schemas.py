@@ -63,6 +63,9 @@ class BuildContextOutput:
     prior_needs_diagnostics: bool = False
     # True when a follow-up round should not run: a human already left awaiting_clarification.
     followup_cancelled: bool = False
+    # Passed through to draft so playbook compose stays out of Temporal history.
+    docs_source: str = ""
+    custom_instructions: str = ""
 
 
 @dataclass
@@ -134,6 +137,8 @@ class DraftInput:
     # True the draft stays doc/BK-only so project data can't reach the author, even if opted in.
     auto_publishable: bool = False
     clarification_round: int = 0
+    docs_source: str = ""
+    custom_instructions: str = ""
 
 
 @dataclass(frozen=False)
@@ -153,6 +158,11 @@ class DraftOutput:
     clarifying_questions: list[str] = field(default_factory=list)
     investigation_summary: str = ""
     unknowns: list[str] = field(default_factory=list)
+    playbook_layers: list[str] = field(default_factory=list)
+    playbook_default_version: int = 0
+    playbook_posthog_overlay_version: int | None = None
+    playbook_content_hash: str = ""
+    playbook_warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
