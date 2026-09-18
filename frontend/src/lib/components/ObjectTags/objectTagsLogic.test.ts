@@ -37,6 +37,15 @@ describe('objectTagsLogic', () => {
             expect(mockedOnChange.calls.length).toBe(1)
             expect(mockedOnChange.calls[0][0]).toEqual(['a', 'b', 'c', 'nightly'])
         })
+        it('drops blank tags', async () => {
+            await expectLogic(logic, async () => {
+                logic.actions.setTags(['a', '', '  ', 'b'])
+            })
+            // @ts-expect-error
+            const mockedOnChange = props.onChange?.mock
+            expect(mockedOnChange.calls.length).toBe(1)
+            expect(mockedOnChange.calls[0][0]).toEqual(['a', 'b'])
+        })
         it('removes duplicate tags', async () => {
             await expectLogic(logic, async () => {
                 logic.actions.setTags(['a', 'nightly', 'b', 'c', 'nightly'])

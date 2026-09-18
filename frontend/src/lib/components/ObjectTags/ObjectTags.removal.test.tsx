@@ -4,6 +4,12 @@ import userEvent from '@testing-library/user-event'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 
 describe('ObjectTags', () => {
+    it('shows the placeholder when the only stored tag is blank', () => {
+        render(<ObjectTags tags={['']} staticOnly />)
+
+        expect(screen.getByText('—')).toBeTruthy()
+    })
+
     it('removes a tag via the x without collapsing edit mode', async () => {
         const onChange = jest.fn()
         render(
