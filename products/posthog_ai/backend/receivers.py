@@ -35,6 +35,16 @@ COPY_BEHIND_MESSAGE = "This chat is still being copied into the task. Try again 
 SANDBOX_MODE_REQUIRED_MESSAGE = "Continuing this chat as a task is not available to you yet."
 
 
+def _feature_flags() -> Any:
+    """The flag helpers, or None in a build without ``ee``, where every hook here is a no-op."""
+    # Deferred: the flag helpers pull in the LLM clients; this module loads at Django startup and must stay light.
+    try:
+        from ee.hogai.utils import feature_flags  # noqa: PLC0415
+    except ImportError:
+        return None
+    return feature_flags
+
+
 def connect() -> None:
     register_task_read_exclusion(copied_chats_hidden_without_sandbox_mode, name="posthog_ai_copied_chats")
     register_task_run_start_guard(catch_up_conversation_copy_before_run, name="posthog_ai_conversation_copy")
@@ -48,9 +58,8 @@ def copied_chats_hidden_without_sandbox_mode(team_id: int, user_id: int | None) 
 
     Copies are only ever visible to the chat's owner, so the owner's own chats are the whole set.
     """
-    from ee.hogai.utils.feature_flags import has_sandbox_mode_feature_flag  # noqa: PLC0415 — see the guard below
-
-    if user_id is None:
+    flags = _feature_flags()
+    if flags is None or user_id is None:
         return ()
     # Every task read calls this, and most users have no copied chat: answer that with one query
     # before paying for the team, the user and a flag evaluation.
@@ -63,21 +72,18 @@ def copied_chats_hidden_without_sandbox_mode(team_id: int, user_id: int | None) 
         return ()
     team = Team.objects.filter(id=team_id).only("id", "organization_id").first()
     user = User.objects.filter(id=user_id).only("id", "distinct_id").first()
-    if team is None or user is None or has_sandbox_mode_feature_flag(team, user):
+    if team is None or user is None or flags.has_sandbox_mode_feature_flag(team, user):
         return ()
     return copied_task_ids
 
 
 def catch_up_conversation_copy_before_run(task_id: str, team_id: int, user_id: int | None) -> str | None:
     """Copy a LangGraph chat's missing turns into its task before the task's first real run."""
-    # Deferred: the copy pulls in the tasks facade and the LangGraph graph, and the flag helpers pull in
-    # the LLM clients; this module loads at Django startup and must stay light.
+    flags = _feature_flags()
+    if flags is None:
+        return None
+    # Deferred: the copy pulls in the tasks facade and the LangGraph graph.
     from products.posthog_ai.backend.conversation_mirror import amirror_conversation  # noqa: PLC0415
-
-    from ee.hogai.utils.feature_flags import (  # noqa: PLC0415
-        has_conversation_task_mirror_feature_flag,
-        has_sandbox_mode_feature_flag,
-    )
 
     conversation = (
         Conversation.objects.select_related("user", "team")
@@ -86,9 +92,9 @@ def catch_up_conversation_copy_before_run(task_id: str, team_id: int, user_id: i
     )
     if conversation is None:
         return None
-    if not has_sandbox_mode_feature_flag(conversation.team, conversation.user):
+    if not flags.has_sandbox_mode_feature_flag(conversation.team, conversation.user):
         return SANDBOX_MODE_REQUIRED_MESSAGE
-    if not has_conversation_task_mirror_feature_flag(conversation.team, conversation.user):
+    if not flags.has_conversation_task_mirror_feature_flag(conversation.team, conversation.user):
         # The kill switch stops copying altogether; a stale copy is then expected, not a reason to refuse.
         return None
     try:
@@ -111,13 +117,14 @@ def mark_conversation_sandbox_on_first_run(sender: type, instance: Any, created:
     try:
         if instance.task.origin_product != TaskOriginProduct.POSTHOG_AI:
             return
-        from ee.hogai.utils.feature_flags import has_sandbox_mode_feature_flag  # noqa: PLC0415 — see the guard above
-
+        flags = _feature_flags()
+        if flags is None:
+            return
         conversations = Conversation.objects.select_related("user", "team").filter(
             task_id=instance.task_id, agent_runtime=Conversation.AgentRuntime.LANGGRAPH
         )
         for conversation in conversations:
-            if not has_sandbox_mode_feature_flag(conversation.team, conversation.user):
+            if not flags.has_sandbox_mode_feature_flag(conversation.team, conversation.user):
                 # Without the flag the legacy screen cannot send to the sandbox path, so the chat stays put.
                 continue
             Conversation.objects.filter(id=conversation.id, agent_runtime=Conversation.AgentRuntime.LANGGRAPH).update(

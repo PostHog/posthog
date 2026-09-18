@@ -10,6 +10,7 @@ from django.conf import settings
 
 import pydantic
 import structlog
+from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.workflow import ParentClosePolicy
@@ -27,6 +28,7 @@ from products.posthog_ai.backend.temporal.workflows import ConversationMirrorWor
 from ee.hogai.chat_agent.runner import ChatAgentRunner
 from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore
 from ee.hogai.stream.redis_stream import ConversationRedisStream, get_conversation_stream_key
+from ee.hogai.utils.feature_flags import has_conversation_task_mirror_feature_flag
 from ee.hogai.utils.types import AssistantMode, AssistantOutput
 
 logger = structlog.get_logger(__name__)
@@ -107,6 +109,12 @@ class AssistantConversationRunnerWorkflow(AgentBaseWorkflow):
         )
 
 
+@dataclass(frozen=True)
+class ChatAgentActivityResult:
+    # False for turns that predate this field, so a chat in flight at deploy never starts the copy.
+    mirror_enabled: bool = False
+
+
 @dataclass
 class ChatAgentWorkflowInputs:
     """Inputs for the chat agent workflow."""
@@ -142,7 +150,7 @@ class ChatAgentWorkflow(AgentBaseWorkflow):
     @workflow.run
     async def run(self, inputs: ChatAgentWorkflowInputs) -> None:
         """Execute the agent workflow."""
-        await workflow.execute_activity(
+        result = await workflow.execute_activity(
             process_chat_agent_activity,
             inputs,
             start_to_close_timeout=timedelta(seconds=CHAT_AGENT_WORKFLOW_TIMEOUT),
@@ -154,9 +162,9 @@ class ChatAgentWorkflow(AgentBaseWorkflow):
             ),
             heartbeat_timeout=timedelta(seconds=CHAT_AGENT_ACTIVITY_HEARTBEAT_TIMEOUT),
         )
-        if not inputs.use_checkpointer:
+        if not inputs.use_checkpointer or result is None or not result.mirror_enabled:
             # A subagent run shares the conversation but writes no turn of its own; only the main
-            # turn has something to copy.
+            # turn has something to copy, and only while the kill switch is on for its owner.
             return
         # The turn is persisted and streamed by now. The copy into the task runs as a detached child
         # so this workflow closes at once: its id is fixed per conversation, and a follow-up sent
@@ -173,7 +181,7 @@ class ChatAgentWorkflow(AgentBaseWorkflow):
 
 
 @activity.defn
-async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> None:
+async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> ChatAgentActivityResult:
     """Process a chat agent task and stream results to Redis.
 
     Args:
@@ -184,6 +192,10 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> None:
         Team.objects.aget(id=inputs.team_id),
         User.objects.aget(id=inputs.user_id),
         Conversation.objects.aget(id=inputs.conversation_id),
+    )
+
+    result = ChatAgentActivityResult(
+        mirror_enabled=await sync_to_async(has_conversation_task_mirror_feature_flag)(team, user)
     )
 
     human_message = HumanMessage.model_validate(inputs.message) if inputs.message else None
@@ -318,12 +330,12 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> None:
     if should_stop_queue:
         await queue_store.clear_async()
         await redis_stream.mark_complete()
-        return
+        return result
 
     queued_workflow = await build_queued_workflow_inputs()
     if queued_workflow is None:
         await redis_stream.mark_complete()
-        return
+        return result
 
     next_inputs, queued_message = queued_workflow
     try:
@@ -336,6 +348,7 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> None:
         )
         await queue_store.requeue_front_async(queued_message)
         raise
+    return result
 
 
 @activity.defn
