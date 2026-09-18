@@ -226,14 +226,16 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
         )
 
     def validate_name(self, value):
-        # For creation, check if event definition with this name already exists
-        if not self.instance:  # Only for creation, not updates
-            view = self.context.get("view")
-            if view:
-                # Uniqueness is per project (`event_definition_proj_uniq`), so check the project, not the team.
-                existing = EventDefinition.objects.for_project(view.project_id).filter(name=value).exists()
-                if existing:
-                    raise serializers.ValidationError(f"Event definition with name '{value}' already exists")
+        view = self.context.get("view")
+        if view:
+            # Uniqueness is per project (`event_definition_proj_uniq`), so check the project, not the team.
+            # A rename is checked too: `name` stays writable on update in a build without `ee`, where the
+            # unique index would otherwise surface the clash as a 500.
+            clashes = EventDefinition.objects.for_project(view.project_id).filter(name=value)
+            if self.instance:
+                clashes = clashes.exclude(pk=self.instance.pk)
+            if clashes.exists():
+                raise serializers.ValidationError(f"Event definition with name '{value}' already exists")
         return value
 
     def validate(self, data):

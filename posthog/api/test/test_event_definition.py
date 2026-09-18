@@ -510,6 +510,31 @@ class TestEventDefinitionAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    @parameterized.expand(
+        [
+            ("clashing_name", "existing_event", status.HTTP_400_BAD_REQUEST),
+            ("free_name", "free_event", status.HTTP_200_OK),
+            ("its_own_name", "rename_me", status.HTTP_200_OK),
+        ]
+    )
+    @patch("posthog.api.event_definition.EE_AVAILABLE", False)
+    def test_update_event_definition_duplicate_name(self, _name: str, new_name: str, expected_status: int):
+        # `name` stays writable on update without ee, so the check has to run on a rename as well, or the
+        # clash reaches the unique index and returns 500. The clashing row belongs to a sibling environment,
+        # which a team-scoped check would miss.
+        sibling = Team.objects.create(organization=self.organization, project=self.demo_team.project)
+        EventDefinition.objects.create(team=sibling, project=self.demo_team.project, name="existing_event")
+        event_definition = EventDefinition.objects.create(
+            team=self.demo_team, project=self.demo_team.project, name="rename_me"
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/event_definitions/{event_definition.id}",
+            {"name": new_name},
+        )
+
+        assert response.status_code == expected_status, response.json()
+
     def test_create_event_definition_missing_name(self):
         """Test that creating an event without a name fails"""
         response = self.client.post(
