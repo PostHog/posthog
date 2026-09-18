@@ -4,6 +4,8 @@ use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use tracing::Level;
 
+use crate::v0_request::AiLanePredicate;
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum CaptureMode {
     Events,
@@ -358,6 +360,14 @@ pub struct Config {
     /// warning says so when the two are out of order.
     #[envconfig(default = "8388608")] // 8MiB
     pub ai_max_event_bytes: u64,
+
+    /// How this deployment decides an event name belongs to the AI lane:
+    /// `allowlist` (exact `AI_EVENT_NAMES`) or `prefix` (any `$ai_*` name).
+    /// Flip to `prefix` only after the environment's AI ingestion pipeline
+    /// admits by prefix, or every prefixed-but-unlisted name it diverts is
+    /// DLQed downstream.
+    #[envconfig(from = "CAPTURE_AI_LANE_PREDICATE", default = "allowlist")]
+    pub ai_lane_predicate: AiLanePredicate,
 
     // HMAC-SHA256 key shared with the AI gateway. When set, $ai_generation events
     // carrying a valid PostHog-Ai-Gateway-* signature are stamped verified and

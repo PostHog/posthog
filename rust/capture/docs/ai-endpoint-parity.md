@@ -103,6 +103,6 @@ flag.
 
 - The AI endpoint's unique features (multipart parsing, AI event validation, etc.) are intentional and should be preserved
 - Some differences are by design rather than gaps:
-  - **Event type filtering**: `/e` uses denylist (blocks `$performance_event`), AI uses allowlist (only accepts 6 `$ai_*` events)
+  - **Event type filtering**: `/e` uses denylist (blocks `$performance_event`), AI accepts only AI-lane names (6-name allowlist or the `$ai_` prefix, per `CAPTURE_AI_LANE_PREDICATE`)
   - **Single event vs batch**: AI processes single events, `/e` supports batches
 - Focus parity efforts on security, billing, and abuse prevention features
