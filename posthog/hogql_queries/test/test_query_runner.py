@@ -885,7 +885,7 @@ class TestQueryRunner(BaseTest):
         ]
     )
     def test_a_run_that_raises_sends_one_failure_event_and_no_success_event(
-        self, _name: str, where: str, failed_in: str, error_class: type[Exception], outcome: str
+        self, _name: str, where: str, failed_in: str, error_class: type[Exception], error_category: str
     ) -> None:
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
@@ -913,7 +913,7 @@ class TestQueryRunner(BaseTest):
         assert [call.args[0] for call in report.call_args_list] == ["query execution failed"]
         props = report.call_args.args[1]
         assert props["failed_in"] == failed_in
-        assert props["outcome"] == outcome
+        assert (props["outcome"], props["error_category"]) == ("failed", error_category)
         assert props["error_type"] == error_class.__name__
         assert props["cache_key"] == runner.get_cache_key()
         assert props["query_hash"] == runner.get_query_identity().query_hash
@@ -2269,8 +2269,10 @@ class TestQueryFailureCaching(BaseTest):
             assert getattr(ctx.exception, "served_from_query_failure_cache", False)
             assert ctx.exception.status_code == 504
             assert [call.args[0] for call in report.call_args_list] == ["query execution failed"]
-            assert (report.call_args.args[1]["outcome"], report.call_args.args[1]["failed_in"]) == (
+            refused_props = report.call_args.args[1]
+            assert (refused_props["outcome"], refused_props["error_category"], refused_props["failed_in"]) == (
                 "refused",
+                "query_performance_error",
                 "prepare",
             )
 
