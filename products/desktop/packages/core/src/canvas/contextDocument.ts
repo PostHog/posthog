@@ -47,12 +47,23 @@ export type GoalMeasure =
     }
   | { kind: "insight"; shortId: string; url: string; name: string };
 
+export type GoalPeriod = "day" | "week" | "month";
+
 export interface ContextGoal {
+  id: string;
   name: string;
-  why: string;
   measure: GoalMeasure | null;
   target: GoalTarget | null;
   primary: boolean;
+  period?: GoalPeriod;
+  percent?: boolean;
+  task?: string;
+}
+
+export interface BrokenBlock {
+  key: "goals" | "reading" | "watching";
+  lines: string[];
+  error: string;
 }
 
 export interface ContextDocument {
@@ -61,6 +72,7 @@ export interface ContextDocument {
   links: ContextLink[];
   objects: ContextObject[];
   goals: ContextGoal[];
+  broken: BrokenBlock[];
 }
 
 export const CONTEXT_OBJECT_KIND_LABELS: Record<ContextObjectKind, string> = {
@@ -132,11 +144,14 @@ const measureSchema = z
   );
 
 const goalSchema = z.object({
+  id: z.string().default(() => crypto.randomUUID()),
   name: z.string(),
-  why: z.string().default(""),
   primary: z.boolean().default(false),
   target: targetSchema.nullable().default(null),
   measure: measureSchema.nullable().default(null),
+  period: z.enum(["day", "week", "month"]).optional(),
+  percent: z.boolean().optional(),
+  task: z.string().optional(),
 });
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
@@ -176,26 +191,36 @@ function readList<T>(
   key: OwnKey,
   lines: string[] | undefined,
   schema: z.ZodType<T>,
-): T[] {
-  if (!lines) return [];
+): { items: T[]; broken: BrokenBlock | null } {
+  if (!lines) return { items: [], broken: null };
   const block = z.object({ [key]: z.array(schema).nullish() });
-  const result = block.safeParse(parseYaml(lines.join("\n")));
-  if (!result.success) {
-    throw new Error(
-      `The frontmatter key \`${key}\` is not in the expected shape.\n${z.prettifyError(result.error)}`,
-    );
+  try {
+    const result = block.safeParse(parseYaml(lines.join("\n")));
+    if (result.success) return { items: result.data[key] ?? [], broken: null };
+    return {
+      items: [],
+      broken: { key, lines, error: z.prettifyError(result.error) },
+    };
+  } catch (cause) {
+    const error = cause instanceof Error ? cause.message : String(cause);
+    return { items: [], broken: { key, lines, error } };
   }
-  return result.data[key] ?? [];
 }
 
 export function parseContextDocument(markdown: string): ContextDocument {
   const { blocks, rest, body } = splitFrontmatter(markdown);
+  const goals = readList("goals", blocks.goals, goalSchema);
+  const links = readList("reading", blocks.reading, linkSchema);
+  const objects = readList("watching", blocks.watching, objectSchema);
   return {
     frontmatter: rest,
     knowledge: body.trim(),
-    goals: readList("goals", blocks.goals, goalSchema),
-    links: readList("reading", blocks.reading, linkSchema),
-    objects: readList("watching", blocks.watching, objectSchema),
+    goals: goals.items,
+    links: links.items,
+    objects: objects.items,
+    broken: [goals.broken, links.broken, objects.broken].filter(
+      (block): block is BrokenBlock => block !== null,
+    ),
   };
 }
 
@@ -217,9 +242,12 @@ function writeMeasure(measure: GoalMeasure): Record<string, unknown> {
 
 function writeGoal(goal: ContextGoal): Record<string, unknown> {
   return {
+    id: goal.id,
     name: goal.name,
-    why: goal.why.trim() || undefined,
     primary: goal.primary || undefined,
+    period: goal.period,
+    percent: goal.percent || undefined,
+    task: goal.measure ? undefined : goal.task,
     target: goal.target
       ? {
           direction: goal.target.direction,
@@ -252,7 +280,10 @@ export function serializeContextDocument(doc: ContextDocument): string {
     Object.keys(own).length > 0
       ? stringifyYaml(own, { lineWidth: 0 }).trimEnd()
       : "";
-  const front = [doc.frontmatter.trim(), ownYaml].filter(Boolean).join("\n");
+  const kept = doc.broken.map((block) => block.lines.join("\n").trimEnd());
+  const front = [doc.frontmatter.trim(), ownYaml, ...kept]
+    .filter(Boolean)
+    .join("\n");
   const body = doc.knowledge.trim();
   if (!front) return body ? `${body}\n` : "";
   return body ? `---\n${front}\n---\n\n${body}\n` : `---\n${front}\n---\n`;
@@ -261,10 +292,6 @@ export function serializeContextDocument(doc: ContextDocument): string {
 export function formatNumber(value: number): string {
   if (Number.isInteger(value)) return value.toLocaleString("en-US");
   return value.toLocaleString("en-US", { maximumFractionDigits: 2 });
-}
-
-export function goalValueSuffix(goalName: string): string {
-  return /%|percent|conversion/i.test(goalName) ? "%" : "";
 }
 
 const OBJECT_PATH_RULES: { kind: ContextObjectKind; re: RegExp }[] = [

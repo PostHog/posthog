@@ -41,6 +41,7 @@ import { useContextWikiPageMutation } from "@posthog/ui/features/context-wiki/ho
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { type ReactNode, useState } from "react";
 import { AddContextDialog, type AddContextMode } from "./AddContextDialog";
+import { BrokenBlockNotice } from "./BrokenBlockNotice";
 import { EditableNote } from "./EditableNote";
 import { KIND_ICONS } from "./kindIcons";
 import { SectionHeader } from "./SectionHeader";
@@ -57,6 +58,7 @@ interface KnowledgeListProps {
   onLinksChange: (links: ContextLink[]) => Promise<void>;
   onObjectsChange: (objects: ContextObject[]) => Promise<void>;
   isSaving: boolean;
+  error?: string;
 }
 
 export function KnowledgeList({
@@ -68,6 +70,7 @@ export function KnowledgeList({
   onLinksChange,
   onObjectsChange,
   isSaving,
+  error,
 }: KnowledgeListProps) {
   const [adding, setAdding] = useState<AddContextMode | null>(null);
   const [openFile, setOpenFile] = useState<string | null>(null);
@@ -99,7 +102,11 @@ export function KnowledgeList({
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
-                <Button variant="link-muted" size="xs" disabled={isSaving}>
+                <Button
+                  variant="link-muted"
+                  size="xs"
+                  disabled={isSaving || error !== undefined}
+                >
                   <PlusIcon size={12} />
                   Add context
                 </Button>
@@ -138,6 +145,9 @@ export function KnowledgeList({
         }
       />
 
+      {error !== undefined ? (
+        <BrokenBlockNotice section="reading and watching" error={error} />
+      ) : null}
       <ul className="flex flex-col divide-y divide-border border-border border-y">
         <li>
           <KnowledgeRow

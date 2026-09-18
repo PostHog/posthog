@@ -9,13 +9,9 @@ import {
   formatNumber,
   type GoalDirection,
   type GoalMeasure,
+  type GoalPeriod,
   type GoalTarget,
-  goalValueSuffix,
 } from "@posthog/core/canvas/contextDocument";
-import {
-  looksLikeHogQL,
-  parseGoalSentence,
-} from "@posthog/core/canvas/goalComposer";
 import {
   Button,
   cn,
@@ -58,6 +54,23 @@ const DIRECTIONS: readonly [GoalDirection, string][] = [
   ["at_most", "≤"],
 ];
 
+const PERIODS: readonly [GoalPeriod, string][] = [
+  ["day", "Day"],
+  ["week", "Week"],
+  ["month", "Month"],
+];
+
+type UnitKind = "count" | "percent";
+
+const UNITS: readonly [UnitKind, string][] = [
+  ["count", "Count"],
+  ["percent", "%"],
+];
+
+function looksLikeHogQL(text: string): boolean {
+  return /^\s*(select|with)\b/i.test(text);
+}
+
 function growToFit(el: HTMLTextAreaElement): void {
   el.style.height = "0px";
   el.style.height = `${Math.max(el.scrollHeight, 56)}px`;
@@ -89,6 +102,11 @@ export function GoalComposer({
     initial?.target ? String(initial.target.value) : "",
   );
   const [dueDate, setDueDate] = useState(initial?.target?.dueDate ?? "");
+  const [period, setPeriod] = useState<GoalPeriod | undefined>(initial?.period);
+  const [unitKind, setUnitKind] = useState<UnitKind>(
+    initial?.percent ? "percent" : "count",
+  );
+  const unit = unitKind === "percent" ? "%" : "";
   const [askedAgent, setAskedAgent] = useState(false);
   const askRef = useRef<HTMLTextAreaElement>(null);
 
@@ -135,21 +153,26 @@ export function GoalComposer({
       ? { direction, value: parsedTarget, dueDate: dueDate || null }
       : null;
 
-  const proceed = () => {
+  const askAgent = async (goal: ContextGoal) => {
+    setAskedAgent(true);
+    await onAskAgent(goal);
+  };
+
+  const proceed = async () => {
     const text = sentence.trim();
-    if (!text) return;
+    if (!text || askedAgent) return;
     if (isHogQL) {
       setMeasure({ kind: "hogql", sql: text });
-    } else {
-      const parsed = parseGoalSentence(text);
-      setName(sentenceCase(parsed.name));
-      if (parsed.target) {
-        setDirection(parsed.target.direction);
-        setTargetValue(String(parsed.target.value));
-        setDueDate(parsed.target.dueDate ?? "");
-      }
+      setStep("review");
+      return;
     }
-    setStep("review");
+    await askAgent({
+      id: crypto.randomUUID(),
+      name: text,
+      measure: null,
+      target: null,
+      primary: false,
+    });
   };
 
   const canSubmit =
@@ -162,15 +185,17 @@ export function GoalComposer({
   const submit = async () => {
     if (!canSubmit) return;
     const goal: ContextGoal = {
-      name: sentenceCase(name.trim()) || "Untitled goal",
-      why: initial?.why ?? "",
+      id: initial?.id ?? crypto.randomUUID(),
+      name: sentenceCase(name.trim()),
       measure: measureEmpty ? null : measure,
-      primary: initial?.primary ?? false,
       target,
+      primary: initial?.primary ?? false,
+      period,
+      percent: unitKind === "percent" || undefined,
+      task: initial?.task,
     };
     if (needsAgent) {
-      setAskedAgent(true);
-      await onAskAgent(goal);
+      await askAgent(goal);
     } else {
       await onSave(goal);
     }
@@ -186,7 +211,7 @@ export function GoalComposer({
       (event.key === "Enter" && !event.shiftKey && !isHogQL);
     if (next) {
       event.preventDefault();
-      proceed();
+      void proceed();
     }
   };
 
@@ -205,6 +230,7 @@ export function GoalComposer({
                 growToFit(event.target);
               }}
               onKeyDown={onAskKeyDown}
+              disabled={askedAgent}
               spellCheck={!isHogQL}
               placeholder="Weekly completed checkouts above 1,200 by end of December"
               className={cn(
@@ -217,7 +243,7 @@ export function GoalComposer({
             <Text size="xs" variant="muted">
               {isHogQL
                 ? "HogQL. The first cell of the first row is the value."
-                : "The name, the target and the date are read from the sentence. You check them next."}
+                : "An agent names the goal, reads the target and the date, and writes the query. You can change all of it after."}
             </Text>
           </div>
         ) : (
@@ -270,7 +296,7 @@ export function GoalComposer({
                   rows: run.data?.rows ?? null,
                   value: run.data?.value ?? null,
                 }}
-                unit={goalValueSuffix(name)}
+                unit={unit}
               />
             )}
 
@@ -278,23 +304,11 @@ export function GoalComposer({
               <Text size="xs" variant="muted" className="mr-1">
                 Target
               </Text>
-              <div className="flex overflow-hidden rounded-md border border-border">
-                {DIRECTIONS.map(([option, sign]) => (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => setDirection(option)}
-                    className={cn(
-                      "px-2 py-1 text-xs tabular-nums",
-                      direction === option
-                        ? "bg-fill-selected text-foreground"
-                        : "text-muted-foreground hover:bg-fill-hover",
-                    )}
-                  >
-                    {sign}
-                  </button>
-                ))}
-              </div>
+              <Segmented
+                options={DIRECTIONS}
+                value={direction}
+                onChange={setDirection}
+              />
               <Input
                 inputMode="decimal"
                 value={targetValue}
@@ -313,6 +327,24 @@ export function GoalComposer({
                 onChange={(event) => setDueDate(event.target.value)}
                 aria-label="Due date"
                 className="w-40"
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Text size="xs" variant="muted" className="mr-1">
+                Chart
+              </Text>
+              <Segmented
+                options={PERIODS}
+                value={period ?? "day"}
+                onChange={setPeriod}
+              />
+              <Text size="xs" variant="muted">
+                as
+              </Text>
+              <Segmented
+                options={UNITS}
+                value={unitKind}
+                onChange={setUnitKind}
               />
             </div>
             {note ? (
@@ -352,11 +384,12 @@ export function GoalComposer({
             <Button
               variant="primary"
               size="sm"
-              disabled={!sentence.trim()}
-              onClick={proceed}
+              disabled={!sentence.trim() || askedAgent}
+              loading={askedAgent}
+              onClick={() => void proceed()}
             >
-              Next
-              <Kbd className="ml-1">↵</Kbd>
+              {isHogQL ? "Next" : "Add goal"}
+              {!askedAgent ? <Kbd className="ml-1">↵</Kbd> : null}
             </Button>
           ) : (
             <Button
@@ -372,6 +405,36 @@ export function GoalComposer({
         </div>
       </DialogFooter>
     </>
+  );
+}
+
+function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: readonly [T, string][];
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="flex overflow-hidden rounded-md border border-border">
+      {options.map(([option, label]) => (
+        <button
+          key={option}
+          type="button"
+          onClick={() => onChange(option)}
+          className={cn(
+            "px-2 py-1 text-xs tabular-nums",
+            value === option
+              ? "bg-fill-selected text-foreground"
+              : "text-muted-foreground hover:bg-fill-hover",
+          )}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -449,7 +512,7 @@ function reviewNote(state: {
   }
   if (state.needsAgent) {
     return {
-      text: "No query yet. An agent finds the events and writes one after you add the goal.",
+      text: "No query yet. An agent writes one after you add the goal.",
       tone: "muted",
     };
   }

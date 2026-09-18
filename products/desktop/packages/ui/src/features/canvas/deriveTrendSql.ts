@@ -1,3 +1,4 @@
+import type { GoalPeriod } from "@posthog/core/canvas/contextDocument";
 import {
   COMMA,
   maskLiterals,
@@ -20,14 +21,12 @@ const BLOCKING = new Set([
 const AND = wordPattern("AND");
 const OR = wordPattern("OR");
 
-export type TrendPeriod = "day" | "week" | "month";
-
 export interface DerivedTrend {
   sql: string;
-  period: TrendPeriod;
+  period: GoalPeriod;
 }
 
-const BUCKETS: Record<TrendPeriod, { truncate: string; window: string }> = {
+const BUCKETS: Record<GoalPeriod, { truncate: string; window: string }> = {
   day: {
     truncate: "toStartOfDay",
     window: "timestamp >= now() - INTERVAL 30 DAY",
@@ -42,23 +41,9 @@ const BUCKETS: Record<TrendPeriod, { truncate: string; window: string }> = {
   },
 };
 
-export function trendPeriodFor(
-  goalName: string,
-  measureSql: string,
-): TrendPeriod {
-  const name = goalName.toLowerCase();
-  if (/\bmonth/.test(name)) return "month";
-  if (/\bweek/.test(name)) return "week";
-  if (/\bdaily\b|\bday\b/.test(name)) return "day";
-  const sql = measureSql.toLowerCase();
-  if (/tostartofmonth|interval\s+\d+\s+month/.test(sql)) return "month";
-  if (/tostartofweek|interval\s+\d+\s+week/.test(sql)) return "week";
-  return "day";
-}
-
 export function deriveTrendSql(
   measureSql: string,
-  period: TrendPeriod = "day",
+  period: GoalPeriod,
 ): DerivedTrend | null {
   const source = measureSql.trim().replace(/;\s*$/, "");
   if (!source) return null;

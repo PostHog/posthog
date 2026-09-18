@@ -11,7 +11,6 @@ import {
   type GoalStatus,
   type GoalTarget,
   goalStatus,
-  goalValueSuffix,
 } from "@posthog/core/canvas/contextDocument";
 import {
   Button,
@@ -34,6 +33,7 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useGoalMeasure";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { type ReactNode, useState } from "react";
+import { BrokenBlockNotice } from "./BrokenBlockNotice";
 import { GoalComposer } from "./GoalComposer";
 import { GoalTrendChart } from "./GoalTrendChart";
 import { SectionHeader } from "./SectionHeader";
@@ -45,6 +45,7 @@ interface GoalsListProps {
   measureTasks: ReadonlyMap<string, GoalMeasureTask>;
   onOpenMeasureTask: (taskId: string) => void;
   isSaving: boolean;
+  error?: string;
 }
 
 const GOAL_GRID = "grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4";
@@ -56,6 +57,7 @@ export function GoalsList({
   measureTasks,
   onOpenMeasureTask,
   isSaving,
+  error,
 }: GoalsListProps) {
   const [editing, setEditing] = useState<number | "new" | null>(null);
   const editingIndex = typeof editing === "number" ? editing : null;
@@ -104,7 +106,7 @@ export function GoalsList({
           <Button
             variant="link-muted"
             size="xs"
-            disabled={isSaving}
+            disabled={isSaving || error !== undefined}
             onClick={() => setEditing("new")}
           >
             <PlusIcon size={12} />
@@ -113,14 +115,16 @@ export function GoalsList({
         }
       />
 
-      {goals.length > 0 ? (
+      {error !== undefined ? (
+        <BrokenBlockNotice section="goals" error={error} />
+      ) : goals.length > 0 ? (
         <ul className={GOAL_GRID}>
           {ordered.map(({ goal, index }) => (
             <li key={`${goal.name}-${index}`} className="min-w-0">
               <GoalCard
                 goal={goal}
                 selected={editing === index}
-                measureTask={measureTasks.get(goal.name) ?? null}
+                measureTask={measureTasks.get(goal.id) ?? null}
                 onOpen={() => setEditing(index)}
                 onOpenTask={onOpenMeasureTask}
                 onRetry={() => onAskAgentForMeasure(goal)}
@@ -175,9 +179,7 @@ export function GoalsList({
               onClose={() => setEditing(null)}
               isSaving={isSaving}
               measureTask={
-                editingGoal
-                  ? (measureTasks.get(editingGoal.name) ?? null)
-                  : null
+                editingGoal ? (measureTasks.get(editingGoal.id) ?? null) : null
               }
               onOpenTask={onOpenMeasureTask}
               onRetryMeasure={
@@ -236,7 +238,7 @@ function GoalCard({
   disabled: boolean;
 }) {
   const measure = useGoalMeasure(goal.measure);
-  const trend = useGoalTrend(goal.name, goal.measure);
+  const trend = useGoalTrend(goal);
   const agentState: AgentState | null =
     goal.measure === null ? (measureTask?.state ?? "waiting") : null;
 
@@ -287,33 +289,30 @@ function GoalCard({
               </span>
             ) : null}
           </span>
-          {goal.why ? (
-            <span className="line-clamp-1 text-muted-foreground text-xs">
-              {goal.why}
-            </span>
-          ) : null}
         </span>
         <span className="flex items-end justify-between gap-3">
           <span className="font-semibold text-2xl text-foreground tabular-nums leading-none">
             <CurrentValue
               value={measure.data ?? null}
               loading={measure.isLoading}
-              unit={goalValueSuffix(goal.name)}
+              unit={goal.percent ? "%" : ""}
             />
           </span>
-          <MeasureStatus
-            goal={goal}
-            current={measure.data ?? null}
-            failed={measure.error !== null}
-            agentState={agentState}
-          />
+          {agentState ? null : (
+            <MeasureStatus
+              goal={goal}
+              current={measure.data ?? null}
+              failed={measure.error !== null}
+            />
+          )}
         </span>
       </button>
-      <div className="mt-auto flex h-16 items-center justify-center">
+      <div className="mt-auto h-16">
         <CardFooter
           goal={goal}
           trend={trend}
-          endedTask={agentState === "ended" ? measureTask : null}
+          agentState={agentState}
+          task={measureTask}
           disabled={disabled}
           onOpenTask={onOpenTask}
           onRetry={onRetry}
@@ -342,51 +341,24 @@ function CurrentValue({
       </>
     );
   }
-  if (loading) return <Spinner size="xs" aria-hidden="true" />;
+  if (loading) {
+    return (
+      <span className="inline-block h-6 w-14 animate-pulse rounded bg-fill-hover align-bottom" />
+    );
+  }
   return <span className="text-muted-foreground">–</span>;
 }
-
-const AGENT_STATUS: Record<AgentState, { icon: ReactNode; text: string }> = {
-  waiting: {
-    icon: <SparkleIcon size={13} className="shrink-0" />,
-    text: "Waiting for a measure",
-  },
-  running: {
-    icon: <Spinner size="xs" aria-hidden="true" />,
-    text: "Agent writing the measure",
-  },
-  ended: {
-    icon: (
-      <WarningCircleIcon
-        size={13}
-        className="shrink-0 text-warning-foreground"
-      />
-    ),
-    text: "No measure came back",
-  },
-};
 
 function MeasureStatus({
   goal,
   current,
   failed,
-  agentState,
 }: {
   goal: ContextGoal;
   current: number | null;
   failed: boolean;
-  agentState: AgentState | null;
 }) {
   const palette = useGoalPalette();
-  if (agentState) {
-    const { icon, text } = AGENT_STATUS[agentState];
-    return (
-      <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
-        {icon}
-        {text}
-      </span>
-    );
-  }
   if (failed) {
     return (
       <span className="flex items-center gap-1.5 text-warning-foreground text-xs">
@@ -413,50 +385,115 @@ function MeasureStatus({
 function CardFooter({
   goal,
   trend,
-  endedTask,
+  agentState,
+  task,
   disabled,
   onOpenTask,
   onRetry,
 }: {
   goal: ContextGoal;
   trend: ReturnType<typeof useGoalTrend>;
-  endedTask: GoalMeasureTask | null;
+  agentState: AgentState | null;
+  task: GoalMeasureTask | null;
   disabled: boolean;
   onOpenTask: (taskId: string) => void;
   onRetry: () => Promise<void>;
 }) {
+  if (agentState === "running") {
+    return (
+      <TrendPlaceholder caption="An agent is writing the measure">
+        <Spinner size="xs" aria-hidden="true" />
+      </TrendPlaceholder>
+    );
+  }
+  if (agentState === "waiting") {
+    return (
+      <TrendPlaceholder caption="Waiting for a measure">
+        <SparkleIcon size={12} className="shrink-0" />
+      </TrendPlaceholder>
+    );
+  }
+  if (agentState === "ended") {
+    return (
+      <TrendPlaceholder caption="No measure came back" tone="warning">
+        <WarningCircleIcon size={12} className="shrink-0" />
+        {task ? (
+          <span className="ml-1 flex items-center gap-1">
+            <Button
+              variant="link-muted"
+              size="xs"
+              onClick={() => onOpenTask(task.taskId)}
+            >
+              Open task
+            </Button>
+            <Button
+              variant="link-muted"
+              size="xs"
+              disabled={disabled}
+              onClick={() => void onRetry()}
+            >
+              Try again
+            </Button>
+          </span>
+        ) : null}
+      </TrendPlaceholder>
+    );
+  }
   const points = trend.data?.points ?? [];
   if (points.length > 1) {
     return (
-      <div className="h-full w-full">
-        <GoalTrendChart
-          points={points}
-          period={trend.data?.period ?? "day"}
-          target={goal.target}
-          unit={goalValueSuffix(goal.name)}
-        />
-      </div>
+      <GoalTrendChart
+        points={points}
+        period={trend.data?.period ?? "day"}
+        target={goal.target}
+        unit={goal.percent ? "%" : ""}
+      />
     );
   }
-  if (trend.isLoading) return <Spinner size="xs" aria-hidden="true" />;
-  if (!endedTask) return null;
+  return trend.isLoading ? <TrendPlaceholder /> : null;
+}
+
+function TrendPlaceholder({
+  caption,
+  tone = "muted",
+  children,
+}: {
+  caption?: string;
+  tone?: "muted" | "warning";
+  children?: ReactNode;
+}) {
   return (
-    <span className="flex items-center gap-1">
-      <Button
-        variant="link-muted"
-        size="xs"
-        onClick={() => onOpenTask(endedTask.taskId)}
+    <div className="relative h-full w-full">
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 160 64"
+        preserveAspectRatio="none"
+        className="absolute inset-0 h-full w-full text-muted-foreground"
       >
-        Open task
-      </Button>
-      <Button
-        variant="link-muted"
-        size="xs"
-        disabled={disabled}
-        onClick={() => void onRetry()}
-      >
-        Try again
-      </Button>
-    </span>
+        <line
+          x1="0"
+          y1="40"
+          x2="160"
+          y2="40"
+          stroke="currentColor"
+          strokeDasharray="3 4"
+          opacity={0.35}
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
+      {caption ? (
+        <span
+          className={cn(
+            "relative z-10 flex h-full items-center justify-center gap-1.5 text-xs",
+            tone === "warning"
+              ? "text-warning-foreground"
+              : "text-muted-foreground",
+          )}
+        >
+          {children}
+          {caption}
+        </span>
+      ) : null}
+    </div>
   );
 }

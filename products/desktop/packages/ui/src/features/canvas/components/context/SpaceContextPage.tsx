@@ -1,5 +1,6 @@
 import { ArrowSquareOutIcon, SparkleIcon } from "@phosphor-icons/react";
 import {
+  type BrokenBlock,
   type ContextDocument,
   type ContextGoal,
   parseContextDocument,
@@ -30,21 +31,13 @@ import {
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { navigateToChannelTask } from "@posthog/ui/router/navigationBridge";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ContextEmptyHero } from "./ContextEmptyHero";
 import { GoalsList } from "./GoalsList";
 import { KnowledgeList } from "./KnowledgeList";
 import { MarkdownFileDialog } from "./MarkdownFileDialog";
 
 const COLUMN = "mx-auto w-full max-w-[1100px] px-8";
-
-const EMPTY_DOCUMENT: ContextDocument = {
-  frontmatter: "",
-  knowledge: "",
-  links: [],
-  objects: [],
-  goals: [],
-};
 
 interface SpaceContextPageProps {
   channelId: string;
@@ -66,10 +59,13 @@ export function SpaceContextPage({
   const { tasks: channelTasks } = useChannelFeed(channelId);
   const contextLayerEnabled = useContextLayerFlag();
   const { generate } = useGenerateContext();
-  const parsed = useMemo(() => parseDocument(store.content), [store.content]);
-  const doc = parsed.doc;
-  const problem = store.isLoading ? null : documentProblem(store, parsed.error);
-  const ready = !store.isLoading && problem === null;
+  const doc = useMemo(
+    () => parseContextDocument(store.content),
+    [store.content],
+  );
+  const ready = !store.isLoading && store.error === null;
+  const brokenIn = (...keys: BrokenBlock["key"][]) =>
+    doc.broken.find((block) => keys.includes(block.key))?.error;
   const isBlank =
     !doc.knowledge.trim() &&
     doc.goals.length === 0 &&
@@ -79,6 +75,8 @@ export function SpaceContextPage({
     () => goalMeasureTasks(doc.goals, channelTasks),
     [doc.goals, channelTasks],
   );
+  const latest = useRef({ doc, store });
+  latest.current = { doc, store };
 
   const saveDoc = (next: ContextDocument) =>
     store.save(serializeContextDocument(next));
@@ -89,20 +87,29 @@ export function SpaceContextPage({
   };
 
   const askAgentForMeasure = async (goal: ContextGoal) => {
-    await generate({
+    const task = await generate({
       channelId,
       channelName,
       description: "",
       prompt: buildGoalMeasurePrompt({
         channelName,
         channelId,
-        goalName: goal.name,
-        goalWhy: goal.why,
+        goal,
         contextLayerEnabled,
       }),
       title: goalMeasureTaskTitle(goal.name),
       agent: GOAL_MEASURE_AGENT,
     });
+    if (!task) return;
+    const current = latest.current;
+    await current.store.save(
+      serializeContextDocument({
+        ...current.doc,
+        goals: current.doc.goals.map((entry) =>
+          entry.id === goal.id ? { ...entry, task: task.id } : entry,
+        ),
+      }),
+    );
   };
 
   return (
@@ -149,13 +156,13 @@ export function SpaceContextPage({
       </PageHeader>
 
       {store.isLoading ? <LoadingState className="flex-1" /> : null}
-      {problem ? (
+      {store.error ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6">
-          <Text size="xs" variant="muted" className="whitespace-pre-wrap">
-            {problem.text}
+          <Text size="xs" variant="muted">
+            Could not load this space's context: {store.error.message}
           </Text>
           <Button variant="outline" size="sm" onClick={store.refetch}>
-            {problem.action}
+            Try again
           </Button>
         </div>
       ) : null}
@@ -197,6 +204,7 @@ export function SpaceContextPage({
                     navigateToChannelTask(channelId, taskId)
                   }
                   isSaving={store.isSaving}
+                  error={brokenIn("goals")}
                 />
                 <KnowledgeList
                   channelName={channelName}
@@ -207,6 +215,7 @@ export function SpaceContextPage({
                   onLinksChange={(links) => saveDoc({ ...doc, links })}
                   onObjectsChange={(objects) => saveDoc({ ...doc, objects })}
                   isSaving={store.isSaving}
+                  error={brokenIn("reading", "watching")}
                 />
               </div>
             )}
@@ -231,37 +240,4 @@ export function SpaceContextPage({
       ) : null}
     </div>
   );
-}
-
-function parseDocument(content: string): {
-  doc: ContextDocument;
-  error: string | null;
-} {
-  try {
-    return { doc: parseContextDocument(content), error: null };
-  } catch (cause) {
-    return {
-      doc: EMPTY_DOCUMENT,
-      error: cause instanceof Error ? cause.message : String(cause),
-    };
-  }
-}
-
-function documentProblem(
-  store: ContextDocumentStore,
-  parseError: string | null,
-): { text: string; action: string } | null {
-  if (store.error) {
-    return {
-      text: `Could not load this space's context: ${store.error.message}`,
-      action: "Try again",
-    };
-  }
-  if (parseError) {
-    return {
-      text: `The goals, reading and watching lists in this document could not be read. Fix the frontmatter in the wiki, then reload.\n\n${parseError}`,
-      action: "Reload",
-    };
-  }
-  return null;
 }

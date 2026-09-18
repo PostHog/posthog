@@ -1,15 +1,15 @@
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import {
+  type ContextGoal,
   firstNumericCell,
   type GoalMeasure,
+  type GoalPeriod,
   numericCell,
 } from "@posthog/core/canvas/contextDocument";
 import { insightCurrentValue } from "@posthog/core/canvas/goalMeasures";
 import {
   type DerivedTrend,
   deriveTrendSql,
-  type TrendPeriod,
-  trendPeriodFor,
 } from "@posthog/ui/features/canvas/deriveTrendSql";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 
@@ -58,23 +58,21 @@ export interface GoalTrendPoint {
 }
 
 export interface GoalTrend {
-  period: TrendPeriod;
+  period: GoalPeriod;
   points: GoalTrendPoint[];
 }
 
-export function goalTrendQuery(
-  goalName: string,
-  measure: GoalMeasure | null,
-): DerivedTrend | null {
+export function goalTrendQuery(goal: ContextGoal): DerivedTrend | null {
+  const measure = goal.measure;
   if (measure?.kind !== "hogql") return null;
-  const period = trendPeriodFor(goalName, measure.sql);
+  const period = goal.period ?? "day";
   const derived = deriveTrendSql(measure.sql, period);
   if (derived) return derived;
   const explicit = measure.trendSql?.trim();
   return explicit ? { sql: explicit, period } : null;
 }
 
-const BUCKET_COUNT: Record<TrendPeriod, number> = {
+const BUCKET_COUNT: Record<GoalPeriod, number> = {
   day: 30,
   week: 12,
   month: 12,
@@ -93,7 +91,7 @@ function lastNumericCell(row: unknown[]): number | null {
   return values.find((value) => value !== null) ?? null;
 }
 
-function currentBucketStart(period: TrendPeriod): Date {
+function currentBucketStart(period: GoalPeriod): Date {
   const now = new Date();
   const start = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
@@ -105,7 +103,7 @@ function currentBucketStart(period: TrendPeriod): Date {
   return start;
 }
 
-function bucketsBefore(start: Date, period: TrendPeriod, count: number): Date {
+function bucketsBefore(start: Date, period: GoalPeriod, count: number): Date {
   const date = new Date(start);
   if (period === "month") {
     date.setUTCMonth(date.getUTCMonth() - count);
@@ -115,7 +113,7 @@ function bucketsBefore(start: Date, period: TrendPeriod, count: number): Date {
   return date;
 }
 
-function bucketStarts(period: TrendPeriod): Date[] {
+function bucketStarts(period: GoalPeriod): Date[] {
   const start = currentBucketStart(period);
   const count = BUCKET_COUNT[period];
   return Array.from({ length: count }, (_, index) =>
@@ -123,7 +121,7 @@ function bucketStarts(period: TrendPeriod): Date[] {
   );
 }
 
-function trendPoints(rows: unknown[][], period: TrendPeriod): GoalTrendPoint[] {
+function trendPoints(rows: unknown[][], period: GoalPeriod): GoalTrendPoint[] {
   const byBucket = new Map(
     rows.flatMap((row) => {
       const key = bucketKey(String(row[0] ?? ""));
@@ -137,8 +135,8 @@ function trendPoints(rows: unknown[][], period: TrendPeriod): GoalTrendPoint[] {
   }));
 }
 
-export function useGoalTrend(goalName: string, measure: GoalMeasure | null) {
-  const query = goalTrendQuery(goalName, measure);
+export function useGoalTrend(goal: ContextGoal) {
+  const query = goalTrendQuery(goal);
   return useAuthenticatedQuery<GoalTrend>(
     ["context-goal-trend", query?.sql ?? ""] as const,
     async (client) => {

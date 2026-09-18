@@ -14,9 +14,10 @@ const WIKI_LINES = [
 const DOCUMENT = `---
 ${WIKI_LINES}
 goals:
-  - name: Weekly paid bills
-    why: Paid bills are the one number that says growth works.
+  - id: 7f1d4d1e-3b0f-4c7c-9a48-3a6c1a5f1e01
+    name: Weekly paid bills
     primary: true
+    period: week
     target:
       direction: at_least
       value: 500
@@ -55,9 +56,12 @@ describe("contextDocument", () => {
     expect(doc.frontmatter).toBe(WIKI_LINES);
     expect(doc.goals).toEqual([
       {
+        id: "7f1d4d1e-3b0f-4c7c-9a48-3a6c1a5f1e01",
         name: "Weekly paid bills",
-        why: "Paid bills are the one number that says growth works.",
         primary: true,
+        period: "week",
+        percent: undefined,
+        task: undefined,
         target: { direction: "at_least", value: 500, dueDate: "2026-10-31" },
         measure: {
           kind: "hogql",
@@ -81,6 +85,16 @@ describe("contextDocument", () => {
     expect(serializeContextDocument(doc)).toBe(DOCUMENT);
   });
 
+  it("gives a goal without an id one, and drops the task link once a measure exists", () => {
+    const doc = parseContextDocument(
+      "---\ngoals:\n  - name: Signups\n    task: 8f1c\n    measure:\n      kind: hogql\n      sql: SELECT count() FROM events\n---\n",
+    );
+
+    expect(doc.goals[0].id).toHaveLength(36);
+    expect(doc.goals[0].task).toBe("8f1c");
+    expect(serializeContextDocument(doc)).not.toContain("task:");
+  });
+
   it("serializes prose alone without a frontmatter block", () => {
     const doc = parseContextDocument("# Just prose\n");
 
@@ -88,7 +102,7 @@ describe("contextDocument", () => {
   });
 
   it.each([
-    ["a goal without a name", "goals:\n  - why: no name here"],
+    ["a goal without a name", "goals:\n  - primary: true"],
     [
       "a target with an unknown direction",
       "goals:\n  - name: x\n    target:\n      direction: upwards\n      value: 1",
@@ -97,9 +111,19 @@ describe("contextDocument", () => {
       "a watched object with a non-http url",
       "watching:\n  - kind: flag\n    title: x\n    url: file:///etc/passwd",
     ],
-  ])("refuses %s instead of dropping it on the next save", (_case, block) => {
-    expect(() => parseContextDocument(`---\n${block}\n---\n`)).toThrow(
-      /not in the expected shape/,
-    );
-  });
+    ["a value YAML cannot read", "goals:\n  - name: x\n    unit: %"],
+  ])(
+    "keeps %s as a broken block and writes it back unchanged",
+    (_case, block) => {
+      const doc = parseContextDocument(
+        `---\nsummary: s\n${block}\n---\n\nBody\n`,
+      );
+
+      expect(doc.broken).toHaveLength(1);
+      expect(doc.broken[0].error).not.toBe("");
+      expect(
+        serializeContextDocument({ ...doc, goals: [], links: [], objects: [] }),
+      ).toBe(`---\nsummary: s\n${block}\n---\n\nBody\n`);
+    },
+  );
 });

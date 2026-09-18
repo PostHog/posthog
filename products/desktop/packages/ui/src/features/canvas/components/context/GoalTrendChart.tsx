@@ -1,5 +1,6 @@
 import {
   formatNumber,
+  type GoalPeriod,
   type GoalTarget,
 } from "@posthog/core/canvas/contextDocument";
 import {
@@ -11,7 +12,6 @@ import {
   useChartLayout,
   useChartTheme,
 } from "@posthog/quill-charts";
-import type { TrendPeriod } from "@posthog/ui/features/canvas/deriveTrendSql";
 import { useGoalPalette } from "@posthog/ui/features/canvas/goalColors";
 import type { GoalTrendPoint } from "@posthog/ui/features/canvas/hooks/useGoalMeasure";
 import { useCallback, useId, useMemo } from "react";
@@ -30,7 +30,7 @@ const BASE_CONFIG: LineChartConfig = {
 
 const INVISIBLE = "rgba(0, 0, 0, 0)";
 
-function formatPeriod(label: string, period: TrendPeriod): string {
+function formatPeriod(label: string, period: GoalPeriod): string {
   const date = new Date(label);
   if (Number.isNaN(date.getTime())) return label;
   if (period === "month") {
@@ -166,7 +166,7 @@ function ThresholdArea({
 
 interface GoalTrendChartProps {
   points: GoalTrendPoint[];
-  period: TrendPeriod;
+  period: GoalPeriod;
   target: GoalTarget | null;
   unit: string;
 }
