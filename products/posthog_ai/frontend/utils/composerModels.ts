@@ -9,7 +9,11 @@ import {
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 import { normalizeModelId } from 'products/tasks/frontend/modelCatalog'
-import { DEFAULT_MODEL_BY_RUNTIME_ADAPTER } from 'products/tasks/frontend/modelCatalog.generated'
+import {
+    DEFAULT_MODEL_BY_RUNTIME_ADAPTER,
+    MODELS,
+    RUNTIME_OPTIONS,
+} from 'products/tasks/frontend/modelCatalog.generated'
 
 import { type PermissionMode, resolveModeForRuntimeAdapter } from './composerModes'
 
@@ -136,13 +140,8 @@ export function getCapabilityLadder(
     )
 }
 
-const RUNTIME_ADAPTER_LABELS: Record<RuntimeAdapterEnumApi, string> = {
-    [RuntimeAdapterEnumApi.Claude]: 'Claude',
-    [RuntimeAdapterEnumApi.Codex]: 'Codex',
-}
-
-export function getRuntimeAdapterLabel(runtimeAdapter: string): string {
-    return RUNTIME_ADAPTER_LABELS[runtimeAdapter as RuntimeAdapterEnumApi] ?? runtimeAdapter
+export function getHarnessLabel(harness: string): string {
+    return RUNTIME_OPTIONS.find((option) => (option.runtimeAdapter ?? option.runtime) === harness)?.label ?? harness
 }
 
 export function getModelLabel(catalogue: ModelChoiceApi[], model: string | null | undefined): string {
@@ -151,6 +150,25 @@ export function getModelLabel(catalogue: ModelChoiceApi[], model: string | null 
 
 export function getEffortLabel(effort: string | null | undefined): string {
     return effort ? (EFFORT_LABELS[effort] ?? effort) : 'Effort'
+}
+
+export interface ModelCostDisplay {
+    /** Per-token cost against the catalog baseline, ready to render: `2.5×`, `≈0.55×`. */
+    multiplier: string
+    /** The rates behind it: `Input $2 · Output $10 per 1M tokens`. */
+    summary: string
+}
+
+/** What a model costs, or `null` where the catalog quotes no rate and a picker shows none. */
+export function getModelCost(model: string | null | undefined): ModelCostDisplay | null {
+    if (!model) {
+        return null
+    }
+    const entry = MODELS.find((candidate) => candidate.id === normalizeModelId(model))
+    if (!entry?.costMultiplier || !entry.costSummary) {
+        return null
+    }
+    return { multiplier: entry.costMultiplier, summary: entry.costSummary }
 }
 
 // Keep an effort only if the model supports it, else nothing. The stored-preference counterpart of

@@ -13,9 +13,11 @@ export interface bulkSelectLogicValues {
 export interface bulkSelectLogicActions {
     mutationFailure: (
         mutationName: string,
-        error: unknown
+        error: unknown,
+        issueId?: string | undefined
     ) => {
         error: unknown
+        issueId: string | undefined
         mutationName: string
     } // issueActionsLogic
     mutationSuccess: (mutationName: string) => {

@@ -31,6 +31,7 @@ from posthog.settings import (
 from products.access_control.backend.models.role import Role
 from products.error_tracking.backend.models import (
     ErrorTrackingAlert,
+    ErrorTrackingAlertThread,
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
@@ -585,9 +586,25 @@ class TestErrorTracking(APIBaseTest):
         issue.refresh_from_db()
         assert issue.status == ErrorTrackingIssue.Status.RESOLVED
 
-    def _enable_alerts(self) -> None:
+    def _enable_alerts(self) -> ErrorTrackingAlert:
         with team_scope(self.team.id):
-            ErrorTrackingAlert.objects.create(team=self.team, name="Notify", triggers=["issue_created"])
+            return ErrorTrackingAlert.objects.create(team=self.team, name="Notify", triggers=["issue_created"])
+
+    def _open_thread(self, alert: ErrorTrackingAlert, issue: ErrorTrackingIssue) -> None:
+        with team_scope(self.team.id):
+            integration = Integration.objects.create(
+                team=self.team, kind=Integration.IntegrationKind.SLACK.value, config={"team": {"id": "T1"}}
+            )
+            destination = alert.destinations.create(
+                team=self.team, channel_type="slack", integration=integration, config={"channel": "C1"}
+            )
+            ErrorTrackingAlertThread.objects.create(
+                team=self.team,
+                alert=alert,
+                issue=issue,
+                destination=destination,
+                external_ref={"channel": "C1", "ts": "1.2"},
+            )
 
     def test_issue_status_update_queues_alert_dispatch_with_the_event_uuid(self):
         issue = self.create_issue()
@@ -614,6 +631,7 @@ class TestErrorTracking(APIBaseTest):
         assert notification["issue_id"] == str(issue.id)
         assert notification["status"] == "Resolved"
         assert notification["actor_email"] == self.user.email
+        assert notification["opener_allowed"] is True
         # The delivery workflow and the internal event share the notification id.
         assert notification["notification_id"] == mock_produce.call_args.kwargs["event"].uuid
 
@@ -642,7 +660,9 @@ class TestErrorTracking(APIBaseTest):
 
     def test_issue_bulk_assign_queues_one_dispatch_task_per_transaction(self):
         issues = [self.create_issue() for _ in range(3)]
-        self._enable_alerts()
+        alert = self._enable_alerts()
+        # Bulk transitions only reply: issues without a thread queue nothing.
+        self._open_thread(alert, issues[0])
 
         with (
             patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
@@ -665,9 +685,10 @@ class TestErrorTracking(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert mock_produce.call_count == 3
         mock_dispatch.assert_called_once()
-        notifications = mock_dispatch.call_args.kwargs["notifications"]
-        assert {n["event"] for n in notifications} == {"$error_tracking_issue_assigned"}
-        assert {n["issue_id"] for n in notifications} == {str(issue.id) for issue in issues}
+        (notification,) = mock_dispatch.call_args.kwargs["notifications"]
+        assert notification["event"] == "$error_tracking_issue_assigned"
+        assert notification["issue_id"] == str(issues[0].id)
+        assert notification["opener_allowed"] is False
 
     def test_issue_status_update_queues_nothing_for_teams_without_alerts(self):
         issue = self.create_issue()
@@ -689,7 +710,9 @@ class TestErrorTracking(APIBaseTest):
 
     def test_issue_bulk_set_status_queues_one_dispatch_task_per_transaction(self):
         issues = [self.create_issue() for _ in range(3)]
-        self._enable_alerts()
+        alert = self._enable_alerts()
+        for issue in issues:
+            self._open_thread(alert, issue)
 
         with (
             patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
@@ -708,6 +731,7 @@ class TestErrorTracking(APIBaseTest):
         mock_dispatch.assert_called_once()
         notifications = mock_dispatch.call_args.kwargs["notifications"]
         assert {n["issue_id"] for n in notifications} == {str(issue.id) for issue in issues}
+        assert all(n["opener_allowed"] is False for n in notifications)
         assert {n["notification_id"] for n in notifications} == {
             call.kwargs["event"].uuid for call in mock_produce.call_args_list
         }
@@ -1785,6 +1809,60 @@ class TestErrorTracking(APIBaseTest):
 
         symbol_set.refresh_from_db()
         assert symbol_set.release_id == first_release.id
+
+    @parameterized.expand(
+        [
+            # (name, endpoint, the upload names the other release, expected rejection code)
+            ("start_upload", "bulk_start_upload", True, "release_id_mismatch"),
+            ("check_upload", "bulk_check_upload", False, "content_hash_mismatch"),
+        ]
+    )
+    @patch("products.error_tracking.backend.logic.symbol_sets.posthoganalytics.capture_exception")
+    def test_bulk_upload_conflict_is_not_reported_to_error_tracking(
+        self,
+        _name: str,
+        endpoint: str,
+        upload_names_other_release: bool,
+        expected_code: str,
+        patched_capture_exception: Mock,
+    ) -> None:
+        chunk_id = str(uuid7())
+        release = ErrorTrackingRelease.objects.create(
+            team=self.team,
+            hash_id="conflict-release",
+            version="1.0.0",
+            project="test",
+        )
+        other_release = ErrorTrackingRelease.objects.create(
+            team=self.team,
+            hash_id="conflict-other-release",
+            version="1.0.1",
+            project="test",
+        )
+        ErrorTrackingSymbolSet.objects.create(
+            team=self.team,
+            ref=chunk_id,
+            storage_ptr="existing",
+            content_hash="already_uploaded",
+            release=release,
+        )
+
+        upload = {
+            "chunk_id": chunk_id,
+            "content_hash": "already_uploaded" if upload_names_other_release else "different_hash",
+        }
+        if upload_names_other_release:
+            upload["release_id"] = str(other_release.id)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{endpoint}",
+            data={"symbol_sets": [upload]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == expected_code
+        patched_capture_exception.assert_not_called()
 
     @parameterized.expand(
         [

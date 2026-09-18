@@ -173,7 +173,7 @@ export function useContextWikiPageMutation() {
   return useAuthenticatedMutation<
     { head_sha: string },
     Error,
-    { path: string; content: string; baseHead: string }
+    { path: string; content: string; baseHead?: string }
   >((client, input) => client.putContextWikiPage(input), {
     retry: shouldRetryWikiWrite,
     retryDelay: wikiWriteRetryDelay,
@@ -188,6 +188,13 @@ export function useContextWikiPageMutation() {
           head_sha: result.head_sha,
           updated_at: new Date().toISOString(),
         },
+      );
+      queryClient.setQueriesData<ContextWikiPage>(
+        { queryKey: ["context-wiki", "page"] },
+        (page) =>
+          page && page.path !== input.path
+            ? { ...page, head_sha: result.head_sha }
+            : page,
       );
       queryClient.setQueryData<ContextWikiTree | null>(
         CONTEXT_WIKI_TREE_KEY,

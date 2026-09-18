@@ -432,6 +432,8 @@ export interface SignalReportListApi {
     readonly total_weight: number
     readonly signal_count: number
     readonly signals_at_run: number
+    /** How many scout notes this report received beyond the few its work log keeps as entries. 0 when nothing was dropped. These say the finding still holds, so the count is shown in place of the entries. */
+    readonly collapsed_note_count: number
     readonly created_at: string
     readonly updated_at: string
     readonly artefact_count: number
@@ -616,6 +618,8 @@ export interface SignalReportApi {
     readonly total_weight: number
     readonly signal_count: number
     readonly signals_at_run: number
+    /** How many scout notes this report received beyond the few its work log keeps as entries. 0 when nothing was dropped. These say the finding still holds, so the count is shown in place of the entries. */
+    readonly collapsed_note_count: number
     readonly created_at: string
     readonly updated_at: string
     readonly artefact_count: number
@@ -1101,6 +1105,7 @@ export interface SignalReportRefundResponseApi {
  * * `endpoints` - endpoints
  * * `pganalyze` - pganalyze
  * * `signals_scout` - signals_scout
+ * * `signals_check` - signals_check
  * * `logs` - logs
  * * `health_checks` - health_checks
  * * `replay_vision` - replay_vision
@@ -1154,6 +1159,7 @@ export const SignalSourceProductApi = {
     Endpoints: 'endpoints',
     Pganalyze: 'pganalyze',
     SignalsScout: 'signals_scout',
+    SignalsCheck: 'signals_check',
     Logs: 'logs',
     HealthChecks: 'health_checks',
     ReplayVision: 'replay_vision',
@@ -1217,6 +1223,7 @@ export const SignalSourceProductApi = {
  * * `ci_broken_default_branch` - ci_broken_default_branch
  * * `ci_duration_regression` - ci_duration_regression
  * * `search_opportunity` - search_opportunity
+ * * `check_failed` - check_failed
  */
 export type SignalSourceTypeApi = (typeof SignalSourceTypeApi)[keyof typeof SignalSourceTypeApi]
 
@@ -1243,6 +1250,7 @@ export const SignalSourceTypeApi = {
     CiBrokenDefaultBranch: 'ci_broken_default_branch',
     CiDurationRegression: 'ci_duration_regression',
     SearchOpportunity: 'search_opportunity',
+    CheckFailed: 'check_failed',
 } as const
 
 export type ProblemTypeEnumApi = (typeof ProblemTypeEnumApi)[keyof typeof ProblemTypeEnumApi]
@@ -1429,6 +1437,16 @@ export interface SignalsScoutSignalExtraApi {
     tags?: string[] | null
     time_range?: SignalsScoutTimeRangeApi | null
     mcp_trace_id?: string | null
+}
+
+export interface CheckFailedSignalExtraApi {
+    check_id: string
+    report_id: string
+    check_title: string
+    explanation: string
+    observed_value?: number | null
+    baseline_value?: number | null
+    threshold?: string | null
 }
 
 export type LogsAlertStateChangeSignalExtraActionEnumApi =
@@ -1836,6 +1854,7 @@ export type SignalExtraApi =
     | EndpointExecutionFailedSignalExtraApi
     | EndpointBreakdownLimitExceededSignalExtraApi
     | SignalsScoutSignalExtraApi
+    | CheckFailedSignalExtraApi
     | LogsAlertStateChangeSignalExtraApi
     | ReplayVisionScannerFindingSignalExtraApi
     | AnalyticsAnomalyInvestigationSignalExtraApi
@@ -1926,6 +1945,7 @@ export interface SignalNodeApi {
      * * `endpoints` - endpoints
      * * `pganalyze` - pganalyze
      * * `signals_scout` - signals_scout
+     * * `signals_check` - signals_check
      * * `logs` - logs
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
@@ -1988,7 +2008,8 @@ export interface SignalNodeApi {
      * * `ci_flaky_check` - ci_flaky_check
      * * `ci_broken_default_branch` - ci_broken_default_branch
      * * `ci_duration_regression` - ci_duration_regression
-     * * `search_opportunity` - search_opportunity */
+     * * `search_opportunity` - search_opportunity
+     * * `check_failed` - check_failed */
     source_type: SignalSourceTypeApi
     /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
     source_id: string
@@ -2110,6 +2131,10 @@ export interface SignalReportStateRequestApi {
  * * `work_release` - Work Release
  * * `pull_request` - Pull Request
  * * `check_result` - Check Result
+ * * `implementation_decision` - Implementation Decision
+ * * `implementation_dispatch` - Implementation Dispatch
+ * * `implementation_replacement` - Implementation Replacement
+ * * `implementation_handover` - Implementation Handover
  */
 export type SignalReportArtefactArtefactTypeEnumApi =
     (typeof SignalReportArtefactArtefactTypeEnumApi)[keyof typeof SignalReportArtefactArtefactTypeEnumApi]
@@ -2136,6 +2161,10 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     WorkRelease: 'work_release',
     PullRequest: 'pull_request',
     CheckResult: 'check_result',
+    ImplementationDecision: 'implementation_decision',
+    ImplementationDispatch: 'implementation_dispatch',
+    ImplementationReplacement: 'implementation_replacement',
+    ImplementationHandover: 'implementation_handover',
 } as const
 
 export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknown[]
@@ -2263,6 +2292,7 @@ export const SignalReportCheckKindEnumApi = {
 } as const
 
 /**
+ * * `pending` - Pending
  * * `active` - Active
  * * `passed` - Passed
  * * `failed` - Failed
@@ -2274,6 +2304,7 @@ export type SignalReportCheckStatusEnumApi =
     (typeof SignalReportCheckStatusEnumApi)[keyof typeof SignalReportCheckStatusEnumApi]
 
 export const SignalReportCheckStatusEnumApi = {
+    Pending: 'pending',
     Active: 'active',
     Passed: 'passed',
     Failed: 'failed',
@@ -2313,7 +2344,7 @@ export interface CheckComparisonApi {
 }
 
 /**
- * Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created.
+ * Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.
  */
 export type MetricThresholdConfigApiQuery = { [key: string]: unknown } | null
 
@@ -2334,7 +2365,7 @@ export type MetricThresholdConfigApiQuery = { [key: string]: unknown } | null
 export interface MetricThresholdConfigApi {
     /** Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created. */
     metric_id?: string | null
-    /** Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. */
+    /** Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already. */
     query?: MetricThresholdConfigApiQuery
     /** What the measured value must satisfy to pass. */
     comparison: CheckComparisonApi
@@ -2400,8 +2431,9 @@ export interface SignalReportCheckApi {
      * * `metric_threshold` - Metric Threshold
      * * `agent` - Agent */
     readonly kind: SignalReportCheckKindEnumApi
-    /** `active` while the check still runs; every other value is terminal.
+    /** `pending` while the check waits for the report to resolve, `active` while it still runs; every other value is terminal.
      *
+     * * `pending` - Pending
      * * `active` - Active
      * * `passed` - Passed
      * * `failed` - Failed
@@ -2411,8 +2443,13 @@ export interface SignalReportCheckApi {
     readonly status: SignalReportCheckStatusEnumApi
     /** What the check measures and what the result must satisfy; the shape depends on `kind`. `query` and `baseline_value` are null when you cannot read the data they describe. */
     config: SignalReportCheckConfigApi
-    /** When the coordinator next evaluates the check. */
+    /** When the coordinator next evaluates the check. Provisional while the check is `pending`: the report resolving is what sets it. */
     readonly next_run_at: string
+    /**
+     * How long after the report resolves a `pending` check waits before its first run. Null on a check that named its own `next_run_at`.
+     * @nullable
+     */
+    readonly soak_minutes: number | null
     /**
      * Gap between runs for a recurring check; null for a one-shot.
      * @nullable
@@ -2446,49 +2483,6 @@ export interface PaginatedSignalReportCheckListApi {
     /** @nullable */
     previous?: string | null
     results: SignalReportCheckApi[]
-}
-
-/**
- * Request body for creating a check on a report.
- *
- * The schedule is the check's own: `next_run_at` says when to look, rather than the system
- * deriving a soak window from a merged pull request that many fixes never have.
- */
-export interface SignalReportCheckWriteApi {
-    /**
-     * Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.
-     * @maxLength 200
-     */
-    title: string
-    /**
-     * Why the check is worth running.
-     * @maxLength 2000
-     */
-    rationale?: string
-    /** How the check is evaluated.
-     *
-     * * `metric_threshold` - Metric Threshold
-     * * `agent` - Agent */
-    kind: SignalReportCheckKindEnumApi
-    /** What the check measures and what the result must satisfy; the shape depends on `kind`. */
-    config: SignalReportCheckConfigApi
-    /** When to first evaluate the check. Must be in the future and within 90 days. Defaults to 7 days from now. */
-    next_run_at?: string
-    /**
-     * Gap between runs for a recurring check, between 360 and 129600 minutes. Omit for a one-shot check.
-     * @minimum 360
-     * @maximum 129600
-     * @nullable
-     */
-    run_interval_minutes?: number | null
-    /**
-     * How many times to evaluate the check, at most 10. Defaults to 1.
-     * @minimum 1
-     * @maximum 10
-     */
-    runs_remaining?: number
-    /** Horizon after which the check retires unrun. Defaults to 30 days after the last scheduled run, or the 90-day horizon if that comes first. */
-    expires_at?: string
 }
 
 export interface SignalReportBulkStateRequestApi {
@@ -3399,17 +3393,27 @@ export interface ScoutNoteCreateRequestApi {
 }
 
 /**
- * `inventory.emit_eligibility` — whether scout findings can reach the inbox for this team.
+ * `inventory.emit_eligibility` — whether the calling scout's findings and reports can reach the inbox.
  */
 export interface EmitEligibilityApi {
     /** Whether the organization has approved AI data processing (an org-level gate on all scout emits). */
     ai_processing_approved: boolean
     /** Whether the `signals_scout` signal source is enabled for this team. */
     source_enabled: boolean
-    /** True only when both team/org-level gates pass, so scout findings (signal and report channels alike) actually reach the inbox. When False, every emit is silently dropped — quick-close instead of doing throwaway investigation. Does not account for a scout's own dry-run `emit` toggle, which is per-config, not team-wide. */
+    /**
+     * Whether the calling scout's own config can write, as opposed to running in dry-run (`emit=false`), where it investigates but everything it writes is discarded. Null when the read is not from a scout run, so no single scout's config applies.
+     * @nullable
+     */
+    scout_emit_enabled: boolean | null
+    /** True only when every gate passes, so this scout's findings and reports (both channels) actually reach the inbox. When False, every write is dropped or refused — quick-close instead of doing throwaway investigation. Read this one value: it accounts for the calling scout's own dry-run posture as well as the team-wide gates, and it is the same gate `emit-report` and `edit-report` apply at write time. */
     can_emit: boolean
     /**
-     * One-line next step to unblock emits when `can_emit` is False; null when emits can flow.
+     * Which gate blocks the write: `scout_emit_disabled`, `scout_config_missing`, `ai_processing_not_approved`, or `source_disabled`. Null when `can_emit` is True. Matches the `skipped_reason` `emit-report` returns for the same block.
+     * @nullable
+     */
+    blocking_reason: string | null
+    /**
+     * One-line next step to unblock writes when `can_emit` is False; null when writes can flow.
      * @nullable
      */
     remediation: string | null
@@ -4484,6 +4488,8 @@ export interface EditReportRequestApi {
      * @nullable
      */
     append_note?: string | null
+    /** Set only when append_note confirms the finding with no new information. After four confirmations, store only the count. Other notes remain in the work log. */
+    corroboration_only?: boolean
     /**
      * Optional observations to add to the report's evidence rail, each becoming a bound signal attributed to this scout — adds to the report's evidence rather than replacing it. Use this for a new observation a reader should be able to check, and `append_note` for commentary (the owning team knows, a deploy fixed it). The report's signal count and weight move with the appended rows. Emit plus every append share a cap of 50 signals per report.
      * @maxItems 50
@@ -4519,6 +4525,8 @@ export interface EditReportRequestApi {
      * @items.maxLength 200
      */
     suggested_prompts?: string[] | null
+    /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. */
+    supersedes_implementation?: boolean
 }
 
 export interface EditReportResponseApi {
@@ -4526,7 +4534,7 @@ export interface EditReportResponseApi {
     report_id: string
     /** Which presentation fields changed (e.g. `title`, `summary`); empty if only a note was appended. */
     updated_fields: string[]
-    /** Whether a note artefact was appended. */
+    /** Whether the edit included a note. True for a collapsed corroboration too, where the report's count moves and no work-log entry is written. Read `corroboration_collapsed` to tell the two apart. */
     note_appended: boolean
     /** How many observations this edit added to the report's evidence rail; 0 if none. */
     evidence_appended: number
@@ -4554,6 +4562,14 @@ export interface EditReportResponseApi {
      * @nullable
      */
     suggested_prompts_set: number | null
+    /** Whether this edit actually rewrote the report's title or summary. False for a note, a reviewer change, or a re-send of the text the report already had. */
+    is_content_revision: boolean
+    /** How many times a scout has rewritten this report's title or summary, counting this edit. */
+    content_revision_count: number
+    /** Whether the edit recorded that the report's pull request should be replaced. False when you did not ask for it, when the edit changed no content, or when the report has already been rewritten too many times. */
+    supersedes_implementation: boolean
+    /** Whether your note raised the report's corroboration count instead of landing as its own entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log. */
+    corroboration_collapsed: boolean
 }
 
 /**
@@ -5029,6 +5045,82 @@ export interface RecordStructuredOutputResponseApi {
 }
 
 /**
+ * Request body for `scout-report-check-cancel`.
+ */
+export interface CancelReportCheckRequestApi {
+    /** The check to stop. Its recorded results stay on the report. */
+    check_id: string
+}
+
+/**
+ * One check as a scout run reads it back.
+ */
+export interface ScoutCheckSummaryApi {
+    /** The check. */
+    check_id: string
+    /** The report it is attached to. */
+    report_id: string
+    /** The expectation the check states. */
+    title: string
+    /** `metric_threshold` (the coordinator measures it) or `agent` (a run does). */
+    kind: string
+    /** `pending` while the check waits for the report to resolve, `active` while it still runs; every other value is terminal. */
+    status: string
+    /** When the check next runs. Provisional while it is `pending`. */
+    next_run_at: string
+    /**
+     * Verdict of the most recent run; null before the first.
+     * @nullable
+     */
+    last_outcome: string | null
+}
+
+/**
+ * Request body for `scout-report-check-create`: one forward-looking check on a report.
+ *
+ * The REST body plus the report it attaches to. Subclassed rather than restated so the schedule
+ * bounds a scout writes under are the ones the endpoint enforces, with no second copy to drift.
+ */
+export interface CreateReportCheckRequestApi {
+    /**
+     * Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.
+     * @maxLength 200
+     */
+    title: string
+    /**
+     * Why the check is worth running.
+     * @maxLength 2000
+     */
+    rationale?: string
+    /** How the check is evaluated.
+     *
+     * * `metric_threshold` - Metric Threshold
+     * * `agent` - Agent */
+    kind: SignalReportCheckKindEnumApi
+    /** What the check measures and what the result must satisfy; the shape depends on `kind`. */
+    config: SignalReportCheckConfigApi
+    /** When to first evaluate the check. Must be in the future and within 90 days. Defaults to 7 days from now. */
+    next_run_at?: string
+    /**
+     * Gap between runs for a recurring check, between 360 and 129600 minutes. Omit for a one-shot check.
+     * @minimum 360
+     * @maximum 129600
+     * @nullable
+     */
+    run_interval_minutes?: number | null
+    /**
+     * How many times to evaluate the check, at most 10. Defaults to 1.
+     * @minimum 1
+     * @maximum 10
+     */
+    runs_remaining?: number
+    /** Horizon after which the check retires unrun. Defaults to 30 days after the last scheduled run, or the 90-day horizon if that comes first. */
+    expires_at?: string
+    /** The report the check attaches to. */
+    report_id: string
+}
+
+/**
  * What one scout spent in the window, and what it produced for that spend.
  */
 export interface ScoutCostApi {
@@ -5308,6 +5400,7 @@ export interface ScoutSuggestionRefreshApi {
  * * `error_tracking` - Error tracking
  * * `pganalyze` - pganalyze
  * * `signals_scout` - Signals scout
+ * * `signals_check` - Report check
  * * `logs` - Logs
  * * `health_checks` - Health checks
  * * `endpoints` - Endpoints
@@ -5361,6 +5454,7 @@ export const SignalSourceProductEnumApi = {
     ErrorTracking: 'error_tracking',
     Pganalyze: 'pganalyze',
     SignalsScout: 'signals_scout',
+    SignalsCheck: 'signals_check',
     Logs: 'logs',
     HealthChecks: 'health_checks',
     Endpoints: 'endpoints',
@@ -5848,6 +5942,11 @@ export type SignalsScoutProjectProfileGetParams = {
      */
     force_refresh?: boolean
     /**
+     * The run whose scout's write posture `emit_eligibility` should answer for. A scout sandbox never needs this: its token is bound to the task that dispatched the run, and that binding is what the endpoint reads, so it wins over any value passed here. Pass it to inspect one scout's effective eligibility from outside a run — a run id from another project is ignored.
+     * @nullable
+     */
+    run_id?: string | null
+    /**
      * When true, respond with the cache metadata and the `summary` envelope only, and omit `payload` entirely. Use it when you need the emit gate and the inbox counts but not the full inventory. The full profile runs to tens of kilobytes, which a client can truncate. Costs nothing extra: the profile is read or built the same way either way.
      */
     summary_only?: boolean
@@ -5888,6 +5987,13 @@ export type SignalsScoutRunsListParams = {
      * @minLength 1
      */
     text?: string
+}
+
+export type SignalsScoutReportChecksListParams = {
+    /**
+     * The report whose checks to list.
+     */
+    report_id: string
 }
 
 export type SignalsScoutRunsCostsParams = {

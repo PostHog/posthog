@@ -83,7 +83,11 @@ from products.signals.backend.scout_harness.tools.structured_output import (
     StructuredOutputSchemaError,
     validate_structured_output_schema,
 )
-from products.signals.backend.serializers import ReportChartSerializer, ReportMetricWriteSerializer
+from products.signals.backend.serializers import (
+    ReportChartSerializer,
+    ReportMetricWriteSerializer,
+    SignalReportCheckWriteSerializer,
+)
 from products.skills.backend.api.skill_serializers import (
     MAX_SKILL_FILE_COUNT,
     SPEC_DESCRIPTION_MAX_LENGTH,
@@ -733,6 +737,47 @@ class RecordCheckResultResponseSerializer(serializers.Serializer):
         )
     )
     runs_remaining = serializers.IntegerField(help_text="Evaluations the check still owes after this one.")
+
+
+class CreateReportCheckRequestSerializer(SignalReportCheckWriteSerializer):
+    """Request body for `scout-report-check-create`: one forward-looking check on a report.
+
+    The REST body plus the report it attaches to. Subclassed rather than restated so the schedule
+    bounds a scout writes under are the ones the endpoint enforces, with no second copy to drift.
+    """
+
+    report_id = serializers.UUIDField(help_text="The report the check attaches to.")
+
+
+class CancelReportCheckRequestSerializer(serializers.Serializer):
+    """Request body for `scout-report-check-cancel`."""
+
+    check_id = serializers.UUIDField(help_text="The check to stop. Its recorded results stay on the report.")
+
+
+class ListReportChecksQuerySerializer(serializers.Serializer):
+    """Query for `scout-report-check-list`."""
+
+    report_id = serializers.UUIDField(help_text="The report whose checks to list.")
+
+
+class ScoutCheckSummarySerializer(serializers.Serializer):
+    """One check as a scout run reads it back."""
+
+    check_id = serializers.UUIDField(help_text="The check.")
+    report_id = serializers.UUIDField(help_text="The report it is attached to.")
+    title = serializers.CharField(help_text="The expectation the check states.")
+    kind = serializers.CharField(help_text="`metric_threshold` (the coordinator measures it) or `agent` (a run does).")
+    status = serializers.CharField(
+        help_text=(
+            "`pending` while the check waits for the report to resolve, `active` while it still runs; "
+            "every other value is terminal."
+        )
+    )
+    next_run_at = serializers.DateTimeField(help_text="When the check next runs. Provisional while it is `pending`.")
+    last_outcome = serializers.CharField(
+        allow_null=True, help_text="Verdict of the most recent run; null before the first."
+    )
 
 
 class FleetFindingsSummarySerializer(serializers.Serializer):
@@ -1601,6 +1646,10 @@ class EditReportRequestSerializer(serializers.Serializer):
         max_length=MAX_NOTE_CONTENT_LENGTH,
         help_text="Optional free-form note to append to the report's work log (attributed to this scout).",
     )
+    corroboration_only = serializers.BooleanField(
+        required=False,
+        help_text="Set only when append_note confirms the finding with no new information. After four confirmations, store only the count. Other notes remain in the work log.",
+    )
     append_evidence = serializers.ListField(
         required=False,
         allow_null=True,
@@ -1676,6 +1725,19 @@ class EditReportRequestSerializer(serializers.Serializer):
             "left them pointing at the old report."
         ),
     )
+    supersedes_implementation = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Set this only when your rewrite changes what the fix should be: a different root cause, "
+            "a different file or layer, a materially wider or narrower scope. More evidence for the "
+            "same fix is not a reason, because the report's open pull request already implements it. "
+            "Setting it true records a replacement decision for a ready report. Policy and eligibility "
+            "checks gate the replacement. The existing pull request closes only after a successful, "
+            "verified replacement. Technical failures retry automatically; policy blocks wait for a new "
+            "edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, "
+            "and only within the first four content revisions, including revisions that did not request replacement."
+        ),
+    )
 
     def validate(self, attrs: dict) -> dict:
         """Reject a body field this serializer does not declare.
@@ -1697,7 +1759,13 @@ class EditReportResponseSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Which presentation fields changed (e.g. `title`, `summary`); empty if only a note was appended.",
     )
-    note_appended = serializers.BooleanField(help_text="Whether a note artefact was appended.")
+    note_appended = serializers.BooleanField(
+        help_text=(
+            "Whether the edit included a note. True for a collapsed corroboration too, where the "
+            "report's count moves and no work-log entry is written. Read `corroboration_collapsed` "
+            "to tell the two apart."
+        ),
+    )
     evidence_appended = serializers.IntegerField(
         help_text="How many observations this edit added to the report's evidence rail; 0 if none."
     )
@@ -1734,6 +1802,28 @@ class EditReportResponseSerializer(serializers.Serializer):
             "How many prompts the report now suggests, or null if the edit left them as they were "
             "(the field omitted, or a re-send of what was already stored). 0 means the edit took the "
             "report's suggested prompts down."
+        ),
+    )
+    is_content_revision = serializers.BooleanField(
+        help_text=(
+            "Whether this edit actually rewrote the report's title or summary. False for a note, a "
+            "reviewer change, or a re-send of the text the report already had."
+        ),
+    )
+    content_revision_count = serializers.IntegerField(
+        help_text="How many times a scout has rewritten this report's title or summary, counting this edit.",
+    )
+    supersedes_implementation = serializers.BooleanField(
+        help_text=(
+            "Whether the edit recorded that the report's pull request should be replaced. False when "
+            "you did not ask for it, when the edit changed no content, or when the report has already "
+            "been rewritten too many times."
+        ),
+    )
+    corroboration_collapsed = serializers.BooleanField(
+        help_text=(
+            "Whether your note raised the report's corroboration count instead of landing as its own "
+            "entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log."
         ),
     )
 
@@ -1810,7 +1900,7 @@ class SignalSourceConfigsBucketsSerializer(serializers.Serializer):
 
 
 class EmitEligibilitySerializer(serializers.Serializer):
-    """`inventory.emit_eligibility` — whether scout findings can reach the inbox for this team."""
+    """`inventory.emit_eligibility` — whether the calling scout's findings and reports can reach the inbox."""
 
     ai_processing_approved = serializers.BooleanField(
         help_text="Whether the organization has approved AI data processing (an org-level gate on all scout emits).",
@@ -1818,17 +1908,34 @@ class EmitEligibilitySerializer(serializers.Serializer):
     source_enabled = serializers.BooleanField(
         help_text="Whether the `signals_scout` signal source is enabled for this team.",
     )
+    scout_emit_enabled = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "Whether the calling scout's own config can write, as opposed to running in dry-run "
+            "(`emit=false`), where it investigates but everything it writes is discarded. Null when the "
+            "read is not from a scout run, so no single scout's config applies."
+        ),
+    )
     can_emit = serializers.BooleanField(
         help_text=(
-            "True only when both team/org-level gates pass, so scout findings (signal and report "
-            "channels alike) actually reach the inbox. When False, every emit is silently dropped — "
-            "quick-close instead of doing throwaway investigation. Does not account for a scout's "
-            "own dry-run `emit` toggle, which is per-config, not team-wide."
+            "True only when every gate passes, so this scout's findings and reports (both channels) "
+            "actually reach the inbox. When False, every write is dropped or refused — quick-close "
+            "instead of doing throwaway investigation. Read this one value: it accounts for the "
+            "calling scout's own dry-run posture as well as the team-wide gates, and it is the same "
+            "gate `emit-report` and `edit-report` apply at write time."
+        ),
+    )
+    blocking_reason = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Which gate blocks the write: `scout_emit_disabled`, `scout_config_missing`, "
+            "`ai_processing_not_approved`, or `source_disabled`. Null when `can_emit` is True. Matches "
+            "the `skipped_reason` `emit-report` returns for the same block."
         ),
     )
     remediation = serializers.CharField(
         allow_null=True,
-        help_text="One-line next step to unblock emits when `can_emit` is False; null when emits can flow.",
+        help_text="One-line next step to unblock writes when `can_emit` is False; null when writes can flow.",
     )
 
 
@@ -2479,6 +2586,17 @@ class ProjectProfileQuerySerializer(serializers.Serializer):
             "for the internal scout token — public read callers get the cached profile regardless. "
             "Concurrent forced rebuilds are serialized by the team-keyed advisory lock — at most "
             "one extra `build_inventory` per simultaneous request."
+        ),
+    )
+    run_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The run whose scout's write posture `emit_eligibility` should answer for. A scout "
+            "sandbox never needs this: its token is bound to the task that dispatched the run, and "
+            "that binding is what the endpoint reads, so it wins over any value passed here. Pass it "
+            "to inspect one scout's effective eligibility from outside a run — a run id from another "
+            "project is ignored."
         ),
     )
 

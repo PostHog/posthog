@@ -307,7 +307,7 @@ export function formatLearnDocument(
     skillFile: SkillFile,
     manifestFiles: readonly SkillManifestEntry[]
 ): string {
-    const manifest = formatManifest(manifestFiles)
+    const manifest = `${formatManifest(manifestFiles)}\nRead a file with \`learn ${identifier} <path>\`. Separate the skill name and path with a space; do not use --file.`
     const full = `Skill: ${identifier}\nDescription: ${description}\n\n${manifest}\n\nSKILL.md content (frontmatter omitted):\n\n${stripFrontmatter(skillFile.content)}`
     if (full.length <= LEARN_OUTPUT_CHAR_LIMIT) {
         return full

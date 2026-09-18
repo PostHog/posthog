@@ -579,6 +579,7 @@ const PINNED_PROPERTY_VALUES: CustomPropertyValueApi[] = PINNED_PROPERTY_FIXTURE
     created_by_id: 1,
 }))
 const PINNED_PROPERTIES_CONFIG: UserCustomerAnalyticsConfigApi = {
+    task_digest: { enabled: false, send_time: '09:00', cadence: 'weekdays' },
     pinned_properties: [
         { kind: 'custom_property', id: 'seats' },
         { kind: 'relationship', id: RELATIONSHIP_DEFINITIONS.results[0].id },

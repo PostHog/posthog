@@ -1,0 +1,141 @@
+[
+    {
+        "letter": "XB",
+        "run": "luna-xhigh-2",
+        "matches": {
+            "XB1": {
+                "cluster": null,
+                "confidence": "high",
+                "reason": "The finding identifies a missing boundary after the numeric PR identifier, whereas cluster 13 concerns hostname anchoring in the same parser and does not claim that a suffix such as 42abc is accepted.",
+                "id": "XB1"
+            },
+            "XB2": {
+                "cluster": 31,
+                "confidence": "high",
+                "reason": "The queued initial task can create a review after opt-out because it never rechecks the resolver or toggle, exactly cluster 31's execution-time validation gap.",
+                "id": "XB2"
+            },
+            "XB3": {
+                "cluster": null,
+                "confidence": "high",
+                "reason": "No cluster identifies missing reviewer assignment being collapsed into opted_out=True; clusters 50 and 53 concern different dismissal-message triggers, and cluster 11 concerns reviewer-identity drift.",
+                "id": "XB3"
+            },
+            "XB4": {
+                "cluster": 6,
+                "confidence": "high",
+                "reason": "The engine relaxes bot and draft gates solely from self_driving without verifying the PR's bot-author invariant, matching cluster 6 while adding repository-identity requirements.",
+                "id": "XB4"
+            },
+            "XB5": {
+                "cluster": 58,
+                "confidence": "high",
+                "reason": "A swallowed initial broker publication failure permanently loses the review without durable dispatch state, exactly cluster 58 rather than cluster 54's escaping-exception claim.",
+                "id": "XB5"
+            },
+            "XB6": {
+                "cluster": null,
+                "confidence": "high",
+                "reason": "No cluster claims replica lag in has_reviewable_repo_config; cluster 18 concerns this query's missing provider filter, while clusters 15 and 76 concern reads of different models.",
+                "id": "XB6"
+            },
+            "XB7": {
+                "cluster": 58,
+                "confidence": "high",
+                "reason": "The initial handoff has no persisted intent after a failed broker publish or interrupted callback, matching cluster 58's unrecoverable fire-and-forget dispatch.",
+                "id": "XB7"
+            },
+            "XB8": {
+                "cluster": null,
+                "confidence": "high",
+                "reason": "No cluster claims the webhook carve-out must reject all ready PRs; cluster 35 instead concerns inaccurate draft provenance wording and cluster 6 concerns engine-side bot-author validation.",
+                "id": "XB8"
+            },
+            "XB9": {
+                "cluster": null,
+                "confidence": "high",
+                "reason": "No cluster identifies repository disabling racing with run creation after a GitHub fetch; cluster 31 concerns a user's toggle, and cluster 72 concerns documentation of the enabled gate.",
+                "id": "XB9"
+            },
+            "XB10": {
+                "cluster": 1,
+                "confidence": "high",
+                "reason": "The stated internal=True production implementation tasks are rejected by the tasks facade and cannot receive webhook re-reviews, exactly cluster 1, with receiver rejection added to the same finding.",
+                "id": "XB10"
+            },
+            "XB11": {
+                "cluster": 2,
+                "confidence": "high",
+                "reason": "The receiver leg allegedly stamps inbox provenance from writable task output without proving task linkage, bot authorship, or native head, exactly cluster 2 despite its documentation anchor.",
+                "id": "XB11"
+            },
+            "XB12": {
+                "cluster": 2,
+                "confidence": "high",
+                "reason": "An arbitrary TaskRun output URL can reach process_inbox_pr_review and receive trusted provenance without PR-to-run or author verification, exactly cluster 2's initial-entry trust boundary.",
+                "id": "XB12"
+            },
+            "XB13": {
+                "cluster": 31,
+                "confidence": "high",
+                "reason": "The initial worker relies on a prequeue toggle check and can proceed after opt-out, matching cluster 31 while additionally recommending another check before verdict publication.",
+                "id": "XB13"
+            },
+            "XB14": {
+                "cluster": 2,
+                "confidence": "high",
+                "reason": "The initial task trusts supplied PR and implementation identifiers without binding the fetched PR to the task, bot author, or head repository, exactly cluster 2.",
+                "id": "XB14"
+            },
+            "XB15": {
+                "cluster": 1,
+                "confidence": "high",
+                "reason": "find_signal_implementation_run rejects the actual internal=True implementation task, exactly cluster 1, while the proposed server-owned marker addresses how to replace that filter.",
+                "id": "XB15"
+            },
+            "XB16": {
+                "cluster": 6,
+                "confidence": "high",
+                "reason": "A true marker bypasses engine gates without checking that the current PR is bot-authored, exactly cluster 6 rather than cluster 3's distinct non-boolean truthiness concern.",
+                "id": "XB16"
+            },
+            "XB17": {
+                "cluster": 3,
+                "confidence": "high",
+                "reason": "bool(context.get(self_driving_review)) accepts truthy malformed values such as the string false instead of a strict boolean, exactly cluster 3.",
+                "id": "XB17"
+            },
+            "XB18": {
+                "id": "XB18",
+                "cluster": null,
+                "confidence": "high",
+                "reason": "XB18 primarily identifies the TaskRun-save receiver guard at review_hog/backend/receivers.py:104-105 that prevents the initial enqueue; cluster 1 identifies the separate find_signal_implementation_run guard at tasks/backend/facade/api.py:508 used by the webhook path. Its secondary webhook sentence overlaps cluster 1, but the cited receiver path and primary defect differ, so retain a new claim."
+            },
+            "XB19": {
+                "cluster": 57,
+                "confidence": "high",
+                "reason": "One canonical reviewer's disabled toggle suppresses a review despite another assigned reviewer's opt-in, exactly cluster 57's any-assigned-reviewer mismatch.",
+                "id": "XB19"
+            },
+            "XB20": {
+                "cluster": 39,
+                "confidence": "high",
+                "reason": "find_task_run selects across teams before run.team_id is checked, allowing another team's match to hide a valid run, exactly cluster 39.",
+                "id": "XB20"
+            },
+            "XB21": {
+                "cluster": 9,
+                "confidence": "high",
+                "reason": "Repeated receiver jobs perform get_pr before current-head deduplication and waste GitHub requests, exactly cluster 9.",
+                "id": "XB21"
+            },
+            "XB22": {
+                "cluster": 76,
+                "confidence": "high",
+                "reason": "ReviewUserSettings.load allegedly reads stale toggle values from a replica and needs writer pinning before review side effects, exactly cluster 76.",
+                "id": "XB22"
+            }
+        },
+        "verified": []
+    }
+]

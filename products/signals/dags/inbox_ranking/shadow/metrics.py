@@ -13,6 +13,14 @@ Three orders are graded on each list, on exactly the same rows:
 - `heuristic`, every row at the rank the list served, pooling all served sorts;
 - `random`, seeded permutations, the chance line a gap has to clear.
 
+Each set of three is graded under two scopes, because a day's lists are mostly part-scored:
+
+- `all_rows`, every reconstructed row, with the unscored ones last in the model order;
+- `scored_rows`, the same lists narrowed to the rows the model had a score for.
+
+A list with no scored row at all is graded under neither. Every score there ties at minus
+infinity, the model order collapses onto the served order, and the two lines draw level for free.
+
 Pure functions over frames; `shadow/dag.py` owns the ClickHouse, S3 and telemetry plumbing.
 
 **Position bias is not corrected for.** Every recorded open happened under the served order, so a
@@ -27,8 +35,17 @@ tabs normalize to `reports` so merged sections meet. The maximum list_size must 
 count, ranks must be contiguous, and conflicting rank assignments are excluded. Pagination
 inside the bucket extends the list; later incomplete pages are excluded. Without a render ID,
 the bucket can split a render or combine nearby visits, so this is a conservative approximation.
-Repeat visits in different buckets stay separate. Unscored reports keep their outcomes and rank
-last in the model order, tied on served rank; a group with no available scores is not graded.
+Repeat visits in different buckets stay separate. Under `all_rows`, unscored reports keep their
+outcomes and rank last in the model order, tied on served rank; a group with no available scores
+is not graded.
+
+**A part-scored list handicaps the model order, and `scored_rows` is how that is read off.** An
+unscored row sinks to the bottom of the model order while the served order keeps it where it was,
+so an outcome that lands on one costs the model line and costs the heuristic line nothing. That is
+a coverage effect, not a ranking one. The `scored_rows` scope removes it by grading both orders on
+the rows the model could actually order, at the price of a shorter list under the NDCG cutoffs.
+`scored_list_share`, `score_pending_share` and `never_scored_share` say how much of the day each
+scope rests on.
 
 **The graded outcome is a list-scoped proxy for the head it is named after, not that head's own
 label.** Relevance here is "the person who saw this list engaged with this row inside the
@@ -58,6 +75,11 @@ MODEL_ORDER = "model"
 HEURISTIC_ORDER = "heuristic"
 RANDOM_ORDER = "random"
 
+# Which rows of a list a grade is computed over. Both require at least one scored row.
+ALL_ROWS_SCOPE = "all_rows"
+SCORED_ROWS_SCOPE = "scored_rows"
+GRADING_SCOPES: tuple[str, ...] = (ALL_ROWS_SCOPE, SCORED_ROWS_SCOPE)
+
 NDCG_CUTOFFS: tuple[int, ...] = (5, 10)
 
 # Seeded and fixed, so re-grading the same day reports the same chance line.
@@ -85,7 +107,7 @@ def outcome_column(outcome: str) -> str:
 
 @frozen
 class RankingGrade:
-    """One model, one outcome, one order, over the lists that had that outcome.
+    """One model, one outcome, one order, one grading scope, over the lists that had that outcome.
 
     `model_versions` counts the distinct model versions in the group: a report is scored on the day
     it is born, so a day of lists is ranked by whichever version was current when each of its
@@ -98,6 +120,8 @@ class RankingGrade:
     model_versions: int
     outcome: str
     ranking_order: str
+    # Which rows of each list the three orders were graded over; one of `GRADING_SCOPES`.
+    grading_scope: str
     # Lists that had at least one of this outcome and at least MIN_LIST_SIZE scored rows. A list
     # with no outcome has no ideal ranking to score against, so it is not graded.
     lists: int
@@ -126,6 +150,19 @@ class RankingGrade:
     # with their unscored rows removed, so the served ranks close up and the NDCG cutoffs bite on
     # a shorter list than the one that was rendered.
     full_list_coverage: float | None
+    # Share of served lists holding at least one scored row: the lists either scope can grade.
+    # `full_list_coverage` is the stricter share of those that were scored right through.
+    scored_list_share: float | None
+    # The two halves of what `score_coverage` is missing, so a thin read says which cause it has.
+    # Pending rows had a score written after the list was served, which is the birth-day residual
+    # the daily job cannot avoid. Never-scored rows had none anywhere in the lookback window: a
+    # report the pool never held. The three shares sum to 1.
+    score_pending_share: float | None
+    never_scored_share: float | None
+    # Whether any scored row the group held came from `load_scores` reading candidate rows in
+    # place of a missing champion. Group-level like the shares above, so it can warn on a line
+    # whose own graded rows are all real champion scores; it never stays False on one that is not.
+    champion_is_fallback: bool
 
     def metrics(self) -> dict[str, int | float | None]:
         return {
@@ -142,6 +179,9 @@ class RankingGrade:
             "score_coverage": self.score_coverage,
             "positive_coverage": self.positive_coverage,
             "full_list_coverage": self.full_list_coverage,
+            "scored_list_share": self.scored_list_share,
+            "score_pending_share": self.score_pending_share,
+            "never_scored_share": self.never_scored_share,
         }
 
     def as_dict(self) -> dict[str, object]:
@@ -151,6 +191,8 @@ class RankingGrade:
             "model_versions": self.model_versions,
             "outcome": self.outcome,
             "ranking_order": self.ranking_order,
+            "grading_scope": self.grading_scope,
+            "champion_is_fallback": self.champion_is_fallback,
             **self.metrics(),
         }
 
@@ -242,20 +284,26 @@ def join_scores(lists: pd.DataFrame, scores: pd.DataFrame) -> pd.DataFrame:
 
     Unscored reports retain a null score and all their outcomes for each model group. The model
     orders them last. A group with no score available for any served row produces no grades.
+
+    `score_pending` splits the unscored rows in two: True when a score for the row exists in the
+    lookback window but was written after the list was served, which is the birth-day residual the
+    daily job cannot avoid, and False when the window holds no score for the row at all.
     """
+    key = ["impression_id", "report_id", "model_name", "model_role", "head"]
     if lists.empty or scores.empty:
-        return lists.head(0).merge(scores.head(0), on="report_id", how="inner")
+        return lists.head(0).merge(scores.head(0), on="report_id", how="inner").assign(score_pending=False)
     joined = lists.merge(scores, on="report_id", how="inner")
-    joined = joined.loc[joined["available_at"] <= joined["impressed_at"]]
-    matched = joined.sort_values(["snapshot_date", "available_at", "model_version"]).drop_duplicates(
-        subset=["impression_id", "report_id", "model_name", "model_role", "head"], keep="last"
+    available = joined.loc[joined["available_at"] <= joined["impressed_at"]]
+    matched = available.sort_values(["snapshot_date", "available_at", "model_version"]).drop_duplicates(
+        subset=key, keep="last"
     )
     groups = scores[["model_name", "model_role", "head"]].drop_duplicates()
-    return lists.merge(groups, how="cross").merge(
-        matched.drop(columns=lists.columns.difference(["impression_id", "report_id"])),
-        on=["impression_id", "report_id", "model_name", "model_role", "head"],
-        how="left",
+    known = joined[key].drop_duplicates().assign(had_score=True)
+    side = known.merge(
+        matched.drop(columns=lists.columns.difference(["impression_id", "report_id"])), on=key, how="left"
     )
+    rows = lists.merge(groups, how="cross").merge(side, on=key, how="left")
+    return rows.assign(score_pending=rows.pop("had_score").notna() & rows["score"].isna())
 
 
 def score_coverage(served_rows: int, joined: pd.DataFrame) -> float | None:
@@ -272,11 +320,13 @@ def score_coverage(served_rows: int, joined: pd.DataFrame) -> float | None:
     return float(len(covered) / served_rows)
 
 
-def served_lists(rows: pd.DataFrame, outcome: str) -> list[ServedList]:
-    """The gradeable lists of one (model, head) group.
+def served_lists(rows: pd.DataFrame, outcome: str, *, scope: str = ALL_ROWS_SCOPE) -> list[ServedList]:
+    """The gradeable lists of one (model, head) group, under one grading scope.
 
     A list with no outcome is dropped: NDCG has no ideal ranking to normalize against and the
-    reciprocal rank has no hit, so every order would score the same nothing.
+    reciprocal rank has no hit, so every order would score the same nothing. A list with no scored
+    row is dropped under both scopes, and `scored_rows` keeps only the rows the group scored; the
+    module docstring says why.
 
     Rows are put in served order first. Neither deterministic order cares which arrangement they
     arrive in, because both sort on `served_rank`, but the seeded permutations are applied to the
@@ -286,7 +336,10 @@ def served_lists(rows: pd.DataFrame, outcome: str) -> list[ServedList]:
     column = outcome_column(outcome)
     lists: list[ServedList] = []
     for _, group in rows.groupby("impression_id", sort=True):
-        ordered = group.sort_values(["served_rank", "report_id"])
+        scored = group.loc[group["score"].notna()]
+        if scored.empty:
+            continue
+        ordered = (scored if scope == SCORED_ROWS_SCOPE else group).sort_values(["served_rank", "report_id"])
         relevance = ordered[column].to_numpy(dtype=float)
         if len(ordered) < MIN_LIST_SIZE or relevance.sum() == 0:
             continue
@@ -363,25 +416,47 @@ def _positive_coverage(rows: pd.DataFrame, outcome: str, served_positives: int) 
     return float(rows.loc[rows["score"].notna(), outcome_column(outcome)].sum() / served_positives)
 
 
-def _full_list_coverage(rows: pd.DataFrame, served_per_list: pd.Series) -> float | None:
-    """Share of served lists for which this group had a score for every row."""
+def _list_coverages(rows: pd.DataFrame, served_per_list: pd.Series) -> dict[str, float | None]:
+    """How much of each served list this group scored: the share it can grade at all, and the
+    stricter share it scored right through."""
     per_list = (
         rows.loc[rows["score"].notna()].groupby("impression_id").size().reindex(served_per_list.index, fill_value=0)
     )
     if per_list.empty:
-        return None
-    return float((per_list == served_per_list.reindex(per_list.index)).mean())
+        return {"scored_list_share": None, "full_list_coverage": None}
+    return {
+        "scored_list_share": float((per_list > 0).mean()),
+        "full_list_coverage": float((per_list == served_per_list.reindex(per_list.index)).mean()),
+    }
+
+
+def _unscored_shares(rows: pd.DataFrame, served_rows: int) -> dict[str, float | None]:
+    """The two reasons a served row carries no score, each as a share of the served rows.
+
+    With `score_coverage` these three sum to 1, so a thin read says whether it is waiting for the
+    next training run or looking at reports the pool never held.
+    """
+    if not served_rows:
+        return {"score_pending_share": None, "never_scored_share": None}
+    unscored = rows.loc[rows["score"].isna()].drop_duplicates(subset=["impression_id", "report_id"])
+    pending = int(unscored["score_pending"].sum())
+    return {
+        "score_pending_share": float(pending / served_rows),
+        "never_scored_share": float((len(unscored) - pending) / served_rows),
+    }
 
 
 def grade_lists(joined: pd.DataFrame, *, served: pd.DataFrame) -> list[RankingGrade]:
-    """Three grades per (model, outcome): the model's order, the served order, and chance.
+    """Three grades per (model, outcome, grading scope): the model's order, the served order, and
+    chance.
 
     Grouping is by model family and role rather than version for the reason `RankingGrade` gives:
     one day's lists are ranked by whichever version scored each report at its birth.
 
     `model_role` is the snapshot role, not the current serving policy. Missing champion partitions
-    use candidate scores as a fallback in `load_scores`. Coverage reports actual non-null scores
-    per group. Unscored rows and their outcomes stay in every order; see the module docstring.
+    use candidate scores as a fallback in `load_scores`, and `champion_is_fallback` says when the
+    group holds one. Coverage reports actual non-null scores per group, and is a property of the
+    group rather than of the scope, so the same figures ride on both scopes of a group.
     """
     grades: list[RankingGrade] = []
     if joined.empty:
@@ -392,32 +467,40 @@ def grade_lists(joined: pd.DataFrame, *, served: pd.DataFrame) -> list[RankingGr
     for (model_name, model_role, head), rows in joined.groupby(["model_name", "model_role", "head"], sort=True):
         if head not in OUTCOMES:
             continue
-        if not rows["score"].notna().any():
+        scored = rows["score"].notna()
+        if not scored.any():
             continue
-        lists = served_lists(rows, str(head))
-        if not lists:
-            continue
-        shared: dict[str, Any] = {
+        coverage: dict[str, Any] = {
             "model_name": str(model_name),
             "model_role": str(model_role),
             "model_versions": int(rows["model_version"].nunique()),
             "outcome": str(head),
-            "lists": len(lists),
-            "reports": sum(len(entry.relevance) for entry in lists),
-            "mean_list_size": float(np.mean([len(entry.relevance) for entry in lists])),
-            "positive_served_rank_mean": _positive_served_rank_mean(lists),
             "score_coverage": score_coverage(served_rows, rows),
             "positive_coverage": _positive_coverage(rows, str(head), served_positives[str(head)]),
-            "full_list_coverage": _full_list_coverage(rows, served_per_list),
+            "champion_is_fallback": bool(rows.loc[scored, "score_is_fallback"].any()),
+            **_list_coverages(rows, served_per_list),
+            **_unscored_shares(rows, served_rows),
         }
-        grades.extend(
-            _grade(shared, ranking_order=order, metrics=metrics)
-            for order, metrics in (
-                (MODEL_ORDER, _order_metrics(_model_ordered(lists))),
-                (HEURISTIC_ORDER, _order_metrics(_heuristic_ordered(lists))),
-                (RANDOM_ORDER, _random_metrics(lists)),
+        for scope in GRADING_SCOPES:
+            lists = served_lists(rows, str(head), scope=scope)
+            if not lists:
+                continue
+            shared: dict[str, Any] = {
+                **coverage,
+                "grading_scope": scope,
+                "lists": len(lists),
+                "reports": sum(len(entry.relevance) for entry in lists),
+                "mean_list_size": float(np.mean([len(entry.relevance) for entry in lists])),
+                "positive_served_rank_mean": _positive_served_rank_mean(lists),
+            }
+            grades.extend(
+                _grade(shared, ranking_order=order, metrics=metrics)
+                for order, metrics in (
+                    (MODEL_ORDER, _order_metrics(_model_ordered(lists))),
+                    (HEURISTIC_ORDER, _order_metrics(_heuristic_ordered(lists))),
+                    (RANDOM_ORDER, _random_metrics(lists)),
+                )
             )
-        )
     return grades
 
 
