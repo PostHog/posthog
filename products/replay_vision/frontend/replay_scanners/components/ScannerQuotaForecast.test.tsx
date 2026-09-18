@@ -5,6 +5,7 @@ import { render, screen } from '@testing-library/react'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import type { VisionQuotaApi } from '../../generated/api.schemas'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ScannerQuotaForecast } from './ScannerQuotaForecast'
@@ -19,8 +20,10 @@ const QUOTA = {
     period_start: '2026-05-01T00:00:00Z',
     period_end: '2026-06-01T00:00:00Z',
     projected_monthly_credits: 3000,
-    free_credits_used: 0,
-}
+    scanners_monthly_credits: 3000,
+    backfills_committed_credits: 0,
+    free_monthly_credits: 0,
+} satisfies VisionQuotaApi
 
 const ESTIMATE = {
     matched_sessions_in_window: 1840,
@@ -56,7 +59,7 @@ describe('ScannerQuotaForecast', () => {
     })
 
     it('points the spend limit caption at the billing page for Replay Vision', async () => {
-        visionQuotaLogic.actions.loadQuotaSuccess(QUOTA as never)
+        visionQuotaLogic.actions.loadQuotaSuccess(QUOTA)
         logic.actions.loadScannerEstimateSuccess(ESTIMATE)
 
         render(<ScannerQuotaForecast scannerId="new" />)
