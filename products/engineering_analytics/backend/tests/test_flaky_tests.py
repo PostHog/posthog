@@ -41,6 +41,8 @@ T_JEST_RECOVERY = "products/surveys/frontend/surveyLogic.test.ts::surveyLogic sa
 T_JEST_CROSS_LEG = "frontend/src/scenes/legacy.test.ts::legacy scene renders"
 T_SETUP_BREAK = "posthog/api/test/test_setup/TestSetup::test_errors_when_setup_breaks"
 T_JOB_RERUN = "posthog/api/test/test_shard/TestShard::test_fails_with_its_whole_job"
+T_LEGACY_JOB_A = "posthog/api/test/test_legacy_a/TestLegacyA::test_one"
+T_LEGACY_JOB_B = "posthog/api/test/test_legacy_b/TestLegacyB::test_two"
 
 
 class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
@@ -189,6 +191,11 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
                     ),
                 )
             ],
+            # Two keyless jobs (pre-job_key history) in one run attempt, each failing a different
+            # test. Coalesced under the synthetic 'legacy' job_key, their combined nodeid count can
+            # cross the job-attempt threshold even though neither real job did.
+            cls._span(70, T_LEGACY_JOB_A, "failed", ts=earlier, run="1900", branch="master"),
+            cls._span(71, T_LEGACY_JOB_B, "failed", ts=earlier, run="1900", branch="master"),
             # Main Jest spans share the same evidence model. Recovery only counts within the
             # stable FOSS/EE + shard job that failed.
             cls._span(
@@ -364,6 +371,8 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             T_JEST_CROSS_LEG,
             f"{T_JOB_RERUN}_1",
             f"{T_JOB_RERUN}_2",
+            T_LEGACY_JOB_A,
+            T_LEGACY_JOB_B,
         }
         assert data["truncated"] is False
         assert data["limit"] == 50
@@ -376,6 +385,15 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         assert f"{T_JOB_RERUN}_2" not in rows
         # A single failing test in a job is still a failure, and its re-run pass is still proof.
         assert rows[T_RERUN_RECOVERY]["classification"] == "confirmed_flake"
+
+    def test_legacy_jobs_do_not_merge_toward_the_job_attempt_threshold(self) -> None:
+        # Two real jobs, both keyless, combine to the same 'legacy' bucket. Unlike a real job
+        # attempt (asserted above), their combined nodeid count must never trigger exclusion.
+        with patch("products.engineering_analytics.backend.logic.queries._test_spans.SETUP_BREAK_MIN_JOB_FAILURES", 2):
+            rows = self._rows()
+
+        assert T_LEGACY_JOB_A in rows
+        assert T_LEGACY_JOB_B in rows
 
     @parameterized.expand(
         [

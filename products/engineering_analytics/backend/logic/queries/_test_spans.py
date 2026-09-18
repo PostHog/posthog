@@ -127,6 +127,10 @@ SETUP_BREAK_MIN_JOBS = 3
 SETUP_BREAK_MIN_TEAMS = 3
 SETUP_BREAK_MIN_JOB_FAILURES = 100
 
+# The synthetic bucket _SCAN_TEMPLATE folds every keyless span into (pre-job_key history). It can
+# merge failures from several real jobs, so it must never trigger the per-job-attempt exclusion below.
+_LEGACY_JOB_KEY = "legacy"
+
 _SETUP_BREAK_RUN_ATTEMPTS = """
     SELECT run_id, attempt
     FROM (__SPAN_SCAN__)
@@ -140,6 +144,7 @@ _SETUP_BREAK_JOB_ATTEMPTS = """
     SELECT run_id, attempt, job_key
     FROM (__SPAN_SCAN__)
     WHERE outcome IN ('failed', 'error')
+        AND job_key != {legacy_job_key}
     GROUP BY run_id, attempt, job_key
     HAVING uniq(nodeid) >= {setup_break_min_job_failures}
 """
@@ -194,7 +199,7 @@ _SCAN_TEMPLATE = """
         -- unstamped span from merging every execution of its test into one phantom run.
         coalesce(nullIf(resource_attributes['ci.run_id'], ''), trace_id) AS run_id,
         ifNull(accurateCastOrNull(resource_attributes['ci.run_attempt'], 'Int64'), 1) AS attempt,
-        coalesce(nullIf(attributes['test.job_key'], ''), 'legacy') AS job_key,
+        coalesce(nullIf(attributes['test.job_key'], ''), {legacy_job_key}) AS job_key,
         timestamp AS span_timestamp,
         timestamp >= {date_from} AS is_current
     FROM posthog.trace_spans
@@ -231,6 +236,7 @@ def scan_placeholders(
         "setup_break_min_jobs": ast.Constant(value=SETUP_BREAK_MIN_JOBS),
         "setup_break_min_teams": ast.Constant(value=SETUP_BREAK_MIN_TEAMS),
         "setup_break_min_job_failures": ast.Constant(value=SETUP_BREAK_MIN_JOB_FAILURES),
+        "legacy_job_key": ast.Constant(value=_LEGACY_JOB_KEY),
     }
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
