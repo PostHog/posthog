@@ -21,34 +21,55 @@ function ungroupedReviewer(index: number): SuggestedReviewer {
 }
 
 describe("SuggestedReviewersList", () => {
-  it("keeps a scout name in the source tooltip", async () => {
-    const user = userEvent.setup();
-    const scoutName =
-      "Infrastructure reliability and request processing ownership scout";
-    const reviewer: SuggestedReviewer = {
-      github_login: "solo",
-      github_name: "Solo Scout",
-      relevant_commits: [],
-      user: {
-        id: 1,
-        uuid: "solo",
-        first_name: "Solo",
-        last_name: "Scout",
-        email: "solo@example.com",
+  it.each([
+    [
+      "a hover",
+      async (user: ReturnType<typeof userEvent.setup>, badge: HTMLElement) => {
+        await user.hover(badge);
       },
-      source_skill: "signals-scout-infrastructure-reliability",
-      source_label: scoutName,
-      explanation: "Maintains the request path.",
-    };
+    ],
+    [
+      "keyboard focus",
+      async (user: ReturnType<typeof userEvent.setup>, badge: HTMLElement) => {
+        await user.tab();
+        expect(badge).toHaveFocus();
+      },
+    ],
+  ])(
+    "reveals a scout name in the source tooltip on %s",
+    async (_case, reveal) => {
+      const user = userEvent.setup();
+      const scoutName =
+        "Infrastructure reliability and request processing ownership scout";
+      const reviewer: SuggestedReviewer = {
+        github_login: "solo",
+        github_name: "Solo Scout",
+        relevant_commits: [],
+        user: {
+          id: 1,
+          uuid: "solo",
+          first_name: "Solo",
+          last_name: "Scout",
+          email: "solo@example.com",
+        },
+        source_skill: "signals-scout-infrastructure-reliability",
+        source_label: scoutName,
+        explanation: "Maintains the request path.",
+      };
 
-    render(<SuggestedReviewersList reviewers={[reviewer]} disabled={false} />);
+      render(
+        <SuggestedReviewersList reviewers={[reviewer]} disabled={false} />,
+      );
 
-    expect(screen.getByText("Added by scout")).toBeInTheDocument();
-    expect(screen.queryByText(scoutName)).not.toBeInTheDocument();
+      const badge = screen.getByText("Added by scout");
+      expect(badge).toBeInTheDocument();
+      expect(screen.queryByText(scoutName)).not.toBeInTheDocument();
 
-    await user.hover(screen.getByText("Added by scout"));
-    expect(await screen.findByText(scoutName)).toBeInTheDocument();
-  });
+      await reveal(user, badge);
+
+      expect(await screen.findByText(scoutName)).toBeInTheDocument();
+    },
+  );
 
   it.each([
     [

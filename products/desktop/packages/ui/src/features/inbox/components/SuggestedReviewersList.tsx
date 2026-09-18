@@ -76,7 +76,14 @@ function ScoutSourceBadge({ scoutNames }: { scoutNames: string[] }) {
   return (
     <Tooltip>
       <TooltipTrigger
-        render={<InboxBadge className="cursor-help text-[10px]" />}
+        render={
+          // A badge renders a span, which no keyboard can reach, and the tooltip holds the
+          // only copy of the scout names.
+          <InboxBadge
+            render={<button type="button" />}
+            className="cursor-help text-[10px]"
+          />
+        }
       >
         Added by scout
       </TooltipTrigger>
