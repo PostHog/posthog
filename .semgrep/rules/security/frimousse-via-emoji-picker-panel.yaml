@@ -1,7 +1,7 @@
 rules:
     - id: frimousse-via-emoji-picker-panel
       message: |
-          `frimousse` imported directly. Render `EmojiPickerPanel` or `EmojiPickerPopover`
+          `frimousse` imported or re-exported directly. Render `EmojiPickerPanel` or `EmojiPickerPopover`
           from `lib/components/EmojiPicker` instead.
 
           frimousse fetches its emoji data from the `emojibaseUrl` prop of `EmojiPicker.Root`,
@@ -39,6 +39,9 @@ rules:
           - pattern: import 'frimousse'
           - pattern: import('frimousse')
           - pattern: require('frimousse')
+          # Named re-exports already match the import patterns above. This one covers
+          # `export * from` and `export * as $X from`, which they miss.
+          - pattern: export * from 'frimousse'
       metadata:
           category: security
           confidence: HIGH

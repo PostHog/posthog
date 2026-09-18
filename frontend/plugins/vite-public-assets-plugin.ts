@@ -1,4 +1,13 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, unlinkSync, writeFileSync } from 'fs'
+import {
+    copyFileSync,
+    existsSync,
+    mkdirSync,
+    readFileSync,
+    readdirSync,
+    rmdirSync,
+    unlinkSync,
+    writeFileSync,
+} from 'fs'
 import { dirname, join, relative, resolve } from 'path'
 import type { Plugin } from 'vite'
 
@@ -115,15 +124,15 @@ function copyPublicAssets(): void {
     }
 
     // EmojiPickerPanel loads frimousse's emoji data from /static/emoji. build.mjs copies the same files for production.
+    // A missing file leaves the picker on "Loading…" with no error in the UI, so a failed copy stops the dev server
+    // rather than logging a warning that is easy to miss.
     const emojibaseSrc = resolve('.', 'node_modules', 'emojibase-data', 'en')
-    if (existsSync(emojibaseSrc)) {
-        for (const file of ['data.json', 'messages.json']) {
-            copyFile(join(emojibaseSrc, file), resolve('.', 'dist', 'emoji', 'en', file))
-        }
-        console.info('✅ Copied emojibase data to dist/emoji/en')
-    } else {
-        console.warn('⚠️ emojibase-data is not installed, so the emoji picker cannot load its data')
+    const emojibaseDest = resolve('.', 'dist', 'emoji', 'en')
+    mkdirSync(emojibaseDest, { recursive: true })
+    for (const file of ['data.json', 'messages.json']) {
+        copyFileSync(join(emojibaseSrc, file), join(emojibaseDest, file))
     }
+    console.info('✅ Copied emojibase data to dist/emoji/en')
 }
 
 export function publicAssetsPlugin(): Plugin {
