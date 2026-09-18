@@ -21,3 +21,5 @@ The outcome bar shows responses, dismissals without answers, and unanswered surv
 Completion percentages are **of response submissions** matching the current filters. Each submission counts once. The person-counting toggle does not change this breakdown, so its counts can differ from the headline number of unique respondents.
 
 The metrics and breakdowns adapt to the available space, including when a side panel narrows the survey scene.
+
+The dashboard page does not fetch surveys when loading its charts.

@@ -120,7 +120,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const { renameInsight } = useActions(insightsModel)
     const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
     const { push } = useActions(router)
-    const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({})
+    const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({
+        skip: placement === DashboardPlacement.Dashboard,
+    })
 
     const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
         ? null
