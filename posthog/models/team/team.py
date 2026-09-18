@@ -1,6 +1,6 @@
 from datetime import timedelta
 from decimal import Decimal
-from functools import lru_cache
+from functools import cached_property, lru_cache
 from typing import TYPE_CHECKING, Any, Optional, cast
 from zoneinfo import ZoneInfo
 
@@ -20,7 +20,6 @@ import pydantic
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
@@ -795,6 +794,15 @@ class Team(UUIDTClassicModel):
         from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 
         return get_or_create_team_extension(self, TeamFeatureFlagPolicyConfig)
+
+    def refresh_from_db(self, *args: Any, **kwargs: Any) -> None:
+        super().refresh_from_db(*args, **kwargs)
+        # The extension configs above are cached per instance; a reload has to drop them too,
+        # or a reader gets the reloaded Team row next to a stale config row.
+        for klass in type(self).__mro__:
+            for name, attr in vars(klass).items():
+                if isinstance(attr, cached_property):
+                    self.__dict__.pop(name, None)
 
     @property
     def default_modifiers(self) -> dict:
