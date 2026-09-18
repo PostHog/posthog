@@ -202,7 +202,7 @@ describe('StateManager', () => {
                     projects: () => ({
                         list: vi.fn().mockResolvedValue({
                             success: true,
-                            data: [789],
+                            data: [{ id: 789, name: 'Project 789' }],
                         }),
                     }),
                 }),
@@ -212,6 +212,9 @@ describe('StateManager', () => {
 
             expect(result.organizationId).toBe('org-3')
             expect(result.projectId).toBe(789)
+            // The cached id becomes a path segment for every later project-scoped
+            // call, so a non-numeric value here 404s the rest of the session.
+            expect(await cache.get('projectId')).toBe('789')
         })
 
         it('returns the org alone when no projects are available for the scoped org', async () => {
@@ -279,7 +282,7 @@ describe('StateManager', () => {
             mockApi._api = {
                 organizations: () => ({
                     projects: () => ({
-                        list: vi.fn().mockResolvedValue({ success: true, data: [789] }),
+                        list: vi.fn().mockResolvedValue({ success: true, data: [{ id: 789, name: 'Project 789' }] }),
                     }),
                 }),
             }
@@ -756,11 +759,36 @@ describe('StateManager', () => {
 
     describe('getProjectId', () => {
         it('should return cached projectId if available', async () => {
-            await cache.set('projectId', 'cached-project-id')
+            await cache.set('projectId', '4242')
 
             const result = await stateManager.getProjectId()
 
-            expect(result).toBe('cached-project-id')
+            expect(result).toBe('4242')
+        })
+
+        it('re-resolves instead of returning a cached project id that is not a team id', async () => {
+            await cache.set('projectId', 'NaN')
+            const spy = vi.spyOn(stateManager, 'setDefaultOrganizationAndProject').mockResolvedValue({
+                organizationId: 'org-1',
+                projectId: 789,
+            })
+
+            const result = await stateManager.getProjectId()
+
+            expect(result).toBe('789')
+            expect(spy).toHaveBeenCalledOnce()
+        })
+
+        it('throws MissingProjectContextError rather than building a path from an unusable id', async () => {
+            vi.spyOn(stateManager, 'setDefaultOrganizationAndProject').mockResolvedValue({
+                organizationId: 'org-1',
+                projectId: Number.NaN,
+            })
+
+            await expect(stateManager.getProjectId()).rejects.toMatchObject({
+                name: 'MissingProjectContextError',
+                message: expect.stringContaining('switch-project'),
+            })
         })
 
         it('should call setDefaultOrganizationAndProject when not cached', async () => {

@@ -11,6 +11,7 @@ import {
 } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
+import { isUsableProjectId } from '@/lib/StateManager'
 import type { McpMode } from '@/lib/utils'
 import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
 import {
@@ -54,7 +55,9 @@ export interface ResolvedState {
      * Gated on the same flag as the gateway UI — the tools are the gateway's payoff,
      * so they roll out together. Also forced off in read-only mode: a connected
      * server's tools can mutate and PostHog can't prove otherwise, so the catalog's
-     * read-only filter has no equivalent to apply to them.
+     * read-only filter has no equivalent to apply to them. Forced off for a built-in
+     * agent too, because the roster comes from the same member-facing API Django
+     * denies that agent — asking for it only buys a 403 and a captured exception.
      *
      * Deliberately not folded into `allTools`: `instructions.ts` looks every entry up in
      * the static tool-definition registry (which throws on an unknown name) and renders
@@ -116,6 +119,27 @@ export function tasksContextToolsToExclude(clientProfile: MCPClientProfile, task
  */
 export function switchToolsToExclude(pinned: { organizationId?: string | undefined }): string[] {
     return pinned.organizationId ? ['switch-organization'] : []
+}
+
+/** Server-minted scope that marks an OAuth token as one of PostHog's built-in agents. */
+const BUILT_IN_AGENT_SCOPE = 'mcp_builtin_agent:read'
+
+/** MCP Store tools backed by the member-facing installation API, which Django guards with `DenyMCPBuiltInAgentOAuth`. */
+const MCP_STORE_MEMBER_TOOL_NAMES = ['mcp-connections-list', 'mcp-connection-tools-list'] as const
+
+/** Whether the token was minted for one of PostHog's built-in agents. */
+export function isBuiltInAgentToken(apiKeyScopes: string[]): boolean {
+    return apiKeyScopes.includes(BUILT_IN_AGENT_SCOPE)
+}
+
+/**
+ * Which tools to hide from a built-in agent's token. These 403 on every call —
+ * the agent reaches connected servers through its explicit gateway grants, which
+ * the sandbox mounts as tools of their own. The authorization rule is unchanged;
+ * the invitation to break it is what goes away.
+ */
+export function builtInAgentToolsToExclude(apiKeyScopes: string[]): string[] {
+    return isBuiltInAgentToken(apiKeyScopes) ? [...MCP_STORE_MEMBER_TOOL_NAMES] : []
 }
 
 // ─── Resolver ───
@@ -218,6 +242,7 @@ export class RequestStateResolver {
         props.mode = resolvedMode
 
         const apiKeyScopes = _apiKey?.scopes ?? []
+        const isBuiltInAgent = isBuiltInAgentToken(apiKeyScopes)
         const apiKeyScopedTeams = _apiKey?.scoped_teams ?? []
         const aiConsentGiven = await context.stateManager.getAiConsentGiven()
         const availableFeatures = await context.stateManager.getAvailableFeatures()
@@ -227,6 +252,7 @@ export class RequestStateResolver {
             ...switchToolsToExclude({ organizationId }),
             ...tasksContextToolsToExclude(clientProfile, props.taskId),
             ...(apiKeyScopes.includes('internal_run:read') ? ['tasks-run-create', 'tasks-create-and-run'] : []),
+            ...builtInAgentToolsToExclude(apiKeyScopes),
         ]
 
         const filterOptions = {
@@ -254,7 +280,10 @@ export class RequestStateResolver {
         const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions) : []
 
         const [groupTypes, metadata, metadataCompact] = await Promise.all([
-            cachedProjectId && hasScope(apiKeyScopes, 'group:read')
+            // This local holds whatever the request started with, and only `getProjectId`
+            // re-resolves an unusable id. Check it here too, rather than send a fetch that
+            // can only 404 and be recorded as an exception.
+            cachedProjectId && isUsableProjectId(cachedProjectId) && hasScope(apiKeyScopes, 'group:read')
                 ? context.stateManager.getOrFetchGroupTypes(cachedProjectId).catch(() => undefined)
                 : undefined,
             context.stateManager.getEnvironmentPrompt(),
@@ -278,6 +307,7 @@ export class RequestStateResolver {
                 useSingleExec &&
                 !readOnly &&
                 mergedFlags[MCP_GATEWAY_FLAG] === true &&
+                !isBuiltInAgent &&
                 !mountsGatewayServersDirectly(props.taskOriginProduct),
             distinctId,
             renderUiEnabled,
