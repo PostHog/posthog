@@ -45,6 +45,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.context.insight.query_executor import (
     AssistantQueryExecutor,
+    QueryExecutionHandle,
     execute_and_format_query,
     get_example_prompt,
     is_supported_query,
@@ -88,17 +89,45 @@ class TestAssistantQueryExecutorQueryId(SimpleTestCase):
         )
         query = AssistantTrendsQuery(series=[])
         context = InsightContext(team=MagicMock(pk=1, organization_id=None), query=query, user=MagicMock())
-        query_status_ids: list[str] = []
+        query_statuses: list[QueryExecutionHandle] = []
 
         with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
             await context.execute_and_format(
                 include_prompt_framing=False,
                 query_id="requested-query-status-id",
-                on_query_status=query_status_ids.append,
+                on_query_handle=query_statuses.append,
             )
 
-        self.assertEqual(query_status_ids, ["deduplicated-query-status-id"])
+        self.assertEqual(
+            query_statuses,
+            [QueryExecutionHandle(id="deduplicated-query-status-id", cancellable=False)],
+        )
         self.assertEqual(mock_process_query.call_args.kwargs["query_id"], "requested-query-status-id")
+
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_reports_blocking_query_as_cancellable_before_execution(self, mock_process_query: MagicMock) -> None:
+        query_statuses: list[QueryExecutionHandle] = []
+        expected_status = QueryExecutionHandle(id="blocking-query-status-id", cancellable=True)
+
+        def process_query(*_args: object, **_kwargs: object) -> dict[str, list[object]]:
+            self.assertEqual(query_statuses, [expected_status])
+            return {"results": []}
+
+        mock_process_query.side_effect = process_query
+        query_runner = AssistantQueryExecutor(
+            MagicMock(pk=1, organization_id=None),
+            datetime.now(),
+            user=MagicMock(),
+        )
+
+        await query_runner.aexecute_query(
+            AssistantTrendsQuery(series=[]),
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            query_id="blocking-query-status-id",
+            on_query_handle=query_statuses.append,
+        )
+
+        self.assertEqual(query_statuses, [expected_status])
 
 
 class TestAssistantQueryExecutor(NonAtomicBaseTest):

@@ -46,6 +46,7 @@ from products.product_analytics.backend.facade.api import create_insight_variabl
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.context.insight.format import TRUNCATED_MARKER
+from ee.hogai.context.insight.query_executor import QueryExecutionHandle
 
 _MODULE = "products.exports.backend.temporal.subscriptions.ai_subscription.report_context"
 _EXECUTOR = "ee.hogai.context.insight.context.execute_and_format_query"
@@ -388,7 +389,15 @@ class TestReportContextPureFunctions(SimpleTestCase):
         semaphore = asyncio.Semaphore(1)
         context = MagicMock(team=MagicMock(pk=1))
 
-        async def slow_execute(*_args: object, **_kwargs: object) -> str:
+        async def slow_execute(*_args: object, **kwargs: object) -> str:
+            on_query_handle = kwargs["on_query_handle"]
+            assert callable(on_query_handle)
+            on_query_handle(
+                QueryExecutionHandle(
+                    id="ai-subscription-context-query-status-id",
+                    cancellable=True,
+                )
+            )
             await asyncio.Event().wait()
             return "unreachable"
 
@@ -426,16 +435,20 @@ class TestReportContextPureFunctions(SimpleTestCase):
         assert semaphore.locked() is False
         assert executed.status == "failed"
 
-    def test_timeout_does_not_cancel_a_deduplicated_query_status(self) -> None:
+    def test_timeout_does_not_cancel_a_shared_async_query_status(self) -> None:
         semaphore = asyncio.Semaphore(1)
         context = MagicMock(team=MagicMock(pk=1))
-        reported_status_ids: list[str] = []
+        reported_statuses: list[QueryExecutionHandle] = []
 
         async def slow_execute(*_args: object, **kwargs: object) -> str:
-            on_query_status = kwargs["on_query_status"]
-            assert callable(on_query_status)
-            on_query_status("deduplicated-query-status-id")
-            reported_status_ids.append("deduplicated-query-status-id")
+            on_query_handle = kwargs["on_query_handle"]
+            assert callable(on_query_handle)
+            status = QueryExecutionHandle(
+                id="ai-subscription-context-requested-query-status-id",
+                cancellable=False,
+            )
+            on_query_handle(status)
+            reported_statuses.append(status)
             await asyncio.Event().wait()
             return "unreachable"
 
@@ -464,7 +477,12 @@ class TestReportContextPureFunctions(SimpleTestCase):
         assert context.execute_and_format.await_args.kwargs["query_id"] == (
             "ai-subscription-context-requested-query-status-id"
         )
-        assert reported_status_ids == ["deduplicated-query-status-id"]
+        assert reported_statuses == [
+            QueryExecutionHandle(
+                id="ai-subscription-context-requested-query-status-id",
+                cancellable=False,
+            )
+        ]
         cancel_query.assert_not_called()
         assert semaphore.locked() is False
         assert executed.status == "failed"

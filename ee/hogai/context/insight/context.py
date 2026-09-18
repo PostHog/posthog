@@ -15,7 +15,7 @@ from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 
 from products.product_analytics.backend.facade.models import Insight
 
-from ee.hogai.context.insight.query_executor import execute_and_format_query
+from ee.hogai.context.insight.query_executor import QueryExecutionHandle, execute_and_format_query
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.helpers import build_insight_url
 from ee.hogai.utils.prompt import format_prompt_string
@@ -113,7 +113,7 @@ class InsightContext:
         truncate_results: bool = True,
         include_prompt_framing: bool = True,
         query_id: str | None = None,
-        on_query_status: Callable[[str], None] | None = None,
+        on_query_handle: Callable[[QueryExecutionHandle], None] | None = None,
     ) -> str:
         """Execute query and format results."""
         effective_query = await self._get_effective_query()
@@ -129,7 +129,7 @@ class InsightContext:
                 include_prompt_framing=include_prompt_framing,
                 event_source=self.event_source,
                 query_id=query_id,
-                on_query_status=on_query_status,
+                on_query_handle=on_query_handle,
             )
         except Exception as e:
             error_message = f"Error executing query: {str(e)}"

@@ -41,6 +41,7 @@ from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsigh
 from ee.hogai.context.dashboard.prompts import DASHBOARD_RESULT_TEMPLATE
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.context.insight.format import TRUNCATED_MARKER
+from ee.hogai.context.insight.query_executor import QueryExecutionHandle
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
 
@@ -514,11 +515,11 @@ async def _execute_insight(pending: _PendingInsight, semaphore: asyncio.Semaphor
         return _ExecutedInsight(saved=pending.saved, status="failed", content=_UNAVAILABLE_INSIGHT_MARKER)
     context = pending.context
     client_query_id = f"ai-subscription-context-{uuid.uuid4().hex}"
-    cancellable_query_id: str | None = client_query_id
+    cancellable_query_id: str | None = None
 
-    def record_query_status(query_status_id: str) -> None:
+    def record_query_handle(query_handle: QueryExecutionHandle) -> None:
         nonlocal cancellable_query_id
-        cancellable_query_id = query_status_id if query_status_id == client_query_id else None
+        cancellable_query_id = query_handle.id if query_handle.cancellable else None
 
     async def cancel_context_query() -> None:
         if cancellable_query_id is None:
@@ -543,7 +544,7 @@ async def _execute_insight(pending: _PendingInsight, semaphore: asyncio.Semaphor
                         context.execute_and_format(
                             include_prompt_framing=False,
                             query_id=client_query_id,
-                            on_query_status=record_query_status,
+                            on_query_handle=record_query_handle,
                         ),
                         timeout=CONTEXT_QUERY_TIMEOUT_SECONDS,
                     )
