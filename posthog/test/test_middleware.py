@@ -21,7 +21,7 @@ from django.urls import reverse
 
 import structlog
 from loginas import settings as la_settings
-from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
@@ -2909,4 +2909,5 @@ def test_chqueries_correlates_request_span_after_view_tags(from_view: bool, rais
                 CHQueries(respond)(request)
         else:
             CHQueries(respond)(request)
+        assert isinstance(span, ReadableSpan) and span.attributes is not None
         assert span.attributes["query.client_query_id"] == ("synthetic-resolved" if from_view else "synthetic-initial")
