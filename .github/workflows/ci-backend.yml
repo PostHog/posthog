@@ -4028,6 +4028,25 @@ jobs:
                   api="https://api.github.com/repos/$REPO/commits/$SHA/check-runs?app_id=$DEPOT_APP_ID&check_name="
                   gate_url="$api$(jq -rn --arg n "$DEPOT_GATE_CHECK" '$n | @uri')"
                   wait_url="$api$(jq -rn --arg n "$DEPOT_WAIT_CHECK" '$n | @uri')"
+                  # A GitHub rerun of this workflow reads Depot's verdict again but never
+                  # restarts Depot's tests, so every red verdict says how to rerun them.
+                  fail_relay() {
+                      echo "::error::$1"
+                      {
+                          echo "### Backend tests for this pull request ran on Depot CI"
+                          echo ""
+                          echo "$1"
+                          echo ""
+                          cat <<'GUIDE'
+                  Re-running this workflow on GitHub reads Depot's result again. It does not rerun Depot's tests.
+
+                  - To rerun the tests on Depot CI, push a new commit. You can also retry the failed jobs from the Depot run linked in the `Backend CI on Depot` checks, then re-run this job.
+                  - To run the tests on GitHub Actions instead, add the `ci-backend-github` label and push a new commit.
+                  - Depot CI does not commit snapshot or OpenAPI type updates. If they are out of date, update them locally and push.
+                  GUIDE
+                      } | tee -a "$GITHUB_STEP_SUMMARY"
+                      exit 1
+                  }
                   # Reads one Depot check run into the named variable: absent, a status, or a
                   # conclusion. A 304 leaves it as it was.
                   # shellcheck disable=SC2034 # the nameref writes the caller's variable
@@ -4051,8 +4070,7 @@ jobs:
                               refusals=$((refusals + 1))
                               echo "::warning::check-runs API returned $code ($refusals in a row)"
                               if [ "$refusals" -ge 5 ]; then
-                                  echo "::error::Cannot read Depot's checks for $SHA; this job cannot relay a verdict"
-                                  exit 1
+                                  fail_relay "Cannot read Depot's checks for $SHA, so this job cannot relay a verdict."
                               fi
                               ;;
                           *) echo "::warning::check-runs API returned $code" ;;
@@ -4070,22 +4088,20 @@ jobs:
                                   success|queued|in_progress|pending|waiting|requested) ;;
                                   ""|absent)
                                       if [ "$SECONDS" -ge "$absent_deadline" ]; then
-                                          echo "::error::Depot CI never started for $SHA: no wait job after $absent_minutes minutes"
-                                          exit 1
+                                          fail_relay "Depot CI never started for $SHA. No wait job after $absent_minutes minutes."
                                       fi
                                       ;;
-                                  *) echo "::error::Depot declined the hand-off for $SHA (wait job: $wait_job)"; exit 1 ;;
+                                  *) fail_relay "Depot declined the hand-off for $SHA (wait job: $wait_job)." ;;
                               esac
                               ;;
                           queued|in_progress|pending|waiting|requested) ;;
-                          *) echo "::error::Depot gate concluded $gate for $SHA"; exit 1 ;;
+                          *) fail_relay "Depot gate concluded $gate for $SHA." ;;
                       esac
                       # The gate check only appears when the matrix is done, so once Depot has
                       # started, a slower poll costs at most a minute of latency.
                       if [ "$wait_job" = success ]; then sleep 60; else sleep 30; fi
                   done
-                  echo "::error::No Depot verdict for $SHA within $relay_minutes minutes"
-                  exit 1
+                  fail_relay "No Depot verdict for $SHA within $relay_minutes minutes."
             - name: Summarize dependency results
               if: needs.changes.outputs.engine != 'depot'
               run: |
