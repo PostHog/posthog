@@ -19,7 +19,7 @@
 #   local action a depot workflow uses needs a mirror even when it is identical to
 #   canonical: Depot resolves ./.github/actions/<x> from .depot/actions/<x>, so a missing
 #   mirror fails the step at setup with "action manifest not found".
-# - permissions: pull-requests:read (no comment/auto-commit side effects)
+# - permissions: pull-requests:read (no comment side effects)
 # - Stripped side effects: CI report section posters (canonical
 #   additionally skips these on trunk-merge/** branches to save GITHUB_TOKEN budget;
 #   the shadow strips them entirely, so that gating has nothing to mirror), snapshot
@@ -52,8 +52,8 @@
 #   secrets and cannot authenticate to Depot Cache) prime instead of migrating from scratch.
 #   The shadow routes cache writes to Depot Cache, so it must not fill the GitHub
 #   cache. This job and the mig_schema_key output that feeds it remain depot-exempt.
-# - OpenAPI types: validation remains a separate job like canonical, but its
-#   auto-commit side effect is dropped
+# - OpenAPI types: an extra step fails the job when ghcommit-action reports no commit-hash. It is
+#   a Docker container action, and no Depot run has proven its workspace mount.
 # - sqlmigrate SQL preview: canonical's check-migrations resolves changed migration files
 #   to full names, skips generated squash files by content, and degrades a sqlmigrate
 #   failure to a placeholder before posting the SQL preview comment. The shadow strips
@@ -81,9 +81,9 @@
 #   GitHub's. A name missing there makes the setup-action mints (continue-on-error) fall
 #   back to the ambient GITHUB_TOKEN, the Depot Code Access installation token that every
 #   Depot CI job across repos shares, and fails the paths-filter mint outright. Mints whose
-#   only consumer is a stripped side effect (OpenAPI auto-commit, snapshot commit,
-#   telemetry) are stripped with it. The migration-risk check run is published here
-#   because stamphog waits for it on every pull request.
+#   only consumer is a stripped side effect (snapshot commit, telemetry) are stripped with it.
+#   The migration-risk check run is published here because stamphog waits for it on every
+#   pull request. It and the OpenAPI auto-commit mint the posthog-tests App token.
 # - `depot ci run` fires with event_name `api`; the hand-off wait treats it like
 #   workflow_dispatch: it runs only when GitHub Actions already handed the commit off.
 #   Depot caps an inline workflow at 64 KiB, which this file exceeds, so
@@ -1913,11 +1913,16 @@ jobs:
         # Not on master push: master only primes the schema cache.
         if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true') && github.event_name != 'push'
         timeout-minutes: 20
+        permissions:
+            contents: read
         name: Validate OpenAPI types
         runs-on: depot-ubuntu-24.04
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  # For same-repo PRs, checkout the actual branch (not the merge commit)
+                  # so generated OpenAPI types can be committed directly. Fork PRs fall
+                  # back to the default merge commit (auto-commit bails out for forks).
                   ref: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.ref || github.ref }}
                   clean: false
             - name: Clean up data directories with container permissions
@@ -1977,15 +1982,115 @@ jobs:
               run: bin/ci-wait-for-docker wait --only db clickhouse
             - name: Add OpenAPI Problem Matcher
               run: echo "::add-matcher::.github/openapi-problem-matcher.json"
-            - name: Check OpenAPI types
+            - name: Check and update OpenAPI types
+              id: openapi-check
+              env:
+                  EVENT_NAME: ${{ github.event_name }}
+                  HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+                  BRANCH: ${{ github.event.pull_request.head.ref }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
-                  ./bin/hogli build:openapi
+                  if ! ./bin/hogli build:openapi; then
+                      echo ""
+                      echo "::error::OpenAPI schema generation failed."
+                      echo ""
+                      echo "If the failure above mentions \"enum naming encountered a non-optimally"
+                      echo "resolvable collision\" or \"SchemaGenerationError: Failing as requested due"
+                      echo "to warnings\", drf-spectacular found a problem in a serializer/viewset and"
+                      echo "\`--fail-on-warn\` turned it into an error."
+                      echo ""
+                      echo "Diagnose locally:"
+                      echo "  python manage.py find_enum_collisions   # prints a suggested override entry to add"
+                      echo "  hogli build:openapi-schema              # to reproduce the full warning set"
+                      echo ""
+                      echo "Where to fix:"
+                      echo "  posthog/settings/web.py                 # ENUM_NAME_OVERRIDES (see comment block at the top)"
+                      echo "  /improving-drf-endpoints                # invoke this skill for the full serializer/viewset guide"
+                      echo ""
+                      exit 1
+                  fi
                   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
                   if git diff --exit-code; then
                       echo "OpenAPI types are up to date"
+                      echo "needs-commit=false" >> $GITHUB_OUTPUT
                       exit 0
                   fi
-                  echo "::error::OpenAPI types are out of date — run 'hogli build:openapi' locally and commit the result."
+
+                  echo "OpenAPI types are out of date"
+
+                  # On non-PR builds or fork PRs, fail with instructions
+                  if [ "$EVENT_NAME" != "pull_request" ] || \
+                     [ "$HEAD_REPO" != "PostHog/posthog" ]; then
+                      echo ""
+                      echo "::error::OpenAPI types are out of date!"
+                      echo ""
+                      echo "The TypeScript API types in products/*/frontend/generated/ are auto-generated"
+                      echo "from Django serializers and views. When you modify the backend API, you need"
+                      echo "to regenerate these types."
+                      echo ""
+                      echo "To fix, run locally:  hogli build:openapi"
+                      echo "Then commit the updated generated files."
+                      echo ""
+                      echo "More info: https://posthog.com/handbook/engineering/type-system"
+                      echo ""
+                      echo "Questions? #team-devex on Slack"
+                      exit 1
+                  fi
+
+                  echo "::notice::Committing updated OpenAPI types to PR branch"
+
+                  # Verify branch hasn't advanced since CI started
+                  CURRENT_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
+                  if [ "$CURRENT_SHA" != "$HEAD_SHA" ]; then
+                      echo "::error::Branch advanced during workflow ($HEAD_SHA -> $CURRENT_SHA) — cannot auto-commit OpenAPI types."
+                      echo ""
+                      echo "OpenAPI types are out of date and could not be auto-committed because the branch"
+                      echo "was updated while this workflow was running. Please run locally and push:"
+                      echo ""
+                      echo "  hogli build:openapi"
+                      echo ""
+                      echo "Then commit the updated generated files."
+                      echo "needs-commit=false" >> $GITHUB_OUTPUT
+                      exit 1
+                  fi
+
+                  # Commit exactly the files this check flagged. A hand-listed pattern
+                  # silently dropped generated paths it did not cover, so the PR passed on
+                  # an empty commit and every later master push failed this same check.
+                  DRIFTED_FILES=$(git diff --name-only | tr '\n' ' ')
+                  echo "Committing: $DRIFTED_FILES"
+                  echo "drifted-files=$DRIFTED_FILES" >> $GITHUB_OUTPUT
+                  echo "needs-commit=true" >> $GITHUB_OUTPUT
+            - name: Get app token for OpenAPI type commits
+              if: steps.openapi-check.outputs.needs-commit == 'true'
+              id: openapi-app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+            - name: Disable auto-merge before OpenAPI type commit
+              if: steps.openapi-check.outputs.needs-commit == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: gh pr merge --disable-auto "$PR_NUMBER" || echo "Auto-merge was not enabled"
+            - name: Commit OpenAPI types via GitHub API (signed)
+              id: openapi-commit
+              if: steps.openapi-check.outputs.needs-commit == 'true'
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              with:
+                  commit_message: 'chore: update OpenAPI generated types'
+                  repo: ${{ github.repository }}
+                  branch: ${{ github.event.pull_request.head.ref }}
+                  file_pattern: ${{ steps.openapi-check.outputs.drifted-files }}
+              env:
+                  GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
+            # The action's entrypoint reads `git status` through process substitution, so a git
+            # failure inside its container exits 0 with no commit-hash and the job passes on stale types.
+            - name: Fail when the OpenAPI types commit did not land
+              if: steps.openapi-check.outputs.needs-commit == 'true' && steps.openapi-commit.outputs.commit-hash == ''
+              run: |
+                  echo "::error::OpenAPI types are out of date and ghcommit-action created no commit. Run 'hogli build:openapi' locally and push the result."
                   exit 1
     build_django_matrix:
         name: Build Django matrix
