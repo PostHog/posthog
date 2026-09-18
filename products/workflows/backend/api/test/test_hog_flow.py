@@ -2629,6 +2629,56 @@ class TestHogFlowAPI(APIBaseTest):
         stored = response.json()["trigger"]["filters"]["properties"][0]["value"]
         assert stored == ["C0ALERTS"]
 
+    def test_hog_flow_github_trigger_stores_the_repository_lowercased(self):
+        # GitHub deliveries carry the lowercased full name, so a filter typed in the org's
+        # casing compiles to an exact match that never fires. The compiler ANDs the conditions
+        # on the event entry with the global ones, so a repository named there needs it too.
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "internal-event",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$github_event_received",
+                            "type": "events",
+                            "properties": [
+                                {
+                                    "key": "repository",
+                                    "value": "PostHog/PostHog",
+                                    "operator": "exact",
+                                    "type": "event",
+                                }
+                            ],
+                        }
+                    ],
+                    "properties": [
+                        {"key": "repository", "value": ["PostHog/PostHog"], "operator": "exact", "type": "event"},
+                        {"key": "event_type", "value": ["issues"], "operator": "exact", "type": "event"},
+                        # A pattern is not a literal, so lowercasing it would change what it
+                        # matches, or stop it compiling at all.
+                        {
+                            "key": "repository",
+                            "value": "(?P<owner>.+)/PostHog",
+                            "operator": "regex",
+                            "type": "event",
+                        },
+                    ],
+                },
+            },
+        }
+
+        hog_flow = {"name": "Test GitHub Flow", "status": "active", "actions": [trigger_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        stored_filters = response.json()["trigger"]["filters"]
+        assert stored_filters["properties"][0]["value"] == ["posthog/posthog"]
+        assert stored_filters["events"][0]["properties"][0]["value"] == "posthog/posthog"
+        assert stored_filters["properties"][2]["value"] == "(?P<owner>.+)/PostHog"
+
     @staticmethod
     def _slack_trigger_action(properties: list[dict]) -> dict:
         return {

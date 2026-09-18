@@ -830,6 +830,44 @@ def _normalize_slack_channel_filters(filters: dict) -> None:
             prop["value"] = [item.split("|")[0] if isinstance(item, str) else item for item in value]
 
 
+# Lowercasing only preserves meaning for an operator that compares the value as a literal
+# string. `str.lower()` is not a case transform for a pattern - it turns "\D" into "\d", which
+# inverts what the pattern matches, and "(?P<name>" into "(?p<name>", which RE2 refuses - and a
+# presence operator carries the operator string rather than a repository name. The property
+# compiler treats a missing operator as exact, as `_has_exact_string_filter` does below.
+_LITERAL_REPOSITORY_OPERATORS = frozenset({"exact", "is_not"})
+
+
+def _lowercase_repository_properties(properties: object) -> None:
+    if not isinstance(properties, list):
+        return
+    for prop in properties:
+        if not isinstance(prop, dict) or prop.get("key") != "repository":
+            continue
+        if (prop.get("operator") or "exact") not in _LITERAL_REPOSITORY_OPERATORS:
+            continue
+        value = prop.get("value")
+        if isinstance(value, str):
+            prop["value"] = value.lower()
+        elif isinstance(value, list):
+            prop["value"] = [item.lower() if isinstance(item, str) else item for item in value]
+
+
+def _normalize_github_repository_filters(filters: dict) -> None:
+    """Lowercase every `repository` filter value in place, to match the lowercased delivery property.
+
+    GitHub treats "PostHog/posthog" and "posthog/posthog" as the same repository, but the exact
+    filter does not, so a name typed in the wrong case compiles to a trigger that never fires.
+    The compiler ANDs the conditions on an event entry with the global ones, so a repository
+    filter written on the entry decides whether the trigger fires too.
+    """
+    _lowercase_repository_properties(filters.get("properties"))
+    events = filters.get("events")
+    for event in events if isinstance(events, list) else []:
+        if isinstance(event, dict) and event.get("id") == "$github_event_received":
+            _lowercase_repository_properties(event.get("properties"))
+
+
 # Exact is the only operator that names channels. Channel ids are opaque (C0...), so
 # substring and regex matching can't narrow meaningfully and patterns like ".*" or "C"
 # match every channel; presence operators match every message and carry the operator
@@ -1576,6 +1614,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                             }
                         )
                 if _subscribes_to("$github_event_received"):
+                    _normalize_github_repository_filters(filters)
                     if not is_draft and not _has_exact_string_filter(filters, "repository"):
                         raise serializers.ValidationError(
                             {

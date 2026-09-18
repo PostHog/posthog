@@ -8,7 +8,8 @@ import { initKeaTests } from '~/test/init'
 
 import { useRepositories } from './GitHubIntegrationHelpers'
 
-const REPOS = [{ id: 1, name: 'posthog', full_name: 'PostHog/posthog', pushed_at: '2026-01-02T00:00:00Z' }]
+// A mixed-case short name, so a key that lowercases every mode fails the default-mode test below.
+const REPOS = [{ id: 1, name: 'HouseWatch', full_name: 'PostHog/HouseWatch', pushed_at: '2026-01-02T00:00:00Z' }]
 
 function OptionKeysProbe({ valueKey }: { valueKey?: 'name' | 'full_name' }): JSX.Element {
     const { options, loading } = useRepositories(1, { valueKey })
@@ -32,10 +33,12 @@ describe('useRepositories', () => {
         cleanup()
     })
 
-    // The emitted `$github_event_received` event carries the qualified name (owner/repo). A picker
-    // that keys its option on the short name instead compiles a repository filter that no
-    // delivery can ever match - the bug this option exists to avoid.
-    it('keys options on the qualified name when valueKey is full_name', async () => {
+    // The emitted `$github_event_received` event carries the qualified name (owner/repo), lowercased
+    // to match the repository filter the API stores. A picker that keys its option on the short name
+    // compiles a repository filter that no delivery can ever match. One that keeps GitHub's casing
+    // leaves the stored value matching no option, so the picker offers it as a custom value beside
+    // the real repository and drops that repository's rich label.
+    it('keys options on the lowercased qualified name when valueKey is full_name', async () => {
         render(
             <Provider>
                 <OptionKeysProbe valueKey="full_name" />
@@ -43,7 +46,7 @@ describe('useRepositories', () => {
         )
         await act(() => new Promise((r) => setTimeout(r, 500)))
 
-        expect(screen.getByTestId('option-keys')).toHaveTextContent('PostHog/posthog')
+        expect(screen.getByTestId('option-keys').textContent).toBe('posthog/housewatch')
     })
 
     it('keys options on the short name by default, unchanged for existing callers', async () => {
@@ -54,8 +57,6 @@ describe('useRepositories', () => {
         )
         await act(() => new Promise((r) => setTimeout(r, 500)))
 
-        const content = screen.getByTestId('option-keys')
-        expect(content).toHaveTextContent('posthog')
-        expect(content.textContent).not.toBe('PostHog/posthog')
+        expect(screen.getByTestId('option-keys').textContent).toBe('HouseWatch')
     })
 })
