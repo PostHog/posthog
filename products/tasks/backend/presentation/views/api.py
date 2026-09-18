@@ -1832,6 +1832,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 TaskRunErrorResponseSerializer({"error": "Only cloud runs can be started via this endpoint"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if startable == "scheduled":
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {
+                        "error": "This run is scheduled to start automatically. Wait for it to start, or create a new run."
+                    }
+                ).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if startable.startswith("bad_status:"):
             current_status = startable.split(":", 1)[1]
             return Response(
