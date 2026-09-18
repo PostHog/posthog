@@ -268,6 +268,10 @@ retarget its originating background tab as described below. `railHistoryStore`
   `useActiveSession()`, never `params.taskId`, or a tab sitting on an open
   session reads "New tab". That selection lives in the URL precisely so a tab
   can name it and restore it — don't move it back into a store.
+- **A canvas is not always a path param.** `/canvases?canvas=<id>` stores the
+  selected canvas in search. The selected search id takes priority over
+  `params.dashboardId`. The same resolved id drives the active record, title,
+  persisted identity, and rendered tab label for both routes.
 - **A saved search names its own tab.** `/feeds/$feedId` is the tab; picking a
   result reads that task into the pane without leaving the search, so the strip
   drops the active session there and labels the tab with the search's name.
