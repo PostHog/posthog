@@ -45,7 +45,7 @@ export function WorkflowSuggestionCard({ id, proposal }: { id: string; proposal:
                             </LemonTag>
                         </Tooltip>
                         {proposal.is_stale && (
-                            <Tooltip title="Someone changed the same step since this was suggested. Approving it would undo their edit, so ask for a fresh suggestion.">
+                            <Tooltip title="Someone changed the same step since this was suggested. Approving it would undo their edit. Reject it, and the scout can suggest again from the current version.">
                                 <LemonTag type="warning">Out of date</LemonTag>
                             </Tooltip>
                         )}

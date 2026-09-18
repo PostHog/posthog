@@ -4051,7 +4051,7 @@ class ProposalOutOfDateError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = (
         "Someone changed this workflow where the suggestion changes it, so approving it would undo "
-        "their edit. Ask for a fresh suggestion."
+        "their edit. Reject it, and the scout can suggest again from the current version on its next run."
     )
     default_code = "proposal_out_of_date"
 
