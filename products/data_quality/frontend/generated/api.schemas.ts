@@ -827,6 +827,8 @@ export interface DataQualitySubjectApi {
     display_name: string
     /** Column name to ClickHouse type. Empty for a metric, and for a view that has not run yet. */
     columns: DataQualitySubjectApiColumns
+    /** Whether the caller may author a check on this subject. A subject that is only readable can still be the target of a relationships check. */
+    editable: boolean
 }
 
 export interface PaginatedDataQualitySuiteRunListApi {

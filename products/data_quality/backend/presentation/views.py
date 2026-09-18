@@ -8,6 +8,7 @@ check -- every trigger hands off to Temporal and returns a suite-run handle to p
 
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 from uuid import UUID
@@ -644,10 +645,20 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
     )
     @action(methods=["GET"], detail=False, pagination_class=None)
     def subjects(self, request: Request, **kwargs) -> Response:
-        selectable = api.selectable_subjects(self.team_id, self._authorized_subject_types(write=True))
+        selectable = api.selectable_subjects(self.team_id, self._authorized_subject_types())
+        editable_kinds = self._authorized_subject_types(write=True)
         if self._can_be_object_denied():
+            readable = self._denial_context().readable
             writable = self._writable_subjects
-            selectable = [subject for subject in selectable if writable.contains(subject.subject_type, subject.id)]
+            selectable = [
+                replace(subject, editable=writable.contains(subject.subject_type, subject.id))
+                for subject in selectable
+                if readable.contains(subject.subject_type, subject.id)
+            ]
+        else:
+            selectable = [
+                replace(subject, editable=SubjectType(subject.subject_type) in editable_kinds) for subject in selectable
+            ]
         return Response(DataQualitySubjectSerializer(selectable, many=True).data)
 
     @extend_schema(request=None, responses={200: DataQualityMetricSubjectSerializer(many=True)})

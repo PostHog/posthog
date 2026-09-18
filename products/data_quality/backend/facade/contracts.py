@@ -85,6 +85,7 @@ class SelectableSubject:
     name: str
     display_name: str = ""
     columns: dict[str, str] = field(default_factory=dict)
+    editable: bool = True
 
 
 @dataclass(frozen=True)

@@ -17,6 +17,8 @@ from posthog.hogql.database.database import Database
 
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog, Detail, log_activity
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.models import Metric
@@ -1347,7 +1349,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         # database sees it -- so denied_subject_names() picks it up and the endpoint hides it.
         self._deny_object("warehouse_view", str(self.view.id))
 
-    def _deny_object(self, resource: str, resource_id: str) -> None:
+    def _deny_object(self, resource: str, resource_id: str, access_level: str = "none") -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -1357,7 +1359,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
             resource=resource,
             resource_id=resource_id,
             organization_member=self.organization_membership,
-            access_level="none",
+            access_level=access_level,
         )
         # Warehouse table/view denial only flows into the HogQL database behind this flag.
         warehouse_ac = patch(
@@ -1367,6 +1369,29 @@ class TestDataQualityCheckAPI(APIBaseTest):
         warehouse_ac.start()
         self.addCleanup(warehouse_ac.stop)
         cache.clear()
+
+    def test_the_catalog_lists_a_subject_the_member_may_only_read_as_not_editable(self) -> None:
+        self._deny_object("warehouse_view", str(self.view.id), access_level="viewer")
+
+        response = self.client.get(f"{self.url}/subjects/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [(row["name"], row["editable"]) for row in response.json()] == [("orders", False)]
+
+    def test_the_catalog_marks_nothing_editable_for_a_read_only_token(self) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="read only",
+            secure_value=hash_key_value(token),
+            scopes=["query:read", "warehouse_objects:read"],
+        )
+        self.client.logout()
+
+        response = self.client.get(f"{self.url}/subjects/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [(row["name"], row["editable"]) for row in response.json()] == [("orders", False)]
 
     @parameterized.expand(
         [

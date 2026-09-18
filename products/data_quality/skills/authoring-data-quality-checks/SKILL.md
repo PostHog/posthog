@@ -71,8 +71,9 @@ Reach for these first, in roughly this order:
 Call `posthog:data-quality-check-types` for each type's exact config schema rather than guessing.
 
 One tool set covers every kind of subject. Call `posthog:data-quality-subjects` for the tables,
-views and metrics you can author on, then pass the `subject_type` and `id` it gives you as
-`subject_type` and `subject_uuid` in `posthog:data-quality-check-create`. After that a check is
+views and metrics you can read, then pass the `subject_type` and `id` it gives you as
+`subject_type` and `subject_uuid` in `posthog:data-quality-check-create`. Only a subject marked
+`editable` can carry a check; the others can still be the target of a relationships check. After that a check is
 addressed by its own id: `-update`, `-delete`, `-run` and `-results` take no subject.
 
 ## Checks on catalog metrics
