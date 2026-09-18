@@ -5236,6 +5236,8 @@ export interface AppContext {
     oauth_application?: OAuthApplicationPublicMetadata
     /** Server-resolved MCP scopes for OAuth consent when the client omits `scope`. */
     oauth_mcp_consent?: OAuthMcpConsentContext
+    /** One of the user's organizations has the access-control feature and at least one rule, so a granted scope can reach less. */
+    oauth_consent_access_controls_apply?: boolean
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
 }

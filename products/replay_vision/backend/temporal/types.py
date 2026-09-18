@@ -41,6 +41,9 @@ class ScannerResult(BaseModel, frozen=True):
 
     model_output: AnyScannerOutput
     signals_count: int = Field(default=0, ge=0)
+    # The problem type of each signal actually emitted, in emission order and with repeats kept, so the
+    # watch feed can count the kinds of issue a row carries. Empty on non-signal rows and on old rows.
+    signal_problem_types: list[str] = Field(default_factory=list)
     verification: VerificationRecord | None = None
 
 

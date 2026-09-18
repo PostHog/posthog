@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from products.wizard.backend.facade import api as wizard_facade
@@ -129,5 +130,11 @@ def test_finalize_run_rejects_local_run(team, user) -> None:
         status=WizardRunStatus.CANCELLED,
     )
 
-    with pytest.raises(ValueError, match="cloud Wizard Run"):
+    with pytest.raises(ApplicationError) as error:
         async_to_sync(_run_activity)(input)
+
+    assert error.value.type == "ValueError"
+    assert error.value.message == "Wizard activity failed."
+    assert error.value.__cause__ is None
+    assert error.value.__context__ is None
+    assert wizard_facade.get_run(team.id, run.id).status == WizardRunStatus.RUNNING

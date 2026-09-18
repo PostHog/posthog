@@ -32,6 +32,18 @@ export interface TaskActivityItem {
   isUnread: boolean;
 }
 
+/**
+ * The canvas a row is about, or null for a task row. A canvas comment row
+ * carries the canvas's name and space but the generating task's id, so links
+ * and actions built from `taskId` would name a task that may live in another
+ * space, or one the reader can't open.
+ */
+export function activityCanvasId(item: TaskActivityItem): string | null {
+  return item.commentTarget?.scope === "desktop_canvas"
+    ? item.commentTarget.itemId
+    : null;
+}
+
 /** Map activity DTOs (already newest-first from the backend) to feed items. */
 export function toTaskActivityItems(
   activity: readonly TaskActivity[],
