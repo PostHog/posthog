@@ -173,7 +173,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
-    '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
     '/experiments': ['Experiments', 'experiments'],
     '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
     '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
@@ -424,6 +423,8 @@ export const productRedirects: Record<
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
     '/engineering-analytics': '/engineering-analytics/overview',
     '/engineering-analytics/authors': '/engineering-analytics/overview',
+    '/error_tracking/:id/fingerprints': (params) =>
+        combineUrl(`/error_tracking/${params.id}`, { manageFingerprints: 'true' }).url,
     '/error_tracking/configuration': (_params, searchParams, hashParams) =>
         configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
     '/error_tracking/configuration/:tab': (params, searchParams, hashParams) =>
@@ -755,7 +756,6 @@ export const productConfiguration: Record<string, any> = {
         docsHref: 'https://posthog.com/docs/error-tracking',
     },
     ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
-    ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
     ErrorTrackingFingerprint: { projectBased: true, name: 'Error tracking fingerprint' },
     Experiments: {
         projectBased: true,
@@ -1331,7 +1331,6 @@ export const productUrls = {
             utm_medium?: string
         } = {}
     ): string => combineUrl(`/error_tracking/${id}`, params).url,
-    errorTrackingIssueFingerprints: (id: string): string => `/error_tracking/${id}/fingerprints`,
     errorTrackingFingerprint: (
         fingerprint: string,
         params: {
@@ -2240,12 +2239,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ] as FileSystemIconColor,
         href: urls.errorTracking(),
         sceneKey: 'ErrorTracking',
-        sceneKeys: [
-            'ErrorTracking',
-            'ErrorTrackingIssue',
-            'ErrorTrackingIssueFingerprints',
-            'ErrorTrackingFingerprint',
-        ],
+        sceneKeys: ['ErrorTracking', 'ErrorTrackingIssue', 'ErrorTrackingFingerprint'],
     },
     {
         path: 'Evaluations',

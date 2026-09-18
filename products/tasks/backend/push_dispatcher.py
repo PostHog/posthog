@@ -31,7 +31,11 @@ from posthog.models.user import User
 from posthog.models.user_push_token import UserPushToken
 from posthog.tasks.push_notifications import send_user_push
 
-from products.tasks.backend.metrics import PUSH_DISPATCHER_FAILURES_TOTAL, PUSH_DISPATCHER_OUTCOMES_TOTAL
+from products.tasks.backend.metrics import (
+    PUSH_DISPATCHER_FAILURES_TOTAL,
+    PUSH_DISPATCHER_OUTCOMES_TOTAL,
+    TURN_COMPLETED_SUPPRESSED_TOTAL,
+)
 from products.tasks.backend.models import Task, TaskPresence
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.visibility import task_visibility_q
@@ -87,6 +91,16 @@ def notify_task_run_awaiting_input(task_run: TaskRun) -> None:
 def notify_task_run_turn_completed(task_run: TaskRun) -> None:
     _project_completed_activity(task_run)
     _enqueue(task_run, kind="turn_completed", body=f'"{_task_title(task_run)}" finished')
+
+
+def dispatch_task_run_turn_completed(task_run: TaskRun, *, turn_completed: bool = True) -> bool:
+    if task_run.mode != "interactive":
+        return False
+    if not turn_completed:
+        TURN_COMPLETED_SUPPRESSED_TOTAL.labels(reason="idle_resume").inc()
+        return False
+    notify_task_run_turn_completed(task_run)
+    return True
 
 
 def notify_task_handoff(task: Task, *, recipient: User, actor: User | None, message_id: UUID) -> None:

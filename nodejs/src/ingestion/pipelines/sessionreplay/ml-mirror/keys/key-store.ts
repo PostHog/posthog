@@ -15,7 +15,6 @@ import {
     monthKeyIndexId,
     sessionKeyId,
     tableKeyString,
-    teamBlockId,
 } from './schema'
 import { isTransientError } from './transient'
 
@@ -84,7 +83,6 @@ export class MlKeyBatch {
         this.keys.clear()
         // The image key is the session's start month, so every row this batch needs is known before the first read.
         const initial = this.identities.flatMap((identity) => [
-            teamBlockId(identity.teamId),
             sessionKeyId(identity.teamId, identity.sessionId),
             imageKeyId(identity.teamId, sessionStartMonth(identity.sessionId)),
         ])
@@ -92,10 +90,7 @@ export class MlKeyBatch {
         const keyIdentities = new Map<string, MlKeyIdentity>()
         for (const identity of this.identities) {
             const id = tableKeyString(sessionKeyId(identity.teamId, identity.sessionId))
-            if (
-                this.state.has(tableKeyString(teamBlockId(identity.teamId))) ||
-                this.state.get(id)?.deleted?.BOOL === true
-            ) {
+            if (this.state.get(id)?.deleted?.BOOL === true) {
                 continue
             }
             for (const sessionId of [identity.sessionId, undefined]) {
@@ -129,6 +124,7 @@ export class MlKeyBatch {
                         }
                         this.keys.set(id, stored)
                     } else {
+                        // A shredded team image key stops its team month for good, which is why no team block row exists. See products/ai_training/docs/replay-data.md.
                         if (identity.sessionId && !this.monthKeyFor(identity)) {
                             this.reportUnusable(id, 'month_key_unavailable')
                             return
@@ -260,7 +256,7 @@ export class MlKeyBatch {
                     this.encryption.rememberCommitted(key)
                     return
                 }
-                // A session keys its own partition, so only a rebalance overlap or a team key puts two writers on one row.
+                // Batches overlap, so a later batch reads before an earlier one writes, and a new session routinely meets its own earlier candidate here.
                 if (stored.deleted?.BOOL === true) {
                     this.keys.delete(id)
                     dropped += 1

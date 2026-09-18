@@ -17,6 +17,7 @@ from products.data_modeling.backend.logic.tier_membership import EPHEMERAL_SKIPP
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node, NodeType
+from products.data_modeling.backend.test.helpers import metric_node
 
 TEMPORAL_READ = "products.data_modeling.backend.management.commands.check_node_tier_schedule.Command._read_live_tiers"
 
@@ -81,11 +82,21 @@ class TestCheckNodeTierScheduleGuards(BaseTest):
 
         read_live.assert_not_called()
 
-    def test_selector_matching_nothing_errors_instead_of_dumping_the_dag(self):
-        # A typo'd --name used to fall through to "no selector given" and dump every node in the DAG,
-        # which reads as a clean bill of health for a node that was never actually inspected.
+    @parameterized.expand(
+        [
+            # A typo'd --name used to fall through to "no selector given" and dump every node in the
+            # DAG, which reads as a clean bill of health for a node that was never actually inspected.
+            ("name_matching_nothing", "typo_view", False),
+            ("name_of_a_metric", "weekly_active_accounts", True),
+        ]
+    )
+    def test_selector_matching_no_schedulable_node_errors_instead_of_dumping_the_dag(
+        self, _name, selector, create_metric
+    ):
         dag = DAG.objects.create(team=self.team, name="Default")
         self._node(dag, "real_view")
+        if create_metric:
+            metric_node(self.team, dag, selector)
 
         with patch(TEMPORAL_READ) as read_live:
             with pytest.raises(CommandError, match="matches that selector"):
@@ -94,7 +105,7 @@ class TestCheckNodeTierScheduleGuards(BaseTest):
                     "--team-id",
                     str(self.team.pk),
                     "--name",
-                    "typo_view",
+                    selector,
                     "--dag-id",
                     str(dag.id),
                 )

@@ -1640,6 +1640,7 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             "status",
             "config",
             "next_run_at",
+            "soak_minutes",
             "run_interval_minutes",
             "runs_remaining",
             "expires_at",
@@ -1654,8 +1655,24 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             "title": {"help_text": "Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`."},
             "rationale": {"help_text": "Why the author set the check."},
             "kind": {"help_text": "How the check is evaluated."},
-            "status": {"help_text": "`active` while the check still runs; every other value is terminal."},
-            "next_run_at": {"help_text": "When the coordinator next evaluates the check."},
+            "status": {
+                "help_text": (
+                    "`pending` while the check waits for the report to resolve, `active` while it still runs; "
+                    "every other value is terminal."
+                )
+            },
+            "next_run_at": {
+                "help_text": (
+                    "When the coordinator next evaluates the check. Provisional while the check is `pending`: "
+                    "the report resolving is what sets it."
+                )
+            },
+            "soak_minutes": {
+                "help_text": (
+                    "How long after the report resolves a `pending` check waits before its first run. "
+                    "Null on a check that named its own `next_run_at`."
+                )
+            },
             "run_interval_minutes": {"help_text": "Gap between runs for a recurring check; null for a one-shot."},
             "runs_remaining": {"help_text": "Evaluations still owed before the check retires as passed."},
             "expires_at": {"help_text": "Horizon after which the check retires without running again."},
