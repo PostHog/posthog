@@ -10,6 +10,7 @@ with workflow.unsafe.imports_passed_through():
     from datetime import timedelta
     from uuid import uuid5
 
+    from django.db.models.functions import Substr
     from django.utils import timezone
 
     import structlog
@@ -120,8 +121,12 @@ def _load_candidates(team_id: int, settings: DetectionSettings) -> tuple[list[Ti
             deleted=False,
         )
         .filter(_public_ticket_message_context())
+        # Only the first MAX_MESSAGE_CHARS reach the model, so leave the rest of an email body in
+        # Postgres rather than carrying it through the sort. The slack covers leading whitespace,
+        # which strip() removes before the cut below.
+        .annotate(opening_text=Substr("content", 1, MAX_MESSAGE_CHARS * 2))
         .order_by("created_at")
-        .values_list("item_id", "content")
+        .values_list("item_id", "opening_text")
     ):
         first_messages.setdefault(item_id, content or "")
 

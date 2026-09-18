@@ -19,7 +19,10 @@ from temporalio.exceptions import ApplicationError
 from posthog.models.comment import Comment
 
 from products.conversations.backend.models.ticket import Status, Ticket
-from products.conversations.backend.temporal.ticket_patterns.constants import COORDINATOR_INTERVAL_MINUTES
+from products.conversations.backend.temporal.ticket_patterns.constants import (
+    COORDINATOR_INTERVAL_MINUTES,
+    MAX_MESSAGE_CHARS,
+)
 from products.conversations.backend.temporal.ticket_patterns.coordinator import _collect_eligible_teams
 from products.conversations.backend.temporal.ticket_patterns.detect import (
     _detection_text,
@@ -356,6 +359,21 @@ class TestLoadCandidates(BaseTest):
 
         assert [c.ticket_id for c in candidates] == ([str(ticket.id)] if expected else [])
         assert (str(ticket.id) in requesters) is expected
+
+    def test_a_long_opening_message_still_fills_the_model_budget(self):
+        # The query fetches a capped prefix instead of the whole body, so the cut has to land
+        # where it did when the whole body was loaded. Too small a window silently starves the
+        # model of text it used to get.
+        ticket = self._ticket_with_opener(
+            subject="Cannot log in",
+            author_type="customer",
+            distinct_id="someone@example.com",
+        )
+        Comment.objects.filter(item_id=str(ticket.id)).update(content="x" * (MAX_MESSAGE_CHARS * 5))
+
+        candidates, _ = _load_candidates(self.team.id, _settings())
+
+        assert [c.message for c in candidates] == ["x" * MAX_MESSAGE_CHARS]
 
     def test_a_customer_opener_with_no_privacy_flag_still_counts(self):
         # A bare exclude() reads a missing key as SQL NULL and drops the row, which is why the
