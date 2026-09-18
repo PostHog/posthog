@@ -9,6 +9,11 @@ import type {
   RpcExtensionUIResponse,
 } from "@posthog/agent/pi/types";
 import {
+  ROOT_LOGGER,
+  type RootLogger,
+  type ScopedLogger,
+} from "@posthog/di/logger";
+import {
   type AgentConversationEvent,
   classifyPromptFailure,
   type McpToolPermissionDecision,
@@ -199,6 +204,8 @@ function isResumableCloudSendError(error: unknown): boolean {
 export class PiSessionController {
   readonly store: PiSessionStore = createPiSessionStore();
 
+  private readonly log: ScopedLogger;
+
   private readonly sessions = new Map<string, Promise<PiSession>>();
   private readonly subscriptions = new Map<string, () => void>();
   private readonly liveEvents = new Map<string, AgentConversationEvent[]>();
@@ -239,6 +246,7 @@ export class PiSessionController {
   constructor(
     @inject(PI_SESSION_PROVIDER) private readonly provider: PiSessionProvider,
     @inject(TASK_SERVICE) private readonly taskService: TaskService,
+    @inject(ROOT_LOGGER) rootLogger: RootLogger,
     @inject(AUTH_SERVICE)
     @optional()
     private readonly authService?: AuthService,
@@ -246,6 +254,7 @@ export class PiSessionController {
     @optional()
     private readonly notifier?: AgentSessionNotifier,
   ) {
+    this.log = rootLogger.scope("pi-session-controller");
     this.authService?.on(AuthServiceEvent.StateChanged, (state) => {
       if (state.status === "anonymous") {
         this.disconnectAll();
@@ -717,7 +726,14 @@ export class PiSessionController {
       this.setTurnStreaming(taskId, false);
       await this.refreshStatus(taskId);
     } catch (error) {
-      throw this.recordOperationFailure(taskId, "cancel", error);
+      throw this.recordOperationFailure(
+        taskId,
+        "cancel",
+        error,
+        undefined,
+        undefined,
+        false,
+      );
     }
   }
 
@@ -1399,6 +1415,7 @@ export class PiSessionController {
     error: unknown,
     errorType?: string,
     recoveryPrompt?: string,
+    storeFailure = true,
   ): PiOperationError {
     const details = (error as { data?: { details?: string } })?.data?.details;
     const classified = classifyPromptFailure(error, details, errorType);
@@ -1422,14 +1439,24 @@ export class PiSessionController {
       limitCause: classified.limitCause,
       recoveryPrompt,
     };
-    this.updateSession(taskId, {
-      error: failure,
-      ...(scope === "connection"
-        ? {
-            connectionState: retryable ? "disconnected" : "error",
-          }
-        : {}),
+    this.log.error("Pi operation failed", {
+      taskId,
+      operation,
+      scope,
+      kind: classified.kind,
+      retryable,
+      errorName: error instanceof Error ? error.name : typeof error,
     });
+    if (storeFailure) {
+      this.updateSession(taskId, {
+        error: failure,
+        ...(scope === "connection"
+          ? {
+              connectionState: retryable ? "disconnected" : "error",
+            }
+          : {}),
+      });
+    }
     return new PiOperationError(failure);
   }
 
@@ -1848,6 +1875,13 @@ export class PiSessionController {
     this.flushText(taskId);
     const failure = normalizeSessionError(error);
     const classified = classifyPromptFailure(error);
+    this.log.error("Pi session transport failed", {
+      taskId,
+      scope: "connection",
+      kind: classified.kind,
+      retryable: failure.retryable,
+      errorName: error instanceof Error ? error.name : typeof error,
+    });
     this.updateSession(taskId, {
       connectionState: failure.retryable ? "disconnected" : "error",
       error: {
