@@ -17,13 +17,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { DataTableNode } from '~/queries/schema/schema-general'
 
+import { DEFAULT_MCP_ACTIVITY_QUERY, MCP_ACTIVITY_DATA_COLLECTION_ID } from '../components/toolCallFeedQuery'
 import { mcpAnalyticsSessionsActivityOverview, mcpAnalyticsSessionsIntentDigest } from '../generated/api'
 import type { MCPActivityOverviewApi, MCPIntentThemeApi } from '../generated/api.schemas'
 import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
 import type { MCPOnboardingSignals } from '../mcpAnalyticsOnboardingLogic'
 import { buildActivitySummary } from './activitySummary'
 import { ChecklistItem, EarlyStats, buildChecklist } from './earlyDataChecklist'
-import { DEFAULT_MCP_ACTIVITY_QUERY, MCP_ACTIVITY_DATA_COLLECTION_ID } from './mcpActivityQuery'
 
 export type { ChecklistItem, EarlyStats } from './earlyDataChecklist'
 
