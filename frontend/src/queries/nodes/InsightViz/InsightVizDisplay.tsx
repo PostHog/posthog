@@ -101,6 +101,46 @@ function DashboardInsightRefreshHintOrLoading({
     return <InsightRefreshDataHint onRetry={onRetry} insightProps={insightProps} />
 }
 
+function isNonEmptyResult(rows: unknown): boolean {
+    return Array.isArray(rows) ? rows.length > 0 : rows != null
+}
+
+/** A settled query came back with rows. An empty success is `result: []`, so presence alone is not enough. */
+export function hasResultRows(insightData: Record<string, any> | null | undefined): boolean {
+    return isNonEmptyResult(insightData?.result) || isNonEmptyResult(insightData?.results)
+}
+
+/**
+ * The "PostHog AI" section offers to explain the insight, so it only belongs next to results worth explaining.
+ * It stays up while the query is in flight so it doesn't appear only once the chart draws. A query that
+ * returned rows keeps it, even when the chart reads as empty, since that is what people ask PostHog AI about.
+ */
+export function shouldShowAIAnalysisSection({
+    editMode,
+    embedded,
+    inSharedMode,
+    hasQuerySource,
+    insightDataLoading,
+    hasBlockingEmptyState,
+    hasResults,
+}: {
+    editMode?: boolean
+    embedded?: boolean
+    inSharedMode?: boolean
+    hasQuerySource: boolean
+    insightDataLoading: boolean
+    hasBlockingEmptyState: boolean
+    hasResults: boolean
+}): boolean {
+    if (editMode || embedded || inSharedMode || !hasQuerySource) {
+        return false
+    }
+    if (insightDataLoading) {
+        return true
+    }
+    return !hasBlockingEmptyState && hasResults
+}
+
 /** Dashboard tile: show refresh when merged `result` is still nullish (empty success is `[]`, not `null`). */
 export function shouldShowDashboardInsightRefreshHint({
     isInDashboardContext,
@@ -476,22 +516,17 @@ export function InsightVizDisplay({
     }
 
     function renderAIAnalysisSection(): JSX.Element | null {
-        // Only show in view mode
-        if (editMode) {
-            return null
-        }
-
-        // Don't show in embedded or shared mode
-        if (embedded || inSharedMode) {
-            return null
-        }
-
-        // Only show for insight query nodes (use querySource which is the actual InsightQueryNode)
-        if (!querySource) {
-            return null
-        }
-
-        return <InsightAIAnalysis />
+        return shouldShowAIAnalysisSection({
+            editMode,
+            embedded,
+            inSharedMode,
+            hasQuerySource: !!querySource,
+            insightDataLoading,
+            hasBlockingEmptyState: !!BlockingEmptyState,
+            hasResults: hasResultRows(insightData),
+        }) ? (
+            <InsightAIAnalysis />
+        ) : null
     }
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
