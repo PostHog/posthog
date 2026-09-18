@@ -631,6 +631,8 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
 - **Run a review:** `python manage.py run_review --pr-url <github_pr_url> --team-id <id> --user-id <id>`
   (`backend/management/commands/run_review.py`, blocking `execute_review_pr_workflow`, default no-publish, with an
   optional `--publish`). All three args are required.
+  Add `--review-mode flash` for Luna medium review and validation, or use the default `--review-mode full`.
+  The startup banner shows the selected review mode and whether publishing was requested.
   - **Default local-testing PR:** an **origin-branch** PR — its head branch must live on `PostHog/posthog`,
     because the sandbox clones the **base** repo and checks out the head branch **by name**
     (`get_sandbox_for_repository`, owned by `products/tasks`), so a **fork** PR fails at the checkout step. Until

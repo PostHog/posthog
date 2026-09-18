@@ -203,6 +203,18 @@ Custom skills with bundled files include a file manifest so the agent can fetch 
 Choose **Review in Flash mode** from the Code review page's review menu to run it for one turn without changing the PR's full-review configuration.
 Flash requests preserve an existing report's review tier, including when they join a running review.
 Flash labels its GitHub messages with `FLASH MODE` and never starts comment resolution.
+To run Flash locally, use `run_review --review-mode flash` from the repository root:
+
+```bash
+.codex/with-flox python manage.py run_review \
+  --pr-url https://github.com/PostHog/posthog/pull/PR_NUMBER \
+  --team-id 1 --user-id 1 --review-mode flash
+```
+
+Replace `PR_NUMBER` and use the team and user IDs from your local instance.
+The command defaults to Full mode and only requests GitHub publishing when you add `--publish`.
+For isolated tests, use a fresh local report with no active review on the same PR and an original branch that still points at the reviewed commit.
+An existing workflow keeps its original inputs, and an existing report's status comment can still receive progress updates.
 If a review fails, the next attempt keeps cached reviewer results for the same commit and model.
 Deduplication retires superseded findings from the unfinished turn and reuses a verdict only when its finding, commit, review mode, and model configurations are unchanged.
 Completed turns remain in the report history.

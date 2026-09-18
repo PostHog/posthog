@@ -253,7 +253,7 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   The existing join-on-running and already-reviewed rules still allow only one review per commit.
 - **Publishing.** Flash prefixes status, promotion, review-body, and inline comments with `FLASH MODE` followed by a newline.
   It never chains comment resolution.
-  The UI and generated MCP trigger accept the mode; the CLI has no additional flag.
+  The UI and generated MCP trigger accept the mode; the CLI exposes it through `run_review --review-mode flash`.
 - **Gateway access.** Luna already belongs to the `review_hog` model allowance.
   Flash requires no additional gateway permissions.
 
