@@ -6,9 +6,11 @@ every job on the alias changes toolchain, system packages and default Python
 at once, with no diff in this repo to bisect. Pinning to ``ubuntu-24.04`` keeps
 the image change an explicit PR.
 
-The check reads ``runs-on`` and ``strategy.matrix`` for each job, so a label
-picked through ``${{ matrix.runner }}`` or an inline ``&&``/``||`` expression
-is covered as well as a plain string.
+The check reads ``runs-on`` and, for each ``matrix.<key>`` that ``runs-on``
+references, that key's values in ``strategy.matrix`` (including ``include``
+and ``exclude`` entries). A label picked through ``${{ matrix.runner }}`` or
+an inline ``&&``/``||`` expression is covered as well as a plain string, while
+a matrix dimension that is not a runner never fires the check.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from ..check import CheckResult, Issue, WorkflowCheck
 from ..model import Job, Workflow
 
 FLOATING_LABEL_RE = re.compile(r"(?<![\w-])((?:depot-)?(?:ubuntu|macos|windows)-latest(?:-[A-Za-z0-9.]+)*)(?![\w-])")
+MATRIX_REF_RE = re.compile(r"\bmatrix\.([A-Za-z_][\w-]*)")
 
 
 def _strings(value: object) -> Iterator[str]:
@@ -33,12 +36,32 @@ def _strings(value: object) -> Iterator[str]:
             yield from _strings(nested)
 
 
+def _matrix_values_for(matrix: object, key: str) -> Iterator[object]:
+    if not isinstance(matrix, dict):
+        yield matrix
+        return
+    if key in matrix:
+        yield matrix[key]
+    for combination_list in ("include", "exclude"):
+        combinations = matrix.get(combination_list)
+        if not isinstance(combinations, list):
+            continue
+        for combination in combinations:
+            if isinstance(combination, dict) and key in combination:
+                yield combination[key]
+
+
 def _runner_sources(job: Job) -> Iterator[tuple[str, object]]:
-    if "runs-on" in job.raw:
-        yield "runs-on", job.raw["runs-on"]
+    runs_on = job.raw.get("runs-on")
+    if runs_on is None:
+        return
+    yield "runs-on", runs_on
+    referenced_keys = {match.group(1) for text in _strings(runs_on) for match in MATRIX_REF_RE.finditer(text)}
     strategy = job.raw.get("strategy")
-    if isinstance(strategy, dict) and "matrix" in strategy:
-        yield "strategy.matrix", strategy["matrix"]
+    if not referenced_keys or not isinstance(strategy, dict) or "matrix" not in strategy:
+        return
+    for key in sorted(referenced_keys):
+        yield f"strategy.matrix.{key}", list(_matrix_values_for(strategy["matrix"], key))
 
 
 def floating_labels(value: object) -> list[str]:

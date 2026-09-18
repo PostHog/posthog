@@ -224,8 +224,10 @@ class TestPinnedRunnerImagesCheck:
             "runs-on: [self-hosted, linux]",
             "runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}",
             "runs-on: ${{ matrix.runner }}\n    strategy:\n      matrix:\n        runner: [ubuntu-24.04, macos-15]",
+            "runs-on: ubuntu-24.04\n    strategy:\n      matrix:\n        artifact: [cli-macos-latest, cli-windows-latest]",
+            "runs-on: ${{ matrix.runner }}\n    strategy:\n      matrix:\n        runner: [ubuntu-24.04]\n        artifact: [cli-macos-latest]",
         ],
-        ids=["plain", "depot", "label-list", "expression", "matrix"],
+        ids=["plain", "depot", "label-list", "expression", "matrix", "non-runner-matrix", "unreferenced-matrix-key"],
     )
     def test_passes_pinned_labels(self, tmp_path: Path, job_body: str) -> None:
         _write(
@@ -257,12 +259,12 @@ class TestPinnedRunnerImagesCheck:
             ),
             (
                 "runs-on: ${{ matrix.runner }}\n    strategy:\n      matrix:\n        runner: [ubuntu-latest, depot-ubuntu-24.04]",
-                "strategy.matrix",
+                "strategy.matrix.runner",
                 "ubuntu-latest",
             ),
             (
                 "runs-on: ${{ matrix.os }}\n    strategy:\n      matrix:\n        include:\n          - os: windows-latest",
-                "strategy.matrix",
+                "strategy.matrix.os",
                 "windows-latest",
             ),
         ],
