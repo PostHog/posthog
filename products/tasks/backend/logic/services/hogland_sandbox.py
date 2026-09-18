@@ -288,12 +288,12 @@ class HoglandSandbox(AgentServerLaunchMixin):
             repo_snapshot_external_id = None
             try:
                 box = cls._create_box(client, config, snapshot_alias, env, tags)
-            except APIError as golden_error:
+            except Exception as golden_error:
                 raise SandboxProvisionError(
                     "Failed to create hogland sandbox",
                     {
                         "config_name": config.name,
-                        "status_code": str(golden_error.status_code),
+                        "status_code": str(getattr(golden_error, "status_code", None)),
                         "error": str(golden_error),
                     },
                     cause=golden_error,
