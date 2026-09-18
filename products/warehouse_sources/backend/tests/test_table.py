@@ -1,4 +1,6 @@
+import tempfile
 import subprocess
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -14,6 +16,7 @@ from parameterized import parameterized
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.models import DatabaseField, StringDatabaseField, UUIDDatabaseField
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+from posthog.hogql.escape_sql import escape_param_clickhouse
 
 from posthog.exceptions import ClickHouseAtCapacity
 
@@ -21,6 +24,7 @@ from products.warehouse_sources.backend.models.credential import DataWarehouseCr
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import (
     DataWarehouseTable,
+    chdb_set_statements,
     get_hogql_field_for_column,
     run_chdb_query,
 )
@@ -238,6 +242,118 @@ class TestRunChdbQuery:
                 run_chdb_query("DESCRIBE TABLE s3('https://example.com/table/')")
 
         assert not DataWarehouseTable()._is_suppressed_chdb_error(exc_info.value)
+
+
+class TestStructureAgainstTheEngine(BaseTest):
+    # chdb embeds the same ClickHouse engine that introspects a table and that every warehouse read
+    # runs against, over local files instead of S3. These cases therefore prove what the engine does
+    # with a structure we built, which no mock-based test can. They go through run_chdb_query so that
+    # a hung embedded query fails the test instead of wedging the job, and the timeout is generous
+    # because importing chdb alone costs seconds.
+    CHDB_TIMEOUT_SECONDS = 120.0
+
+    def _json_file(self, lines: list[str], name: str = "rows.json", directory: Path | None = None) -> Path:
+        path = (directory or Path(tempfile.mkdtemp())) / name
+        path.write_text("".join(f"{line}\n" for line in lines))
+        return path
+
+    def test_optional_nested_key_from_a_later_file_is_inferred(self) -> None:
+        # The whole point of the widened settings: a nested key that only later files carry has to
+        # reach the schema, because the schema is also what every read of the table is parsed with.
+        directory = Path(tempfile.mkdtemp())
+        self._json_file(['{"id": 1, "usage": {"input_tokens": 10}}'], name="a.json", directory=directory)
+        self._json_file(
+            ['{"id": 2, "usage": {"input_tokens": 20, "cache_write_tokens": 5}}'], name="b.json", directory=directory
+        )
+        table = DataWarehouseTable(
+            name="runs",
+            format=DataWarehouseTable.TableFormat.JSON,
+            team=self.team,
+            url_pattern="s3://bucket/team_1/runs/*",
+        )
+
+        glob = escape_param_clickhouse(str(directory / "*.json"))
+        described = run_chdb_query(
+            f"{chdb_set_statements(table._describe_settings())}DESCRIBE TABLE file({glob}, JSONEachRow)",
+            timeout=self.CHDB_TIMEOUT_SECONDS,
+        )
+
+        assert "cache_write_tokens" in described
+
+    def test_array_of_objects_is_readable_through_the_stored_structure(self) -> None:
+        # The element names are what makes the column parseable. Without them ClickHouse reads
+        # `items` as a positional array, so every query over the table raises code 27, including
+        # queries that never mention the column.
+        table = DataWarehouseTable(
+            name="orders",
+            format=DataWarehouseTable.TableFormat.JSON,
+            team=self.team,
+            url_pattern="s3://bucket/team_1/orders/*",
+            columns={
+                "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField", "valid": True},
+                "items": {
+                    "clickhouse": "Array(Tuple(sku Nullable(String), qty Nullable(Int64)))",
+                    "hogql": "StringArrayDatabaseField",
+                    "valid": True,
+                },
+            },
+        )
+        path = self._json_file(['{"id": 1, "items": [{"sku": "widget", "qty": 2}]}'])
+
+        definition = table.hogql_definition()
+        assert isinstance(definition, HogQLDataWarehouseTable)
+        assert definition.structure is not None
+        result = run_chdb_query(
+            f"SELECT items.sku FROM file({escape_param_clickhouse(str(path))}, JSONEachRow, "
+            f"{escape_param_clickhouse(definition.structure)})",
+            timeout=self.CHDB_TIMEOUT_SECONDS,
+        )
+
+        assert "widget" in result
+
+
+class TestSchemaInferenceMode(BaseTest):
+    def _table(self, table_format: str) -> DataWarehouseTable:
+        return DataWarehouseTable(name="t", format=table_format, team=self.team, url_pattern="s3://bucket/team_1/t/*")
+
+    @parameterized.expand(
+        [
+            ("json", DataWarehouseTable.TableFormat.JSON, True),
+            ("csv_with_names", DataWarehouseTable.TableFormat.CSVWithNames, True),
+            # ClickHouse refuses `union` for a format that cannot read a subset of its columns:
+            # headerless CSV raises BAD_ARGUMENTS, which would leave those tables undescribable.
+            ("csv", DataWarehouseTable.TableFormat.CSV, False),
+            ("delta", DataWarehouseTable.TableFormat.Delta, False),
+        ]
+    )
+    def test_union_inference_is_scoped_to_formats_that_accept_it(
+        self, _name: str, table_format: str, expects_union: bool
+    ) -> None:
+        with patch(
+            "products.warehouse_sources.backend.models.table.sync_execute",
+            return_value=[("id", "Int64")],
+        ) as mock_sync_execute:
+            self._table(table_format).get_columns()
+
+        settings = mock_sync_execute.call_args.kwargs["settings"]
+        assert (settings.get("schema_inference_mode") == "union") is expects_union
+        # Reading the head of every file is unbounded work inside a synchronous request, so the
+        # widened pass carries a server-side time limit and the narrow pass keeps its old behavior.
+        assert ("max_execution_time" in settings) is expects_union
+
+    def test_a_failed_describe_raises_instead_of_storing_a_narrower_schema(self) -> None:
+        # A degraded schema that persists silently is indistinguishable from the bug being fixed:
+        # the person refreshes, nothing changes, and no signal exists anywhere. The retries belong
+        # on this pass, because the cluster fails intermittently.
+        with patch("products.warehouse_sources.backend.models.table.time.sleep"):
+            with patch(
+                "products.warehouse_sources.backend.models.table.sync_execute",
+                side_effect=ServerException("DB::Exception: Unexpected", code=1002),
+            ) as mock_sync_execute:
+                with pytest.raises(Exception):
+                    self._table(DataWarehouseTable.TableFormat.JSON).get_columns()
+
+        assert mock_sync_execute.call_count == 5
 
 
 class TestGetHogqlFieldForColumn(SimpleTestCase):

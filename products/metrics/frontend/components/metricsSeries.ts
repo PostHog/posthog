@@ -8,6 +8,8 @@ export interface MetricsChartSeries {
     metricName?: string | null
     /** Alias of the query clause that produced this series (`formula` for a formula result). */
     clause?: string | null
+    /** UCUM unit as ingested, e.g. "By", "ms". Absent when the SDK did not set one. */
+    unit?: string | null
 }
 
 // PostHog defines data-color-1..15 in vars.scss; cycle through them so each series gets a distinct line.

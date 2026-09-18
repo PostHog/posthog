@@ -127,7 +127,7 @@ export class ExecLearnCatalog {
 
         if (tokens[0] === '-s') {
             const query = tokens.slice(1).join(' ')
-            this.validateSearchQuery(query)
+            this.validateSearchQuery(query, 'learn -s "<task keywords>"')
             return await this.searchSkills(query)
         }
 
@@ -149,8 +149,14 @@ export class ExecLearnCatalog {
         if (args.length === 0) {
             return await this.readSkill(skill)
         }
-
         const flagIndex = args.findIndex((token) => token === '-s' || token === '--lines')
+        const paths = flagIndex === -1 ? args : args.slice(0, flagIndex)
+        if (paths.includes('--file')) {
+            throw new Error(
+                '`learn` does not support --file. Pass the file path directly: `learn <source>:<skill> <path>`.'
+            )
+        }
+
         if (flagIndex === -1) {
             if (args.length === 1) {
                 return await this.readSkill(skill, args[0])
@@ -158,7 +164,6 @@ export class ExecLearnCatalog {
             return await this.batchReadFiles(skill, args)
         }
 
-        const paths = args.slice(0, flagIndex)
         if (paths.length !== 1) {
             throw new Error(SKILL_READ_USAGE)
         }
@@ -167,7 +172,7 @@ export class ExecLearnCatalog {
         const flagArgs = args.slice(flagIndex + 1)
         if (flag === '-s') {
             const query = flagArgs.join(' ')
-            this.validateSearchQuery(query)
+            this.validateSearchQuery(query, 'learn <source>:<skill> <path> -s "<keywords>"')
             return await this.searchSkillFile(skill, path, query)
         }
         if (flag === '--lines' && flagArgs.length === 1) {
@@ -325,15 +330,17 @@ export class ExecLearnCatalog {
     }
 
     private async zeroHitRecovery(query: string): Promise<string> {
+        const projectSearched = this.skillSources?.project !== undefined
         const header =
             `No skills matched "${query}".\n` +
-            'None of the query words appear in any skill. Try fewer or broader keywords (single words match best).'
+            (projectSearched
+                ? 'None of the query words appear in any skill.'
+                : 'None of the query words appear in any PostHog skill; project skills were not searched.') +
+            ' Try fewer or broader keywords (single words match best).'
 
         const posthogNames = this.skillSources?.posthog?.listNames() ?? []
         let projectListing: ProjectSkillList | undefined
-        if (!this.skillSources?.project) {
-            projectListing = { count: 0, names: [], truncated: false }
-        } else {
+        if (this.skillSources?.project) {
             try {
                 projectListing = await this.skillSources.project.listNames()
             } catch {
@@ -341,12 +348,13 @@ export class ExecLearnCatalog {
             }
         }
 
-        if (projectListing && posthogNames.length + projectListing.count <= ZERO_HIT_INLINE_LIMIT) {
+        const projectCount = projectSearched ? projectListing?.count : 0
+        if (projectCount !== undefined && posthogNames.length + projectCount <= ZERO_HIT_INLINE_LIMIT) {
             const lines = [header, '', 'Available skills:']
             if (posthogNames.length > 0) {
                 lines.push(`posthog: ${posthogNames.join(', ')}`)
             }
-            if (projectListing.names.length > 0) {
+            if (projectListing && projectListing.names.length > 0) {
                 lines.push(`project: ${projectListing.names.join(', ')}`)
             }
             return lines.join('\n')
@@ -356,7 +364,9 @@ export class ExecLearnCatalog {
         // claiming "0 project skills" would send the agent down the no-skill path.
         const counts = projectListing
             ? `${posthogNames.length} posthog and ${projectListing.count} project skills exist`
-            : `${posthogNames.length} posthog skills exist; the project skill listing is temporarily unavailable`
+            : projectSearched
+              ? `${posthogNames.length} posthog skills exist; the project skill listing is temporarily unavailable`
+              : `${posthogNames.length} posthog skills exist; project skills were not searched`
         return (
             `${header}\n\n` +
             `${counts} — ` +
@@ -414,9 +424,9 @@ export class ExecLearnCatalog {
         }
     }
 
-    private validateSearchQuery(query: string): void {
+    private validateSearchQuery(query: string, usage: string): void {
         if (!query.trim()) {
-            throw new Error('Search query cannot be empty.')
+            throw new Error(`Search query cannot be empty. Usage: ${usage}.`)
         }
         if (query.length > MAX_SEARCH_QUERY_LENGTH) {
             throw new Error(`Search query must be at most ${MAX_SEARCH_QUERY_LENGTH} characters.`)
@@ -436,8 +446,12 @@ export class ExecLearnCatalog {
                 .map((guide) => guide.id)
                 .join(', ')
             const unknown = unknownGuideIds.map((guideId) => `"${guideId}"`).join(', ')
+            const availableHint = available ? ` Available: ${available}.` : ''
+            const recovery = this.skillSources
+                ? ' To load a skill, run `learn -s "<task keywords>"`, then `learn posthog:<skill>` or `learn project:<skill>` using the exact qualified name from the results.'
+                : ' Run `learn` to list available topics.'
             throw new Error(
-                `Unknown learning ${unknownGuideIds.length === 1 ? 'topic' : 'topics'}: ${unknown}. Available: ${available}`
+                `Unknown learning ${unknownGuideIds.length === 1 ? 'topic' : 'topics'}: ${unknown}.${availableHint}${recovery}`
             )
         }
 
@@ -474,6 +488,11 @@ function parseQualifiedSkill(identifier: string): QualifiedSkill {
     if (!skill) {
         throw new Error(
             `Unknown guide or unqualified skill: "${identifier}". Use \`learn posthog:<skill>\` or \`learn project:<skill>\`.`
+        )
+    }
+    if (skill.name.includes('/')) {
+        throw new Error(
+            `Invalid skill identifier: "${identifier}". Separate the skill name and file path with a space: \`learn <source>:<skill> <path>\`.`
         )
     }
     return skill

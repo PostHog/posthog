@@ -1,6 +1,9 @@
+import { useActions, useValues } from 'kea'
+
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
+import { tagsModel } from '~/models/tagsModel'
 
 import { TagsCombobox } from './TagsCombobox'
 import { SceneCanEditProps, SceneDataAttrKeyProps } from './utils'
@@ -25,10 +28,12 @@ export function SceneTagsCombobox({
     canEdit = true,
     loading,
 }: SceneTagsComboboxProps): JSX.Element {
+    const { tags: allExistingTags, tagsLoading } = useValues(tagsModel)
+    const { loadTagsIfNeeded } = useActions(tagsModel)
     const label = (
         <span className="flex items-center gap-1.5">
             Tags
-            {loading ? <Spinner className="text-sm" /> : null}
+            {loading || tagsLoading ? <Spinner className="text-sm" /> : null}
         </span>
     )
 
@@ -37,7 +42,9 @@ export function SceneTagsCombobox({
             <TagsCombobox
                 value={tags ?? []}
                 onChange={(next) => onSave?.(next)}
-                options={tagsAvailable}
+                onOpen={loadTagsIfNeeded}
+                loading={tagsLoading}
+                options={tagsAvailable ?? allExistingTags.filter((tag) => !tags?.includes(tag))}
                 placeholder="Add tags..."
                 disabled={!onSave || !canEdit}
                 allowCustomValues

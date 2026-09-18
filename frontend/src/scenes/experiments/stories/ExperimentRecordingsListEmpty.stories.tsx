@@ -80,9 +80,9 @@ export const ExperimentRecordingsEmptyEndedPastRetention: Story = {
  * leaves testing-library's test id attribute at its default, unlike jest and Playwright, so a
  * `data-attr` has to be matched as a plain attribute.
  */
-async function clickWhenRendered(canvasElement: HTMLElement, dataAttr: string): Promise<void> {
+async function clickWhenRendered(root: ParentNode, dataAttr: string): Promise<void> {
     const control = await waitFor(() => {
-        const button = canvasElement.querySelector<HTMLElement>(`[data-attr="${dataAttr}"]`)
+        const button = root.querySelector<HTMLElement>(`[data-attr="${dataAttr}"]`)
         if (!button) {
             throw new Error(`${dataAttr} not yet rendered`)
         }
@@ -93,6 +93,19 @@ async function clickWhenRendered(canvasElement: HTMLElement, dataAttr: string): 
 
 /** Narrowed to one variant, so the reason is the facet rather than anything about the project. */
 export const ExperimentRecordingsEmptyVariantHasNone: Story = {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('test-1'))
+    },
+}
+
+/**
+ * Narrowed to one variant on a run too young to have recordings either way. The copy stays the
+ * too-early one, because the list is most likely empty for every variant, and the banner carries
+ * the way out of the variant so the viewer is not left with nothing to click.
+ */
+export const ExperimentRecordingsEmptyTooEarlyWithVariantSelected: Story = {
+    decorators: [mswDecorator({ get: { [EXPERIMENT_PATH]: experimentRun('2025-05-30T09:00:00Z', null) } })],
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await userEvent.click(await canvas.findByText('test-1'))
@@ -125,6 +138,9 @@ const pickFiredNone: Story['play'] = async ({ canvasElement }) => {
     await clickWhenRendered(canvasElement, 'experiment-recordings-metric-filter')
     // The menu content is a portal outside the canvas, so this searches the whole document.
     await userEvent.click(await screen.findByText('Fired none'))
+    // No mode narrows the list until a metric is ticked, so without this the two stories stop
+    // reaching their empty states.
+    await clickWhenRendered(document, 'experiment-recordings-metric-option')
 }
 
 export const ExperimentRecordingsEmptyMetricFilterMatchedNothing: Story = {
@@ -136,6 +152,10 @@ export const ExperimentRecordingsEmptyMetricFilterMatchedNothing: Story = {
                     truncated: false,
                     considered_metrics: [{ metric_uuid: 'funnel', metric_name: 'Checkout funnel' }],
                     excluded_metrics: [],
+                    // Later than the experiment's start, so the caption states the stretch of the
+                    // run the scan left out.
+                    date_from: '2025-05-25T00:00:00Z',
+                    date_to: '2025-06-01T00:00:00Z',
                     filter_test_accounts: true,
                 },
             },
@@ -147,4 +167,110 @@ export const ExperimentRecordingsEmptyMetricFilterMatchedNothing: Story = {
 export const ExperimentRecordingsEmptyMetricFilterFailed: Story = {
     decorators: [mswDecorator({ post: { [SESSION_BUCKETS_PATH]: [400, { detail: 'Could not resolve the filter' }] } })],
     play: pickFiredNone,
+}
+
+// A results-row link for a metric the tab can't select. It carries no metric and no mode, so the
+// caption strip is the only thing that says the list is every recording of the variant, and why.
+const DROPPED_METRIC_URL = `${urls.experiment(EXPERIMENT_WITH_FUNNEL_METRIC.id)}?tab=recordings&variant=test-1&entry=results_button&metric_unavailable=server_side_events`
+const DROPPED_METRIC_CAPTION = '[data-attr="experiment-recordings-dropped-metric-caption"]'
+
+export const ExperimentRecordingsDroppedMetric: Story = {
+    parameters: {
+        pageUrl: DROPPED_METRIC_URL,
+        testOptions: { waitForSelector: DROPPED_METRIC_CAPTION },
+    },
+}
+
+/**
+ * The ~520px of scene a nav sidebar and an open side panel leave. The caption is a long sentence,
+ * so this is where it has to wrap rather than clip.
+ */
+export const ExperimentRecordingsDroppedMetricNarrow: Story = {
+    parameters: {
+        pageUrl: DROPPED_METRIC_URL,
+        testOptions: {
+            waitForSelector: DROPPED_METRIC_CAPTION,
+            viewport: { width: 767, height: 1200 },
+        },
+    },
+}
+
+/**
+ * A flag that aggregates by group exposes groups rather than people, and the backend refuses to
+ * match those exposures to recordings. The tab states that instead of mounting a list, so none of
+ * the facet controls render either: every one of them describes a list.
+ */
+export const ExperimentRecordingsUnavailableGroupAggregated: Story = {
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="experiment-recordings-unavailable-group-aggregated"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [EXPERIMENT_PATH]: {
+                    ...EXPERIMENT_WITH_FUNNEL_METRIC,
+                    feature_flag: {
+                        ...EXPERIMENT_WITH_FUNNEL_METRIC.feature_flag,
+                        filters: {
+                            ...EXPERIMENT_WITH_FUNNEL_METRIC.feature_flag.filters,
+                            aggregation_group_type_index: 0,
+                        },
+                    },
+                },
+            },
+        }),
+    ],
+}
+
+/**
+ * A list load the backend refused for a reason that passes on its own. The caption carries the
+ * backend's own message and a retry, where the playlist's banner below it can only say that
+ * something failed.
+ */
+export const ExperimentRecordingsListLoadFailed: Story = {
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="experiment-recordings-list-error-caption"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/session_recordings': [
+                    400,
+                    {
+                        detail: 'Exposed users for this experiment are still being computed. Try again in a few minutes.',
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
+/**
+ * The same matched-nothing state, reached by a results-row link rather than by hand. This is the
+ * one place the whole deep link runs end to end: the scene keeps the params through its first URL
+ * pass, and the tab applies them on mount, so the variant facet and the drop-off trigger label are
+ * already set when the list lands.
+ */
+export const ExperimentRecordingsEmptyFromResultsRow: Story = {
+    parameters: {
+        pageUrl: `${urls.experiment(EXPERIMENT_WITH_FUNNEL_METRIC.id)}?tab=recordings&variant=test-1&metric_uuid=${
+            EXPERIMENT_WITH_FUNNEL_METRIC.metrics[0].uuid
+        }&metric_filter=funnel_dropoff`,
+        testOptions: { waitForSelector: '[data-attr="experiment-recordings-empty-state"] .LemonBanner' },
+    },
+    decorators: [
+        mswDecorator({
+            post: {
+                [SESSION_BUCKETS_PATH]: {
+                    session_ids: [],
+                    truncated: false,
+                    considered_metrics: [{ metric_uuid: 'funnel', metric_name: 'Checkout funnel' }],
+                    excluded_metrics: [],
+                    date_from: '2025-05-25T00:00:00Z',
+                    date_to: '2025-06-01T00:00:00Z',
+                    filter_test_accounts: true,
+                },
+            },
+        }),
+    ],
 }

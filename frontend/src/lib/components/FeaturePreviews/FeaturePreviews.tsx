@@ -54,7 +54,9 @@ export function FeaturePreviews(): JSX.Element {
     // fires too early — defer the scroll + highlight until the cards exist.
     useAnchor(rawEarlyAccessFeaturesLoading ? '' : window.location.hash)
 
-    const betaFeatures = filteredEarlyAccessFeatures.filter((f) => f.stage === 'beta')
+    // Active stages the enrollment toggle can unlock: alpha and beta both set feature
+    // enrollment on their flag. Concept ("Coming Soon") cards live in FeaturePreviewsComingSoon.
+    const betaFeatures = filteredEarlyAccessFeatures.filter((f) => f.stage === 'beta' || f.stage === 'alpha')
     const shouldShowEmptyState =
         filteredEarlyAccessFeatures.length === 0 && !rawEarlyAccessFeaturesLoading && !searchTerm
     const failedToLoadFeaturePreviews = shouldShowEmptyState && hasPosthogJsFailedToLoadFeaturePreviews()

@@ -48,6 +48,11 @@ from google.oauth2 import service_account
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration.google_cloud import (
+    GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR,
+    InvalidGoogleTokenUriError,
+    require_google_token_uri,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_TABLE_SIZE_BYTES
@@ -172,6 +177,21 @@ BIGQUERY_INVALID_KEY_FILE_ERROR = (
     "We couldn't read the private key in your Google Cloud JSON key file — it appears truncated or "
     "corrupted. Please download a fresh service account key from Google Cloud and re-upload the JSON file."
 )
+
+# Matched in `BigQuerySource.get_non_retryable_errors`, so it must stay free of volatile data.
+BIGQUERY_INVALID_TOKEN_URI_ERROR = GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR
+
+
+class BigQueryInvalidTokenUriError(Exception):
+    pass
+
+
+def _require_google_token_uri(token_uri: str) -> str:
+    try:
+        return require_google_token_uri(token_uri)
+    except InvalidGoogleTokenUriError:
+        raise BigQueryInvalidTokenUriError(BIGQUERY_INVALID_TOKEN_URI_ERROR)
+
 
 # Onboarding-time messages. Unlike the sync-path classifier these are only reached during credential
 # validation, where the fix is to correct the input and try again rather than re-enable a sync.
@@ -425,6 +445,7 @@ def bigquery_client(
 ) -> typing.Iterator[bigquery.Client]:
     """Manage a BigQuery client."""
     project_id = _normalize_identifier(project_id)
+    token_uri = _require_google_token_uri(token_uri)
     credentials = service_account.Credentials.from_service_account_info(
         {
             "private_key": private_key,
@@ -483,6 +504,7 @@ def bigquery_storage_read_client(
 ):
     """Manage a BigQuery Storage client."""
     project_id = _normalize_identifier(project_id)
+    token_uri = _require_google_token_uri(token_uri)
     credentials = service_account.Credentials.from_service_account_info(
         {
             "private_key": private_key,
@@ -601,6 +623,19 @@ def delete_all_temp_destination_tables(
             # non-actionable condition that would otherwise fire on every sync for an affected source.
             if logger:
                 logger.warning(f"Skipping temp table cleanup for dataset {dataset_id}: {e}")
+        except BadRequest as e:
+            if "Invalid resource name" in str(e):
+                # A dataset/project ID containing characters BigQuery's resource-name validation
+                # rejects (e.g. a Dataset ID field mistakenly set to "project.dataset") makes
+                # `bq.dataset(...)` build an invalid path for this REST call, distinct from the
+                # "Invalid project ID"/"Invalid dataset ID" wording query jobs raise for the same
+                # misconfiguration (see `BigQuerySource.get_non_retryable_errors`). It's
+                # deterministic and already surfaces non-retryably elsewhere in the sync, so log
+                # quietly here too rather than capturing noise on every run for an affected source.
+                if logger:
+                    logger.warning(f"Skipping temp table cleanup for dataset {dataset_id}: {e}")
+            else:
+                capture_exception(e)
         except Exception as e:
             capture_exception(e)
 
@@ -652,6 +687,10 @@ def validate_bigquery_credentials(
 
     if not project_id or not private_key or not private_key_id or not client_email or not token_uri:
         return False, BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR
+    try:
+        _require_google_token_uri(token_uri)
+    except BigQueryInvalidTokenUriError as e:
+        return False, str(e)
 
     # Trim copy-paste whitespace from the identifiers before they reach BigQuery,
     # which otherwise rejects them with an opaque `Invalid project ID`/`Invalid dataset ID`.
@@ -684,6 +723,7 @@ def validate_bigquery_credentials(
             "Invalid project ID" in message
             or "Invalid dataset ID" in message
             or "ProjectId must be non-empty" in message
+            or "Invalid resource name" in message
         ):
             return False, BIGQUERY_INVALID_IDENTIFIER_ERROR
         if "was not found in location" in message or "Not found: Dataset" in message:
@@ -1187,7 +1227,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
     # ------------------------------------------------------------------
 
     @contextmanager
-    def connect(self, config: BigQuerySourceConfig) -> Iterator[bigquery.Client]:
+    def connect(self, config: BigQuerySourceConfig, *, team_id: int | None = None) -> Iterator[bigquery.Client]:
         # Without a custom region the client is built with `location=None`, so discovery
         # query jobs default to the US multi-region and miss datasets in other regions.
         # Auto-detect the dataset's location so discovery runs where the data lives.

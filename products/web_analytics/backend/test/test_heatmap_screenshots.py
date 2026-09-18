@@ -16,6 +16,8 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.auth import mint_export_renderer_token
+from posthog.egress.browserless.transport import BrowserlessEgressBudgetExhausted
+from posthog.egress.limiter.policies import Priority
 from posthog.models import Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -25,6 +27,11 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.web_analytics.backend.api.heatmaps_api import SavedHeatmapCaptureRequestSerializer
 from products.web_analytics.backend.heatmap_preflight import PreflightResult
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
+from products.web_analytics.backend.tasks.heatmap_screenshot import (
+    BrowserlessTransientError,
+    _browserless_screenshot,
+    _classify_failure,
+)
 
 
 class TestHeatmapsAPI(APIBaseTest):
@@ -457,6 +464,31 @@ class TestHeatmapsAPI(APIBaseTest):
         r = self.client.post(f"/api/environments/{self.team.id}/saved/{saved.short_id}/regenerate/")
         self.assertEqual(r.status_code, 400)
 
+    @parameterized.expand(
+        [
+            ("default_order", None, True),
+            ("requested_descending", "-created_at", True),
+            ("requested_ascending", "created_at", False),
+        ]
+    )
+    def test_tied_timestamps_keep_a_stable_order_across_pages(self, _name, order, newest_first):
+        created = [
+            SavedHeatmap.objects.create(team=self.team, url=f"https://example.com/{index}", created_by=self.user)
+            for index in range(5)
+        ]
+        timestamp = timezone.now()
+        SavedHeatmap.objects.filter(team=self.team).update(created_at=timestamp, updated_at=timestamp)
+
+        query = f"&order={order}" if order else ""
+        seen: list[str] = []
+        for offset in range(5):
+            r = self.client.get(f"/api/environments/{self.team.id}/saved/?limit=1&offset={offset}{query}")
+            self.assertEqual(r.status_code, 200)
+            seen.extend(row["id"] for row in r.data["results"])
+
+        expected = [str(saved.id) for saved in sorted(created, key=lambda heatmap: heatmap.id, reverse=newest_first)]
+        self.assertEqual(seen, expected)
+
 
 class TestSavedHeatmapRegeneratePersonalAPIKeyScopes(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
@@ -707,3 +739,46 @@ class TestSavedHeatmapCaptureRequestSerializer(SimpleTestCase):
             data["width"] = 1024
         serializer = SavedHeatmapCaptureRequestSerializer(data=data)
         self.assertFalse(serializer.is_valid())
+
+
+class TestBrowserlessEgressBudget(SimpleTestCase):
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.browserless_request")
+    def test_a_spent_fleet_budget_is_retryable_and_named_as_itself(self, browserless_request: MagicMock) -> None:
+        # A starved fleet refills on its own, so this must stay on the retry path rather than
+        # being classified permanent. It carries its own cause so the failure metric separates
+        # "the fleet is busy" from "Browserless is broken", which want different responses.
+        browserless_request.side_effect = BrowserlessEgressBudgetExhausted("Browserless egress budget exhausted")
+
+        with self.settings(
+            HEATMAP_BROWSERLESS_TOKEN="t",
+            HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS=1000,
+            HEATMAP_BROWSERLESS_TIMEOUT_MS=30000,
+            HEATMAP_BROWSERLESS_BLOCK_ADS=False,
+        ):
+            with self.assertRaises(BrowserlessTransientError) as caught:
+                _browserless_screenshot(
+                    "https://browserless.example.com/screenshot?token=t", "https://x.test", 1024, False
+                )
+
+        assert caught.exception.cause == "egress_budget_exhausted"
+        assert _classify_failure(caught.exception) == "egress_budget_exhausted"
+
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.browserless_request")
+    def test_the_render_asks_on_the_lane_a_person_is_waiting_on(self, browserless_request: MagicMock) -> None:
+        # NORMAL, not BATCH: shedding this one makes somebody stare at a spinner. Background
+        # consumers of the same fleet ask as BATCH so they yield to it.
+        browserless_request.side_effect = BrowserlessEgressBudgetExhausted("spent")
+
+        with self.settings(
+            HEATMAP_BROWSERLESS_TOKEN="t",
+            HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS=1000,
+            HEATMAP_BROWSERLESS_TIMEOUT_MS=30000,
+            HEATMAP_BROWSERLESS_BLOCK_ADS=False,
+        ):
+            with self.assertRaises(BrowserlessTransientError):
+                _browserless_screenshot(
+                    "https://browserless.example.com/screenshot?token=t", "https://x.test", 1024, False
+                )
+
+        assert browserless_request.call_args.kwargs["priority"] is Priority.NORMAL
+        assert browserless_request.call_args.kwargs["source"] == "heatmap_screenshot"

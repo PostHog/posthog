@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { Writable } from "node:stream";
+import type { Readable, Writable } from "node:stream";
 import type {
   CanUseTool,
   McpServerConfig,
@@ -13,6 +13,14 @@ import type {
   SpawnedProcess,
   SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
+import { buildAppendedInstructions } from "@posthog/harness/extensions/agent-instructions";
+import {
+  applyContextWikiEnv,
+  type ContextWikiEnv,
+  resolveContextWikiPath,
+} from "@posthog/harness/extensions/context-wiki";
+import type { FileEnrichmentDeps } from "@posthog/harness/extensions/enrichment";
+import { resolveRtkPrefix } from "@posthog/harness/extensions/rtk";
 import {
   BEDROCK_LLM_GATEWAY_FLAG,
   type BedrockGatewayVariant,
@@ -21,12 +29,6 @@ import {
   buildPosthogProjectHeaderLines,
   buildPosthogPropertyHeaderLines,
 } from "@posthog/shared/posthog-property-headers";
-import {
-  applyContextWikiEnv,
-  resolveContextWikiPath,
-} from "../../../context-wiki";
-import type { FileEnrichmentDeps } from "../../../enrichment/file-enricher";
-import type { ContextWikiEnv } from "../../../types";
 import { IS_ROOT } from "../../../utils/common";
 import type { Logger } from "../../../utils/logger";
 import type { TaskState } from "../conversion/task-state";
@@ -49,10 +51,9 @@ import {
 } from "../machine-auth";
 import { type CodeExecutionMode, toSdkPermissionMode } from "../tools";
 import type { EffortLevel } from "../types";
-import { buildAppendedInstructions } from "./instructions";
 import { loadUserClaudeJsonMcpServers } from "./mcp-config";
 import { DEFAULT_MODEL, resolveFallbackModel } from "./models";
-import { createRtkRewriteHook, resolveRtkPrefix } from "./rtk";
+import { createRtkRewriteHook } from "./rtk-hook";
 import type { SettingsManager } from "./settings";
 import { buildTraceparentHookSettingsJson } from "./traceparent-hook";
 
@@ -105,6 +106,7 @@ export interface BuildOptionsParams {
   onModeChange?: OnModeChange;
   onProcessSpawned?: (info: ProcessSpawnedInfo) => void;
   onProcessExited?: (pid: number) => void;
+  onStartupOutput?: (stdout: Readable) => void;
   effort?: EffortLevel;
   enrichmentDeps?: FileEnrichmentDeps;
   enrichedReadCache?: EnrichedReadCache;
@@ -486,6 +488,7 @@ function buildSpawnWrapper(
   onProcessExited?: (pid: number) => void,
   logger?: Logger,
   oauthToken?: string,
+  onStartupOutput?: (stdout: Readable) => void,
 ): (options: SpawnOptions) => SpawnedProcess {
   return (spawnOpts: SpawnOptions): SpawnedProcess => {
     const command = oauthToken ? "/bin/bash" : spawnOpts.command;
@@ -509,6 +512,8 @@ function buildSpawnWrapper(
         ? ["pipe", "pipe", "pipe", "pipe"]
         : ["pipe", "pipe", "pipe"],
     });
+
+    if (child.stdout) onStartupOutput?.(child.stdout);
 
     if (oauthToken) {
       const tokenPipe = child.stdio[3] as Writable;
@@ -657,8 +662,9 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     },
     // Surfaces the traceparent hook's output as `hook_response` messages.
     includeHookEvents:
-      params.userProvidedOptions?.includeHookEvents ??
-      traceparentHookSettings !== undefined,
+      !!params.onStartupOutput ||
+      (params.userProvidedOptions?.includeHookEvents ??
+        traceparentHookSettings !== undefined),
     mcpServers: buildMcpServers(
       params.userProvidedOptions?.mcpServers,
       params.mcpServers,
@@ -695,13 +701,16 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     abortController: getAbortController(
       params.userProvidedOptions?.abortController,
     ),
-    ...((params.onProcessSpawned || params.machineAuth?.oauthToken) && {
+    ...((params.onProcessSpawned ||
+      params.machineAuth?.oauthToken ||
+      params.onStartupOutput) && {
       spawnClaudeCodeProcess: buildSpawnWrapper(
         params.sessionId,
         params.onProcessSpawned,
         params.onProcessExited,
         params.logger,
         params.machineAuth?.oauthToken,
+        params.onStartupOutput,
       ),
     }),
   };

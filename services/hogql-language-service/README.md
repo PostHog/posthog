@@ -1,13 +1,15 @@
 # HogQL language service prototype
 
 This prototype keeps multiple immutable, permission-filtered catalogs in memory and provides local SQL completion.
+Completion uses the cursor context to suggest fields, functions, comparison operators, and predicate continuations such as `AND` and `OR`.
+The service embeds the global HogQL function list, while Django supplies permission-filtered tables and properties.
 It uses `github.com/orian/clickhouse-sql-parser` to recover table and alias context from the query. Django remains the
 authority for deciding which schema and properties belong in each catalog.
 
-For local development, start the service on its loopback listener:
+For local development, start the service on its loopback listener with Hogli:
 
 ```bash
-HOGQL_LANGUAGE_SERVICE_ALLOW_INSECURE=1 .codex/with-flox go -C services/hogql-language-service run ./cmd/server
+hogli start:hogql-lang-service
 ```
 
 Publish a permission-filtered catalog through the multitenant endpoint below before making language requests. The Go
@@ -17,7 +19,7 @@ service does not hold a personal API key or fetch schema from PostHog directly.
 curl -sS http://localhost:8091/health
 curl -sS -X POST http://localhost:8091/teams/2/users/1/autocomplete \
   -H 'Content-Type: application/json' \
-  -d '{"query":"SELECT o. FROM orders AS o","position":9}'
+  -d '{"query":"SELECT o. FROM orders AS o","position":9,"positionEncoding":"utf-16"}'
 ```
 
 Validate syntax and catalog-backed table and field references:
@@ -28,8 +30,31 @@ curl -sS -X POST http://localhost:8091/teams/2/users/1/validate \
   -d '{"query":"SELECT amuont FROM warehouse_0420"}'
 ```
 
-Diagnostics contain byte offsets and up to five visible typo suggestions ranked by case-insensitive Levenshtein
-distance. Dynamic properties use the same cached namespaces as autocomplete.
+Completion and validation share scope analysis for table CTEs and aliased `FROM` subqueries.
+Completion suggests projected fields, including aliases and wildcard outputs, with catalog types for direct field projections.
+FROM and JOIN completion suggests visible CTE names before catalog tables and respects CTE shadowing.
+Empty queries offer SELECT and WITH; typed prefixes filter those starting keywords.
+Joined fields with the same name show their source and insert a qualified reference, including separate aliases in self-joins.
+Unique fields and already-qualified completion keep their existing insertion behavior.
+For example, `WITH t AS (SELECT event AS kind FROM events) SELECT t.` suggests `kind`, even before typing `FROM t`.
+Validation checks those output fields and reports only underlying catalog tables in `tableNames`.
+Each request can expand up to 16,384 projected fields before deduplication.
+Larger projections return HTTP 400 for completion or a `query_limit` validation diagnostic.
+Select fewer fields to stay within the limit.
+Field lookup work has a separate request-wide budget.
+Queries that exceed it return HTTP 400 for completion or a `query_limit` validation diagnostic; reduce the number of sources or qualify field names.
+Joining a CTE or subquery without a `properties` output does not suppress the physical table's property suggestions or validation.
+Direct property containers retain their catalog namespace through CTEs, aliased subqueries, renamed projections, wildcards, and visible SELECT aliases.
+For example, `WITH t AS (SELECT properties AS props FROM events) SELECT t.props.$br FROM t` suggests `$browser`.
+Computed or ambiguous property origins remain unknown; the service does not guess a namespace from a projected name.
+Validation reports `duplicate_table` for repeated table names or explicit aliases in one query scope and asks for distinct aliases.
+Table names, table aliases, and CTE names resolve by exact case; catalogs can contain distinct `events` and `Events` tables.
+Autocomplete prefix matching remains case-insensitive and preserves the selected identifier's case.
+Duplicate qualifiers do not supply property provenance, even when raw ClickHouse accepts the corresponding unaliased self-join.
+
+Validation diagnostic offsets use `positionEncoding`, which defaults to UTF-16. Diagnostics include up to five visible
+typo suggestions ranked by case-insensitive Levenshtein distance. Dynamic properties use the same cached namespaces as
+autocomplete.
 
 ```bash
 curl -sS -X POST http://localhost:8091/teams/2/users/1/autocomplete \
@@ -41,14 +66,26 @@ curl -sS -X POST http://localhost:8091/teams/2/users/1/validate \
   -d '{"query":"SELECT events.properties.$geo_cty FROM events"}'
 ```
 
-`position` is an optional UTF-8 byte offset and defaults to the end of the query. `durationMicros` covers only the
+Autocomplete `position` is optional and defaults to the end of the query. Set `positionEncoding` to `utf-8` (the
+default) or `utf-16`; editor clients such as Monaco should send `utf-16`. Validation accepts the same setting, defaults
+to `utf-16`, and uses it for diagnostic positions. Both responses echo the selected encoding. Suggestion labels
+preserve catalog names, while `insertText` quotes identifiers that contain spaces or special characters.
+Suggestions omit identifiers containing `%` because HogQL does not support them.
+`durationMicros` covers only the
 in-memory completion path; network and JSON decoding are intentionally excluded. Responses contain at most 25
 suggestions, the total match count, and an opaque `nextCursor` when another page exists. Send the same query and
 position with `"cursor":"<nextCursor>"` to retrieve it. The HTTP `Content-Length` is the encoded response size.
 
 The parser currently accepts ClickHouse's `database.table` identifiers but not HogQL's three-part synced-table names.
-Completion retains the parser error for diagnostics and uses a catalog-aware table-reference fallback for those names.
-Validation normalizes those table references before parsing while preserving byte offsets.
+Shared analysis normalizes those table references before parsing while preserving byte offsets.
+For incomplete SQL, completion can recover a single query's `FROM` clause and keeps the parser error in `parseError`.
+Queries with complete CTE definitions can also retain their outer SELECT/FROM scope through unfinished trailing clauses, including completion inside an unfinished outer predicate.
+This preserves derived fields, known property origins, and retained SELECT aliases.
+Recovery excludes malformed CTE bodies, nested SELECTs in the outer query, FROM/JOIN cursor positions, and incomplete JOIN sources.
+Validation still reports the original query's syntax errors.
+Completion and validation recognize explicit SELECT aliases in later SELECT items and clauses resolved after SELECT, including WHERE, GROUP BY, HAVING, and ORDER BY.
+Aliases stay within their defining query and do not appear in JOIN conditions.
+Computed and nested property provenance, additional alias forms, parser recovery, and other exclusions are tracked in [query analysis and remaining work](../../docs/internal/hogql-language-service.md#recovery-and-remaining-work).
 
 ## Multitenant catalogs
 
@@ -99,6 +136,21 @@ Tokens are valid only for the exact team, user, and operation. List the current 
 afterward during rotation. Do not expose the service directly to browsers; Django should mint tokens and proxy
 requests after resolving the user's membership and permissions for that team.
 
+## Django integration
+
+Django proxies eligible `HogQLAutocomplete` and `HogQLMetadata` query nodes to the service. Debug builds enable the
+proxy by default. Production requires the `hogql-language-service` feature flag and both settings below:
+
+- `HOGQL_LANGUAGE_SERVICE_URL` points to the service's internal URL.
+- `HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS` lists the current signing key first, followed by keys being rotated out.
+
+On a catalog miss, Django builds the schema visible to that exact team and user, adds their visible event, person,
+session, and group properties, publishes it, and retries once. Unsupported query options and service failures use
+the existing in-process implementation. Prometheus records Django-to-service latency and response size by operation.
+Django also sends `X-HogQL-Affinity-Key`, a stable SHA-256 digest of the team and user IDs. Load balancers may hash on
+this header to route a user's catalog and language requests to the same replica; authorization still comes only from
+the signed JWT and matching path parameters.
+
 ## Rate limiting
 
 Protected requests pass through two bounded in-memory token buckets before the handler reads JSON:
@@ -128,7 +180,7 @@ Build the image from the service directory:
 ```bash
 docker build \
   --build-arg COMMIT_HASH="$(git rev-parse HEAD)" \
-  --tag hogql-language-service:local \
+  --tag hogql-lang-service:local \
   services/hogql-language-service
 ```
 
@@ -139,9 +191,14 @@ requires `HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS`:
 docker run --rm \
   --publish 127.0.0.1:8091:8091 \
   --env HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS=local-development-key \
-  hogql-language-service:local
+  --env MAX_CATALOGS=2 \
+  --env CATALOG_CACHE_MAX_BYTES=268435456 \
+  hogql-lang-service:local
 ```
 
 The production binary is compiled with Go 1.27.1 and `go build -trimpath`. The runtime image contains only the static
 service binary, the commit identifier, and CA certificates. BuildKit's `TARGETOS` and `TARGETARCH` arguments allow
 native `linux/amd64` and `linux/arm64` builds.
+
+Merges that change this service build and publish the `hogql-lang-service` image once, then send its digest to the
+matching Charts release. Pull requests rely on the service tests and repository Dockerfile lint checks.

@@ -1,65 +1,70 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { type MutableRefObject, useRef } from 'react'
 
-import { Composer } from 'products/posthog_ai/frontend/api/primitives'
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 
-import { RunEscapeBoundary } from '../../../components/RunEscapeBoundary'
-import { runCancellationLogic } from '../../../logics/runCancellationLogic'
+import { RunEscapeBoundary, type RunEscapeBoundaryProps } from '../../../components/RunEscapeBoundary'
+import { runInteractionLogic, type RunInteractionLogicProps } from '../../../logics/runInteractionLogic'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
+import { TaskRunComposer } from './TaskRunComposer'
 
 export function StartupRunChat({
     streamKey,
     focusedRef,
+    escapeScope = 'composer',
 }: {
     streamKey: string
-    focusedRef: MutableRefObject<boolean>
+    focusedRef?: MutableRefObject<boolean>
+    escapeScope?: RunEscapeBoundaryProps['scope']
 }): JSX.Element {
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
+    const flushDraftRef = useRef<() => void>(() => {})
     const { activeCreation } = useValues(taskTrackerSceneLogic)
-    const { setStartupDraft } = useActions(taskTrackerSceneLogic)
-    const { requestCancellation } = useActions(runCancellationLogic({ streamKey }))
-    const { cancellationState } = useValues(runCancellationLogic({ streamKey }))
+    const logicProps: RunInteractionLogicProps = {
+        taskId: activeCreation?.taskId ?? '',
+        runId: activeCreation?.runId ?? '',
+        streamKey,
+        interactionKey: streamKey,
+        flushDraft: () => flushDraftRef.current(),
+    }
+    const interaction = runInteractionLogic(logicProps)
+    const { handleEscape } = useActions(interaction)
+    const { cancellationState } = useValues(interaction)
 
     return (
-        <RunEscapeBoundary
-            scope="composer"
-            focusKey={streamKey}
-            textAreaRef={textAreaRef}
-            onEscape={requestCancellation}
-            className="@container/thread flex flex-col flex-1 min-h-0"
-        >
+        <BindLogic logic={runInteractionLogic} props={logicProps}>
             <RunSurface.Root taskId="" runId={null} streamKey={streamKey} interaction="live">
-                <RunSurface.Thread className="flex-1 min-h-0" listClassName="py-4" rowClassName="px-4" />
-            </RunSurface.Root>
-            <div
-                className="px-4 pb-4"
-                onFocusCapture={() => {
-                    focusedRef.current = true
-                }}
-                onBlurCapture={() => {
-                    focusedRef.current = false
-                }}
-            >
-                <Composer.Root
+                <RunEscapeBoundary
+                    scope={escapeScope}
+                    focusKey={streamKey}
                     textAreaRef={textAreaRef}
-                    value={activeCreation?.draft ?? ''}
-                    onChange={setStartupDraft}
-                    onSubmit={() => {}}
-                    disabledReason="Wait for the run to start"
-                    stopLoading={!!cancellationState}
-                    isTurnActive
-                    onStop={requestCancellation}
+                    onEscape={handleEscape}
+                    className="@container/thread flex flex-col flex-1 h-full min-h-0 -mx-4"
                 >
-                    <Composer.Frame>
-                        <Composer.Field>
-                            <Composer.Placeholder>Send a follow-up message…</Composer.Placeholder>
-                            <Composer.Textarea data-attr="sandbox-composer-input" autoFocus />
-                        </Composer.Field>
-                    </Composer.Frame>
-                    <Composer.Submit data-attr="sandbox-composer-send" />
-                </Composer.Root>
-            </div>
-        </RunEscapeBoundary>
+                    <RunSurface.Thread className="flex-1 min-h-0" listClassName="py-4" rowClassName="px-4" />
+                    <RunSurface.Composer isStopping={!!cancellationState}>
+                        <div
+                            onFocusCapture={() => {
+                                if (focusedRef) {
+                                    focusedRef.current = true
+                                }
+                            }}
+                            onBlurCapture={() => {
+                                if (focusedRef) {
+                                    focusedRef.current = false
+                                }
+                            }}
+                        >
+                            <TaskRunComposer
+                                logicProps={interaction.props}
+                                textAreaRef={textAreaRef}
+                                flushDraftRef={flushDraftRef}
+                                autoFocus
+                            />
+                        </div>
+                    </RunSurface.Composer>
+                </RunEscapeBoundary>
+            </RunSurface.Root>
+        </BindLogic>
     )
 }

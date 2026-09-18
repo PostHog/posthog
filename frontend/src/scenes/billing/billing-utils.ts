@@ -457,19 +457,9 @@ export function canAccessBilling(membershipLevel: number | null | undefined, own
     return membershipLevel >= getMinimumBillingAccessLevel(ownerOnlyBilling)
 }
 
-/**
- * Whether the member-level read grant for usage and spend is in effect.
- *
- * The grant requires usage-spend-dashboards as well, because the tabbed dashboards are the only
- * member-facing usage/spend surface. Honoring the grant without them would leave Usage and Spend
- * reachable by URL while the account menu and settings sidebar hide Billing entirely. Admins reach
- * usage and spend either way, so the second flag only ever narrows members.
- */
+/** Whether the member-level read grant for usage and spend is in effect. */
 export function isMemberUsageSpendReadAccessEnabled(featureFlags: FeatureFlagsSet): boolean {
-    return (
-        !!featureFlags[FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS] &&
-        !!featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
-    )
+    return !!featureFlags[FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS]
 }
 
 /**

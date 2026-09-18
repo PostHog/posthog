@@ -1,0 +1,156 @@
+import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
+import {
+  type ContextGoal,
+  firstNumericCell,
+  type GoalMeasure,
+  type GoalPeriod,
+  numericCell,
+} from "@posthog/core/canvas/contextDocument";
+import { insightCurrentValue } from "@posthog/core/canvas/goalMeasures";
+import {
+  type DerivedTrend,
+  deriveTrendSql,
+} from "@posthog/ui/features/canvas/deriveTrendSql";
+import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
+
+const LIVE_QUERY = {
+  staleTime: 60_000,
+  refetchInterval: 5 * 60_000,
+  retry: false,
+} as const;
+
+export const goalMeasureQueryKey = (measure: GoalMeasure | null) =>
+  [
+    "context-goal-measure",
+    measure?.kind ?? "none",
+    measure?.kind === "hogql" ? measure.sql : (measure?.shortId ?? ""),
+  ] as const;
+
+async function readGoalMeasure(
+  client: PostHogAPIClient,
+  measure: GoalMeasure,
+): Promise<number | null> {
+  if (measure.kind === "hogql") {
+    const grid = await client.runHogQLQuery(measure.sql);
+    return firstNumericCell(grid.results);
+  }
+  const insight = await client.getInsightDefinition(measure.shortId);
+  return insightCurrentValue(insight?.response?.results);
+}
+
+export function useGoalMeasure(measure: GoalMeasure | null) {
+  return useAuthenticatedQuery<number | null>(
+    goalMeasureQueryKey(measure),
+    (client) =>
+      measure ? readGoalMeasure(client, measure) : Promise.resolve(null),
+    {
+      enabled:
+        measure !== null &&
+        (measure.kind === "insight" || measure.sql.trim().length > 0),
+      ...LIVE_QUERY,
+    },
+  );
+}
+
+export interface GoalTrendPoint {
+  label: string;
+  value: number;
+}
+
+export interface GoalTrend {
+  period: GoalPeriod;
+  points: GoalTrendPoint[];
+}
+
+export function goalTrendQuery(goal: ContextGoal): DerivedTrend | null {
+  const measure = goal.measure;
+  if (measure?.kind !== "hogql") return null;
+  const period = goal.period ?? "day";
+  const derived = deriveTrendSql(measure.sql, period);
+  if (derived) return derived;
+  const explicit = measure.trendSql?.trim();
+  return explicit ? { sql: explicit, period } : null;
+}
+
+const BUCKET_COUNT: Record<GoalPeriod, number> = {
+  day: 30,
+  week: 12,
+  month: 12,
+};
+
+function isoDay(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function bucketKey(label: string): string | null {
+  return /^(\d{4}-\d{2}-\d{2})/.exec(label.trim())?.[1] ?? null;
+}
+
+function lastNumericCell(row: unknown[]): number | null {
+  const values = row.map(numericCell).reverse();
+  return values.find((value) => value !== null) ?? null;
+}
+
+function currentBucketStart(period: GoalPeriod, weekStartDay: number): Date {
+  const now = new Date();
+  const start = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
+  if (period === "week") {
+    start.setUTCDate(
+      start.getUTCDate() - ((start.getUTCDay() - weekStartDay + 7) % 7),
+    );
+  }
+  if (period === "month") start.setUTCDate(1);
+  return start;
+}
+
+function bucketsBefore(start: Date, period: GoalPeriod, count: number): Date {
+  const date = new Date(start);
+  if (period === "month") {
+    date.setUTCMonth(date.getUTCMonth() - count);
+  } else {
+    date.setUTCDate(date.getUTCDate() - count * (period === "week" ? 7 : 1));
+  }
+  return date;
+}
+
+function bucketStarts(period: GoalPeriod, weekStartDay: number): Date[] {
+  const start = currentBucketStart(period, weekStartDay);
+  const count = BUCKET_COUNT[period];
+  return Array.from({ length: count }, (_, index) =>
+    bucketsBefore(start, period, count - 1 - index),
+  );
+}
+
+function trendPoints(rows: unknown[][], period: GoalPeriod): GoalTrendPoint[] {
+  const byBucket = new Map(
+    rows.flatMap((row) => {
+      const key = bucketKey(String(row[0] ?? ""));
+      const value = lastNumericCell(row);
+      return key && value !== null ? [[key, value] as const] : [];
+    }),
+  );
+  const firstKey = byBucket.keys().next().value;
+  const weekStartDay = firstKey ? new Date(firstKey).getUTCDay() : 0;
+  return bucketStarts(period, weekStartDay).map((start) => ({
+    label: start.toISOString(),
+    value: byBucket.get(isoDay(start)) ?? 0,
+  }));
+}
+
+export function useGoalTrend(goal: ContextGoal) {
+  const query = goalTrendQuery(goal);
+  return useAuthenticatedQuery<GoalTrend>(
+    ["context-goal-trend", query?.period, query?.sql ?? ""] as const,
+    async (client) => {
+      if (!query) return { period: "day", points: [] };
+      const grid = await client.runHogQLQuery(query.sql);
+      return {
+        period: query.period,
+        points: trendPoints(grid.results, query.period),
+      };
+    },
+    { enabled: query !== null, ...LIVE_QUERY },
+  );
+}

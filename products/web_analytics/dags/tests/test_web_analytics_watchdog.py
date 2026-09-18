@@ -2,7 +2,7 @@ import datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import Mock, patch
 
 import dagster
@@ -127,7 +127,7 @@ class TestBuildRemediationConfigs:
 
 
 class TestWebAnalyticsWatchdogAsset:
-    @freeze_time("2024-01-20 12:00:00")
+    @time_machine.travel("2024-01-20 12:00:00", tick=False)
     @patch("products.web_analytics.dags.web_analytics_watchdog.check_partition_accuracy")
     def test_all_partitions_passing(self, mock_check):
         mock_check.return_value = {
@@ -152,7 +152,7 @@ class TestWebAnalyticsWatchdogAsset:
         assert result.metadata["accuracy_rate"].value == 100.0
         assert result.metadata["dry_run"].value is True
 
-    @freeze_time("2024-01-20 12:00:00")
+    @time_machine.travel("2024-01-20 12:00:00", tick=False)
     @patch("products.web_analytics.dags.web_analytics_watchdog.check_partition_accuracy")
     def test_some_partitions_failing(self, mock_check):
         def side_effect(context, team_id, partition_date, tolerance_pct):
@@ -195,7 +195,7 @@ class TestWebAnalyticsWatchdogAsset:
         assert len(remediation) == 1
         assert remediation[0]["partition_key"] == "2024-01-18"
 
-    @freeze_time("2024-01-20 12:00:00")
+    @time_machine.travel("2024-01-20 12:00:00", tick=False)
     @patch("products.web_analytics.dags.web_analytics_watchdog.check_partition_accuracy")
     def test_partition_check_error_handling(self, mock_check):
         mock_check.side_effect = Exception("ClickHouse connection failed")
@@ -213,7 +213,7 @@ class TestWebAnalyticsWatchdogAsset:
         assert len(failure.metadata["errors"].value) == 2
         assert failure.metadata["partial_results"].value == []
 
-    @freeze_time("2024-01-20 12:00:00")
+    @time_machine.travel("2024-01-20 12:00:00", tick=False)
     @patch("products.web_analytics.dags.web_analytics_watchdog.check_partition_accuracy")
     def test_partial_errors_still_fail_run(self, mock_check):
         """When some partitions succeed but others error, the run should still fail."""
@@ -247,7 +247,7 @@ class TestWebAnalyticsWatchdogAsset:
         assert failure.metadata["error_count"].value == 2
         assert len(failure.metadata["partial_results"].value) == 1
 
-    @freeze_time("2024-01-20 12:00:00")
+    @time_machine.travel("2024-01-20 12:00:00", tick=False)
     @patch("products.web_analytics.dags.web_analytics_watchdog.check_partition_accuracy")
     def test_lookback_days_determines_date_range(self, mock_check):
         mock_check.return_value = {
@@ -269,7 +269,7 @@ class TestWebAnalyticsWatchdogAsset:
         checked_dates = [call.args[2] for call in mock_check.call_args_list]
         assert checked_dates == ["2024-01-15", "2024-01-16", "2024-01-17", "2024-01-18", "2024-01-19"]
 
-    @freeze_time("2024-01-20 12:00:00")
+    @time_machine.travel("2024-01-20 12:00:00", tick=False)
     @patch("products.web_analytics.dags.web_analytics_watchdog.check_partition_accuracy")
     def test_dry_run_logs_but_does_not_trigger(self, mock_check):
         mock_check.return_value = {
@@ -300,7 +300,7 @@ class TestWebAnalyticsWatchdogAsset:
             (0, 10, "POOR"),
         ],
     )
-    @freeze_time("2024-01-20 12:00:00")
+    @time_machine.travel("2024-01-20 12:00:00", tick=False)
     @patch("products.web_analytics.dags.web_analytics_watchdog.check_partition_accuracy")
     def test_overall_status_thresholds(self, mock_check, passing_count, total_count, expected_status):
         call_count = [0]
@@ -329,7 +329,7 @@ class TestWebAnalyticsWatchdogAsset:
 
 
 class TestWatchdogSchedule:
-    @freeze_time("2024-01-20 12:00:00")
+    @time_machine.travel("2024-01-20 12:00:00", tick=False)
     def test_schedule_returns_run_request(self):
         context = dagster.build_schedule_context(scheduled_execution_time=datetime.datetime(2024, 1, 20, 6, 0))
         result = web_analytics_watchdog_schedule(context)

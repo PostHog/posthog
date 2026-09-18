@@ -82,7 +82,7 @@ function FiltersSummary({ filters }: { filters: TicketViewFilters }): JSX.Elemen
 }
 
 function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
-    const { isSaveModalOpen, viewName, currentFilters } = useValues(ticketViewsLogic({ id }))
+    const { isSaveModalOpen, viewName, currentFilters, isSavingView } = useValues(ticketViewsLogic({ id }))
     const { closeSaveModal, setViewName, saveView } = useActions(ticketViewsLogic({ id }))
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
@@ -100,6 +100,7 @@ function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
                     <LemonButton
                         type="primary"
                         onClick={saveView}
+                        loading={isSavingView}
                         disabledReason={editDisabledReason ?? (!viewName.trim() ? 'Enter a name' : undefined)}
                     >
                         Save view
@@ -114,7 +115,7 @@ function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
                     onChange={setViewName}
                     autoFocus
                     disabledReason={editDisabledReason}
-                    onPressEnter={editDisabledReason ? undefined : saveView}
+                    onPressEnter={editDisabledReason || isSavingView ? undefined : saveView}
                 />
                 <FiltersSummary filters={currentFilters} />
             </div>

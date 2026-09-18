@@ -8,6 +8,7 @@ import {
 } from '@opentelemetry/sdk-metrics'
 
 import {
+    recordJsonEnrichmentSkipped,
     recordLogMessageDlq,
     recordLogMessageDropped,
     recordLogProcessingDuration,
@@ -51,6 +52,13 @@ describe('ingestion-otel-metrics', () => {
             .flatMap((m) => m.dataPoints as unknown as readonly DataPoint<T>[])
 
     it.each([
+        [
+            'recordJsonEnrichmentSkipped',
+            'logs_ingestion_json_enrichment_skipped_total',
+            () => recordJsonEnrichmentSkipped('output_size', 'selected_attribute'),
+            { reason: 'output_size', source: 'selected_attribute' },
+            1,
+        ],
         [
             'recordLogsReceived bytes',
             'logs_ingestion_bytes_received_total',
@@ -135,6 +143,7 @@ describe('ingestion-otel-metrics', () => {
                 recordLogProcessingDuration(0.02, {
                     json_parse_enabled: 'true',
                     pii_scrub_enabled: 'false',
+                    attribute_extraction_enabled: 'false',
                     compression_codec: 'snappy',
                 }),
         ],
@@ -161,7 +170,12 @@ describe('ingestion-otel-metrics', () => {
     )
 
     it('records processing duration with the prom bucket ladder and pipeline attributes', async () => {
-        const attributes = { json_parse_enabled: 'true', pii_scrub_enabled: 'false', compression_codec: 'snappy' }
+        const attributes = {
+            json_parse_enabled: 'true',
+            pii_scrub_enabled: 'false',
+            attribute_extraction_enabled: 'true',
+            compression_codec: 'snappy',
+        }
         recordLogProcessingDuration(0.02, attributes)
 
         await reader.forceFlush()

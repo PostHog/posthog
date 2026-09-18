@@ -31,6 +31,8 @@ import {
   CONTEXT_MENU_CONTROLLER,
   CONTEXT_MENU_EXTERNAL_APPS_SERVICE,
 } from "@posthog/core/context-menu/identifiers";
+import { CUSTOM_CLOUD_STORE } from "@posthog/core/custom-cloud/identifiers";
+import { feedbackCoreModule } from "@posthog/core/feedback/feedback.module";
 import { FocusHostService } from "@posthog/core/focus/focus-service";
 import { FocusServiceEvent } from "@posthog/core/focus/identifiers";
 import { gitHostModule } from "@posthog/core/git/git-host.module";
@@ -111,6 +113,7 @@ import { DEEP_LINK_SERVICE } from "@posthog/platform/deep-link";
 import { DEV_HOST_ACTIONS_SERVICE } from "@posthog/platform/dev-host-actions";
 import { DIALOG_SERVICE } from "@posthog/platform/dialog";
 import { DISK_CACHE_SERVICE } from "@posthog/platform/disk-cache";
+import { FEEDBACK_CONTEXT_SERVICE } from "@posthog/platform/feedback-context";
 import { FILE_ICON_SERVICE } from "@posthog/platform/file-icon";
 import { IMAGE_PROCESSOR_SERVICE } from "@posthog/platform/image-processor";
 import { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
@@ -244,8 +247,10 @@ import { ElectronClaudeSubscriptionTokenStore } from "../platform-adapters/elect
 import { ElectronClipboard } from "../platform-adapters/electron-clipboard";
 import { ElectronContextMenu } from "../platform-adapters/electron-context-menu";
 import { ElectronCrypto } from "../platform-adapters/electron-crypto";
+import { ElectronCustomCloudStore } from "../platform-adapters/electron-custom-cloud-store";
 import { ElectronDevHostActions } from "../platform-adapters/electron-dev-host-actions";
 import { ElectronDialog } from "../platform-adapters/electron-dialog";
+import { ElectronFeedbackContext } from "../platform-adapters/electron-feedback-context";
 import { ElectronFileIcon } from "../platform-adapters/electron-file-icon";
 import { ElectronImageProcessor } from "../platform-adapters/electron-image-processor";
 import { ElectronMainWindow } from "../platform-adapters/electron-main-window";
@@ -357,6 +362,7 @@ container.bind(DIALOG_SERVICE).to(ElectronDialog);
 container.bind(CLIPBOARD_SERVICE).to(ElectronClipboard);
 container.bind(CRYPTO_SERVICE).to(ElectronCrypto);
 container.bind(ANALYTICS_SERVICE).toConstantValue(posthogNodeAnalytics);
+container.bind(FEEDBACK_CONTEXT_SERVICE).to(ElectronFeedbackContext);
 container.bind(FILE_ICON_SERVICE).to(ElectronFileIcon);
 container.bind(SECURE_STORAGE_SERVICE).to(ElectronSecureStorage);
 container.bind(MAIN_WINDOW_SERVICE).to(ElectronMainWindow);
@@ -368,6 +374,9 @@ container.bind(CONTEXT_MENU_SERVICE).to(ElectronContextMenu);
 container.bind(BUNDLED_RESOURCES_SERVICE).to(ElectronBundledResources);
 container.bind(IMAGE_PROCESSOR_SERVICE).to(ElectronImageProcessor);
 container.bind(WORKSPACE_SETTINGS_SERVICE).to(ElectronWorkspaceSettings);
+container
+  .bind(CUSTOM_CLOUD_STORE)
+  .toConstantValue(new ElectronCustomCloudStore());
 container.bind(APP_METRICS_SERVICE).to(ElectronAppMetrics);
 container.bind(DEV_HOST_ACTIONS_SERVICE).to(ElectronDevHostActions);
 
@@ -415,6 +424,7 @@ container
   .toConstantValue(process.env.VITE_POSTHOG_ACCESS_TOKEN_OVERRIDE ?? null);
 container.bind(MAIN_AUTH_SERVICE).to(AuthService);
 container.bind(AUTH_SERVICE).toService(MAIN_AUTH_SERVICE);
+container.load(feedbackCoreModule);
 container.load(authProxyModule);
 container.bind(AUTH_PROXY_AUTH).toDynamicValue((ctx) => ({
   authenticatedFetch: (url: string, init?: RequestInit) =>

@@ -40,7 +40,6 @@ import {
     calculateMovePath,
     joinPath,
     matchesRefType,
-    refTypeParams,
     sortFilesAndFolders,
     splitPath,
     splitProtocolPath,
@@ -69,6 +68,7 @@ export interface ProjectTreeLogicProps {
     root?: string
     includeRoot?: boolean
     hideFolders?: string[]
+    isActiveInPanel?: boolean
 }
 
 const FOLDER_LOADING = [
@@ -85,6 +85,7 @@ export interface projectTreeLogicValues {
     appBreadcrumbs: Breadcrumb[] // breadcrumbsLogic
     projectTreeRef: ProjectTreeRef | null // breadcrumbsLogic
     sceneBreadcrumbs: Breadcrumb[] // breadcrumbsLogic
+    activePanelIdentifier: string // panelLayoutLogic
     folderLoadOffset: Record<string, number> // projectTreeDataLogic
     folderStates: Record<string, FolderState> // projectTreeDataLogic
     folders: Record<string, FileSystemEntry[]> // projectTreeDataLogic
@@ -94,6 +95,8 @@ export interface projectTreeLogicValues {
     loadingPaths: Record<string, boolean> // projectTreeDataLogic
     shortcutData: FileSystemEntry[] // projectTreeDataLogic
     sortedItems: FileSystemEntry[] // projectTreeDataLogic
+    unfiledItems: boolean // projectTreeDataLogic
+    unfiledItemsLoading: boolean // projectTreeDataLogic
     users: Record<string, UserBasicType> // projectTreeDataLogic
     viableItems: FileSystemEntry[] // projectTreeDataLogic
     viableItemsById: Record<string, FileSystemEntry> // projectTreeDataLogic
@@ -205,6 +208,9 @@ export interface projectTreeLogicActions {
         hasMore: boolean
         offsetIncrease: number
     } // projectTreeDataLogic
+    loadUnfiledItems: () => {
+        value: true
+    } // projectTreeDataLogic
     moveItem: (
         item: FileSystemEntry,
         newPath: string,
@@ -217,12 +223,18 @@ export interface projectTreeLogicActions {
         projectTreeLogicKey: string
     } // projectTreeDataLogic
     moveItems: (
-        moves: { item: FileSystemEntry; newPath: string }[],
+        moves: {
+            item: FileSystemEntry
+            newPath: string
+        }[],
         force: boolean,
         projectTreeLogicKey: string
     ) => {
         force: boolean
-        moves: { item: FileSystemEntry; newPath: string }[]
+        moves: {
+            item: FileSystemEntry
+            newPath: string
+        }[]
         projectTreeLogicKey: string
     } // projectTreeDataLogic
     movedItem: (
@@ -253,7 +265,11 @@ export interface projectTreeLogicActions {
         editAfter: any
         folder: string
     }
-    assureVisibility: (projectTreeRef: ProjectTreeRef) => {
+    assureVisibility: (
+        projectTreeRef: ProjectTreeRef,
+        expandIfHidden?: boolean
+    ) => {
+        expandIfHidden: boolean
         projectTreeRef: ProjectTreeRef
     }
     checkSelectedFolders: () => {
@@ -469,8 +485,8 @@ export interface projectTreeLogicMeta {
             recentResultsLoading: boolean,
             sortMethod: ProjectTreeSortMethod,
             onlyFolders: boolean,
-            getStaticTreeItems: (searchTerm: string, onlyFolders: boolean) => TreeDataItem[],
-            getCustomProductTreeItems: (searchTerm: string) => TreeDataItem[],
+            getStaticTreeItems: (searchTerm: string, onlyFolders: boolean) => TreeDataItem[], // projectTreeDataLogic
+            getCustomProductTreeItems: (searchTerm: string) => TreeDataItem[], // projectTreeDataLogic
             arg: any
         ) => TreeDataItem[]
         fullFileSystemFiltered: (
@@ -500,12 +516,29 @@ export type projectTreeLogicType = MakeLogicType<
     projectTreeLogicMeta
 >
 
+const isProjectTreeActive = (
+    props: ProjectTreeLogicProps,
+    values: Pick<projectTreeLogicValues, 'activePanelIdentifier'>
+): boolean =>
+    props.key === PROJECT_TREE_KEY ? values.activePanelIdentifier === 'Project' : props.isActiveInPanel !== false
+
+const shouldLoadUnfiledItems = (
+    props: ProjectTreeLogicProps,
+    values: Pick<projectTreeLogicValues, 'unfiledItems' | 'unfiledItemsLoading'>
+): boolean =>
+    props.root?.startsWith('project://') === true &&
+    props.isActiveInPanel !== false &&
+    !values.unfiledItems &&
+    !values.unfiledItemsLoading
+
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
     props({} as ProjectTreeLogicProps),
     key((props) => props.key),
     connect(() => ({
         values: [
+            panelLayoutLogic,
+            ['activePanelIdentifier'],
             breadcrumbsLogic,
             ['projectTreeRef', 'appBreadcrumbs', 'sceneBreadcrumbs'],
             projectTreeDataLogic,
@@ -522,6 +555,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'getStaticTreeItems',
                 'getCustomProductTreeItems',
                 'shortcutData',
+                'unfiledItems',
+                'unfiledItemsLoading',
             ],
         ],
         actions: [
@@ -545,6 +580,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'moveItems',
                 'linkItem',
                 'pruneClosedFolders',
+                'loadUnfiledItems',
             ],
         ],
     })),
@@ -569,7 +605,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         clearSearch: true,
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
         loadRecentResults: (type: 'start' | 'end') => ({ type }),
-        assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
+        assureVisibility: (projectTreeRef: ProjectTreeRef, expandIfHidden: boolean = true) => ({
+            projectTreeRef,
+            expandIfHidden,
+        }),
         onItemChecked: (id: string, checked: boolean, shift: boolean) => ({ id, checked, shift }),
         setLastCheckedItem: (id: string, checked: boolean, shift: boolean) => ({ id, checked, shift }),
         setCheckedItems: (checkedItems: Record<string, boolean>) => ({ checkedItems }),
@@ -1199,7 +1238,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
     }),
     listeners(({ actions, values, key, props }) => ({
-        setActivePanelIdentifier: () => {
+        setActivePanelIdentifier: ({ identifier }) => {
+            if (props.key === PROJECT_TREE_KEY && identifier === 'Project' && values.projectTreeRef) {
+                actions.assureVisibility(values.projectTreeRef, false)
+            }
             if (values.searchTerm !== '') {
                 actions.clearSearch()
             }
@@ -1208,7 +1250,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             actions.pruneClosedFolders(values.expandedFolders)
         },
         loadFolderSuccess: ({ folder }) => {
-            if (folder === '') {
+            if (props.root?.startsWith('project://') && props.isActiveInPanel === true && folder === '') {
                 const rootItems = values.folders['']
                 if (rootItems.length < 5) {
                     actions.toggleFolderOpen('project://Unfiled', true)
@@ -1558,9 +1600,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 actions.loadRecentResults('start')
             }
         },
-        assureVisibility: async ({ projectTreeRef }, breakpoint) => {
+        assureVisibility: async ({ projectTreeRef, expandIfHidden }, breakpoint) => {
             if (projectTreeRef) {
+                if (projectTreeRef.type === 'insight' && !expandIfHidden && !isProjectTreeActive(props, values)) {
+                    return
+                }
                 if (projectTreeRef.type === 'folder' && projectTreeRef.ref) {
+                    if (!expandIfHidden && !isProjectTreeActive(props, values)) {
+                        return
+                    }
                     actions.expandProjectFolder(projectTreeRef.ref)
                     const item = values.viableItems.find(
                         (item) => item.type === 'folder' && item.path === projectTreeRef.ref
@@ -1578,22 +1626,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 if (treeItem) {
                     path = treeItem.path
                 } else if (projectTreeRef.ref !== null) {
-                    const resp = await api.fileSystem.list({
-                        ref: projectTreeRef.ref,
-                        ...refTypeParams(projectTreeRef.type),
-                    })
+                    await projectTreeDataLogic.asyncActions.syncTypeAndRef(projectTreeRef.type, projectTreeRef.ref)
                     breakpoint() // bail if we opened some other item in the meanwhile
-                    if (resp.users?.length > 0) {
-                        actions.addLoadedUsers(resp.users)
-                    }
-                    if (resp.results && resp.results.length > 0) {
-                        const result = resp.results[0]
-                        path = result.path
-                        actions.createSavedItem(result)
-                    }
+                    path = values.viableItems.find(
+                        (item) => matchesRefType(item.type, projectTreeRef.type) && item.ref === projectTreeRef.ref
+                    )?.path
                 }
 
-                if (path) {
+                if (path && (expandIfHidden || isProjectTreeActive(props, values))) {
                     actions.expandProjectFolder(path)
                     if (treeItem) {
                         actions.scrollToView(treeItem)
@@ -1616,10 +1656,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             if (newRef) {
                 if (newRef.ref === null) {
                     if (typeof values.lastNewFolder === 'string') {
-                        actions.assureVisibility({ type: 'folder', ref: values.lastNewFolder })
+                        actions.assureVisibility({ type: 'folder', ref: values.lastNewFolder }, false)
                     }
                 } else {
-                    actions.assureVisibility(newRef)
+                    actions.assureVisibility(newRef, false)
                 }
             }
         },
@@ -1632,10 +1672,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         } else {
             actions.loadFolder('')
         }
-        // Same gate as the subscription: only project:// trees handle breadcrumb-driven visibility.
         const isProjectRoot = props.root === undefined || props.root.startsWith('project://')
+        if (shouldLoadUnfiledItems(props, values)) {
+            actions.loadUnfiledItems()
+        }
         if (values.projectTreeRef && isProjectRoot) {
-            actions.assureVisibility(values.projectTreeRef)
+            actions.assureVisibility(values.projectTreeRef, false)
         }
         if (typeof props.defaultOnlyFolders !== 'undefined') {
             actions.setOnlyFolders(props.defaultOnlyFolders)
@@ -1654,6 +1696,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             if (props.root) {
                 actions.loadFolderIfNotLoaded(props.root)
             }
+        }
+        const projectPanelStateChanged =
+            props.root !== oldProps.root || props.isActiveInPanel !== oldProps.isActiveInPanel
+        if (
+            projectPanelStateChanged &&
+            isProjectTreeActive(props, values) &&
+            values.projectTreeRef &&
+            (props.root === undefined || props.root.startsWith('project://'))
+        ) {
+            actions.assureVisibility(values.projectTreeRef, false)
+        }
+        if (projectPanelStateChanged && shouldLoadUnfiledItems(props, values)) {
+            actions.loadUnfiledItems()
         }
     }),
 ])

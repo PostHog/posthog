@@ -58,6 +58,28 @@ export function computeMetricSummary(summary: MetricSummary, total: number, data
     return summary === 'latest' ? finite[finite.length - 1] : mean(finite)
 }
 
+export interface MetricLineColorOptions {
+    colorByDirection: boolean
+    change: MetricChange | null | undefined
+    increaseColor: string
+    decreaseColor: string
+    /** Color used when the line is not colored by direction. */
+    fallback?: string
+}
+
+export function resolveMetricLineColor({
+    colorByDirection,
+    change,
+    increaseColor,
+    decreaseColor,
+    fallback,
+}: MetricLineColorOptions): string | undefined {
+    if (!colorByDirection || change == null) {
+        return fallback
+    }
+    return change.value >= 0 ? increaseColor : decreaseColor
+}
+
 export interface MetricSeriesSummary {
     total: number
     data: number[] | undefined

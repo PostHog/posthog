@@ -30,7 +30,6 @@ import posthog from 'lib/posthog-typed'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 import { renderDetailWithLinks } from 'lib/utils/renderDetailWithLinks'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic, insightOverridesPresent } from 'scenes/insights/insightLogic'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
@@ -41,7 +40,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { FunnelsQuery, Node, NodeKind, QueryStatus } from '~/queries/schema/schema-general'
 import { isFunnelsDataWarehouseNode } from '~/queries/utils'
@@ -54,6 +53,8 @@ import {
     SavedInsightsTabs,
     SidePanelTab,
 } from '~/types'
+
+import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/types'
 import { insightDataLogic } from '../insightDataLogic'

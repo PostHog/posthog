@@ -7,18 +7,24 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { ModelCostChip } from 'products/posthog_ai/frontend/components/ModelCostChip'
+import { ModelCostFooter } from 'products/posthog_ai/frontend/components/ModelCostFooter'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
 import {
     filterEffortForModel,
     getEffortLabel,
     getEffortsForModel,
+    getHarnessLabel,
+    getModelCost,
     getModelLabel,
-    getRuntimeAdapterLabel,
     listRuntimeAdapters,
     modelsForRuntimeAdapter,
 } from 'products/posthog_ai/frontend/utils/composerModels'
+import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { type AIRunPreferenceDraft, taskAgentDefaultsLogic } from './taskAgentDefaultsLogic'
+
+const PI_HARNESS_LABEL = getHarnessLabel(TaskRuntimeEnumApi.Pi)
 
 function PreferenceEditor({
     draft,
@@ -47,18 +53,32 @@ function PreferenceEditor({
     // Grouped by harness off the same catalogue the composer renders, so a model you can pick for a
     // run is always settable as a default and vice versa — including the Codex models that only
     // Slack and PostHog Desktop drive today.
-    const modelOptions = useMemo(
-        () =>
-            listRuntimeAdapters(catalogue).map((adapter) => ({
-                title: getRuntimeAdapterLabel(adapter),
-                options: modelsForRuntimeAdapter(catalogue, adapter).map((choice) => ({
-                    value: choice.model,
-                    label: choice.display_name,
-                })),
+    const modelOptions = useMemo(() => {
+        const groups = listRuntimeAdapters(catalogue).map((adapter) => ({
+            title: getHarnessLabel(adapter),
+            options: modelsForRuntimeAdapter(catalogue, adapter).map((choice) => ({
+                value: choice.model,
+                label: choice.display_name,
+                // Menu only: cost is what you compare models on while choosing, and says
+                // nothing once the closed control shows the one you picked.
+                labelInMenu: (
+                    <span className="flex w-full items-center justify-between gap-2">
+                        {choice.display_name}
+                        <ModelCostChip model={choice.model} />
+                    </span>
+                ),
             })),
-        [catalogue]
-    )
+        }))
+        // On the last group, so it reads as closing the whole list rather than that one harness.
+        const last = groups.at(-1)
+        const anyCost = groups.some((group) => group.options.some((option) => getModelCost(option.value)))
+        if (last && anyCost) {
+            return [...groups.slice(0, -1), { ...last, footer: <ModelCostFooter /> }]
+        }
+        return groups
+    }, [catalogue])
     const effortOptions = useMemo(() => getEffortsForModel(catalogue, draft.model), [catalogue, draft.model])
+    const editingDisabled = restrictionReason ?? (saving ? 'Saving…' : undefined)
 
     return (
         <div className="flex flex-wrap items-end gap-2">
@@ -79,7 +99,7 @@ function PreferenceEditor({
                     }
                     options={[{ options: [{ value: null as string | null, label: inheritLabel }] }, ...modelOptions]}
                     placeholder={inheritLabel}
-                    disabledReason={restrictionReason ?? (saving ? 'Saving…' : undefined)}
+                    disabledReason={editingDisabled}
                     data-attr="task-agent-default-model"
                 />
             </LemonField.Pure>
@@ -92,9 +112,7 @@ function PreferenceEditor({
                         { value: null as string | null, label: 'Default effort' },
                         ...effortOptions.map(({ value, label }) => ({ value: value as string, label })),
                     ]}
-                    disabledReason={
-                        restrictionReason ?? (saving ? 'Saving…' : draft.model ? undefined : 'Pick a model first')
-                    }
+                    disabledReason={editingDisabled ?? (draft.model ? undefined : 'Pick a model first')}
                     data-attr="task-agent-default-effort"
                 />
             </LemonField.Pure>
@@ -155,6 +173,7 @@ export function TaskAgentMyPreferenceSettings(): JSX.Element {
         useValues(taskAgentDefaultsLogic)
     const { catalogue } = useValues(modelCatalogueLogic)
     const { setMyDraft, submitMyDraft, resetMyPreference } = useActions(taskAgentDefaultsLogic)
+    const isPiDefault = resolvedDefaults?.runtime === TaskRuntimeEnumApi.Pi
 
     return (
         <div className="flex flex-col gap-2">
@@ -171,12 +190,21 @@ export function TaskAgentMyPreferenceSettings(): JSX.Element {
             <p className="text-secondary mb-0">
                 {resolvedDefaults?.model ? (
                     <>
-                        Runs you start without picking a model will use{' '}
-                        <strong>{getModelLabel(catalogue, resolvedDefaults.model)}</strong>
+                        {isPiDefault ? 'Runs you start in PostHog Desktop' : 'Runs you start'} without picking a model
+                        will use{' '}
+                        <strong>
+                            {isPiDefault ? `${PI_HARNESS_LABEL} · ` : ''}
+                            {getModelLabel(catalogue, resolvedDefaults.model)}
+                        </strong>
                         {resolvedDefaults.reasoning_effort ? (
-                            <> ({getEffortLabel(resolvedDefaults.reasoning_effort)} effort)</>
+                            <>
+                                {' '}
+                                ({getEffortLabel(resolvedDefaults.reasoning_effort)}{' '}
+                                {isPiDefault ? 'thinking' : 'effort'})
+                            </>
                         ) : null}{' '}
                         from {resolvedDefaults.source === 'user' ? 'your default above' : 'the project default'}.
+                        {isPiDefault ? ' Runs you start elsewhere use their built-in model.' : ''}
                     </>
                 ) : (
                     <>No default is set. Runs use each surface's built-in model.</>

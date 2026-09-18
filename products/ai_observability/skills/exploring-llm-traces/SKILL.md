@@ -53,13 +53,18 @@ If the URL has neither explicit dates nor `timestamp`, use a safe default like `
 
 For exact trace and session URLs, skip schema discovery for the standard `$ai_*` fields used below. These are AI observability built-ins, not project-specific custom properties.
 
-### Step 2 — Fetch trace data
+### Step 2 — Browse trace summaries
+
+Explicitly set `detail: "summary"` when browsing traces. This keeps metadata and short content previews
+without spending context on full prompts and outputs. Omitting `detail` still returns full detail for
+compatibility with existing callers.
 
 For a trace URL, call `posthog:query-llm-trace` with:
 
 ```json
 {
   "traceId": "<trace_id>",
+  "detail": "summary",
   "dateRange": { "date_from": "-7d" }
 }
 ```
@@ -68,6 +73,7 @@ For a session URL, call `posthog:query-llm-traces-list` with:
 
 ```json
 {
+  "detail": "summary",
   "dateRange": { "date_from": "<timestamp_minus_36h>", "date_to": "<timestamp_plus_36h>" },
   "filterTestAccounts": false,
   "limit": 20,
@@ -79,8 +85,8 @@ Use the URL's `date_from` / `date_to` values in the session query if present.
 If the URL only has `timestamp`, calculate the absolute date range from that timestamp instead of using a relative range like `-1h`.
 Set `filterTestAccounts: false` for an exact URL so the requested trace is not hidden by account filters.
 
-The result contains the event tree with all properties.
-The response may be large — when it exceeds the inline limit, Claude Code auto-persists it to a file.
+The result contains trace and event metadata with previews of prompts, outputs, span states, and custom properties.
+A trace with `_detail: { "mode": "summary" }` contains previews, not the complete content.
 
 From the result you get:
 
@@ -90,7 +96,28 @@ From the result you get:
 - Parent-child relationships via `$ai_parent_id`
 - `_posthogUrl` — **always include this in your response** so the user can click through to the UI
 
-### Step 3 — Parse large results with scripts
+### Step 3 — Read the content needed for the investigation
+
+Once you have selected a trace, request `posthog:query-llm-trace` with `detail: "full"` before inspecting
+exact tool arguments, checking which context the model received, or searching conversation content:
+
+```json
+{
+  "traceId": "<trace_id>",
+  "detail": "full",
+  "dateRange": { "date_from": "-7d" }
+}
+```
+
+Preserve the date range from the original URL or discovery query instead of copying the example range.
+Keep relevant property filters to narrow the read. If the user already identified the trace and needs
+exact content, you can request full detail directly.
+
+Both modes enforce response size limits. Check truncation markers before drawing conclusions: an omitted
+event or a keyword missing from a preview is not evidence that it was absent from the trace. If full detail
+is still truncated, narrow the query to the relevant events or open `_posthogUrl` for the complete data.
+
+### Step 4 — Parse large full-detail results with scripts
 
 When the result is persisted to a file (large traces with full `$ai_input`/`$ai_output_choices`),
 use the [parsing scripts](./scripts/) to explore it.
@@ -160,7 +187,7 @@ When presenting findings, always include the relevant PostHog URL so the user ca
 
 ## Finding traces
 
-Use `posthog:query-llm-traces-list` to search and filter traces.
+Use `posthog:query-llm-traces-list` with `detail: "summary"` to search and filter traces.
 
 **CRITICAL: Never assume event names, property names, or property values from training data.**
 Every project instruments different custom properties. For open-ended searches and custom filters, call
@@ -189,6 +216,7 @@ Do not confirm `$ai_*` properties, but confirm any other like `email` of a perso
 ```json
 posthog:query-llm-traces-list
 {
+  "detail": "summary",
   "dateRange": {"date_from": "-1h"},
   "filterTestAccounts": true,
   "limit": 20,
@@ -203,6 +231,7 @@ Multiple filters are AND-ed together:
 ```json
 posthog:query-llm-traces-list
 {
+  "detail": "summary",
   "dateRange": {"date_from": "-1h"},
   "filterTestAccounts": true,
   "properties": [
@@ -217,6 +246,7 @@ You can also filter by person properties (discover them via `read-data-schema` w
 ```json
 posthog:query-llm-traces-list
 {
+  "detail": "summary",
   "dateRange": {"date_from": "-1h"},
   "filterTestAccounts": true,
   "properties": [
@@ -237,6 +267,7 @@ Use `posthog:read-data-schema` to discover what custom properties exist, then fi
 ```json
 posthog:query-llm-traces-list
 {
+  "detail": "summary",
   "dateRange": {"date_from": "-7d"},
   "properties": [
     {"type": "event", "key": "project_id", "value": "proj_abc123", "operator": "exact"}
@@ -252,6 +283,8 @@ For more complex SQL patterns, read these references:
 ## Parsing large trace results
 
 Trace tool results are JSON. When too large to read inline, Claude Code persists them to a file.
+Use a full-detail response for content extraction and keyword searches; the scripts cannot recover
+content omitted from a summary or a truncated response.
 
 ### Persisted file format
 

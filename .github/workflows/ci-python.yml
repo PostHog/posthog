@@ -26,10 +26,31 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+    # Learning mode: nothing reads these outputs, so a recommendation cannot change what runs.
+    # Fork and Dependabot runs get no secret; the queue always runs everything anyway.
+    # The step fails open, because this telemetry must not turn a passing workflow red.
+    dynamic-ci-filter:
+        name: Trunk Dynamic CI (Learning Mode)
+        if: >-
+            github.event_name == 'pull_request' &&
+            github.repository == 'PostHog/posthog' &&
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            github.actor != 'dependabot[bot]' &&
+            !startsWith(github.head_ref, 'trunk-merge/')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions: {}
+        steps:
+            - name: Ask Trunk which jobs this diff needs
+              continue-on-error: true
+              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
+              with:
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+
     # Job to decide if we should run python ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run python checks
         # Set job outputs to values from filter step
@@ -92,13 +113,21 @@ jobs:
                         - .github/workflows/ci-python.yml
                         - .github/workflows/ci-dagster.yml
                         - .github/workflows/ci-backend.yml
+                        - .github/actions/setup-uv/**
+                        - .depot/actions/setup-uv/**
+                        - '.depot/workflows/*.yml'
                         - .flox/env/manifest.toml
+                        - .flox/env/manifest.lock
                         # Schema changes need to trigger Python CI to validate schema.py is regenerated
                         - 'frontend/src/queries/schema.json'
                         # Products changes need to trigger Python CI to validate the json usage is still valid
                         - 'frontend/src/products.json'
                         # A hand-edit to the generated taxonomy JSON must reach the drift check
                         - 'frontend/src/taxonomy/core-filter-definitions-by-group.json'
+                        # Same for the generated object-tag registries
+                        - 'frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts'
+                        - 'products/desktop/packages/core/src/inbox/objectKinds.generated.ts'
+                        - 'products/desktop/packages/shared/src/objectTagKinds.generated.ts'
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
@@ -194,12 +223,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+              uses: ./.github/actions/setup-uv
 
             - name: Check uv and Python version compatibility
               shell: bash
@@ -240,13 +264,21 @@ jobs:
               run: |
                   echo "::add-matcher::.github/mypy-problem-matcher.json"
 
+            - name: Compute mypy cache prefix
+              id: mypy-cache-key
+              shell: bash
+              run: |
+                  python_version=$(python -c 'import platform; print(platform.python_version())')
+                  mypy_version=$(python -c 'from importlib.metadata import version; print(version("mypy"))')
+                  echo "prefix=mypy-v3-${{ runner.os }}-${{ runner.arch }}-${python_version}-${mypy_version}-${{ hashFiles('uv.lock', '**/pyproject.toml', '**/mypy.ini') }}" >> "$GITHUB_OUTPUT"
+
             - name: Restore mypy cache
+              id: mypy-cache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .mypy_cache
-                  key: mypy-cache-${{ runner.os }}-3.12-mypy2-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
-                  restore-keys: |
-                      mypy-cache-${{ runner.os }}-3.12-mypy2-
+                  key: ${{ steps.mypy-cache-key.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
+                  restore-keys: ${{ steps.mypy-cache-key.outputs.prefix }}-
 
             - name: Check static typing
               shell: bash -e {0}
@@ -255,11 +287,11 @@ jobs:
               run: mypy --version && mypy --cache-fine-grained .
 
             - name: Save mypy cache
-              if: github.ref == 'refs/heads/master'
+              if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .mypy_cache
-                  key: mypy-cache-${{ runner.os }}-3.12-mypy2-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
+                  key: ${{ steps.mypy-cache.outputs.cache-primary-key }}
 
             - name: Check if "schema.py" is up to date
               shell: bash
@@ -275,6 +307,11 @@ jobs:
               run: |
                   python3 bin/build-taxonomy-json.py --check
 
+            - name: Check if the generated object-tag registries are up to date
+              shell: bash
+              run: |
+                  python3 bin/build-object-tags-registry.py --check
+
             # Warn-only while the pre-existing violation backlog settles: findings annotate
             # the diff and land in the shared CI report comment, never a job failure.
             # Scoped to the PR's own diff because C901 stays off repo-wide. Skip on
@@ -282,6 +319,10 @@ jobs:
             - name: Check cyclomatic complexity of changed files
               if: github.event_name == 'pull_request' && needs.changes.outputs.complexity_files != ''
               shell: bash
+              # A very large diff overflows the 128 KiB cap on a single environment entry, so the
+              # runner cannot start this step at all. The findings are warn-only, so losing them
+              # on such a PR is not worth failing the job for.
+              continue-on-error: true
               env:
                   # Space-separated, from paths-filter (list-files: escape) — the PR
                   # files API, so no git-diff plumbing to drift from what the PR changed.
@@ -404,7 +445,7 @@ jobs:
     python_tests:
         needs: [changes, code-quality]
         name: Python code quality checks
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:

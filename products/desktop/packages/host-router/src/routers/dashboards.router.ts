@@ -8,6 +8,8 @@ import {
   canvasActionInvokeInput,
   canvasActionResultSchema,
   canvasBuildsInput,
+  canvasConnectorCallResultSchema,
+  canvasConnectorCallServiceInput,
   canvasDraftSchema,
   canvasSourceInput,
   canvasSourceSchema,
@@ -15,6 +17,7 @@ import {
   canvasStateListInput,
   canvasStateSetInput,
   canvasVersionSchema,
+  canvasViewSchema,
   createDashboardInput,
   dashboardIdInput,
   dashboardRecordSchema,
@@ -67,6 +70,13 @@ export const dashboardsRouter = router({
     .output(dashboardRecordSchema.nullable())
     .query(({ ctx, input }) =>
       ctx.container.get<IDashboardsService>(DASHBOARDS_SERVICE).get(input.id),
+    ),
+  // Everything needed to open a canvas, in one round trip.
+  view: publicProcedure
+    .input(dashboardIdInput)
+    .output(canvasViewSchema)
+    .query(({ ctx, input }) =>
+      ctx.container.get<IDashboardsService>(DASHBOARDS_SERVICE).view(input.id),
     ),
   // A query despite the POST underneath: home is an idempotent get-or-create,
   // and query semantics give the surface caching and dedupe for free.
@@ -215,6 +225,14 @@ export const dashboardsRouter = router({
       ctx.container
         .get<IDashboardsService>(DASHBOARDS_SERVICE)
         .invokeAction(input),
+    ),
+  callConnector: publicProcedure
+    .input(canvasConnectorCallServiceInput)
+    .output(canvasConnectorCallResultSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<IDashboardsService>(DASHBOARDS_SERVICE)
+        .callConnector(input),
     ),
   rename: publicProcedure
     .input(renameDashboardInput)

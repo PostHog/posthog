@@ -1,9 +1,9 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconCornerDownRight } from '@posthog/icons'
-
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import type { NotebookNodeRunTerminalStatus } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
@@ -12,8 +12,13 @@ import { Query } from '~/queries/Query/Query'
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
+import { notebookCodeCellLogic } from 'products/notebooks/frontend/notebookCodeCellLogic'
+
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookCellOutputHeader } from './components/NotebookCellOutputHeader'
+import { NotebookCellOutputNameFooter } from './components/NotebookCellOutputNameFooter'
+import { notebookDataframeHintLogic } from './components/notebookDataframeHintLogic'
+import { NotebookDataframeHintPopover } from './components/NotebookDataframeHintPopover'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { getCellLabel } from './components/NotebookNodeTitle'
 import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
@@ -21,7 +26,7 @@ import { NotebookCodeSQLEditorSettings } from './components/NotebookSQLEditor'
 import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { initialSizedRunId, outputHeightForShape } from './notebookNodeOutputHeight'
-import { SQL_V2_DEFAULT_PAGE_SIZE, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
+import { SQL_V2_DEFAULT_PAGE_SIZE } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
 
 export type NotebookNodeSQLV2Media = { mime_type: string; data: string }
@@ -30,7 +35,8 @@ export type NotebookNodeSQLV2Result = {
     columns: string[]
     types?: [string, string][]
     row_count: number
-    first_page: (string | number | null)[][]
+    first_page?: (string | number | null)[][]
+    previewOnly?: boolean
     has_more?: boolean
     // Python node output: captured streams and rich media (e.g. matplotlib PNGs).
     stdout?: string
@@ -62,7 +68,7 @@ const VIZ_MIN_HEIGHT = 350
 // when a python cell reads the frame, so it must be a plain identifier. Empty is fine —
 // the cell is then display-only.
 const VALID_RETURN_VARIABLE = /^[A-Za-z_][A-Za-z0-9_]*$/
-const returnVariableValidationError = (returnVariable: string): string | null => {
+export const returnVariableValidationError = (returnVariable: string): string | null => {
     if (!returnVariable || VALID_RETURN_VARIABLE.test(returnVariable)) {
         return null
     }
@@ -100,9 +106,7 @@ const inferTypes = (result: NotebookNodeSQLV2Result): [string, string][] =>
         return [column, typeof sample === 'number' ? 'Float64' : 'String']
     })
 
-// A notebook stores the whole result envelope, and a cell the sandbox kernel ran can hold raw
-// pandas dtypes ('float64', 'str'). The chart layer reads ClickHouse names to decide which
-// columns can go on a numeric axis, so map those over rather than make a saved cell re-run.
+// Kernel results can contain pandas dtypes. Charts need ClickHouse type names to select numeric axes.
 const PANDAS_DTYPE_NAMES: Record<string, string> = {
     bool: 'Bool',
     boolean: 'Bool',
@@ -141,22 +145,18 @@ const Component = ({
     updateAttributes,
 }: NotebookNodeProps<NotebookNodeSQLV2Attributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { nodeId, notebookLogic, expanded, sqlV2ReturnVariableUsage, isEditable } = useValues(nodeLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { nodeId, notebookLogic, expanded, sqlV2ReturnVariable, sqlV2ReturnVariableUsage, isEditable } =
+        useValues(nodeLogic)
     const { navigateToNode } = useActions(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
 
-    const dataLogic = notebookNodeSQLV2Logic({
-        nodeId,
-        notebookShortId,
-        updateAttributes,
-        runId: attributes.runId ?? null,
-        hasResult: !!attributes.result,
-        getContent: () => notebookLogic.values.content ?? null,
-        getVariables: () => notebookLogic.values.runnableVariables,
-    })
+    const dataLogic = notebookCodeCellLogic(nodeId, notebookLogic, attributes, updateAttributes)
     const {
         isRunning,
         runError,
+        isRestoringResult,
+        resultRestoreUnavailable,
         page,
         pageSize,
         pageResult,
@@ -167,14 +167,32 @@ const Component = ({
         isChainRunning,
         staleDownstreamCount,
         pendingKernelStart,
+        result: runResult,
     } = useValues(dataLogic)
     const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
 
     const usageLabel = (nodeIndex: number | undefined, title: string): string =>
         title.trim() || getCellLabel(nodeIndex) || 'SQL'
 
-    const result = attributes.result ?? null
-    const returnVariableError = returnVariableValidationError(attributes.returnVariable ?? '')
+    const result = runResult ?? attributes.result ?? null
+    const returnVariable = sqlV2ReturnVariable
+    const returnVariableError = returnVariableValidationError(returnVariable)
+    // A callback ref, not useRef: the hint anchors to this input, and a ref assignment alone
+    // wouldn't re-render the Popover with the element it needs to position against.
+    const [returnVariableInput, setReturnVariableInput] = useState<HTMLInputElement | null>(null)
+    const { reportRunFinished } = useActions(notebookDataframeHintLogic({ shortId: notebookShortId }))
+    const runStatus = attributes.runStatus ?? null
+    const previousRunStatusRef = useRef(runStatus)
+
+    useEffect(() => {
+        const previousRunStatus = previousRunStatusRef.current
+        previousRunStatusRef.current = runStatus
+        // Only a run that finishes while the cell is open. Reopening a notebook restores a
+        // finished result too, and the hint would then point at a cell nobody just ran.
+        if (runStatus === 'done' && previousRunStatus !== 'done') {
+            reportRunFinished(nodeId, !!returnVariable)
+        }
+    }, [runStatus, returnVariable, nodeId, reportRunFinished])
     // Page 1 at the default size comes straight from the envelope; other pages re-query CH.
     const dataframeResult = useMemo(() => {
         if (pageResult) {
@@ -261,6 +279,11 @@ const Component = ({
                 {isRunning && pendingKernelStart ? (
                     <div className="shrink-0 px-2 pt-1 pb-2 text-xs text-muted">Starting compute sandbox…</div>
                 ) : null}
+                {resultRestoreUnavailable ? (
+                    <div className="p-2 text-xs text-muted">Run the cell again to see its full results.</div>
+                ) : isRestoringResult ? (
+                    <div className="p-2 text-xs text-muted">Loading saved results…</div>
+                ) : null}
                 {runError ? (
                     <div className="p-2 text-xs font-mono text-danger whitespace-pre-wrap">{runError}</div>
                 ) : dataframeResult && cachedResults ? (
@@ -291,7 +314,9 @@ const Component = ({
                             <div className="min-h-0 flex-1 overflow-y-auto">
                                 <NotebookDataframeTable
                                     result={dataframeResult}
-                                    loading={isRunning || pageLoading}
+                                    loading={
+                                        isRunning || pageLoading || (isRestoringResult && !result?.first_page?.length)
+                                    }
                                     page={page}
                                     pageSize={pageSize}
                                     hasMore={hasMorePages}
@@ -340,46 +365,36 @@ const Component = ({
                     <div className="text-xs text-muted font-mono p-2">Run the query to see execution results.</div>
                 )}
             </div>
-            <div
-                // Translucent overlay, not a surface token: the shell is surface-primary in light
-                // mode but surface-tertiary in dark, so a fixed surface vanishes against one of them.
-                className="flex shrink-0 items-center gap-2 text-xs text-muted border-t border-primary bg-fill-highlight-50 p-2"
-                onClick={(event) => event.stopPropagation()}
-                onMouseDown={(event) => event.stopPropagation()}
-            >
-                <span className="font-mono mt-0.5">
-                    <IconCornerDownRight />
-                </span>
-                <input
-                    type="text"
-                    // A dataframe name other SQL nodes reference by table name (`from sql_df`).
-                    // Optional: left empty, the cell is display-only and exports nothing.
-                    // Wide enough for the placeholder to sit on one line without clipping. The name
-                    // carries weight through size and a faintly warm near-black rather than a hue —
-                    // a saturated color here competes with the accent the app spends on links.
-                    className="w-56 rounded border border-primary px-1.5 py-0.5 text-sm font-medium font-mono bg-surface-primary text-[oklch(0.27_0.022_345deg)] dark:text-[oklch(0.93_0.014_345deg)] focus:outline-none focus:ring-1 focus:ring-primary"
-                    value={attributes.returnVariable ?? ''}
-                    onChange={(event) => updateAttributes({ returnVariable: event.target.value })}
-                    placeholder="Output dataframe name"
-                    spellCheck={false}
-                />
-                {returnVariableError ? <span className="text-danger">{returnVariableError}</span> : null}
-                {sqlV2ReturnVariableUsage.length > 0 ? (
-                    <span className="text-muted">
-                        Used in{' '}
-                        {sqlV2ReturnVariableUsage.map((usage) => (
-                            <button
-                                key={usage.nodeId}
-                                type="button"
-                                className="text-muted hover:text-default underline underline-offset-2 ml-1"
-                                onClick={() => navigateToNode(usage.nodeId)}
-                            >
-                                {usageLabel(usage.nodeIndex, usage.title)}
-                            </button>
-                        ))}
-                    </span>
-                ) : null}
-            </div>
+            {(featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS] ||
+                featureFlags[FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]) && (
+                <NotebookCellOutputNameFooter
+                    returnVariable={returnVariable}
+                    onChange={(returnVariable) => updateAttributes({ returnVariable })}
+                    inputRef={setReturnVariableInput}
+                >
+                    <NotebookDataframeHintPopover
+                        nodeId={nodeId}
+                        notebookShortId={notebookShortId}
+                        referenceElement={returnVariableInput}
+                    />
+                    {returnVariableError ? <span className="text-danger">{returnVariableError}</span> : null}
+                    {sqlV2ReturnVariableUsage.length > 0 ? (
+                        <span className="text-muted">
+                            Used in{' '}
+                            {sqlV2ReturnVariableUsage.map((usage) => (
+                                <button
+                                    key={usage.nodeId}
+                                    type="button"
+                                    className="text-muted hover:text-default underline underline-offset-2 ml-1"
+                                    onClick={() => navigateToNode(usage.nodeId)}
+                                >
+                                    {usageLabel(usage.nodeIndex, usage.title)}
+                                </button>
+                            ))}
+                        </span>
+                    ) : null}
+                </NotebookCellOutputNameFooter>
+            )}
         </div>
     )
 }
@@ -390,17 +405,8 @@ const Settings = ({
 }: NotebookNodeAttributeProperties<NotebookNodeSQLV2Attributes>): JSX.Element => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { nodeId, notebookLogic } = useValues(nodeLogic)
-    const notebookShortId = notebookLogic.props.shortId
 
-    const dataLogic = notebookNodeSQLV2Logic({
-        nodeId,
-        notebookShortId,
-        updateAttributes,
-        runId: attributes.runId ?? null,
-        hasResult: !!attributes.result,
-        getContent: () => notebookLogic.values.content ?? null,
-        getVariables: () => notebookLogic.values.runnableVariables,
-    })
+    const dataLogic = notebookCodeCellLogic(nodeId, notebookLogic, attributes, updateAttributes)
     const { isRunning } = useValues(dataLogic)
     const { runNode } = useActions(dataLogic)
 
@@ -432,10 +438,8 @@ export const NotebookNodeSQLV2 = createPostHogWidgetNode<NotebookNodeSQLV2Attrib
         code: {
             default: '',
         },
-        // Optional: empty means the cell binds no dataframe (display-only). Existing cells
-        // carry their persisted name ('sql_df' was the old default) and keep exporting it.
         returnVariable: {
-            default: '',
+            default: 'sql_df',
         },
         connectionId: {
             default: null,

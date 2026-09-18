@@ -1,5 +1,6 @@
 import io
 import tarfile
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -9,9 +10,17 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from asgiref.sync import async_to_sync
+from modal.exception import NotFoundError as ModalNotFoundError
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import StatusCode
 from parameterized import parameterized
 
-from products.tasks.backend.facade.sandbox import SandboxNotFoundError
+from posthog.temporal.common.utils import asyncify
+
+from products.tasks.backend.facade.sandbox import SandboxNotFoundError, SandboxNotRunningError
 from products.wizard.backend.logic.artifacts.config import MAX_GIT_DIFF_BYTES
 from products.wizard.backend.logic.workers.commands import wizard_handoff_output_path
 from products.wizard.backend.logic.workers.config import (
@@ -35,9 +44,21 @@ from products.wizard.backend.logic.workers.service import (
     create_git_repository_handoff,
     destroy_worker,
     execute_wizard,
+    measure_worker_usage,
     prepare_local_wizard,
     provision_wizard_worker,
 )
+from products.wizard.backend.observability.tracing import wizard_span
+
+
+@pytest.fixture
+def span_exporter() -> Iterator[InMemorySpanExporter]:
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    with patch("products.wizard.backend.observability.tracing.tracer", provider.get_tracer("test.wizard")):
+        yield exporter
+    provider.shutdown()
 
 
 def _execution_result(*, stdout: str = "", stderr: str = "", exit_code: int = 0) -> SimpleNamespace:
@@ -57,12 +78,15 @@ def test_provision_worker_configures_wizard_environment(
     get_user: MagicMock,
     create_wizard_token: MagicMock,
     get_sandbox_class: MagicMock,
+    span_exporter: InMemorySpanExporter,
 ) -> None:
     request = WizardWorkerProvisionRequest(team_id=7, created_by_id=13, run_id=uuid4())
     create_wizard_token.return_value = "wizard-secret"
     get_sandbox_class.return_value.create.return_value.id = "worker-id"
 
     provisioning = provision_wizard_worker(request)
+
+    get_sandbox_class.return_value.create.return_value.start_cpu_billing_sampler.assert_called_once_with()
 
     assert provisioning.sandbox_id == "worker-id"
     assert provisioning.resource_usage.cpu_cores == 2
@@ -75,8 +99,72 @@ def test_provision_worker_configures_wizard_environment(
     assert config.environment_variables["POSTHOG_WIZARD_API_KEY"] == "wizard-secret"
     assert config.environment_variables["MCP_URL"] == "http://host.docker.internal:8787/mcp"
     assert "POSTHOG_WIZARD_RUN_ID" not in config.environment_variables
+    assert config.environment_variables["POSTHOG_TASK_RUN_ID"] == str(request.run_id)
+    assert "POSTHOG_TASK_ID" not in config.environment_variables
     assert config.environment_variables["POSTHOG_HANDOFF_OUTPUT_PATH"] == wizard_handoff_output_path(request.run_id)
     assert config.ttl_seconds == 75 * 60
+
+    spans = {span.name: span for span in span_exporter.get_finished_spans()}
+    attributes = spans["wizard.worker.provision"].attributes
+    assert attributes is not None
+    assert attributes["team_id"] == request.team_id
+    assert attributes["wizard.run_id"] == str(request.run_id)
+    assert "wizard.sandbox.create" in spans
+    assert all("wizard-secret" not in span.to_json() for span in spans.values())
+
+
+@patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
+@patch("products.wizard.backend.logic.workers.service.create_wizard_oauth_access_token_for_user")
+@patch("products.wizard.backend.logic.workers.service.User.objects.get")
+def test_provision_worker_returns_sandbox_when_cpu_sampler_fails(
+    _get_user: MagicMock,
+    _create_wizard_token: MagicMock,
+    get_sandbox_class: MagicMock,
+) -> None:
+    request = WizardWorkerProvisionRequest(team_id=7, created_by_id=13, run_id=uuid4())
+    _create_wizard_token.return_value = "wizard-secret"
+    sandbox = get_sandbox_class.return_value.create.return_value
+    sandbox.id = "worker-id"
+    sandbox.start_cpu_billing_sampler.side_effect = SandboxNotRunningError(
+        "Sandbox is not running.", {}, RuntimeError("stopped"), capture=False
+    )
+
+    provisioning = provision_wizard_worker(request)
+
+    assert provisioning.sandbox_id == "worker-id"
+
+
+@patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
+def test_usage_measurement_uses_wizard_cpu_request(get_sandbox_class: MagicMock) -> None:
+    sandbox = get_sandbox_class.return_value.get_by_id.return_value
+    sandbox.config.cpu_cores = 4
+    sandbox.read_cpu_usage_usec.return_value = 100
+    sandbox.read_billed_cpu_usage_usec.side_effect = lambda: int(sandbox.config.cpu_cores * 1_000_000)
+
+    usage = measure_worker_usage("worker-id")
+
+    assert usage is not None
+    assert usage.cpu_usage_usec == 100
+    assert usage.billed_cpu_usage_usec == 2_000_000
+
+
+@pytest.mark.parametrize("cpu_usage", [None, 100])
+@patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
+def test_usage_measurement_preserves_cpu_when_billing_read_is_unavailable(
+    get_sandbox_class: MagicMock, cpu_usage: int | None
+) -> None:
+    sandbox = get_sandbox_class.return_value.get_by_id.return_value
+    sandbox.read_cpu_usage_usec.return_value = cpu_usage
+    sandbox.read_billed_cpu_usage_usec.side_effect = ModalNotFoundError("sandbox unavailable")
+
+    usage = measure_worker_usage("worker-id")
+
+    if cpu_usage is None:
+        assert usage is None
+    else:
+        assert usage is not None
+        assert usage.cpu_usage_usec == cpu_usage
+        assert usage.billed_cpu_usage_usec is None
 
 
 @override_settings(DEBUG=False, SANDBOX_MCP_URL="http://host.docker.internal:8787/mcp")
@@ -103,6 +191,7 @@ def test_provision_worker_ignores_local_mcp_endpoint_outside_debug_mode(
 def test_clone_repository_uses_integration_token(
     get_github_token: MagicMock,
     get_sandbox_class: MagicMock,
+    span_exporter: InMemorySpanExporter,
 ) -> None:
     request = GitRepositoryCloneRequest(
         sandbox_id="worker-id",
@@ -114,7 +203,8 @@ def test_clone_repository_uses_integration_token(
     sandbox.clone_repository.return_value = _execution_result()
     sandbox.execute.return_value = _execution_result()
 
-    root_path = clone_repository(request)
+    with wizard_span("request") as parent:
+        root_path = async_to_sync(asyncify(clone_repository))(request)
 
     assert root_path == "/tmp/workspace/repos/posthog/posthog"
     get_sandbox_class.return_value.get_by_id.assert_called_once_with(request.sandbox_id)
@@ -123,12 +213,28 @@ def test_clone_repository_uses_integration_token(
     assert "github-secret" not in sanitize_command
     assert "https://github.com/PostHog/PostHog.git" in sanitize_command
 
+    spans = {span.name: span for span in span_exporter.get_finished_spans()}
+    preparation = spans["wizard.repository.prepare"]
+    assert preparation.context is not None
+    assert preparation.parent is not None
+    assert preparation.parent.span_id == parent.get_span_context().span_id
+    for name in ("wizard.repository.credentials", "wizard.repository.clone", "wizard.repository.sanitize_remote"):
+        child = spans[name]
+        assert child.context is not None
+        assert child.parent is not None
+        assert child.parent.span_id == preparation.context.span_id
+        assert child.context.trace_id == parent.get_span_context().trace_id
+        assert child.start_time is not None and child.end_time is not None
+        assert child.end_time >= child.start_time
+    assert all("github-secret" not in span.to_json() for span in spans.values())
+
 
 @patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
 @patch("products.wizard.backend.logic.workers.service.get_github_token", return_value="github-secret")
 def test_clone_repository_rejects_clone_failure(
     _get_github_token: MagicMock,
     get_sandbox_class: MagicMock,
+    span_exporter: InMemorySpanExporter,
 ) -> None:
     request = GitRepositoryCloneRequest(
         sandbox_id="worker-id",
@@ -146,6 +252,22 @@ def test_clone_repository_rejects_clone_failure(
 
     assert "github-secret" not in str(error.value)
     assert "[REDACTED]" in str(error.value)
+
+    spans = {span.name: span for span in span_exporter.get_finished_spans()}
+    for name in ("wizard.repository.clone", "wizard.repository.prepare"):
+        span = spans[name]
+        assert span.status.status_code == StatusCode.ERROR
+        assert span.status.description is None
+        assert span.attributes is not None
+        assert span.attributes["error.type"] == "WizardWorkerExecutionError"
+        assert not span.events
+    attributes = spans["wizard.repository.clone"].attributes
+    assert attributes is not None
+    assert attributes["process.exit.code"] == 128
+    assert "wizard.repository.sanitize_remote" not in spans
+    assert all(
+        "github-secret" not in span.to_json() and "PostHog/PostHog" not in span.to_json() for span in spans.values()
+    )
 
 
 @patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
@@ -331,6 +453,7 @@ def test_execute_wizard_surfaces_wizard_error_code(get_sandbox_class: MagicMock)
     assert error.value.wizard_error_code == "PHW_DETECT_NO_POSTHOG_SDK"
 
 
+@patch("products.wizard.backend.logic.workers.service.stage_publishable_changes")
 @patch("products.wizard.backend.logic.workers.service.create_pull_request")
 @patch("products.wizard.backend.logic.workers.service.create_signed_commit")
 @patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
@@ -338,6 +461,7 @@ def test_git_repository_handoff_captures_diff_and_publishes_pull_request(
     get_sandbox_class: MagicMock,
     create_signed_commit: MagicMock,
     create_pull_request: MagicMock,
+    stage_publishable_changes: MagicMock,
 ) -> None:
     request = GitRepositoryHandoffRequest(
         team_id=7,
@@ -365,11 +489,12 @@ def test_git_repository_handoff_captures_diff_and_publishes_pull_request(
     result = create_git_repository_handoff(request)
 
     assert result == WizardWorkerResult(diff=b"diff --git a/a b/a\n", pull_request=pull_request)
-    assert "git add -N --all" in sandbox.execute.call_args_list[0].args[0]
+    assert "git diff --cached" in sandbox.execute.call_args_list[0].args[0]
     assert WIZARD_DIFF_OUTPUT_PATH in sandbox.execute.call_args_list[0].args[0]
     assert f"head -c {MAX_GIT_DIFF_BYTES + 1}" in sandbox.execute.call_args_list[0].args[0]
     assert wizard_handoff_output_path(request.run_id) in sandbox.execute.call_args_list[1].args[0]
     assert "head -c 60000" in sandbox.execute.call_args_list[1].args[0]
+    stage_publishable_changes.assert_called_once_with(sandbox, request.workspace_path)
     create_signed_commit.assert_called_once_with(
         sandbox,
         team_id=request.team_id,
@@ -397,6 +522,7 @@ def test_git_repository_handoff_captures_diff_and_publishes_pull_request(
         _execution_result(stdout="  \n"),
     ),
 )
+@patch("products.wizard.backend.logic.workers.service.stage_publishable_changes")
 @patch("products.wizard.backend.logic.workers.service.create_pull_request")
 @patch("products.wizard.backend.logic.workers.service.create_signed_commit")
 @patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
@@ -406,6 +532,7 @@ def test_git_repository_handoff_uses_generic_body_when_handoff_is_unavailable(
     get_sandbox_class: MagicMock,
     create_signed_commit: MagicMock,
     create_pull_request: MagicMock,
+    _stage_publishable_changes: MagicMock,
     handoff_result: SimpleNamespace,
 ) -> None:
     request = GitRepositoryHandoffRequest(
@@ -427,11 +554,13 @@ def test_git_repository_handoff_uses_generic_body_when_handoff_is_unavailable(
     handoff_body_fallback.assert_called_once_with(request.team_id, request.run_id)
 
 
+@patch("products.wizard.backend.logic.workers.service.stage_publishable_changes")
 @patch("products.wizard.backend.logic.workers.service.create_pull_request")
 @patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
 def test_git_repository_handoff_skips_publish_without_changes(
     get_sandbox_class: MagicMock,
     create_pull_request: MagicMock,
+    _stage_publishable_changes: MagicMock,
 ) -> None:
     request = GitRepositoryHandoffRequest(
         team_id=7,

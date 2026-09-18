@@ -92,11 +92,15 @@ describe('SkillCatalog and exec learn', () => {
     it('returns the rendered skill with a manifest and supports scoped reads', async () => {
         const catalog = makeCatalog()
         const learn = new ExecLearnCatalog([], { posthog: catalog })
-        const result = catalog.read('retention-analysis')
+        const result = await learn.execute('posthog:retention-analysis')
 
         expect(result).toContain('Files:')
         expect(result).toContain('- SKILL.md (8 lines,')
         expect(result).toContain('- references/functions.md (3 lines,')
+        expect(result).toContain('Read a file with `learn posthog:retention-analysis <path>`.')
+        expect(await learn.execute('posthog:retention-analysis references/functions.md')).toContain(
+            '# Available functions'
+        )
         expect(result).toContain('# Retention analysis')
         expect(result).not.toContain('name: retention-analysis')
         expect(catalog.searchFile('retention-analysis', 'references/functions.md', 'dateDiff')).toContain(
@@ -304,13 +308,19 @@ describe('SkillCatalog and exec learn', () => {
         expect(results[0]!.score!).toBeGreaterThan(results[1]!.score!)
     })
 
-    it('offers a read and line-range recovery hint when a file search finds nothing', () => {
-        const output = makeCatalog().searchFile('retention-analysis', 'references/functions.md', 'nonexistentxyz')
+    it.each(['nonexistentxyz', '--file'])(
+        'offers a read and line-range recovery hint when a file search for %s finds nothing',
+        async (query) => {
+            const learn = new ExecLearnCatalog([], { posthog: makeCatalog() })
+            const output = await learn.execute(`posthog:retention-analysis references/functions.md -s "${query}"`)
 
-        expect(output).toContain('No matches for "nonexistentxyz" in retention-analysis/references/functions.md.')
-        expect(output).toContain('Read it with `learn retention-analysis references/functions.md` (3 lines,')
-        expect(output).toContain('--lines <start>:<end>')
-    })
+            expect(output).toContain(`No matches for "${query}" in posthog:retention-analysis/references/functions.md.`)
+            expect(output).toContain(
+                'Read it with `learn posthog:retention-analysis references/functions.md` (3 lines,'
+            )
+            expect(output).toContain('--lines <start>:<end>')
+        }
+    )
 
     it('describes a batch of qualified names, tolerating unknown names without failing the batch', async () => {
         const learn = new ExecLearnCatalog([], { posthog: makeCatalog(), project: makeProjectSkills() })
@@ -379,6 +389,20 @@ describe('SkillCatalog and exec learn', () => {
             expect(output).toContain('2 posthog and 40 project skills exist')
             expect(output).toContain('learn skills')
         }
+    })
+
+    it('does not report zero project skills when the project source is unavailable', async () => {
+        const learn = new ExecLearnCatalog([], {
+            posthog: makeCatalog(),
+            projectUnavailableReason: 'This connection is missing the llm_skill:read scope.',
+        })
+
+        const output = await learn.execute('-s zzzznomatch')
+
+        expect(output).toContain('project skills were not searched')
+        expect(output).not.toContain('0 project skills')
+        expect(output).toContain('posthog: funnels, retention-analysis')
+        expect(output).toContain('[Project skills unavailable: This connection is missing the llm_skill:read scope.]')
     })
     describe('skill invocation reporting', () => {
         it('reports successful loads with source, path, and read kind — never searches or describes', async () => {

@@ -36,10 +36,13 @@ from posthoganalytics.client import Client
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
 from posthog.ph_client import get_regional_ph_client
-from posthog.utils import get_instance_region
 
-from products.growth.backend.enrichment import icp_lists as icp_lists_module
+from products.growth.backend.enrichment import (
+    gates,
+    icp_lists as icp_lists_module,
+)
 from products.growth.backend.enrichment.bridge import read_organization_bridge_inputs
+from products.growth.backend.enrichment.context import FIT_EVALUATION_KIND_BACKFILL
 from products.growth.backend.enrichment.core import latest_matched_payload
 from products.growth.backend.enrichment.fit_score import IcpFitResult, score_company
 from products.growth.backend.enrichment.harmonic_adapter import normalize_graphql_company
@@ -238,7 +241,11 @@ class Command(BaseCommand):
             return "written"
 
         write_organization_enrichment(
-            organization_id=str(fetch.organization_id), fields=None, pha_client=pha_client, fit=result
+            organization_id=str(fetch.organization_id),
+            fields=None,
+            pha_client=pha_client,
+            fit=result,
+            fit_evaluation_kind=FIT_EVALUATION_KIND_BACKFILL,
         )
         self.stdout.write(f"wrote {fetch.organization_id}: {result.status} score={result.score}")
         if delay:
@@ -246,7 +253,7 @@ class Command(BaseCommand):
         return "written"
 
     def _run_backfill(self, options: dict[str, Any]) -> None:
-        if get_instance_region() not in ("US", "EU"):
+        if not gates.region_allowed():
             raise CommandError("Signup enrichment is Cloud-only; refusing to backfill in this region")
 
         limit: int | None = options["limit"]

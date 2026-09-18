@@ -35,13 +35,14 @@ from products.wizard.backend.logic.runs import (
     cancellation as cancellation_service,
     store,
 )
-from products.wizard.backend.logic.runs.admission import enforce_cloud_run_creation_policy
+from products.wizard.backend.logic.runs.admission import enforce_cloud_run_creation_policy, lock_cloud_run_creation
 from products.wizard.backend.logic.runs.dispatch import dispatch_created_cloud_wizard_run_to_temporal_worker
 from products.wizard.backend.logic.runs.errors import WizardRunDispatchError
 from products.wizard.backend.logic.runs.fingerprints import create_run_request_fingerprint
 from products.wizard.backend.logic.runs.repository_access import authorize_git_repository_access
 from products.wizard.backend.logic.runs.transitions import transition
 from products.wizard.backend.observability.service import wizard_observability as run_observability
+from products.wizard.backend.observability.tracing import annotate_run_span, wizard_span
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ def create_run(params: CreateWizardRunInput) -> WizardRunDTO:
     return create_run_with_result(params).run
 
 
+@wizard_span("wizard.run.create")
 def create_run_with_result(params: CreateWizardRunInput) -> WizardRunCreationResult:
     match params.environment, params.workspace:
         case WizardRunEnvironment.LOCAL, LocalFolderWorkspace():
@@ -74,6 +76,7 @@ def create_run_with_result(params: CreateWizardRunInput) -> WizardRunCreationRes
             if store.get_request_fingerprint(params.team_id, existing.id) != request_fingerprint:
                 raise WizardRunIdempotencyConflictError
 
+            annotate_run_span(params.team_id, existing.id)
             return WizardRunCreationResult(run=existing, created=False)
 
     user = User.objects.only("distinct_id").get(id=params.created_by_id)
@@ -99,6 +102,7 @@ def create_run_with_result(params: CreateWizardRunInput) -> WizardRunCreationRes
 
     with database_transaction.atomic():
         if is_cloud_run:
+            lock_cloud_run_creation(params.team_id, params.created_by_id)
             enforce_cloud_run_creation_policy(params.team_id, params.created_by_id, params.idempotency_key)
 
         result = store.create_run(
@@ -111,6 +115,7 @@ def create_run_with_result(params: CreateWizardRunInput) -> WizardRunCreationRes
             idempotency_key=params.idempotency_key,
             request_fingerprint=request_fingerprint,
         )
+        annotate_run_span(params.team_id, result.run.id)
 
         if not result.created and store.get_request_fingerprint(params.team_id, result.run.id) != request_fingerprint:
             raise WizardRunIdempotencyConflictError

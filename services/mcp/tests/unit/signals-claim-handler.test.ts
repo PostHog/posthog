@@ -27,12 +27,18 @@ function createMockContext(): { context: Context; request: ReturnType<typeof vi.
 const claimTool = GENERATED_TOOLS['inbox-reports-claim']!()
 
 describe('inbox-reports-claim handler', () => {
-    it('accepts report_id and posts claim fields to the report action', async () => {
+    it.each([
+        { pr_url: 'https://github.com/example/app/pull/123', release: false },
+        {
+            claim_id: '00000000-0000-4000-8000-000000000001',
+            pull_requests: ['https://github.com/example/app/pull/123', 'https://github.com/example/sdk/pull/124'],
+        },
+        { takeover: true },
+    ])('forwards the complete claim interaction: %j', async (body) => {
         const { context, request } = createMockContext()
         const params = claimTool.schema.parse({
             report_id: 'report-123',
-            pr_url: 'https://github.com/PostHog/posthog/pull/123',
-            release: false,
+            ...body,
         })
 
         await claimTool.handler(context, params)
@@ -41,10 +47,7 @@ describe('inbox-reports-claim handler', () => {
         expect(call).toEqual({
             method: 'POST',
             path: '/api/projects/42/signals/reports/report-123/claim/',
-            body: {
-                pr_url: 'https://github.com/PostHog/posthog/pull/123',
-                release: false,
-            },
+            body: { release: false, takeover: false, ...body },
         })
     })
 
@@ -55,6 +58,6 @@ describe('inbox-reports-claim handler', () => {
         await claimTool.handler(context, params)
 
         const call = request.mock.calls[0]![0] as RequestArgs
-        expect(call.body).toEqual({ release: true })
+        expect(call.body).toEqual({ release: true, takeover: false })
     })
 })

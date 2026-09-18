@@ -395,7 +395,7 @@ function ThreadPanelHeader({
 
 function ThreadTimeline({
   timeline,
-  isReady,
+  hasLoadedThread,
   currentUserUuid,
   currentUserEmail,
   isTaskAuthor,
@@ -404,7 +404,7 @@ function ThreadTimeline({
   onDelete,
 }: {
   timeline: ThreadTimelineRow<TaskThreadMessage>[];
-  isReady: boolean;
+  hasLoadedThread: boolean;
   currentUserUuid?: string;
   currentUserEmail?: string;
   isTaskAuthor: boolean;
@@ -412,7 +412,7 @@ function ThreadTimeline({
   onSendToAgent: (messageId: string) => void;
   onDelete: (messageId: string) => void;
 }) {
-  if (!isReady) return <ThreadLoadingState />;
+  if (!hasLoadedThread) return <ThreadLoadingState />;
   if (timeline.length === 0) {
     return (
       <Empty className="h-full border-0">
@@ -528,7 +528,7 @@ function ThreadConversation({
   const {
     timeline,
     agentStatus,
-    isReady,
+    hasLoadedThread,
     members,
     currentUser,
     isTaskAuthor,
@@ -566,7 +566,7 @@ function ThreadConversation({
         <div ref={contentRef}>
           <ThreadTimeline
             timeline={timeline}
-            isReady={isReady}
+            hasLoadedThread={hasLoadedThread}
             currentUserUuid={currentUser?.uuid}
             currentUserEmail={currentUser?.email}
             isTaskAuthor={isTaskAuthor}

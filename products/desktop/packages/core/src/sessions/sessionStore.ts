@@ -12,6 +12,7 @@ import { isTerminalStatus } from "@posthog/shared/domain-types";
 import { setAutoFreeze } from "immer";
 import { immer } from "zustand/middleware/immer";
 import { createStore } from "zustand/vanilla";
+import type { SessionStartupPhase } from "./sessionStartup";
 
 // immer autofreeze deep-walks produced state on every commit. For the
 // append-only `events` array that re-walks the whole (growing) array on every
@@ -26,7 +27,10 @@ export interface SessionState {
   /** Index mapping taskId -> taskRunId for O(1) lookups */
   taskIdIndex: Record<string, string>;
   /** Task ids whose first/resumed agent session is being created. */
-  startingTaskIds: Record<string, { previousRunId?: string; runId?: string }>;
+  startingTaskIds: Record<
+    string,
+    { previousRunId?: string; runId?: string; phase?: SessionStartupPhase }
+  >;
 }
 
 export const sessionStore = createStore<SessionState>()(
@@ -155,7 +159,10 @@ export const sessionStoreSetters = {
     sessionStore.setState((state) => {
       const marker = state.startingTaskIds[taskId];
       if (marker) {
-        if (runId) marker.runId = runId;
+        if (runId && marker.runId !== runId) {
+          marker.runId = runId;
+          marker.phase = undefined;
+        }
         return;
       }
       state.startingTaskIds[taskId] = {
@@ -165,8 +172,20 @@ export const sessionStoreSetters = {
     });
   },
 
-  clearTaskStarting: (taskId: string) => {
+  setTaskStartupPhase: (
+    taskId: string,
+    runId: string,
+    phase: SessionStartupPhase,
+  ) => {
     sessionStore.setState((state) => {
+      const marker = state.startingTaskIds[taskId];
+      if (marker?.runId === runId) marker.phase = phase;
+    });
+  },
+
+  clearTaskStarting: (taskId: string, runId?: string) => {
+    sessionStore.setState((state) => {
+      if (runId && state.startingTaskIds[taskId]?.runId !== runId) return;
       delete state.startingTaskIds[taskId];
     });
   },

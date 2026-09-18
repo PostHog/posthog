@@ -47,6 +47,7 @@ import {
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MathType,
+    MetricsHistogramQuery,
     MetricsQuery,
     Node,
     NodeKind,
@@ -75,7 +76,7 @@ import {
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, FunnelVizType, GroupTypeIndex, IntervalType } from '~/types'
+import { AnnotationScope, BaseMathType, ChartDisplayType, FunnelVizType, GroupTypeIndex, IntervalType } from '~/types'
 
 import { LATEST_VERSIONS } from './latest-versions'
 
@@ -229,6 +230,10 @@ export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQ
 
 export function isMetricsQuery(node?: Record<string, any> | null): node is MetricsQuery {
     return node?.kind === NodeKind.MetricsQuery
+}
+
+export function isMetricsHistogramQuery(node?: Record<string, any> | null): node is MetricsHistogramQuery {
+    return node?.kind === NodeKind.MetricsHistogramQuery
 }
 
 export function isEndpointsUsageOverviewQuery(node?: Record<string, any> | null): node is EndpointsUsageOverviewQuery {
@@ -485,6 +490,10 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
     return undefined
 }
 
+export const isMetricInsightQuery = (query?: Record<string, any> | null): boolean =>
+    (isDataVisualizationNode(query) && query.display === ChartDisplayType.Metric) ||
+    (isInsightVizNode(query) && isTrendsQuery(query.source) && getDisplay(query.source) === ChartDisplayType.Metric)
+
 // Display types whose viz paints to a <canvas> (Chart.js / quill-charts), which repaints on every resize
 // frame. Everything else renders as DOM/SVG and is cheap to keep mounted while a tile is resized.
 const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([
@@ -672,6 +681,15 @@ export const getShowAnnotations = (query: InsightQueryNode): boolean | undefined
         return query.trendsFilter?.showAnnotations
     } else if (isFunnelsQuery(query)) {
         return query.funnelsFilter?.showAnnotations
+    }
+    return undefined
+}
+
+export const getAnnotationsScope = (query: InsightQueryNode): AnnotationScope | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.annotationsScope
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.annotationsScope
     }
     return undefined
 }

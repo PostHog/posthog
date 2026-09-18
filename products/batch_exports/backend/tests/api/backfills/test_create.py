@@ -1,7 +1,7 @@
 import datetime as dt
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import patch
 
 from django.test import override_settings
@@ -272,7 +272,7 @@ def test_batch_export_backfill_with_end_at_in_the_future(
 
     batch_export_id = batch_export["id"]
 
-    with freeze_time(test_time):
+    with time_machine.travel(test_time, tick=False):
         response = backfill_batch_export(
             client,
             team.pk,
