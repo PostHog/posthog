@@ -82,6 +82,20 @@ class TableAccessDeniedError(QueryError):
         self.table_name = table_name
 
 
+class PostgresLinkUnavailableError(ExposedHogQLError):
+    """The process has no credentials for the federated Postgres link that `system.*` tables read
+    through. Offline workers run without them, so a query the SQL editor prints happily cannot be
+    printed at all there: exposed and terminal, so callers stop retrying and say where to run it."""
+
+    code_name = "postgres_link_unavailable"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "PostHog's own tables (the system.* schema) aren't available to background jobs. "
+            "Run this query in the SQL editor instead."
+        )
+
+
 class NotImplementedError(InternalHogQLError):
     """This feature isn't implemented in HogQL (yet)."""
 

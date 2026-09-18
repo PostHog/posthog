@@ -18,6 +18,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.schema import QueryStatus
 
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import PostgresLinkUnavailableError
 from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.client.execute import _KILL_SWITCH_SETTINGS, KillSwitchLevel
@@ -147,6 +148,25 @@ class TestFrameMaterializeEnqueue(APIBaseTest):
         status = manager.get_query_status()
         self.assertTrue(status.complete and status.error)
         self.assertIn(expected_message, status.error_message or "")
+
+    def test_unprintable_system_table_query_is_terminal_and_says_where_to_run_it(self):
+        # The worker has no credentials for the federated Postgres link every system.* table
+        # reads through, so printing the query raises before ClickHouse is touched. It must end
+        # the job on the first attempt with copy that points at the SQL editor, not burn three
+        # retries and land on the generic "try re-running the cell" fallback.
+        inputs, manager = self._registered_inputs()
+
+        with (
+            patch.object(frame_materialize, "_materialize_slots"),
+            patch.object(frame_materialize, "_print_clickhouse_sql", side_effect=PostgresLinkUnavailableError()),
+        ):
+            with self.assertRaises(exceptions.ApplicationError) as caught:
+                frame_materialize.materialize_frame(inputs)
+
+        self.assertTrue(caught.exception.non_retryable)
+        status = manager.get_query_status()
+        self.assertTrue(status.complete and status.error)
+        self.assertIn("SQL editor", status.error_message or "")
 
     def test_mid_stream_failure_removes_the_corrupt_object_and_surfaces_the_real_error(self):
         # ClickHouse streams 200 before execution finishes; a mid-stream failure can close
