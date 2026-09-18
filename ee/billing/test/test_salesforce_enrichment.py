@@ -588,15 +588,24 @@ class TestSalesforceAccountQuery(SimpleTestCase):
             assert "www." not in actual_query
             assert "https://" not in actual_query
 
-    def test_get_salesforce_accounts_by_domain_returns_empty_for_invalid(self):
-        """Test that invalid domains return empty list."""
-        result = get_salesforce_accounts_by_domain("")
-        assert result == []
+    @parameterized.expand(
+        [
+            ("", "empty string"),
+            ("   ", "whitespace only"),
+        ]
+    )
+    def test_get_salesforce_accounts_by_domain_returns_empty_for_invalid(self, domain, description):
+        """Test that invalid domains return empty list without querying Salesforce."""
+        mock_sf_client = patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client")
+        with mock_sf_client as mock_get_sf:
+            mock_sf = mock_get_sf.return_value
+            mock_sf.query_all.return_value = {"records": []}
 
-    def test_get_salesforce_accounts_by_domain_returns_empty_for_whitespace(self):
-        """Test that whitespace-only domains return empty list."""
-        result = get_salesforce_accounts_by_domain("   ")
-        assert result == []
+            result = get_salesforce_accounts_by_domain(domain)
+
+            # A reachable client makes this assert the validation branch, not the connection failure path
+            assert result == [], f"Failed for: {description}"
+            assert not mock_sf.query_all.called, f"Failed for: {description}"
 
     def test_get_salesforce_accounts_by_domain_precise_matching(self):
         """Test that domain matching is precise and doesn't match unintended domains."""
