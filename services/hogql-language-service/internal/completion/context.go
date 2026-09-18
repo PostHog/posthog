@@ -33,6 +33,7 @@ const (
 
 type sqlToken struct {
 	text  string
+	raw   string
 	kind  sqlTokenKind
 	depth int
 }
@@ -274,7 +275,7 @@ func scanSQLTokens(input string) ([]sqlToken, int, bool) {
 			if character != '\'' {
 				kind = sqlTokenWord
 			}
-			tokens = append(tokens, sqlToken{text: strings.ToUpper(input[index:end]), kind: kind, depth: depth})
+			tokens = append(tokens, sqlToken{text: strings.ToUpper(input[index:end]), raw: input[index:end], kind: kind, depth: depth})
 			index = end
 			continue
 		}
@@ -287,7 +288,7 @@ func scanSQLTokens(input string) ([]sqlToken, int, bool) {
 				}
 				end += size
 			}
-			tokens = append(tokens, sqlToken{text: strings.ToUpper(input[index:end]), kind: sqlTokenWord, depth: depth})
+			tokens = append(tokens, sqlToken{text: strings.ToUpper(input[index:end]), raw: input[index:end], kind: sqlTokenWord, depth: depth})
 			index = end
 			continue
 		}
@@ -296,27 +297,27 @@ func scanSQLTokens(input string) ([]sqlToken, int, bool) {
 			for end < len(input) && ((input[end] >= '0' && input[end] <= '9') || input[end] == '.') {
 				end++
 			}
-			tokens = append(tokens, sqlToken{text: input[index:end], kind: sqlTokenValue, depth: depth})
+			tokens = append(tokens, sqlToken{text: input[index:end], raw: input[index:end], kind: sqlTokenValue, depth: depth})
 			index = end
 			continue
 		}
 		switch character {
 		case '(':
-			tokens = append(tokens, sqlToken{text: "(", kind: sqlTokenLeftParen, depth: depth})
+			tokens = append(tokens, sqlToken{text: "(", raw: "(", kind: sqlTokenLeftParen, depth: depth})
 			depth++
 			index++
 		case ')':
 			if depth > 0 {
 				depth--
 			}
-			tokens = append(tokens, sqlToken{text: ")", kind: sqlTokenRightParen, depth: depth})
+			tokens = append(tokens, sqlToken{text: ")", raw: ")", kind: sqlTokenRightParen, depth: depth})
 			index++
 		case ',':
-			tokens = append(tokens, sqlToken{text: ",", kind: sqlTokenComma, depth: depth})
+			tokens = append(tokens, sqlToken{text: ",", raw: ",", kind: sqlTokenComma, depth: depth})
 			index++
 		default:
 			end := operatorEnd(input, index)
-			tokens = append(tokens, sqlToken{text: strings.ToUpper(input[index:end]), kind: sqlTokenOperator, depth: depth})
+			tokens = append(tokens, sqlToken{text: strings.ToUpper(input[index:end]), raw: input[index:end], kind: sqlTokenOperator, depth: depth})
 			index = end
 		}
 	}
