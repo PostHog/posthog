@@ -1,14 +1,16 @@
 # HogQL recipes over the GitHub warehouse tables
 
-These base subqueries mirror the product's curated builders
-(`products/engineering_analytics/backend/logic/views/`), so an insight built on them matches what the dashboard and MCP tools report.
+These base subqueries follow the product's curated builders
+(`products/engineering_analytics/backend/logic/views/`), so the recipes below report what the dashboard and MCP tools do.
+Both bases are simplified: neither carries the fork-network and merge-queue attribution rules the builders apply.
+Read the caveat under each base before you compose it into a query of your own.
 Replace every `github_*` table name (`github_pull_requests`, `github_workflow_runs`, `github_workflow_jobs`, `github_reviews`, `github_team_members`) with the team's real table name from `engineering-analytics-sources` (`prefix` + `github_<endpoint>`).
 The `engineering_analytics_*` views used below have fixed names — no prefix, no discovery.
 
 ## Contents
 
 - [The PR base](#the-pr-base) — the shared PR subquery: state, repo identity, bot flag, `open_to_merge_seconds`
-- [The workflow-runs base](#the-workflow-runs-base) — the shared CI subquery: conclusion, duration, `pr_number` association
+- [The workflow-runs base](#the-workflow-runs-base) — the shared CI subquery: conclusion, duration, and a simplified `pr_number`
 - [Recipe: weekly open→merge time trend](#recipe-weekly-openmerge-time-trend) — p50 and p95 hours to merge
 - [Recipe: weekly CI success rate and p95 duration per workflow](#recipe-weekly-ci-success-rate-and-p95-duration-per-workflow) — which conclusions count as a verdict
 - [Recipe: PR throughput per week](#recipe-pr-throughput-per-week) — merged and closed-unmerged counts
@@ -57,6 +59,13 @@ The two-layer shape is required: the inner `SELECT` parses string timestamps and
 the outer derives state, repo identity, and durations.
 Collapsing the layers hits ClickHouse's Array-inside-Nullable rejection and same-`SELECT` alias limits.
 
+This base keeps merge-queue gate PRs, which the product's builder drops.
+A queue opens one throwaway draft PR per merge attempt, so those rows are CI artifacts and no PR surface shows them.
+Every recipe below that reads this base filters `NOT is_bot`, which removes them, because the queue bot authors them.
+The one exception is the failing-CI recipe, which counts open PRs of every author on purpose — so that recipe can count a gate attempt the dashboard leaves out.
+Before you use this base for an open-PR count, take the gate filter from `logic/views/pull_requests.py`, which reads `head.ref` and pairs the branch shape with the PR author.
+SPEC §6 locks the rule.
+
 ## The workflow-runs base
 
 ```sql
@@ -88,8 +97,14 @@ FROM (
 )
 ```
 
-`pr_number` is the first entry of the run's `pull_requests` association, or `0` when there is none (fork PRs, pushes with no open PR); filter `pr_number > 0` before attributing runs to PRs.
+`pr_number` here is the first entry of the run's `pull_requests` association, or `0` when there is none (fork PRs, pushes with no open PR).
 This association, not `head_sha`, is how the product links CI to a PR across all its pushes.
+
+The `pr_number` above is simplified, and the product's builder applies two further rules that change it.
+It keeps only association entries whose `base.repo.id` equals the run's own `repository.id`, because GitHub lists every PR in the fork network that shares the run's head SHA — so an unfiltered first entry credits a default-branch push to a downstream fork's "sync from upstream" PR, under this repo's own owner and name.
+It also resolves a merge-queue gate run through the gate branch name rather than the association, corroborated against the run actor, because the association names the throwaway PR the queue opened instead of the PR being landed.
+So do not attribute runs to PRs from this base alone.
+Take both rules from `logic/views/workflow_runs.py` and `logic/merge_queue.py` first; SPEC §6 locks them, and the product `CLAUDE.md` calls CI↔PR linkage the decision most often re-derived wrong.
 
 ## Recipe: weekly open→merge time trend
 
