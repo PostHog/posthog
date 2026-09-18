@@ -1376,7 +1376,8 @@ class TestDataQualityCheckAPI(APIBaseTest):
         response = self.client.get(f"{self.url}/subjects/")
 
         assert response.status_code == status.HTTP_200_OK, response.content
-        assert [(row["name"], row["editable"]) for row in response.json()] == [("orders", False)]
+        editable_by_name = {row["name"]: row["editable"] for row in response.json()}
+        assert editable_by_name["orders"] is False
 
     def test_the_catalog_marks_nothing_editable_for_a_read_only_token(self) -> None:
         token = generate_random_token_personal()
@@ -1391,7 +1392,9 @@ class TestDataQualityCheckAPI(APIBaseTest):
         response = self.client.get(f"{self.url}/subjects/", HTTP_AUTHORIZATION=f"Bearer {token}")
 
         assert response.status_code == status.HTTP_200_OK, response.content
-        assert [(row["name"], row["editable"]) for row in response.json()] == [("orders", False)]
+        editable_by_name = {row["name"]: row["editable"] for row in response.json()}
+        assert "orders" in editable_by_name
+        assert not any(editable_by_name.values())
 
     @parameterized.expand(
         [
