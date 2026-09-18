@@ -751,22 +751,6 @@ class TestWebEnsurePrecomputed(BaseTest):
         web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
         assert mock_ensure.call_args.kwargs["read_after_write"] is False
 
-    @parameterized.expand(
-        [
-            ("built_this_call_serves_live_once", True, False),
-            ("pre_existing_coverage_serves", False, True),
-        ]
-    )
-    @mock.patch(f"{_COMMON}.ensure_precomputed")
-    def test_freshly_built_coverage_is_not_read_back(self, _name, freshly_built, expected_ready, mock_ensure):
-        # Quorum is skipped on web builds, so a read in the same call as the build can
-        # land on a replica the parts have not reached and cache a partial result. The
-        # wrapper must report a miss for coverage built this call — the caller serves
-        # the live query once and the jobs serve every later request.
-        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[], freshly_built=freshly_built)
-        result = web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
-        assert result.ready is expected_ready
-
     @mock.patch(f"{_COMMON}.ensure_precomputed")
     def test_pinned_team_restamps_prebuilt_schedule(self, mock_ensure):
         # A caller may pass an already-built TtlSchedule (ensure_precomputed accepts one);

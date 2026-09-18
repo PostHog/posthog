@@ -710,12 +710,6 @@ def web_ensure_precomputed(
             schedule = replace(schedule, rules=[(forced_cutoff, 1), *schedule.rules])
         kwargs["ttl_seconds"] = schedule
     result = ensure_precomputed(team=team, **kwargs)
-    if result.ready and result.freshly_built and not kwargs.get("read_after_write", True):
-        # The coverage landed during this very call and quorum was skipped, so the parts
-        # may not have reached the read replica yet — a read now could cache a partial
-        # result. Report a miss so this request (the warmer, in practice) serves the
-        # live query once; the jobs are READY and serve every request after this one.
-        result = replace(result, ready=False)
     if not result.ready and not background and runner is not None and family is not None:
         # Check-only miss: warm in the background (debounced per team/family/shape)
         # so the next visit is served from precompute while this one goes live.

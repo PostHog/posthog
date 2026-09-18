@@ -95,6 +95,11 @@ PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST or DEBUG else "auto"
 # distinct from 159 TIMEOUT_EXCEEDED (max_execution_time), which stays non-retryable.
 PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS = 2 * 1000
 
+# How long a quorum-skipping caller waits after building before its own read, so the
+# parts can replicate (observed lag between colocated replicas is under a second).
+# Zero in tests and local dev: the single-node ClickHouse there has no replica to lag.
+PREAGGREGATION_REPLICATION_SETTLE_SECONDS: float = 0.0 if TEST or DEBUG else 1.0
+
 
 # Mirrors the `lazy_computation.executed` structured log so the same outcomes
 # (`success` / `timeout` / `non_retryable_error` / `max_retries_exceeded`) are
@@ -581,7 +586,7 @@ class LazyComputationQuery:
     cache_key_context: dict[str, str] | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class LazyComputationResult:
     """Result of executing lazy computation jobs."""
 
@@ -1764,7 +1769,7 @@ def ensure_precomputed(
         stale_while_revalidate_seconds=stale_while_revalidate_seconds,
         run_inserts=run_inserts,
     )
-    return executor.execute(
+    result = executor.execute(
         team,
         query_info,
         time_range_start,
@@ -1772,6 +1777,13 @@ def ensure_precomputed(
         run_insert=_run_manual_insert,
         end_is_data_horizon=end_is_data_horizon,
     )
+    if not read_after_write and result.ready and result.freshly_built and PREAGGREGATION_REPLICATION_SETTLE_SECONDS:
+        # The coverage landed during this call and quorum was skipped, so the parts may
+        # not have reached the caller's read replica yet. Waiting out the replication
+        # lag here is what keeps the caller's immediate read-back (the warmer warming
+        # the query cache) from caching a partial result for the full TTL.
+        time.sleep(PREAGGREGATION_REPLICATION_SETTLE_SECONDS)
+    return result
 
 
 def _resolve_insert_query(insert_query: str | ast.SelectQuery, placeholders: dict[str, ast.Expr]) -> ast.SelectQuery:

@@ -3534,6 +3534,40 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
         # The coverage landed in this call, so quorum-skipping callers must not read it yet.
         assert result.freshly_built is True
 
+    @parameterized.expand(
+        [
+            ("quorum_skipped_waits_for_replication", {"read_after_write": False}, True),
+            ("quorum_insert_needs_no_wait", {}, False),
+        ]
+    )
+    def test_settle_wait_after_quorumless_build(self, _name, extra_kwargs, expect_sleep):
+        # Without the wait, the builder's immediate read-back can land on a replica the
+        # quorum-less parts have not reached and cache a partial result for the TTL.
+        with (
+            patch(
+                f"products.analytics_platform.backend.lazy_computation.lazy_computation_executor.PREAGGREGATION_REPLICATION_SETTLE_SECONDS",
+                1.0,
+            ),
+            patch(
+                f"products.analytics_platform.backend.lazy_computation.lazy_computation_executor.time.sleep"
+            ) as mock_sleep,
+            patch(f"products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute"),
+        ):
+            result = ensure_precomputed(
+                team=self.team,
+                insert_query=self.INSERT_QUERY,
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                **extra_kwargs,
+            )
+
+        assert result.ready is True
+        assert result.freshly_built is True
+        if expect_sleep:
+            mock_sleep.assert_called_once_with(1.0)
+        else:
+            mock_sleep.assert_not_called()
+
     def test_ast_insert_path_passes_insert_settings_to_clickhouse(self):
         job = PreaggregationJob.objects.create(
             team=self.team,
