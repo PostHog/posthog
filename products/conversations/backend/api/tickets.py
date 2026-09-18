@@ -933,6 +933,16 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 ),
             ),
             OpenApiParameter(
+                "ids",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Comma-separated list of ticket `id`s to narrow the list to (max 100; later entries are "
+                    "dropped). An entry that is not a UUID is skipped, so a value with no usable id returns "
+                    "no tickets rather than the whole inbox."
+                ),
+            ),
+            OpenApiParameter(
                 "search",
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,

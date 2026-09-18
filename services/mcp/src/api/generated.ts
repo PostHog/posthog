@@ -100447,6 +100447,10 @@ export namespace Schemas {
      */
     emails?: string;
     /**
+     * Comma-separated list of ticket `id`s to narrow the list to (max 100; later entries are dropped). An entry that is not a UUID is skipped, so a value with no usable id returns no tickets rather than the whole inbox.
+     */
+    ids?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
