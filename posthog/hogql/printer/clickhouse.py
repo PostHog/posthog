@@ -126,7 +126,7 @@ class ClickHousePrinter(BasePrinter):
 
     def visit_cte(self, node: ast.CTE):
         if node.materialized is False:
-            raise ImpossibleASTError("ClickHouse does not support NOT MATERIALIZED CTEs")
+            raise QueryError("ClickHouse does not support NOT MATERIALIZED CTEs")
         if node.using_key is not None:
             raise QueryError(f"CTE USING KEY is not supported in the '{self.DIALECT_NAME}' dialect")
 

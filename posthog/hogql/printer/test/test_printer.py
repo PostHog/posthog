@@ -5262,14 +5262,24 @@ class TestPrinter(BaseTest):
             ),
         )
 
-    def test_cte_materialization_hint_not_materialized_not_supported(self):
-        with self.assertRaises(ImpossibleASTError) as ctx:
-            self._select(
-                """
-                WITH some_cte AS NOT MATERIALIZED (SELECT event FROM events)
-                SELECT event FROM some_cte
-                """,
-            )
+    @parameterized.expand(
+        [
+            (
+                "plain",
+                "WITH some_cte AS NOT MATERIALIZED (SELECT event FROM events) SELECT event FROM some_cte",
+            ),
+            (
+                # The CTE body prints before the recursive gate, so this shape must still name a
+                # reason rather than fall through to an internal error.
+                "recursive",
+                "WITH RECURSIVE some_cte AS NOT MATERIALIZED (SELECT 1 AS n UNION ALL "
+                "SELECT n + 1 FROM some_cte WHERE n < 5) SELECT n FROM some_cte",
+            ),
+        ]
+    )
+    def test_cte_materialization_hint_not_materialized_not_supported(self, _name: str, query: str):
+        with self.assertRaises(QueryError) as ctx:
+            self._select(query)
         self.assertIn("NOT MATERIALIZED", str(ctx.exception))
 
     def test_cte_column_name_list_not_supported(self):

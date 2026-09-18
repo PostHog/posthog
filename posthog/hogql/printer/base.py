@@ -281,9 +281,7 @@ class BasePrinter(Visitor[str]):
 
     def visit_cte(self, node: ast.CTE):
         if node.materialized is not None:
-            raise ImpossibleASTError(
-                f"CTE materialization hints are not supported in the '{self.DIALECT_NAME}' dialect"
-            )
+            raise QueryError(f"CTE materialization hints are not supported in the '{self.DIALECT_NAME}' dialect")
         if node.using_key is not None:
             raise QueryError(f"CTE USING KEY is not supported in the '{self.DIALECT_NAME}' dialect")
 
