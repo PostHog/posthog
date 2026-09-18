@@ -138,14 +138,15 @@ class ContextService:
         inside the body would truncate the strip early and leave block remnants. A raw
         `<posthog_trusted_context>` is worse: the system prompt tells the agent to follow that block
         like system instructions, so an attacker-influencable value (a property filter carried in a
-        shared URL, for example) could forge one and have its contents obeyed. Newlines are escaped
-        one level down for the same reason, so that a value carrying `\n- ` cannot forge extra item
-        lines in the block the model reads.
+        shared URL, for example) could forge one and have its contents obeyed. Line breaks are
+        escaped one level down for the same reason, so that a value carrying `\n- ` cannot forge
+        extra item lines in the block the model reads. A lone `\r` is a line break too, so it is
+        escaped along with `\r\n` and `\n`.
 
         Must stay equivalent to the frontend `defang` in `posthogContextBlock.ts`.
         """
         escaped = _CONTEXT_TAG_PATTERN.sub(r"<\\\1\2", str(text))
-        return escaped.replace("\r\n", "\\n").replace("\n", "\\n")
+        return escaped.replace("\r\n", "\\n").replace("\r", "\\n").replace("\n", "\\n")
 
     def _format_item(self, item: AttachedContext) -> str:
         """Render one attachment line.
