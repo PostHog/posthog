@@ -958,7 +958,7 @@ CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro2_mv TO posthog.metrics2_inpu
   cityHash64(mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes))) AS resource_fingerprint,
   timestamp,
   observed_timestamp,
-  observed_timestamp
+  if(abs(dateDiff('second', timestamp, observed_timestamp)) <= 86400, timestamp, observed_timestamp)
   + toIntervalDay(
     assumeNotNull(
       if(
