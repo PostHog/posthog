@@ -43,12 +43,10 @@ export interface TabView {
 }
 
 export interface SplitView {
-  members: SplitMember[];
+  members: Pick<TabView, "id" | "label" | "icon">[];
   activeId: string;
   name?: string;
 }
-
-type SplitMember = Pick<TabView, "id" | "label" | "icon">;
 
 /** Which bulk-close actions would close at least one (unpinned) tab. */
 interface Closable {
@@ -170,53 +168,6 @@ export function TabStrip({
         )}
       </Flex>
     </TooltipProvider>
-  );
-}
-
-function MemberGlyph({ member }: { member: SplitMember }) {
-  if (member.icon) {
-    return (
-      <span className="flex shrink-0 items-center [&>svg]:size-3.5">
-        {member.icon}
-      </span>
-    );
-  }
-  return (
-    <span className="flex size-3.5 shrink-0 items-center justify-center rounded-xs bg-foreground/10 font-medium text-[9px] uppercase leading-none">
-      {member.label.trim().charAt(0) || "?"}
-    </span>
-  );
-}
-
-function SplitTooltip({ split }: { split: SplitView }) {
-  return (
-    <div className="flex min-w-44 flex-col gap-1.5 py-0.5">
-      <div className="flex items-center justify-between gap-3 text-muted">
-        <span className="flex items-center gap-1.5">
-          <SquareSplitHorizontalIcon size={12} />
-          {split.name ?? "Split"}
-        </span>
-        <span>{split.members.length} tabs</span>
-      </div>
-      <div className="flex flex-col gap-1">
-        {split.members.map((member) => {
-          const shown = member.id === split.activeId;
-          return (
-            <div
-              key={member.id}
-              className={cn(
-                "flex items-center gap-2",
-                shown ? "font-medium" : "text-muted",
-              )}
-            >
-              <MemberGlyph member={member} />
-              <span className="min-w-0 flex-1">{member.label}</span>
-              {shown && <span className="text-muted text-xxs">showing</span>}
-            </div>
-          );
-        })}
-      </div>
-    </div>
   );
 }
 
@@ -374,7 +325,7 @@ function SortableTabPill({
               reads `#channel / home`. Then the page name, unless it would just
               repeat the channel-home name already shown above. */}
           {split ? (
-            <SplitTooltip split={split} />
+            <div className="font-medium">{label}</div>
           ) : (
             <>
               {tab.channelName ? (
