@@ -83,6 +83,9 @@ export function SuggestedReviewerAvatarStack({
   const visible = reviewers.slice(0, MAX_VISIBLE);
   const overflow = reviewers.length - visible.length;
   const reviewerCountLabel = `${reviewers.length} suggested reviewer${reviewers.length === 1 ? "" : "s"}`;
+  // The avatars overlap, so each one needs a ring in the color of the surface
+  // behind it to keep an apparent gap. Rows publish that color as
+  // `--inbox-row-surface`; anything else falls back to the panel background.
   const avatarStack = (
     <span className="-space-x-1.5 flex items-center">
       <span className="sr-only">{reviewerCountLabel}</span>
@@ -91,11 +94,11 @@ export function SuggestedReviewerAvatarStack({
           key={reviewer.github_login}
           githubLogin={reviewer.github_login}
           size="sm"
-          className="ring-(--color-panel-solid) ring-2"
+          className="ring-2 ring-[var(--inbox-row-surface,var(--color-panel-solid))]"
         />
       ))}
       {overflow > 0 ? (
-        <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-(--gray-3) px-1 font-semibold text-[9px] text-gray-11 leading-none ring-(--color-panel-solid) ring-2">
+        <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-(--gray-3) px-1 font-semibold text-[9px] text-gray-11 leading-none ring-2 ring-[var(--inbox-row-surface,var(--color-panel-solid))]">
           +{overflow}
         </span>
       ) : null}
