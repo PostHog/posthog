@@ -5,18 +5,21 @@
 # recordings and scores each fresh output against the recorded production output and the human thumbs
 # label, so a prompt change shows its effect on scan quality before it ships.
 #
-# It is advisory, never a merge gate. Gemini is nondeterministic and the dataset is re-sampled per
-# run, so the score is a directional signal. Read the two paired scorers together: labeled_outcome
-# flat or up while output_stability drops means the change only added churn.
+# It is advisory, never a merge gate. Gemini is nondeterministic, so the score is a directional
+# signal. Read the two paired scorers together: labeled_outcome flat or up while output_stability
+# drops means the change only added churn.
 #
-# The dataset is collected fresh on the ephemeral runner each run, which re-verifies AI
-# data-processing consent; it is never cached, uploaded as an artifact, or otherwise persisted.
+# The dataset comes from the pinned set in object storage when the
+# REPLAY_VISION_EVAL_PIN_BUCKET / REPLAY_VISION_EVAL_PIN_KEY repo vars are set (the pin's consent
+# is re-verified at eval start); otherwise it is collected fresh on the runner, which re-verifies
+# AI data-processing consent. Either way it is never cached, uploaded as an artifact, or otherwise
+# persisted beyond the run.
 # Only aggregate scores reach the public job log and step summary.
 # If any required secret is missing the job skips green with a warning, so a fork or a
 # not-yet-configured environment is unaffected.
 #
-# A dataset pinned to the same sessions across runs (a standing benchmark comparable over time)
-# needs an internal store plus a data-governance decision on persisting recordings; see
+# Persisting real recordings in the internal bucket needs a data-governance decision; until it
+# clears, the repo vars stay unset and runs keep collecting fresh. See
 # products/replay_vision/evals/README.md.
 name: Replay Vision Evals
 
@@ -146,7 +149,8 @@ jobs:
               run: sudo echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Collect golden dataset
-              if: steps.gate.outputs.enabled == 'true'
+              # Skipped when the pin is configured: the eval step downloads the pinned dataset itself.
+              if: steps.gate.outputs.enabled == 'true' && vars.REPLAY_VISION_EVAL_PIN_BUCKET == ''
               shell: bash
               env:
                   POSTHOG_API_KEY: ${{ secrets.REPLAY_VISION_EVAL_POSTHOG_API_KEY }}
@@ -179,6 +183,10 @@ jobs:
               shell: bash
               env:
                   REPLAY_VISION_EVAL_DATASET: ${{ env.DATASET_DIR }}
+                  # The consent re-verification at eval start reads the source instance's API.
+                  POSTHOG_API_KEY: ${{ secrets.REPLAY_VISION_EVAL_POSTHOG_API_KEY }}
+                  REPLAY_VISION_EVAL_DATASET_BUCKET: ${{ vars.REPLAY_VISION_EVAL_PIN_BUCKET }}
+                  REPLAY_VISION_EVAL_DATASET_OBJECT_KEY: ${{ vars.REPLAY_VISION_EVAL_PIN_KEY }}
                   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
                   BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
                   # The one-shot preflight name for a plain Anthropic key (used directly, no gateway).
