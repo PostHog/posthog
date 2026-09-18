@@ -454,6 +454,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_hide_feature_flag_insights_filter(self) -> None:
         from posthog.helpers.dashboard_templates import (
+            FEATURE_FLAG_ENRICHED_INSIGHT_DESCRIPTION,
+            FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME,
+            FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME,
             FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
             FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
         )
@@ -462,43 +465,50 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
         }
+        generated = [
+            (
+                FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
+                "Shows the number of total calls made on feature flag with key: my-flag",
+            ),
+            (
+                FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
+                "Shows the number of unique user calls made on feature flag per variant with key: my-flag",
+            ),
+            # A group-aggregated flag names its entity instead of "users"
+            (
+                "Feature Flag calls made by unique organizations per variant",
+                "Shows the number of unique organization calls made on feature flag per variant with key: my-flag",
+            ),
+            (FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME, FEATURE_FLAG_ENRICHED_INSIGHT_DESCRIPTION),
+            (FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME, FEATURE_FLAG_ENRICHED_INSIGHT_DESCRIPTION),
+        ]
+        # A generated name a person can reuse, which the description tells apart
+        kept = [
+            ("Regular Insight", ""),
+            (FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME, "My own copy of this chart"),
+            (FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME, "My own copy of this chart"),
+        ]
 
-        # Create feature flag insights
-        Insight.objects.create(
-            name=FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
-            filters=Filter(data=filter_dict).to_dict(),
-            saved=True,
-            team=self.team,
-            created_by=self.user,
-        )
+        for name, description in generated + kept:
+            Insight.objects.create(
+                name=name,
+                description=description,
+                filters=Filter(data=filter_dict).to_dict(),
+                saved=True,
+                team=self.team,
+                created_by=self.user,
+            )
 
-        Insight.objects.create(
-            name=FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
-            filters=Filter(data=filter_dict).to_dict(),
-            saved=True,
-            team=self.team,
-            created_by=self.user,
-        )
-
-        # Create a regular insight
-        Insight.objects.create(
-            name="Regular Insight",
-            filters=Filter(data=filter_dict).to_dict(),
-            saved=True,
-            team=self.team,
-            created_by=self.user,
-        )
-
-        # Without filter, should return all 3 insights
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 3)
+        self.assertEqual(len(response.json()["results"]), len(generated) + len(kept))
 
-        # With filter, should exclude feature flag insights
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true&hide_feature_flag_insights=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["name"], "Regular Insight")
+        self.assertEqual(
+            sorted((result["name"], result["description"]) for result in response.json()["results"]),
+            sorted(kept),
+        )
 
     def test_get_insight_in_dashboard_context(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard(
@@ -703,29 +713,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["results"][0]["short_id"], "12345678")
         self.assertEqual(response.json()["results"][0]["query"]["source"]["series"][0]["event"], "$pageview")
 
-    @parameterized.expand([("full", ""), ("basic", "&basic=true")])
-    def test_listing_an_insight_with_only_filters_serves_them(self, _name: str, query_string: str) -> None:
-        # `unique_users` is not a math value the query schema accepts, so this definition cannot be
-        # expressed as a query at all. Reading it used to raise out of the serializer and fail the
-        # whole list request.
-        stored_filters = {"events": [{"id": "$pageview", "math": "unique_users"}]}
-        Insight.objects.create(
-            team=self.team,
-            saved=True,
-            short_id="brokenfl",
-            filters=stored_filters,
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id=brokenfl{query_string}")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        result = response.json()["results"][0]
-        self.assertIsNone(result["query"])
-        # The stored definition survives the read, and the absent `insight` key is not filled in:
-        # the client's converter defaults it, the same way the server's converter does.
-        self.assertEqual(result["filters"]["events"], stored_filters["events"])
-        self.assertNotIn("insight", result["filters"])
-
     @parameterized.expand(
         [
             ("numeric_id", lambda insight: insight.id),
@@ -803,7 +790,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "name",
                 "derived_name",
                 "favorited",
-                "filters",
                 "query",
                 "dashboard_tiles",
                 "description",

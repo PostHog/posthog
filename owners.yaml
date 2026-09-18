@@ -67,7 +67,7 @@ rules:
     - match: '/.claude/agents/ingestion/'
       owners: team-ingestion
     - match: '/bin/start-llm-gateway'
-      owners: [team-devex, team-ai-gateway]
+      owners: [team-devex, team-agent-infrastructure]
     - match: '/cli/'
       owners: team-error-tracking
     - match: '/docs/onboarding/ai-observability/'
@@ -85,10 +85,8 @@ rules:
     # The URL surface and the inbound webhook transport: shared plumbing every product
     # lands on, so a change here reaches further than the product that prompted it.
     - match:
-          - '/docs/internal/github-webhooks.md'
           - '/docs/internal/url-routing.md'
           - '/posthog/api/__init__.py'
-          - '/posthog/api/github_webhooks/'
           - '/posthog/api/rest_router.py'
           - '/posthog/api/routing.py'
           - '/posthog/ee_urls.py'
@@ -121,7 +119,7 @@ rules:
     - match: '/posthog/test/test_feature_flag_analytics.py'
       owners: team-feature-flags
     - match: '/services/llm-gateway/'
-      owners: team-ai-gateway
+      owners: team-agent-infrastructure
     - match:
           - '/tools/hogli-commands/'
           - '/tools/hogli/'

@@ -38,14 +38,13 @@ function DashboardButtonTileItemInternal(
     ref: React.ForwardedRef<HTMLDivElement>
 ): JSX.Element {
     const buttonId = tile.button_tile?.id
-    const { copyToDestinations } = useValues(
-        dashboardWidgetMenusLogic({
-            instanceKey: buttonId != null ? `button-${buttonId}` : `button-tile-${tile.id}`,
-            dashboardId,
-            dashboards: undefined,
-            dashboard_tiles: tile.button_tile?.dashboard_tiles,
-        })
-    )
+    const dashboardWidgetMenusLogicProps = {
+        instanceKey: buttonId != null ? `button-${buttonId}` : `button-tile-${tile.id}`,
+        dashboardId,
+        dashboards: undefined,
+        dashboard_tiles: tile.button_tile?.dashboard_tiles,
+    }
+    const { copyToDestinations } = useValues(dashboardWidgetMenusLogic(dashboardWidgetMenusLogicProps))
 
     return (
         <ButtonTileCard

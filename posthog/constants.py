@@ -58,11 +58,6 @@ class AvailableFeature(StrEnum):
     POSTHOG_CODE_USAGE = "posthog_code_usage"
 
 
-LOGS_RETENTION_FEATURES_BY_DAYS: dict[int, AvailableFeature] = {
-    30: AvailableFeature.LOGS_RETENTION_30D,
-}
-
-
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 TREND_FILTER_TYPE_DATA_WAREHOUSE = "data_warehouse"
@@ -336,9 +331,6 @@ SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY = "ai-subscriptions"
 # Enable only after every subscriptions worker has deployed the gallery claim boundary. Older workers
 # share the v2 activity name and would otherwise send the legacy layout during a rolling deployment.
 SUBSCRIPTION_SLACK_GALLERY_FEATURE_FLAG_KEY = "subscription-slack-gallery"
-EXPERIMENTS_RETENTION_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY = (
-    "experiments-retention-metric-events-preaggregation"
-)
 GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"

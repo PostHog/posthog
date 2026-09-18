@@ -1525,6 +1525,7 @@ export const ReferenceTypeEnumApi = {
  * * `experiment` - experiment
  * * `survey` - survey
  * * `ticket` - ticket
+ * * `report` - report
  * * `trace` - trace
  * * `eval` - eval
  * * `event` - event
@@ -1544,6 +1545,7 @@ export const ObjectKindEnumApi = {
     Experiment: 'experiment',
     Survey: 'survey',
     Ticket: 'ticket',
+    Report: 'report',
     Trace: 'trace',
     Eval: 'eval',
     Event: 'event',
@@ -1568,6 +1570,7 @@ export interface TaskRunPostHogReferenceMetadataApi {
      * * `experiment` - experiment
      * * `survey` - survey
      * * `ticket` - ticket
+     * * `report` - report
      * * `trace` - trace
      * * `eval` - eval
      * * `event` - event
@@ -1698,6 +1701,11 @@ export interface TaskRunDetailDTOApi {
     error_message: string | null
     /** @nullable */
     output: TaskRunDetailDTOApiOutput
+    /**
+     * Latest summary for this task, including a summary inherited from an earlier run.
+     * @nullable
+     */
+    task_summary: string | null
     state: TaskRunDetailDTOApiState
     readonly artifacts: readonly TaskRunArtifactResponseApi[]
     /** @nullable */
@@ -3905,6 +3913,7 @@ export interface TaskRunPostHogReferenceApi {
      * * `experiment` - experiment
      * * `survey` - survey
      * * `ticket` - ticket
+     * * `report` - report
      * * `trace` - trace
      * * `eval` - eval
      * * `event` - event
@@ -4172,6 +4181,14 @@ export interface TaskRunRelayMessageResponseApi {
 export interface PatchedTaskRunSetOutputRequestApi {
     /** Output data from the run. Validated against the task's json_schema if one is set. */
     output?: unknown
+}
+
+export interface PatchedTaskRunSetSummaryRequestApi {
+    /**
+     * Complete running summary that replaces the prior summary.
+     * @maxLength 1500
+     */
+    summary?: string
 }
 
 export interface TaskRunStartRequestApi {
@@ -4659,6 +4676,11 @@ export interface ModelChoiceApi {
     display_name: string
     /** Reasoning efforts this model accepts, in ascending order. Empty for a model with no effort control. */
     supported_efforts: ReasoningEffortEnumApi[]
+    /**
+     * Per-token cost against the catalogue baseline, ready to display, such as '2.5x' or '~0.55x'. Prefixed when the input and output rates diverge enough that one number flatters either. Null for a model the catalogue quotes no rate for.
+     * @nullable
+     */
+    cost_multiplier?: string | null
 }
 
 export interface ModelCatalogueResponseApi {
@@ -4942,6 +4964,11 @@ export interface TaskRunSummaryApi {
      * * `closed` - closed
      * * `unknown` - unknown */
     pr_state: PrStateEnumApi | null
+    /**
+     * Latest summary for this task, including a summary inherited from an earlier run.
+     * @nullable
+     */
+    task_summary?: string | null
 }
 
 export interface TaskSearchResultApi {
