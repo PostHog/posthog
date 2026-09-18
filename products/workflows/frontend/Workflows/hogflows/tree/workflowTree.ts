@@ -22,6 +22,11 @@ export interface WorkflowTreeBranch {
     sequence: WorkflowTreeSequence
 }
 
+// A wait can run without a timeout, and the duration field keeps a unit-only value such as "m"
+// while its number input is empty. Neither names a window, so accept only the complete duration
+// that the step schema accepts.
+const COMPLETE_DURATION_PATTERN = /^\d*\.?\d+[dhms]$/
+
 export function isBranchingAction(action: Pick<HogFlowAction, 'type'>): boolean {
     return BRANCHING_ACTION_TYPES.includes(action.type as (typeof BRANCHING_ACTION_TYPES)[number])
 }
@@ -29,7 +34,10 @@ export function isBranchingAction(action: Pick<HogFlowAction, 'type'>): boolean 
 export function getWorkflowBranchLabel(action: HogFlowAction | undefined, edge: HogFlowEdge): string {
     if (action?.type === 'wait_until_condition') {
         if (edge.type === 'continue') {
-            return `No match within ${action.config.max_wait_duration}`
+            const maxWaitDuration = action.config.max_wait_duration
+            return COMPLETE_DURATION_PATTERN.test(maxWaitDuration ?? '')
+                ? `No match within ${maxWaitDuration}`
+                : 'No match'
         }
         const { condition, events } = action.config
         if (condition?.name) {

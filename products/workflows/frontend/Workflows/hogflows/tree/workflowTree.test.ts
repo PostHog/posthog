@@ -244,6 +244,22 @@ describe('buildWorkflowTree', () => {
     )
 
     it.each([
+        ['2d', 'No match within 2d'],
+        ['m', 'No match'],
+        ['', 'No match'],
+        [undefined, 'No match'],
+    ] as const)('labels a wait timeout of %s on the continue edge', (maxWaitDuration, label) => {
+        const waitAction = {
+            id: 'wait',
+            type: 'wait_until_condition',
+            name: 'Wait for activation',
+            description: '',
+            config: { condition: {}, events: [], max_wait_duration: maxWaitDuration },
+        } as HogFlowAction
+        expect(getWorkflowBranchLabel(waitAction, edge('wait', 'next', 'continue'))).toBe(label)
+    })
+
+    it.each([
         ['branch', 'Loyal users'],
         ['continue', 'Fallback if no cohort has traffic'],
     ] as const)('labels random cohort outcomes for edge=%s', (edgeType, label) => {
