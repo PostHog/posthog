@@ -8,7 +8,7 @@ import type { ProductPushCampaignApi } from 'products/growth/frontend/generated/
 import { navPanelProductPushAdLogic } from './navPanelProductPushAdLogic'
 import { navPanelProductPushWelcomeLogic } from './navPanelProductPushWelcomeLogic'
 
-const campaignFor = (productKey: string, productPath: string): ProductPushCampaignApi => ({
+const campaignFor = (productKey: string, productPath: string | null): ProductPushCampaignApi => ({
     id: '0197c2a2-0000-0000-0000-000000000000',
     product_key: productKey,
     product_path: productPath,
@@ -30,8 +30,8 @@ describe('navPanelProductPushAdLogic', () => {
         jest.restoreAllMocks()
     })
 
-    // The welcome modal follows the click through the navigation it starts, so a click that
-    // leaves the app for good must not leave one queued behind for a later, unrelated arrival.
+    // The welcome modal follows the click through the navigation it starts, so a click that can
+    // never land on the pushed product's own scene must not leave one queued behind.
     it.each([
         [
             'a click into the app queues the welcome it will open there',
@@ -40,6 +40,7 @@ describe('navPanelProductPushAdLogic', () => {
             true,
         ],
         ['a click that leaves the app queues nothing', ProductKey.POSTHOG_DESKTOP, 'PostHog Desktop', false],
+        ['a click on a surface with no product scene queues nothing', ProductKey.SELF_DRIVING, null, false],
     ])('%s', (_description, productKey, productPath, queued) => {
         logic = navPanelProductPushAdLogic({ campaign: campaignFor(productKey, productPath) })
         logic.mount()

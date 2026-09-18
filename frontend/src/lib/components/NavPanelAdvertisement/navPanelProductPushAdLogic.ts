@@ -145,9 +145,12 @@ export const navPanelProductPushAdLogic = kea<navPanelProductPushAdLogicType>([
                         intent_context: ProductIntentContext.NAV_PANEL_ADVERTISEMENT_CLICKED,
                         metadata: { campaign_id: props.campaign.id },
                     })
-                    // An external destination opens in a new tab and leaves this one where it is, so a
-                    // welcome queued for it could only ever surface on some later, unrelated arrival.
-                    if (values.label && !isExternalLink(values.destination)) {
+                    // The welcome opens on the pushed product's own scene, so only a click that can
+                    // reach one queues it. An external destination opens a new tab and leaves this one
+                    // where it is. A surface such as Slack or Self-driving has no catalog entry, so no
+                    // scene identifies it and no setup gate covers it, which would leave its welcome
+                    // queued and never opened.
+                    if (values.label && values.productInfo && !isExternalLink(values.destination)) {
                         actions.setPendingWelcome({
                             campaignId: props.campaign.id,
                             productKey,
