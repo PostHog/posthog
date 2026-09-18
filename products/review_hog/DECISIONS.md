@@ -3347,7 +3347,11 @@ RATE_LIMITED` (GraphQL's primary signal, invisible to the REST-shaped helper) no
    `None`, and an absent trust decision read as a pass would let a pending pre-gate FIXED row publish a commit
    link and resolve a thread whose asker nobody ever judged. To keep fail-closed from meaning fail-noisy for
    legacy rows that were trusted all along, `_prepare_run` decides the gate for a `None` row from the live
-   thread and persists it, which also stops the row being legacy on the next run.
+   thread and persists it, which also stops the row being legacy on the next run. That backfill runs ahead of
+   the deterministic pre-filter, not on its redelivery branch: `classify_thread` asks `should_resolve`, so a
+   pre-gate fix whose reply landed and whose resolve did not reads as settled and would never reach a branch
+   that could fill the decision in — the thread would stay open on every later run with nothing able to advance
+   it. _Caught by the second CodeRabbit pass on this branch._
    Not yet validated by a live e2e run, which the deferral asked for on prompt-content changes: the rendering
    and gate are covered by unit tests, and the prompt half needs a real run on a PR with a drive-by thread.
 

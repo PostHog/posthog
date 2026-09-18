@@ -222,11 +222,18 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
     redeliver: list[tuple[ReviewThread, ThreadVerdictArtefact]] = []
     skipped = 0
     for thread in threads:
-        action = classify_thread(thread, verdicts.get(thread.thread_id))
+        verdict = verdicts.get(thread.thread_id)
+        if verdict is not None:
+            # Before classifying, not after: `classify_thread` asks `should_resolve`, which refuses a
+            # fix with no trust decision, so a legacy row whose reply landed and whose resolve did
+            # not would classify as SKIP and never reach a path that could fill the decision in.
+            verdict = _with_backfilled_ask_trust(input, report_id, thread, verdict)
+        action = classify_thread(thread, verdict)
         if action == ThreadAction.TRIAGE:
             triage.append(thread)
         elif action == ThreadAction.SIDE_EFFECTS:
-            redeliver.append((thread, _with_backfilled_ask_trust(input, report_id, thread, verdicts[thread.thread_id])))
+            assert verdict is not None  # classify_thread only returns SIDE_EFFECTS for a verdict
+            redeliver.append((thread, verdict))
         else:
             skipped += 1
 
@@ -275,11 +282,16 @@ def _with_backfilled_ask_trust(
 ) -> ThreadVerdictArtefact:
     """Decide the author-permission gate for a verdict that predates it, from the live thread.
 
-    Delivery and `should_resolve` both read `ask_trusted is not True`, so an undelivered row
-    written before the gate existed would otherwise deliver with a could-not-clear caveat and never
-    resolve, however trusted its asker was. The thread is in hand here and the gate is a pure
-    function of its opening comment, so the decision is simply made now and persisted, which also
-    stops the row being legacy on the next run.
+    Delivery and `should_resolve` both read `ask_trusted is not True`, so a row written before the
+    gate existed would otherwise deliver with a could-not-clear caveat and never resolve, however
+    trusted its asker was. The thread is in hand here and the gate is a pure function of its opening
+    comment, so the decision is simply made now and persisted, which also stops the row being legacy
+    on the next run.
+
+    Runs for EVERY thread carrying a verdict, ahead of the pre-filter, because the state that needs
+    it most is the one the pre-filter would drop: a fix whose reply landed and whose resolve did not
+    reads as settled once `should_resolve` refuses it, so a backfill downstream of the classification
+    would never see it and the thread would stay open forever.
     """
     if verdict.ask_trusted is not None:
         return verdict

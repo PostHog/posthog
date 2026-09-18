@@ -582,6 +582,39 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         ):
             return _prepare_run(self._input())
 
+    def test_legacy_fix_awaiting_only_its_resolve_is_not_stranded(self) -> None:
+        # The state the pre-filter would drop: a pre-gate fix whose reply landed and whose resolve
+        # did not. `should_resolve` refuses a fix carrying no trust decision, so the thread reads as
+        # settled, and a backfill downstream of the classification would never see it — the thread
+        # would stay open on every later run with nothing able to advance it.
+        report = self._report()
+        # A bot opened it, so resolve etiquette permits the resolve and the gate clears the ask.
+        thread = ReviewThread(
+            thread_id="PRRT_1",
+            path="f.py",
+            comments=[
+                ThreadComment(id=100, node_id="PRRC_1", author_login="greptile", author_is_bot=True, body="fix this")
+            ],
+        )
+        persist_thread_verdict(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            verdict=_verdict(
+                outcome="fixed",
+                author_is_bot=True,
+                reply_posted=True,
+                resolved=False,
+                ask_trusted=None,
+            ),
+        )
+
+        prepared = self._prepare_with([thread])
+
+        assert isinstance(prepared, _PreparedRun)
+        assert len(prepared.redeliver) == 1
+        stored = load_thread_verdicts(team_id=self.team.id, report_id=str(report.id))["PRRT_1"]
+        assert stored.ask_trusted is True
+
     def test_prepare_anchors_the_run_and_marks_only_queued_threads(self) -> None:
         # The run's progress anchor must list exactly the queued threads (progress counts verdicts
         # against it, so a settled thread in the list would read as forever-unfinished work), and
