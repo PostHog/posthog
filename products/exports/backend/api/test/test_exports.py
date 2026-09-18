@@ -755,6 +755,26 @@ class TestExports(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 2)
 
+    def test_list_pages_exports_with_equal_created_at(self) -> None:
+        for _ in range(5):
+            ExportedAsset.objects.create(
+                team=self.team,
+                dashboard_id=self.dashboard.id,
+                export_format="image/png",
+                created_by=self.user,
+            )
+        own_assets = ExportedAsset.objects.filter(team=self.team, created_by=self.user)
+        own_assets.update(created_at=now())
+        expected_ids = sorted(own_assets.values_list("id", flat=True), reverse=True)
+
+        paged_ids: list[int] = []
+        for offset in range(0, len(expected_ids), 2):
+            page = self.client.get(f"/api/projects/{self.team.id}/exports?limit=2&offset={offset}")
+            self.assertEqual(page.status_code, status.HTTP_200_OK)
+            paged_ids.extend(result["id"] for result in page.json()["results"])
+
+        self.assertEqual(paged_ids, expected_ids)
+
     def test_dataset_exports_are_visible_to_their_creator_in_the_export_list(self) -> None:
         dataset_export = ExportedAsset.objects.create(
             team=self.team,
