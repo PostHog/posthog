@@ -58,6 +58,41 @@ describe('dataWarehouseViewsLogic', () => {
         expect(logic.values.materializingViewIds).toEqual(status === 200 ? [] : ['view-1'])
     })
 
+    // Regression: the endpoint pages, so a project with more views than one page used to lose
+    // every view past the first page from the tree.
+    it('follows pagination until the last page of views', async () => {
+        await expectLogic(logic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
+
+        const requestedPages: (string | null)[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/warehouse_saved_queries/': ({ request }) => {
+                    const url = new URL(request.url)
+                    const page = url.searchParams.get('page')
+                    requestedPages.push(page)
+                    return page === '2'
+                        ? [200, { results: [{ id: 'view-2', name: 'second' }], next: null }]
+                        : [
+                              200,
+                              {
+                                  results: [{ id: 'view-1', name: 'first' }],
+                                  next: `${url.pathname}?page=2`,
+                              },
+                          ]
+                },
+            },
+        })
+
+        logic.actions.loadDataWarehouseSavedQueries()
+        await expectLogic(logic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
+
+        expect(requestedPages).toEqual([null, '2'])
+        expect(logic.values.dataWarehouseSavedQueries).toEqual([
+            { id: 'view-1', name: 'first' },
+            { id: 'view-2', name: 'second' },
+        ])
+    })
+
     // Regression: delete must drop the view from the sidebar (via the loader's optimistic filter)
     // and refresh the picker (schema), but must NOT reload the whole list — that replaces every
     // row's identity and makes the tree flash.

@@ -338,10 +338,11 @@ tools:
         list: true
         title: List saved queries
         description: >
-            List all data warehouse saved queries (views) in the project. Returns each view's name, materialization
-            status, sync frequency, column schema, latest error, and last run timestamp. Each view also includes its
-            semantic `description` and a `description` on each entry of `columns` when set. Use this to discover
-            available views and what they mean before querying them in HogQL.
+            List the data warehouse saved queries (views) in the project. Returns each view's name, materialization
+            status, sync frequency, latest error, last run timestamp, and semantic `description`. `columns` comes back
+            empty unless you pass `include_columns: true`, because the column schema of every view is a large payload;
+            ask for one view with view-get when you only need its columns. Use this to discover available views and
+            what they mean before querying them in HogQL.
     view-materialize:
         operation: warehouse_saved_queries_materialize_create
         enabled: true

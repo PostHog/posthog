@@ -43,7 +43,11 @@ class _CancelTarget:
 
 
 class DataWarehouseSavedQueryPagination(PageNumberPagination):
-    page_size = 1000
+    # A page a screen can show. The whole team's views in one response is a thousand rows of
+    # per-row work nobody reads, so a caller that wants more asks for it.
+    page_size = 100
+    page_size_query_param = "page_size"
+    max_page_size = 1000
 
 
 class SavedQueryResumeSerializer(serializers.Serializer):
@@ -92,8 +96,11 @@ class SavedQueryMaterializeSerializer(serializers.Serializer):
 
 class SavedQueryListQuerySerializer(serializers.Serializer):
     include_columns = serializers.BooleanField(
-        default=True,
-        help_text="Include column definitions. Set to false for table-only lists.",
+        default=False,
+        help_text=(
+            "Include column definitions. Off by default: the columns of a view are a large payload "
+            "that most list callers do not render. Set to true to get them."
+        ),
     )
 
 
@@ -109,6 +116,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"
+    # The list action overwrites this from its query parameter, which defaults to off. Every other
+    # action serializes columns, so the default here stays on.
     _include_columns: bool = True
 
     def get_serializer_context(self) -> dict[str, Any]:
@@ -164,7 +173,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         # Allow retrieve so the Node detail page can fetch them by ID.
         if self.action == "list":
             # The list serializer reads none of these large JSONB columns. Left in the SELECT,
-            # Postgres detoasts each one per view, and a page holds up to a thousand views.
+            # Postgres detoasts each one per view of the page.
             base_queryset = base_queryset.exclude(origin=DataWarehouseSavedQuery.Origin.ENDPOINT).defer(
                 "query", "external_tables", "incremental_state"
             )
