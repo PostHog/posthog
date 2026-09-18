@@ -1,5 +1,7 @@
+import urllib.error
 import importlib.util
 from datetime import UTC, datetime
+from email.message import Message
 from pathlib import Path
 from typing import Any
 
@@ -96,3 +98,44 @@ def test_builds_run_and_job_events_from_this_workflow_only() -> None:
 )
 def test_sends_nothing_when_this_workflow_is_ambiguous(check_runs: list[dict[str, Any]]) -> None:
     assert capture.build_events(check_runs, OWN_JOB, CONTEXT, "success", 1, NOW) == []
+
+
+def http_error(code: int) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError("https://api.github.com", code, "error", Message(), None)
+
+
+OWN_RUN = [check_run(1, "wf1", OWN_JOB, "2026-09-18T15:29:00Z")]
+
+
+@pytest.mark.parametrize(
+    "reads, batches_sent",
+    [
+        ([[], [], OWN_RUN], 1),
+        ([http_error(502), OWN_RUN], 1),
+        ([http_error(403)], 0),
+        ([[], [], []], 0),
+    ],
+    ids=["own check run posted late", "server error", "client error", "own check run never posted"],
+)
+def test_retries_the_check_run_lookup(
+    monkeypatch: pytest.MonkeyPatch, reads: list[list[dict[str, Any]] | Exception], batches_sent: int
+) -> None:
+    pending = iter(reads)
+    sent: list[list[dict[str, Any]]] = []
+
+    def fetch_check_runs(repo: str, sha: str, token: str) -> list[dict[str, Any]]:
+        read = next(pending)
+        if isinstance(read, Exception):
+            raise read
+        return read
+
+    monkeypatch.setattr(capture, "fetch_check_runs", fetch_check_runs)
+    monkeypatch.setattr(capture, "capture", lambda token, events: sent.append(events))
+    monkeypatch.setattr(capture, "LOOKUP_BACKOFF_SECONDS", 0)
+    monkeypatch.setenv("POSTHOG_API_TOKEN", "phc_test")
+    monkeypatch.delenv("POSTHOG_DEVEX_PROJECT_API_TOKEN", raising=False)
+    monkeypatch.setenv("OWN_JOB_NAME", OWN_JOB)
+
+    assert capture.main() == 0
+    assert next(pending, None) is None
+    assert len(sent) == batches_sent

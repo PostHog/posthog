@@ -187,6 +187,7 @@ def fetch_check_runs(repo: str, sha: str, token: str) -> list[dict[str, Any]]:
                 "Authorization": f"Bearer {token}",
             },
         )
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- the origin is the fixed https API_ROOT
         with urllib.request.urlopen(request, timeout=30) as response:
             batch = json.loads(response.read().decode("utf-8"))["check_runs"]
         check_runs.extend(batch)
@@ -202,6 +203,7 @@ def capture(token: str, events: list[dict[str, Any]]) -> None:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
+    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- the origin is the fixed https POSTHOG_HOST
     with urllib.request.urlopen(request, timeout=30):
         pass
 
