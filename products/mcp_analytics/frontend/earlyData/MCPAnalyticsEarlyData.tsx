@@ -9,15 +9,13 @@ import { dataColorVars } from 'lib/colors'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { urls } from 'scenes/urls'
 
-import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
-import { Query } from '~/queries/Query/Query'
-
+import { ToolCallFeed } from '../components/ToolCallFeed'
+import { MCP_ACTIVITY_DATA_COLLECTION_ID } from '../components/toolCallFeedQuery'
 import { Card } from '../dashboard/Card'
 import { formatNumber } from '../dashboard/formatters'
 import { HarnessLogo } from '../dashboard/harness'
 import type { MCPIntentThemeApi } from '../generated/api.schemas'
 import { METRICS_UNLOCK_LIFETIME_CALLS, mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
-import { MCP_ACTIVITY_DATA_COLLECTION_ID, MCP_ACTIVITY_INTENT_COLUMN, MCP_ACTIVITY_MAX_ROWS } from './mcpActivityQuery'
 import type { ChecklistItem } from './mcpEarlyDataLogic'
 import { mcpEarlyDataLogic } from './mcpEarlyDataLogic'
 
@@ -98,37 +96,16 @@ function LiveActivityCard(): JSX.Element {
             {/* Fills the card so the feed ends where the sidebar does; the rest scrolls. Stacked
                 layouts have no sidebar to match, so they fall back to a fixed cap. */}
             <div className="flex flex-1 min-h-0 max-h-[36rem] overflow-hidden lg:max-h-none">
-                <Query
-                    attachTo={mcpEarlyDataLogic}
-                    uniqueKey="mcp-analytics-activity"
+                <ToolCallFeed
                     query={activityQuery}
                     setQuery={setActivityQuery}
-                    context={{
-                        dataTableMaxPaginationRows: MCP_ACTIVITY_MAX_ROWS,
-                        dataTableAllowContentScroll: true,
-                        dataTableNouns: ['tool call', 'tool calls'],
-                        compactDataTableToolbar: true,
-                        hideRecordingButton: true,
-                        columns: {
-                            [MCP_ACTIVITY_INTENT_COLUMN]: { render: MCPActivityIntentCell, width: '20rem' },
-                        },
-                        emptyStateDetail: 'Adjust the date range or filters, or wait for agents to call a tool.',
-                        emptyStateHeading: 'No MCP tool calls in this period',
-                        extraDataTableQueryFeatures: [QueryFeature.showCount],
-                        insightProps: {
-                            dashboardItemId: 'new-mcp-analytics-activity',
-                            dataNodeCollectionId: MCP_ACTIVITY_DATA_COLLECTION_ID,
-                        },
-                        showOpenEditorButton: false,
-                    }}
+                    uniqueKey="mcp-analytics-activity"
+                    dataNodeCollectionId={MCP_ACTIVITY_DATA_COLLECTION_ID}
+                    attachTo={mcpEarlyDataLogic}
                 />
             </div>
         </section>
     )
-}
-
-function MCPActivityIntentCell({ value }: { value: unknown }): JSX.Element {
-    return <span className="block min-w-64 whitespace-normal">{value ? String(value) : '—'}</span>
 }
 
 // `total` is every intent analysed, so the bar reads as this theme's share of them. The backend
