@@ -708,6 +708,30 @@ def test_preserves_clickhouse_json_array_indexing() -> None:
     assert context.values == {"hogql_val_0": '$["key.with.dot"]', "hogql_val_1": '$["items"]'}
 
 
+@pytest.mark.parametrize("operator", ["+", "-", "*", "/", "%"])
+def test_chained_arithmetic_keeps_only_used_parameters(operator: str) -> None:
+    context = _context_with_trino_table()
+    terms = [f"JSONExtractFloat(user_id, 'metric_{index}')" for index in range(6)]
+
+    sql, _ = prepare_and_print_ast(parse_select(f"SELECT {f' {operator} '.join(terms)} FROM users"), context, "trino")
+
+    assert context.values == {f"hogql_val_{index}": f'$["metric_{index}"]' for index in range(6)}
+    rendered_terms = [
+        'coalesce(TRY(CAST(json_extract_scalar("users"."user_id", '
+        f"%(hogql_val_{index})s) AS DOUBLE)), CAST(0 AS DOUBLE))"
+        for index in range(6)
+    ]
+    expected = rendered_terms[0]
+    for term in rendered_terms[1:]:
+        if operator == "/":
+            expected = f"(CAST({expected} AS DOUBLE) / CAST({term} AS DOUBLE))"
+        elif operator == "%":
+            expected = f"MOD({expected}, {term})"
+        else:
+            expected = f"({expected} {operator} {term})"
+    assert sql == f'SELECT {expected} FROM "ducklake"."analytics"."users" AS "users"'
+
+
 def test_lowers_event_property_backed_fields_to_the_physical_json_column() -> None:
     context = HogQLContext(
         database=Database(include_posthog_tables=True),
