@@ -11,9 +11,10 @@ from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import (
     ENQUEUE_FAILURE_BACKOFF_SECONDS,
+    PRECOMPUTE_ONLY_MAX_STALE_SECONDS,
     REVALIDATION_TRIGGER,
-    STALE_WHILE_REVALIDATE_SECONDS,
     _query_shape_key,
+    handle_not_ready,
     handle_stale_served,
     marketing_ensure_precomputed,
 )
@@ -31,9 +32,6 @@ class TestMarketingLazyPrecompute(BaseTest):
         self.query = MarketingAnalyticsTableQuery(dateRange=DateRange(date_from="-7d"), properties=[])
         redis.get_client().delete(f"ma_swr_reval:{self.team.id}:{_query_shape_key(self.query)}")
         reset_query_tags()
-        # Flag on by default here; the flag's own behaviour is covered by test_flag_gates_serve_stale.
-        # Cached on the team instance, so it must be cleared between cases that mock it differently.
-        self.team._ma_serve_stale_flag = True  # type: ignore[attr-defined]
 
     def tearDown(self):
         reset_query_tags()
@@ -41,18 +39,20 @@ class TestMarketingLazyPrecompute(BaseTest):
 
     @parameterized.expand(
         [
-            ("user_facing", None),
-            # The Dagster warmer, which tags CACHE_WARMUP. Served its own stale rows it would persist
-            # them as fresh and never rebuild, and marketing data would stop refreshing entirely.
-            ("dagster_warmer", {"feature": Feature.CACHE_WARMUP}),
-            ("revalidation_task", {"trigger": REVALIDATION_TRIGGER, "feature": Feature.CACHE_WARMUP}),
+            # User-facing read: precompute-only. Never build inline (run_inserts=False), and serve stale
+            # up to the ceiling so a warmer that has fallen behind still answers instead of going not-ready.
+            ("user_facing", None, False),
+            # The Dagster warmer, which tags CACHE_WARMUP. It is the producer, so it must build (default
+            # run_inserts=True) and take no grace — served its own stale rows it would never recompute.
+            ("dagster_warmer", {"feature": Feature.CACHE_WARMUP}, True),
+            ("revalidation_task", {"trigger": REVALIDATION_TRIGGER, "feature": Feature.CACHE_WARMUP}, True),
             # Belt: should the feature tag ever be clobbered before the ensure (web hit exactly this),
             # the trigger alone must still classify the revalidation task as a refresher.
-            ("revalidation_task_feature_clobbered", {"trigger": REVALIDATION_TRIGGER, "feature": Feature.QUERY}),
+            ("revalidation_task_feature_clobbered", {"trigger": REVALIDATION_TRIGGER, "feature": Feature.QUERY}, True),
         ]
     )
     @mock.patch(f"{_MODULE}.ensure_precomputed")
-    def test_serve_stale_grace_by_caller(self, _name, tags, mock_ensure):
+    def test_read_serves_precompute_only_refresher_builds(self, _name, tags, is_refresher, mock_ensure):
         mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
         if tags is None:
             marketing_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
@@ -60,39 +60,23 @@ class TestMarketingLazyPrecompute(BaseTest):
             with tags_context(**tags):
                 marketing_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
 
-        grace = mock_ensure.call_args.kwargs["stale_while_revalidate_seconds"]
-        if tags is None:
-            assert grace == STALE_WHILE_REVALIDATE_SECONDS
+        kwargs = mock_ensure.call_args.kwargs
+        if is_refresher:
+            # A refresher must not be forced read-only or served stale, or it would never rebuild.
+            assert "run_inserts" not in kwargs, f"refresher {tags} must be allowed to build"
+            assert "stale_while_revalidate_seconds" not in kwargs, f"refresher {tags} must not be served stale"
         else:
-            assert grace is None, f"refresher {tags} must not be served stale"
+            assert kwargs["run_inserts"] is False, "user-facing read must never materialize inline"
+            assert kwargs["stale_while_revalidate_seconds"] == PRECOMPUTE_ONLY_MAX_STALE_SECONDS
 
-    @parameterized.expand([("flag_on", True, STALE_WHILE_REVALIDATE_SECONDS), ("flag_off", False, None)])
-    @mock.patch(f"{_MODULE}.ensure_precomputed")
-    @mock.patch(f"{_MODULE}.feature_enabled_or_false")
-    def test_flag_gates_serve_stale(self, _name, flag, expected_grace, flag_eval, mock_ensure):
-        # The kill switch. Off must hand the executor no grace at all, so the read materializes inline
-        # exactly as it did before serve-stale existed (and, getting no `stale`, enqueues no revalidation).
-        del self.team._ma_serve_stale_flag  # type: ignore[attr-defined]
-        flag_eval.return_value = flag
-        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+    @mock.patch(_DELAY)
+    def test_handle_not_ready_enqueues_a_background_warm(self, delay):
+        # A cold team outside the rolling warm set reads not-ready; that must trigger a one-off background
+        # warm so its next visit is served. Without this, cold teams stay not-ready forever.
+        handle_not_ready(team=self.team, query=self.query)
 
-        marketing_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
-
-        assert mock_ensure.call_args.kwargs["stale_while_revalidate_seconds"] == expected_grace
-
-    @mock.patch(f"{_MODULE}.ensure_precomputed")
-    @mock.patch(f"{_MODULE}.feature_enabled_or_false")
-    def test_flag_is_evaluated_once_per_team_across_the_reads_ensures(self, flag_eval, mock_ensure):
-        # One load fires this several times (touchpoints, per-goal conversions, costs); each evaluation
-        # would otherwise be a flag call plus a $feature_flag_called event on the read path.
-        del self.team._ma_serve_stale_flag  # type: ignore[attr-defined]
-        flag_eval.return_value = True
-        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
-
-        for _ in range(4):
-            marketing_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
-
-        assert flag_eval.call_count == 1
+        assert delay.call_count == 1
+        assert delay.call_args.kwargs["team_id"] == self.team.pk
 
     @mock.patch(_DELAY)
     def test_handle_stale_served_tags_read_and_debounces_same_shape(self, delay):
