@@ -4,7 +4,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { Message } from 'node-rdkafka'
 
-import { KAFKA_CDP_EVENTS_DLQ } from '~/common/config/kafka-topics'
+import { KAFKA_CDP_EVENTS_DLQ, KAFKA_EVENTS_JSON } from '~/common/config/kafka-topics'
 import { KafkaConsumer } from '~/common/kafka/consumer/consumer-v1'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -17,13 +17,14 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '../types'
 import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
-import { createIncomingEvent, createKafkaMessage, insertHogFunction } from './_tests/fixtures'
+import { createIncomingEvent, insertHogFunction } from './_tests/fixtures'
 import { insertHogFlow } from './_tests/fixtures-hogflows'
 import { CdpCyclotronWorker } from './consumers/cdp-cyclotron-worker.consumer'
 import { CdpDlqReplayConsumer } from './consumers/cdp-dlq-replay.consumer'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
+import { JobQueue } from './services/job-queue/job-queue.interface'
 import { HogFunctionType } from './types'
 
 const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
@@ -43,14 +44,20 @@ describe('CDP dead-letter replay', () => {
     let replayConsumer: CdpDlqReplayConsumer | undefined
     let cyclotronWorker: CdpCyclotronWorker | undefined
     let dlqTopic: string
+    let eventsTopic: string
+    let readCount: number
 
     beforeEach(async () => {
         MockKafkaProducerWrapper.create = jest.fn((...args) => ActualKafkaProducerWrapper.create(...args))
 
         // The dead-letter topic is per test. It is not deleted between runs, so a shared one would
         // hand each run the records every earlier run parked and there would be nothing to assert.
+        // Both topics are per test. Topics are not deleted between runs, so a shared one would
+        // hand each run everything every earlier run produced and there would be nothing to assert.
         dlqTopic = createKafkaTestTopicName(KAFKA_CDP_EVENTS_DLQ)
-        await ensureKafkaTopics([...TEST_KAFKA_TOPICS, dlqTopic])
+        eventsTopic = createKafkaTestTopicName(KAFKA_EVENTS_JSON)
+        readCount = 0
+        await ensureKafkaTopics([...TEST_KAFKA_TOPICS, dlqTopic, eventsTopic])
         await resetTestDatabase()
 
         hub = await createHub()
@@ -70,6 +77,41 @@ describe('CDP dead-letter replay', () => {
         await closeHub(hub)
     })
 
+    /**
+     * Starts the real events consumer against this test's own events topic.
+     *
+     * Its own topic and group, so the events one test produces are not read by another, and so a
+     * group that has never committed still sees a record produced after it connects.
+     */
+    const startEventsConsumer = async (queues: { hogQueue: JobQueue; hogflowQueue: JobQueue }): Promise<void> => {
+        eventsConsumer = new CdpEventsConsumer(
+            hub,
+            createCdpConsumerDeps(hub, kafkaProducer),
+            queues,
+            eventsTopic,
+            `e2e-events-${eventsTopic}`
+        )
+        await eventsConsumer.start()
+    }
+
+    /**
+     * Produces an event and waits for the consumer to park it.
+     *
+     * Nothing here calls the consumer's own methods. The record has to arrive because the consumer
+     * read the event, failed to build it, and wrote the record itself, which is the half of the
+     * loop these tests would otherwise take on trust.
+     */
+    const parkEvent = async (expected = 1): Promise<Message[]> => {
+        const event = createIncomingEvent(team.id, {})
+        await kafkaProducer.produce({
+            topic: eventsTopic,
+            value: Buffer.from(JSON.stringify(event)),
+            key: Buffer.from(event.uuid),
+        })
+        await kafkaProducer.flush()
+        return await readDlqRecords(expected)
+    }
+
     /** Stands in for the forward fix: the same function, with inputs that now resolve. */
     const repairInputs = async (fn: HogFunctionType): Promise<void> => {
         await hub.postgres.query(
@@ -80,10 +122,15 @@ describe('CDP dead-letter replay', () => {
         )
     }
 
-    /** Reads the parked records back off the topic, so a case can drive replayBatch directly. */
+    /** Reads the parked records back off the topic, waiting until the consumer has produced them. */
     const readDlqRecords = async (expected = 1): Promise<Message[]> => {
         const consumer = new KafkaConsumer(
-            { topic: dlqTopic, groupId: `e2e-read-${dlqTopic}`, autoCommit: false, autoOffsetStore: false },
+            {
+                topic: dlqTopic,
+                groupId: `e2e-read-${dlqTopic}-${++readCount}`,
+                autoCommit: false,
+                autoOffsetStore: false,
+            },
             { 'auto.offset.reset': 'earliest' } as never
         )
         const messages: Message[] = []
@@ -123,18 +170,9 @@ describe('CDP dead-letter replay', () => {
 
         // --- park -------------------------------------------------------------------------
         const sourceQueue = createMockJobQueue()
-        eventsConsumer = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
-            hogQueue: sourceQueue,
-            hogflowQueue: sourceQueue,
-        })
-        await eventsConsumer.start()
+        await startEventsConsumer({ hogQueue: sourceQueue, hogflowQueue: sourceQueue })
 
-        const event = createIncomingEvent(team.id, {})
-        const message = createKafkaMessage(event)
-        const globals = await eventsConsumer._parseKafkaBatch([message])
-        await eventsConsumer.processBatch(globals)
-        await eventsConsumer['deadLetterService'].produceForBatch([message])
-        await kafkaProducer.flush()
+        await parkEvent()
 
         // The healthy function delivered on the first pass. That is what the replay must not repeat.
         expect(sourceQueue.queueInvocations).toHaveBeenCalledWith([expect.objectContaining({ functionId: healthy.id })])
@@ -180,17 +218,9 @@ describe('CDP dead-letter replay', () => {
         })
 
         const sourceQueue = createMockJobQueue()
-        eventsConsumer = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
-            hogQueue: sourceQueue,
-            hogflowQueue: sourceQueue,
-        })
-        await eventsConsumer.start()
+        await startEventsConsumer({ hogQueue: sourceQueue, hogflowQueue: sourceQueue })
 
-        const event = createIncomingEvent(team.id, {})
-        const message = createKafkaMessage(event)
-        await eventsConsumer.processBatch(await eventsConsumer._parseKafkaBatch([message]))
-        await eventsConsumer['deadLetterService'].produceForBatch([message])
-        await kafkaProducer.flush()
+        await parkEvent(2)
 
         await repairInputs(brokenInputs)
         await repairFilters(brokenFilter)
@@ -231,17 +261,9 @@ describe('CDP dead-letter replay', () => {
         const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
         const postgresQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
 
-        eventsConsumer = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
-            hogQueue: kafkaQueue,
-            hogflowQueue: postgresQueue,
-        })
-        await eventsConsumer.start()
+        await startEventsConsumer({ hogQueue: kafkaQueue, hogflowQueue: postgresQueue })
 
-        const event = createIncomingEvent(team.id, {})
-        const message = createKafkaMessage(event)
-        await eventsConsumer.processBatch(await eventsConsumer._parseKafkaBatch([message]))
-        await eventsConsumer['deadLetterService'].produceForBatch([message])
-        await kafkaProducer.flush()
+        await parkEvent()
 
         // Nothing was delivered: the only destination on this event could not be built.
         expect(mockFetch).not.toHaveBeenCalled()
@@ -283,17 +305,8 @@ describe('CDP dead-letter replay', () => {
         })
 
         const sourceQueue = createMockJobQueue()
-        eventsConsumer = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
-            hogQueue: sourceQueue,
-            hogflowQueue: sourceQueue,
-        })
-        await eventsConsumer.start()
-        const message = createKafkaMessage(createIncomingEvent(team.id, {}))
-        await eventsConsumer.processBatch(await eventsConsumer._parseKafkaBatch([message]))
-        await eventsConsumer['deadLetterService'].produceForBatch([message])
-        await kafkaProducer.flush()
-
-        const records = await readDlqRecords(2)
+        await startEventsConsumer({ hogQueue: sourceQueue, hogflowQueue: sourceQueue })
+        const records = await parkEvent(2)
         expect(records).toHaveLength(2)
 
         await repairInputs(brokenInputs)
@@ -324,27 +337,19 @@ describe('CDP dead-letter replay', () => {
         })
 
         const sourceQueue = createMockJobQueue()
-        eventsConsumer = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
-            hogQueue: sourceQueue,
-            hogflowQueue: sourceQueue,
-        })
-        await eventsConsumer.start()
+        await startEventsConsumer({ hogQueue: sourceQueue, hogflowQueue: sourceQueue })
 
         // Only the workflow side throws, so the destination is built and delivered as normal. The
         // executor rather than the pipeline, so the pipeline's own catch is what handles it.
-        jest.spyOn(eventsConsumer['hogFlowExecutor'], 'buildHogFlowInvocations').mockRejectedValue(
+        jest.spyOn(eventsConsumer!['hogFlowExecutor'], 'buildHogFlowInvocations').mockRejectedValue(
             new Error('workflow builder walked off a cliff')
         )
 
-        const message = createKafkaMessage(createIncomingEvent(team.id, {}))
-        await eventsConsumer.processBatch(await eventsConsumer._parseKafkaBatch([message]))
-        await eventsConsumer['deadLetterService'].produceForBatch([message])
-        await kafkaProducer.flush()
-
-        expect(sourceQueue.queueInvocations).toHaveBeenCalledWith([expect.objectContaining({ functionId: healthy.id })])
-
-        const records = await readDlqRecords()
+        const records = await parkEvent()
         expect(records).toHaveLength(1)
+
+        // The destination built and delivered on the first pass, while the workflow side threw.
+        expect(sourceQueue.queueInvocations).toHaveBeenCalledWith([expect.objectContaining({ functionId: healthy.id })])
 
         const replayQueue = createMockJobQueue()
         replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
@@ -371,15 +376,8 @@ describe('CDP dead-letter replay', () => {
         })
 
         const sourceQueue = createMockJobQueue()
-        eventsConsumer = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
-            hogQueue: sourceQueue,
-            hogflowQueue: sourceQueue,
-        })
-        await eventsConsumer.start()
-        const message = createKafkaMessage(createIncomingEvent(team.id, {}))
-        await eventsConsumer.processBatch(await eventsConsumer._parseKafkaBatch([message]))
-        await eventsConsumer['deadLetterService'].produceForBatch([message])
-        await kafkaProducer.flush()
+        await startEventsConsumer({ hogQueue: sourceQueue, hogflowQueue: sourceQueue })
+        const records = await parkEvent()
 
         // No repair. Replaying now must not consume the record.
         const replayQueue = createMockJobQueue()
@@ -387,7 +385,6 @@ describe('CDP dead-letter replay', () => {
             hogQueue: replayQueue,
             hogflowQueue: replayQueue,
         })
-        const records = await readDlqRecords()
 
         await expect(replayConsumer.replayBatch(records)).rejects.toThrow('still fail to build')
         expect(replayQueue.queueInvocations).not.toHaveBeenCalled()
@@ -420,17 +417,8 @@ describe('CDP dead-letter replay', () => {
         )
 
         const sourceQueue = createMockJobQueue()
-        eventsConsumer = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
-            hogQueue: sourceQueue,
-            hogflowQueue: sourceQueue,
-        })
-        await eventsConsumer.start()
-        const message = createKafkaMessage(createIncomingEvent(team.id, {}))
-        await eventsConsumer.processBatch(await eventsConsumer._parseKafkaBatch([message]))
-        await eventsConsumer['deadLetterService'].produceForBatch([message])
-        await kafkaProducer.flush()
-
-        const records = await readDlqRecords()
+        await startEventsConsumer({ hogQueue: sourceQueue, hogflowQueue: sourceQueue })
+        const records = await parkEvent()
         expect(records).toHaveLength(1)
         const headers = Object.assign({}, ...(records[0].headers ?? []).map((h: any) => h))
         expect(headers.dlq_hog_flow_ids.toString()).toBe(flow.id)
@@ -466,14 +454,12 @@ describe('CDP dead-letter replay', () => {
         })
 
         const sourceQueue = createMockJobQueue()
-        eventsConsumer = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
-            hogQueue: sourceQueue,
-            hogflowQueue: sourceQueue,
+        await startEventsConsumer({ hogQueue: sourceQueue, hogflowQueue: sourceQueue })
+        await kafkaProducer.produce({
+            topic: eventsTopic,
+            value: Buffer.from('not an event at all'),
+            key: null,
         })
-        await eventsConsumer.start()
-        const message = createKafkaMessage('not an event at all')
-        await eventsConsumer.processBatch(await eventsConsumer._parseKafkaBatch([message]))
-        await eventsConsumer['deadLetterService'].produceForBatch([message])
         await kafkaProducer.flush()
 
         const records = await readDlqRecords()
@@ -506,15 +492,9 @@ describe('CDP dead-letter replay', () => {
         })
 
         const sourceQueue = createMockJobQueue()
-        eventsConsumer = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
-            hogQueue: sourceQueue,
-            hogflowQueue: sourceQueue,
-        })
-        await eventsConsumer.start()
-        const message = createKafkaMessage(createIncomingEvent(team.id, {}))
-        await eventsConsumer.processBatch(await eventsConsumer._parseKafkaBatch([message]))
-        await eventsConsumer['deadLetterService'].produceForBatch([message])
-        await kafkaProducer.flush()
+        await startEventsConsumer({ hogQueue: sourceQueue, hogflowQueue: sourceQueue })
+        // Awaited, so the record is on the topic before the worker ever connects.
+        await parkEvent()
         await repairInputs(fn)
 
         // Only now does the worker start, the way scaling from zero does.
