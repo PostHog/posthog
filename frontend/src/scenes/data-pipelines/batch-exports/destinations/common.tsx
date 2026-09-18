@@ -291,7 +291,7 @@ export function ParquetExtensionField(props: ParquetExtensionFieldProps): JSX.El
         <LemonField
             name="legacy_parquet_extension"
             label="File extension"
-            help="Note: switching this on cannot be undone here; after you save, the setting no longer appears for this export."
+            help="Note: switching this on cannot be undone; after you save, the setting no longer appears for this export."
             info={
                 <>
                     Parquet records the compression codec inside the file, so the standard extension is{' '}

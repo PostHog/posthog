@@ -225,3 +225,51 @@ def test_updating_s3_family_batch_export_pins_naming_from_the_stored_config(
     config = response.json()["destination"]["config"]
     assert config["file_format"] == "Parquet"
     assert config["legacy_parquet_extension"] is expected
+
+
+def test_updating_s3_family_batch_export_rejects_turning_legacy_naming_back_on(
+    client: HttpClient, temporal, organization, team, user
+):
+    """Moving to `.parquet` is one way, and the frontend states that, so the API has to hold it."""
+    destination_type, kind, integration_config = _S3_FAMILY_INTEGRATIONS[0]
+    _, batch_export = _create_integration_backed_export(client, team, user, destination_type, kind, integration_config)
+    destination = BatchExportDestination.objects.get(batchexport__id=batch_export["id"])
+    destination.config = {
+        **destination.config,
+        "file_format": "Parquet",
+        "compression": "zstd",
+        "legacy_parquet_extension": False,
+    }
+    destination.save()
+
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {"destination": {"type": destination_type, "config": {"legacy_parquet_extension": True}}},
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert "legacy_parquet_extension" in response.json()["detail"]
+
+
+def test_updating_s3_family_batch_export_lets_a_grandfathered_export_keep_legacy_naming(
+    client: HttpClient, temporal, organization, team, user
+):
+    """An export still on the legacy names may resend the value, which is what the form does."""
+    destination_type, kind, integration_config = _S3_FAMILY_INTEGRATIONS[0]
+    _, batch_export = _create_integration_backed_export(client, team, user, destination_type, kind, integration_config)
+    destination = BatchExportDestination.objects.get(batchexport__id=batch_export["id"])
+    destination.config = {**destination.config, "file_format": "Parquet", "compression": "zstd"}
+    destination.config.pop("legacy_parquet_extension", None)
+    destination.save()
+
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {"destination": {"type": destination_type, "config": {"legacy_parquet_extension": True}}},
+    )
+
+    assert response.status_code == status.HTTP_200_OK, response.json()
+    assert response.json()["destination"]["config"]["legacy_parquet_extension"] is True

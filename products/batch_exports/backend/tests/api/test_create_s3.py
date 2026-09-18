@@ -319,12 +319,10 @@ def test_create_s3_family_batch_export_rejects_mismatched_integration_kind(
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
 
-def test_create_s3_family_batch_export_honours_an_explicit_legacy_parquet_extension(
+def test_create_s3_family_batch_export_rejects_an_explicit_legacy_parquet_extension(
     client: HttpClient, temporal, organization, team, user, aws_s3_integration
 ):
-    """`set_default_parquet_extension` should only set the default value, so an explicit value has
-    to survive it.
-    """
+    """A new export has written nothing, so it has no file names to grandfather."""
     destination_type = "AwsS3"
     integration = aws_s3_integration
     client.force_login(user)
@@ -347,5 +345,5 @@ def test_create_s3_family_batch_export_honours_an_explicit_legacy_parquet_extens
         },
     )
 
-    assert response.status_code == status.HTTP_201_CREATED, response.json()
-    assert response.json()["destination"]["config"]["legacy_parquet_extension"] is True
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert "legacy_parquet_extension" in response.json()["detail"]
