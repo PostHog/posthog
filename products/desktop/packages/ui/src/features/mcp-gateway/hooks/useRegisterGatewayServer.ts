@@ -57,12 +57,19 @@ export function useRegisterGatewayServer() {
       // Registering stores the credential but discovers no tools, and this
       // flow lands the user straight on the server's detail page — list them
       // now so that page isn't empty. A failure here is not a failed install;
-      // the detail page retries on mount.
+      // the detail page retries on mount. It is still reported, because a
+      // server that lists no tools is unusable and the row alone never says so.
       const discovery = await discoverGatewayTools(
         client,
         { serverId: created?.id, url: vars.request.url },
         { servers },
-      ).catch(() => null);
+      ).catch((error: Error) => {
+        toast.warning(
+          error.message ||
+            "Added, but listing the server's tools failed. Open the server to try again.",
+        );
+        return null;
+      });
       return { created, discoveredTools: !!discovery?.discovered, error: null };
     },
     {

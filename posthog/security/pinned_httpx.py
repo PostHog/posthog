@@ -8,9 +8,14 @@ therefore still reach an internal address if its DNS record changes in between.
 address of the URL's host. The ``Host`` header and the TLS server name keep the host name, so
 the upstream server sees an ordinary request and the certificate check stays on the name.
 
-A proxy must appear in ``SSRF_TRUSTED_PROXY_URLS`` before it can receive a request.
-Operators must verify that each trusted proxy blocks sensitive destination addresses after
-DNS resolution. An environment proxy variable alone does not establish this trust.
+Once ``SSRF_TRUSTED_PROXY_URLS`` names any proxy, a proxy must appear in it before it can
+receive a request. Operators must verify that each trusted proxy blocks sensitive destination
+addresses after DNS resolution. An environment proxy variable alone does not establish this
+trust. While the setting is empty the deployment has not declared its proxies yet, so a
+request still goes through the environment proxy the way every other outbound caller in this
+codebase does, and the client logs that it did. Refusing instead would take out every caller
+in a deployment that routes egress through a proxy, which is a bigger failure than the one the
+allowlist guards against.
 A connection through a trusted proxy is not pinned. The proxy resolves
 the name itself, and the CONNECT tunnel in httpcore uses the connect target as the TLS server
 name, so a pinned address there would fail certificate verification.
@@ -26,11 +31,25 @@ from typing import Any
 from django.conf import settings
 
 import httpx
+import structlog
 
 from posthog.security.pinned_requests import SSRFBlockedError, select_pinned_ip
 from posthog.security.url_validation import ResolvedIPs
 
+logger = structlog.get_logger(__name__)
+
 IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
+
+
+def _is_trusted_proxy(proxy_url: httpx.URL) -> bool:
+    trusted = settings.SSRF_TRUSTED_PROXY_URLS
+    if not trusted:
+        logger.warning(
+            "pinned_httpx.proxy_trust_unconfigured",
+            proxy_host=proxy_url.host,
+        )
+        return True
+    return proxy_url in {httpx.URL(url) for url in trusted}
 
 
 def _pin_key(url: httpx.URL) -> str:
@@ -53,9 +72,7 @@ class PinnedTransport(httpx.BaseTransport):
         self._inner = inner
         self._pins = dict(pins)
         self._proxy_url = proxy_url
-        self._trusted_proxy = proxy_url is None or proxy_url in {
-            httpx.URL(url) for url in settings.SSRF_TRUSTED_PROXY_URLS
-        }
+        self._trusted_proxy = proxy_url is None or _is_trusted_proxy(proxy_url)
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         host = _pin_key(request.url)

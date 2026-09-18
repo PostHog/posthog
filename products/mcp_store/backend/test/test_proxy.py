@@ -558,7 +558,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == 400
         assert "Private IP" in response.json()["error"]
 
-    @parameterized.expand([("direct",), ("trusted",), ("untrusted",), ("denied",)])
+    @parameterized.expand([("direct",), ("trusted",), ("undeclared",), ("untrusted",), ("denied",)])
     @patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips")
     def test_proxy_connects_to_the_validated_address(self, route: str, mock_validate: MagicMock) -> None:
         mock_validate.return_value = PinnedUrlVerdict(
@@ -577,7 +577,15 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         no_proxies = {key: "" for key in os.environ if key.lower().endswith("_proxy")}
         environment = {} if route == "direct" else {"HTTPS_PROXY": "http://egress.example:3128"}
-        trusted_proxies = ["http://egress.example:3128"] if route in {"trusted", "denied"} else []
+        trusted_proxies = (
+            ["http://egress.example:3128"]
+            if route in {"trusted", "denied"}
+            # An allowlist that names another proxy is what makes a route
+            # untrusted. "undeclared" is the deployment that never set one.
+            else []
+            if route == "undeclared"
+            else ["http://declared.example:3128"]
+        )
         with (
             override_settings(SSRF_TRUSTED_PROXY_URLS=trusted_proxies),
             patch.dict(os.environ, {**no_proxies, **environment}),

@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   refreshTools: vi.fn(),
   getCallbackUrl: vi.fn(),
   openAndWait: vi.fn(),
+  toastWarning: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
@@ -34,7 +35,7 @@ vi.mock("@posthog/host-router/react", () => ({
 }));
 
 vi.mock("@posthog/ui/primitives/toast", () => ({
-  toast: { error: vi.fn(), success: vi.fn() },
+  toast: { error: vi.fn(), success: vi.fn(), warning: mocks.toastWarning },
 }));
 
 import { useRegisterGatewayServer } from "./useRegisterGatewayServer";
@@ -133,7 +134,7 @@ describe("useRegisterGatewayServer", () => {
     expect(queryClient.getQueryState(toolsKey)?.isInvalidated).toBe(true);
   });
 
-  it("still registers the server when the tool listing fails", async () => {
+  it("still registers the server when the tool listing fails, and says so", async () => {
     mocks.getServers.mockResolvedValue([gatewayServer()]);
     mocks.refreshTools.mockRejectedValue(new Error("upstream down"));
 
@@ -141,6 +142,7 @@ describe("useRegisterGatewayServer", () => {
 
     expect(outcome.created?.id).toBe("srv-1");
     expect(outcome.discoveredTools).toBe(false);
+    expect(mocks.toastWarning).toHaveBeenCalledWith("upstream down");
   });
 
   it("skips the listing when the credential is still mid-OAuth", async () => {

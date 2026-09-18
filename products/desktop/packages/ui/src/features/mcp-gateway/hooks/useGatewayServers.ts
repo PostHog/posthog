@@ -81,9 +81,14 @@ export function useGatewayServers() {
         });
         queryClient.invalidateQueries({ queryKey: gatewayKeys.servers });
       },
-      // A failed listing must not read as a failed connect. The detail page
-      // still shows its empty state and retries on mount.
-      onError: () => {},
+      // A failed listing must not read as a failed connect, but it must not
+      // pass silently either: the server then sits at "Connected" with no
+      // tools and nothing says why.
+      onError: (error: Error) =>
+        toast.warning(
+          error.message ||
+            "Connected, but listing the server's tools failed. Open the server to try again.",
+        ),
     },
   );
   const discoverTools = discoverToolsMutation.mutate;

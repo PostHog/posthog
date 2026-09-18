@@ -204,6 +204,7 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
         [
             ("direct", "fetch"),
             ("trusted", "fetch"),
+            ("undeclared", "fetch"),
             ("untrusted", "fetch"),
             ("untrusted", "call"),
             ("denied", "fetch"),
@@ -241,7 +242,15 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
 
         no_proxies = {key: "" for key in os.environ if key.lower().endswith("_proxy")}
         environment = {} if route == "direct" else {"HTTPS_PROXY": "http://egress.example:3128"}
-        trusted_proxies = ["http://egress.example:3128"] if route in {"trusted", "denied"} else []
+        trusted_proxies = (
+            ["http://egress.example:3128"]
+            if route in {"trusted", "denied"}
+            # An allowlist that names another proxy is what makes a route
+            # untrusted. "undeclared" is the deployment that never set one.
+            else []
+            if route == "undeclared"
+            else ["http://declared.example:3128"]
+        )
         with (
             override_settings(SSRF_TRUSTED_PROXY_URLS=trusted_proxies),
             patch.dict(os.environ, {**no_proxies, **environment}),
