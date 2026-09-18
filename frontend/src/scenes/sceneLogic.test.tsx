@@ -31,6 +31,7 @@ const sceneImport = (): any => ({ scene: { component: Component, logic: testLogi
 
 const testScenes: Record<string, () => any> = {
     [Scene.Alerts]: sceneImport,
+    [Scene.Billing]: sceneImport,
     [Scene.DataManagement]: sceneImport,
     [Scene.OrganizationCreateFirst]: sceneImport,
     [Scene.PasswordResetComplete]: sceneImport,
@@ -124,6 +125,9 @@ describe('sceneLogic', () => {
     it('keeps /organization/billing on its own scene route, not the organization redirect', async () => {
         router.actions.push(urls.organizationBilling())
         await expectLogic(logic).delay(1)
+        // The `/*` fallback leaves the pathname alone, so only the scene tells a shadowed route apart
+        // from a served one.
+        expect(logic.values.activeSceneId).toEqual(Scene.Billing)
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.organizationBilling())
     })
 
