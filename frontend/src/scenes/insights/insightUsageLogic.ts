@@ -3,6 +3,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { asInsightSceneSource } from 'lib/utils/insightNavigation'
 import { objectsEqual } from 'lib/utils/objects'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -10,7 +11,7 @@ import { isSharedView } from '~/exporter/exporterViewLogic'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { Node } from '~/queries/schema/schema-general'
-import { InsightLogicProps } from '~/types'
+import { InsightLogicProps, InsightSceneSource } from '~/types'
 
 import type { DataNode } from '../../queries/schema/schema-general'
 import type { QueryBasedInsightModel } from '../../types'
@@ -34,12 +35,14 @@ export interface insightUsageLogicActions {
         insightModel: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
         query: Node<Record<string, any>> | null,
         isFirstLoad: boolean,
-        delay?: number | undefined
+        delay?: number | undefined,
+        sceneSource?: InsightSceneSource | null | undefined
     ) => {
         delay: number | undefined
         insightModel: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
         isFirstLoad: boolean
         query: Node<Record<string, any>> | null
+        sceneSource: InsightSceneSource | null | undefined
     } // eventUsageLogic
     onQueryChange: (
         query: Node | null,
@@ -105,6 +108,10 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
                 return
             }
 
+            // Read before the breakpoints below: the scene logic can unmount while they wait, and
+            // reading `.values` on an unmounted logic throws `[KEA] Can not find path`.
+            const sceneSource = asInsightSceneSource(logic.values.sceneSource)
+
             // Report the insight being viewed to our '/viewed' endpoint.
             // Used for "recently viewed insights", and in insights dashboard.
             if (values.insight.id && !isSharedView()) {
@@ -116,13 +123,13 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
             // Debounce to avoid noisy events from the query changing multiple times.
             await breakpoint(IS_TEST_MODE ? 1 : 500)
 
-            actions.reportInsightViewed(values.insight, query, values.isFirstLoad, 0)
+            actions.reportInsightViewed(values.insight, query, values.isFirstLoad, 0, sceneSource)
             actions.setNotFirstLoad()
 
             // Record a second view after 10 seconds.
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
 
-            actions.reportInsightViewed(values.insight, query, values.isFirstLoad, 10)
+            actions.reportInsightViewed(values.insight, query, values.isFirstLoad, 10, sceneSource)
         },
     })),
     subscriptions(({ actions }) => ({

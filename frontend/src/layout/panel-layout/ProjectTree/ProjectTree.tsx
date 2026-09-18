@@ -23,6 +23,7 @@ import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMen
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { insightShortIdForEntry } from 'lib/utils/insightNavigation'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sceneConfigurations } from 'scenes/scenes'
 
@@ -83,7 +84,8 @@ const isItemActive = (item: TreeDataItem): boolean => {
     }
 
     const currentPath = removeProjectIdIfPresent(window.location.pathname)
-    const itemHref = typeof item.record.href === 'string' ? item.record.href : ''
+    // An href can carry a `#sceneSource` tag for analytics, which is not part of the path.
+    const itemHref = (typeof item.record.href === 'string' ? item.record.href : '').split('#')[0]
 
     if (currentPath === itemHref) {
         return true
@@ -277,7 +279,8 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 if (item?.id.startsWith('shortcuts')) {
                     eventUsageLogic.actions.reportNavbarStarredItemClicked(
                         item?.record?.type || 'unknown',
-                        item?.name || 'unknown'
+                        item?.name || 'unknown',
+                        insightShortIdForEntry(item?.record?.type, item?.record?.ref)
                     )
                 }
 

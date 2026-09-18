@@ -7,6 +7,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { withSceneSource } from 'lib/utils/insightNavigation'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
@@ -75,7 +76,7 @@ export function InsightRow({ insight, isExpanded, onToggle, dataAttr }: InsightR
                     <LemonButton
                         size="small"
                         icon={<IconExternal />}
-                        to={urls.insightView(insight.short_id)}
+                        to={withSceneSource(urls.insightView(insight.short_id), 'saved-insights-list')}
                         onClick={(e) => {
                             e.stopPropagation()
                             reportInsightOpenedFromRecentInsightList()
@@ -98,7 +99,7 @@ export function InsightRow({ insight, isExpanded, onToggle, dataAttr }: InsightR
                         <LemonButton
                             type="primary"
                             icon={<IconExternal />}
-                            to={urls.insightView(insight.short_id)}
+                            to={withSceneSource(urls.insightView(insight.short_id), 'saved-insights-list')}
                             onClick={() => reportInsightOpenedFromRecentInsightList()}
                         >
                             Open insight

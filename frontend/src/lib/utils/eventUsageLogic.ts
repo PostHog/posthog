@@ -66,6 +66,7 @@ import {
     FilterLogicalOperator,
     FunnelCorrelation,
     HelpType,
+    InsightSceneSource,
     InsightShortId,
     MultipleSurveyQuestion,
     OnboardingStepKey,
@@ -112,6 +113,23 @@ export enum InsightEventSource {
     Toast = 'toast',
     Browser = 'browser',
     AddDescription = 'add_insight_description',
+}
+
+/** Reported as `opened_from` on an insight view that carries no source. */
+const INSIGHT_OPEN_SOURCE_UNKNOWN = 'direct_or_unknown'
+
+function captureNavbarStarredItem(
+    eventName: string,
+    { itemType, itemName, insightShortId }: { itemType: string; itemName: string; insightShortId?: InsightShortId }
+): void {
+    posthog.capture(
+        eventName,
+        objectClean({
+            item_type: itemType,
+            item_name: itemName,
+            insight_short_id: insightShortId,
+        })
+    )
 }
 
 export enum GraphSeriesAddedSource {
@@ -1901,12 +1919,14 @@ export interface eventUsageLogicActions {
         insightModel: Partial<QueryBasedInsightModel>,
         query: Node | null,
         isFirstLoad: boolean,
-        delay?: number
+        delay?: number,
+        sceneSource?: InsightSceneSource | null
     ) => {
         delay: number | undefined
         insightModel: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
         isFirstLoad: boolean
         query: Node<Record<string, any>> | null
+        sceneSource: InsightSceneSource | null | undefined
     }
     reportInsightWhitelabelToggled: (isWhiteLabelled: boolean) => {
         isWhiteLabelled: boolean
@@ -1973,22 +1993,28 @@ export interface eventUsageLogicActions {
     }
     reportNavbarStarredItemAdded: (
         itemType: string,
-        itemName: string
+        itemName: string,
+        insightShortId?: InsightShortId
     ) => {
+        insightShortId: InsightShortId | undefined
         itemName: string
         itemType: string
     }
     reportNavbarStarredItemClicked: (
         itemType: string,
-        itemName: string
+        itemName: string,
+        insightShortId?: InsightShortId
     ) => {
+        insightShortId: InsightShortId | undefined
         itemName: string
         itemType: string
     }
     reportNavbarStarredItemRemoved: (
         itemType: string,
-        itemName: string
+        itemName: string,
+        insightShortId?: InsightShortId
     ) => {
+        insightShortId: InsightShortId | undefined
         itemName: string
         itemType: string
     }
@@ -2538,12 +2564,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             insightModel: Partial<QueryBasedInsightModel>,
             query: Node | null,
             isFirstLoad: boolean,
-            delay?: number
+            delay?: number,
+            sceneSource?: InsightSceneSource | null
         ) => ({
             insightModel,
             query,
             isFirstLoad,
             delay,
+            sceneSource,
         }),
         reportFunnelCalculated: (
             eventCount: number,
@@ -3418,17 +3446,20 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             itemType,
         }),
         // navbar starred
-        reportNavbarStarredItemAdded: (itemType: string, itemName: string) => ({
+        reportNavbarStarredItemAdded: (itemType: string, itemName: string, insightShortId?: InsightShortId) => ({
             itemType,
             itemName,
+            insightShortId,
         }),
-        reportNavbarStarredItemRemoved: (itemType: string, itemName: string) => ({
+        reportNavbarStarredItemRemoved: (itemType: string, itemName: string, insightShortId?: InsightShortId) => ({
             itemType,
             itemName,
+            insightShortId,
         }),
-        reportNavbarStarredItemClicked: (itemType: string, itemName: string) => ({
+        reportNavbarStarredItemClicked: (itemType: string, itemName: string, insightShortId?: InsightShortId) => ({
             itemType,
             itemName,
+            insightShortId,
         }),
         reportNavbarStarredItemsReordered: (itemCount: number, isAIFirst: boolean) => ({
             itemCount,
@@ -3524,8 +3555,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 save_type: saveType,
             })
         },
-        reportInsightViewed: ({ insightModel, query, isFirstLoad, delay }) => {
+        reportInsightViewed: ({ insightModel, query, isFirstLoad, delay, sceneSource }) => {
             const payload: Record<string, any> = {
+                opened_from: sceneSource ?? INSIGHT_OPEN_SOURCE_UNKNOWN,
                 report_delay: delay,
                 is_first_component_load: isFirstLoad,
                 viewer_is_creator:
@@ -5026,24 +5058,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 item_type: itemType ?? null,
             })
         },
-        reportNavbarStarredItemAdded: ({ itemType, itemName }) => {
-            posthog.capture('navbar starred item added', {
-                item_type: itemType,
-                item_name: itemName,
-            })
-        },
-        reportNavbarStarredItemRemoved: ({ itemType, itemName }) => {
-            posthog.capture('navbar starred item removed', {
-                item_type: itemType,
-                item_name: itemName,
-            })
-        },
-        reportNavbarStarredItemClicked: ({ itemType, itemName }) => {
-            posthog.capture('navbar starred item clicked', {
-                item_type: itemType,
-                item_name: itemName,
-            })
-        },
+        reportNavbarStarredItemAdded: (payload) => captureNavbarStarredItem('navbar starred item added', payload),
+        reportNavbarStarredItemRemoved: (payload) => captureNavbarStarredItem('navbar starred item removed', payload),
+        reportNavbarStarredItemClicked: (payload) => captureNavbarStarredItem('navbar starred item clicked', payload),
         reportNavbarStarredItemsReordered: ({ itemCount, isAIFirst }) => {
             posthog.capture('navbar starred items reordered', {
                 item_count: itemCount,

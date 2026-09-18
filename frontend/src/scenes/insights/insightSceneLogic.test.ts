@@ -3,6 +3,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { withSceneSource } from 'lib/utils/insightNavigation'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { parseURLFilters, parseURLVariables } from 'scenes/dashboard/dashboardUtils'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -81,6 +82,24 @@ describe('insightSceneLogic', () => {
             activity_item_id: '42',
         })
         expect(logic.values.sidePanelContext?.discussions_disabled).toBeUndefined()
+    })
+
+    it('reads the open source of a saved insight from the url', async () => {
+        router.actions.push(withSceneSource(urls.insightView(Insight42), 'saved-insights-list'))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.sceneSource).toEqual('saved-insights-list')
+    })
+
+    it('has no open source for a saved insight opened directly', async () => {
+        router.actions.push(urls.insightView(Insight42))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.sceneSource).toBeNull()
     })
 
     it('redirects maintaining url params when opening /insight/new with insight type in theurl', async () => {

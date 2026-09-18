@@ -1,5 +1,6 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { withInsightSceneSource } from 'lib/utils/insightNavigation'
 import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
 import { pluralize } from 'lib/utils/strings'
 
@@ -53,6 +54,26 @@ interface NewTabCandidate {
  */
 export const canOpenInNewTab = (item: NewTabCandidate): boolean =>
     !!item.href && item.href !== PLACEHOLDER_HREF && !item.onSelect && item.id !== SETTINGS_THEME_ITEM_ID
+
+/** Structural for the same reason as NewTabCandidate. */
+interface SourceCandidate {
+    href?: string
+    category: string
+    itemType?: string | null
+    record?: Record<string, unknown>
+}
+
+/**
+ * An item's href, tagged with the surface it sits on when it opens an insight. Every path that
+ * opens an item reads it from here, so a plain click, a new tab, a middle click, the context menu
+ * and a consumer's own `onItemSelect` all report the same source.
+ */
+export const searchItemHref = (item: SourceCandidate): string | undefined =>
+    withInsightSceneSource(
+        item.href,
+        item.itemType ?? item.record?.type,
+        item.category === 'recents' ? 'recents' : item.category === 'starred' ? 'starred' : 'search'
+    )
 
 /** Optional leading `#` and nothing but digits — the shape the ticket endpoint resolves with an
  *  exact ticket-number lookup rather than a text scan (`is_ticket_number_search` server-side). */
