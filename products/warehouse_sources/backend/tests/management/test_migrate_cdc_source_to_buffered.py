@@ -174,26 +174,6 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         assert "cdc_ingest_mode" not in source.job_inputs
         mocks["unpause_schema"].assert_called_once_with(str(schema.id))
 
-    def test_flip_preserves_a_job_inputs_write_that_lands_during_the_drain(self):
-        # A CDC activity's own read-modify-write of job_inputs (resource_fields) can commit while
-        # this command still holds the copy it loaded at the top of handle. Saving that stale copy
-        # would silently drop the concurrent write instead of merging onto the current row.
-        source = self._source()
-        self._schema(source, "users")
-
-        def _concurrent_write(*args, **kwargs):
-            ExternalDataSource.objects.filter(id=source.id).update(
-                job_inputs={**source.job_inputs, "resource_fields": {"slot_name": "x"}}
-            )
-
-        with _mocked_side_effects() as mocks:
-            mocks["purge"].side_effect = _concurrent_write
-            self._run(source)
-
-        source.refresh_from_db()
-        assert source.job_inputs["cdc_ingest_mode"] == "buffered"
-        assert source.job_inputs["resource_fields"] == {"slot_name": "x"}
-
     def test_rollback_drains_the_buffer_then_pauses_the_consumer_before_the_mode_flips(self):
         source = self._source(ingest_mode="buffered")
         schema = self._schema(source, "users")

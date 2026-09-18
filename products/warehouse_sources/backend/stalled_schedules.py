@@ -17,7 +17,7 @@ periodic sweep that reports them and the management command that repairs them.
 
 from datetime import timedelta
 
-from django.db.models import DateTimeField, DurationField, ExpressionWrapper, F, Q, QuerySet, Value
+from django.db.models import DateTimeField, DurationField, ExpressionWrapper, F, QuerySet, Value
 from django.db.models.functions import Coalesce, Greatest
 from django.utils import timezone
 
@@ -161,17 +161,11 @@ def stalled_schema_queryset(
         )
         .exclude(source__access_method=ExternalDataSource.AccessMethod.DIRECT)
         .exclude(status__in=SELF_REPORTING_STATUSES)
-        # A streaming CDC schema's per-schema schedule is paused by design once
-        # CDCExtractionWorkflow takes it over (CDCHandledExternally re-pauses it on every tick),
-        # so a paused schedule here is steady state, not a stall. Excluding it here — not just
-        # from repairable_here — matters because a source marked cdc_broken can drift a schema's
-        # status away from FAILED (see mark_initial_sync_complete / the streaming completion
-        # path), so SELF_REPORTING_STATUSES above cannot be relied on to catch every one.
-        .exclude(sync_type=ExternalDataSchema.SyncType.CDC, sync_type_config__cdc_mode="streaming")
-        # `cdc_halted`: the source is marked cdc_broken, or its extraction schedule was paused
-        # after a non-retryable error. Neither flips should_sync or status, so this predicate
-        # would otherwise catch a schema the halt marker already means to leave alone.
-        .exclude(Q(sync_type_config__cdc_broken=True) | Q(sync_type_config__cdc_extraction_paused=True))
+        # Streaming CDC and cdc_halted are excluded in `find_stalled_schemas` in Python, not
+        # here: a JSON key lookup against a schema whose `sync_type_config` does not have that
+        # key evaluates to SQL NULL, and `.exclude()` compiles to `NOT (...)` — NOT NULL is NULL,
+        # not TRUE, so Postgres drops the row from the result entirely instead of keeping it.
+        # That silently wipes out every schema without the key, not just the ones carrying it.
         .annotate(
             stalled_after=ExpressionWrapper(
                 F("last_synced_at") + stall_window,
@@ -219,6 +213,16 @@ def find_stalled_schemas(
         # The queryset already excludes a null stamp. The check is here because the column is
         # nullable, so the subtraction below has no other way to know.
         if schema.last_synced_at is None:
+            continue
+        # Streaming CDC and cdc_halted are excluded here rather than in the queryset (see the
+        # comment there): a paused per-schema schedule is streaming CDC's steady state, and
+        # cdc_halted exists precisely to keep everything else off the schedule until repair_cdc
+        # clears it. Skipped rather than reported-but-unrepairable, unlike buffered CDC: this
+        # population can be the entire fleet during a broken-source incident, and reporting it
+        # every sweep would bury the schedule-stall signal this predicate exists to surface.
+        if schema.is_cdc and schema.cdc_mode == "streaming":
+            continue
+        if schema.cdc_halted:
             continue
         stalled.append(
             StalledSchema(
