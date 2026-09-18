@@ -2595,6 +2595,11 @@ class RecordingOrderDirection(StrEnum):
     DESC = "DESC"
 
 
+class EventMatchScope(StrEnum):
+    RECORDING = "recording"
+    SESSION = "session"
+
+
 class HideViewedRecordings(Enum):
     CURRENT_USER = "current-user"
     ANY_USER = "any-user"

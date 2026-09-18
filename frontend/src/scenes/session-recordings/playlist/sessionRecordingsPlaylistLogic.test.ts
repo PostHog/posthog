@@ -2516,6 +2516,19 @@ describe('sessionRecordingsPlaylistLogic', () => {
             ).toEqual({ ...recommendedFilters, recommended_only: false })
         })
 
+        it.each([
+            [true, 'recording'],
+            [false, undefined],
+        ])('with the event match scope flag %s a persisted recording scope becomes %s', (flagOn, expected) => {
+            const scopedFilters: RecordingUniversalFilters = { ...recommendedFilters, event_match_scope: 'recording' }
+            expect(
+                getEffectiveRecordingFilters(scopedFilters, {
+                    [FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT]: 'test',
+                    [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: flagOn,
+                }).event_match_scope
+            ).toBe(expected)
+        })
+
         it('clears a persisted recommended filter for the control variant', async () => {
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT]: 'control',

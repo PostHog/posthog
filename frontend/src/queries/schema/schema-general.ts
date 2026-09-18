@@ -795,6 +795,13 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
      * @default "AND"
      * */
     operand?: FilterLogicalOperator
+    /**
+     * Where an event, action, or event property filter must match. 'session' (default) matches an event
+     * anywhere in the session, including before the recording started or after it ended. 'recording' only
+     * matches events whose timestamp falls inside the recording's own window, so the matched moment is in the video.
+     * @default "session"
+     */
+    event_match_scope?: 'recording' | 'session'
     session_ids?: string[]
     /** Exclude recordings already viewed by the current user ('current-user'), by any team member ('any-user'), or none (default). Applied server-side so pagination and the result cursor operate on the filtered set. */
     hide_viewed_recordings?: 'current-user' | 'any-user' | null

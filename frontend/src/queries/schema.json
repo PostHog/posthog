@@ -49140,6 +49140,12 @@
                     },
                     "type": "array"
                 },
+                "event_match_scope": {
+                    "default": "session",
+                    "description": "Where an event, action, or event property filter must match. 'session' (default) matches an event anywhere in the session, including before the recording started or after it ended. 'recording' only matches events whose timestamp falls inside the recording's own window, so the matched moment is in the video.",
+                    "enum": ["recording", "session"],
+                    "type": "string"
+                },
                 "events": {
                     "items": {
                         "type": "object"

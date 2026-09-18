@@ -1,14 +1,16 @@
 from collections.abc import Iterable
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
 import posthoganalytics
+from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
     DataWarehouseNode,
+    EventMatchScope,
     EventPropertyFilter,
     EventsNode,
     HogQLQueryModifiers,
@@ -54,6 +56,12 @@ REPLAY_NEGATIVE_BLOCKLIST_TRUNCATED_COUNTER = Counter(
     "replay_negative_blocklist_truncated",
     "A replay exclusion blocklist hit its row cap, so some sessions were not excluded from the results",
 )
+
+# An event's client timestamp can sit a little before the recorder's first snapshot lands and a
+# little after its last one, so a recording-scoped match allows this margin on each side of the
+# recording window.
+RECORDING_MATCH_MARGIN_MINUTES = 1
+RECORDING_BOUNDS_ALIAS = "recording_bounds"
 
 # Modes where events.person_id is resolved through person_distinct_id_overrides, so it follows
 # a person merge instead of reporting whoever the event was attributed to at ingest.
@@ -133,7 +141,108 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         if sample and self._sample_factor is not None:
             join.sample = ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=self._sample_factor)))
             self.emitted_sampled_subquery = True
+        if self._matches_within_recording():
+            join.next_join = ast.JoinExpr(
+                # GLOBAL: the initiator builds the per-recording bounds once and ships them to each
+                # shard. Without it every shard would fan the replay scan out across the cluster again.
+                join_type="GLOBAL INNER JOIN",
+                table=self._recording_bounds_query(),
+                alias=RECORDING_BOUNDS_ALIAS,
+                constraint=ast.JoinConstraint(
+                    expr=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=[RECORDING_BOUNDS_ALIAS, "session_id"]),
+                        right=ast.Field(chain=["events", "properties", "$session_id"]),
+                    ),
+                    constraint_type="ON",
+                ),
+            )
         return join
+
+    def _matches_within_recording(self) -> bool:
+        return self._query.event_match_scope == EventMatchScope.RECORDING
+
+    def _recording_bounds_query(self) -> ast.SelectQuery:
+        """One row per recording the listing can return: its session id and the span of its snapshots.
+
+        Scoped the same way as the listing's replay scan, so every recording the outer query can
+        select has a row here. A recording without a row can never match under recording scope.
+        """
+        scope: list[ast.Expr] = []
+        if self._query.session_ids:
+            # A pinned list may bypass the date window, so the pinned ids scope the rows. The five
+            # year floor is the longest retention and keeps partition pruning.
+            scope.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["s", "session_id"]),
+                    right=ast.Constant(value=self._query.session_ids),
+                )
+            )
+            scope.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["s", "min_first_timestamp"]),
+                    right=ast.Constant(value=datetime.now(UTC) - relativedelta(years=5)),
+                )
+            )
+        else:
+            scope.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["s", "min_first_timestamp"]),
+                    right=ast.Constant(value=self.query_date_range.date_from()),
+                )
+            )
+            scope.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["s", "min_first_timestamp"]),
+                    right=ast.Constant(value=self.query_date_range.date_to()),
+                )
+            )
+        return ast.SelectQuery(
+            select=[
+                ast.Alias(alias="session_id", expr=ast.Field(chain=["s", "session_id"])),
+                ast.Alias(
+                    alias="window_start",
+                    expr=ast.Call(name="min", args=[ast.Field(chain=["s", "min_first_timestamp"])]),
+                ),
+                ast.Alias(
+                    alias="window_end",
+                    expr=ast.Call(name="max", args=[ast.Field(chain=["s", "max_last_timestamp"])]),
+                ),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["raw_session_replay_events"]), alias="s"),
+            where=ast.And(exprs=scope),
+            group_by=[ast.Field(chain=["s", "session_id"])],
+        )
+
+    def _recording_window_predicates(self) -> list[ast.Expr]:
+        """The event must fall inside its recording's window, widened by the match margin.
+
+        Empty under session scope. Only meaningful on a query whose FROM carries the bounds join
+        from `_events_join`.
+        """
+        if not self._matches_within_recording():
+            return []
+        margin = ast.Constant(value=RECORDING_MATCH_MARGIN_MINUTES)
+        return [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["events", "timestamp"]),
+                right=ast.Call(
+                    name="subtractMinutes", args=[ast.Field(chain=[RECORDING_BOUNDS_ALIAS, "window_start"]), margin]
+                ),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["events", "timestamp"]),
+                right=ast.Call(
+                    name="addMinutes", args=[ast.Field(chain=[RECORDING_BOUNDS_ALIAS, "window_end"]), margin]
+                ),
+            ),
+        ]
 
     @staticmethod
     def _event_predicates(
@@ -323,6 +432,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                     # true and reach the GROUP BY. The caller matches this against the replay
                     # table's non-nullable session_id, which rejects a NULL in the set.
                     ast.Call(name="notEmpty", args=[_event_session_id_field()]),
+                    *self._recording_window_predicates(),
                 ]
             ),
             group_by=[_event_session_id_field()],  # DISTINCT session_id
@@ -758,6 +868,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                     right=ast.Constant(value=self._query.session_ids),
                 )
             )
+
+        exprs += self._recording_window_predicates()
 
         return ast.And(exprs=exprs)
 

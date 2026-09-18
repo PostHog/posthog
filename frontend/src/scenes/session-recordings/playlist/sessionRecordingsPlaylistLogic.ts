@@ -227,13 +227,24 @@ export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     order_direction: 'DESC',
 }
 
+/**
+ * Drops flag-gated filter settings the current user cannot see, so a persisted filter (a saved filter,
+ * a URL, a collection) cannot keep applying a setting after its flag is turned off.
+ */
 export const getEffectiveRecordingFilters = (
     filters: RecordingUniversalFilters,
     featureFlags: FeatureFlagsSet
-): RecordingUniversalFilters =>
-    featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] === 'test'
-        ? filters
-        : { ...filters, recommended_only: false }
+): RecordingUniversalFilters => {
+    let effective = filters
+    if (featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] !== 'test') {
+        effective = { ...effective, recommended_only: false }
+    }
+    if (!featureFlags[FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE] && effective.event_match_scope !== undefined) {
+        const { event_match_scope: _ignored, ...withoutScope } = effective
+        effective = withoutScope
+    }
+    return effective
+}
 
 export const getDefaultFilters = (
     personUUID?: PersonUUID,

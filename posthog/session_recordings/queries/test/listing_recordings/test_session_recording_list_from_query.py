@@ -2867,6 +2867,81 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [],
         )
 
+    # the recording runs from an_hour_ago for five minutes; the event offset is relative to its start
+    @parameterized.expand(
+        [
+            ("session_scope_matches_before_the_video", "session", relativedelta(minutes=-10), True),
+            ("recording_scope_rejects_before_the_video", "recording", relativedelta(minutes=-10), False),
+            ("recording_scope_allows_the_margin_before_the_video", "recording", relativedelta(seconds=-30), True),
+            ("recording_scope_matches_inside_the_video", "recording", relativedelta(minutes=2), True),
+            ("recording_scope_rejects_after_the_video", "recording", relativedelta(minutes=10), False),
+        ]
+    )
+    @snapshot_clickhouse_queries
+    def test_event_match_scope_bounds_event_filters_to_the_recording(
+        self, _name: str, scope: str, event_offset: relativedelta, matches: bool
+    ) -> None:
+        distinct_id = f"event-match-scope-user-{uuid4()}"
+        create_person(team=self.team, distinct_ids=[distinct_id], properties={"email": "bla"})
+        session_id = f"event-match-scope-session-{uuid4()}"
+
+        produce_replay_summary(
+            distinct_id=distinct_id,
+            session_id=session_id,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=self.an_hour_ago + relativedelta(minutes=5),
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id=distinct_id,
+            timestamp=self.an_hour_ago + event_offset,
+            event_name="$pageview",
+            properties={"$session_id": session_id},
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+                "event_match_scope": scope,
+            },
+            [session_id] if matches else [],
+        )
+
+    @parameterized.expand(
+        [
+            ("session_scope_excludes_on_an_event_before_the_video", "session", False),
+            ("recording_scope_ignores_an_event_before_the_video", "recording", True),
+        ]
+    )
+    def test_event_match_scope_applies_to_negated_events(self, _name: str, scope: str, is_listed: bool) -> None:
+        distinct_id = f"event-match-scope-negation-user-{uuid4()}"
+        create_person(team=self.team, distinct_ids=[distinct_id], properties={"email": "bla"})
+        session_id = f"event-match-scope-negation-session-{uuid4()}"
+
+        produce_replay_summary(
+            distinct_id=distinct_id,
+            session_id=session_id,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=self.an_hour_ago + relativedelta(minutes=5),
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id=distinct_id,
+            timestamp=self.an_hour_ago - relativedelta(minutes=10),
+            event_name="purchase",
+            properties={"$session_id": session_id},
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "events": [{"id": "purchase", "type": "events", "order": 0, "name": "purchase", "negation": True}],
+                "event_match_scope": scope,
+            },
+            [session_id] if is_listed else [],
+        )
+
     @also_test_with_materialized_columns(event_properties=["$current_url", "$browser"], person_properties=["email"])
     @snapshot_clickhouse_queries
     def test_event_filter_with_hogql_properties(self):
