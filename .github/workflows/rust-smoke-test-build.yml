@@ -35,7 +35,7 @@ concurrency:
 jobs:
     authorize:
         name: authorize smoke test
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: |
             github.event_name == 'workflow_dispatch' ||
@@ -47,7 +47,7 @@ jobs:
 
     resolve-filter:
         name: resolve image filter
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 2
         if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
         permissions: {}

@@ -28,7 +28,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
 ## What the linters already enforce
 
 Run `bin/hogli lint:workflows` and `actionlint` before pushing — they gate CI, and they (not this list) are the source of truth for what's enforced.
-Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, required-check gate hygiene, secrets a reusable workflow reads being declared and passed by its callers, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
+Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, required-check gate hygiene, secrets a reusable workflow reads being declared and passed by its callers, runner labels that name an OS version rather than a floating `-latest` alias, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
 Third-party action digests are bumped by Renovate.
 
 ## Check what a condition does before you push it
@@ -367,6 +367,10 @@ The only sanctioned exception is a job whose purpose is validating the migration
 ## Runners
 
 `depot-ubuntu-<version>[-<vCPU>]` for build/compute-heavy jobs (the `-4`/`-8` suffix bumps CPU from the 2-vCPU default); GitHub-hosted for light jobs.
+**Name the OS version, never `ubuntu-latest`.**
+GitHub moves the `-latest` aliases to a new image on its own schedule (24.04 became `latest` in 2025, 26.04 follows), which changes the toolchain and system packages under every job at once with nothing in this repo to bisect.
+`WF011` rejects `ubuntu-latest`, `macos-latest`, `windows-latest` and the `depot-*-latest` mirrors in `runs-on` and in `strategy.matrix`, so use `ubuntu-24.04` (or `depot-ubuntu-24.04`) and land an image bump as its own PR.
+A runner matrix that an expression builds (`fromJSON(needs.plan.outputs.val)`) is opaque to the linter, so it fails closed: pin the labels where they are generated (`dist-workspace.toml` for the release workflows) and put `# hogli-lint: allow-generated-runner-matrix -- <where they are pinned>` above the job key.
 New Depot labels must be added to the allow-list in `.github/actionlint.yaml` or actionlint fails.
 Details: `/depot-github-runners`.
 
@@ -480,7 +484,7 @@ Roll out a new blocking lint the same way: ship `continue-on-error`, clear the i
 - [ ] Canonical `concurrency:` block (per-SHA push arm if it publishes on push).
 - [ ] `timeout-minutes` on every job (except reusable-caller jobs).
 - [ ] Checkout names only the paths the job reads (`sparse-checkout` + cone mode off), or is shallow; bounded `1000 + blob:none` only for base diffing.
-- [ ] Third-party actions SHA-pinned; Node from `.nvmrc`; `setup-uv` version pinned.
+- [ ] Third-party actions SHA-pinned; Node from `.nvmrc`; `setup-uv` version pinned; runner labels name an OS version (`ubuntu-24.04`, never `ubuntu-latest`).
 - [ ] External fetches retry (`--retry-all-errors`), except where a repeat has a side effect.
 - [ ] High-volume API calls on a dedicated App token with `|| github.token` fork fallback.
 - [ ] Fork PRs handled: secret-needing steps guarded with the same-repo `if:`; no secret-injecting build runs on forks.
