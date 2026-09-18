@@ -39,7 +39,7 @@ from django.db.models import (
     When,
 )
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone as django_timezone
 from django.utils.http import content_disposition_header
 
@@ -9657,10 +9657,70 @@ def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
     return TaskActivity.objects.for_team(team_id).filter(user_id=user_id, task__in=visible_tasks)
 
 
+def _visible_canvas_comment_ids(team_id: int, user_id: int) -> QuerySet[Canvas, dict[str, str]]:
+    return (
+        Canvas.objects.for_team(team_id)
+        .filter(deleted=False)
+        .filter(visible_channels_q(user_id, relation="channel"))
+        .annotate(comment_item_id=Cast("id", output_field=CharField()))
+        .values("comment_item_id")
+    )
+
+
 def _comment_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskCommentActivity]:
     visible_tasks = _activity_visible_task_qs(team_id, user_id)
-    return TaskCommentActivity.objects.for_team(team_id).filter(
-        user_id=user_id, task__in=visible_tasks, comment__deleted=False
+    return (
+        TaskCommentActivity.objects.for_team(team_id)
+        .filter(user_id=user_id, comment__deleted=False)
+        .filter(
+            Q(comment__scope="desktop_canvas", comment__item_id__in=_visible_canvas_comment_ids(team_id, user_id))
+            | (~Q(comment__scope="desktop_canvas") & Q(task__in=visible_tasks))
+        )
+    )
+
+
+def _visible_canvases_by_id(
+    team_id: int, user_id: int, comment_rows: Sequence[TaskCommentActivity]
+) -> dict[str, Canvas]:
+    canvas_ids: list[UUID] = []
+    for row in comment_rows:
+        if row.comment.scope != "desktop_canvas":
+            continue
+        try:
+            canvas_ids.append(UUID(row.comment.item_id))
+        except ValueError:
+            continue
+    if not canvas_ids:
+        return {}
+    canvases = (
+        Canvas.objects.for_team(team_id)
+        .filter(id__in=canvas_ids, deleted=False)
+        .filter(visible_channels_q(user_id, relation="channel"))
+        .select_related("channel")
+    )
+    return {str(canvas.id): canvas for canvas in canvases}
+
+
+@frozen
+class _ActivityTaskDetails:
+    title: str
+    channel_id: UUID | None
+    channel_name: str | None
+
+
+def _activity_task_details(
+    row: TaskActivity | TaskCommentActivity, canvases_by_id: dict[str, Canvas]
+) -> _ActivityTaskDetails:
+    if isinstance(row, TaskCommentActivity) and row.comment.scope == "desktop_canvas" and row.comment.item_id:
+        canvas = canvases_by_id.get(row.comment.item_id)
+        if canvas is not None:
+            return _ActivityTaskDetails(
+                title=canvas.name, channel_id=canvas.channel_id, channel_name=canvas.channel.name
+            )
+    return _ActivityTaskDetails(
+        title=row.task.title,
+        channel_id=row.task.channel_id,
+        channel_name=row.task.channel.name if row.task.channel else None,
     )
 
 
@@ -9696,8 +9756,12 @@ def list_task_activity(
         task_qs = task_qs.filter(cursor)
         comment_qs = comment_qs.filter(cursor)
     task_rows = task_qs.select_related("task__channel", "message__author").order_by("-activity_at", "-id")[: limit + 1]
-    comment_rows = comment_qs.select_related("task__channel", "comment__created_by").order_by("-activity_at", "-id")[
-        : limit + 1
+    comment_rows = list(
+        comment_qs.select_related("task__channel", "comment__created_by").order_by("-activity_at", "-id")[: limit + 1]
+    )
+    canvases_by_id = _visible_canvases_by_id(team_id, user_id, comment_rows)
+    comment_rows = [
+        row for row in comment_rows if row.comment.scope != "desktop_canvas" or row.comment.item_id in canvases_by_id
     ]
     activity_rows: list[TaskActivity | TaskCommentActivity] = [*task_rows, *comment_rows]
     rows: list[TaskActivity | TaskCommentActivity] = sorted(
@@ -9714,9 +9778,9 @@ def list_task_activity(
             contracts.TaskActivityDTO(
                 id=row.id,
                 task_id=row.task_id,
-                task_title=row.task.title,
-                channel_id=row.task.channel_id,
-                channel_name=row.task.channel.name if row.task.channel else None,
+                task_title=task_details.title,
+                channel_id=task_details.channel_id,
+                channel_name=task_details.channel_name,
                 activity_at=row.activity_at,
                 activity_kind=row.kind,
                 snippet=_bounded_activity_snippet(
@@ -9736,6 +9800,7 @@ def list_task_activity(
                 is_unread=row.read_at is None,
             )
             for row in rows
+            for task_details in [_activity_task_details(row, canvases_by_id)]
         ],
         unread_count=count_unread_task_activity(team_id, user_id),
         next_before=next_row.activity_at if next_row else None,
