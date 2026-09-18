@@ -1381,6 +1381,7 @@ export class AgentServer {
           const promptMeta: Record<string, unknown> = {
             ...(builtPrompt.meta ?? {}),
             ...(messageId ? { messageId } : {}),
+            budgetSteerMode: this.budgetSteerMode(),
             ...(hostContext.length > 0
               ? { prContext: hostContext.join("\n\n") }
               : {}),
@@ -2221,12 +2222,7 @@ export class AgentServer {
       jsonSchema: preTask?.json_schema ?? null,
       permissionMode: initialPermissionMode,
       ...(channelMode && { channelMode: true }),
-      budgetSteer: {
-        mode:
-          !channelMode && this.shouldAutoPublishCloudChanges()
-            ? "publish"
-            : "wrap_up",
-      },
+      budgetSteer: { mode: this.budgetSteerMode() },
       posthogExecPermissionRegex: this.posthogExecPermissionRegexSource,
       ...(preTask?.origin_product && {
         taskOriginProduct: preTask.origin_product,
@@ -4344,6 +4340,10 @@ export class AgentServer {
     );
   }
 
+  private budgetSteerMode(): "publish" | "wrap_up" {
+    return this.shouldAutoPublishCloudChanges() ? "publish" : "wrap_up";
+  }
+
   /**
    * Apply settings from run state before the first turn when launch config is
    * incomplete, and return the host-context blocks that prompt needs for them.
@@ -5989,11 +5989,30 @@ ${commonInstructions}
   }
 
   private lastBudgetSnapshot: Record<string, unknown> | undefined;
+  private lastPersistedBudgetKey: string | undefined;
+
+  private persistBudgetSnapshotIfChanged(
+    budget: Record<string, unknown>,
+  ): void {
+    const payload = this.session?.payload;
+    if (!payload) return;
+    const key = JSON.stringify([payload.run_id, budget.stage, budget.steers]);
+    if (key === this.lastPersistedBudgetKey) return;
+    this.lastPersistedBudgetKey = key;
+    this.posthogAPI
+      .updateTaskRun(payload.task_id, payload.run_id, {
+        state: { budget_guard: budget },
+      })
+      .catch((error: unknown) => {
+        this.logger.debug("Failed to persist the budget snapshot", { error });
+      });
+  }
 
   private handleAcpTransportMessage(message: unknown, eventId?: string): void {
     const budget = budgetSnapshotFromUsageUpdate(message);
     if (budget) {
       this.lastBudgetSnapshot = budget;
+      this.persistBudgetSnapshotIfChanged(budget);
     }
     if (isTurnCompleteNotification(message)) {
       if (this.suppressAdapterTurnComplete) {

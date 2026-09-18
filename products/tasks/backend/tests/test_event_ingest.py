@@ -347,9 +347,13 @@ class TestTaskRunEventIngest(TestCase):
         )
         bad_stage = event(2, {"stage": "later", "mode": "publish", "delivered": True, "spent_usd": 1, "cap_usd": 2})
         bad_amount = event(3, {"stage": "warn", "mode": "publish", "delivered": True, "spent_usd": -1, "cap_usd": 2})
+        list_stage = event(4, {"stage": ["warn"], "mode": "publish", "delivered": True, "spent_usd": 1, "cap_usd": 2})
+        huge_amount = event(
+            5, {"stage": "warn", "mode": "publish", "delivered": True, "spent_usd": 10**400, "cap_usd": 2}
+        )
 
         with patch("products.tasks.backend.logic.stream.event_ingest._capture_budget_steer") as capture_budget_steer:
-            first_status, _ = self._call_ingest(token, [good, bad_stage, bad_amount])
+            first_status, _ = self._call_ingest(token, [good, bad_stage, bad_amount, list_stage, huge_amount])
             duplicate_status, duplicate_body = self._call_ingest(token, [good])
 
         self.assertEqual(first_status, 200)
@@ -369,6 +373,30 @@ class TestTaskRunEventIngest(TestCase):
                 "cap_usd": 20.0,
             },
         )
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_budget_steer_capture_failure_does_not_block_the_stream(self) -> None:
+        token = self._create_token()
+        event = {
+            "seq": 1,
+            "event": {
+                "type": "notification",
+                "notification": {
+                    "method": "_posthog/budget_steer",
+                    "params": {"stage": "warn", "mode": "publish", "delivered": True, "spent_usd": 7, "cap_usd": 10},
+                },
+            },
+        }
+
+        with patch(
+            "products.tasks.backend.logic.stream.event_ingest._capture_budget_steer",
+            side_effect=RuntimeError("capture failed"),
+        ):
+            status, body = self._call_ingest(token, [event])
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["accepted"], 1)
+        self.assertEqual(self._read_notification_methods(), ["_posthog/budget_steer"])
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_rtk_savings_capture_failure_can_be_retried(self) -> None:

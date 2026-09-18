@@ -607,22 +607,24 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   private budgetSteerTail: Promise<void> = Promise.resolve();
 
   private deliverBudgetSteer(
+    session: Session,
     sessionId: string,
     event: BudgetThresholdEvent,
   ): Promise<void> {
     const run = this.budgetSteerTail.then(() =>
-      this.sendBudgetSteer(sessionId, event),
+      this.sendBudgetSteer(session, sessionId, event),
     );
     this.budgetSteerTail = run.catch(() => undefined);
     return run;
   }
 
   private async sendBudgetSteer(
+    session: Session,
     sessionId: string,
     event: BudgetThresholdEvent,
   ): Promise<void> {
-    const guard = this.session?.budgetGuard;
-    if (!guard) return;
+    const guard = session.budgetGuard;
+    if (!guard || this.session !== session) return;
     const stage = guard.takePendingSteer();
     if (!stage) return;
     const summary = `[BudgetGuard] ${stage}: $${event.spentUsd.toFixed(2)} of $${event.capUsd.toFixed(2)} spent, steering the turn`;
@@ -653,20 +655,25 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     } catch (error) {
       this.logger.warn("[BudgetGuard] Steer failed", { error });
     }
+    if (this.session !== session) {
+      this.logger.warn("[BudgetGuard] Session replaced during the steer", {
+        stage,
+      });
+      return;
+    }
     if (!delivered) {
       guard.markUndelivered(stage);
     }
-    await this.reportBudgetSteer(sessionId, stage, delivered, summary);
+    await this.reportBudgetSteer(guard, sessionId, stage, delivered, summary);
   }
 
   private async reportBudgetSteer(
+    guard: RunBudgetGuard,
     sessionId: string,
     stage: BudgetSteerStage,
     delivered: boolean,
     summary: string,
   ): Promise<void> {
-    const guard = this.session?.budgetGuard;
-    if (!guard) return;
     const record = guard.recordSteer(stage, delivered);
     try {
       await this.client.extNotification(POSTHOG_NOTIFICATIONS.CONSOLE, {
@@ -698,28 +705,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       return this.clearConversation(params);
     }
 
-    const pendingBudgetSteer =
-      !isSteerMeta(params._meta) && !command
-        ? this.session.budgetGuard?.takePendingSteer()
-        : null;
-    if (pendingBudgetSteer && this.session.budgetGuard) {
-      params = {
-        ...params,
-        prompt: [
-          ...params.prompt,
-          {
-            type: "text",
-            text: this.session.budgetGuard.steerText(pendingBudgetSteer),
-            _meta: { ui: { hidden: true }, budgetGuard: pendingBudgetSteer },
-          },
-        ],
-      };
-      void this.reportBudgetSteer(
-        params.sessionId,
-        pendingBudgetSteer,
-        true,
-        `[BudgetGuard] ${pendingBudgetSteer}: steer attached to the next turn`,
-      );
+    const budgetSteerMode = (
+      params._meta as { budgetSteerMode?: unknown } | undefined
+    )?.budgetSteerMode;
+    if (budgetSteerMode === "publish" || budgetSteerMode === "wrap_up") {
+      this.session.budgetGuard?.setMode(budgetSteerMode);
     }
     const userMessage = promptToClaude(params);
     const promptUuid = randomUUID();
@@ -777,6 +767,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       return ack;
     }
     if (isSteer) {
+      if (this.session.backgroundTurnActive && !this.session.compacting) {
+        this.session.input.push(userMessage);
+        await this.broadcastUserMessage(params);
+        return { stopReason: "end_turn", _meta: { steer: true } };
+      }
       return steerDeclined(
         this.session.compacting ? "compacting" : "no_in_flight_turn",
       );
@@ -845,7 +840,29 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const input = head.pendingInput;
     head.pendingInput = undefined;
     head.dispatchedAt = performance.now();
+    const guard = session.budgetGuard;
+    const steer = guard && !head.commandName ? guard.takePendingSteer() : null;
+    if (guard && steer) {
+      const steerBlock = {
+        type: "text" as const,
+        text: guard.steerText(steer),
+      };
+      const content = input.message.content;
+      input.message.content =
+        typeof content === "string"
+          ? [{ type: "text", text: content }, steerBlock]
+          : [...content, steerBlock];
+    }
     session.input.push(input);
+    if (guard && steer) {
+      void this.reportBudgetSteer(
+        guard,
+        this.sessionId,
+        steer,
+        true,
+        `[BudgetGuard] ${steer}: steer attached to the next turn`,
+      );
+    }
   }
 
   /** Time the window between handing a prompt to the SDK and the SDK's first
@@ -1383,6 +1400,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             const isTaskNotification =
               (message as { origin?: { kind?: string } }).origin?.kind ===
               "task-notification";
+            if (isTaskNotification) {
+              session.backgroundTurnActive = false;
+            }
             const settledBudgetEvent = session.budgetGuard?.calibrate(
               message.total_cost_usd,
             );
@@ -1648,6 +1668,13 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
           case "user":
           case "assistant": {
+            if (
+              message.type === "user" &&
+              (message as { origin?: { kind?: string } }).origin?.kind ===
+                "task-notification"
+            ) {
+              session.backgroundTurnActive = true;
+            }
             // A user echo promotes its queued turn (handing off any still-
             // active one first), then drops from the feed. Runs before the
             // cancelled guard so a turn enqueued after a cancel still starts.
@@ -1701,7 +1728,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 message.message as AssistantUsageLike,
               );
               if (budgetEvent) {
-                void this.deliverBudgetSteer(sessionId, budgetEvent);
+                void this.deliverBudgetSteer(session, sessionId, budgetEvent);
               }
               // Subagent output is a separate model context, so it is no
               // evidence the steer reached this turn's model.
@@ -2300,6 +2327,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     const abortController = new AbortController();
     this.sideQuestionAbort = abortController;
+    const session = this.session;
+    const guard = session.budgetGuard;
+    const sessionId = this.sessionId;
     try {
       // Drop `sessionId` (identity comes from `resume`), `hooks` (they close
       // over live-session caches and task state), and `outputFormat` (a
@@ -2359,9 +2389,13 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
       const answer = await withTimeout(
         collectSideQuestionAnswer(oneShot, (message) => {
-          this.session?.budgetGuard?.recordAssistantMessage(
+          const event = guard?.recordAssistantMessage(
             message.message as AssistantUsageLike,
+            "side",
           );
+          if (event) {
+            void this.deliverBudgetSteer(session, sessionId, event);
+          }
         }),
         SIDE_QUESTION_TIMEOUT_MS,
       );

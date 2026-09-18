@@ -59,7 +59,7 @@ describe("RunBudgetGuard", () => {
     expect(unknown).toBe(known);
   });
 
-  test("charges one-hour cache writes at twice the input price and fast mode at six times", () => {
+  test("charges one-hour cache writes at twice the input price and fast mode at twice the price", () => {
     const flat = estimateMessageCostUsd(
       {
         model: "claude-opus-5",
@@ -86,7 +86,7 @@ describe("RunBudgetGuard", () => {
     );
     expect(flat).toBeCloseTo(6.25, 6);
     expect(oneHour).toBeCloseTo(10, 6);
-    expect(fast).toBeCloseTo(150, 6);
+    expect(fast).toBeCloseTo(50, 6);
   });
 
   test("is disabled when the sandbox carries no cap", () => {
@@ -154,12 +154,25 @@ describe("RunBudgetGuard", () => {
     guard.recordAssistantMessage(opusCall("m2", 500_000));
     expect(guard.takePendingSteer()).toBe("critical");
     guard.markUndelivered("warn");
+    expect(guard.takePendingSteer()).toBe("warn");
     guard.markUndelivered("critical");
     guard.markUndelivered("warn");
     expect(guard.takePendingSteer()).toBe("critical");
   });
 
-  test("never lets the SDK total erase spend the estimate already counted", () => {
+  test("a warn steer that fails after the critical steer was delivered is not re-queued", () => {
+    const guard = new RunBudgetGuard(1, DEFAULT_MODEL_PRICES, logger);
+    guard.recordAssistantMessage(opusCall("m1", 2_000_000));
+    expect(guard.takePendingSteer()).toBe("critical");
+    guard.recordSteer("critical", true);
+    guard.markUndelivered("warn");
+    expect(guard.takePendingSteer()).toBeNull();
+    guard.recordSteer("warn", false);
+    guard.markUndelivered("critical");
+    expect(guard.takePendingSteer()).toBeNull();
+  });
+
+  test("never lets a lower or zeroed SDK total erase spend already counted", () => {
     const guard = new RunBudgetGuard(10, DEFAULT_MODEL_PRICES, logger);
     guard.recordAssistantMessage(opusCall("m1", 1_000_000));
     expect(guard.spentUsd).toBeCloseTo(0.51126, 4);
@@ -167,14 +180,18 @@ describe("RunBudgetGuard", () => {
     expect(guard.spentUsd).toBe(2.0);
     guard.recordAssistantMessage(opusCall("m2", 1_000_000));
     expect(guard.spentUsd).toBeCloseTo(2.51126, 4);
+    guard.calibrate(0);
+    expect(guard.spentUsd).toBeCloseTo(2.51126, 4);
     guard.calibrate(1.0);
+    expect(guard.spentUsd).toBeCloseTo(2.51126, 4);
+    guard.calibrate(3.0);
     expect(guard.spentUsd).toBeCloseTo(3.0, 4);
     expect(guard.calibrate(8.6)).toMatchObject({ stage: "critical" });
     expect(guard.recordAssistantMessage(opusCall("m3", 1_000))).toBeNull();
     expect(guard.currentStage).toBe("critical");
   });
 
-  test("carries spend across a query reset instead of restarting from the new query's total", () => {
+  test("carries spend across an explicit query reset only", () => {
     const guard = new RunBudgetGuard(10, DEFAULT_MODEL_PRICES, logger);
     guard.calibrate(4.0);
     guard.onQueryReset();
@@ -183,8 +200,29 @@ describe("RunBudgetGuard", () => {
     guard.calibrate(0.9);
     expect(guard.spentUsd).toBeCloseTo(4.9, 6);
     guard.calibrate(0.2);
-    expect(guard.spentUsd).toBeCloseTo(5.1, 6);
-    expect(guard.snapshot().sdk_total_usd).toBeCloseTo(5.1, 6);
+    expect(guard.spentUsd).toBeCloseTo(4.9, 6);
+    expect(guard.snapshot().sdk_total_usd).toBeCloseTo(4.9, 6);
+  });
+
+  test("keeps side-question spend on top of the main query's calibrated total", () => {
+    const guard = new RunBudgetGuard(10, DEFAULT_MODEL_PRICES, logger);
+    guard.calibrate(2.0);
+    guard.recordAssistantMessage(opusCall("side1", 1_000_000), "side");
+    expect(guard.spentUsd).toBeCloseTo(2.51126, 4);
+    guard.recordAssistantMessage(opusCall("m1", 1_000_000));
+    guard.calibrate(2.6);
+    expect(guard.spentUsd).toBeCloseTo(3.11126, 4);
+  });
+
+  test("switches steer text when the mode is upgraded to publish", () => {
+    const guard = new RunBudgetGuard(1, DEFAULT_MODEL_PRICES, logger);
+    expect(guard.mode).toBe("wrap_up");
+    expect(guard.steerText("warn")).not.toContain(
+      "open the draft pull request",
+    );
+    guard.setMode("publish");
+    expect(guard.snapshot().mode).toBe("publish");
+    expect(guard.steerText("warn")).toContain("open the draft pull request");
   });
 
   test.each(["Agent", "Task", "Workflow"])(
@@ -226,8 +264,12 @@ describe("RunBudgetGuard", () => {
     for (const stage of ["warn", "critical"] as const) {
       expect(publish.steerText(stage)).toContain("git_signed_commit");
       expect(publish.steerText(stage)).not.toMatch(/, push,/);
-      expect(wrapUp.steerText(stage)).not.toContain("git_signed_commit");
-      expect(wrapUp.steerText(stage)).not.toContain("pull request");
+      expect(wrapUp.steerText(stage)).toContain(
+        "If the user asked you to open",
+      );
+      expect(wrapUp.steerText(stage)).not.toContain(
+        "open the draft pull request",
+      );
     }
   });
 

@@ -15,7 +15,7 @@ import structlog
 from asgiref.sync import sync_to_async
 from jwt import PyJWTError
 
-from posthog.ph_client import ph_scoped_capture
+from posthog.ph_client import ph_background_capture, ph_scoped_capture
 
 from products.tasks.backend.facade.api import signal_workflow_completion
 from products.tasks.backend.logic.services.connection_token import (
@@ -288,22 +288,21 @@ async def _capture_budget_steer_if_needed(
         return
     try:
         event_uuid = str(uuid5(NAMESPACE_URL, f"posthog-task-budget-steer:{claims.run_id}:{sequence}"))
-        await sync_to_async(_capture_budget_steer, thread_sensitive=False)(claims.team_id, event_uuid, properties)
-    except Exception as error:
+        _capture_budget_steer(claims.team_id, event_uuid, properties)
+    except Exception:
         await redis_stream.release_pending_side_effect(BUDGET_STEER_SIDE_EFFECT, sequence)
         logger.warning("task_run_budget_steer_capture_failed", run_id=claims.run_id, exc_info=True)
-        raise EventIngestCaptureError from error
+        return
     await redis_stream.complete_pending_side_effect(BUDGET_STEER_SIDE_EFFECT, sequence)
 
 
 def _capture_budget_steer(team_id: int, event_uuid: str, properties: dict[str, str | int | float | bool]) -> None:
-    with ph_scoped_capture() as capture:
-        capture(
-            distinct_id=f"team_{team_id}",
-            event="task run budget steer",
-            properties=properties,
-            uuid=event_uuid,
-        )
+    ph_background_capture()(
+        distinct_id=f"team_{team_id}",
+        event="task run budget steer",
+        properties=properties,
+        uuid=event_uuid,
+    )
 
 
 def _parse_budget_steer_properties(
@@ -318,14 +317,16 @@ def _parse_budget_steer_properties(
     stage = params.get("stage")
     mode = params.get("mode")
     delivered = params.get("delivered")
-    if stage not in BUDGET_STEER_STAGES or mode not in BUDGET_STEER_MODES or not isinstance(delivered, bool):
+    if not isinstance(stage, str) or stage not in BUDGET_STEER_STAGES:
+        return None
+    if not isinstance(mode, str) or mode not in BUDGET_STEER_MODES or not isinstance(delivered, bool):
         return None
     amounts: dict[str, float] = {}
     for key in ("spent_usd", "cap_usd"):
-        value = params.get(key)
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+        amount = _parse_usd_amount(params.get(key))
+        if amount is None:
             return None
-        amounts[key] = float(value)
+        amounts[key] = amount
     return {
         "team_id": claims.team_id,
         "task_id": claims.task_id,
@@ -335,6 +336,18 @@ def _parse_budget_steer_properties(
         "delivered": delivered,
         **amounts,
     }
+
+
+def _parse_usd_amount(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        amount = float(value)
+    except OverflowError:
+        return None
+    if not math.isfinite(amount) or amount < 0:
+        return None
+    return amount
 
 
 def _parse_rtk_savings_properties(claims: SandboxEventIngestTokenPayload, event: dict) -> dict[str, str | int] | None:

@@ -124,6 +124,7 @@ export type Session = BaseSession & {
   configOptions: SessionConfigOption[];
   accumulatedUsage: AccumulatedUsage;
   budgetGuard?: RunBudgetGuard;
+  backgroundTurnActive?: boolean;
   /** PostHog products used during this session, derived from MCP exec calls.
    *  Accumulates for the whole session (deduped); each newly-seen product is
    *  emitted immediately so the client can show a persistent, de-duplicated

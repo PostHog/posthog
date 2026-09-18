@@ -5,12 +5,13 @@ export const BUDGET_CAP_ENV = "AI_GATEWAY_TOKEN_CAP_USD";
 export const BUDGET_PRICES_ENV = "AI_GATEWAY_MODEL_PRICES_JSON";
 export const BUDGET_WARN_RATIO = 0.7;
 export const BUDGET_CRITICAL_RATIO = 0.85;
-export const FAST_MODE_PRICE_MULTIPLIER = 6;
+export const FAST_MODE_PRICE_MULTIPLIER = 2;
 export const ONE_HOUR_CACHE_WRITE_INPUT_MULTIPLIER = 2;
 
 export type BudgetStage = "ok" | "warn" | "critical";
 export type BudgetSteerStage = Exclude<BudgetStage, "ok">;
 export type BudgetSteerMode = "publish" | "wrap_up";
+export type BudgetSpendSource = "main" | "side";
 
 export interface ModelPrice {
   input: number;
@@ -165,21 +166,26 @@ function formatUsd(value: number): string {
 export class RunBudgetGuard {
   private readonly perMessageUsd = new Map<string, number>();
   private estimatedUsd = 0;
+  private sideUsd = 0;
   private sdkBaseUsd = 0;
   private sdkTotalUsd = 0;
   private estimatedAtSdkTotal = 0;
   private stage: BudgetStage = "ok";
+  private deliveredStage: BudgetStage = "ok";
   private pendingSteer: BudgetSteerStage | null = null;
+  private steerMode: BudgetSteerMode;
   private readonly steers: BudgetSteerRecord[] = [];
 
   constructor(
     readonly capUsd: number,
     private readonly prices: readonly ModelPriceRule[],
     private readonly logger: Logger,
-    readonly mode: BudgetSteerMode = "wrap_up",
+    mode: BudgetSteerMode = "wrap_up",
     private readonly warnRatio: number = BUDGET_WARN_RATIO,
     private readonly criticalRatio: number = BUDGET_CRITICAL_RATIO,
-  ) {}
+  ) {
+    this.steerMode = mode;
+  }
 
   static fromEnv(
     env: NodeJS.ProcessEnv,
@@ -194,11 +200,26 @@ export class RunBudgetGuard {
     return new RunBudgetGuard(capUsd, prices, logger, mode);
   }
 
+  get mode(): BudgetSteerMode {
+    return this.steerMode;
+  }
+
+  setMode(mode: BudgetSteerMode): void {
+    if (mode === this.steerMode) return;
+    this.logger.info("[BudgetGuard] Steer mode changed", {
+      from: this.steerMode,
+      to: mode,
+    });
+    this.steerMode = mode;
+  }
+
   get spentUsd(): number {
+    const mainEstimatedUsd = this.estimatedUsd - this.sideUsd;
     const calibrated =
       this.sdkBaseUsd +
       this.sdkTotalUsd +
-      Math.max(0, this.estimatedUsd - this.estimatedAtSdkTotal);
+      this.sideUsd +
+      Math.max(0, mainEstimatedUsd - this.estimatedAtSdkTotal);
     return Math.max(this.estimatedUsd, calibrated);
   }
 
@@ -212,16 +233,18 @@ export class RunBudgetGuard {
 
   recordAssistantMessage(
     message: AssistantUsageLike,
+    source: BudgetSpendSource = "main",
   ): BudgetThresholdEvent | null {
     const cost = estimateMessageCostUsd(message, this.prices);
+    let added = cost;
     if (message.id) {
       const previous = this.perMessageUsd.get(message.id) ?? 0;
       if (cost <= previous) return this.advanceStage();
       this.perMessageUsd.set(message.id, cost);
-      this.estimatedUsd += cost - previous;
-    } else {
-      this.estimatedUsd += cost;
+      added = cost - previous;
     }
+    this.estimatedUsd += added;
+    if (source === "side") this.sideUsd += added;
     return this.advanceStage();
   }
 
@@ -230,17 +253,21 @@ export class RunBudgetGuard {
       return null;
     }
     if (totalCostUsd < this.sdkTotalUsd) {
-      this.onQueryReset();
+      this.logger.debug("[BudgetGuard] Ignoring a lower SDK running total", {
+        totalCostUsd,
+        sdkTotalUsd: this.sdkTotalUsd,
+      });
+      return this.advanceStage();
     }
     this.sdkTotalUsd = totalCostUsd;
-    this.estimatedAtSdkTotal = this.estimatedUsd;
+    this.estimatedAtSdkTotal = this.estimatedUsd - this.sideUsd;
     return this.advanceStage();
   }
 
   onQueryReset(): void {
     this.sdkBaseUsd += this.sdkTotalUsd;
     this.sdkTotalUsd = 0;
-    this.estimatedAtSdkTotal = this.estimatedUsd;
+    this.estimatedAtSdkTotal = this.estimatedUsd - this.sideUsd;
   }
 
   takePendingSteer(): BudgetSteerStage | null {
@@ -250,6 +277,7 @@ export class RunBudgetGuard {
   }
 
   markUndelivered(stage: BudgetSteerStage): void {
+    if (STAGE_RANK[stage] <= STAGE_RANK[this.deliveredStage]) return;
     if (
       this.pendingSteer === null ||
       STAGE_RANK[stage] > STAGE_RANK[this.pendingSteer]
@@ -261,6 +289,9 @@ export class RunBudgetGuard {
   recordSteer(stage: BudgetSteerStage, delivered: boolean): BudgetSteerRecord {
     const record = { stage, spent_usd: this.spentUsd, delivered };
     this.steers.push(record);
+    if (delivered && STAGE_RANK[stage] > STAGE_RANK[this.deliveredStage]) {
+      this.deliveredStage = stage;
+    }
     return record;
   }
 
@@ -299,17 +330,22 @@ export class RunBudgetGuard {
         "preserves the work. If a PR is already open, commit what you have and stop."
       );
     }
+    const explicitPr =
+      "If the user asked you to open or update a pull request, commit what is on disk with the " +
+      "git_signed_commit tool and do that first. ";
     if (stage === "critical") {
       return (
         `Budget critical: this run has used about ${spent} of its ${cap} model budget. ` +
-        "The gateway will refuse further calls very soon. Stop new work now and end your turn " +
-        "with your result so far: what is done, what is not, and what you found. " +
+        "The gateway will refuse further calls very soon. Stop new work now. " +
+        explicitPr +
+        "Then end your turn with your result so far: what is done, what is not, and what you found. " +
         "Do not start subagents or workflows, and do not read or run anything else."
       );
     }
     return (
       `Budget notice: this run has used about ${spent} of its ${cap} model budget. ` +
       "Wrap up now. Finish the step you are on, then give your result with what you have. " +
+      explicitPr +
       "Skip further exploration, optional checks, and parallel subagents."
     );
   }
