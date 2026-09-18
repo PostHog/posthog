@@ -101,7 +101,7 @@ export function PromptViewDetails(): JSX.Element {
     const resolvedText =
         isShowingResolvedPreview && typeof resolvedPreview?.prompt === 'string' ? resolvedPreview.prompt : null
     const displayText = resolvedText ?? promptText
-    const variableMatches = promptText.match(/\{\{([^}]+)\}\}/g)
+    const variableMatches = displayText.match(/\{\{([^}]+)\}\}/g)
     const variables = variableMatches
         ? [...new Set(variableMatches.map((match: string) => match.slice(2, -2).trim()))]
         : []
