@@ -5,6 +5,7 @@ import structlog
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
+from products.cohorts.backend.parity.eligibility import behavioral_window_days
 
 _INTERVAL_DAYS = {"day": 1, "week": 7, "month": 30, "year": 365}
 logger = structlog.get_logger(__name__)
@@ -26,6 +27,32 @@ def derive_window_days(time_value: object, time_interval: object) -> int:
     return normalized_time_value * _INTERVAL_DAYS.get(time_interval, 0)
 
 
+def _is_action(leaf: dict[str, Any]) -> bool:
+    return leaf.get("event_type") == "actions" or isinstance(leaf.get("key"), int)
+
+
+def behavioral_leaf_unpinnable_reason(leaf: dict[str, Any]) -> str | None:
+    """The catalog's drop label for a behavioral leaf the seeder could never resolve, or ``None``.
+
+    Mirrors the order and the labels of ``classify_behavioral`` in
+    ``rust/cohort-core/src/filters/leaf_classifier.rs``, but only its shape checks. A hash of the
+    wrong length and missing or unloadable bytecode are left to the seeder, which fails such a run
+    closed, because screening them here means a second copy of the bytecode loader's rules.
+    """
+    if leaf.get("value") not in ("performed_event", "performed_event_multiple"):
+        return "unsupported_behavioral_value"
+    if _is_action(leaf):
+        return "behavioral_action_key"
+    if leaf.get("conditionHash") is None:
+        return "missing_condition_hash"
+    key = leaf.get("key")
+    if not isinstance(key, str) or not key:
+        return "malformed_leaf"
+    if behavioral_window_days(leaf, leaf["value"]) is None:
+        return "unsupported_state_variant"
+    return None
+
+
 def pin_conditions_for_cohorts(cohorts: Iterable[Cohort]) -> tuple[dict[str, Any], list[str]]:
     conditions: list[dict[str, Any]] = []
     event_names: set[str] = set()
@@ -37,7 +64,7 @@ def pin_conditions_for_cohorts(cohorts: Iterable[Cohort]) -> tuple[dict[str, Any
                 continue
 
             event_key = leaf.get("key")
-            is_action = leaf.get("event_type") == "actions" or isinstance(event_key, int)
+            is_action = _is_action(leaf)
             event_name = event_key if isinstance(event_key, str) and not is_action else None
             if event_name is not None:
                 event_names.add(event_name)

@@ -16,6 +16,7 @@ from posthog.models.team.team import Team
 
 from products.cohorts.backend.backfill.pinning import (
     PersonPinningCapExceeded,
+    behavioral_leaf_unpinnable_reason,
     pin_conditions_for_cohorts,
     pin_person_conditions_for_cohorts,
 )
@@ -82,11 +83,6 @@ def check_person_run_preconditions() -> tuple[dict[str, Any], list[str]]:
     return preconditions, missing
 
 
-def has_behavioral_filters(cohort: Cohort) -> bool:
-    properties = (cohort.filters or {}).get("properties")
-    return any(leaf.get("type") == "behavioral" for leaf in walk_filter_leaves(properties))
-
-
 def _has_pinnable_person_filters(cohort: Cohort) -> bool:
     properties = (cohort.filters or {}).get("properties")
     return any(
@@ -113,6 +109,35 @@ def person_backfill_ineligibility_reason(cohort: Cohort) -> str | None:
         return "contains person_metadata filters"
     if not _has_pinnable_person_filters(cohort):
         return "has no person filter with a condition hash"
+    return None
+
+
+def behavioral_backfill_ineligibility_reason(cohort: Cohort) -> str | None:
+    """The single behavioral-run eligibility predicate, shared by the creators, the management
+    command, and the dispatch receiver so none of them can judge a cohort backfillable that another
+    refuses.
+
+    A cohort with any leaf the frozen catalog would drop is refused whole rather than narrowed to
+    its seedable leaves, because the processor excludes such a cohort from composition entirely and
+    a readiness stamp on it would claim a membership the flags reader can never see.
+    """
+    if cohort.cohort_type != CohortType.REALTIME:
+        return "not realtime"
+    if cohort.is_static:
+        return "static"
+    if cohort.deleted:
+        return "deleted"
+    behavioral_leaves = [
+        leaf
+        for leaf in walk_filter_leaves((cohort.filters or {}).get("properties"))
+        if leaf.get("type") == "behavioral"
+    ]
+    if not behavioral_leaves:
+        return "has no behavioral filter"
+    for leaf in behavioral_leaves:
+        reason = behavioral_leaf_unpinnable_reason(leaf)
+        if reason is not None:
+            return f"has a behavioral filter the seeder cannot pin ({reason})"
     return None
 
 
@@ -243,12 +268,14 @@ def attempt_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: 
             )
             if cohort is None:
                 return BackfillRunAttempt.refused(BackfillRefusalReason.COHORT_MISSING)
-            if (
-                cohort.cohort_type != CohortType.REALTIME
-                or cohort.is_static
-                or cohort.deleted
-                or not has_behavioral_filters(cohort)
-            ):
+            ineligibility = behavioral_backfill_ineligibility_reason(cohort)
+            if ineligibility is not None:
+                logger.info(
+                    "cohort_behavioral_backfill_ineligible",
+                    team_id=team_id,
+                    cohort_id=cohort_id,
+                    reason=ineligibility,
+                )
                 return BackfillRunAttempt.refused(BackfillRefusalReason.COHORT_INELIGIBLE)
             if _active_participation_cohort_ids(team_id, [cohort_id], kind=CohortBackfillKind.BEHAVIORAL):
                 return BackfillRunAttempt.refused(BackfillRefusalReason.PARTICIPATION_ACTIVE)
@@ -328,7 +355,9 @@ def create_team_backfill_run(
         )
         if requested_ids is not None:
             queryset = queryset.filter(id__in=requested_ids)
-        cohorts = [cohort for cohort in queryset.order_by("id") if has_behavioral_filters(cohort)]
+        cohorts = [
+            cohort for cohort in queryset.order_by("id") if behavioral_backfill_ineligibility_reason(cohort) is None
+        ]
         if requested_ids is not None and {cohort.id for cohort in cohorts} != requested_ids:
             invalid_ids = sorted(requested_ids - {cohort.id for cohort in cohorts})
             raise ValueError(f"Cohorts are not eligible realtime behavioral cohorts: {invalid_ids}")

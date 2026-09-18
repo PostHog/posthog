@@ -201,6 +201,81 @@ class TestBackfillRuns(BaseTest):
         with self.assertRaisesMessage(ValueError, "Cohorts already have active backfill runs"):
             create_team_backfill_run(self.team.id, "team_enablement")
 
+    def _unseedable_cohort(self, *leaves: dict) -> Cohort:
+        return Cohort.objects.create(
+            team=self.team,
+            name="unseedable",
+            cohort_type=CohortType.REALTIME,
+            filters={"properties": {"type": "AND", "values": list(leaves)}},
+        )
+
+    # The UI never writes a behavioral leaf without a time window, but the API accepts one.
+    _WINDOWLESS_LEAF = {
+        "type": "behavioral",
+        "key": "navbar starred item added",
+        "event_type": "events",
+        "value": "performed_event",
+        "conditionHash": "c8236865303eb463",
+        "event_filters": [{"key": "item_type", "type": "event", "value": "insight", "operator": "exact"}],
+    }
+    _WINDOWED_LEAF = {
+        "type": "behavioral",
+        "key": "$pageview",
+        "event_type": "events",
+        "value": "performed_event",
+        "conditionHash": "hash-$pageview",
+        "time_value": 7,
+        "time_interval": "day",
+    }
+
+    @parameterized.expand(
+        [
+            ("windowless_performed_event", [_WINDOWLESS_LEAF]),
+            ("action_keyed", [{**_WINDOWED_LEAF, "event_type": "actions", "key": 42}]),
+            (
+                "sub_day_multiple",
+                [
+                    {
+                        **_WINDOWED_LEAF,
+                        "value": "performed_event_multiple",
+                        "time_interval": "hour",
+                        "operator": "gte",
+                        "operator_value": 2,
+                    }
+                ],
+            ),
+            ("hashless", [{k: v for k, v in _WINDOWED_LEAF.items() if k != "conditionHash"}]),
+            ("one_seedable_sibling", [_WINDOWED_LEAF, _WINDOWLESS_LEAF]),
+        ]
+    )
+    def test_unseedable_behavioral_cohort_is_refused(self, _name: str, leaves: list[dict]) -> None:
+        # The processor excludes a cohort with any dropped leaf, so a partly seedable one is
+        # refused whole.
+        cohort = self._unseedable_cohort(*leaves)
+
+        attempt = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+
+        self.assertEqual(attempt.reason, BackfillRefusalReason.COHORT_INELIGIBLE)
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
+
+    def test_team_run_excludes_an_unseedable_cohort_and_refuses_it_by_id(self) -> None:
+        seedable = self._cohort()
+        unseedable = self._unseedable_cohort(self._WINDOWLESS_LEAF)
+
+        with self.assertRaisesMessage(ValueError, "not eligible realtime behavioral cohorts"):
+            create_team_backfill_run(self.team.id, "team_enablement", [unseedable.id])
+
+        run = create_team_backfill_run(self.team.id, "team_enablement")
+
+        self.assertEqual(
+            set(
+                CohortBackfillRunCohort.objects.for_team(self.team.id)
+                .filter(run=run)
+                .values_list("cohort_id", flat=True)
+            ),
+            {seedable.id},
+        )
+
     def test_editing_the_cohort_supersedes_its_active_run(self) -> None:
         # rust/cohort-seeder claims run rows and replays history from the filters the run pinned, so
         # if the post_save receiver stops superseding, an edit leaves the seeder on a stale definition.

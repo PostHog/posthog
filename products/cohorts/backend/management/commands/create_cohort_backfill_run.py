@@ -16,16 +16,16 @@ from products.cohorts.backend.backfill.pinning import (
 )
 from products.cohorts.backend.backfill.runs import (
     _validate_boundary_at,
+    behavioral_backfill_ineligibility_reason,
     check_person_run_preconditions,
     check_run_preconditions,
     create_person_team_backfill_run,
     create_team_backfill_run,
-    has_behavioral_filters,
     person_backfill_ineligibility_reason,
 )
 from products.cohorts.backend.backfill.sizing import estimate_person_seed_topic_bytes
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillRunCohort, CohortBackfillTrigger
-from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
 from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
 
@@ -98,16 +98,24 @@ class Command(BaseCommand):
 
         cohort_ids = options.get("cohort_ids")
         if options["dry_run"]:
-            queryset = Cohort.objects.filter(
-                team_id=team_id,
-                cohort_type=CohortType.REALTIME,
-                is_static=False,
-                deleted=False,
-            )
+            # Deliberately wider than `create_team_backfill_run`, which narrows the SQL-expressible
+            # half of eligibility away before it locks. Both sides decide with the same predicate.
+            queryset = Cohort.objects.filter(team_id=team_id)
             if cohort_ids is not None:
                 queryset = queryset.filter(id__in=cohort_ids)
-            cohorts = [cohort for cohort in queryset.order_by("id") if has_behavioral_filters(cohort)]
-            if cohort_ids is not None and {cohort.id for cohort in cohorts} != set(cohort_ids):
+            candidates = [
+                (cohort, behavioral_backfill_ineligibility_reason(cohort)) for cohort in queryset.order_by("id")
+            ]
+            refusals = [(cohort.id, reason) for cohort, reason in candidates if reason is not None]
+            if cohort_ids is not None:
+                candidate_ids = {cohort.id for cohort, _ in candidates}
+                refusals.extend((cohort_id, "not found") for cohort_id in sorted(set(cohort_ids) - candidate_ids))
+            if refusals:
+                self.stdout.write(
+                    "Refused cohorts: " + ", ".join(f"{cohort_id} ({reason})" for cohort_id, reason in refusals)
+                )
+            cohorts = [cohort for cohort, reason in candidates if reason is None]
+            if cohort_ids is not None and refusals:
                 raise CommandError("One or more --cohort-ids are not eligible realtime behavioral cohorts")
             pinned, event_names = pin_conditions_for_cohorts(cohorts)
             self.stdout.write(

@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from products.cohorts.backend.backfill.pinning import (
     PersonPinningCapExceeded,
+    behavioral_leaf_unpinnable_reason,
     derive_window_days,
     pin_conditions_for_cohorts,
     pin_person_conditions_for_cohorts,
@@ -27,6 +28,50 @@ class TestBackfillPinning(SimpleTestCase):
     )
     def test_derive_window_days(self, interval: str, value: object, expected: int) -> None:
         self.assertEqual(derive_window_days(value, interval), expected)
+
+    @parameterized.expand(
+        [
+            ("windowed_performed_event", {}, None),
+            (
+                "explicit_absolute_range",
+                {"time_value": None, "time_interval": None, "explicit_datetime": "2026-01-03"},
+                None,
+            ),
+            ("sequence_value", {"value": "performed_event_sequence"}, "unsupported_behavioral_value"),
+            ("action_event_type", {"event_type": "actions"}, "behavioral_action_key"),
+            ("action_id_key", {"key": 42}, "behavioral_action_key"),
+            ("hashless", {"conditionHash": None}, "missing_condition_hash"),
+            ("empty_key", {"key": ""}, "malformed_leaf"),
+            ("windowless", {"time_value": None, "time_interval": None}, "unsupported_state_variant"),
+            (
+                "sub_day_multiple",
+                {"value": "performed_event_multiple", "time_interval": "hour", "operator": "gte", "operator_value": 2},
+                "unsupported_state_variant",
+            ),
+            (
+                "relative_upper_bound",
+                {
+                    "time_value": None,
+                    "time_interval": None,
+                    "explicit_datetime": "2026-01-03",
+                    "explicit_datetime_to": "-1d",
+                },
+                "unsupported_state_variant",
+            ),
+        ]
+    )
+    def test_behavioral_leaf_unpinnable_reason(self, _name: str, overrides: dict, expected: str | None) -> None:
+        leaf = {
+            "type": "behavioral",
+            "key": "$pageview",
+            "event_type": "events",
+            "value": "performed_event",
+            "conditionHash": "aaaaaaaaaaaaaaaa",
+            "time_value": 7,
+            "time_interval": "day",
+            **overrides,
+        }
+        self.assertEqual(behavioral_leaf_unpinnable_reason(leaf), expected)
 
     def test_pins_leaf_state_fields_and_event_union(self) -> None:
         cohort = Cohort(
