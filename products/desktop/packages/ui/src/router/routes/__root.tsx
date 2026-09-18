@@ -61,6 +61,7 @@ import {
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useSidebarData } from "@posthog/ui/features/sidebar/useSidebarData";
 import { useVisualTaskOrder } from "@posthog/ui/features/sidebar/useVisualTaskOrder";
+import { useInBackgroundTile } from "@posthog/ui/features/tab-tiling/backgroundTile";
 import { TileLayout } from "@posthog/ui/features/tab-tiling/TileLayout";
 import { ExistingWorktreeDialog } from "@posthog/ui/features/task-detail/components/ExistingWorktreeDialog";
 import { RemoteBranchCheckoutDialog } from "@posthog/ui/features/task-detail/components/RemoteBranchCheckoutDialog";
@@ -109,8 +110,12 @@ const log = logger.scope("root-route");
 const WINDOWS_TITLEBAR_INSET = 140;
 
 export const Route = createRootRoute({
-  component: RootLayout,
+  component: RootRoute,
 });
+
+function RootRoute() {
+  return useInBackgroundTile() ? <Outlet /> : <RootLayout />;
+}
 
 function RootLayout() {
   const view = useAppView();

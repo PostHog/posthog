@@ -1,3 +1,4 @@
+import { useDroppable } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
 import {
   PlusIcon,
@@ -20,6 +21,7 @@ import {
 } from "@posthog/quill";
 import { Flex } from "@radix-ui/themes";
 import type { ReactNode } from "react";
+import { STRIP_DROP_TYPE, type StripDropData } from "./stripDrop";
 import { DetachFromStrip } from "./tabDetach";
 import { useTabReorderStore } from "./tabReorderStore";
 
@@ -106,6 +108,14 @@ export function TabStrip({
     return c;
   });
 
+  const tileDragActive = useTabReorderStore((s) => s.dragSource === "tile");
+  const stripDropData: StripDropData = { type: STRIP_DROP_TYPE };
+  const { ref: stripRef, isDropTarget } = useDroppable({
+    id: "browser-tab-strip",
+    data: stripDropData,
+    disabled: !tileDragActive,
+  });
+
   return (
     <TooltipProvider delay={400}>
       {/* overflow-hidden: incompressible pinned pills must clip within the
@@ -114,9 +124,13 @@ export function TabStrip({
           space right of the pills moves the window; each interactive child
           opts out with `no-drag` individually. */}
       <Flex
+        ref={stripRef}
         align="center"
         gap="1"
-        className="h-6 min-w-0 flex-1 overflow-hidden pt-px pr-2"
+        className={cn(
+          "h-6 min-w-0 flex-1 overflow-hidden pt-px pr-2",
+          isDropTarget && "rounded-md ring-1 ring-accent-8",
+        )}
         role="tablist"
       >
         {tabs.map((tab, index) => (

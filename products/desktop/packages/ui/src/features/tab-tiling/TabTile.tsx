@@ -1,4 +1,5 @@
-import { XIcon } from "@phosphor-icons/react";
+import { useDraggable } from "@dnd-kit/react";
+import { DotsSixVerticalIcon, XIcon } from "@phosphor-icons/react";
 import { Button, cn, Text } from "@posthog/quill";
 import type { BrowserTab } from "@posthog/shared";
 import {
@@ -16,6 +17,7 @@ import type { ReactNode } from "react";
 import { BackgroundTileProvider } from "./backgroundTile";
 import { TileDropZones } from "./TileDropZones";
 import { TileTabContent } from "./TileTabContent";
+import { TILE_TAB_DRAG_TYPE, type TileTabDragData } from "./tileDrag";
 
 function tileLabel(tab: BrowserTab): string {
   if (tab.viewState?.title) return tab.viewState.title;
@@ -32,6 +34,27 @@ function tileIcon(tab: BrowserTab): ReactNode {
   return null;
 }
 
+function useTileDrag(tabId: string) {
+  const data: TileTabDragData = { type: TILE_TAB_DRAG_TYPE, tabId };
+  return useDraggable({ id: `tile-tab-${tabId}`, data, feedback: "clone" });
+}
+
+function TileGrip({ tab }: { tab: BrowserTab }) {
+  const { ref, isDragSource } = useTileDrag(tab.id);
+  return (
+    <span
+      ref={ref}
+      title={`Move ${tileLabel(tab)}`}
+      className={cn(
+        "flex shrink-0 cursor-grab items-center rounded-sm p-0.5 text-muted-foreground hover:bg-muted",
+        isDragSource && "bg-background shadow-lg ring-1 ring-border",
+      )}
+    >
+      <DotsSixVerticalIcon size={12} />
+    </span>
+  );
+}
+
 function TileName({
   tab,
   isActive,
@@ -43,24 +66,33 @@ function TileName({
 }) {
   const label = tileLabel(tab);
   const icon = tileIcon(tab);
+  const { ref, isDragSource } = useTileDrag(tab.id);
   return (
     <button
       type="button"
-      className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left"
+      className="flex h-full min-w-0 flex-1 items-center text-left"
       onClick={() => {
         if (!isActive) onActivate(tab);
       }}
       title={label}
     >
-      {icon && <span className="flex shrink-0 items-center">{icon}</span>}
-      <Text
+      <span
+        ref={ref}
         className={cn(
-          "truncate text-xs",
-          isActive ? "font-medium" : "text-muted-foreground",
+          "flex min-w-0 max-w-full cursor-grab items-center gap-1.5 rounded-sm px-1 py-0.5",
+          isDragSource && "bg-background shadow-lg ring-1 ring-border",
         )}
       >
-        {label}
-      </Text>
+        {icon && <span className="flex shrink-0 items-center">{icon}</span>}
+        <Text
+          className={cn(
+            "truncate text-xs",
+            isActive ? "font-medium" : "text-muted-foreground",
+          )}
+        >
+          {label}
+        </Text>
+      </span>
     </button>
   );
 }
@@ -89,9 +121,12 @@ function ActiveTileHeader({
       actions={<RemoveButton tab={tab} onUntile={onUntile} />}
     >
       {content ? (
-        <div className="flex h-full min-w-0 flex-1 items-center justify-between overflow-hidden">
-          {content}
-        </div>
+        <>
+          <TileGrip tab={tab} />
+          <div className="flex h-full min-w-0 flex-1 items-center justify-between overflow-hidden">
+            {content}
+          </div>
+        </>
       ) : (
         <TileName tab={tab} isActive onActivate={onActivate} />
       )}
@@ -123,7 +158,7 @@ function RemoveButton({
 interface TabTileProps {
   tab: BrowserTab;
   isActive: boolean;
-  isDragging: boolean;
+  dropTarget: boolean;
   groupFull: boolean;
   onActivate: (tab: BrowserTab) => void;
   onUntile: (tab: BrowserTab) => void;
@@ -133,7 +168,7 @@ interface TabTileProps {
 export function TabTile({
   tab,
   isActive,
-  isDragging,
+  dropTarget,
   groupFull,
   onActivate,
   onUntile,
@@ -170,7 +205,7 @@ export function TabTile({
           </BackgroundTileProvider>
         )}
       </div>
-      {isDragging && <TileDropZones tabId={tab.id} disabled={groupFull} />}
+      {dropTarget && <TileDropZones tabId={tab.id} disabled={groupFull} />}
     </div>
   );
 }

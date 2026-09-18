@@ -4,9 +4,11 @@ import { useService } from "@posthog/di/react";
 import { primaryWindow, setTabOrder } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { isTileDropData } from "@posthog/ui/features/tab-tiling/TileDropZones";
+import { isTileTabDragData } from "@posthog/ui/features/tab-tiling/tileDrag";
 import { useTileLayoutStore } from "@posthog/ui/features/tab-tiling/tileLayoutStore";
 import {
   groupForTab,
+  type TileEdge,
   tabIdsIn,
 } from "@posthog/ui/features/tab-tiling/tileTree";
 import { track } from "@posthog/ui/shell/analytics";
@@ -17,12 +19,31 @@ import {
 } from "./browserTabsClient";
 import { reorderWithinGroup, storedOrderIds } from "./displayOrder";
 import { usePinnedTabsStore } from "./pinnedTabsStore";
+import { isStripDropData } from "./stripDrop";
 import { exceedsDetachDistance } from "./tabDetach";
 import { useTabReorderStore } from "./tabReorderStore";
-import { applyLocalTransform, persistWrite } from "./tabsSync";
+import { applyLocalTransform, persistWrite, readMirror } from "./tabsSync";
+import { useGoToTab } from "./useGoToTab";
 
 function sameOrder(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((id, i) => id === b[i]);
+}
+
+function resetDragState(): void {
+  const store = useTabReorderStore.getState();
+  store.setPreviewOrder(null);
+  store.setDraggingTabId(null);
+  store.setDragSource(null);
+  store.setDetached(false);
+}
+
+function tileBeside(tabId: string, targetTabId: string, edge: TileEdge): void {
+  useTileLayoutStore.getState().tileTab(tabId, targetTabId, edge);
+  const group = groupForTab(useTileLayoutStore.getState().groups, targetTabId);
+  track(ANALYTICS_EVENTS.BROWSER_TAB_TILED, {
+    edge,
+    tile_count: group ? tabIdsIn(group.root).length : 0,
+  });
 }
 
 /**
@@ -41,12 +62,20 @@ function sameOrder(a: string[], b: string[]): boolean {
  */
 export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
   const client = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
+  const goToTab = useGoToTab();
   /** Stored order captured at dragstart — used to skip a no-op persist. */
   const initialOrder = useRef<string[] | null>(null);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
 
   const onDragStart: DragDropEvents["dragstart"] = (event) => {
     const data = event.operation.source?.data;
+    const store = useTabReorderStore.getState();
+    if (isTileTabDragData(data)) {
+      store.setDraggingTabId(data.tabId);
+      store.setDragSource("tile");
+      store.setDetached(true);
+      return;
+    }
     if (data?.type !== "browser-tab") return;
     const snapshot = browserTabsStore.getState().snapshot;
     const win = primaryWindow(snapshot);
@@ -54,16 +83,58 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
     const order = storedOrderIds(snapshot, win.id);
     initialOrder.current = order;
     dragStart.current = event.operation.position.current;
-    useTabReorderStore.getState().setPreviewOrder(order);
-    useTabReorderStore.getState().setDraggingTabId(data.tabId);
+    store.setPreviewOrder(order);
+    store.setDraggingTabId(data.tabId);
+    store.setDragSource("strip");
   };
 
   const onDragMove: DragDropEvents["dragmove"] = (event) => {
     const start = dragStart.current;
     if (!start || !event.to) return;
     const store = useTabReorderStore.getState();
+    if (store.dragSource !== "strip") return;
     const detached = exceedsDetachDistance(event.to.y - start.y);
     if (detached !== store.detached) store.setDetached(detached);
+  };
+
+  const persistOrder = (order: string[]) => {
+    const snapshot = browserTabsStore.getState().snapshot;
+    const win = primaryWindow(snapshot);
+    if (!win) return;
+    applyLocalTransform((s) => setTabOrder(s, win.id, order));
+    void persistWrite(() =>
+      client.setOrder({ windowId: win.id, tabIds: order }),
+    );
+  };
+
+  const dropTileOnStrip = (tabId: string, besideTabId: string | null) => {
+    useTileLayoutStore.getState().untileTab(tabId);
+    const snapshot = browserTabsStore.getState().snapshot;
+    const win = primaryWindow(snapshot);
+    if (besideTabId && besideTabId !== tabId && win) {
+      const order = storedOrderIds(snapshot, win.id);
+      const pinnedTabIds = usePinnedTabsStore.getState().pinnedTabIds;
+      const next = reorderWithinGroup(order, pinnedTabIds, tabId, besideTabId);
+      if (!sameOrder(next, order)) persistOrder(next);
+    }
+    const tab = readMirror().tabs.find((t) => t.id === tabId);
+    if (tab) goToTab(tab);
+    track(ANALYTICS_EVENTS.BROWSER_TAB_UNTILED, { tile_count: 0 });
+  };
+
+  const dropTile = (tabId: string, target: unknown) => {
+    if (isTileDropData(target)) {
+      if (target.tabId !== tabId) tileBeside(tabId, target.tabId, target.edge);
+      return;
+    }
+    if (isStripDropData(target)) {
+      dropTileOnStrip(tabId, null);
+      return;
+    }
+    const pill = target as { type?: unknown; tabId?: unknown } | undefined;
+    if (pill?.type === "browser-tab" && typeof pill.tabId === "string") {
+      dropTileOnStrip(tabId, pill.tabId);
+    }
   };
 
   const onDragOver: DragDropEvents["dragover"] = (event) => {
@@ -101,39 +172,22 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
     // Defer clearing the preview + persisting a frame so @dnd-kit finishes its
     // DOM cleanup first (same gotcha as the panels feature).
     requestAnimationFrame(() => {
-      useTabReorderStore.getState().setPreviewOrder(null);
-      useTabReorderStore.getState().setDraggingTabId(null);
-      useTabReorderStore.getState().setDetached(false);
-      if (event.canceled || src?.type !== "browser-tab") return;
+      resetDragState();
+      if (event.canceled) return;
+      if (isTileTabDragData(src)) {
+        dropTile(src.tabId, tgt);
+        return;
+      }
+      if (src?.type !== "browser-tab") return;
       if (isTileDropData(tgt)) {
-        useTileLayoutStore.getState().tileTab(src.tabId, tgt.tabId, tgt.edge);
-        const group = groupForTab(
-          useTileLayoutStore.getState().groups,
-          tgt.tabId,
-        );
-        track(ANALYTICS_EVENTS.BROWSER_TAB_TILED, {
-          edge: tgt.edge,
-          tile_count: group ? tabIdsIn(group.root).length : 0,
-        });
+        tileBeside(src.tabId, tgt.tabId, tgt.edge);
         return;
       }
-      if (
-        src?.type !== "browser-tab" ||
-        !order ||
-        (initial && sameOrder(order, initial))
-      ) {
-        return;
-      }
-      const snapshot = browserTabsStore.getState().snapshot;
-      const win = primaryWindow(snapshot);
-      if (!win) return;
+      if (!order || (initial && sameOrder(order, initial))) return;
       // Apply locally so the strip doesn't flit back to the mirror's pre-drop
       // order for a frame; persist through the tabsSync gate so the echo can't
       // rewind a newer write.
-      applyLocalTransform((s) => setTabOrder(s, win.id, order));
-      void persistWrite(() =>
-        client.setOrder({ windowId: win.id, tabIds: order }),
-      );
+      persistOrder(order);
     });
   };
 

@@ -32,7 +32,7 @@ interface TileTreeProps {
   node: TileNode;
   tabsById: Map<string, BrowserTab>;
   activeTabId: string;
-  showDropZones: boolean;
+  draggingTabId: string | null;
   groupFull: boolean;
   onActivate: (tab: BrowserTab) => void;
   onUntile: (tab: BrowserTab) => void;
@@ -49,7 +49,9 @@ function TileTree(props: TileTreeProps) {
       <TabTile
         tab={tab}
         isActive={tab.id === activeTabId}
-        isDragging={props.showDropZones}
+        dropTarget={
+          props.draggingTabId !== null && props.draggingTabId !== tab.id
+        }
         groupFull={props.groupFull}
         onActivate={props.onActivate}
         onUntile={props.onUntile}
@@ -99,12 +101,15 @@ export function TileLayout({ children }: { children: ReactNode }) {
   const rawDraggingTabId = useTabReorderStore((s) =>
     s.detached ? s.draggingTabId : null,
   );
-  const draggingTabId =
-    rawDraggingTabId &&
-    !groupForTab(groups, rawDraggingTabId) &&
-    !pinnedTabIds.includes(rawDraggingTabId)
-      ? rawDraggingTabId
-      : null;
+  const dragSource = useTabReorderStore((s) => s.dragSource);
+  const draggingTabId = useMemo(() => {
+    if (!rawDraggingTabId) return null;
+    if (dragSource === "tile") return rawDraggingTabId;
+    const loose =
+      !groupForTab(groups, rawDraggingTabId) &&
+      !pinnedTabIds.includes(rawDraggingTabId);
+    return loose ? rawDraggingTabId : null;
+  }, [rawDraggingTabId, dragSource, groups, pinnedTabIds]);
   const activeTabId = useActiveTabId();
 
   useEffect(() => {
@@ -156,14 +161,19 @@ export function TileLayout({ children }: { children: ReactNode }) {
     );
   }
 
+  const groupTabIds = tabIdsIn(group.root);
+  const groupFull =
+    groupTabIds.length >= MAX_TILES_PER_GROUP &&
+    !(draggingTabId && groupTabIds.includes(draggingTabId));
+
   return (
     <div className="h-full" data-testid="tile-layout">
       <TileTree
         node={group.root}
         tabsById={tabsById}
         activeTabId={activeTabId}
-        showDropZones={draggingTabId !== null}
-        groupFull={tabIdsIn(group.root).length >= MAX_TILES_PER_GROUP}
+        draggingTabId={draggingTabId}
+        groupFull={groupFull}
         onActivate={goToTab}
         onUntile={onUntile}
       >
