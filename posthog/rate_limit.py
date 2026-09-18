@@ -389,6 +389,20 @@ class LeakedKeyReportThrottle(IPThrottle):
     rate = "10/minute"
 
 
+class VapiWebhookIPThrottle(IPThrottle):
+    """Per-IP cap on the public Vapi webhook endpoint, run by the ingress throttle lane.
+
+    Vapi calls us a small handful of times per interview (status-update + end-of-call-report),
+    but its egress is shared across all of our tenants, so the bucket has to be generous enough
+    that a noisy concurrent interview hour doesn't bleed onto a normal one. 1200/min is well
+    above legitimate aggregate volume while still stopping a persistent attacker from driving
+    HMAC-verification CPU or structured-log volume from a single IP.
+    """
+
+    scope = "user_interviews_vapi_webhook_ip"
+    rate = "1200/minute"
+
+
 class SignupEmailPrecheckThrottle(IPThrottle):
     """
     Rate limit signup email precheck requests by IP.
