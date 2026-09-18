@@ -1,5 +1,4 @@
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -19,7 +18,6 @@ export function DestinationsNotificationsTab(): JSX.Element {
                 <HogFunctionList
                     logicKey="data-pipelines-notifications"
                     type="internal_destination"
-                    returnTo={urls.destinations('notifications')}
                     truncateDescriptions
                 />
             </SceneSection>

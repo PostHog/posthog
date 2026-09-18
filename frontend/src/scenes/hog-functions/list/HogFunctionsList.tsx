@@ -123,6 +123,7 @@ export function HogFunctionList({
     emptyText?: string
     onDeleteHogFunction?: (hogFunction: HogFunctionType) => void
     onEditHogFunction?: (hogFunction: HogFunctionType) => void
+    /** Path the row's breadcrumbs return to. An alert row reads it as the owning alert's path, so pass the owner's URL rather than a list URL. */
     returnTo?: string
     /** Clamp long descriptions to two lines with a "Show more" toggle. */
     truncateDescriptions?: boolean
