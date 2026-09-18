@@ -24,7 +24,7 @@ concurrency:
 jobs:
     check-changesets:
         name: Check for CLI changesets
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         outputs:
             has-changesets: ${{ steps.check.outputs.has-changesets }}
@@ -89,7 +89,7 @@ jobs:
         name: Generate CLI release preview
         needs: check-changesets
         if: needs.check-changesets.outputs.has-changesets == 'true'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         steps:
             - name: Write CLI diff summary
@@ -176,7 +176,7 @@ jobs:
     prepare-release:
         name: Prepare CLI release pull request
         needs: [check-changesets, cli-release-preview, notify-approval-needed]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 30
         if: always() && needs.check-changesets.outputs.has-changesets == 'true' && needs.cli-release-preview.result == 'success'
         environment: Release SDK
@@ -505,7 +505,7 @@ jobs:
         name: Identify merged CLI release
         needs: check-changesets
         if: needs.check-changesets.outputs.has-changesets == 'false'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
             contents: read
@@ -1076,7 +1076,7 @@ jobs:
     notify-released:
         name: Notify Slack - Release Published
         needs: [notify-approval-needed, release, host-release, publish-npm]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: always() && needs.host-release.result == 'success' && (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') && needs.notify-approval-needed.outputs.slack_ts != ''
         steps:
@@ -1102,7 +1102,7 @@ jobs:
             - build-global-artifacts
             - host-release
             - publish-npm
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: >-
             always() && (needs.plan-release.result == 'failure' || needs.build-local-artifacts.result == 'failure'

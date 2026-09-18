@@ -50,7 +50,7 @@ jobs:
     # Job to decide if we should run python ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run python checks
         # Set job outputs to values from filter step
@@ -445,7 +445,7 @@ jobs:
     python_tests:
         needs: [changes, code-quality]
         name: Python code quality checks
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:
