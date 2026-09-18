@@ -11,13 +11,6 @@ ee/api/vercel/test/test_vercel_connect.py::TestValidateNextUrl
 ee/billing/test/test_billing_consumer.py::TestBillingConsumerUsageSpike
 ee/billing/test/test_billing_manager.py::TestParamSerialization
 ee/billing/test/test_quota_limiting.py::TestIdentifyRefreshCandidates
-ee/billing/test/test_salesforce_enrichment.py::TestDomainExclusion
-ee/billing/test/test_salesforce_enrichment.py::TestExtractDomain
-ee/billing/test/test_salesforce_enrichment.py::TestHarmonicDataTransformation
-ee/billing/test/test_salesforce_enrichment.py::TestSalesforceAccountQuery
-ee/billing/test/test_salesforce_enrichment.py::TestSpecificDomainEnrichment
-ee/billing/test/test_salesforce_enrichment.py::TestValuesMatch
-ee/billing/test/test_salesforce_enrichment.py::TestYCCompanyDetection
 ee/billing/test/test_usage_signals.py::TestFetchUsageSignalsFromGroups
 ee/billing/test/test_usage_signals.py::TestUsageSignalsDataClass
 ee/clickhouse/materialized_columns/test/test_analyze.py::TestMaterializedColumnsAnalyze
