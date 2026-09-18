@@ -2414,6 +2414,104 @@ async fn test_split_person_idempotent() {
 }
 
 #[tokio::test]
+async fn test_split_person_revives_a_tombstoned_generated_person() {
+    let ctx = TestContext::new().await;
+    // "loser" was created for the distinct id, then merged into "keeper": the
+    // mapping moved to keeper and loser stayed behind as a tombstone under the
+    // uuid a split of that distinct id regenerates.
+    let keeper = ctx
+        .insert_person("revive_keeper@example.com", None)
+        .await
+        .unwrap();
+    let loser_id = rand::thread_rng().gen_range(1_000_000i64..100_000_000);
+    let loser_uuid =
+        personhog_common::persons::person_uuid(ctx.team_id, "revive_split@example.com");
+    let loser_version: i64 = 500;
+    sqlx::query(
+        r#"INSERT INTO posthog_person
+        (id, uuid, team_id, properties, properties_last_updated_at,
+         properties_last_operation, created_at, version, is_identified, is_user_id, is_deleted)
+        VALUES ($1, $2, $3, '{}'::jsonb, '{}', '{}', NOW(), $4, false, NULL, true)"#,
+    )
+    .bind(loser_id)
+    .bind(loser_uuid)
+    .bind(ctx.team_id)
+    .bind(loser_version)
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+    ctx.add_distinct_id_to_person(keeper.id, "revive_split@example.com")
+        .await
+        .unwrap();
+
+    let results = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            keeper.id,
+            &["revive_split@example.com".to_string()],
+        )
+        .await
+        .expect("Split onto a tombstone should succeed");
+
+    assert_eq!(results[0].new_person_uuid, loser_uuid);
+    // One above the tombstone, because that outranks its ClickHouse tombstone
+    // and the split offset (0 + 101) is lower.
+    assert_eq!(results[0].new_person_version, loser_version + 1);
+
+    let revived = ctx
+        .storage
+        .get_person_by_uuid(ctx.team_id, loser_uuid)
+        .await
+        .unwrap()
+        .expect("The revived person reads as live");
+    assert_eq!(revived.id, loser_id);
+    assert_eq!(revived.version, Some(loser_version + 1));
+    let owner = ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "revive_split@example.com")
+        .await
+        .unwrap()
+        .expect("The split mapping reads as live");
+    assert_eq!(owner.id, loser_id);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_rejects_a_tombstoned_distinct_id() {
+    let ctx = TestContext::new().await;
+    let person = ctx
+        .insert_person("tomb_did_keeper@example.com", None)
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "tomb_did_split@example.com")
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE posthog_persondistinctid SET is_deleted = true WHERE team_id = $1 AND distinct_id = $2",
+    )
+    .bind(ctx.team_id)
+    .bind("tomb_did_split@example.com")
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+
+    let err = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            person.id,
+            &["tomb_did_split@example.com".to_string()],
+        )
+        .await
+        .expect_err("A tombstoned mapping is not the person's to split");
+    assert!(err.to_string().contains("Not found"), "got: {err}");
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
 async fn test_split_person_preserves_created_at_of_existing_person() {
     let ctx = TestContext::new().await;
     let person = ctx
