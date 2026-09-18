@@ -12,24 +12,33 @@ import { batchExportsListLogic } from './batchExportsListLogic'
 const makeBatchExport = (
     id: string,
     name: string,
-    service: BatchExportApi['destination']['type'],
+    destination: BatchExportApi['destination'],
     paused: boolean
-): BatchExportApi =>
-    ({
-        id,
-        team_id: 997,
-        name,
-        destination: { type: service, config: {} },
-        interval: 'hour',
-        paused,
-        created_at: '2024-01-01T00:00:00Z',
-        last_updated_at: '2024-01-01T00:00:00Z',
-        latest_runs: [],
-        schema: null,
-    }) as unknown as BatchExportApi
+): BatchExportApi => ({
+    id,
+    team_id: 997,
+    name,
+    destination,
+    interval: 'hour',
+    paused,
+    created_at: '2024-01-01T00:00:00Z',
+    last_updated_at: '2024-01-01T00:00:00Z',
+    latest_runs: [],
+    schema: null,
+})
 
-const ACTIVE_EXPORT = makeBatchExport('active', 'Hourly bucket', 'S3', false)
-const PAUSED_EXPORT = makeBatchExport('paused', 'Nightly warehouse', 'Snowflake', true)
+const ACTIVE_EXPORT = makeBatchExport(
+    'active',
+    'Hourly bucket',
+    { type: 'AwsS3', config: { type: 'AwsS3', bucket_name: 'exports', region: 'us-east-1', prefix: 'events/' } },
+    false
+)
+const PAUSED_EXPORT = makeBatchExport(
+    'paused',
+    'Nightly warehouse',
+    { type: 'Snowflake', config: { type: 'Snowflake', database: 'analytics', warehouse: 'compute', schema: 'public' } },
+    true
+)
 
 describe('batchExportsListLogic', () => {
     let logic: ReturnType<typeof batchExportsListLogic.build>

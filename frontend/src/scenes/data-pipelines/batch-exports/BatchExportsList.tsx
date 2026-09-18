@@ -74,7 +74,7 @@ const columns: LemonTableColumn<BatchExportApi, any>[] = [
         title: 'Status',
         key: 'paused',
         width: 0,
-        sorter: (a) => (a.paused ? -1 : 1),
+        sorter: (a, b) => Number(!!a.paused) - Number(!!b.paused),
         render: function RenderStatus(_, batchExport) {
             return batchExport.paused ? (
                 <LemonTag type="default">Paused</LemonTag>

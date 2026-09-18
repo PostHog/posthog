@@ -65,6 +65,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/pipeline_destination_configs/': EMPTY_PAGE,
                 '/api/organizations/:organization_id/pipeline_destinations/': EMPTY_PAGE,
                 '/api/environments/:team_id/external_data_sources/wizard': {},
+                '/api/projects/:team_id/activity_log/': { results: [], total_count: 0 },
             },
             post: {
                 '/api/environments/:team_id/query/:query_kind/': { results: [] },
@@ -86,4 +87,8 @@ export const BatchExports: Story = {
 
 export const Notifications: Story = {
     parameters: { pageUrl: urls.destinations('notifications') },
+}
+
+export const History: Story = {
+    parameters: { pageUrl: urls.destinations('history') },
 }
