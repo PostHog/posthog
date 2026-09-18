@@ -1064,3 +1064,101 @@ describe('supportTicketSceneLogic discussion polling', () => {
         expect(commentsLogic.findMounted(discussionProps)).toBeNull()
     })
 })
+
+describe('supportTicketSceneLogic message load failures', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    const commentsListMock = api.comments.list as jest.Mock
+    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+    const captureMock = posthog.capture as jest.Mock
+    let errorToast: jest.SpyInstance
+
+    beforeEach(async () => {
+        initKeaTests()
+        commentsListMock.mockReset().mockResolvedValue({ results: [] })
+        ticketGetMock.mockReset().mockResolvedValue(makeTicket())
+        captureMock.mockClear()
+        errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+        logic = supportTicketSceneLogic({ id: 42 })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['setTicket', 'setMessages'])
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
+        errorToast.mockRestore()
+        commentsListMock.mockReset().mockResolvedValue({ results: [] })
+    })
+
+    it('reports a failed load to the agent and to the failure rate', async () => {
+        commentsListMock.mockRejectedValueOnce(new Error('thread unavailable'))
+
+        logic.actions.loadMessages()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(errorToast).toHaveBeenCalledWith('Failed to load messages')
+        expect(captureMock).toHaveBeenCalledWith(
+            'support agent surface load failed',
+            expect.objectContaining({ surface: 'ticket_scene', reason: 'thread_load_failed' })
+        )
+    })
+
+    // Leaving the ticket tears the poll timer down, but a tick already awaiting its response keeps
+    // going, and used to resume on the dead logic and toast a failure on the ticket list.
+    it.each<['resolves' | 'rejects']>([['resolves'], ['rejects']])(
+        'stays quiet when a poll %s after the agent leaves the ticket',
+        async (outcome) => {
+            let settleLatePoll: (() => void) | undefined
+            commentsListMock.mockImplementationOnce(
+                () =>
+                    new Promise((resolve, reject) => {
+                        settleLatePoll = () =>
+                            outcome === 'resolves'
+                                ? resolve({ results: [makeSupportComment()] })
+                                : reject(new Error('aborted'))
+                    })
+            )
+
+            logic.actions.loadMessages()
+            logic.unmount()
+            settleLatePoll?.()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(errorToast).not.toHaveBeenCalled()
+            expect(captureMock).not.toHaveBeenCalledWith('support agent surface load failed', expect.anything())
+        }
+    )
+
+    it('reports a failed ticket load to the agent and to the failure rate', async () => {
+        ticketGetMock.mockRejectedValueOnce(new Error('ticket unavailable'))
+
+        logic.actions.loadTicket()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(errorToast).toHaveBeenCalledWith('Failed to load ticket')
+        expect(captureMock).toHaveBeenCalledWith(
+            'support agent surface load failed',
+            expect.objectContaining({ surface: 'ticket_scene', reason: 'ticket_load_failed' })
+        )
+    })
+
+    // Opening a ticket and going straight back leaves the GET in flight on the same dead logic.
+    it('stays quiet when the ticket request settles after the agent leaves', async () => {
+        let rejectLateTicket: ((reason: Error) => void) | undefined
+        ticketGetMock.mockImplementationOnce(
+            () =>
+                new Promise((_resolve, reject) => {
+                    rejectLateTicket = reject
+                })
+        )
+
+        logic.actions.loadTicket()
+        logic.unmount()
+        rejectLateTicket?.(new Error('aborted'))
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(errorToast).not.toHaveBeenCalled()
+        expect(captureMock).not.toHaveBeenCalledWith('support agent surface load failed', expect.anything())
+    })
+})

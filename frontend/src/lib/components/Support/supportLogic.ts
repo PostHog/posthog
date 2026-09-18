@@ -66,6 +66,7 @@ export type SupportLoadFailureReason =
     | 'extension_missing' // posthog.conversations never showed up
     | 'tickets_load_failed' // listing existing tickets threw
     | 'thread_load_failed' // opening a ticket's messages threw
+    | 'ticket_load_failed' // fetching the ticket itself threw
     | 'restore_link_failed' // a request rather than a load, but the same "surface can't do its job"
 
 // Event properties are no place to store a document, so the draft an alert carries is capped.
@@ -151,6 +152,29 @@ export function captureSupportWidgetLoadFailed({
         error: errorMessage(error),
         ...supportFailureContext(),
         ...rest,
+    })
+}
+
+/** Where a support agent was when their own tooling broke. */
+export type SupportAgentFailureSurface = 'ticket_scene' // the agent's ticket page and its message thread
+
+// Kept apart from the widget signal above: that one counts customers who could not reach support,
+// this one counts agents whose tooling failed. Mixing them would dilute both rates, and the replay
+// link here points at the agent's own session rather than a reporter's.
+export function captureSupportAgentLoadFailed({
+    surface,
+    reason,
+    error,
+}: {
+    surface: SupportAgentFailureSurface
+    reason: SupportLoadFailureReason
+    error?: unknown
+}): void {
+    posthog.capture('support agent surface load failed', {
+        surface,
+        reason,
+        error: errorMessage(error),
+        ...supportFailureContext(),
     })
 }
 
