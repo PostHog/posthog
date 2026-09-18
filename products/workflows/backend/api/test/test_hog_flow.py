@@ -116,6 +116,15 @@ def _raw_encrypted_inputs(model_id) -> Optional[str]:
     return row[0] if row else None
 
 
+def _email_step(step_id: str, name: str, **email_value: Any) -> dict[str, Any]:
+    return {
+        "id": step_id,
+        "name": name,
+        "type": "function_email",
+        "config": {"template_id": "template-email", "inputs": {"email": {"value": email_value}}},
+    }
+
+
 class TestHogFlowAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -231,8 +240,17 @@ class TestHogFlowAPI(APIBaseTest):
             ("email_html_only_body_match", "search=for your payment", {"Receipts"}),
             ("email_css_not_searched", "search=111111", set()),
             ("draft_email_subject_match", "search=beta access", {"Onboarding"}),
+            ("email_in_later_step_matches", "search=final reminder", {"Nurture"}),
+            ("liquid_subject_matches_beside_the_tag", "search=your seat is ready", {"Nurture"}),
+            ("liquid_subject_not_matched_by_rendered_wording", "search=hi jane, your seat", set()),
+            ("regex_characters_match_literally", "search=[vip] early access", {"Nurture"}),
+            ("percent_and_parentheses_match_literally", "search=50%25 off (today only)!", {"Nurture"}),
+            ("body_phrase_across_newlines", "search=upgrade now to keep", {"Nurture"}),
+            ("shared_subject_returns_every_workflow", "search=seat is confirmed", {"Alpha", "Beta"}),
+            ("html_with_liquid_in_attribute_still_matches_content", "search=thanks for your order", {"Promo"}),
             ("name_tier_hides_step_matches", "search=march", {"March campaign"}),
             ("tier_decision_respects_status_filter", "search=march&status=draft", {"Billing"}),
+            ("tier_decision_respects_type_filter", "search=march&type=messaging", {"Billing"}),
             ("no_match", "search=nonexistent", set()),
         ]
     )
@@ -246,24 +264,14 @@ class TestHogFlowAPI(APIBaseTest):
             name="Billing",
             created_by=self.user,
             actions=[
-                {
-                    "id": "email_1",
-                    "name": "Monthly invoice email",
-                    "type": "function_email",
-                    "config": {
-                        "template_id": "template-email",
-                        "inputs": {
-                            "email": {
-                                "value": {
-                                    "subject": "Your invoice for March is ready",
-                                    "preheader": "Download it from your billing page",
-                                    "text": "Your invoice is attached.",
-                                    "html": '<table class="footer-links"><tr><td>Your invoice is attached.</td></tr></table>',
-                                }
-                            }
-                        },
-                    },
-                }
+                _email_step(
+                    "email_1",
+                    "Monthly invoice email",
+                    subject="Your invoice for March is ready",
+                    preheader="Download it from your billing page",
+                    text="Your invoice is attached.",
+                    html='<table class="footer-links"><tr><td>Your invoice is attached.</td></tr></table>',
+                )
             ],
         )
         HogFlow.objects.create(
@@ -271,47 +279,81 @@ class TestHogFlowAPI(APIBaseTest):
             name="Receipts",
             created_by=self.user,
             actions=[
-                {
-                    "id": "email_1",
-                    "name": "Receipt email",
-                    "type": "function_email",
-                    "config": {
-                        "template_id": "template-email",
-                        "inputs": {
-                            "email": {
-                                "value": {
-                                    "subject": "Your receipt",
-                                    "html": '<style type="text/css">.footer { color: #111111; }</style><p>Thanks for your <strong>payment</strong></p>',
-                                }
-                            }
-                        },
-                    },
-                }
+                _email_step(
+                    "email_1",
+                    "Receipt email",
+                    subject="Your receipt",
+                    html='<style type="text/css">.footer { color: #111111; }</style><p>Thanks for your <strong>payment</strong></p>',
+                )
             ],
         )
+        HogFlow.objects.create(
+            team=self.team,
+            name="Promo",
+            created_by=self.user,
+            actions=[
+                _email_step(
+                    "email_1",
+                    "Order email",
+                    subject="Order update",
+                    html='<td style="{% if person.properties.orders > 1 %}color:#ffffff{% endif %}">Thanks for your order</td>',
+                )
+            ],
+        )
+        # A realistic multi-step graph: the searched text sits in the third email, behind non-email steps.
+        HogFlow.objects.create(
+            team=self.team,
+            name="Nurture",
+            status=HogFlow.State.ACTIVE,
+            created_by=self.user,
+            actions=[
+                {"id": "trigger_node", "name": "Trigger", "type": "trigger", "config": {"type": "event"}},
+                _email_step("email_1", "Day 1", subject="Hi {{ person.properties.first_name }}, your seat is ready"),
+                {"id": "delay_1", "name": "Wait 3 days", "type": "delay", "config": {"delay_duration": "3d"}},
+                _email_step(
+                    "email_2",
+                    "Day 4",
+                    subject="50% off (today only)! Upgrade before Friday",
+                    text="Upgrade now\n\nto keep your dashboards and alerts.",
+                ),
+                {"id": "branch_1", "name": "Has upgraded?", "type": "conditional_branch", "config": {}},
+                _email_step("email_3", "Day 10", subject="[VIP] early access: final reminder"),
+                {"id": "exit_node", "name": "Exit", "type": "exit", "config": {}},
+            ],
+        )
+        for name in ("Alpha", "Beta"):
+            HogFlow.objects.create(
+                team=self.team,
+                name=name,
+                created_by=self.user,
+                actions=[_email_step("email_1", "Confirmation", subject="Your seat is confirmed")],
+            )
         HogFlow.objects.create(
             team=self.team,
             name="Onboarding",
             status=HogFlow.State.ACTIVE,
             created_by=self.user,
-            draft={
-                "actions": [
-                    {
-                        "id": "email_1",
-                        "name": "Access email",
-                        "type": "function_email",
-                        "config": {
-                            "template_id": "template-email",
-                            "inputs": {"email": {"value": {"subject": "Your beta access starts today"}}},
-                        },
-                    }
-                ]
-            },
+            draft={"actions": [_email_step("email_1", "Access email", subject="Your beta access starts today")]},
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?{query}")
         assert response.status_code == 200, response.json()
         assert {flow["name"] for flow in response.json()["results"]} == expected_names
+
+    def test_list_search_step_tier_counts_every_match_across_pages(self):
+        for name in ("Alpha", "Beta"):
+            HogFlow.objects.create(
+                team=self.team,
+                name=name,
+                created_by=self.user,
+                actions=[_email_step("email_1", "Confirmation", subject="Your seat is confirmed")],
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?search=seat is confirmed&limit=1")
+        assert response.status_code == 200, response.json()
+        assert response.json()["count"] == 2
+        assert len(response.json()["results"]) == 1
+        assert response.json()["next"] is not None
 
     def test_list_filter_by_created_by_uuid(self):
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
