@@ -6358,6 +6358,8 @@ export interface DataWarehouseSavedQuery {
     user_access_level?: AccessControlLevel
     incremental?: DataWarehouseSavedQueryIncremental | null
     incremental_state?: DataWarehouseSavedQueryIncrementalState | null
+    /** Whether incremental settings participated in any materialization run. */
+    has_incremental_history?: boolean
 }
 
 export interface DataWarehouseSavedQueryIncremental {
