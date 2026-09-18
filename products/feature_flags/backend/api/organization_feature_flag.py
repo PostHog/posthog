@@ -10,6 +10,7 @@ import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from rest_framework import mixins, serializers, status, viewsets
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.urls import replace_query_param
@@ -34,11 +35,11 @@ from products.approvals.backend.exceptions import ApprovalRequired, PolicyConfli
 from products.approvals.backend.scheduled_changes import gate_scheduled_change
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import (
     get_decrypted_flag_payloads,
     get_decrypted_flag_payloads_protected,
 )
+from products.feature_flags.backend.facade.api import create_flag, serialize_flags, update_flag
 from products.feature_flags.backend.flag_analytics import get_cached_evaluations_7d_by_team
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
@@ -1346,26 +1347,15 @@ class OrganizationFeatureFlagView(
             "is_remote_configuration": source_flag.is_remote_configuration,
             "has_encrypted_payloads": source_flag.has_encrypted_payloads,
         }
-        context = {
-            "request": request,
-            "team_id": target_project_id,
-            "project_id": target_project_id,
-        }
-
         original_request_method = request.method
         try:
             # FeatureFlagSerializer validates create/update semantics from the request method.
             request.method = "PATCH" if existing_flag else "POST"
-            if existing_flag:
-                feature_flag_serializer = FeatureFlagSerializer(
-                    existing_flag, data=flag_data, partial=True, context=context
-                )
-            else:
-                feature_flag_serializer = FeatureFlagSerializer(data=flag_data, context=context)
-
             try:
-                feature_flag_serializer.is_valid(raise_exception=True)
-                saved_flag = feature_flag_serializer.save(team_id=target_project_id)
+                if existing_flag:
+                    saved_flag = update_flag(existing_flag, flag_data, team=target_team, user=user, request=request)
+                else:
+                    saved_flag = create_flag(flag_data, team=target_team, user=user, request=request)
                 if target_flag_access_context is not None:
                     target_flag_access_context.flags_by_key[source_flag.key] = saved_flag
             except IntegrityError as e:
@@ -1375,10 +1365,8 @@ class OrganizationFeatureFlagView(
                         "It was left unchanged."
                     ) from e
                 raise
-            except Exception as e:
-                if feature_flag_serializer.errors:
-                    raise ValueError(feature_flag_serializer.errors) from e
-                raise
+            except DRFValidationError as e:
+                raise ValueError(e.detail) from e
         finally:
             request.method = original_request_method
 
@@ -1421,7 +1409,8 @@ class OrganizationFeatureFlagView(
                 )
                 schedule_copy_error = str(e)
 
-        result = dict(feature_flag_serializer.data)
+        copy_context = {"request": request, "team_id": target_team.id, "project_id": target_project_id}
+        result = dict(serialize_flags([saved_flag], context=copy_context)[0])
         result["team_id"] = saved_flag.team_id
         result["updated_existing"] = existing_flag is not None
         if schedule_copy_error:
