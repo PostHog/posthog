@@ -547,12 +547,33 @@ export const NoToolbar: Story = {
   },
 };
 
+// The canvas side panel opens at 420px and carries the widest realistic
+// toolbar: a long model name, a long permission mode, and the trailing status
+// group. Everything has to stay inside the panel, which clips its overflow.
 export const NarrowPanel: Story = {
   name: "Toolbar: narrow panel (canvas side panel width)",
-  args: { sessionId: "sb-narrow" },
+  args: {
+    sessionId: "sb-narrow",
+    modeOption: {
+      ...mockModeOption,
+      currentValue: "bypassPermissions",
+      options: [
+        ...mockModeOption.options,
+        { value: "bypassPermissions", name: "Bypass Permissions" },
+      ],
+    },
+    reasoningSelector: (
+      <ReasoningLevelSelector
+        thoughtOption={mockReasoningOption}
+        modelOption={{ ...mockModelOption, currentValue: "claude-sonnet-5" }}
+        adapter="claude"
+        onChange={() => {}}
+      />
+    ),
+  },
   decorators: [
     (Story) => (
-      <div className="w-[360px]">
+      <div className="w-[420px]">
         <Story />
       </div>
     ),
