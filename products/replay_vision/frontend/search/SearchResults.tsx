@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconGridMasonry, IconList, IconPlayFilled } from '@posthog/icons'
+import { IconGridMasonry, IconList, IconPlayFilled, IconRewindPlay } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -10,8 +10,6 @@ import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
-
-import { getExportsContentRetrieveUrl } from '~/generated/core/api'
 
 import { ObservationResultSummary } from '../components/ObservationCard'
 import { ScannerOutputBadge } from '../components/ScannerOutputBadge'
@@ -44,25 +42,16 @@ function watchMomentUrl(
 
 interface ResultProps {
     result: ObservationSearchResultApi
-    teamId: number | null
     searchedQuery: string
     returnParams: Record<string, string>
 }
 
 type Tier = 'top' | 'other'
 
-function WatchLink({
-    observation,
-    teamId,
-    compact,
-}: {
-    observation: ReplayObservationApi
-    teamId: number | null
-    compact?: boolean
-}): JSX.Element {
+// Placeholder art until observations carry a rendered still.
+function WatchLink({ observation, compact }: { observation: ReplayObservationApi; compact?: boolean }): JSX.Element {
     const routerValues = useValues(router)
     const citedMs = firstCitedTimestampMs(observation)
-    const thumbnailAssetId = observation.thumbnail_asset_id
     return (
         <Link
             to={watchMomentUrl(observation, citedMs, routerValues)}
@@ -72,14 +61,9 @@ function WatchLink({
             )}
             data-attr="vision-search-result-watch"
         >
-            {thumbnailAssetId !== null && teamId !== null && (
-                <img
-                    src={getExportsContentRetrieveUrl(String(teamId), thumbnailAssetId)}
-                    alt=""
-                    loading="lazy"
-                    className="absolute inset-0 size-full object-cover"
-                />
-            )}
+            <span className="absolute inset-0 flex items-center justify-center text-tertiary opacity-40">
+                <IconRewindPlay className={compact ? 'text-2xl' : 'text-5xl'} />
+            </span>
             <span className="absolute inset-0 flex items-center justify-center">
                 <span
                     className={clsx(
@@ -162,13 +146,7 @@ function SubjectLink({ observation }: { observation: ReplayObservationApi }): JS
     )
 }
 
-function MomentCard({
-    result,
-    teamId,
-    searchedQuery,
-    returnParams,
-    tier,
-}: ResultProps & { tier: Tier | null }): JSX.Element {
+function MomentCard({ result, searchedQuery, returnParams, tier }: ResultProps & { tier: Tier | null }): JSX.Element {
     const observation = result.observation
     const snapshot = observation.scanner_snapshot
     return (
@@ -177,7 +155,7 @@ function MomentCard({
             data-attr="vision-search-result"
         >
             <div className="relative">
-                <WatchLink observation={observation} teamId={teamId} />
+                <WatchLink observation={observation} />
                 <span className="absolute top-2 left-2 flex items-center gap-1">
                     {snapshot && <ScannerOutputBadge scannerType={snapshot.scanner_type} size="small" />}
                     {tier === 'top' && (
@@ -239,7 +217,7 @@ function TierHeading({ tier }: { tier: Tier }): JSX.Element {
     )
 }
 
-function MomentRow({ result, teamId, searchedQuery, returnParams }: ResultProps): JSX.Element {
+function MomentRow({ result, searchedQuery, returnParams }: ResultProps): JSX.Element {
     const observation = result.observation
     const snapshot = observation.scanner_snapshot
     return (
@@ -248,7 +226,7 @@ function MomentRow({ result, teamId, searchedQuery, returnParams }: ResultProps)
             data-attr="vision-search-result"
         >
             <div className="shrink-0 self-center">
-                <WatchLink observation={observation} teamId={teamId} compact />
+                <WatchLink observation={observation} compact />
             </div>
             <div className="flex flex-col gap-1 min-w-0 flex-1">
                 <div className="flex items-center gap-2 min-w-0">
@@ -358,7 +336,6 @@ export function SearchResults(logicProps: ObservationSearchLogicProps): JSX.Elem
                         <MomentCard
                             key={result.observation.id}
                             result={result}
-                            teamId={logicProps.teamId}
                             searchedQuery={searchedQuery ?? ''}
                             returnParams={returnParams}
                             tier={tierOf(result)}
@@ -373,7 +350,6 @@ export function SearchResults(logicProps: ObservationSearchLogicProps): JSX.Elem
                             <MomentRow
                                 key={result.observation.id}
                                 result={result}
-                                teamId={logicProps.teamId}
                                 searchedQuery={searchedQuery ?? ''}
                                 returnParams={returnParams}
                             />
