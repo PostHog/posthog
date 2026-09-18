@@ -213,6 +213,19 @@ def load_integrations(
     )
 
 
+def accessible_projects(*, slack_team_id: str, user: User) -> list[Integration]:
+    """The workspace's installs whose project this user can open.
+
+    Membership alone, with no scope or reachability check, so a caller that only needs
+    to know how many projects are in play pays one query rather than an ``auth.test``
+    per candidate. ``routable_projects`` asks the stricter question of where a run may
+    actually be sent.
+    """
+    candidates = Integration.objects.filter(kind="slack", integration_id=slack_team_id).select_related("team")
+    permissions = UserPermissions(user=user)
+    return [c for c in candidates if permissions.team(c.team).effective_membership_level is not None]
+
+
 def routable_projects(*, slack_team_id: str, slack_user_id: str, user: User) -> list[Integration]:
     """The projects a message from this user may route itself to, in this workspace.
 

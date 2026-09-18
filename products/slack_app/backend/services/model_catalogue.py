@@ -44,7 +44,7 @@ def describe_run_model(model: str | None, reasoning_effort: str | None) -> str:
     label = display_name_for_model(model) if model else "—"
     if not reasoning_effort:
         return f"*{label}*"
-    return f"*{label}* · Reasoning: *{label_for(reasoning_effort, REASONING_EFFORT_DISPLAY_NAMES)}*"
+    return f"*{label}* [{label_for(reasoning_effort, REASONING_EFFORT_DISPLAY_NAMES)}]"
 
 
 __all__ = [

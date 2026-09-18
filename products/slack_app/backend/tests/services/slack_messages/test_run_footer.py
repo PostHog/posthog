@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from typing import cast
 from uuid import uuid4
 
+import pytest
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
@@ -29,7 +30,7 @@ class TestRunFooter(SimpleTestCase):
                 RunFooter(TASK_URL, DESKTOP_URL, "claude-opus-5", "high"),
                 "slack://app?team=T1&id=A1&tab=home",
                 f"<{TASK_URL}|View on web> · <{DESKTOP_URL}|View on desktop>"
-                " · *Claude Opus 5* · Reasoning: *High* · <slack://app?team=T1&id=A1&tab=home|Configure>",
+                " · *Claude Opus 5* [High] · <slack://app?team=T1&id=A1&tab=home|Configure>",
             ),
             (
                 "links_only",
@@ -42,9 +43,9 @@ class TestRunFooter(SimpleTestCase):
             # answer looks the same whichever it was, so the footer has to name it.
             (
                 "project_precedes_the_model",
-                RunFooter(model="claude-opus-5", project="Endpaper staging"),
+                RunFooter(model="claude-opus-5", project="Fernwood staging"),
                 None,
-                "Project: *Endpaper staging* · *Claude Opus 5*",
+                "Project: *Fernwood staging* · *Claude Opus 5*",
             ),
             # A project name is tenant text with no character validation, and the footer
             # rides under every reply. Unescaped, `<!channel>` broadcasts to everyone in
@@ -75,7 +76,7 @@ class TestRunFooter(SimpleTestCase):
     def test_a_project_alone_still_renders(self) -> None:
         # `has_content` gates whether callers bother building a footer at all, so a run
         # known only by its project must not read as nothing to say.
-        assert RunFooter(project="Endpaper staging").has_content()
+        assert RunFooter(project="Fernwood staging").has_content()
 
     def test_contributes_no_block_when_there_is_nothing_to_say(self) -> None:
         # A context block with an empty `elements` list is rejected by Slack, which would
@@ -89,7 +90,9 @@ class TestLoadRunFooter(SimpleTestCase):
     def test_describes_the_run_links_included(self, mock_get_run, mock_parse) -> None:
         # Whether the reader may open the links is asked later, where the reader is known.
         task_id = uuid4()
-        mock_get_run.return_value = SimpleNamespace(id=uuid4(), task_id=task_id, team_id=1, state={})
+        mock_get_run.return_value = SimpleNamespace(
+            id=uuid4(), task_id=task_id, team_id=1, state={}, created_by_id=None
+        )
         mock_parse.return_value = SimpleNamespace(model="claude-opus-5", reasoning_effort="high")
 
         footer = load_run_footer("run-1")
@@ -148,41 +151,81 @@ class TestViewerHasCodeAccess(SimpleTestCase):
 
 
 class TestFooterProject:
-    """The footer names the project a thread's task belongs to.
+    """The footer names the project a run answered from, and only where naming it tells
+    the reader something.
 
     Covers what the `SimpleTestCase` classes above cannot: those run without a database,
-    so the mapping lookup takes its failure path there and the segment is always absent.
+    so the lookup takes its failure path there and the segment is always absent.
     """
 
-    def test_names_the_project_the_thread_is_pinned_to(self, db):
+    @pytest.mark.parametrize(
+        "sibling_projects,expected",
+        [
+            # Nothing to tell apart: the name would be identical on every reply in the
+            # workspace, so it costs a segment and carries no information.
+            (0, None),
+            (1, "Staging"),
+        ],
+    )
+    def test_names_the_project_only_when_another_one_was_reachable(self, db, sibling_projects, expected):
         from django.apps import apps
 
-        from posthog.models.organization import Organization
+        from posthog.models.organization import Organization, OrganizationMembership
         from posthog.models.team.team import Team
-
-        from products.slack_app.backend.models import SlackThreadTaskMapping
+        from posthog.models.user import User
 
         organization = Organization.objects.create(name="Org")
         routed_team = Team.objects.create(organization=organization, name="Staging")
+        user = User.objects.create(email="dev@example.com", distinct_id="u-1")
+        OrganizationMembership.objects.create(user=user, organization=organization)
         integration = Integration.objects.create(
             team=routed_team, kind="slack", integration_id="T_WS", sensitive_config={"access_token": "xoxb"}
         )
+        for index in range(sibling_projects):
+            Integration.objects.create(
+                team=Team.objects.create(organization=organization, name=f"Other {index}"),
+                kind="slack",
+                integration_id="T_WS",
+                sensitive_config={"access_token": "xoxb"},
+            )
+
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
-        task = Task.objects.create(team=routed_team, title="t")
+        task = Task.objects.create(team=routed_team, title="t", created_by=user)
         run = TaskRun.objects.create(team=routed_team, task=task)
-        SlackThreadTaskMapping.objects.create(
-            integration=integration,
-            team=routed_team,
-            slack_workspace_id="T_WS",
-            channel="C1",
-            thread_ts="1.1",
-            task=task,
-            task_run=run,
-            mentioning_slack_user_id="U1",
+
+        footer = load_run_footer(run.id, integration_id=integration.id)
+
+        # The project the run answered from, not the one the workspace defaults to.
+        assert footer.project == expected
+
+    def test_a_project_the_reader_cannot_open_does_not_make_it_worth_naming(self, db):
+        # Counting workspace installs rather than the reader's own access would name the
+        # project for someone who never had a second one to be confused with.
+        from django.apps import apps
+
+        from posthog.models.organization import Organization, OrganizationMembership
+        from posthog.models.team.team import Team
+        from posthog.models.user import User
+
+        organization = Organization.objects.create(name="Org")
+        other_organization = Organization.objects.create(name="Someone else")
+        routed_team = Team.objects.create(organization=organization, name="Staging")
+        user = User.objects.create(email="dev@example.com", distinct_id="u-1")
+        OrganizationMembership.objects.create(user=user, organization=organization)
+        integration = Integration.objects.create(
+            team=routed_team, kind="slack", integration_id="T_WS", sensitive_config={"access_token": "xoxb"}
+        )
+        Integration.objects.create(
+            team=Team.objects.create(organization=other_organization, name="Theirs"),
+            kind="slack",
+            integration_id="T_WS",
+            sensitive_config={"access_token": "xoxb"},
         )
 
-        footer = load_run_footer(run.id)
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        task = Task.objects.create(team=routed_team, title="t", created_by=user)
+        run = TaskRun.objects.create(team=routed_team, task=task)
 
-        # The routed project, not the one the workspace would otherwise have answered from.
-        assert footer.project == "Staging"
+        assert load_run_footer(run.id, integration_id=integration.id).project is None
