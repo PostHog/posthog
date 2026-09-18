@@ -44,6 +44,20 @@ const hogFunctionFilterOutcomes = new Counter({
     labelNames: ['result', 'result_type'],
 })
 
+/**
+ * Where a filter threw, rather than how many threw.
+ *
+ * The `filtering_failed` app metric is emitted from every caller of this function, so its total
+ * cannot be split by the thing that matters operationally: only the two build callers turn a filter
+ * error into work for the dead-letter topic, while transformations and the execution-time callers
+ * do not.
+ */
+const hogFunctionFilterErrors = new Counter({
+    name: 'cdp_hog_function_filter_error',
+    help: 'A filter threw while being evaluated, by the code path that asked for it',
+    labelNames: ['caller', 'type'],
+})
+
 const hogFunctionPreFilterCounter = new Counter({
     name: 'cdp_hog_function_prefilter_result',
     help: 'Count of pre-filter results',
@@ -347,13 +361,32 @@ function preFilterResult(filters: HogFunctionType['filters'], filterGlobals: Hog
  * Shared utility to check if an event matches the filters of a HogFunction.
  * Used by both the HogExecutorService (for destinations) and HogTransformerService (for transformations).
  */
+/**
+ * Named so a filter error can be attributed to the code path that asked for it.
+ *
+ * Only the two `build_*` callers run before an invocation exists, so only their errors become
+ * dead-letter records. Everything else here is either the ingestion transformer or a filter
+ * evaluated while an invocation is already running.
+ */
+export type FilterCaller =
+    | 'build_hog_function_invocations'
+    | 'build_hogflow_invocations'
+    | 'execute_hog_function'
+    | 'hogflow_conditional_branch'
+    | 'hogflow_conversion'
+    | 'hogflow_exit_condition'
+    | 'hogflow_skip_action'
+    | 'hogflow_trigger_action'
+    | 'transformation'
+
 export async function filterFunctionInstrumented(options: {
     fn: HogFunctionType | HogFlow
     filterGlobals: HogFunctionFilterGlobals
     /** Optional filters to use instead of those on the function */
     filters: HogFunctionType['filters']
+    caller: FilterCaller
 }): Promise<HogFilterResult> {
-    const { fn, filters, filterGlobals } = options
+    const { fn, filters, filterGlobals, caller } = options
     const type = 'type' in fn ? fn.type : 'hogflow'
     const fnKind = 'type' in fn ? 'HogFunction' : 'HogFlow'
     const logs: LogEntry[] = []
@@ -439,6 +472,8 @@ export async function filterFunctionInstrumented(options: {
             })
         }
     } catch (error) {
+        hogFunctionFilterErrors.inc({ caller, type })
+
         logger.debug('🦔', `[${fnKind}] Error filtering function`, {
             functionId: fn.id,
             functionName: fn.name,
