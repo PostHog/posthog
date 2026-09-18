@@ -51,6 +51,7 @@ class _TaggedItemsDescriptor(ReverseGenericManyToOneDescriptor):
                 queryset = queryset.using(queryset._db or self._db)
                 to_key = instances[0]._meta.pk.to_python
                 return (
+                    # nosemgrep: orm-field-injection -- the name comes from the closed TAGGABLE_MODELS registry, never from input
                     queryset.filter(**{f"{column}__in": {obj.pk for obj in instances}}),
                     lambda relobj: to_key(getattr(relobj, column)),
                     lambda obj: obj.pk,
