@@ -44,6 +44,18 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.contr
     DestinationBatchContext,
     DestinationRunContext,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.merge_dedup import (
+    dedupe_merge_source,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.run_markers import (
+    BATCH_INDEX_COLUMN,
+    is_owned_by,
+    is_published_by,
+    owned_marker,
+    published_marker,
+    run_scope,
+    stamp_batch_index,
+)
 
 _DATABRICKS_BY_ARROW = {
     pa.bool_(): "BOOLEAN",
@@ -65,8 +77,6 @@ _DATABRICKS_BY_ARROW = {
     pa.date32(): "DATE",
     pa.date64(): "DATE",
 }
-
-BATCH_INDEX_COLUMN = "_ph_batch_index"
 
 # Server-side backstop. Every statement below is bounded client-side well within this, so it
 # only catches a query the client-side timeout cannot reach, such as one whose connection went
@@ -142,27 +152,13 @@ def _assert_safe_identifier(value: str, what: str) -> str:
     return value
 
 
-def _run_scope(run_uuid: str) -> str:
-    """A short token unique to one run, safe in both a table name and a volume path."""
-    return run_uuid.replace("-", "")[:12]
-
-
 def staging_table_name(ctx: DestinationRunContext) -> str:
-    return f"{ctx.table_name}__ph_stage_{_run_scope(ctx.run_uuid)}"
+    return f"{ctx.table_name}__ph_stage_{run_scope(ctx.run_uuid)}"
 
 
-# Proof this writer created a table, so a sync never mutates, merges into or drops one the
-# customer already had. `table_name` comes from the source's resource name, which a custom
-# source manifest controls, so without this any table sharing that name is fair game.
-#
-# Stored as a Databricks table comment: `ALTER TABLE ... RENAME` keeps a table's comment, so
-# the marker set on a full refresh's staging table survives into `finalize_run`'s swap. Scoped
-# by schema id because `table_name` collides across sources on purpose and ownership must not.
-_OWNERSHIP_COMMENT = "posthog-warehouse-sync-owned"
-
-
-def _owned_marker(schema_id: str) -> str:
-    return f"{_OWNERSHIP_COMMENT}:{schema_id}"
+# The ownership and publish markers are stored as Databricks table comments:
+# `ALTER TABLE ... RENAME` keeps a table's comment, so the marker set on a full refresh's
+# staging table survives into `finalize_run`'s swap.
 
 
 class UnrelatedTableExistsError(RuntimeError):
@@ -263,9 +259,17 @@ class DatabricksDestinationWriter:
 
     async def _table_comment(self, client: DatabricksClient, table: str) -> str | None:
         async with handle_common_errors(f"SELECT comment FOR {table}", ONE_MINUTE):
+            # Matched case-insensitively because Unity Catalog stores schema and table names
+            # lowercased, while `self._schema` and `table` carry whatever case the destination
+            # config and the source's resource name gave them. An exact match would find no row
+            # for an uppercase name, so `_is_owned` would report a table this writer created as
+            # unowned and every run of it would raise `UnrelatedTableExistsError`. The existence
+            # probe next to this one matches case-insensitively already, which is what makes the
+            # two disagree.
             rows = await client.execute_query(
                 f"SELECT comment FROM {backtick(self._catalog)}.information_schema.tables "
-                f"WHERE table_schema = {sql_literal(self._schema)} AND table_name = {sql_literal(table)}",
+                f"WHERE lower(table_schema) = {sql_literal(self._schema.lower())} "
+                f"AND lower(table_name) = {sql_literal(table.lower())}",
                 timeout=ONE_MINUTE,
             )
         if not rows:
@@ -273,25 +277,26 @@ class DatabricksDestinationWriter:
         return rows[0][0]
 
     async def _is_owned(self, client: DatabricksClient, table: str, schema_id: str) -> bool:
-        # Not a plain `startswith`: schema ids are arbitrary strings, and one could be a
-        # character-prefix of another, which would let a table another schema owns pass as
-        # owned here. Split on the marker's own `:` separator instead so the owning schema id
-        # is compared for exact equality.
-        comment = await self._table_comment(client, table)
-        if comment is None:
-            return False
-        marker, sep, rest = comment.partition(":")
-        if marker != _OWNERSHIP_COMMENT or not sep:
-            return False
-        return rest == schema_id
+        return is_owned_by(await self._table_comment(client, table), schema_id)
 
-    async def _mark_owned(self, client: DatabricksClient, table: str, schema_id: str) -> None:
+    async def _already_published(self, client: DatabricksClient, ctx: DestinationRunContext) -> bool:
+        """Whether this run already swapped its staging table into place."""
+        if await self._table_exists(client, staging_table_name(ctx)):
+            return False
+        if not await self._table_exists(client, ctx.table_name):
+            return False
+        return is_published_by(await self._table_comment(client, ctx.table_name), ctx.schema_id, ctx.run_uuid)
+
+    async def _set_comment(self, client: DatabricksClient, table: str, marker: str) -> None:
         async with handle_common_errors(f"COMMENT ON TABLE {table}", FIVE_MINUTES):
             await client.execute_query(
-                f"COMMENT ON TABLE {self._qualified(table)} IS {sql_literal(_owned_marker(schema_id))}",
+                f"COMMENT ON TABLE {self._qualified(table)} IS {sql_literal(marker)}",
                 fetch_results=False,
                 timeout=FIVE_MINUTES,
             )
+
+    async def _mark_owned(self, client: DatabricksClient, table: str, schema_id: str) -> None:
+        await self._set_comment(client, table, owned_marker(schema_id))
 
     async def _claim_table(self, client: DatabricksClient, table: str, schema_id: str) -> bool:
         """Refuse to touch `table` unless this call creates it or a prior one already owns it.
@@ -328,20 +333,19 @@ class DatabricksDestinationWriter:
             # another schema's in-flight upload.
             await client.acreate_volume(self._volume)
 
+            if full_refresh and await self._already_published(client, run):
+                # This run's staging table is gone and the live table carries this run's publish
+                # stamp, so the run finished. Re-creating a staging table from this one batch and
+                # swapping it in would replace the whole table with it.
+                return BatchWriteOutcome(rows_written=0)
+
             first = True
             chunk = 0
             async for batch in batches:
                 if batch.num_rows == 0:
                     continue
 
-                stamped = (
-                    batch.append_column(
-                        BATCH_INDEX_COLUMN,
-                        pa.array([ctx.batch_index] * batch.num_rows, type=pa.int32()),
-                    )
-                    if full_refresh
-                    else batch
-                )
+                stamped = stamp_batch_index(batch, ctx.batch_index) if full_refresh else batch
                 fields = fields_for(batch.schema, with_batch_index=full_refresh)
 
                 if first:
@@ -366,13 +370,12 @@ class DatabricksDestinationWriter:
                     first = False
 
                 if run.is_incremental and run.primary_keys and not full_refresh:
-                    await self._merge_chunk(
+                    rows_written += await self._merge_chunk(
                         client, target, stamped, fields, list(run.primary_keys), run.run_uuid, ctx.batch_index, chunk
                     )
                 else:
                     await self._copy_chunk(client, target, stamped, fields, run.run_uuid, ctx.batch_index, chunk)
-
-                rows_written += batch.num_rows
+                    rows_written += batch.num_rows
                 chunk += 1
 
         return BatchWriteOutcome(rows_written=rows_written)
@@ -397,7 +400,7 @@ class DatabricksDestinationWriter:
         # same `target` (the live table), so without `run_uuid` here their staged files would
         # share one name and one run's rows could be COPY'd by the other, or removed out from
         # under it once loaded.
-        file_name = f"ph_{_run_scope(run_uuid)}_{batch_index}_{chunk}.parquet"
+        file_name = f"ph_{run_scope(run_uuid)}_{batch_index}_{chunk}.parquet"
         volume_path = f"{self._volume_path()}/{target}"
 
         await client.aput_file_stream_to_volume(buffer, volume_path, file_name)
@@ -431,12 +434,16 @@ class DatabricksDestinationWriter:
         run_uuid: str,
         batch_index: int,
         chunk: int,
-    ) -> None:
+    ) -> int:
         """Upsert on the primary keys, staging the chunk in a scratch table first."""
+        # Delta rejects a `MERGE` whose source matches one target row more than once
+        # (`DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE`), and it rejects it again on
+        # every retry.
+        batch = dedupe_merge_source(batch, primary_keys)
         columns = list(batch.schema.names)
         # Run-scoped for the same reason as the staged file in `_copy_chunk`: two overlapping
         # runs of this table must not merge from, or drop, each other's scratch table.
-        stage_table = f"{target}__ph_merge_{_run_scope(run_uuid)}_{batch_index}_{chunk}"
+        stage_table = f"{target}__ph_merge_{run_scope(run_uuid)}_{batch_index}_{chunk}"
 
         async with client.managed_table(stage_table, fields, delete=True):
             await self._copy_chunk(client, stage_table, batch, fields, run_uuid, batch_index, chunk)
@@ -457,6 +464,8 @@ class DatabricksDestinationWriter:
                     fetch_results=False,
                     timeout=ONE_HOUR,
                 )
+
+        return batch.num_rows
 
     async def finalize_run(self, ctx: DestinationRunContext) -> None:
         """Publish a full refresh by swapping the staging table into place."""
@@ -498,6 +507,9 @@ class DatabricksDestinationWriter:
                     fetch_results=False,
                     timeout=FIVE_MINUTES,
                 )
+            # Stamp the run that published, so a redelivery of the final batch can tell "already
+            # published" from "never started" and refuse to rebuild the table.
+            await self._set_comment(client, ctx.table_name, published_marker(ctx.schema_id, ctx.run_uuid))
 
     async def abort_run(self, ctx: DestinationRunContext) -> None:
         # The next run stages under its own id, so a leftover table costs storage only.
