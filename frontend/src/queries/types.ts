@@ -1,5 +1,6 @@
 import { CSSProperties, ComponentType, HTMLProps } from 'react'
 
+import type { CustomerJourneyInsightType } from 'lib/customerJourneys/createCustomerJourney'
 import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
 
 import type { QueryJourneyDescriptor } from '~/queries/nodes/DataNode/queryJourney'
@@ -101,7 +102,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
         attemptId: string
         tileId: number
         insightShortId: string
-        insightType: 'TRENDS' | 'STICKINESS' | 'LIFECYCLE' | 'FUNNELS' | 'RETENTION' | 'PATHS'
+        insightType: CustomerJourneyInsightType
         expectedResult: unknown
     }
     onDashboardJourneyRenderCommitted?: (attemptId: string, tileId: number) => void

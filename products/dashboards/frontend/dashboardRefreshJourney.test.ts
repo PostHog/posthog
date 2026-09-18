@@ -1,4 +1,4 @@
-import { InsightType, QueryBasedInsightModel } from '~/types'
+import { QueryBasedInsightModel } from '~/types'
 
 import {
     DashboardRefreshJourneyController,
@@ -251,6 +251,30 @@ describe('DashboardRefreshJourneyController', () => {
                 ready_count: 0,
                 pending_count: 1,
                 end_reason: 'observation_stopped',
+            })
+        )
+    })
+
+    it.each([null, undefined])('keeps a nullish result (%s) pending without changing the denominator', (result) => {
+        const journey = handle()
+        startCustomerJourney.mockReturnValue(journey)
+        const controller = new DashboardRefreshJourneyController()
+        controller.setTileVisibility({ tileId: 1, insightShortId: 'one', insightType: 'RETENTION' }, true)
+        controller.start(99, 'refresh-id', [{ tileId: 1, insightShortId: 'one' }])
+
+        expect(controller.dataReady('attempt-1', 1, result)).toBeNull()
+        expect(journey.firstUseful).not.toHaveBeenCalled()
+        expect(journey.finish).not.toHaveBeenCalled()
+        controller.dispose('exited')
+        expect(journey.finish).toHaveBeenCalledWith(
+            'exited',
+            expect.objectContaining({
+                total_count: 1,
+                ready_count: 0,
+                failed_count: 0,
+                pending_count: 1,
+                excluded_count: 0,
+                tile_results: [expect.objectContaining({ tile_id: 1, state: 'pending' })],
             })
         )
     })
@@ -535,6 +559,5 @@ describe('dashboard refresh readiness helpers', () => {
         expect(isDashboardJourneyResultCommitted(emptyRetention, emptyRetention)).toBe(true)
         expect(isDashboardJourneyResultCommitted([], emptyRetention)).toBe(false)
         expect(isDashboardJourneyResultCommitted(null, emptyRetention)).toBe(false)
-        expect(InsightType.RETENTION).toBeTruthy()
     })
 })

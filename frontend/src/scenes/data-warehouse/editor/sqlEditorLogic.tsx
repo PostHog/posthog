@@ -1157,7 +1157,11 @@ export interface sqlEditorLogicMeta {
         filtersPlaceholderBindings: (queryInput: string | null) => string[] | null
         hasQueryInput: (queryInput: string | null) => boolean
         isEmbeddedMode: (arg: SQLEditorMode | undefined) => boolean
-        queryJourney: (tabId: string, mode: any, nativeQueryJourney: any) => QueryJourneyDescriptor | undefined
+        queryJourney: (
+            arg: string,
+            arg2: SQLEditorMode | undefined,
+            arg3: boolean | undefined
+        ) => QueryJourneyDescriptor | undefined
         dataLogicKey: (tabId: string) => string
         isDraft: (activeTab: QueryTab | null) => boolean
         currentDraft: (activeTab: QueryTab | null) => DataWarehouseSavedQueryDraft | null | undefined

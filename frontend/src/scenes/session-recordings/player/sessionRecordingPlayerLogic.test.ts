@@ -325,7 +325,6 @@ describe('sessionRecordingPlayerLogic', () => {
                 logic.actions.playerFrameDocumentLoadFailed(null)
                 logic.actions.stopRetryingPlayerFrameLoad()
                 logic.actions.setPause()
-                logic.unmount()
                 expect(capture).toHaveBeenCalledTimes(2)
             } finally {
                 logic.unmount()

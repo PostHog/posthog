@@ -122,6 +122,10 @@ describe('experimentLogic', () => {
         await expectLogic(userLogic).toFinishAllListeners()
     })
 
+    afterEach(() => {
+        jest.mocked(startCustomerJourney).mockReset()
+    })
+
     describe('loadPrimaryMetricsResults', () => {
         it('given a refresh, loads the metric results', async () => {
             logic.actions.setExperiment(experiment)
@@ -377,7 +381,6 @@ describe('experimentLogic', () => {
                 expect(startCustomerJourney).not.toHaveBeenCalled()
                 await expectLogic(metricsLogic).toFinishAllListeners()
                 metricsLogic.unmount()
-                jest.mocked(startCustomerJourney).mockReset()
             }
         )
 
@@ -546,7 +549,6 @@ describe('experimentLogic', () => {
                 expect(handle.firstUseful).not.toHaveBeenCalled()
                 expect(handle.finish).toHaveBeenCalledTimes(1)
                 metricsLogic.unmount()
-                jest.mocked(startCustomerJourney).mockReset()
             }
         )
 

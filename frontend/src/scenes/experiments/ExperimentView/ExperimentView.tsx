@@ -47,14 +47,11 @@ import { ResultsNotificationBanner } from './ResultsNotificationBanner'
 import { SettingsTab } from './SettingsTab'
 
 const MetricsTab = (): JSX.Element => {
-    const { experiment, orderedPrimaryMetricsWithResults, orderedSecondaryMetricsWithResults, isExperimentLaunched } =
-        useValues(experimentLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const hasMetrics = orderedPrimaryMetricsWithResults.length > 0 || orderedSecondaryMetricsWithResults.length > 0
-    const showRecalculationStatus = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION] && hasMetrics
-
     const {
+        experiment,
+        orderedPrimaryMetricsWithResults,
+        orderedSecondaryMetricsWithResults,
+        isExperimentLaunched,
         experimentRefreshReady,
         exposures,
         exposuresLoading,
@@ -65,6 +62,11 @@ const MetricsTab = (): JSX.Element => {
         primaryMetricsResultsErrors,
         secondaryMetricsResultsErrors,
     } = useValues(experimentLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const hasMetrics = orderedPrimaryMetricsWithResults.length > 0 || orderedSecondaryMetricsWithResults.length > 0
+    const showRecalculationStatus = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION] && hasMetrics
+
     const {
         primaryMetricsResults: recalculatedPrimary,
         secondaryMetricsResults: recalculatedSecondary,

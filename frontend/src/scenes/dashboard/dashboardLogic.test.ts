@@ -48,6 +48,32 @@ import { DashboardGridCompaction } from 'products/dashboards/frontend/dashboardC
 
 import { dashboardResult, insightOnDashboard, tileFromInsight } from './dashboardLogic.testHelpers'
 
+interface DeferredResponse<T> {
+    promise: Promise<T>
+    resolve: (value: T) => void
+    reject: (error: Error) => void
+}
+
+function deferred<T>(): DeferredResponse<T> {
+    let resolve!: DeferredResponse<T>['resolve']
+    let reject!: DeferredResponse<T>['reject']
+    const promise = new Promise<T>((res, rej) => {
+        resolve = res
+        reject = rej
+    })
+    return { promise, resolve, reject }
+}
+
+async function poll(condition: () => boolean, message: string): Promise<void> {
+    const deadline = Date.now() + 5000
+    while (!condition()) {
+        if (Date.now() > deadline) {
+            throw new Error(message)
+        }
+        await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+}
+
 const mockStartCustomerJourney = jest.fn()
 
 jest.mock('lib/customerJourneys/startCustomerJourney', () => ({
@@ -2812,27 +2838,13 @@ describe('dashboardLogic', () => {
         it.each(['success', 'failure'] as const)(
             'ignores an older regular load %s after a replacement load starts',
             async (oldOutcome) => {
-                type DeferredResponse = {
-                    promise: Promise<Response>
-                    resolve: (value: Response) => void
-                    reject: (error: Error) => void
-                }
-                const deferred = (): DeferredResponse => {
-                    let resolve!: DeferredResponse['resolve']
-                    let reject!: DeferredResponse['reject']
-                    const promise = new Promise<Response>((res, rej) => {
-                        resolve = res
-                        reject = rej
-                    })
-                    return { promise, resolve, reject }
-                }
                 const response = (dashboard: DashboardType<QueryBasedInsightModel>): Response =>
                     new Response(JSON.stringify(dashboard), {
                         status: 200,
                         headers: { 'content-type': 'application/json' },
                     })
-                const oldRequest = deferred()
-                const replacementRequest = deferred()
+                const oldRequest = deferred<Response>()
+                const replacementRequest = deferred<Response>()
                 const getResponseSpy = jest
                     .spyOn(api, 'getResponse')
                     .mockImplementationOnce(() => oldRequest.promise)
@@ -2852,15 +2864,6 @@ describe('dashboardLogic', () => {
                     journeys.set(options.attempt_id, journey)
                     return journey
                 })
-                const poll = async (condition: () => boolean, message: string): Promise<void> => {
-                    const deadline = Date.now() + 5000
-                    while (!condition() && Date.now() < deadline) {
-                        await new Promise((resolve) => setTimeout(resolve, 0))
-                    }
-                    if (!condition()) {
-                        throw new Error(message)
-                    }
-                }
                 const oldResult = [{ count: -1 }]
                 const replacementResult = [{ count: 42 }]
                 const oldTile = {
@@ -3131,14 +3134,6 @@ describe('dashboardLogic', () => {
                     .spyOn(dashboardUtils, 'getInsightWithRetry')
                     .mockImplementationOnce(() => visibleRequest)
                     .mockImplementationOnce(() => offscreenRequest)
-                const poll = async (condition: () => boolean, message: string): Promise<void> => {
-                    for (let index = 0; index < 100 && !condition(); index++) {
-                        await new Promise((resolve) => setTimeout(resolve, 0))
-                    }
-                    if (!condition()) {
-                        throw new Error(message)
-                    }
-                }
 
                 try {
                     const refreshDone = expectLogic(logic, () => {
@@ -3219,31 +3214,15 @@ describe('dashboardLogic', () => {
                         true
                     )
 
-                    type DeferredResponse = {
-                        promise: Promise<QueryBasedInsightModel>
-                        resolve: (value: QueryBasedInsightModel) => void
-                    }
-                    const deferred = (): DeferredResponse => {
-                        let resolve!: DeferredResponse['resolve']
-                        const promise = new Promise<QueryBasedInsightModel>((res) => {
-                            resolve = res
-                        })
-                        return { promise, resolve }
-                    }
-                    const requests = [deferred(), deferred(), deferred()]
+                    const requests = [
+                        deferred<QueryBasedInsightModel>(),
+                        deferred<QueryBasedInsightModel>(),
+                        deferred<QueryBasedInsightModel>(),
+                    ]
                     let requestIndex = 0
                     const getInsightWithRetrySpy = jest
                         .spyOn(dashboardUtils, 'getInsightWithRetry')
                         .mockImplementation(() => requests[requestIndex++].promise)
-                    const poll = async (condition: () => boolean, message: string): Promise<void> => {
-                        const deadline = Date.now() + 5000
-                        while (!condition()) {
-                            if (Date.now() > deadline) {
-                                throw new Error(message)
-                            }
-                            await new Promise((resolve) => setTimeout(resolve, 0))
-                        }
-                    }
 
                     try {
                         const refreshDone = expectLogic(logic, () => {
@@ -3457,16 +3436,6 @@ describe('dashboardLogic', () => {
                     )
                 const cancelQuerySpy = jest.spyOn(api.insights, 'cancelQuery').mockResolvedValue(undefined as any)
 
-                const poll = async (cond: () => boolean, message: string): Promise<void> => {
-                    const deadline = Date.now() + 5000
-                    while (!cond()) {
-                        if (Date.now() > deadline) {
-                            throw new Error(message)
-                        }
-                        await new Promise((r) => setTimeout(r, 0))
-                    }
-                }
-
                 try {
                     // forceRefresh: true so both tiles enter the refresh loop
                     const refreshDone = expectLogic(logic, () => {
@@ -3620,34 +3589,16 @@ describe('dashboardLogic', () => {
                         true
                     )
 
-                    type DeferredResponse = {
-                        promise: Promise<QueryBasedInsightModel>
-                        resolve: (value: QueryBasedInsightModel) => void
-                        reject: (error: Error) => void
-                    }
-                    const deferred = (): DeferredResponse => {
-                        let resolve!: DeferredResponse['resolve']
-                        let reject!: DeferredResponse['reject']
-                        const promise = new Promise<QueryBasedInsightModel>((res, rej) => {
-                            resolve = res
-                            reject = rej
-                        })
-                        return { promise, resolve, reject }
-                    }
-                    const requests = [deferred(), deferred(), deferred(), deferred()]
+                    const requests = [
+                        deferred<QueryBasedInsightModel>(),
+                        deferred<QueryBasedInsightModel>(),
+                        deferred<QueryBasedInsightModel>(),
+                        deferred<QueryBasedInsightModel>(),
+                    ]
                     let requestIndex = 0
                     const getInsightWithRetrySpy = jest
                         .spyOn(dashboardUtils, 'getInsightWithRetry')
                         .mockImplementation(() => requests[requestIndex++].promise)
-                    const poll = async (condition: () => boolean, message: string): Promise<void> => {
-                        const deadline = Date.now() + 5000
-                        while (!condition()) {
-                            if (Date.now() > deadline) {
-                                throw new Error(message)
-                            }
-                            await new Promise((resolve) => setTimeout(resolve, 0))
-                        }
-                    }
 
                     try {
                         logic.actions.triggerDashboardRefresh('manual')

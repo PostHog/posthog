@@ -137,6 +137,7 @@ describe('experiment refresh control intent', () => {
     }
 
     afterEach(() => {
+        jest.mocked(startCustomerJourney).mockReset()
         cleanup()
         trigger?.mockRestore()
         metricsLogic?.unmount()

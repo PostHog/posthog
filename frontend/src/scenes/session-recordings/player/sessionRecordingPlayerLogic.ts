@@ -193,6 +193,14 @@ interface ReplayOpenObservationCache {
     replayOpenReadiness?: ReturnType<typeof observeReplayOpenReadiness>
 }
 
+function failReplayOpenObservation(
+    cache: ReplayOpenObservationCache,
+    errorType: 'load_error' | 'playback_error'
+): void {
+    cache.replayOpenReadiness?.dispose()
+    cache.replayOpenJourney?.finish('failed', { error_type: errorType })
+}
+
 function watchReplayPresentation(
     cache: ReplayOpenObservationCache,
     props: SessionRecordingPlayerLogicProps,
@@ -2479,8 +2487,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             )
         },
         stopRetryingPlayerFrameLoad: () => {
-            cache.replayOpenReadiness?.dispose()
-            cache.replayOpenJourney?.finish('failed', { error_type: 'load_error' })
+            failReplayOpenObservation(cache as ReplayOpenObservationCache, 'load_error')
         },
         playerErrorSeen: ({ error }) => {
             const fingerprint = encodeURIComponent(error.message + error.filename + error.lineno + error.colno)
@@ -2512,8 +2519,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.tryInitReplayer()
         },
         loadRecordingMetaFailure: () => {
-            cache.replayOpenReadiness?.dispose()
-            cache.replayOpenJourney?.finish('failed', { error_type: 'load_error' })
+            failReplayOpenObservation(cache as ReplayOpenObservationCache, 'load_error')
         },
         tryInitReplayer: () => {
             // Tries to initialize a new player
@@ -3152,8 +3158,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     'snapshotProcessingFailed',
                 ].includes(reason)
             ) {
-                cache.replayOpenReadiness?.dispose()
-                cache.replayOpenJourney?.finish('failed', { error_type: 'playback_error' })
+                failReplayOpenObservation(cache as ReplayOpenObservationCache, 'playback_error')
             }
         },
         startScrub: () => {

@@ -1129,20 +1129,48 @@ export interface dashboardLogicMeta {
             previousState: any
         ) => void | Promise<void>
         reportLoadTiming: (
-            payload: any,
+            payload: {
+                payload?:
+                    | {
+                          loadId?: string | undefined
+                      }
+                    | undefined
+            },
             breakpoint: BreakPointFunction,
             action: {
                 type: string
-                payload: any
+                payload: {
+                    payload?:
+                        | {
+                              loadId?: string | undefined
+                          }
+                        | undefined
+                }
             },
             previousState: any
         ) => void | Promise<void>
         handleDashboardLoadComplete: (
-            payload: any,
+            payload: {
+                loadId?: string | undefined
+                payload?:
+                    | {
+                          action: DashboardLoadAction
+                          loadId: string
+                      }
+                    | undefined
+            },
             breakpoint: BreakPointFunction,
             action: {
                 type: string
-                payload: any
+                payload: {
+                    loadId?: string | undefined
+                    payload?:
+                        | {
+                              action: DashboardLoadAction
+                              loadId: string
+                          }
+                        | undefined
+                }
             },
             previousState: any
         ) => void | Promise<void>
@@ -4425,6 +4453,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     const queryStartTime = performance.now()
                     const dashboardId: number = props.id
 
+                    const isJourneyTile = !!journeyAttemptId && (isInitialLoad || !!journeyTileIds?.includes(tile.id))
+
                     // Set insight as refreshing
                     actions.setRefreshStatus(insight.short_id, true, true)
 
@@ -4442,8 +4472,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tile.filters_overrides
                         )
 
-                        const isJourneyTile =
-                            !!journeyAttemptId && (isInitialLoad || !!journeyTileIds?.includes(tile.id))
                         if (isJourneyTile && cache.acceptedDashboardJourneyAttemptId !== journeyAttemptId) {
                             return
                         }
@@ -4493,11 +4521,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tilesErroredCount++
                         }
                     } catch (e: any) {
-                        if (
-                            journeyAttemptId &&
-                            (isInitialLoad || journeyTileIds?.includes(tile.id)) &&
-                            cache.acceptedDashboardJourneyAttemptId !== journeyAttemptId
-                        ) {
+                        if (isJourneyTile && cache.acceptedDashboardJourneyAttemptId !== journeyAttemptId) {
                             return
                         }
                         if (shouldCancelQuery(e)) {
@@ -4506,7 +4530,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tilesAbortedCount++
                         } else {
                             actions.setRefreshError(insight.short_id, e)
-                            if (journeyAttemptId && (isInitialLoad || journeyTileIds?.includes(tile.id))) {
+                            if (isJourneyTile) {
                                 if (journeyController.failed(journeyAttemptId, tile.id, 'load_error')) {
                                     actions.clearDashboardJourneyRenderReadiness()
                                 }
