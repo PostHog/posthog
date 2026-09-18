@@ -262,7 +262,8 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     [ChartDisplayType.ActionsStackedBar]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.TwoDimensionalHeatmap]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ScatterPlot]: ChartDisplayType.ActionsLineGraph,
-    [ChartDisplayType.Metric]: ChartDisplayType.ActionsLineGraph,
+    // The backend adds a previous-period series for the Metric change pill, so its result does not fit the other displays.
+    [ChartDisplayType.Metric]: ChartDisplayType.Metric,
 
     // cumulative time series
     [ChartDisplayType.ActionsLineGraphCumulative]: ChartDisplayType.ActionsLineGraphCumulative,
