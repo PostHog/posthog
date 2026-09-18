@@ -18,7 +18,7 @@ use capture::api::CaptureError;
 use capture::config::CaptureMode;
 use capture::outputs::{OutputRegistry, PublishEvents};
 use capture::quota_limiters::{
-    is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter, EventInfo,
+    is_exception_event, is_llm_event, is_mobile_recording_event, is_survey_event, CaptureQuotaLimiter, EventInfo,
 };
 use capture::router::router;
 use capture::time::TimeSource;
@@ -98,6 +98,7 @@ async fn setup_router_with_limits(
         QuotaResource::Exceptions,
         QuotaResource::Surveys,
         QuotaResource::LLMEvents,
+        QuotaResource::MobileRecordings,
     ] {
         let key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, resource.as_str());
 
@@ -113,10 +114,14 @@ async fn setup_router_with_limits(
     let redis = Arc::new(redis);
 
     // TODO: add more scoped limiters to test helper as needed in the future!
-    let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
+    // Mirrors setup.rs: the mobile replay limiter only exists on the recordings capture path.
+    let mut quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
         .add_scoped_limiter(QuotaResource::Exceptions, is_exception_event)
         .add_scoped_limiter(QuotaResource::Surveys, is_survey_event)
         .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
+    if capture_mode == CaptureMode::Recordings {
+        quota_limiter = quota_limiter.add_scoped_limiter(QuotaResource::MobileRecordings, is_mobile_recording_event);
+    }
 
     let app = router(
         timesource,
@@ -129,7 +134,7 @@ async fn setup_router_with_limits(
         TokenDropper::default(),
         None, // event_restriction_service
         None, // recorder_handle
-        CaptureMode::Events,
+        capture_mode,
         None,             // concurrency_limit
         1024 * 1024,      // event_payload_size_limit
         false,            // enable_historical_rerouting
@@ -200,6 +205,7 @@ async fn test_exception_predicate() {
         let info = EventInfo {
             name,
             has_product_tour_id: false,
+            is_mobile_recording: false,
         };
         assert!(is_exception_event(info), "event {name} should be accepted");
     }
@@ -217,6 +223,7 @@ async fn test_exception_predicate() {
         let info = EventInfo {
             name,
             has_product_tour_id: false,
+            is_mobile_recording: false,
         };
         assert!(
             !is_exception_event(info),
@@ -240,6 +247,7 @@ async fn test_llm_predicate() {
         let info = EventInfo {
             name,
             has_product_tour_id: false,
+            is_mobile_recording: false,
         };
         assert!(is_llm_event(info), "event {name} should be accepted");
     }
@@ -257,6 +265,7 @@ async fn test_llm_predicate() {
         let info = EventInfo {
             name,
             has_product_tour_id: false,
+            is_mobile_recording: false,
         };
         assert!(!is_llm_event(info), "event {name} should not be accepted");
     }
@@ -270,6 +279,7 @@ async fn test_survey_predicate() {
         let info = EventInfo {
             name,
             has_product_tour_id: false,
+            is_mobile_recording: false,
         };
         assert!(is_survey_event(info), "event {name} should be accepted");
     }
@@ -291,6 +301,7 @@ async fn test_survey_predicate() {
         let info = EventInfo {
             name,
             has_product_tour_id: false,
+            is_mobile_recording: false,
         };
         assert!(
             !is_survey_event(info),
@@ -304,6 +315,7 @@ async fn test_survey_predicate() {
         let info = EventInfo {
             name,
             has_product_tour_id: true,
+            is_mobile_recording: false,
         };
         assert!(
             !is_survey_event(info),
@@ -2012,4 +2024,74 @@ async fn test_ai_quota_empty_null_field_handling() {
         .await;
     // Invalid event names (null, empty) should return BAD_REQUEST
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+fn create_replay_payload_with_token(token: &str, snapshot_source: &str) -> String {
+    serde_json::json!({
+        "event": "$snapshot",
+        "api_key": token,
+        "distinct_id": "test_user_id",
+        "properties": {
+            "$session_id": "01983d9b-8639-78fa-ac26-b9e7bf716521",
+            "$window_id": "01983d90-31f6-78cf-86c8-b26d0bdaaff0",
+            "$snapshot_source": snapshot_source,
+            "$snapshot_data": [{"type": 2, "data": {"id": 1}, "timestamp": 1753379299184u64}],
+            "$lib": "web",
+            "$lib_version": "1.0.0"
+        }
+    })
+    .to_string()
+}
+
+#[tokio::test]
+async fn test_mobile_recordings_quota_limiter_drops_only_mobile_sessions() {
+    let token = "test_token_mobile_recordings";
+    let (router, sink) =
+        setup_router_with_limits(token, CaptureMode::Recordings, false, vec![QuotaResource::MobileRecordings]).await;
+    let client = TestClient::new(router);
+
+    // Web replay passes: the mobile limit must not touch the web meter.
+    let web_response = client
+        .post("/s")
+        .body(create_replay_payload_with_token(token, "web"))
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+    assert_eq!(web_response.status(), StatusCode::OK);
+    assert_eq!(sink.events().len(), 1);
+
+    // Mobile replay is rejected with the recordings quota_limited marker.
+    let mobile_response = client
+        .post("/s")
+        .body(create_replay_payload_with_token(token, "mobile"))
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+    assert_eq!(mobile_response.status(), StatusCode::OK);
+    assert_eq!(sink.events().len(), 1);
+    let body: Value = serde_json::from_str(&mobile_response.text().await).unwrap();
+    assert_eq!(body["quota_limited"], serde_json::json!(["recordings"]));
+}
+
+#[tokio::test]
+async fn test_mobile_recordings_quota_limiter_ignores_other_sources() {
+    // The web quota stays the catch-all: an unset or unknown `$snapshot_source`
+    // counts against the web meter, never against mobile.
+    let token = "test_token_mobile_recordings_other_sources";
+    let (router, _sink) =
+        setup_router_with_limits(token, CaptureMode::Recordings, false, vec![QuotaResource::MobileRecordings]).await;
+    let client = TestClient::new(router);
+
+    let response = client
+        .post("/s")
+        .body(create_replay_payload_with_token(token, "posthog-ios"))
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .send()
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_str(&response.text().await).unwrap();
+    assert!(body.get("quota_limited").is_none());
 }

@@ -437,6 +437,7 @@ class TestBillingManager(BaseTest):
             "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
             "signals_credits": {},
             "replay_vision_credits": {},
+            "mobile_recordings": {},
             "posthog_code_credits": {},
             "workflow_emails": {"usage": 100, "limit": 10000, "todays_usage": 10},
             "workflow_push": {},

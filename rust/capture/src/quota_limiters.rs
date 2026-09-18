@@ -18,6 +18,10 @@ use crate::{
 pub struct EventInfo<'a> {
     pub name: &'a str,
     pub has_product_tour_id: bool,
+    // Mobile replay meter: mobile SDKs set `$snapshot_source: "mobile"` on `$snapshot` events;
+    // absent or any other value counts against the web recordings quota (the same
+    // "web is the catch-all" split the usage report's HAVING clause enforces).
+    pub is_mobile_recording: bool,
 }
 
 //
@@ -44,6 +48,11 @@ pub fn is_survey_event(info: EventInfo) -> bool {
 // for QuotaResource::LLMEvents
 pub fn is_llm_event(info: EventInfo) -> bool {
     info.name.starts_with("$ai_")
+}
+
+// for QuotaResource::MobileRecordings, on the recordings capture path
+pub fn is_mobile_recording_event(info: EventInfo) -> bool {
+    info.is_mobile_recording
 }
 
 // TODO: define more limiter predicates here!
@@ -142,6 +151,7 @@ impl CaptureQuotaLimiter {
                 EventInfo {
                     name: event.event_name(),
                     has_product_tour_id: event.has_property("$product_tour_id"),
+                    is_mobile_recording: event.has_property("$snapshot_source_mobile"),
                 }
             })
             .collect();

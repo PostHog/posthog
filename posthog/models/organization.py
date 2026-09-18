@@ -48,6 +48,7 @@ class OrganizationUsageInfo(TypedDict):
     events: OrganizationUsageResource | None
     exceptions: OrganizationUsageResource | None
     recordings: OrganizationUsageResource | None
+    mobile_recordings: OrganizationUsageResource | None
     survey_responses: OrganizationUsageResource | None
     rows_synced: OrganizationUsageResource | None
     cdp_trigger_events: OrganizationUsageResource | None
@@ -523,7 +524,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
                 {"quota_limited_until": billing_period_end_timestamp, "quota_limiting_suspended_until": None},
             )
 
-            if resource == QuotaResource.RECORDINGS:
+            if resource in (QuotaResource.RECORDINGS, QuotaResource.MOBILE_RECORDINGS):
                 dispatch_recordings_remote_config_sync(team_id for team_id, _ in team_rows)
         else:
             raise RuntimeError("Cannot limit without having a billing period")
@@ -553,7 +554,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
                 self, resource, {"quota_limited_until": None, "quota_limiting_suspended_until": None}
             )
 
-        if resource == QuotaResource.RECORDINGS:
+        if resource in (QuotaResource.RECORDINGS, QuotaResource.MOBILE_RECORDINGS):
             dispatch_recordings_remote_config_sync(team_id for team_id, _ in team_rows)
 
     def get_limited_products(self) -> dict[str, dict[str, Any]]:

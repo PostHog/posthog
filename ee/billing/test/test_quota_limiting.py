@@ -18,6 +18,7 @@ from posthog.api.test.test_team import create_team
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.redis import get_client
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from ee.billing.quota_limiting import (
     INFORMATIONAL_USAGE_RESOURCES,
@@ -258,6 +259,76 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"@posthog/quota-limits/survey_responses", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/rows_exported", 0, -1) == []
 
+    @time_machine.travel("2021-01-25T23:59:59Z", tick=False)
+    def test_quota_limiting_limits_mobile_sessions_under_the_mobile_resource(self) -> None:
+        # Mobile sessions meter against their own quota resource: billing converts the combined
+        # $ limit into separate web/mobile unit counts, so mobile volume must never be summed
+        # into the web `recordings` meter (that was the rejected #38706 approach). Overage
+        # buffer for both replay resources is 1000, so todays usage alone has to cross it.
+        with self.settings(USE_TZ=False):
+            self.organization.usage = {
+                "recordings": {"usage": 10, "limit": 100},
+                "mobile_recordings": {"usage": 10, "limit": 100},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.customer_trust_scores = zero_trust_scores()
+            self.organization.save()
+
+            timestamp = now() - relativedelta(hours=1)
+            for _ in range(0, 1100):
+                produce_replay_summary(
+                    team_id=self.team.id,
+                    session_id=str(uuid4()),
+                    distinct_id="user",
+                    first_timestamp=timestamp,
+                    last_timestamp=timestamp,
+                    snapshot_source="mobile",
+                    ensure_analytics_event_in_session=False,
+                )
+
+        flush_persons_and_events()
+
+        result = update_all_orgs_billing_quotas()
+        org_id = str(self.organization.id)
+        # Limited under the mobile resource, and the web meter is untouched by mobile volume.
+        assert result.quota_limited_orgs["mobile_recordings"] == {org_id: 1612137599}
+        assert result.quota_limited_orgs["recordings"] == {}
+        assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
+            f"@posthog/quota-limits/mobile_recordings", 0, -1
+        )
+        assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
+
+    @time_machine.travel("2021-01-25T23:59:59Z", tick=False)
+    def test_quota_limiting_keeps_web_and_mobile_meters_independent(self) -> None:
+        # A web-heavy org over only the web limit must not be limited by its (below-limit)
+        # mobile volume, and vice versa: each resource reads only its own sessions.
+        with self.settings(USE_TZ=False):
+            self.organization.usage = {
+                "recordings": {"usage": 10, "limit": 100},
+                "mobile_recordings": {"usage": 10, "limit": 5000},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.customer_trust_scores = zero_trust_scores()
+            self.organization.save()
+
+            timestamp = now() - relativedelta(hours=1)
+            for _ in range(0, 1100):
+                produce_replay_summary(
+                    team_id=self.team.id,
+                    session_id=str(uuid4()),
+                    distinct_id="user",
+                    first_timestamp=timestamp,
+                    last_timestamp=timestamp,
+                    ensure_analytics_event_in_session=False,
+                )
+
+        flush_persons_and_events()
+
+        result = update_all_orgs_billing_quotas()
+        org_id = str(self.organization.id)
+        assert result.quota_limited_orgs["recordings"] == {org_id: 1612137599}
+        assert result.quota_limited_orgs["mobile_recordings"] == {}
+
     def test_billing_rate_limit_not_set_if_missing_org_usage(self) -> None:
         with self.settings(USE_TZ=False):
             self.organization.usage = {}
@@ -358,6 +429,7 @@ class TestQuotaLimiting(BaseTest):
                 "quota_limited_events": 1612137599,
                 "quota_limited_exceptions": None,
                 "quota_limited_recordings": None,
+                "quota_limited_mobile_recordings": None,
                 "quota_limited_api_queries": None,
                 "quota_limited_rows_synced": None,
                 "quota_limited_feature_flags": None,
@@ -2342,6 +2414,7 @@ def _full_usage_counters(**overrides: int) -> UsageCounters:
         events=0,
         exceptions=0,
         recordings=0,
+        mobile_recordings=0,
         rows_synced=0,
         feature_flag_requests=0,
         api_queries_read_bytes=0,
