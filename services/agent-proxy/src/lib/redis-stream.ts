@@ -239,6 +239,14 @@ export class TaskRunRedisStream {
         return streamIdLessThan(lastEventId, firstId)
     }
 
+    async cursorUnreachable(cursor: string): Promise<boolean> {
+        if (cursor === '' || cursor === '0' || cursor === '0-0') {
+            return false
+        }
+        const firstId = await this.getFirstStreamId()
+        return firstId === null || streamIdLessThan(cursor, firstId)
+    }
+
     // None for startId in ('0','0-0','$',''). None if stream empty.
     // ResumeGap if startId < firstId.
     async detectResumeGap(startId: string): Promise<ResumeGap | null> {
@@ -327,13 +335,13 @@ export class TaskRunRedisStream {
 
             if (recheckCursor) {
                 recheckCursor = false
-                let trimmed: boolean
+                let unreachable: boolean
                 try {
-                    trimmed = await this.resumePointTrimmed(currentId)
+                    unreachable = await this.cursorUnreachable(currentId)
                 } catch {
                     throw new TaskRunStreamError('Connection lost to task run stream')
                 }
-                if (trimmed) {
+                if (unreachable) {
                     throw new TaskRunStreamCursorTrimmedError(currentId)
                 }
             }

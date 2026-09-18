@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { formatSseEvent, streamTaskRunEvents } from '@/hono/sse-handler.js'
 import {
+    BLOCK_MS,
     CONNECTION_MAX_MS,
     KEEPALIVE_INTERVAL_MS,
     SSE_EVENT_END,
@@ -141,7 +142,7 @@ class FakeRedis {
     }
 
     _xtrimKeepLast(key: string, keep: number): void {
-        this.streams.set(key, (this.streams.get(key) ?? []).slice(-keep))
+        this.streams.set(key, keep <= 0 ? [] : (this.streams.get(key) ?? []).slice(-keep))
     }
 
     // ---------------------------------------------------------------------------
@@ -731,6 +732,7 @@ describe('sse-handler', () => {
         it.each([
             {
                 name: 'rebuild when its cursor is trimmed while the reader is stalled',
+                keep: 1,
                 failRecheck: false,
                 shortPauses: 1,
                 trimDuringRead: false,
@@ -738,6 +740,7 @@ describe('sse-handler', () => {
             },
             {
                 name: 'rebuild when its cursor is trimmed while the reader lags in short pauses',
+                keep: 1,
                 failRecheck: false,
                 shortPauses: 4,
                 trimDuringRead: false,
@@ -745,13 +748,23 @@ describe('sse-handler', () => {
             },
             {
                 name: 'rebuild when its cursor is trimmed while the read is in flight',
+                keep: 1,
                 failRecheck: false,
                 shortPauses: 1,
                 trimDuringRead: true,
                 expectedFrame: `event: ${SSE_EVENT_END}\ndata: {"type":"resync","reason":"trimmed"}\n\n`,
             },
             {
+                name: 'rebuild when the whole stream expired while the reader was stalled',
+                keep: 0,
+                failRecheck: false,
+                shortPauses: 1,
+                trimDuringRead: false,
+                expectedFrame: `event: ${SSE_EVENT_END}\ndata: {"type":"resync","reason":"trimmed"}\n\n`,
+            },
+            {
                 name: 'reconnect when the stalled trim check fails',
+                keep: 1,
                 failRecheck: true,
                 shortPauses: 1,
                 trimDuringRead: false,
@@ -759,7 +772,7 @@ describe('sse-handler', () => {
             },
         ])(
             'tells a resync-capable client to $name',
-            async ({ failRecheck, shortPauses, trimDuringRead, expectedFrame }) => {
+            async ({ keep, failRecheck, shortPauses, trimDuringRead, expectedFrame }) => {
                 vi.useFakeTimers()
                 const runId = uniqueRunId()
                 const streamKey = makeStreamKey(runId)
@@ -782,18 +795,20 @@ describe('sse-handler', () => {
                 if (trimDuringRead) {
                     const readStream = redis.xread.bind(redis)
                     vi.spyOn(redis, 'xread').mockImplementation(async (...args: unknown[]) => {
-                        redis._xtrimKeepLast(streamKey, 1)
+                        redis._xtrimKeepLast(streamKey, keep)
                         return readStream(...args)
                     })
                 } else {
-                    redis._xtrimKeepLast(streamKey, 1)
+                    redis._xtrimKeepLast(streamKey, keep)
                 }
                 if (failRecheck) {
                     vi.spyOn(redis, 'xrange').mockRejectedValue(new Error('Connection is closed'))
                 }
                 vi.advanceTimersByTime(pauseMs)
 
-                const next = await gen.next()
+                const pending = gen.next()
+                await vi.advanceTimersByTimeAsync(BLOCK_MS * 2)
+                const next = await pending
                 expect(next.value?.toString('utf8')).toBe(expectedFrame)
                 expect((await gen.next()).done).toBe(true)
             }
