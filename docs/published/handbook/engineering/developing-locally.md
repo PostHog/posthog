@@ -33,7 +33,7 @@ vi '/posthog/files/Research/Notes.md'
 jq '.title' /posthog/api/notebook/<short-id>.json
 ```
 
-The guest includes BusyBox tools, `jq`, `vi`, `joe`, `less`, `tree`, and Lua.
+The guest includes BusyBox tools, `jq`, `vi`, `joe`, `less`, and Lua.
 Pipes, redirection, completion, terminal colors, Ctrl+C, and scrollback use the real shell and terminal.
 The terminal uses a black background in both app themes.
 Select text and use **Copy selection**, or use **Paste** to paste clipboard text into the terminal.
