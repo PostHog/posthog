@@ -262,13 +262,15 @@ describe('Backend CI comparison boundaries', () => {
         }
     )
 
+    // Depot CI never runs a merge queue PR, so only GitHub Actions needs the queue case.
     it.each([
-        { name: 'ordinary PR', queued: false },
-        { name: 'queue PR', queued: true },
-    ])('regenerates a missing verdict selection for $name', ({ queued }) => {
+        { file: WORKFLOWS[0]!, name: 'ordinary PR', queued: false },
+        { file: WORKFLOWS[0]!, name: 'queue PR', queued: true },
+        { file: WORKFLOWS[1]!, name: 'ordinary PR', queued: false },
+    ])('$file regenerates a missing verdict selection for $name', ({ file, queued }) => {
         const repo = createGraph()
         try {
-            const wf = loadWorkflow(path.join(REPO_ROOT, WORKFLOWS[0]!))
+            const wf = loadWorkflow(path.join(REPO_ROOT, file))
             const sha = queued ? repo.queueMerge : repo.merge
             const context = prContext(sha, queued ? repo.merge : repo.head, queued ? 'master' : 'lower', queued)
             const target = wf.jobs['test-selection-verdict']!.steps!.find(

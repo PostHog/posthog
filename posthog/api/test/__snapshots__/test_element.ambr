@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: TestElement.test_element_stats_postgres_queries_are_as_expected
   '''
-  SELECT "posthog_user"."id",
+  SELECT "posthog_user"."depot_probe",
          "posthog_user"."password",
          "posthog_user"."last_login",
          "posthog_user"."first_name",

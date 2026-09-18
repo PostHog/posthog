@@ -730,6 +730,9 @@ def get_pull_request_number() -> int | None:
 
 
 def get_run_url() -> str:
+    # Depot CI sets a GITHUB_RUN_ID that GitHub has no run for, so link the Depot job instead.
+    if os.environ.get("CI_ENGINE") == "depot":
+        return os.environ.get("DEPOT_JOB_URL", "")
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     if not repo or not run_id:
@@ -752,6 +755,8 @@ def workflow_resource_attributes() -> dict[str, str | int]:
     if pr_number is not None:
         attrs["ci.pr_number"] = pr_number
     attrs["ci.run_url"] = get_run_url()
+    # Only the Depot CI workflow sets CI_ENGINE, so GitHub Actions spans carry no ci.engine.
+    attrs["ci.engine"] = os.environ.get("CI_ENGINE", "")
     return {k: v for k, v in attrs.items() if v != ""}
 
 
