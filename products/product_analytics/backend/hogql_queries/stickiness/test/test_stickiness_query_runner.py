@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
@@ -1598,3 +1599,16 @@ class TestStickinessSeriesCustomNames(BaseTest):
 
         assert patched_response.results == expected_results
         assert was_modified is expect_modified
+
+
+class TestStickinessSeriesFanOut(BaseTest):
+    def test_runner_rejects_an_expansion_over_the_limit_before_it_expands_the_series(self) -> None:
+        query = StickinessQuery(
+            series=[EventsNode(event=f"event_{index}") for index in range(101)],
+            compareFilter=CompareFilter(compare=True),
+        )
+
+        with self.assertRaises(ValidationError) as context:
+            StickinessQueryRunner(query=query, team=self.team)
+
+        self.assertEqual(context.exception.get_codes(), ["insight_series_fan_out_too_large"])

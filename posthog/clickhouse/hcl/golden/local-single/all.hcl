@@ -3183,7 +3183,12 @@ database "posthog" {
       topic_list           = "clickhouse_flag_evaluations"
       group_name           = "clickhouse_flag_evaluations"
       format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 10000
       skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      poll_max_batch_size  = 10000
+      flush_interval_ms    = 7500
     }
   }
 
@@ -7282,6 +7287,11 @@ SQL
     }
     index "idx_observed_minmax" {
       expr        = "observed_timestamp"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "idx_timestamp_minmax" {
+      expr        = "timestamp"
       type        = "minmax"
       granularity = 1
     }

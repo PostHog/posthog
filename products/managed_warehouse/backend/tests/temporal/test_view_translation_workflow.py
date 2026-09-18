@@ -1,8 +1,13 @@
+import datetime as dt
+import threading
+from dataclasses import replace
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from temporalio.exceptions import ApplicationError
+from parameterized import parameterized
+from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.schema import HogQLQuery
@@ -217,9 +222,16 @@ class TestManagedWarehouseViewTranslationActivities(BaseTest):
         changed.query = {"kind": "HogQLQuery", "query": "SELECT edited"}
         changed.save(update_fields=["query"])
 
+        self.activity_environment.info = replace(
+            self.activity_environment.info, heartbeat_timeout=dt.timedelta(milliseconds=120)
+        )
+        heartbeat_received = threading.Event()
+        self.activity_environment.on_heartbeat = lambda *_: heartbeat_received.set()
         compile_kwargs: list[dict[str, object]] = []
 
         def compile_query(_team_id: int, query: HogQLQuery, **kwargs: object) -> TrinoCompiledQuery:
+            heartbeat_received.clear()
+            assert heartbeat_received.wait(timeout=5), "No heartbeat while compilation was blocked"
             compile_kwargs.append(kwargs)
             if query.query == "SELECT bad":
                 raise ValueError("unsupported expression")
@@ -255,6 +267,55 @@ class TestManagedWarehouseViewTranslationActivities(BaseTest):
         }
         assert job.status == ManagedWarehouseViewTranslationJob.Status.COMPLETED_WITH_ERRORS
         assert (job.compiled_count, job.failed_count, job.stale_count) == (1, 1, 1)
+
+    @parameterized.expand(["cancel_error", "cancel_requested", "failed_job", "failed_job_with_error"])
+    def test_compile_stops_without_recording_results_after_cancellation(self, stop_reason: str) -> None:
+        job = ManagedWarehouseViewTranslationJob.objects.create(
+            organization=self.organization,
+            status=ManagedWarehouseViewTranslationJob.Status.RUNNING,
+        )
+        for index in range(2):
+            saved_query = DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=f"view_{index}",
+                query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            )
+            ManagedWarehouseViewTranslationResult.objects.for_team(self.team.id).create(
+                job=job,
+                team_id=self.team.id,
+                saved_query_id=saved_query.id,
+                saved_query_name=saved_query.name,
+                source_query_hash=source_query_hash(saved_query.query),
+            )
+
+        def compile_query(*args: object, **kwargs: object) -> TrinoCompiledQuery:
+            if stop_reason == "cancel_error":
+                raise CancelledError()
+            if stop_reason == "cancel_requested":
+                self.activity_environment.cancel()
+            else:
+                ManagedWarehouseViewTranslationJob.objects.filter(id=job.id).update(
+                    status=ManagedWarehouseViewTranslationJob.Status.FAILED
+                )
+                if stop_reason == "failed_job_with_error":
+                    raise ValueError("Compilation interrupted")
+            return TrinoCompiledQuery(sql="SELECT 1", values={}, hogql="SELECT 1")
+
+        with (
+            patch(
+                "products.managed_warehouse.backend.temporal.view_translation_workflow.compile_hogql_to_trino_sql",
+                side_effect=compile_query,
+            ) as compile_mock,
+            pytest.raises(CancelledError),
+        ):
+            self.activity_environment.run(compile_managed_warehouse_team_views_activity, str(job.id), self.team.id)
+
+        assert compile_mock.call_count == 1
+        results = ManagedWarehouseViewTranslationResult.objects.for_team(self.team.id).filter(job=job)
+        assert list(results.values_list("status", "trino_sql", "error_message", "processed_at")) == [
+            (ManagedWarehouseViewTranslationResult.Status.PENDING, None, None, None),
+            (ManagedWarehouseViewTranslationResult.Status.PENDING, None, None, None),
+        ]
 
 
 class TestManagedWarehouseViewTranslationStarter(BaseTest):

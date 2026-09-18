@@ -24,6 +24,9 @@ Forward port `8092` and open the forwarded URL.
 This mode accepts the forwarded hostname and HTTP or HTTPS origins matching that hostname.
 The demo has no authentication; use your development environment's private forwarding controls.
 Only the demo page listens on a port; the embedded service has no separate listener.
+The connection indicator checks the embedded service's health handler through the demo server.
+It reports whether that handler is reachable, not whether a query is valid or supported.
+The page checks periodically while visible and reconnects automatically after a temporary failure.
 Go may download the module's required toolchain on the first run.
 Agents must request elevated execution when starting the demo because it opens a local HTTP listener.
 
@@ -53,6 +56,7 @@ Do not add the demo to deployment configuration or the production server's route
 - Select **Quoted identifiers** and insert `billing address` to inspect identifier quoting. The service supplies quoted insertion text; the page does not add quotes.
 - Use **CTE completion** and **Subquery completion** to inspect current derived-relation support. Empty suggestions are shown as returned by the service, without a browser fallback.
 - Open raw responses to inspect parser errors, diagnostics, pagination cursors, physical table names, and catalog revisions.
+- Stop and restart the demo to confirm that the connection indicator changes to disconnected and recovers.
 
 Ctrl/Command+Enter validates; Ctrl/Command+Shift+Enter completes.
 Ctrl+Space is left available for the operating system's input-source shortcut.
@@ -108,6 +112,7 @@ They are not evidence that a query would succeed or fail in the full PostHog com
 | Editor integration                     | A textarea keeps the page dependency-free. Optional debounced validation and completion run after edits. Monaco highlighting, squiggles, and completion inside already quoted identifiers are not provided. Insertion replaces an ordinary identifier around the captured cursor. | Add a locally bundled editor adapter when testing editor behavior, with cursor/range tests for quoted names, escaped characters, and mid-token edits.                                                                           |
 | Custom catalog editing and permissions | One synthetic team/user catalog is seeded at startup. There is no upload UI, identity picker, catalog refresh button, permission mutation, or JWT workflow.                                                                                                                       | Add isolated synthetic catalog variants for permission/tenant testing; verify catalog revisions and isolation through authenticated endpoints before adding identity controls.                                                  |
 | Performance conclusions                | The fixture is small and timings are exploratory. This page is not a load test or latency acceptance gate.                                                                                                                                                                        | Use the existing large-catalog benchmarks and dedicated latency test; add query-shape benchmarks for the shared analyzer as needed.                                                                                             |
+| Connection status                      | The indicator checks only whether the embedded service health handler responds successfully. It does not reflect catalog freshness, query correctness, or support for a specific HogQL construct.                                                                                 | Inspect validation and completion responses for query-level behavior.                                                                                                                                                           |
 | Hosting and production                 | Private development port forwarding is supported with `-host 0.0.0.0`. The demo serves HTTP without authentication or built-in TLS and stays excluded from production.                                                                                                            | Use authenticated development forwarding. Public hosting would need a separate authentication and TLS design; production service endpoints remain outside this demo.                                                            |
 | Persistence                            | Query text and results live only in the page; refreshing discards them. This avoids silently storing pasted query text.                                                                                                                                                           | If useful, add explicit local export/import of synthetic examples with a documented file format.                                                                                                                                |
 

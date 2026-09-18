@@ -72,6 +72,62 @@ let composing = false
 const requests = { validation: null, completion: null }
 const feedback = { validation: '', completion: '' }
 const copying = { validation: false, completion: false }
+const healthCheckInterval = 5000
+const healthCheckTimeout = 2000
+let healthTimer = null
+let healthController = null
+let healthCheckGeneration = 0
+
+function setServerStatus(connected) {
+    const status = byId('server-status')
+    status.classList.toggle('connected', connected)
+    status.classList.toggle('disconnected', !connected)
+    const statusText = byId('server-status-text')
+    const nextStatusText = connected ? 'Server connected' : 'Server disconnected'
+    if (statusText.textContent !== nextStatusText) {
+        statusText.textContent = nextStatusText
+    }
+}
+
+function stopHealthChecks() {
+    clearTimeout(healthTimer)
+    healthTimer = null
+    healthCheckGeneration += 1
+    healthController?.abort()
+    healthController = null
+}
+
+function resumeHealthChecks() {
+    clearTimeout(healthTimer)
+    healthTimer = null
+    checkServerHealth()
+}
+
+async function checkServerHealth() {
+    if (healthController || document.hidden) {
+        return
+    }
+    const generation = ++healthCheckGeneration
+    const controller = new AbortController()
+    healthController = controller
+    const timeout = setTimeout(() => controller.abort(), healthCheckTimeout)
+    try {
+        const response = await fetch('/api/health', { signal: controller.signal, cache: 'no-store' })
+        if (generation === healthCheckGeneration) {
+            setServerStatus(response.ok)
+        }
+    } catch {
+        if (generation === healthCheckGeneration) {
+            setServerStatus(false)
+        }
+    } finally {
+        clearTimeout(timeout)
+        if (generation === healthCheckGeneration) {
+            healthController = null
+            healthTimer = setTimeout(checkServerHealth, healthCheckInterval)
+        }
+    }
+}
 
 function captureFeedback(kind, exchange) {
     feedback[kind] = JSON.stringify(exchange, null, 2)
@@ -415,12 +471,21 @@ editor.addEventListener('compositionend', () => {
 })
 window.addEventListener('pagehide', () => {
     cancelScheduledAnalysis()
+    stopHealthChecks()
     for (const kind of Object.keys(requests)) {
         if (requests[kind]) {
             invalidate(kind)
         }
     }
 })
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        stopHealthChecks()
+    } else {
+        resumeHealthChecks()
+    }
+})
+window.addEventListener('pageshow', resumeHealthChecks)
 for (const event of ['input', 'keyup', 'click', 'select']) {
     editor.addEventListener(event, syncSelection)
 }
@@ -435,6 +500,7 @@ editor.addEventListener('keydown', (event) => {
     }
 })
 loadExample()
+resumeHealthChecks()
 fetch('/api/catalog')
     .then(async (response) => {
         if (!response.ok) {
