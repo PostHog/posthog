@@ -959,7 +959,12 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         )
 
     def setup_series(self) -> list[SeriesWithExtras]:
-        validate_series_fan_out(self.query)
+        cohort_breakdown_expands = (
+            self.modifiers.inCohortVia != InCohortVia.LEFTJOIN_CONJOINED
+            and self.query.breakdownFilter is not None
+            and self.query.breakdownFilter.breakdown_type == "cohort"
+        )
+        validate_series_fan_out(self.query, cohort_breakdown_expands=cohort_breakdown_expands)
 
         series_with_extras = [
             SeriesWithExtras(
@@ -972,11 +977,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             for index, series in enumerate(self.query.series)
         ]
 
-        if (
-            self.modifiers.inCohortVia != InCohortVia.LEFTJOIN_CONJOINED
-            and self.query.breakdownFilter is not None
-            and self.query.breakdownFilter.breakdown_type == "cohort"
-        ):
+        if cohort_breakdown_expands and self.query.breakdownFilter is not None:
             updated_series = []
             if isinstance(self.query.breakdownFilter.breakdown, list):
                 cohort_ids = self.query.breakdownFilter.breakdown

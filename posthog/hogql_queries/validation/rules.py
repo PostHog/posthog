@@ -67,14 +67,17 @@ def _query_has_data_warehouse_series(
 SERIES_FAN_OUT_TOO_LARGE = "insight_series_fan_out_too_large"
 
 
-def expanded_series_count(query: TrendsQuery | StickinessQuery) -> int:
-    """How many ClickHouse queries this insight expands into, one per series after breakdown and compare."""
+def expanded_series_count(query: TrendsQuery | StickinessQuery, *, cohort_breakdown_expands: bool) -> int:
+    """How many ClickHouse queries this insight expands into, one per series after breakdown and compare.
+
+    The caller decides whether a cohort breakdown expands, because a conjoined cohort breakdown
+    resolves to a single query per series instead of one per cohort.
+    """
     count = len(query.series)
 
     breakdown_filter = getattr(query, "breakdownFilter", None)
-    if breakdown_filter is not None and breakdown_filter.breakdown_type == "cohort":
-        if isinstance(breakdown_filter.breakdown, list):
-            count *= max(1, len(breakdown_filter.breakdown))
+    if cohort_breakdown_expands and breakdown_filter is not None and isinstance(breakdown_filter.breakdown, list):
+        count *= max(1, len(breakdown_filter.breakdown))
 
     if query.compareFilter is not None and query.compareFilter.compare:
         count *= 2
@@ -82,13 +85,13 @@ def expanded_series_count(query: TrendsQuery | StickinessQuery) -> int:
     return count
 
 
-def validate_series_fan_out(query: TrendsQuery | StickinessQuery) -> None:
+def validate_series_fan_out(query: TrendsQuery | StickinessQuery, *, cohort_breakdown_expands: bool) -> None:
     """Reject an insight that expands into more queries than one request is allowed to run.
 
     Runners call this from setup_series rather than from validators(), because setup_series copies
     the whole query once per cohort and runs before the standard validation rules do.
     """
-    count = expanded_series_count(query)
+    count = expanded_series_count(query, cohort_breakdown_expands=cohort_breakdown_expands)
     if count > MAX_EXPANDED_INSIGHT_QUERIES:
         raise ValidationError(
             f"This insight needs {count} queries to run, which is over the limit of {MAX_EXPANDED_INSIGHT_QUERIES}. "

@@ -26,6 +26,7 @@ from posthog.hogql.constants import MAX_EXPANDED_INSIGHT_QUERIES
 from posthog.hogql_queries.validation.rules import (
     DisallowUnsupportedDataWarehouseSettings,
     RequireAtLeastOneSeries,
+    expanded_series_count,
     validate_series_fan_out,
 )
 from posthog.hogql_queries.validation.validation import QueryValidationContext
@@ -155,7 +156,7 @@ class TestValidateSeriesFanOut(SimpleTestCase):
             compareFilter=CompareFilter(compare=compare),
         )
 
-        validate_series_fan_out(query)
+        validate_series_fan_out(query, cohort_breakdown_expands=True)
 
     @parameterized.expand(
         [
@@ -174,12 +175,12 @@ class TestValidateSeriesFanOut(SimpleTestCase):
         )
 
         with self.assertRaises(ValidationError) as context:
-            validate_series_fan_out(query)
+            validate_series_fan_out(query, cohort_breakdown_expands=True)
 
         self.assertIn(f"needs {expected} queries", str(context.exception))
         self.assertEqual(context.exception.get_codes(), ["insight_series_fan_out_too_large"])
 
-    def test_non_cohort_breakdown_does_not_multiply_the_series(self) -> None:
+    def test_breakdown_that_does_not_expand_leaves_the_series_count_alone(self) -> None:
         query = TrendsQuery(
             series=_series(200),
             breakdownFilter=BreakdownFilter(
@@ -187,15 +188,23 @@ class TestValidateSeriesFanOut(SimpleTestCase):
             ),
         )
 
-        validate_series_fan_out(query)
+        validate_series_fan_out(query, cohort_breakdown_expands=False)
 
     def test_rejects_stickiness_expansion_over_the_limit(self) -> None:
         query = StickinessQuery(series=_series(101), compareFilter=CompareFilter(compare=True))
 
         with self.assertRaises(ValidationError) as context:
-            validate_series_fan_out(query)
+            validate_series_fan_out(query, cohort_breakdown_expands=False)
 
         self.assertEqual(context.exception.get_codes(), ["insight_series_fan_out_too_large"])
+
+    def test_conjoined_cohort_breakdown_does_not_multiply_the_series(self) -> None:
+        query = TrendsQuery(series=_series(150), breakdownFilter=_cohort_breakdown(5))
+
+        self.assertEqual(expanded_series_count(query, cohort_breakdown_expands=False), 150)
+        self.assertEqual(expanded_series_count(query, cohort_breakdown_expands=True), 750)
+
+        validate_series_fan_out(query, cohort_breakdown_expands=False)
 
 
 class TestSeriesLengthSchemaLimit(SimpleTestCase):

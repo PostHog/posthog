@@ -491,7 +491,7 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
             return action.name
 
     def setup_series(self) -> list[SeriesWithExtras]:
-        validate_series_fan_out(self.query)
+        validate_series_fan_out(self.query, cohort_breakdown_expands=False)
 
         series_with_extras = [
             SeriesWithExtras(

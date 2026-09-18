@@ -385,3 +385,30 @@ class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
             TrendsQueryRunner(query=query, team=self.team)
 
         self.assertEqual(context.exception.get_codes(), ["insight_series_fan_out_too_large"])
+
+    @parameterized.expand(
+        [
+            (
+                "conjoined_cohorts_do_not_expand",
+                150,
+                BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=[1, 2]),
+            ),
+            (
+                "non_cohort_breakdown_does_not_expand",
+                150,
+                BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown=[f"prop_{index}" for index in range(10)]),
+            ),
+            ("all_cohort_expands", 50, BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=["all", 1, 2])),
+        ]
+    )
+    def test_accepted_query_expands_to_the_count_the_validator_used(
+        self, _name: str, series_count: int, breakdown_filter: BreakdownFilter
+    ) -> None:
+        query = TrendsQuery(
+            series=[EventsNode(event=f"event_{index}") for index in range(series_count)],
+            breakdownFilter=breakdown_filter,
+        )
+
+        runner = TrendsQueryRunner(query=query, team=self.team)
+
+        self.assertEqual(len(runner.series), 150)
