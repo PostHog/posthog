@@ -4,11 +4,33 @@ import {
     getFunnelDropoffReason,
     getMetricSessionFilters,
     getMetricSourceEventNames,
-    getMetricUnlinkableReason,
+    getMetricUnlinkableCode,
 } from '../utils'
-import type { ExperimentReplayMetricFilterMode } from './experimentRecordingsDeepLink'
+import type { ExperimentMetricUnselectableCode, ExperimentReplayMetricFilterMode } from './experimentRecordingsDeepLink'
 
-export const METRIC_WITHOUT_UUID_REASON = "This metric can't be selected on the Recordings tab."
+/**
+ * The reason a results row cannot filter recordings by this metric, worded for each surface. The
+ * row's phrasing points at the tab; the tab's own phrasing cannot, since the reader is already
+ * there and needs to know what the list they are looking at contains.
+ */
+export const METRIC_UNSELECTABLE_COPY: Record<ExperimentMetricUnselectableCode, { onRow: string; onTab: string }> = {
+    no_uuid: {
+        onRow: "This metric can't filter recordings yet, so the button opens every recording of the variant.",
+        onTab: "Showing every recording of this variant. This metric can't filter recordings yet.",
+    },
+    server_side_events: {
+        onRow: "This metric's events are captured server-side without a session ID, so the button opens every recording of the variant.",
+        onTab: "Showing every recording of this variant. This metric's events are captured server-side without a session ID, so they can't be matched to recordings.",
+    },
+    retention: {
+        onRow: 'Retention metrics measure a return visit in a later session, so the button opens every recording of the variant.',
+        onTab: 'Showing every recording of this variant. Retention metrics measure a return visit, which happens in a later session, so no single recording can show it.',
+    },
+    data_warehouse: {
+        onRow: 'This metric is measured in the data warehouse, so the button opens every recording of the variant.',
+        onTab: 'Showing every recording of this variant. This metric is measured in the data warehouse, which has no session events to match recordings on.',
+    },
+}
 
 /**
  * The modes a results row offers. A row's link carries a single metric, and over one metric
@@ -144,6 +166,8 @@ export interface ExperimentRecordingModes {
     /** False when the Recordings tab would drop this metric, so a link to it must carry no metric. */
     metricSelectable: boolean
     unselectableReason: string | null
+    /** The reason as a telemetry value, paired with `unselectableReason`. Null when selectable. */
+    unselectableCode: ExperimentMetricUnselectableCode | null
     /** The mode a one-click link applies. Null when the metric can't be selected. */
     defaultMode: ExperimentReplayMetricFilterMode | null
     /**
@@ -168,8 +192,10 @@ export function getMetricRecordingModes(
 ): ExperimentRecordingModes {
     // The tab selects a metric by uuid and skips the ones without it, so a link to a uuid-less
     // metric would land on a list the metric filter never reaches.
-    const unselectableReason =
-        (metric.uuid ? null : METRIC_WITHOUT_UUID_REASON) ?? getMetricUnlinkableReason(metric, unlinkableEventNames)
+    const unselectableCode: ExperimentMetricUnselectableCode | null = metric.uuid
+        ? getMetricUnlinkableCode(metric, unlinkableEventNames)
+        : 'no_uuid'
+    const unselectableReason = unselectableCode === null ? null : METRIC_UNSELECTABLE_COPY[unselectableCode].onRow
     const funnel = isExperimentFunnelMetric(metric)
     // Both funnel modes read the last step, so a step no recording can be matched on disables the
     // pair rather than one half of it.
@@ -190,6 +216,7 @@ export function getMetricRecordingModes(
     return {
         metricSelectable: unselectableReason === null,
         unselectableReason,
+        unselectableCode,
         defaultMode,
         menuItems: [
             { mode: modes[0], ...MODE_COPY[modes[0]].menu(eventNames), disabledReason },
